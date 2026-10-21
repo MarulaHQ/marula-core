@@ -1,0 +1,177 @@
+# Service level objectives for the surfaces the contract covers.
+#
+# Purpose: the recording rules that make each SLO measurable, and the alerts
+# that spend the error budget at a rate a person can still act on. The objectives
+# themselves, their windows and their arithmetic are in
+# `deploy/observability/SLOS.md`; this file is the implementation of that table
+# and the two must be changed together (the SLO ids here are the ids there).
+#
+# The burn-rate arithmetic is the multi-window pattern from the Google SRE
+# workbook: a threshold is a multiple of the budget, and an alert requires BOTH
+# a long window (is this real) and a short window (is this still happening), so
+# a recovered incident stops paging without a mute.
+#
+# Recording-rule names follow `level:metric:operations`, and the `marula:sli_`
+# prefix is reserved for these so a reader can tell a derived ratio from a
+# series the product emits.
+
+groups:
+  - name: marula-slo-http
+    interval: 1m
+    rules:
+      # SLO: api-availability — 99.9% of requests are not 5xx, over 30 days.
+      # Error budget: 0.001 of requests (43m 12s of the month, measured in
+      # request share rather than wall clock).
+      #
+      # 4xx is deliberately NOT an error here: a rejected request is the API
+      # working, and counting it would let a client-side mistake burn the
+      # operator's budget.
+      - record: marula:sli_http_error:ratio_rate5m
+        expr: >-
+          sum(rate(marula_http_requests_total{status=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(marula_http_requests_total[5m])), 0.001)
+
+      - record: marula:sli_http_error:ratio_rate30m
+        expr: >-
+          sum(rate(marula_http_requests_total{status=~"5.."}[30m]))
+          /
+          clamp_min(sum(rate(marula_http_requests_total[30m])), 0.001)
+
+      - record: marula:sli_http_error:ratio_rate1h
+        expr: >-
+          sum(rate(marula_http_requests_total{status=~"5.."}[1h]))
+          /
+          clamp_min(sum(rate(marula_http_requests_total[1h])), 0.001)
+
+      - record: marula:sli_http_error:ratio_rate6h
+        expr: >-
+          sum(rate(marula_http_requests_total{status=~"5.."}[6h]))
+          /
+          clamp_min(sum(rate(marula_http_requests_total[6h])), 0.001)
+
+      # SLO: api-latency — 95% of requests complete in under 150 ms, over 30
+      # days. The 150 ms is the product budget `docs/perf.md` §1 already
+      # enforces in the perf smoke, reused rather than re-invented: the
+      # difference is that the smoke proves it at 50k tickets on a fixed
+      # harness and this measures it on the install that is running.
+      - record: marula:sli_http_latency_fast:ratio_rate1h
+        expr: >-
+          sum(rate(marula_http_request_duration_milliseconds_bucket{le="150"}[1h]))
+          /
+          clamp_min(sum(rate(marula_http_request_duration_milliseconds_count[1h])), 0.001)
+
+      # Fast burn: 14.4x the budget rate, sustained an hour, burns 2% of the
+      # month. Both windows must agree so the page stops when the incident does.
+      - alert: MarulaApiAvailabilityBurnFast
+        expr: >-
+          marula:sli_http_error:ratio_rate1h > (14.4 * 0.001)
+          and
+          marula:sli_http_error:ratio_rate5m > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+          surface: api
+          slo: api-availability
+        annotations:
+          summary: "API availability is burning its monthly budget in hours"
+          description: >-
+            Five-letter errors are {{ $value | humanizePercentage }} of requests
+            over the last hour, more than fourteen times the 0.1% the 99.9%
+            objective allows. At this rate the month's budget is gone in about
+            two days.
+          metric: marula.http.requests
+          runbook: deploy/observability/runbooks/api-errors.md
+
+      # Slow burn: 6x over six hours is 5% of the month. A ticket, because a
+      # slow burn is a defect to fix, not an outage to wake someone for.
+      - alert: MarulaApiAvailabilityBurnSlow
+        expr: >-
+          marula:sli_http_error:ratio_rate6h > (6 * 0.001)
+          and
+          marula:sli_http_error:ratio_rate30m > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: ticket
+          surface: api
+          slo: api-availability
+        annotations:
+          summary: "API availability has been over budget for six hours"
+          description: >-
+            5xx are {{ $value | humanizePercentage }} of requests over six hours,
+            six times the rate the objective allows. Nothing is down; something
+            is failing steadily.
+          metric: marula.http.requests
+          runbook: deploy/observability/runbooks/api-errors.md
+
+      # The latency objective is enforced directly rather than through a burn
+      # rate: with a 95% objective the workbook multipliers land at 72% of
+      # requests slow before a page fires, which is a threshold that only
+      # triggers once the answer is obvious. p95 against the documented budget
+      # is the honest signal instead.
+      - alert: MarulaApiLatencyBudgetBreach
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (le) (rate(marula_http_request_duration_milliseconds_bucket[5m]))
+          ) > 150
+        for: 15m
+        labels:
+          severity: page
+          surface: api
+          slo: api-latency
+        annotations:
+          summary: "API p95 is {{ $value | humanizeDuration }}, over the 150 ms budget"
+          description: >-
+            The 95th percentile request takes {{ $value | humanizeDuration }}
+            against a 150 ms product budget. The latency objective is being
+            missed for every request above the line, and the cause is a slow
+            dependency rather than load unless the request rate also moved.
+          metric: marula.http.request.duration
+          runbook: deploy/observability/runbooks/api-errors.md
+
+      # Two thirds of budget, which is the point `docs/perf.md` F4 already uses
+      # as "act on this before it is a regression". A ticket: it is headroom
+      # being spent, not a budget being missed.
+      - alert: MarulaApiLatencyHeadroomLow
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (le) (rate(marula_http_request_duration_milliseconds_bucket[10m]))
+          ) > 100
+        for: 30m
+        labels:
+          severity: ticket
+          surface: api
+          slo: api-latency
+        annotations:
+          summary: "API p95 is {{ $value | humanizeDuration }}, two thirds of budget"
+          description: >-
+            p95 has sat above 100 ms for half an hour. Nothing is over budget
+            yet; the margin that absorbs a burst is what is disappearing.
+          metric: marula.http.request.duration
+          runbook: deploy/observability/runbooks/api-errors.md
+
+  - name: marula-slo-pipeline
+    interval: 1m
+    rules:
+      # SLO: event-freshness — the relay keeps the oldest unpublished row under
+      # 5 s for 99% of the time, over 30 days. 5 s is `RELAY_POLL_MS`, the
+      # backstop the notification path is supposed to beat.
+      #
+      # The SLI is a TIME ratio over a sampled gauge, not a per-event histogram:
+      # the relay samples the worst row once per pass, so this measures "how
+      # often the pipeline was behind" rather than "what fraction of events were
+      # late". It is the honest reading of the series that exists, and it is why
+      # the objective is stated as time.
+      - record: marula:sli_outbox_fresh:ratio_rate1h
+        expr: >-
+          1 - avg_over_time((marula_outbox_lag_ms_milliseconds > bool 5000)[1h:])
+
+      # SLO: consumer-freshness — the oldest unacknowledged stream entry in any
+      # group is under 60 s for 99% of the time, over 30 days.
+      #
+      # 60 s is the takeover threshold the consumers already use for a dead
+      # replica's entries, so an entry held longer than a minute is work the
+      # system believes nobody owns.
+      - record: marula:sli_consumer_fresh:ratio_rate1h
+        expr: >-
+          1 - avg_over_time((max by (group) (marula_consumer_oldest_pending_age_seconds) > bool 60)[1h:])

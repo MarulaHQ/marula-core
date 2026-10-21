@@ -44,16 +44,39 @@ impl AppState {
 
     /// Lazily-connected reporting pool with an explicit ceiling (Wave 49
     /// lane R1). Callers that size the pool from config use this form; the
-    /// two-argument builder keeps the historical 25 for existing callers.
+    /// two-argument builder keeps the shipped default ceiling.
     pub fn reporting_pool_lazy_with(
         database_url: &str,
         max_connections: u32,
     ) -> Result<PgPool, sqlx::Error> {
+        Self::reporting_pool_lazy_sized(
+            database_url,
+            max_connections,
+            core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,
+        )
+    }
+
+    /// Lazily-connected reporting pool with an explicit ceiling AND statement
+    /// cache capacity (Wave 52 lane P9). The reporting pool is its own
+    /// `PgPool`, so it needs the pooler-safe capacity independently of the app
+    /// pool: two pools in one process must not disagree about whether a
+    /// statement name may outlive a transaction
+    /// (`docs/reference/connection-pooling.md`).
+    pub fn reporting_pool_lazy_sized(
+        database_url: &str,
+        max_connections: u32,
+        statement_cache_capacity: u32,
+    ) -> Result<PgPool, sqlx::Error> {
         let target = Self::reporting_target(database_url);
-        sqlx::postgres::PgPoolOptions::new()
+        let options =
+            core_db::connect_options(&target, statement_cache_capacity).map_err(|e| match e {
+                core_db::DbError::Sql(e) => e,
+                other => sqlx::Error::Configuration(other.to_string().into()),
+            })?;
+        Ok(sqlx::postgres::PgPoolOptions::new()
             .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
-            .connect_lazy(&target)
+            .connect_lazy_with(options))
     }
 
     /// Rewrites credentials down to the application role when needed.
@@ -78,15 +101,40 @@ impl AppState {
     /// Connects a dedicated reporting pool with an explicit ceiling (Wave
     /// 49 lane R1).
     pub async fn reporting_pool_with(database_url: &str, max_connections: u32) -> PgPool {
+        Self::reporting_pool_sized(
+            database_url,
+            max_connections,
+            core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,
+        )
+        .await
+    }
+
+    /// Connects the reporting pool with an explicit ceiling and statement
+    /// cache capacity (Wave 52 lane P9). Boot uses this one: the capacity is
+    /// an operator lever, so it cannot be a constant here.
+    pub async fn reporting_pool_sized(
+        database_url: &str,
+        max_connections: u32,
+        statement_cache_capacity: u32,
+    ) -> PgPool {
         let target = Self::reporting_target(database_url);
+        let options = core_db::connect_options(&target, statement_cache_capacity)
+            .expect("reporting database URL must parse");
         sqlx::postgres::PgPoolOptions::new()
             .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
-            .connect(&target)
+            .connect_with(options)
             .await
             .expect("reporting app-role pool must connect")
     }
 }
 
-/// Historical reporting-pool ceiling (Wave 49 lane R1); see `docs/perf.md` §5.
-pub const DEFAULT_REPORTING_POOL_MAX: u32 = 25;
+/// Reporting-pool ceiling (Wave 49 lane R1, resized by Wave 52 lane P9).
+///
+/// The reports surface is cold: it answers a user's report run, not a board
+/// read, and `docs/perf.md` §5 measured the hot path's saturation at
+/// concurrency 8. The old ceiling of 25 spent a quarter of the instance's
+/// connection budget on a surface that never reaches it, so the ceiling is
+/// the hot path's proven concurrency. Raise it with
+/// `MARULA_REPORTING_POOL_MAX` when reports queue.
+pub const DEFAULT_REPORTING_POOL_MAX: u32 = 8;

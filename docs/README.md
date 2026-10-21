@@ -34,6 +34,8 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | [`deploy-descriptor.md`](deploy-descriptor.md) | The machine-readable deploy surface and every runtime parameter |
 | [`capacity-model.md`](capacity-model.md) | How many agents one instance serves, from measurements |
 | [`worker-cadence.md`](worker-cadence.md) | Which worker loops exist, how often they run, what a small install can trim |
+| [`reference/data-lifecycle.md`](reference/data-lifecycle.md) | Retention windows per table and profile, object-store integrity, and what a tenant erasure means for each surface |
+| [`reference/rpo-rto.md`](reference/rpo-rto.md) | The recovery numbers each deploy profile actually delivers, how they were derived, and the drill that measures them |
 | [`perf.md`](perf.md) | Budgets, the measurement harness, the recorded baselines |
 | [`upgrade-compatibility-policy.md`](upgrade-compatibility-policy.md) | The N−2 support window and the expand-then-contract migration rule |
 | [`desktop-release.md`](desktop-release.md) | Desktop packaging, signing and the auto-update path |
@@ -52,6 +54,7 @@ upgrade and observability.
 | [`auth-hardening.md`](auth-hardening.md) | MFA, SSO, refresh-token reuse detection and audit completion |
 | [`reference/auth-provider-contract.md`](reference/auth-provider-contract.md) | What an auth provider may implement |
 | [`reference/plugin-runtime.md`](reference/plugin-runtime.md) | The plugin host and its capability model, plus the distribution contract |
+| [`reference/connection-pooling.md`](reference/connection-pooling.md) | PgBouncer in transaction mode: the connection ceiling, the two settings that make it safe, and the cross-tenant probe that verifies RLS through it |
 | [`reference/workflow-node-catalogue.md`](reference/workflow-node-catalogue.md) | Every workflow node the builder offers |
 | [`reference/read-model.md`](reference/read-model.md) | The reporting view contract, with per-view pages in [`reference/read-model/`](reference/read-model/) |
 | [`reference/engineering-glossary.md`](reference/engineering-glossary.md) | Wave, lane, merge group, gate, honest gap — the shorthand in tracker rows and evidence directories |

@@ -135,6 +135,7 @@ impl ObjectStore for S3Store {
             key: key.to_string(),
             size_bytes,
             content_type: content_type.to_string(),
+            last_modified: std::time::SystemTime::now().into(),
         })
     }
 
@@ -179,6 +180,41 @@ impl ObjectStore for S3Store {
             .await
             .map_err(|e| map_err(key, e))?;
         Ok(Some(url.to_string()))
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>, StoreError> {
+        self.guard()?;
+        let prefix = prefix.trim_end_matches('/');
+        let root = if prefix.is_empty() {
+            None
+        } else {
+            Some(
+                object_store::path::Path::parse(prefix)
+                    .map_err(|e| StoreError::InvalidKey(format!("{prefix}: {e}")))?,
+            )
+        };
+        let mut stream = self.inner.list(root.as_ref());
+        let mut out = Vec::new();
+        while let Some(item) = stream.next().await {
+            let meta = item.map_err(|e| map_err(prefix, e))?;
+            out.push(ObjectMeta {
+                key: meta.location.to_string(),
+                size_bytes: meta.size,
+                // Listings do not carry user metadata, so the content type is
+                // not known here without one HEAD per object. The integrity
+                // sweep — the only consumer — needs the key, the size and the
+                // age; a caller that needs the real type asks `get`.
+                content_type: "application/octet-stream".to_string(),
+                // The S3 listing timestamp is whole seconds since the epoch;
+                // a pre-1970 value cannot be represented, and no object Marula
+                // wrote has one.
+                last_modified: u64::try_from(meta.last_modified.timestamp())
+                    .ok()
+                    .map(|secs| std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(secs)),
+            });
+        }
+        out.sort_by(|a, b| a.key.cmp(&b.key));
+        Ok(out)
     }
 }
 

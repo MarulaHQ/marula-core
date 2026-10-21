@@ -39,8 +39,11 @@ spec:
               done
               exit 1
           env:
+            # Direct, never through the pooler (lane P9): the migrator holds
+            # a session advisory lock across the whole run, and a session lock
+            # does not survive transaction pooling.
             - name: DATABASE_URL
-              value: {{ include "marula.dbUrl" . | quote }}
+              value: {{ include "marula.directOwnerUrl" . | quote }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

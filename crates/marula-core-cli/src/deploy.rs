@@ -218,31 +218,48 @@ pub fn descriptor() -> DeployDescriptor {
 fn profiles() -> Vec<Profile> {
     use std::collections::BTreeMap;
 
+    // The shipped shape is POOLED (Wave 52 lane P9). `DATABASE_URL` names the
+    // transaction pooler, `MARULA_LISTEN_DATABASE_URL` names Postgres directly
+    // because a LISTEN cannot ride a pooled connection, and the statement
+    // cache is off because a prepared statement name must not outlive the
+    // transaction that created it. `docs/reference/connection-pooling.md`
+    // carries the measurements behind all three.
     let split = Profile {
         name: "split",
-        title: "Split services",
-        description: "The default topology: core-api and worker run as separate processes so each scales and restarts on its own. The compose stack ships this shape.",
+        title: "Split services behind a transaction pooler",
+        description: "The default topology: core-api and worker run as separate processes so each scales and restarts on its own, with PgBouncer in transaction mode in front of Postgres. The compose stack ships this shape. Point DATABASE_URL at Postgres directly only when you also set MARULA_DB_STATEMENT_CACHE and accept the connection ceiling that comes back with it.",
         services: vec![
             Service {
                 name: "core-api",
                 role: "core-api",
                 ports: vec![8080],
-                needs: vec!["postgres", "redis"],
+                needs: vec!["postgres", "redis", "pgbouncer"],
             },
             Service {
                 name: "worker",
                 role: "worker",
                 ports: vec![8082],
-                needs: vec!["postgres", "redis"],
+                needs: vec!["postgres", "redis", "pgbouncer"],
             },
         ],
-        sets: BTreeMap::new(),
+        sets: BTreeMap::from([
+            (
+                "DATABASE_URL",
+                "postgres://marula_app:marula_app@pgbouncer:6432/marula",
+            ),
+            (
+                "MARULA_LISTEN_DATABASE_URL",
+                "postgres://marula_app:marula_app@postgres:5432/marula",
+            ),
+            ("MARULA_DB_STATEMENT_CACHE", "0"),
+            ("MARULA_REPORTING_POOL_MAX", "8"),
+        ]),
     };
 
     let all_in_one = Profile {
         name: "all-in-one",
         title: "All-in-one (demo / one-box)",
-        description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md.",
+        description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md. Unpooled on purpose: one instance's 54 connections fit inside Postgres's default 100, so the demo box does not need a second moving part.",
         services: vec![Service {
             name: "core-api",
             role: "core-api",
@@ -355,9 +372,9 @@ fn params() -> Vec<Param> {
             "MARULA_REPORTING_POOL_MAX",
             "database",
             Integer,
-            Some("25"),
+            Some("8"),
             false,
-            "Reporting-pool ceiling (app role under RLS).",
+            "Reporting-pool ceiling (app role under RLS). Resized 25 to 8 in Wave 52 lane P9: the hot path saturates at concurrency 8 and the reports surface is cold.",
         ),
         param(
             "DELIVERY_POOL_MAX",
@@ -366,6 +383,22 @@ fn params() -> Vec<Param> {
             Some("5"),
             false,
             "Worker delivery reporting-pool ceiling.",
+        ),
+        param(
+            "MARULA_DB_STATEMENT_CACHE",
+            "database",
+            Integer,
+            Some("0"),
+            false,
+            "sqlx prepared-statement cache capacity per connection. 0 (the default) disables it, which a transaction pooler requires; raise it no higher than the pooler's max_prepared_statements, and only with the pooler's reset query off. See docs/reference/connection-pooling.md.",
+        ),
+        param(
+            "MARULA_LISTEN_DATABASE_URL",
+            "database",
+            Url,
+            None,
+            false,
+            "Direct Postgres URL for the process's ONE LISTEN connection. Required when DATABASE_URL names a transaction pooler: a subscription cannot survive a pooled connection. Unset reuses DATABASE_URL.",
         ),
         // cache
         param(
@@ -661,6 +694,55 @@ fn params() -> Vec<Param> {
             Some("21600"),
             false,
             "Workflow run-retention sweep interval.",
+        ),
+        // lifecycle (retention matrix + object integrity; docs/reference/data-lifecycle.md)
+        param(
+            "MARULA_RETENTION_PROFILE",
+            "lifecycle",
+            String,
+            Some("standard"),
+            false,
+            "Retention matrix profile: compact, standard or extended. Moves all nine windows at once.",
+        ),
+        param(
+            "MARULA_RETENTION_SWEEP_SECS",
+            "lifecycle",
+            Integer,
+            Some("3600"),
+            false,
+            "Retention pass interval: partition upkeep plus the batched deletes.",
+        ),
+        param(
+            "MARULA_RETENTION_BATCH",
+            "lifecycle",
+            Integer,
+            Some("1000"),
+            false,
+            "Rows per retention delete statement.",
+        ),
+        param(
+            "MARULA_OBJECT_GC",
+            "lifecycle",
+            String,
+            Some("off"),
+            false,
+            "Object-integrity pass: off, dry_run or on. `on` deletes orphaned bytes.",
+        ),
+        param(
+            "MARULA_OBJECT_GC_GRACE_HOURS",
+            "lifecycle",
+            Integer,
+            Some("24"),
+            false,
+            "How old an unreferenced object must be before the pass may delete it.",
+        ),
+        param(
+            "MARULA_OBJECT_GC_SECS",
+            "lifecycle",
+            Integer,
+            Some("3600"),
+            false,
+            "Object-integrity pass interval.",
         ),
         // observability
         param(
@@ -1969,7 +2051,83 @@ mod tests {
             .expect("split profile");
         let roles: Vec<&str> = p.services.iter().map(|s| s.role).collect();
         assert_eq!(roles, vec!["core-api", "worker"]);
-        assert!(p.sets.is_empty(), "split ships the defaults");
+        // Wave 52 lane P9: the shipped shape is pooled, and the three presets
+        // that make it safe are part of the profile rather than prose.
+        assert_eq!(
+            p.sets.get("DATABASE_URL"),
+            Some(&"postgres://marula_app:marula_app@pgbouncer:6432/marula"),
+            "split dials the pooler"
+        );
+        assert_eq!(
+            p.sets.get("MARULA_LISTEN_DATABASE_URL"),
+            Some(&"postgres://marula_app:marula_app@postgres:5432/marula"),
+            "the LISTEN connection bypasses the pooler"
+        );
+        assert_eq!(p.sets.get("MARULA_DB_STATEMENT_CACHE"), Some(&"0"));
+    }
+
+    /// The bound the lane promised to make mechanical: the statement-cache
+    /// capacity the app is told to use must fit inside the pooler's own
+    /// `max_prepared_statements`, and the shipped reset query decides whether
+    /// a cache is legitimate at all.
+    ///
+    /// `deploy/pooler/pgbouncer.ini` is the config the compose stack runs, so
+    /// reading it here ties the two halves of the setting together: editing
+    /// either one alone fails this test.
+    #[test]
+    fn the_statement_cache_fits_the_shipped_pooler() {
+        let ini = std::fs::read_to_string(repo_root().join("deploy/pooler/pgbouncer.ini"))
+            .expect("deploy/pooler/pgbouncer.ini");
+        let value = |key: &str| -> String {
+            ini.lines()
+                .map(str::trim)
+                .filter(|line| !line.starts_with(';'))
+                .find_map(|line| {
+                    let (k, v) = line.split_once('=')?;
+                    (k.trim() == key).then(|| v.trim().to_string())
+                })
+                .unwrap_or_else(|| panic!("deploy/pooler/pgbouncer.ini is missing {key}"))
+        };
+
+        assert_eq!(
+            value("pool_mode"),
+            "transaction",
+            "the shipped pooler is a transaction pooler; the app's statement cache \
+             capacity was chosen for it"
+        );
+        assert_eq!(value("server_reset_query"), "DISCARD ALL");
+        let reset_always = value("server_reset_query_always");
+        assert_eq!(
+            reset_always, "1",
+            "the reset query is what stops one tenant's session state reaching the next \
+             client — see docs/reference/connection-pooling.md"
+        );
+
+        let cache_default: u32 = params()
+            .iter()
+            .find(|p| p.name == "MARULA_DB_STATEMENT_CACHE")
+            .and_then(|p| p.default)
+            .expect("the cache capacity has a default")
+            .parse()
+            .expect("the default is an integer");
+        let max_prepared: u32 = value("max_prepared_statements")
+            .parse()
+            .expect("max_prepared_statements is an integer");
+
+        assert!(
+            cache_default <= max_prepared,
+            "MARULA_DB_STATEMENT_CACHE default {cache_default} exceeds the pooler's \
+             max_prepared_statements {max_prepared}"
+        );
+        // With the reset query running after every transaction the server
+        // deallocates the statements anyway, so a non-zero cache would pay for
+        // re-parsing AND gain nothing. Keep the pair honest.
+        assert_eq!(
+            (reset_always.as_str(), cache_default),
+            ("1", 0),
+            "the shipped pooler resets after every transaction, so the app's cache \
+             must stay disabled: a cached name cannot survive the reset"
+        );
     }
 
     #[test]

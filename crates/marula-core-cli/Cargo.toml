@@ -12,6 +12,7 @@ path = "src/main.rs"
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain" }
 core-otel = { path = "../core-otel" }
+core-store = { path = "../core-store" }
 worker = { path = "../worker" }
 anyhow = { workspace = true }
 chrono = { workspace = true }

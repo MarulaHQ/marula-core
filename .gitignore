@@ -32,6 +32,9 @@ playwright-report/
 e2e/.e2e-stack.env
 .kilo/dev-registry/
 .kilo/e2e-logs/
+# Vector ANN benchmark output (lane P10): run dumps are machine-local and the
+# numbers that matter live in the lane evidence, not in a second copy here.
+.kilo/vector-ann-bench/
 .kilo/capture-totp.json
 # Worktree archival output: a lane's patch plus the untracked files it held
 # when it was retired. Per-run local state, like the registry and the logs.

@@ -40,6 +40,14 @@ pub struct ObjectMeta {
     pub size_bytes: u64,
     /// Content type recorded with the object.
     pub content_type: String,
+    /// When the store last wrote the object, when the backend can say.
+    ///
+    /// The integrity sweep needs an age it can trust: an object with no row
+    /// pointing at it is only an ORPHAN once the upload that wrote it has had
+    /// time to commit its row. Deleting on "not referenced right now" would
+    /// race every in-flight upload. `None` means "this backend cannot say",
+    /// and the sweep then refuses to treat the object as deletable.
+    pub last_modified: Option<std::time::SystemTime>,
 }
 
 /// A streamed object read: metadata plus an open body stream.
@@ -111,6 +119,25 @@ pub trait ObjectStore: Send + Sync {
     /// object until it expires, which is why the caller mints one only for
     /// an object it has already admitted, and keeps the TTL short.
     async fn presign_get(&self, key: &str, ttl: Duration) -> Result<Option<String>, StoreError>;
+
+    /// Lists every object under `prefix` (an empty prefix lists the whole
+    /// store), with the metadata the backend can give WITHOUT one request per
+    /// object: key, size and age are always present, and `content_type` may be
+    /// a generic placeholder on backends whose listing does not carry it (the
+    /// S3 adapter). A caller that needs the real type asks `get`.
+    ///
+    /// Only the integrity sweep consumes this, and it is the one call that has
+    /// to walk the store rather than address one key — so it is deliberately
+    /// not on any request path. The default reports `Unavailable` instead of
+    /// an empty list: a backend that cannot enumerate must not be mistaken for
+    /// a backend with nothing in it, because that reading is what would let a
+    /// sweep mark every attachment row as missing.
+    async fn list(&self, prefix: &str) -> Result<Vec<ObjectMeta>, StoreError> {
+        Err(StoreError::Unavailable(format!(
+            "{} store cannot list objects (prefix {prefix:?})",
+            self.name()
+        )))
+    }
 }
 
 /// Validates a storage key for every adapter: non-empty, printable ASCII
@@ -162,6 +189,37 @@ pub enum StoreChoice {
     Local(String),
     /// Any S3-compatible endpoint (MinIO, AWS S3, R2).
     S3(S3Config),
+}
+
+impl StoreChoice {
+    /// Resolves the store from the process environment.
+    ///
+    /// One parser for every process (core-api, worker, the CLI) because the
+    /// integrity sweep and the erasure verb must address THE SAME store the API
+    /// writes to. Two copies of this resolution, differing in one default, is
+    /// how a sweep ends up "finding" an empty store and a purge ends up deleting
+    /// nothing while reporting success.
+    #[must_use]
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
+        let env = |k: &str| lookup(k).filter(|v| !v.trim().is_empty());
+        if env("OBJECT_STORE").as_deref() == Some("s3") {
+            Self::S3(S3Config {
+                endpoint: env("S3_ENDPOINT"),
+                bucket: env("S3_BUCKET").unwrap_or_else(|| "marula".into()),
+                region: env("S3_REGION").unwrap_or_else(|| "us-east-1".into()),
+                access_key_id: env("S3_ACCESS_KEY_ID").unwrap_or_default(),
+                secret_access_key: env("S3_SECRET_ACCESS_KEY").unwrap_or_default(),
+            })
+        } else {
+            Self::Local(env("OBJECT_STORE_LOCAL_DIR").unwrap_or_else(|| "./data/objects".into()))
+        }
+    }
+
+    /// The same resolution against the real environment.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self::from_lookup(|key| std::env::var(key).ok())
+    }
 }
 
 /// Connection settings for S3-compatible stores.
@@ -238,5 +296,34 @@ mod tests {
         // admitted under its canonical key without re-hashing.
         assert_ne!(q, attachment_key(org, "cafe"));
         assert!(q.ends_with("/cafe") && attachment_key(org, "cafe").ends_with("/cafe"));
+    }
+
+    /// One parser for every process: an unset environment must land on the
+    /// same local directory in the worker as in core-api, because the sweep and
+    /// the API have to be looking at one store.
+    #[test]
+    fn store_choice_resolves_the_same_way_everywhere() {
+        assert_eq!(
+            StoreChoice::from_lookup(|_| None),
+            StoreChoice::Local("./data/objects".into())
+        );
+        assert_eq!(
+            StoreChoice::from_lookup(|k| (k == "OBJECT_STORE").then(|| "local".to_string())),
+            StoreChoice::Local("./data/objects".into())
+        );
+        let s3 = StoreChoice::from_lookup(|k| match k {
+            "OBJECT_STORE" => Some("s3".into()),
+            "S3_BUCKET" => Some("attachments".into()),
+            "S3_ENDPOINT" => Some("http://garage:3900".into()),
+            _ => None,
+        });
+        match s3 {
+            StoreChoice::S3(cfg) => {
+                assert_eq!(cfg.bucket, "attachments");
+                assert_eq!(cfg.endpoint.as_deref(), Some("http://garage:3900"));
+                assert_eq!(cfg.region, "us-east-1");
+            }
+            other => panic!("expected s3, got {other:?}"),
+        }
     }
 }

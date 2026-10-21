@@ -21,8 +21,8 @@
 # Ports: 15432 pg · 16379 valkey · 8080 api · 8082 worker-health
 #        · 3000 web · (stage2 profile) 3900-3903 garage · 1025/8025 mailpit
 #        · (observability profile) 4317/4318 otel-collector · 3200 tempo
-#        · 3100 loki · 3001 grafana · 8010 glitchtip · 3002 uptime-kuma
-#        · 18899 metrics exposition
+#        · 3100 loki · 9090 prometheus · 3001 grafana · 8010 glitchtip
+#        · 3002 uptime-kuma · 18899 metrics exposition
 #        · (ai profile) ollama — local model runtime, unpublished
 #
 # Security posture (Wave 38 p38-container-hardening): every third-party
@@ -109,6 +109,39 @@ services:
       POSTGRES_USER: marula
       POSTGRES_PASSWORD: marula
       POSTGRES_DB: marula
+    # Instrumentation, not tuning. `pg_stat_statements` records the query mix
+    # the perf harness never sees (it measures one endpoint at a time), and
+    # `auto_explain` logs the plan of anything slower than 200ms — the tail
+    # §7 of docs/perf.md shows is where dataset cost lands. Both need the
+    # library preloaded; the SQL objects are created by migration 0145 and
+    # are skipped on a server that forbids them.
+    #
+    # 200ms is above the 150ms page budget on purpose: only a statement that
+    # has already broken the budget writes a plan. Raise it on a slower box,
+    # or lower it to 50ms when investigating a regression.
+    #
+    # `io_method` is pinned even though `worker` is the PG18 default: it can
+    # only be set at server start, so a future default change would otherwise
+    # alter behaviour silently. `io_workers` (3) and the 16-value
+    # effective/maintenance_io_concurrency defaults are left alone — raising
+    # them is a sizing decision, documented in
+    # docs/site/reference/db-observability.md.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements,auto_explain
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - auto_explain.log_min_duration=200ms
+      - -c
+      - auto_explain.log_analyze=on
+      - -c
+      - auto_explain.log_buffers=on
+      - -c
+      - auto_explain.log_format=json
+      - -c
+      - io_method=worker
     ports:
       - "15432:5432"
     volumes:
@@ -154,6 +187,54 @@ services:
       timeout: 3s
       retries: 20
 
+  # Transaction pooler (Wave 52 lane P9). Every application pool dials this,
+  # not Postgres: one instance opens 54 client connections and two instances
+  # took the fleet past Postgres's default `max_connections = 100`
+  # (docs/capacity-model.md). The pooler holds the server side at 15 per
+  # (database, user) pair however many instances appear.
+  #
+  # The three settings that make transaction pooling safe are in
+  # deploy/pooler/pgbouncer.ini, not here: `pool_mode = transaction`,
+  # `server_reset_query = DISCARD ALL` with `server_reset_query_always = 1`,
+  # and `max_prepared_statements = 0` to match this stack's
+  # MARULA_DB_STATEMENT_CACHE=0. docs/reference/connection-pooling.md carries
+  # the measurement behind each one.
+  #
+  # Two things deliberately do NOT come through it:
+  #   * the `migrate` job (DDL and the migration advisory lock want a direct,
+  #     long-lived session, and it runs before the pooler is useful);
+  #   * each process's ONE LISTEN connection (`MARULA_LISTEN_DATABASE_URL`) —
+  #     a subscription cannot survive a connection that changes hands after
+  #     every transaction.
+  #
+  # No healthcheck: DHI's hardened image carries the pooler binary and no
+  # shell or client, so there is nothing for compose to exec — same reason
+  # core-api has none. The dependants below wait for `service_started` and
+  # their `restart: unless-stopped` closes the sub-second gap.
+  pgbouncer:
+    mem_limit: 128m
+    cpus: 1.0
+    logging: *default-logging
+    image: dhi.io/pgbouncer:1.26@sha256:17157120154cd111541281b39e9ad846e567e7fc1ea2e964abdc8c4bf4547fff
+    <<: *cap-common
+    # DHI nonroot 65532. Config and password file are read-only bind mounts;
+    # the pidfile and unix socket are the only writes, and both are tmpfs.
+    read_only: true
+    user: "65532:65532"
+    tmpfs:
+      - /tmp
+      - /run/pgbouncer
+    volumes:
+      - ./pooler/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pooler/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    # Reachable from the host for SHOW POOLS / SHOW STATS during triage, and
+    # only on loopback. Postgres keeps the published 15432.
+    ports:
+      - "127.0.0.1:6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   migrate:
     mem_limit: 256m
     cpus: 1.0
@@ -197,7 +278,14 @@ services:
       args: { BIN: core-api }
     # Entrypoint is pinned to core-api in the Dockerfile; see deploy note.
     environment:
-      DATABASE_URL: postgres://marula_app:marula_app@postgres:5432/marula
+      # Pooled by default (Wave 52 lane P9): the API's two pools dial the
+      # transaction pooler, not Postgres. Override with
+      # MARULA_APP_DATABASE_URL to go direct — and then raise
+      # MARULA_DB_STATEMENT_CACHE and accept the connection ceiling back.
+      DATABASE_URL: ${MARULA_APP_DATABASE_URL:-postgres://marula_app:marula_app@pgbouncer:6432/marula}
+      # The ONE LISTEN connection goes straight to Postgres: a subscription
+      # cannot ride a connection the pooler hands to the next client.
+      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula_app:marula_app@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8080
       JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
@@ -231,11 +319,18 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
       MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
-      # Pool ceilings (Wave 49 lane R1). Defaults match the historical
-      # compile-time constants; see docs/perf.md §5 for the connection
-      # math and the pooler decision before a second instance ships.
+      # Pool ceilings (Wave 49 lane R1, resized by Wave 52 lane P9). See
+      # docs/perf.md §5 for the per-process table: 20 app + 8 reporting +
+      # 1 LISTEN = 29 client connections for this process. The pooler holds
+      # the server side at 15 per role, so the ceiling no longer decides
+      # what Postgres sees.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
-      MARULA_REPORTING_POOL_MAX: ${MARULA_REPORTING_POOL_MAX:-25}
+      MARULA_REPORTING_POOL_MAX: ${MARULA_REPORTING_POOL_MAX:-8}
+      # Prepared-statement cache capacity. 0 = off, which transaction
+      # pooling requires: a cached name cannot survive the pooler's
+      # DISCARD ALL between transactions. See
+      # docs/reference/connection-pooling.md before raising it.
+      MARULA_DB_STATEMENT_CACHE: ${MARULA_DB_STATEMENT_CACHE:-0}
       # Bounded drain window (lane R5): how long in-flight requests may take
       # after SIGTERM. Keep it under stop_grace_period above.
       MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
@@ -266,6 +361,14 @@ services:
       CLAMD_ADDR: ${CLAMD_ADDR:-clamav:3310}
     ports:
       - "8080:8080"
+    # The local object store is a VOLUME, not a directory in the container.
+    # The rootfs is read-only (see the header); before this volume existed the
+    # documented `OBJECT_STORE=local` mode could not persist a single upload, and
+    # every restart turned every attachment row into a reference to missing
+    # bytes. The worker mounts the same volume so the integrity pass
+    # (MARULA_OBJECT_GC) walks the bytes this process writes.
+    volumes:
+      - objectdata:/data/objects
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -291,7 +394,10 @@ services:
     # Owner role on purpose: the relay reads outbox rows across ALL orgs
     # and must not be constrained by RLS (see crates/worker config notes).
     environment:
-      DATABASE_URL: postgres://marula:marula@postgres:5432/marula
+      # Pooled by default (Wave 52 lane P9); the relay's LISTEN connection
+      # goes direct so the wakeup it subscribes to actually arrives.
+      DATABASE_URL: ${MARULA_WORKER_APP_DATABASE_URL:-postgres://marula:marula@pgbouncer:6432/marula}
+      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula:marula@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
       # Must match core-api's MARULA_SECRET_KEY or sealed webhook secrets
@@ -301,6 +407,8 @@ services:
       # Pool ceilings (Wave 49 lane R1); see docs/perf.md §5.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
       DELIVERY_POOL_MAX: ${DELIVERY_POOL_MAX:-5}
+      # Same answer as core-api: no cached statement names behind the pooler.
+      MARULA_DB_STATEMENT_CACHE: ${MARULA_DB_STATEMENT_CACHE:-0}
       # Bounded drain window (lane R5): how long the loops get to finish what
       # they hold after SIGTERM. Keep it under stop_grace_period above.
       MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
@@ -314,6 +422,35 @@ services:
       # GlitchTip DSN presence for the self-host pane (Wave 36 lane 3);
       # the value itself is never printed by any surface.
       GLITCHTIP_DSN_WORKER: ${GLITCHTIP_DSN_WORKER:-}
+      # Backup age (lane R7a): the runner writes one epoch-second stamp after a
+      # pass with no failed layer, and this is the path it reads. It is mounted
+      # below; unset would mean the gauge is simply not emitted, which is why the
+      # stock profile now sets it instead of leaving the metric absent.
+      MARULA_BACKUP_STAMP_PATH: ${MARULA_BACKUP_STAMP_PATH:-/pgdumps/.last_success_epoch}
+      # Object-store integrity pass (lane R6): off unless set. `on` deletes
+      # orphaned bytes and marks rows whose bytes are gone; `dry_run` only
+      # reports. Enable it only where this container sees the same store
+      # core-api writes (the objectdata volume below, or the same S3 bucket).
+      MARULA_OBJECT_GC: ${MARULA_OBJECT_GC:-off}
+      MARULA_OBJECT_GC_GRACE_HOURS: ${MARULA_OBJECT_GC_GRACE_HOURS:-24}
+      OBJECT_STORE: ${OBJECT_STORE:-local}
+      OBJECT_STORE_LOCAL_DIR: ${OBJECT_STORE_LOCAL_DIR:-/data/objects}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://garage:3900}
+      S3_BUCKET: ${S3_BUCKET:-marula}
+      S3_REGION: ${S3_REGION:-garage}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
+      # Retention matrix (lane R6): `standard` ships; `compact` and `extended`
+      # move all nine windows at once. Per-table overrides exist
+      # (MARULA_RETENTION_<TABLE>_DAYS) and are clamped by a floor.
+      MARULA_RETENTION_PROFILE: ${MARULA_RETENTION_PROFILE:-standard}
+    volumes:
+      # Same objects core-api writes, so the integrity pass sees them. Read-write
+      # because reclaiming an orphan is a delete.
+      - objectdata:/data/objects
+      # The backup runner's stamp directory, read-only: the worker reads the
+      # file and never writes it.
+      - backupdumps:/pgdumps:ro
     ports:
       - "8082:8082"
     depends_on:
@@ -321,6 +458,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      pgbouncer:
+        condition: service_started
 
   web:
     mem_limit: 512m
@@ -449,6 +588,42 @@ services:
       - "4318:4318"   # OTLP HTTP
       - "18899:18899" # Prometheus exposition (scrape target)
 
+  # The rule evaluator. It scrapes the collector's exposition and evaluates
+  # deploy/observability/prometheus/rules/ — see that directory's README for the
+  # alert pack, the SLOs and the runbooks behind each alert. Without this
+  # container the rules are files that nothing reads: the collector exports
+  # series, and exporting is not evaluating.
+  prometheus:
+    mem_limit: 512m
+    cpus: 0.5
+    logging: *default-logging
+    # Upstream image (not a DHI build), pinned by digest like every other
+    # third-party image here. It declares the nobody uid as its own user and
+    # creates /prometheus owned by that uid, which is what makes the named
+    # volume writable without a root step.
+    image: prom/prometheus@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
+    profiles: ["observability"]
+    <<: *cap-common
+    # Writes only its TSDB under /prometheus (a volume) and needs /tmp for its
+    # own scratch, so the rootfs itself stays read-only.
+    read_only: true
+    user: "65534:65534"
+    tmpfs:
+      - /tmp
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - ./observability/prometheus/rules-optin:/etc/prometheus/rules-optin:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
   tempo:
     mem_limit: 512m
     cpus: 1.0
@@ -517,6 +692,7 @@ services:
       - otel-collector
       - tempo
       - loki
+      - prometheus
 
   # GlitchTip error tracking (2026-09 decision: activate). Needs its own DB —
   # once: `docker compose exec postgres createdb -U marula glitchtip`.
@@ -714,6 +890,14 @@ services:
       PGUSER: marula
       PGDATABASE: marula
       PGDUMPS_DIR: /pgdumps
+      BACKUP_SCRIPTS_DIR: /opt/backup
+      # Restore drill (lane R6): every seventh pass, restore the dump just
+      # written into a scratch database and assert it carries data. 0 turns it
+      # off; the ledger row it writes is the record either way.
+      DRILL_EVERY_DAYS: ${DRILL_EVERY_DAYS:-7}
+      # The local object store is part of the backup: rows without their bytes
+      # restore into a database whose attachments all 404. Mounted below.
+      BACKUP_SOURCES: ${BACKUP_SOURCES:-/data/objects /pgdumps}
       # When OBJECT_STORE is the local none-mode, snapshot that dir too:
       # extra hosts: core-api shares /data/objects — mount the named coreapi volume
       # when it exists, else leave BACKUP_SOURCES unset for PG-only backups.
@@ -724,15 +908,22 @@ services:
         required: false
     volumes:
       - backupdumps:/pgdumps
+      # Read-only: the runner snapshots the object store, it never writes it.
+      - objectdata:/data/objects:ro
     command: ["/bin/sh", "/opt/backup/backupd.sh"]
 
 volumes:
   pgdata:
+  # The local object store (OBJECT_STORE=local). Named so it survives a
+  # `down`, is snapshotted by the backup runner, and is visible to the worker's
+  # integrity pass — three things a directory inside the container cannot be.
+  objectdata:
   garagedata:
   garagemeta:
   clamavdata:
   backupdumps:
   tempodata:
   lokidata:
+  promdata:
   uptimedata:
   ollamadata:

@@ -1,0 +1,48 @@
+# Prometheus — the rule evaluator for the Marula core alert pack.
+#
+# Purpose: scrape the OTel collector's Prometheus exposition and evaluate
+# `deploy/observability/prometheus/rules/`. The collector is the only ingest
+# point (core-api and worker push OTLP to it), so it is the only target here:
+# one scrape covers both processes, and a scrape failure means every series is
+# stale, which is its own alert (`MarulaCollectorDown`).
+#
+# Non-purpose: no retention or HA story. This is the local-development
+# profile. An install that runs a real Prometheus, Mimir, Thanos or a hosted
+# vendor keeps the SAME rule files and points them at its own scrape target;
+# nothing in `rules/` refers to this scrape job by name except the `up{}` rule,
+# which is the one series Prometheus derives rather than receives.
+#
+# Metric names: the collector translates OTLP names to Prometheus ones
+# (dots to underscores, a unit suffix, and `_total` on counters). The names
+# used by the rules are derived from `crates/core-otel/contract/metrics.v1.json`
+# by `scripts/check-alert-rules.mjs`, so a rename in the contract fails the
+# check instead of silently orphaning a rule.
+
+global:
+  # The collector exports every series it has received on each scrape, so the
+  # interval is a freshness choice, not a per-target cost decision.
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: marula
+    # A self-hoster should override this; it is what distinguishes two
+    # installs forwarded into one long-term store.
+    environment: self-hosted
+
+rule_files:
+  - /etc/prometheus/rules/*.rules.yaml
+  - /etc/prometheus/rules-optin/*.rules.yaml
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:18899"]
+
+# No Alertmanager in the shipped profile: Prometheus still evaluates the rules,
+# exposes the pending/firing state in its own UI and in the `ALERTS` series, and
+# Grafana already has a datasource pointed at it. Add an Alertmanager target
+# here (and route on the `severity` label, page vs ticket) when an install has
+# somewhere to deliver to. `deploy/observability/README.md` carries the route
+# table the rules were written against.
+alerting:
+  alertmanagers: []

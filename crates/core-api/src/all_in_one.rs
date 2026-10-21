@@ -52,6 +52,12 @@ pub fn worker_config_with(
     // in all-in-one even when `MARULA_SECRET_KEY` is unset and the API
     // derived a dev key from `JWT_SECRET`.
     let secret_hex = hex::encode(config.secret_key.0);
+    // The embedded worker's pools are this process's pools, so the two
+    // answers must agree (Wave 52 lane P9): pass the API's resolved
+    // statement-cache capacity and the direct LISTEN URL down rather than
+    // letting the worker re-read the environment and possibly disagree.
+    let statement_cache = config.statement_cache_capacity.to_string();
+    let listen_url = config.listen_database_url.clone();
     worker::config::WorkerConfig::from_lookup(move |key| match key {
         // Owner role on purpose: the relay reads outbox rows across every
         // org and must not be filtered by the app role's RLS.
@@ -63,6 +69,8 @@ pub fn worker_config_with(
             .clone()
             .or_else(|| Some(internal_api.clone())),
         "MARULA_SECRET_KEY" => env("MARULA_SECRET_KEY").or_else(|| Some(secret_hex.clone())),
+        "MARULA_DB_STATEMENT_CACHE" => Some(statement_cache.clone()),
+        "MARULA_LISTEN_DATABASE_URL" => listen_url.clone(),
         _ => env(key),
     })
 }
