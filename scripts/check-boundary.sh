@@ -208,6 +208,18 @@ scan 'phone_home|phone-home|phoneHome|reach_home' \
 scan 'CloudPro|CloudBusiness|MarulaCloud|MarulaEnterprise|MarulaCustom' \
      "Commercial tier vocabulary in the open core" || true
 
+# A private directory must not exist in this checkout at all, tracked or not. The
+# content scans above cannot see this class: the material arrives by `cp`, by a
+# lane restoring a file it needs to cite, or by `git add -A` in a worktree whose
+# tree a lane polluted. That happened three times in Wave 52 — twice untracked,
+# once committed — so it is a check now rather than a habit.
+for private in internal design; do
+  if [ -e "$private" ]; then
+    echo "::error::${private}/ exists in the public checkout — private material belongs in the private half"
+    failed=1
+  fi
+done
+
 if [ "$failed" -ne 0 ]; then
   echo ""
   echo "Boundary check FAILED. The open core must build and run with no commercial licence."
