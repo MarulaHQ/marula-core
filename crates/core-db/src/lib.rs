@@ -26,6 +26,7 @@ pub mod client_completeness;
 pub mod clients;
 pub mod config_identity;
 pub mod connector;
+pub mod consumer;
 pub mod contracts;
 pub mod csat;
 pub mod custom_fields;

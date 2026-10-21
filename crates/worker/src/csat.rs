@@ -18,19 +18,16 @@
 //! Low-score automations: a submitted response emits `csat.response_recorded`
 //! (core-api, portal route); rules key their `trigger_event` on it.
 
-use crate::reconnect::Reconnect;
+use crate::consumer::{self, ConsumerSpec, Delivery, EntryHandler, EntryOutcome, PgLedger};
 use core_domain::notifications::QuietHours;
 use core_domain::settings as registry;
-use core_events::{Envelope, EVENT_STREAM};
-use redis::streams::{StreamReadOptions, StreamReadReply};
-use redis::AsyncCommands;
+use core_events::Envelope;
 use sqlx::PgPool;
 use tokio::sync::watch;
 
 const CONSUMER_GROUP: &str = "csat";
-const CONSUMER_NAME: &str = "worker";
-const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
+const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 /// Deferred-survey sweep cadence: quiet windows end without an event.
 
 #[derive(Debug, Clone)]
@@ -39,134 +36,71 @@ pub struct CsatLoopConfig {
     pub internal_token: Option<String>,
 }
 
+/// Runs the CSAT consumer until shutdown. The harness owns the group, the
+/// per-replica name, recovery, claiming, the live retry and the dead-letter
+/// queue; this module decides what a closed ticket means for a survey.
+///
+/// The deferred-send sweep — quiet windows end without an event — runs from
+/// the harness's idle hook, so it keeps its own cadence (once per blocked
+/// read) without a timer of its own.
 pub async fn run_csat(
     pool: PgPool,
     redis_url: String,
     config: CsatLoopConfig,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
 ) {
-    let client = match redis::Client::open(redis_url.as_str()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "invalid redis url; csat loop exiting");
-            return;
-        }
+    let handler = CsatHandler {
+        pool: pool.clone(),
+        config,
     };
-    let mut backoff = Reconnect::consumer();
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                backoff.reset();
-                if let Err(error) = conn
-                    .xgroup_create_mkstream::<&str, &str, &str, ()>(
-                        EVENT_STREAM,
-                        CONSUMER_GROUP,
-                        "$",
-                    )
-                    .await
-                {
-                    let msg = error.to_string();
-                    if !msg.contains("BUSYGROUP") {
-                        tracing::error!(%error, "csat xgroup create failed");
-                        backoff.sleep().await;
-                        continue;
-                    }
-                }
-                follow_stream(&pool, &config, &mut conn, &mut shutdown).await;
-                tracing::warn!("csat stream connection ended; reconnecting");
-            }
-            Err(error) => {
-                tracing::error!(%error, "csat redis connect failed");
-            }
-        }
-        backoff.sleep().await;
-    }
+    let ledger = PgLedger::new(pool);
+    let mut shutdown = shutdown;
+    consumer::run(
+        &redis_url,
+        &SPEC,
+        consumer::consumer_name(CONSUMER_GROUP),
+        &ledger,
+        &handler,
+        &mut shutdown,
+    )
+    .await;
 }
 
-/// Recovers this consumer's pending entries, then follows live ones.
-/// Between batches it runs the deferred-send sweep: pending surveys whose
-/// quiet window has ended (and crash-interrupted sends) go out here.
-async fn follow_stream(
-    pool: &PgPool,
-    config: &CsatLoopConfig,
-    conn: &mut redis::aio::MultiplexedConnection,
-    shutdown: &mut watch::Receiver<bool>,
-) {
-    let options = StreamReadOptions::default().count(COUNT);
-    if let Ok(reply) = conn
-        .xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &["0"], &options)
-        .await
-    {
-        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-            handle_entry(pool, config, conn, &entry).await;
+struct CsatHandler {
+    pool: PgPool,
+    config: CsatLoopConfig,
+}
+
+impl EntryHandler for CsatHandler {
+    async fn handle(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        let mut outcomes = Vec::with_capacity(batch.len());
+        for delivery in batch {
+            outcomes.push(self.survey(&delivery.envelope).await);
         }
+        outcomes
     }
 
-    let options = StreamReadOptions::default()
-        .block(BLOCK_MS)
-        .count(COUNT)
-        .group(CONSUMER_GROUP, CONSUMER_NAME);
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            result = conn.xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &[">"], &options) => {
-                match result {
-                    Ok(reply) => {
-                        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-                            handle_entry(pool, config, conn, &entry).await;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "csat xreadgroup failed");
-                        return;
-                    }
-                }
-            }
-        }
-        // Consumer backlog: PEL depth, lag and the age of the oldest unacked
-        // entry for THIS group, read after the batch (the private build tracker R7a).
-        crate::stream_health::probe(conn, CONSUMER_GROUP).await;
-        if let Err(error) = sweep_due(pool, config).await {
+    async fn idle(&self) {
+        if let Err(error) = sweep_due(&self.pool, &self.config).await {
             tracing::error!(%error, "csat deferred sweep failed");
         }
     }
 }
 
-async fn handle_entry(
-    pool: &PgPool,
-    config: &CsatLoopConfig,
-    conn: &mut redis::aio::MultiplexedConnection,
-    entry: &redis::streams::StreamId,
-) {
-    let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "stream entry missing data field");
-        return;
-    };
-    let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
-        tracing::warn!(entry_id = %entry.id, "unparseable event; acking to skip");
-        ack(conn, &entry.id).await;
-        return;
-    };
-    if envelope.event_type != core_domain::events::types::TICKET_CLOSED {
-        ack(conn, &entry.id).await;
-        return;
-    }
-    let Some(ticket_id) = ticket_id_of(&envelope) else {
-        ack(conn, &entry.id).await;
-        return;
-    };
-    match process_closed(pool, config, envelope.org_id, ticket_id).await {
-        Ok(_) => ack(conn, &entry.id).await,
-        Err(error) => {
-            // NOT acking: the group redelivers after restart, so a
-            // transient DB failure retries by design.
-            tracing::error!(%error, entry_id = %entry.id, "csat queue failed; leaving unacked");
+impl CsatHandler {
+    async fn survey(&self, envelope: &Envelope) -> EntryOutcome {
+        if envelope.event_type != core_domain::events::types::TICKET_CLOSED {
+            return EntryOutcome::Settled;
+        }
+        let Some(ticket_id) = ticket_id_of(envelope) else {
+            // A closed-ticket event with no usable ticket id is data we cannot
+            // act on, and never will be: settle rather than retry it.
+            tracing::warn!(event_id = %envelope.id, "csat: ticket.closed without a ticket_id");
+            return EntryOutcome::Settled;
+        };
+        match process_closed(&self.pool, &self.config, envelope.org_id, ticket_id).await {
+            Ok(_) => EntryOutcome::Settled,
+            Err(error) => EntryOutcome::Retry(format!("csat queue failed: {error}")),
         }
     }
 }
@@ -177,10 +111,6 @@ fn ticket_id_of(envelope: &Envelope) -> Option<uuid::Uuid> {
         .get("ticket_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok())
-}
-
-async fn ack(conn: &mut redis::aio::MultiplexedConnection, id: &str) {
-    let _: Result<i64, _> = conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
 }
 
 // --- policy ----------------------------------------------------------------

@@ -19,18 +19,15 @@
 //! project→contract link resolves at evaluation), no invoice-row writes
 //! (the run owns every invoice document).
 
-use crate::reconnect::Reconnect;
+use crate::consumer::{self, ConsumerSpec, Delivery, EntryHandler, EntryOutcome, PgLedger};
 use core_domain::events::types;
-use core_events::{Envelope, EVENT_STREAM};
-use redis::streams::{StreamReadOptions, StreamReadReply};
-use redis::AsyncCommands;
+use core_events::Envelope;
 use sqlx::PgPool;
 use tokio::sync::watch;
 
 const CONSUMER_GROUP: &str = "project_billing";
-const CONSUMER_NAME: &str = "worker";
-const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
+const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 
 /// Parses the released milestone out of an envelope. Only
 /// `project.milestone_completed` carries release money; informational
@@ -81,136 +78,59 @@ pub struct StagedRelease {
     pub source_event_id: uuid::Uuid,
 }
 
-/// Runs the consumer until shutdown. Redis errors reconnect with backoff;
-/// malformed entries are acked and skipped so one poison message never
-/// stalls the stream (automations precedent).
-pub async fn run_project_billing(
+/// Runs the milestone-release consumer until shutdown. The harness owns the
+/// group, the per-replica name, recovery, claiming, the live retry and the
+/// dead-letter queue; this module decides what a completed milestone means.
+pub async fn run_project_billing(pool: PgPool, redis_url: String, shutdown: watch::Receiver<bool>) {
+    let handler = ReleaseHandler { pool: pool.clone() };
+    let ledger = PgLedger::new(pool);
+    let mut shutdown = shutdown;
+    consumer::run(
+        &redis_url,
+        &SPEC,
+        consumer::consumer_name(CONSUMER_GROUP),
+        &ledger,
+        &handler,
+        &mut shutdown,
+    )
+    .await;
+}
+
+/// Stages the ledger row for one page of completion events.
+struct ReleaseHandler {
     pool: PgPool,
-    redis_url: String,
-    mut shutdown: watch::Receiver<bool>,
-) {
-    let client = match redis::Client::open(redis_url.as_str()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "invalid redis url; project_billing loop exiting");
-            return;
+}
+
+impl EntryHandler for ReleaseHandler {
+    async fn handle(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        let mut outcomes = Vec::with_capacity(batch.len());
+        for delivery in batch {
+            outcomes.push(self.stage_one(&delivery.envelope).await);
         }
-    };
-    let mut backoff = Reconnect::consumer();
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                backoff.reset();
-                // Durable group; '$' starts at the live tail on FIRST
-                // creation so we don't replay history from before this
-                // deploy.
-                if let Err(error) = conn
-                    .xgroup_create_mkstream::<&str, &str, &str, ()>(
-                        EVENT_STREAM,
-                        CONSUMER_GROUP,
-                        "$",
-                    )
-                    .await
-                {
-                    let msg = error.to_string();
-                    if !msg.contains("BUSYGROUP") {
-                        tracing::error!(%error, "project_billing xgroup create failed");
-                        backoff.sleep().await;
-                        continue;
-                    }
-                }
-                follow_stream(&pool, &mut conn, &mut shutdown).await;
-                tracing::warn!("project_billing stream connection ended; reconnecting");
+        outcomes
+    }
+}
+
+impl ReleaseHandler {
+    async fn stage_one(&self, envelope: &Envelope) -> EntryOutcome {
+        let Some(release) = release_of(envelope) else {
+            // Not our event, or an informational milestone: settle.
+            return EntryOutcome::Settled;
+        };
+        match stage(&self.pool, &release).await {
+            Ok(release_id) => {
+                tracing::info!(
+                    event_id = %envelope.id,
+                    %release_id,
+                    "milestone release staged for invoicing"
+                );
+                EntryOutcome::Settled
             }
             Err(error) => {
-                tracing::error!(%error, "project_billing redis connect failed");
+                // The ledger's partial unique index keeps the retry inert
+                // once the row exists, so retrying is always safe here.
+                EntryOutcome::Retry(format!("release staging failed: {error}"))
             }
-        }
-        backoff.sleep().await;
-    }
-}
-
-/// Recovers this consumer's pending entries ("0" reads the PEL), then
-/// follows live ones (">"). Returns on shutdown or stream error.
-async fn follow_stream(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    shutdown: &mut watch::Receiver<bool>,
-) {
-    let options = StreamReadOptions::default().count(COUNT);
-    if let Ok(reply) = conn
-        .xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &["0"], &options)
-        .await
-    {
-        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-            handle_entry(pool, conn, &entry).await;
-        }
-    }
-    let options = StreamReadOptions::default()
-        .block(BLOCK_MS)
-        .count(COUNT)
-        .group(CONSUMER_GROUP, CONSUMER_NAME);
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            result = conn.xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &[">"], &options) => {
-                match result {
-                    Ok(reply) => {
-                        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-                            handle_entry(pool, conn, &entry).await;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "project_billing xreadgroup failed");
-                        return;
-                    }
-                }
-            }
-        }
-        // Consumer backlog: PEL depth, lag and the age of the oldest unacked
-        // entry for THIS group, read after the batch (the private build tracker R7a).
-        crate::stream_health::probe(conn, CONSUMER_GROUP).await;
-    }
-}
-
-async fn handle_entry(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    entry: &redis::streams::StreamId,
-) {
-    let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "project_billing: stream entry missing data field");
-        return;
-    };
-    let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
-        tracing::warn!(entry_id = %entry.id, "project_billing: unparseable event; acking to skip");
-        ack(conn, &entry.id).await;
-        return;
-    };
-    let Some(release) = release_of(&envelope) else {
-        // Not our event, or an informational milestone: settle.
-        ack(conn, &entry.id).await;
-        return;
-    };
-    match stage(pool, &release).await {
-        Ok(outcome) => {
-            tracing::info!(
-                entry_id = %entry.id,
-                release_id = %outcome,
-                "milestone release staged for invoicing"
-            );
-            ack(conn, &entry.id).await;
-        }
-        Err(error) => {
-            // NOT acking: the group redelivers after restart; the ledger's
-            // unique index keeps the retry inert once the row exists.
-            tracing::error!(%error, entry_id = %entry.id, "release staging failed; leaving unacked");
         }
     }
 }
@@ -234,10 +154,6 @@ async fn stage(pool: &PgPool, release: &StagedRelease) -> anyhow::Result<uuid::U
     )
     .await?;
     Ok(row.id)
-}
-
-async fn ack(conn: &mut redis::aio::MultiplexedConnection, id: &str) {
-    let _: Result<i64, _> = conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
 }
 
 #[cfg(test)]

@@ -55,10 +55,15 @@ where
 /// failure — it means this delivery is already queued, in whatever state, and
 /// the caller's work for that key is done.
 ///
-/// The key is text and caller-formatted (`<kind>:<subject>`, see
-/// `crates/worker/src/webhook_out.rs`); the partial unique index from
-/// migration 0142 makes the insert a no-op on a repeat and leaves every job
-/// kind that passes no key untouched. The row is never removed by the queue:
+/// The key is text and caller-formatted (`<kind>:<subject>`). Three producers
+/// fill it in today: the webhooks consumer (`webhook.deliver:<webhook>:<event>`,
+/// `crates/worker/src/webhook_out.rs`), the automations consumer
+/// (`automation.effects:<rule>:<event>`) and the workflow consumer
+/// (`workflow.resume:<op>:<run-or-rule>:<event>`, `crates/worker/src/workflow.rs`).
+/// All three are stream consumers, so all three can read one entry twice. The
+/// partial unique index from migration 0142 makes the insert a no-op on a repeat
+/// and leaves every job kind that passes no key untouched. The row is never
+/// removed by the queue:
 /// a settled or dead-lettered job keeps its key, so a late replay of the same
 /// event cannot resurrect a delivery the retry policy already finished.
 ///
