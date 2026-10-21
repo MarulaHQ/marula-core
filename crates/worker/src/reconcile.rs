@@ -146,7 +146,9 @@ pub struct PassReport {
     pub index_backlog: u64,
     /// Of those, how many were re-indexed.
     pub index_repaired: u64,
-    /// Dead entries that were put back on the stream.
+    /// Dead entries this pass tried to put back on the stream.
+    pub replay_attempted: u64,
+    /// Of those, how many were published and marked.
     pub replayed: u64,
     /// Parked runs found unwakeable (the gauge's value, measured before the reap).
     pub wake_lost: u64,
@@ -169,6 +171,7 @@ impl PassReport {
     fn merge(&mut self, other: Self) {
         self.index_backlog += other.index_backlog;
         self.index_repaired += other.index_repaired;
+        self.replay_attempted += other.replay_attempted;
         self.replayed += other.replayed;
         self.wake_lost += other.wake_lost;
         self.reaped += other.reaped;
@@ -296,6 +299,7 @@ pub async fn replay_dead_events<W: StreamWriter>(
     }
 
     let candidates = core_db::reconcile::replayable_dead_events(pool, batch, max_deaths).await?;
+    report.replay_attempted = candidates.len() as u64;
     let mut replayed = Vec::new();
     for candidate in candidates {
         let envelope = match serde_json::from_str::<Envelope>(&candidate.payload) {
@@ -378,20 +382,23 @@ pub async fn reap_parked_runs(
 /// Samples every consumer group on the stream and emits gap/lost per group.
 ///
 /// The read lives in `stream_health::read_gaps` (it owns the Valkey vocabulary);
-/// this pass is only the emission + the count. `None` from the read means the
-/// stream could not be read at all, which is not a pass failure worth a log
-/// storm: the consumer loops report their own disconnects.
-pub async fn sample_consumer_gaps(conn: &mut MultiplexedConnection) -> PassReport {
-    let Some(gaps) = crate::stream_health::read_gaps(conn).await else {
-        return PassReport::default();
-    };
+/// this pass is only the emission and the count.
+///
+/// `None` means the stream could not be read, and the caller must treat that as a
+/// reason to DROP its connection and dial again. That distinction is the whole
+/// point of returning `Option` here: a probe that keeps a dead connection is a
+/// probe that reports nothing on every pass, and an absent gap series reads as
+/// "no gap" to anyone not watching for the absence — the exact silence this lane
+/// exists to end.
+pub async fn sample_consumer_gaps(conn: &mut MultiplexedConnection) -> Option<PassReport> {
+    let gaps = crate::stream_health::read_gaps(conn).await?;
     for gap in &gaps {
         crate::stream_health::emit_gap(gap);
     }
-    PassReport {
+    Some(PassReport {
         groups_sampled: gaps.len() as u64,
         ..PassReport::default()
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -464,7 +471,20 @@ pub async fn run_reconcile<S: IndexSink>(
         if let Some(publisher) = writer.as_mut() {
             match replay_dead_events(&pool, publisher, config.batch, config.max_replay_deaths).await
             {
-                Ok(pass) => report.merge(pass),
+                Ok(pass) => {
+                    // Nothing got through while something was attempted: the
+                    // connection is the suspect, not the payloads. Drop it so
+                    // the next pass dials again instead of failing quietly
+                    // forever.
+                    if pass.replay_attempted > 0 && pass.replayed == 0 {
+                        tracing::warn!(
+                            attempted = pass.replay_attempted,
+                            "reconcile: no replay got through; reconnecting the writer"
+                        );
+                        writer = None;
+                    }
+                    report.merge(pass);
+                }
                 Err(error) => {
                     tracing::error!(%error, "reconcile: dead-entry replay failed");
                     report.failed += 1;
@@ -497,8 +517,14 @@ pub async fn run_reconcile<S: IndexSink>(
             }
         }
         if let Some(conn) = gap_conn.as_mut() {
-            let pass = sample_consumer_gaps(conn).await;
-            report.merge(pass);
+            match sample_consumer_gaps(conn).await {
+                Some(pass) => report.merge(pass),
+                None => {
+                    tracing::warn!("reconcile: consumer-gap probe could not read the stream");
+                    gap_conn = None;
+                    report.failed += 1;
+                }
+            }
         }
 
         if report.index_backlog > 0 || report.wake_lost > 0 || report.replayed > 0 {
@@ -593,6 +619,39 @@ mod tests {
         report.index_repaired = 2;
         assert_eq!(report.any_failed(), false);
         assert_eq!(report.index_backlog - report.index_repaired, 1);
+    }
+
+    /// The reconnect rule, as the arithmetic the loop applies: a pass that
+    /// attempted publishes and landed none means the connection is the suspect.
+    /// Without it a dead Valkey connection leaves the writer in place, every
+    /// pass fails quietly, and the replay set stops moving with no series and no
+    /// log.
+    #[test]
+    fn a_pass_that_attempted_and_landed_nothing_drops_the_writer() {
+        let attempted = PassReport {
+            replay_attempted: 3,
+            replayed: 0,
+            failed: 3,
+            ..PassReport::default()
+        };
+        assert!(attempted.replay_attempted > 0 && attempted.replayed == 0);
+
+        let partial = PassReport {
+            replay_attempted: 3,
+            replayed: 1,
+            failed: 2,
+            ..PassReport::default()
+        };
+        assert!(
+            !(partial.replay_attempted > 0 && partial.replayed == 0),
+            "one landed replay proves the connection works; do not reconnect"
+        );
+
+        let idle = PassReport::default();
+        assert!(
+            !(idle.replay_attempted > 0 && idle.replayed == 0),
+            "an empty dead set is not a connection problem"
+        );
     }
 
     // --- the replay seam -----------------------------------------------
