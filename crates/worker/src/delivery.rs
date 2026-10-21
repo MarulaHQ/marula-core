@@ -627,15 +627,18 @@ pub async fn retry_due(
     let base = Duration::from_std(policy.delay(1, 1.0)).unwrap_or_else(|_| Duration::zero());
     let base_secs = base.num_seconds().max(0) as f64;
 
-    let mut report = RetryReport::default();
     // The exhausted count is a whole-set read, not a batch slice: the operator
     // number is "how many slots are dead", which does not depend on how many
     // this pass can attempt.
-    report.exhausted = u64::try_from(
+    let exhausted = u64::try_from(
         core_db::reconcile::exhausted_report_retries(pool, i64::from(policy.max_attempts_i32(1)))
             .await?,
     )
     .unwrap_or(0);
+    let mut report = RetryReport {
+        exhausted,
+        ..RetryReport::default()
+    };
 
     let due = config.claim_batch.max(1);
     let candidates = core_db::reconcile::due_report_retries(pool, base_secs, due).await?;

@@ -459,13 +459,16 @@ async fn only_a_run_whose_wake_job_is_gone_is_unwakeable() {
 
     // The status shape CHECK is the real proof: an abandoned row carries
     // `finished_at` and no cursor, wake-at or wake-on.
-    let (status, error_code, cursor, wake_at, finished): (
+    // status, error_code, resume_cursor, wake_at, finished_at — the order the
+    // query selects them in.
+    type AbandonedRun = (
         String,
         Option<String>,
         Option<serde_json::Value>,
         Option<chrono::DateTime<Utc>>,
         Option<chrono::DateTime<Utc>>,
-    ) = sqlx::query_as(
+    );
+    let (status, error_code, cursor, wake_at, finished): AbandonedRun = sqlx::query_as(
         "SELECT status, error_code, resume_cursor, wake_at, finished_at
            FROM workflow_runs WHERE id = $1",
     )
@@ -497,7 +500,7 @@ async fn seed_schedule(app: &PgPool, org: Uuid, n: u64) -> (Uuid, Uuid) {
     let schedule = fixed_uuid(n + 3);
     let mut tx = org_tx(app, org).await;
     report_defs::insert(
-        &mut *tx,
+        &mut tx,
         definition,
         org,
         user,
@@ -513,7 +516,7 @@ async fn seed_schedule(app: &PgPool, org: Uuid, n: u64) -> (Uuid, Uuid) {
     .await
     .expect("definition");
     report_schedules::insert(
-        &mut *tx,
+        &mut tx,
         schedule,
         org,
         user,

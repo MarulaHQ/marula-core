@@ -193,10 +193,12 @@ impl PassReport {
 /// prove that a failed publish leaves the entry unmarked so the next pass tries
 /// again.
 pub trait StreamWriter: Send {
+    #[allow(clippy::manual_async_fn)] // the explicit ``+ Send`` is the contract
     fn publish(&mut self, envelope: &Envelope) -> impl Future<Output = Result<(), String>> + Send;
 }
 
 impl StreamWriter for Publisher {
+    #[allow(clippy::manual_async_fn)]
     fn publish(&mut self, envelope: &Envelope) -> impl Future<Output = Result<(), String>> + Send {
         async move {
             Publisher::publish(self, envelope)
@@ -614,10 +616,12 @@ mod tests {
     fn a_vanished_source_row_is_neither_repaired_nor_failed() {
         // The decision is in `backfill_search_index`'s match: `Ok(None)` adds
         // nothing. This pins the report arithmetic that match feeds.
-        let mut report = PassReport::default();
-        report.index_backlog = 3;
-        report.index_repaired = 2;
-        assert_eq!(report.any_failed(), false);
+        let report = PassReport {
+            index_backlog: 3,
+            index_repaired: 2,
+            ..PassReport::default()
+        };
+        assert!(!report.any_failed());
         assert_eq!(report.index_backlog - report.index_repaired, 1);
     }
 

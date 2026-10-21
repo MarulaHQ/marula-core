@@ -422,21 +422,25 @@ pub struct DueRetry {
 /// The ledger is append-only by design (0038), so a retry adds a row rather
 /// than editing the failure: the delivery-history surface then shows the
 /// failure, the attempt that recovered it, and the instant of each.
+/// The column order `due_report_retries` selects: delivery, org, schedule,
+/// slot, status, detail, attempts, created.
+type DueReportRetryRow = (
+    Uuid,
+    Uuid,
+    Uuid,
+    DateTime<Utc>,
+    String,
+    serde_json::Value,
+    i64,
+    DateTime<Utc>,
+);
+
 pub async fn due_report_retries(
     pool: &PgPool,
     min_age_secs: f64,
     limit: i64,
 ) -> DbResult<Vec<DueRetry>> {
-    let rows: Vec<(
-        Uuid,
-        Uuid,
-        Uuid,
-        DateTime<Utc>,
-        String,
-        serde_json::Value,
-        i64,
-        DateTime<Utc>,
-    )> = sqlx::query_as(
+    let rows: Vec<DueReportRetryRow> = sqlx::query_as(
         r#"SELECT d.id, d.org_id, d.schedule_id, d.slot_at, d.status, d.detail,
                   (SELECT count(*) FROM report_deliveries a
                     WHERE a.schedule_id = d.schedule_id
