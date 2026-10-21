@@ -39,7 +39,19 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
-const CONTRACT_FILE = "crates/core-otel/contract/metrics.v1.json";
+// Resolve the newest published contract rather than naming a version here: a
+// contract bump used to leave this checker reading the previous file, so a rule
+// could name a metric the current contract had renamed and the gate would pass.
+const CONTRACT_DIR = "crates/core-otel/contract";
+const CONTRACT_FILE = (() => {
+  const versions = readdirSync(CONTRACT_DIR)
+    .map((f) => /^metrics\.v(\d+)\.json$/.exec(f))
+    .filter(Boolean)
+    .map((m) => Number(m[1]))
+    .sort((a, b) => b - a);
+  if (versions.length === 0) return `${CONTRACT_DIR}/metrics.v1.json`;
+  return `${CONTRACT_DIR}/metrics.v${versions[0]}.json`;
+})();
 const OBS = "deploy/observability";
 const RULES_DIR = `${OBS}/prometheus/rules`;
 const OPTIN_DIR = `${OBS}/prometheus/rules-optin`;

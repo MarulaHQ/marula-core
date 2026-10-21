@@ -74,9 +74,32 @@ every run.
 | `marula.db.page1_p95` | `marula_db_page1_p95_milliseconds` | page-1 latency trigger (two thirds of the 150 ms budget) |
 | `marula.db.page1_sort_index_scan` | `marula_db_page1_sort_index_scan_ratio` | plan-shape trigger, opt-in: `0` is the shape F4 accepted |
 
-Four metrics carry no alert and that is deliberate. `marula.org.requests` is the
+| `marula.org.ingest_requests` | `marula_org_ingest_requests_total` | diagnostic only, see below |
+| `marula.reconcile.search_index_backlog` | `marula_reconcile_search_index_backlog` | diagnostic only, see below |
+| `marula.reconcile.dead_events_replayable` | `marula_reconcile_dead_events_replayable` | diagnostic only, see below |
+| `marula.reconcile.dead_events_unrepairable` | `marula_reconcile_dead_events_unrepairable` | diagnostic only, see below |
+| `marula.reconcile.workflow_wake_lost` | `marula_reconcile_workflow_wake_lost` | diagnostic only, see below |
+| `marula.reconcile.report_retry_pending` | `marula_reconcile_report_retry_pending` | diagnostic only, see below |
+| `marula.reconcile.report_retry_exhausted` | `marula_reconcile_report_retry_exhausted` | diagnostic only, see below |
+| `marula.consumer.gap_entries` | `marula_consumer_gap_entries` | diagnostic only, see below |
+| `marula.consumer.gap_lost` | `marula_consumer_gap_lost` | diagnostic only, see below |
+
+The reconciliation pass (`R4`) and the machine-ingest counter (`R12`) add nine
+series to the contract. None carries a rule yet, and none is an oversight: the
+thresholds they would fire on are the first thing a real deployment measures, and
+a rule invented from a laptop is a rule that pages for the wrong reason. They are
+in the contract and in this table so the gap is visible rather than silent.
+
+Thirteen metrics carry no alert and that is deliberate. `marula.org.requests` is the
 per-org counter a premium pack bills or quotas from, and an alert on it would page
-someone about a customer's traffic volume. `marula.live.sessions` is a live
+someone about a customer's traffic volume. `marula.org.ingest_requests` is the same
+counter for machine traffic, and it carries the same objection — a connector's
+volume is its owner's business. The eight reconciliation gauges are backlog and
+deficit counts: a backlog that is being drained is the system working, and the
+number that matters is its direction over hours, which no honest rule can read
+from one scrape. `marula.consumer.gap_lost` is the one of the nine that will earn
+a rule first: a lost gap means events between the last processed id and the stream
+bounds are gone, and a sustained non-zero is data loss rather than backlog. `marula.live.sessions` is a live
 connection count, and a low one means an idle evening. `marula.relay.batch_size`
 is the distribution an operator reads while diagnosing a backlog it already has a
 rule for. `marula.sla.verdicts` counts SLA ladder verdicts, which are the product
