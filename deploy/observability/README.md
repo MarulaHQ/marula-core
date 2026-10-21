@@ -90,7 +90,7 @@ thresholds they would fire on are the first thing a real deployment measures, an
 a rule invented from a laptop is a rule that pages for the wrong reason. They are
 in the contract and in this table so the gap is visible rather than silent.
 
-Thirteen metrics carry no alert and that is deliberate. `marula.org.requests` is the
+Fourteen metrics carry no alert and that is deliberate. `marula.org.requests` is the
 per-org counter a premium pack bills or quotas from, and an alert on it would page
 someone about a customer's traffic volume. `marula.org.ingest_requests` is the same
 counter for machine traffic, and it carries the same objection — a connector's
@@ -104,7 +104,9 @@ connection count, and a low one means an idle evening. `marula.relay.batch_size`
 is the distribution an operator reads while diagnosing a backlog it already has a
 rule for. `marula.sla.verdicts` counts SLA ladder verdicts, which are the product
 working as designed, and the breach rate is a business metric rather than an
-availability one.
+availability one. `marula.workflow.parked_runs` is the count behind the
+parked-run age alert: the age carries the threshold, the count says how many
+runs are behind it, and neither is charted because the age already pages.
 
 ### Coverage gaps
 
