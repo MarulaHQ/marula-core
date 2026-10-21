@@ -25,6 +25,7 @@
 pub mod automations;
 pub mod backup_health;
 pub mod config;
+pub mod consumer;
 pub mod csat;
 pub mod decision;
 pub mod dedupe_sweep;

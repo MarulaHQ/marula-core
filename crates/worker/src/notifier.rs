@@ -14,20 +14,19 @@
 //! in-app delivery (the hub already routes those events per-user), and no
 //! rendering (core-api owns the branded wrapper).
 
-use crate::reconnect::Reconnect;
+use crate::consumer::{self, ConsumerSpec, Delivery, EntryHandler, EntryOutcome, PgLedger};
 use core_domain::entities::{NotificationKind, User};
 use core_domain::notifications::{decide_channel, Decision, DeliveryChannel, QuietHours};
-use core_events::{Envelope, EVENT_STREAM};
+use core_events::Envelope;
 use core_mail::internal::{EnqueueEmailResponse, NotificationEmailRequest};
-use redis::streams::{StreamReadOptions, StreamReadReply};
-use redis::AsyncCommands;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::watch;
 
-/// Blocking-XREAD wait per poll; bounds shutdown latency.
-const BLOCK_MS: usize = 2_000;
+/// The consumer group this leg owns, and its page size.
+const CONSUMER_GROUP: &str = "notifier";
 const COUNT: usize = 100;
+const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 
 /// Hands one allowed notification to core-api for ledgered delivery.
 #[async_trait::async_trait]
@@ -133,134 +132,105 @@ pub async fn plan_email(
     ))
 }
 
-/// Runs the notifier until `shutdown` fires. Redis errors back off and
-/// reconnect; malformed entries are logged and skipped so one bad event
-/// never stalls the stream.
+/// Runs the notifier until `shutdown` fires.
+///
+/// This leg used a bare `$` cursor and no group, so a restart started at the
+/// live tail and an enqueue that failed was forgotten: the in-app inbox was
+/// the only record. It now runs under its own group, which means a failed
+/// enqueue stays in the pending list, is retried live after the consumer
+/// policy's delay, and lands in `dead_events` with its envelope if it keeps
+/// failing — the same posture as every other consumer in this crate.
 pub async fn run_notifier(
     pool: PgPool,
     redis_url: String,
     sink: Arc<dyn NotificationEmailSink>,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
 ) {
-    let client = match redis::Client::open(redis_url.as_str()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "invalid redis url; notifier exiting");
-            return;
-        }
+    let handler = NotifierHandler {
+        pool: pool.clone(),
+        sink,
     };
-    let mut backoff = Reconnect::consumer();
-    loop {
-        if *shutdown.borrow() {
-            return;
+    let ledger = PgLedger::new(pool);
+    let mut shutdown = shutdown;
+    consumer::run(
+        &redis_url,
+        &SPEC,
+        consumer::consumer_name(CONSUMER_GROUP),
+        &ledger,
+        &handler,
+        &mut shutdown,
+    )
+    .await;
+}
+
+struct NotifierHandler {
+    pool: PgPool,
+    sink: Arc<dyn NotificationEmailSink>,
+}
+
+impl EntryHandler for NotifierHandler {
+    async fn handle(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        let mut outcomes = Vec::with_capacity(batch.len());
+        for delivery in batch {
+            outcomes.push(self.deliver(&delivery.envelope).await);
         }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                backoff.reset();
-                let broke = follow_stream(&pool, &mut conn, sink.as_ref(), &mut shutdown).await;
-                if broke.is_none() {
-                    return;
-                }
-                tracing::warn!("notifier stream connection ended; reconnecting");
-            }
-            Err(error) => {
-                tracing::error!(%error, "notifier redis connect failed");
-            }
-        }
-        backoff.sleep().await;
+        outcomes
     }
 }
 
-async fn follow_stream(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    sink: &dyn NotificationEmailSink,
-    shutdown: &mut watch::Receiver<bool>,
-) -> Option<()> {
-    // `$` starts at the live tail: restarts skip history by design; the
-    // in-app inbox remains the durable record of anything missed.
-    let mut cursor = "$".to_string();
-    let options = StreamReadOptions::default().block(BLOCK_MS).count(COUNT);
-    let keys = [EVENT_STREAM];
-    loop {
-        if *shutdown.borrow() {
-            return None;
-        }
-        let ids = [cursor.as_str()];
-        tokio::select! {
-            _ = shutdown.changed() => return None,
-            result = conn.xread_options::<_, _, StreamReadReply>(&keys, &ids, &options) => {
-                match result {
-                    Ok(reply) => {
-                        for key in reply.keys {
-                            for entry in key.ids {
-                                cursor = entry.id.clone();
-                                handle_entry(pool, sink, &entry).await;
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "notifier xread failed");
-                        return Some(());
-                    }
-                }
-            }
-        }
-    }
-}
-
-async fn handle_entry(
-    pool: &PgPool,
-    sink: &dyn NotificationEmailSink,
-    entry: &redis::streams::StreamId,
-) {
-    let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "stream entry missing data field");
-        return;
-    };
-    let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
-        tracing::warn!(entry_id = %entry.id, "unparseable event");
-        return;
-    };
-    let Some(event) = match_notification_created(&envelope) else {
-        return;
-    };
-    let now = chrono::Utc::now();
-    let Some((_user, decision)) = plan_email(pool, &envelope, &event, now).await else {
-        tracing::warn!(event_id = %envelope.id, "notification fan-out could not resolve recipient/prefs");
-        return;
-    };
-    match decision {
-        Decision::Disabled | Decision::QuietDeferred => {
-            tracing::info!(
-                user_id = %event.user_id,
-                kind = %event.kind,
-                ?decision,
-                "email leg suppressed by preference chain"
+impl NotifierHandler {
+    async fn deliver(&self, envelope: &Envelope) -> EntryOutcome {
+        let Some(event) = match_notification_created(envelope) else {
+            return EntryOutcome::Settled;
+        };
+        let Some((_user, decision)) =
+            plan_email(&self.pool, envelope, &event, chrono::Utc::now()).await
+        else {
+            // The recipient or the preference row is gone. That is data we
+            // cannot act on and will not be able to later either.
+            tracing::warn!(
+                event_id = %envelope.id,
+                "notification fan-out could not resolve recipient/prefs"
             );
-        }
-        Decision::Deliver => {
-            let request = NotificationEmailRequest {
-                org_id: envelope.org_id,
-                user_id: event.user_id,
-                kind: event.kind.clone(),
-                title: event.title.clone(),
-                // The event carries the title; the wrapper supplies the
-                // greeting/sign-off/footer around it.
-                body: None,
-                ticket_id: event.ticket_id,
-            };
-            match sink.enqueue(request).await {
-                Ok(outcome) => tracing::info!(
+            return EntryOutcome::Settled;
+        };
+        match decision {
+            Decision::Disabled | Decision::QuietDeferred => {
+                tracing::info!(
                     user_id = %event.user_id,
-                    ticket_id = ?event.ticket_id,
-                    %outcome,
-                    "notification email decided and enqueued"
-                ),
-                Err(reason) => {
-                    // Best-effort: log and move on; the in-app inbox is the
-                    // durable record and the next event carries the state.
-                    tracing::warn!(user_id = %event.user_id, %reason, "notification email enqueue failed");
+                    kind = %event.kind,
+                    ?decision,
+                    "email leg suppressed by preference chain"
+                );
+                EntryOutcome::Settled
+            }
+            Decision::Deliver => {
+                let request = NotificationEmailRequest {
+                    org_id: envelope.org_id,
+                    user_id: event.user_id,
+                    kind: event.kind.clone(),
+                    title: event.title.clone(),
+                    // The event carries the title; the wrapper supplies the
+                    // greeting/sign-off/footer around it.
+                    body: None,
+                    ticket_id: event.ticket_id,
+                };
+                match self.sink.enqueue(request).await {
+                    Ok(outcome) => {
+                        tracing::info!(
+                            user_id = %event.user_id,
+                            ticket_id = ?event.ticket_id,
+                            %outcome,
+                            "notification email decided and enqueued"
+                        );
+                        EntryOutcome::Settled
+                    }
+                    Err(reason) => {
+                        // core-api was unreachable or refused. The ledger
+                        // insert is the durable record; retrying this entry is
+                        // what gives the mail a second chance.
+                        EntryOutcome::Retry(format!("notification email enqueue failed: {reason}"))
+                    }
                 }
             }
         }

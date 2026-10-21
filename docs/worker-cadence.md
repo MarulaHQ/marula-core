@@ -10,7 +10,7 @@ profile a small install can adopt.
 | Loop | Kind | Default | Knob |
 |---|---|---|---|
 | outbox relay | notify | 5s safety poll | `RELAY_POLL_MS`, `MARULA_RELAY_WAKEUP` |
-| Redis stream consumers (webhooks, automations, notifier, search, workflow) | blocking read | 2s block | fixed |
+| Redis stream consumers (`crates/worker/src/consumer.rs`) | blocking read | 2s block | fixed |
 | general job queue | poll | 500ms idle | `QUEUE_IDLE_MS` |
 | outbound email send | poll | 2s idle | `EMAIL_POLL_SECS` |
 | SLA sweep | sweep | 60s | `EVAL_INTERVAL_SECS` |
@@ -84,8 +84,10 @@ it hosts them because something has to.
 shorter. The reason it is a count rather than an age: the shipped Valkey runs
 `--maxmemory 192mb --maxmemory-policy noeviction`, so an unbounded stream does
 not get slow, it reaches the ceiling and then refuses every write — the relay
-stops publishing and every consumer stops at once. Consumers resume at the tail
-and reconcile a gap from a REST snapshot, so nothing reads the trimmed history.
+stops publishing and every consumer stops at once. A consumer that comes back
+continues from its own pending list and the live tail, never from the start of
+the stream, so nothing reads the trimmed history; a gap is reconciled from a
+REST snapshot.
 
 One thing does happen at startup: the worker trims any backlog an earlier
 unbounded build left in the stream, in chunks of
@@ -93,6 +95,35 @@ unbounded build left in the stream, in chunks of
 the relay starts writing. Without that, the first `XADD` would carry the whole
 trim and hold Valkey's single-threaded loop for its length. If the log says the
 backlog was not fully trimmed, the remaining passes continue on later publishes.
+
+## When a stream consumer fails on an entry
+
+Every stream consumer runs the same harness, and the harness treats one entry
+as the unit of work. A handler that fails leaves its entry in the group's
+pending list and the process retries it after a delay from the retry policy
+(`Subsystem::Consumer`: 250 ms doubling to a 10 s cap). The attempt count, the
+last error and the next attempt time live in `consumer_deliveries`, one row per
+group and entry. When the entry runs out of attempts — the queue's budget, so a
+unit of work gets the same number of tries whether it is a job or a stream entry
+— it is written to `dead_events` with its event identity, the consumer that gave
+up, the last error and the raw payload, and it is acknowledged so it stops
+holding back the entries behind it.
+
+Two tables to watch, and both are empty on a healthy install because only
+failed entries are written to them:
+
+```sql
+SELECT consumer_group, count(*) FILTER (WHERE dead_at IS NULL) AS retrying,
+       count(*) FILTER (WHERE dead_at IS NOT NULL) AS dead
+  FROM consumer_deliveries GROUP BY consumer_group;
+
+SELECT consumer_group, entry_id, event_type, attempts, last_error, dead_at
+  FROM dead_events ORDER BY dead_at DESC LIMIT 20;
+```
+
+A restarted process takes over the entries a dead replica left, once they have
+been idle for a minute, so a crashed worker does not strand work under its old
+consumer name.
 
 ## Small-install profile
 
