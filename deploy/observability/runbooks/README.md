@@ -34,6 +34,8 @@ first check in the runbook it pages.
 | `MarulaApiLatencyHeadroomLow` | ticket | p95 > 100 ms | [api-errors](api-errors.md) |
 | `MarulaBackupStale` | page | backup age > 26 h | [restore-from-backup](restore-from-backup.md) |
 | `MarulaBackupUnobserved` | ticket | backup gauge absent (opt-in) | [restore-from-backup](restore-from-backup.md) |
+| `MarulaPage1P95PastTrigger` | ticket | page-1 p95 > 100 ms (two thirds of the 150 ms budget) | [capacity-trigger](capacity-trigger.md) |
+| `MarulaPage1SortPlanLostItsIndex` | ticket | page-1 sort plan lost its index scan (opt-in) | [capacity-trigger](capacity-trigger.md) |
 
 `scripts/check-alert-rules.mjs` fails if an alert has no runbook, if a runbook
 names an alert that does not exist, or if a row in this table disagrees with the

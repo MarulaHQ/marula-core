@@ -71,6 +71,8 @@ every run.
 | `marula.backup.age_seconds` | `marula_backup_age_seconds` | backup age alert, RPO objective |
 | `marula.sla.sweep.duration` | `marula_sla_sweep_duration_milliseconds_bucket` | SLA sweep alert |
 | `marula.sla.verdicts` | `marula_sla_verdicts_total` | diagnostic only, see below |
+| `marula.db.page1_p95` | `marula_db_page1_p95_milliseconds` | page-1 latency trigger (two thirds of the 150 ms budget) |
+| `marula.db.page1_sort_index_scan` | `marula_db_page1_sort_index_scan_ratio` | plan-shape trigger, opt-in: `0` is the shape F4 accepted |
 
 Four metrics carry no alert and that is deliberate. `marula.org.requests` is the
 per-org counter a premium pack bills or quotas from, and an alert on it would page
