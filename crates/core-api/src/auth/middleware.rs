@@ -276,7 +276,8 @@ pub async fn require_auth(
 /// `migration:*` keys. `/api/orgs` is the Wave 47 A6 usage/quota monitoring
 /// read (scoped by `org_usage:read`) plus A7's suspension notice
 /// (`org_suspension:read`) and A8's custom domain (`org_custom_domain:read`
-/// / `:manage`). An allowance is not a grant: each of
+/// / `:manage`), plus R16's directory surface (`directory_groups:read` /
+/// `:write`). An allowance is not a grant: each of
 /// these prefixes is JWT-reachable too, and the handlers' permission checks
 /// still run.
 /// Canonical `/api/v1/...` requests match through their legacy-form twin.
@@ -313,6 +314,13 @@ const API_KEY_PATHS: &[&str] = &[
     // is not a grant — the handler's own gate still runs, and that gate is what
     // refuses a key holding only matrix reads.
     "/api/audit-events",
+    // The directory surface (Wave 52 lane R16): the identity pack's SCIM
+    // connector and directory-admin plugin are separate processes and reach
+    // groups, members and role mappings through this prefix. The allowance
+    // covers the whole family because the connector writes as well as reads;
+    // the handler's own gate is what separates a reader from a writer, and a
+    // key with `directory_groups:read` still gets a typed 403 on every write.
+    "/api/directory-groups",
 ];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
@@ -362,6 +370,22 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
         && !out.contains(&Permission::ViewObservability)
     {
         out.push(Permission::ViewObservability);
+    }
+    // Wave 52 lane R16: the directory pair. Read and write are separate keys
+    // on purpose — a groups-only mirror never receives role mapping — and the
+    // write key does not imply the read one, so a writer carries both when it
+    // needs to read back what it wrote.
+    if scopes.iter().any(|s| s.as_str() == "directory_groups:read")
+        && !out.contains(&Permission::ViewDirectoryGroups)
+    {
+        out.push(Permission::ViewDirectoryGroups);
+    }
+    if scopes
+        .iter()
+        .any(|s| s.as_str() == "directory_groups:write")
+        && !out.contains(&Permission::ManageDirectoryGroups)
+    {
+        out.push(Permission::ManageDirectoryGroups);
     }
     let mut push = |module: Module, actions: &[Action]| {
         for a in actions {
@@ -686,6 +710,83 @@ mod tests {
         assert!(
             principal.permissions.contains(&Permission::ManageRoles),
             "a role reached through a group contributes exactly like a direct one"
+        );
+    }
+
+    /// The API-key path resolves the directory pair onto exactly the two new
+    /// permissions, and a key that names neither gets neither — whatever else
+    /// it carries. This is the layer a machine credential meets before any
+    /// handler runs, and the one that would silently over-grant if the keys
+    /// were mapped to a broader grant.
+    #[test]
+    fn the_directory_scopes_resolve_onto_their_own_pair_and_nothing_wider() {
+        use super::permissions_from_scopes;
+
+        let read = permissions_from_scopes(&["directory_groups:read".to_string()]);
+        assert_eq!(read, vec![Permission::ViewDirectoryGroups]);
+
+        let write = permissions_from_scopes(&["directory_groups:write".to_string()]);
+        assert_eq!(write, vec![Permission::ManageDirectoryGroups]);
+
+        // The pair together, in the order the key lists them, with no
+        // duplicate and no matrix grant invented along the way.
+        let both = permissions_from_scopes(&[
+            "directory_groups:read".to_string(),
+            "directory_groups:write".to_string(),
+        ]);
+        assert_eq!(
+            both,
+            vec![
+                Permission::ViewDirectoryGroups,
+                Permission::ManageDirectoryGroups
+            ]
+        );
+
+        // A key carrying other scopes is not a directory key.
+        let elsewhere = permissions_from_scopes(&[
+            "observability:read".to_string(),
+            "org_usage:read".to_string(),
+            "tickets:write".to_string(),
+        ]);
+        assert!(!elsewhere.contains(&Permission::ViewDirectoryGroups));
+        assert!(!elsewhere.contains(&Permission::ManageDirectoryGroups));
+        // And neither new grant is an admin special.
+        for grant in both {
+            assert!(!matches!(
+                grant,
+                Permission::ManageUsers
+                    | Permission::ManageRoles
+                    | Permission::ManagePlugins
+                    | Permission::ManageApiKeys
+            ));
+        }
+    }
+
+    /// Every scope the API-key surface hands out must mean something to the
+    /// resolver. The two lists are edited in different files — `KNOWN_SCOPES`
+    /// in `routes/api_keys.rs` decides what an org may mint, this module
+    /// decides what it grants — and a key naming a scope only the first list
+    /// knows authenticates with an empty permission set. That is how a
+    /// documented export path stayed closed after the scope that opened it
+    /// shipped (Wave 52 lane R12), so the parity is a test now.
+    #[test]
+    fn every_mintable_api_key_scope_resolves_to_a_permission() {
+        use super::permissions_from_scopes;
+
+        let mut checked = 0;
+        for scope in crate::routes::api_keys::KNOWN_SCOPES {
+            let resolved = permissions_from_scopes(&[(*scope).to_string()]);
+            assert!(
+                !resolved.is_empty(),
+                "{scope} can be written onto an API key but resolves to no \
+                 permission — the key would authenticate carrying nothing"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 18,
+            "only {checked} scopes were checked; the list moved and this test is \
+             now watching almost nothing"
         );
     }
 

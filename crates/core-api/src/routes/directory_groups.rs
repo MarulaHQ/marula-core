@@ -12,9 +12,12 @@
 //!
 //! Permissions: reads are manager+ (any of `special:manage_users` /
 //! `special:manage_roles`, the same gate the roles surface uses, because this
-//! is the same roster read a different way). Every write requires
-//! `special:manage_roles`: adding a person to a group or a role to a group is a
-//! grant, and a grant is a roles-admin act.
+//! is the same roster read a different way) or the machine read scope
+//! `directory_groups:read`. Every write requires `special:manage_roles` or the
+//! machine write scope `directory_groups:write`: adding a person to a group or
+//! a role to a group is a grant, and a grant is a roles-admin act — the scope
+//! is the smallest grant that lets an external identity service perform it,
+//! and it reaches nothing else (`/api/roles` still demands the special).
 //!
 //! Envelope: group create/update/delete ride IF1–IF3 (idempotency-keyed claim,
 //! version-gated seq, read-your-write `mutation` metadata). Membership and role
@@ -26,7 +29,7 @@
 //! loop, and no tier check. A premium identity product speaks its protocol to
 //! this API; core just stores and authorizes what it is told.
 
-use crate::auth::middleware::{authed, require_permission};
+use crate::auth::middleware::authed;
 use crate::error::{ApiError, ApiResult};
 use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx::{self, OrgTx};
@@ -54,19 +57,43 @@ const NAME_MAX: usize = 64;
 const DESCRIPTION_MAX: usize = 500;
 const EXTERNAL_ID_MAX: usize = 256;
 
-/// Admin gate for every write: a group's membership and its roles are grants.
-fn manage_roles() -> Permission {
-    Permission::ManageRoles
-}
+/// The grants that may read the group surface.
+///
+/// `special:manage_users` and `special:manage_roles` are the human grants (a
+/// manager reads the roster this way, and the org-users surface reads it too).
+/// `directory_groups:read` and `directory_groups:write` are the machine grants
+/// (Wave 52 lane R16): the identity pack's SCIM connector and directory-admin
+/// plugin run outside core, and no plugin may hold an admin special. The write
+/// grant is here as well because a writer that cannot read back what it wrote
+/// would be a grant nobody can use.
+const GROUP_READERS: [Permission; 4] = [
+    Permission::ManageUsers,
+    Permission::ManageRoles,
+    Permission::ViewDirectoryGroups,
+    Permission::ManageDirectoryGroups,
+];
+
+/// The grants that may write the group surface.
+///
+/// `special:manage_roles` is the human grant and stays exactly as it was.
+/// `directory_groups:write` is the machine grant: it opens group, membership
+/// and role-mapping writes and nothing else — role CRUD stays behind the
+/// special, which is what keeps a connector a mirror rather than a roles
+/// administrator.
+const GROUP_WRITERS: [Permission; 2] = [Permission::ManageRoles, Permission::ManageDirectoryGroups];
 
 /// Manager+ read (the org-users surface reads this for its pickers too).
 fn require_reader(principal: &core_domain::entities::Principal) -> ApiResult<()> {
-    check_any(
-        &principal.permissions,
-        &[Permission::ManageUsers, Permission::ManageRoles],
-    )
-    .expect()
-    .map_err(ApiError::Forbidden)
+    check_any(&principal.permissions, &GROUP_READERS)
+        .expect()
+        .map_err(ApiError::Forbidden)
+}
+
+/// Roles-admin write, or the directory write scope.
+fn require_writer(principal: &core_domain::entities::Principal) -> ApiResult<()> {
+    check_any(&principal.permissions, &GROUP_WRITERS)
+        .expect()
+        .map_err(ApiError::Forbidden)
 }
 
 pub fn routes(gen: crate::routes::ApiGeneration) -> Router<AppState> {
@@ -334,7 +361,7 @@ async fn audit_action(
 /// GET /api/directory-groups — every group in the org (manager+).
 #[utoipa::path(operation_id = "directory_groups_list", get, path = "/api/directory-groups", tag = "org-users", security(("bearer" = [])),
     responses((status = 200, body = DirectoryGroupsListResponse),
-              (status = 403, description = "requires manage_users or manage_roles")))]
+              (status = 403, description = "requires manage_users, manage_roles, directory_groups:read or directory_groups:write")))]
 pub async fn list(
     State(state): State<AppState>,
     extensions: Extensions,
@@ -372,7 +399,7 @@ pub async fn create(
     Json(req): Json<CreateDirectoryGroupRequest>,
 ) -> ApiResult<Json<DirectoryGroupMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, manage_roles())?;
+    require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
     let name = validate_name(&req.name)?;
@@ -512,7 +539,7 @@ pub async fn update(
     Json(req): Json<UpdateDirectoryGroupRequest>,
 ) -> ApiResult<Json<DirectoryGroupMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, manage_roles())?;
+    require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
     let name = req.name.as_deref().map(validate_name).transpose()?;
@@ -639,7 +666,7 @@ pub async fn remove(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<DirectoryGroupMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, manage_roles())?;
+    require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
 
@@ -725,7 +752,7 @@ pub async fn add_member(
     Path((id, user_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<DirectoryGroupDetailResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, manage_roles())?;
+    require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
 
@@ -784,7 +811,7 @@ pub async fn remove_member(
     Path((id, user_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<DirectoryGroupDetailResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, manage_roles())?;
+    require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
 
@@ -837,7 +864,7 @@ pub async fn map_role(
     Path((id, role_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<DirectoryGroupDetailResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, manage_roles())?;
+    require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
 
@@ -893,7 +920,7 @@ pub async fn unmap_role(
     Path((id, role_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<DirectoryGroupDetailResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, manage_roles())?;
+    require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
 
@@ -931,4 +958,185 @@ pub async fn unmap_role(
     .await?;
 
     Ok(Json(outcome))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GROUP_READERS, GROUP_WRITERS};
+    use crate::routes::service_accounts::permission_from_key;
+    use core_domain::policy::{check_any, Module, Permission, PolicyDecision};
+
+    /// The permissions a service account's grant keys resolve to. The API-key
+    /// path in `auth::middleware` keeps its own parser, so the two new keys are
+    /// spelled identically in both: a scope means one thing whichever machine
+    /// credential presents it, and
+    /// `the_directory_scopes_resolve_onto_their_own_pair_and_nothing_wider`
+    /// pins the other half.
+    fn scopes(keys: &[&str]) -> Vec<Permission> {
+        keys.iter()
+            .map(|k| permission_from_key(k).unwrap_or_else(|| panic!("unknown scope {k}")))
+            .collect()
+    }
+
+    fn allowed(granted: &[Permission], required: &[Permission]) -> bool {
+        check_any(granted, required).is_allowed()
+    }
+
+    /// Deny-by-default, in the direction that matters: a principal holding
+    /// nothing, or holding a read that belongs to some other module, is
+    /// refused on both gates. A gate that admitted the pack and also admitted
+    /// everything else would pass the positive tests in this module and fail
+    /// this one.
+    #[test]
+    fn the_group_surface_refuses_a_principal_without_one_of_its_grants() {
+        assert!(matches!(
+            check_any(&[], &GROUP_READERS),
+            PolicyDecision::Denied { .. }
+        ));
+        assert!(matches!(
+            check_any(&[], &GROUP_WRITERS),
+            PolicyDecision::Denied { .. }
+        ));
+        // A read of another module is not a directory read.
+        let clients_read = [Permission::Matrix {
+            module: Module::Clients,
+            action: core_domain::policy::Action::View,
+        }];
+        assert!(!allowed(&clients_read, &GROUP_READERS));
+        assert!(!allowed(&clients_read, &GROUP_WRITERS));
+        // Nor is a scope from another surface that happens to be a machine
+        // grant. A key carrying observability, usage and a write elsewhere is
+        // still refused here.
+        let unrelated = scopes(&[
+            "observability:read",
+            "org_usage:read",
+            "tickets:edit",
+            "clients:edit",
+        ]);
+        assert!(!allowed(&unrelated, &GROUP_READERS));
+        assert!(!allowed(&unrelated, &GROUP_WRITERS));
+    }
+
+    /// The same refusal stated in a pack's own vocabulary: take every
+    /// capability the closed vocabulary offers except the two directory ones,
+    /// resolve all of them, and neither gate opens. A single capability that
+    /// drifted onto an admin special would break this, which is why the union
+    /// is used rather than a hand-picked few.
+    #[test]
+    fn a_plugin_granted_every_other_capability_still_cannot_touch_the_surface() {
+        use core_domain::entities::PluginCapability;
+
+        let granted: Vec<Permission> = PluginCapability::ALL
+            .iter()
+            .filter(|c| {
+                !matches!(
+                    c,
+                    PluginCapability::DirectoryGroupsRead | PluginCapability::DirectoryGroupsWrite
+                )
+            })
+            .map(|c| c.permission())
+            .collect();
+        assert!(
+            granted.len() >= 30,
+            "only {} capabilities resolved — the filter is wrong and this test \
+             proves nothing",
+            granted.len()
+        );
+        assert!(
+            !allowed(&granted, &GROUP_READERS),
+            "a plugin without directory_groups.read must not list groups"
+        );
+        assert!(
+            !allowed(&granted, &GROUP_WRITERS),
+            "a plugin without directory_groups.write must not change a group"
+        );
+    }
+
+    /// The positive case, stated as the connector's job: three operations, two
+    /// reads and one write, all reachable with the two scopes and nothing else.
+    #[test]
+    fn the_identity_pack_scopes_cover_the_connectors_three_operations() {
+        let connector = scopes(&["directory_groups:read", "directory_groups:write"]);
+
+        // list groups -> GET /api/directory-groups
+        assert!(allowed(&connector, &GROUP_READERS));
+        // list members -> GET /api/directory-groups/{id} (members ride in the
+        // detail payload, so this is the same read gate)
+        assert!(allowed(&connector, &GROUP_READERS));
+        // map a role -> PUT /api/directory-groups/{id}/roles/{roleId}
+        assert!(allowed(&connector, &GROUP_WRITERS));
+    }
+
+    /// Read alone is enough for a groups-only mirror and not for a writer: the
+    /// read scope opens no write, so the second scope is a real decision an org
+    /// makes rather than a formality.
+    #[test]
+    fn the_read_scope_opens_no_write() {
+        let reader = scopes(&["directory_groups:read"]);
+        assert!(allowed(&reader, &GROUP_READERS));
+        assert!(!allowed(&reader, &GROUP_WRITERS));
+    }
+
+    /// The human admin is unchanged, and the special still loses nothing. Both
+    /// halves are asserted because a change that kept the admin working by
+    /// admitting everyone would pass the first.
+    #[test]
+    fn an_admin_special_still_opens_the_surface_and_only_the_special_writes() {
+        // special:manage_users has always read the roster and never written it.
+        let manager = [Permission::ManageUsers];
+        assert!(allowed(&manager, &GROUP_READERS));
+        assert!(!allowed(&manager, &GROUP_WRITERS));
+        // special:manage_roles does both, exactly as before this lane.
+        let roles_admin = [Permission::ManageRoles];
+        assert!(allowed(&roles_admin, &GROUP_READERS));
+        assert!(allowed(&roles_admin, &GROUP_WRITERS));
+    }
+
+    /// The write grant reaches this module and nowhere else. This is the
+    /// tenancy half of the argument at the gate level: the group routes pin
+    /// every query to the caller's org (`set_org_and_user` plus the org-pinned
+    /// `core_db::directory_groups` reads, which
+    /// `crates/core-db/tests/directory_groups.rs` pins across an org boundary),
+    /// so a new grant is safe only while it opens no route with a weaker scope.
+    /// A grant that leaked into the users or roles surface would be a way
+    /// around tenancy, and this test is what notices.
+    #[test]
+    fn no_other_route_accepts_the_directory_grants() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/routes");
+        let mut scanned = 0usize;
+        for entry in std::fs::read_dir(&dir).expect("read the routes directory") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            if path.file_name().and_then(|n| n.to_str()) == Some("directory_groups.rs") {
+                continue;
+            }
+            // `service_accounts.rs` owns the grant-KEY parser, not a request
+            // gate: it is where a service account's scope strings become
+            // permissions, so it has to name every grant in the vocabulary.
+            // Skipping it here does not weaken the check — a gate that accepted
+            // the grant would appear in a handler module, and these are all of
+            // them.
+            if path.file_name().and_then(|n| n.to_str()) == Some("service_accounts.rs") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&path).expect("read a route file");
+            scanned += 1;
+            for name in ["ViewDirectoryGroups", "ManageDirectoryGroups"] {
+                assert!(
+                    !src.contains(name),
+                    "{} accepts {name}: the directory grant must reach the group \
+                     routes and no other surface, or it becomes a way around their \
+                     org scope",
+                    path.display()
+                );
+            }
+        }
+        assert!(
+            scanned > 20,
+            "only {scanned} route files were scanned — the directory moved and this \
+             test is now checking nothing"
+        );
+    }
 }

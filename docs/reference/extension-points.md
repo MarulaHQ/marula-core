@@ -34,16 +34,20 @@ pack that cannot ship.
 ## Plugin
 
 The declarative half is shipped: manifest v2, the closed capability vocabulary
-(`PluginCapability`, thirty-three keys), per-install grants, digest-pinned
+(`PluginCapability`, thirty-five keys), per-install grants, digest-pinned
 distribution, consent diffing, and surface profiles for widgets, automation
 actions, report render kinds, field validators, trigger sources, read nodes and
 event emission. `crates/plugin-host/src/lib.rs` authorises an invocation;
 `crates/plugin-host/src/surface.rs` derives what an install may contribute.
 
-A capability resolves onto an existing permission, never onto a new one. The
-observability reader is the newest example: `observability.read` resolves onto
-`observability:read`, which reads the audit trail and opens nothing else. Health
-needs no capability at all, because `/api/v1/health` is public.
+A capability resolves onto a permission that exists for exactly that job, and
+adding a permission is a vocabulary decision rather than a shortcut onto a
+special. Two examples. The observability reader: `observability.read` resolves
+onto `observability:read`, which reads the audit trail and opens nothing else.
+The directory pair: `directory_groups.read` resolves onto `directory_groups:read`
+and `directory_groups.write` onto `directory_groups:write`, which together read
+and write groups, members and role mappings and nothing else. Health needs no
+capability at all, because `/api/v1/health` is public.
 
 **Refused by construction.** No capability maps onto an admin special, and
 `admin_specials_should_never_be_grantable` fails the build if one ever does. A
@@ -90,12 +94,17 @@ The group surface a bundle expands is core's, not the bundle's:
 by name — and it never becomes the authority for a role. It reads the surface;
 core decides what the surface means.
 
-**Gap.** An out-of-tree bundle process has no HTTP read path to that surface. The
-group routes require `special:manage_users` or `special:manage_roles`, which no
-plugin may hold, and no `directory_groups:read` scope exists. An in-process
-bundle reads the functions directly, which is what R12 wired; a separately
-deployed sync service would need a read route and a scope, and that is a row, not
-a patch.
+Until Wave 52 an external identity service could not reach this surface at all.
+The group routes required `special:manage_users` or `special:manage_roles`, which
+no plugin may hold, so the SCIM connector and the directory-admin plugin had no
+principal that could call them. `/api/directory-groups` now accepts two machine
+scopes: `directory_groups:read` for the list and the detail read, and
+`directory_groups:write` for group, membership and role-mapping writes. The
+connector and the admin plugin are a connector and a plugin, and they hold those
+scopes. A bundle still holds neither a capability nor a scope: it reads the
+functions directly, which is what R12 wired. Role CRUD stays behind
+`special:manage_roles`, so a mirror attaches an existing role to a group and
+cannot create, edit or delete one.
 
 ## Auth provider
 

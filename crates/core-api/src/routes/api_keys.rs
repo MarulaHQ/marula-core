@@ -55,6 +55,17 @@ pub const KNOWN_SCOPES: &[&str] = &[
     // design — setting the flag is an admin action, so there is no
     // `org_suspension:manage` for a machine to hold.
     "org_suspension:read",
+    // Wave 52 lane R12: the observability reader for a pack that exports or
+    // forwards the audit trail. It belongs in this list for the same reason as
+    // the rest — a scope the middleware resolves but this list refuses is a
+    // scope no org can ever mint, and the documented export path stays closed.
+    "observability:read",
+    // Wave 52 lane R16: the directory pair. The identity pack's SCIM connector
+    // and directory-admin plugin are separate processes and hold these on a
+    // key: `read` for the group list and the detail read, `write` for group,
+    // membership and role-mapping writes. Neither opens role CRUD.
+    "directory_groups:read",
+    "directory_groups:write",
 ];
 
 // --- hashing ------------------------------------------------------------------
