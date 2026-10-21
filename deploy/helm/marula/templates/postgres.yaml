@@ -76,6 +76,26 @@ spec:
           ports:
             - name: pg
               containerPort: 5432
+          # Same instrumentation as deploy/docker-compose.yml, for the same
+          # reasons: statement statistics for the unseen query mix, and
+          # auto_explain for anything past 200ms. The SQL objects come from
+          # migration 0145, which skips them on a server that forbids them.
+          # io_method is pinned because it is start-only and PG18 offers it.
+          args:
+            - -c
+            - shared_preload_libraries=pg_stat_statements,auto_explain
+            - -c
+            - pg_stat_statements.max=10000
+            - -c
+            - auto_explain.log_min_duration=200ms
+            - -c
+            - auto_explain.log_analyze=on
+            - -c
+            - auto_explain.log_buffers=on
+            - -c
+            - auto_explain.log_format=json
+            - -c
+            - io_method=worker
           volumeMounts:
             # PG18 images use pg_ctlcluster-style major-version dirs under
             # the volume root — mount the VOLUME ROOT (see

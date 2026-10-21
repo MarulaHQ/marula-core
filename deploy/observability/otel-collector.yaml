@@ -3,13 +3,15 @@
 # Purpose: receive OTLP from core-api and worker, and route each
 # signal to its store:
 #   traces  → Tempo   (OTLP/HTTP, http://tempo:4318)
-#   metrics → Prometheus exposition on :18899, scraped by Grafana's
-#             provisioned Prometheus datasource (keeps Mimir/Prometheus
-#             containers out of the dev stack)
+#   metrics → Prometheus exposition on :18899, scraped by the `prometheus`
+#             service in the same profile, which evaluates the alert pack in
+#             deploy/observability/prometheus/rules/
 #   logs    → Loki    (native OTLP endpoint, http://loki:3100/otlp)
 #
 # Non-purpose: no sampling/PII policy here — redaction happens at the
-# source (crates/core-otel); no TLS, this is local development only.
+# source (crates/core-otel); no TLS, this is local development only; no rule
+# evaluation here, because the collector translates and forwards rather than
+# evaluates (that is the Prometheus slot's job).
 receivers:
   otlp:
     protocols:
@@ -30,8 +32,16 @@ exporters:
     endpoint: http://loki:3100/otlp
 
   # Grafana scrapes marula.* metrics from here (PromQL datasource).
+  #
+  # `add_metric_suffixes` is the default and is written out because the alert
+  # pack depends on it: with it on, the translator appends a unit word and a
+  # `_total` on counters, which is how `marula.outbox.lag_ms` becomes
+  # `marula_outbox_lag_ms_milliseconds`. Turning it off renames every series the
+  # rules read, so if this ever changes, `scripts/check-alert-rules.mjs` is the
+  # gate that has to change with it.
   prometheus:
     endpoint: 0.0.0.0:18899
+    add_metric_suffixes: true
 
 service:
   pipelines:

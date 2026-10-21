@@ -27,7 +27,9 @@ async fn test_pool() -> (PgPool, String) {
                      Postgres for the relay wakeup test",
                 );
             let admin = core_db::connect(&url).await.expect("connect");
-            sqlx::query("DROP SCHEMA public CASCADE")
+            sqlx::query(
+            "DO $$ BEGIN DROP SCHEMA IF EXISTS ops CASCADE; DROP SCHEMA IF EXISTS public CASCADE; END $$",
+        )
                 .execute(&admin)
                 .await
                 .expect("drop schema");

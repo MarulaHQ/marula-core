@@ -1,0 +1,57 @@
+# The F4 capacity trigger, latency arm.
+#
+# Purpose: reopen the ticket-list index decision when page-1 p95 has climbed to
+# where F4 said it should be reopened. `docs/perf.md` F4 measured a candidate
+# expression index at 0.66 ms against 31 ms and deliberately did not ship it,
+# because page-1 p95 had four to five times of headroom. It also wrote the
+# condition for looking again: "revisit when page-1 p95 exceeds about two thirds
+# of budget, or whenever the SQL sort plan regresses". This rule is that first
+# clause, and `rules-optin/marula-capacity-plan-shape.rules.yaml` is the second.
+#
+# The series comes from `marula.db.page1_p95`, which the worker's
+# `capacity_watch::sample` emits after timing the endpoint's own page-1 statement
+# over its warmups and forty timed runs. The sample is slow and runs on a
+# schedule, not on traffic; if the schedule is not wired the series is absent and
+# this rule cannot fire — which is why the test below is on the value being high
+# and not on its absence. "Nobody is sampling" is a different question, and
+# answering it by default would page every install that has not turned the
+# sampler on.
+#
+# The threshold is 100 ms. That is two thirds of the 150 ms product budget
+# `docs/perf.md` §5 states and the nightly perf gate enforces
+# (`perf-harness load --concurrency 8 --budget-ms 150`), and it is the same
+# number as `core_db::capacity::PAGE1_TRIGGER_MS`, which carries a test tying it
+# to `PAGE1_BUDGET_MS`. Move one and the test in the crate fails first.
+#
+# Why `max_over_time` and not the raw gauge: the sample runs on a schedule
+# measured in hours, so a six-hour window is what makes one sample visible to the
+# rule at all, and it also bounds how long a single bad sample can hold the alert
+# open. During a sustained climb the window keeps renewing and the alert stays
+# firing, which is the case that matters.
+#
+# Severity `ticket`, not `page`. Two thirds of budget is not a breach: the budget
+# itself is the page, and the nightly perf gate owns that. What this alert asks
+# for is a decision — measure, then ship the index or record why not.
+
+groups:
+  - name: marula-capacity
+    interval: 1m
+    rules:
+      - alert: MarulaPage1P95PastTrigger
+        expr: max_over_time(marula_db_page1_p95_milliseconds[6h]) > 100
+        for: 5m
+        labels:
+          severity: ticket
+          surface: capacity
+        annotations:
+          summary: "Page-1 ticket list p95 is {{ $value | humanize }} ms, past the F4 trigger"
+          description: >-
+            The measured page-1 SQL p95 for this install's largest org is at or
+            above 100 ms, which is two thirds of the 150 ms budget and the point
+            `docs/perf.md` F4 named for reopening the ticket-index decision. Either
+            the dataset outgrew the argument that kept the index off, or the sort
+            plan changed under it — `marula.db.page1_sort_index_scan` says which.
+            Re-measure with the perf harness before deciding, because this number
+            is a sample and the harness is the gate.
+          metric: marula.db.page1_p95
+          runbook: deploy/observability/runbooks/capacity-trigger.md

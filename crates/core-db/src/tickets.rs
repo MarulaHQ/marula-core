@@ -188,6 +188,37 @@ pub async fn list_tickets<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    let sql = page_sql(&f);
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(f.board_id)
+        .bind(f.assignee_id)
+        .bind(f.client_id)
+        .bind(f.category.map(|c| c.as_str().to_string()))
+        .bind(f.priority.map(|p| p.as_str().to_string()))
+        .bind(f.limit)
+        .bind(f.offset)
+        .bind(f.tag_ids.clone().unwrap_or_default())
+        .bind(f.cursor.map(|c| c.priority_rank))
+        .bind(f.cursor.and_then(|c| c.due_at))
+        .bind(f.cursor.map(|c| c.created_at))
+        .bind(f.cursor.map(|c| c.id))
+        .fetch_all(executor)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(row_to_ticket)
+        .collect::<Result<_, _>>()?)
+}
+
+/// The page statement for a filter, with `$1..$13` binds.
+///
+/// Split out of [`list_tickets`] so the statement can be explained without a
+/// second copy of it: [`crate::capacity`] fills the page-1 binds with literals
+/// and hands this SAME text to `ops.explain_plan`, so a change to the sort or
+/// the predicate moves the plan signal with it. A copied string is how an
+/// EXPLAIN starts measuring a query nobody runs.
+pub(crate) fn page_sql(f: &TicketFilter) -> String {
     // Tag clause (lane 9): semi-join against ticket_tags, $9. Built as a
     // literal fragment + bound array — no value interpolation, so the
     // injection surface stays exactly the bind parameter.
@@ -221,7 +252,7 @@ where
     };
     // The `id` tiebreaker makes the total order deterministic so the
     // cursor resume is exact even on (due_at, created_at) collisions.
-    let sql = format!(
+    format!(
         r#"SELECT {TICKET_COLS} FROM tickets
            WHERE org_id = $1
              AND ($2::uuid IS NULL OR board_id = $2)
@@ -235,27 +266,7 @@ where
              {PRIORITY_RANK},
              due_at NULLS LAST, created_at, id
            LIMIT $7 OFFSET $8"#
-    );
-    let rows = sqlx::query(&sql)
-        .bind(org_id)
-        .bind(f.board_id)
-        .bind(f.assignee_id)
-        .bind(f.client_id)
-        .bind(f.category.map(|c| c.as_str().to_string()))
-        .bind(f.priority.map(|p| p.as_str().to_string()))
-        .bind(f.limit)
-        .bind(f.offset)
-        .bind(f.tag_ids.clone().unwrap_or_default())
-        .bind(f.cursor.map(|c| c.priority_rank))
-        .bind(f.cursor.and_then(|c| c.due_at))
-        .bind(f.cursor.map(|c| c.created_at))
-        .bind(f.cursor.map(|c| c.id))
-        .fetch_all(executor)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(row_to_ticket)
-        .collect::<Result<_, _>>()?)
+    )
 }
 
 /// Tickets for a user's my-work view: assigned to them, not closed, across

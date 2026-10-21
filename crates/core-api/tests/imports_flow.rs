@@ -39,7 +39,9 @@ async fn test_state() -> (AppState, Router) {
             let boot = connect_admin(&admin_url).await.expect("bootstrap pool");
             // Fresh schema keeps slugs/keys collision-free no matter which
             // suite ran before this binary.
-            sqlx::query("DROP SCHEMA public CASCADE")
+            sqlx::query(
+            "DO $$ BEGIN DROP SCHEMA IF EXISTS ops CASCADE; DROP SCHEMA IF EXISTS public CASCADE; END $$",
+        )
                 .execute(&boot)
                 .await
                 .expect("drop schema");

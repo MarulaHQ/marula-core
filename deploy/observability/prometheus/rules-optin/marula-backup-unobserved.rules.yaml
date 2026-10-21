@@ -1,0 +1,42 @@
+# Opt-in rules — load these only after wiring the signal they check.
+#
+# Files in this directory are NOT in the shipped stack's default rule set:
+# `prometheus.yml` loads them, but the loader is a separate glob so that a
+# deployment can mount `rules/` alone. Each file here states the one piece of
+# configuration that must be true before it is switched on, because a rule that
+# fires on a signal nobody configured is a false page, and a false page teaches
+# people to ignore the pack.
+
+groups:
+  - name: marula-backup-optin
+    interval: 1m
+    rules:
+      # Requires: the worker runs with `MARULA_BACKUP_STAMP_PATH` set to the
+      # stamp file inside the backup runner's volume, so
+      # `marula.backup.age_seconds` is emitted at all.
+      #
+      # Why this rule exists: `MarulaBackupStale` catches a stale stamp but says
+      # nothing when there is no stamp, and "no stamp" is the state a broken
+      # backup wiring produces. Without the wiring there is no way to tell
+      # "backups are fine" from "backups have never run", so this rule is opt-in
+      # rather than default: it is only a true statement once the reader has
+      # promised the series should exist.
+      #
+      # One hour: the gauge is sampled on the worker's housekeeping cadence, so
+      # an hour of absence is not a scrape gap.
+      - alert: MarulaBackupUnobserved
+        expr: absent(marula_backup_age_seconds)
+        for: 1h
+        labels:
+          severity: ticket
+          surface: backup
+        annotations:
+          summary: "Backup freshness is not being observed"
+          description: >-
+            The worker is not emitting an age for the last successful backup,
+            and this install declared that it should. Either the stamp file is
+            unreadable, the worker lost the volume, or the backup runner has not
+            completed a clean pass since it started. A ticket because the other
+            rule in this pack is what pages when a known-good signal goes stale.
+          metric: marula.backup.age_seconds
+          runbook: deploy/observability/runbooks/restore-from-backup.md

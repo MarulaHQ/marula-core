@@ -85,6 +85,29 @@ postgresql:
     className: ""
     size: 20Gi
 
+# ------------------------------------------------------------------ pooler --
+# Optional PgBouncer (or any transaction pooler) in front of the database
+# (Wave 52 lane P9). Off by default: the chart does not deploy one, for the
+# same reason it does not deploy production Postgres — the operator brings the
+# instance that has to survive a failover. The pooler must run
+# `deploy/pooler/pgbouncer.ini`'s settings; `docs/reference/connection-pooling.md`
+# says why each one is load-bearing.
+#
+# With it on, `DATABASE_URL` becomes the pooled URL, `MARULA_LISTEN_DATABASE_URL`
+# becomes the direct one (a LISTEN cannot ride a transaction-pooled connection),
+# and `MARULA_DB_STATEMENT_CACHE` is forced to 0 (a cached statement name cannot
+# survive the pooler's reset between transactions).
+pooler:
+  enabled: false
+  # App role through the pooler, e.g. postgres://marula_app:PASS@pgbouncer:6432/marula
+  appUrl: ""
+  # Owner role through the pooler (the worker's loops), same shape.
+  ownerUrl: ""
+  # Direct Postgres for the API's ONE LISTEN connection.
+  directAppUrl: ""
+  # Direct Postgres for the worker's ONE LISTEN connection.
+  directOwnerUrl: ""
+
 # ------------------------------------------------------------------ redis --
 redis:
   deploy: true
@@ -107,10 +130,11 @@ coreApi:
   # published ranges AND the ingress controller's, because the real-client
   # walk skips every trusted hop and the controller is one.
   trustedProxies: ""
-  # Pool ceilings (Wave 49 lane R1): pass MARULA_DB_POOL_MAX /
-  # MARULA_REPORTING_POOL_MAX through extraEnv to move past the defaults
-  # (20 / 25). See docs/perf.md §5 — front the pools with a session pooler
-  # (PgBouncer/pgcat) before raising PG max_connections per instance.
+  # Pool ceilings (Wave 49 lane R1, resized by Wave 52 lane P9): pass
+  # MARULA_DB_POOL_MAX / MARULA_REPORTING_POOL_MAX through extraEnv to move
+  # past the defaults (20 / 8). See docs/perf.md §5. Each replica opens 29
+  # client connections (20 app + 8 reporting + 1 LISTEN); set `pooler.enabled`
+  # and the database sees the pooler's 15-per-role server side instead.
   #
   # Real per-service envelope (Wave 49 lane R2), replacing the chart-wide
   # 50m/64Mi/512Mi default. Anchored to the compose stack's per-service
@@ -128,10 +152,10 @@ coreApi:
       memory: 512Mi
   # Horizontal Pod Autoscaler (Wave 49 lane R2). Off by default: one replica
   # is right for an evaluation install, and every added core-api replica
-  # multiplies that process's Postgres connections (45 at the R1 defaults,
-  # docs/perf.md §5). Enable it only behind a session pooler, or with PG
-  # max_connections raised to match maxReplicas. When enabled the Deployment
-  # omits .spec.replicas and the HPA owns the count.
+  # multiplies that process's Postgres connections (29 client connections each
+  # at the P9 defaults, docs/perf.md §5). With `pooler.enabled` those stop at
+  # the pooler instead of reaching Postgres. When enabled the Deployment omits
+  # .spec.replicas and the HPA owns the count.
   autoscaling:
     enabled: false
     minReplicas: 1

@@ -55,8 +55,8 @@ web:
 | `/api/health` | core-api | liveness for probes outside the cluster (`/api/v1/health` on the canonical mount; a bare `/healthz` is a core-api 404) |
 
 In-cluster probes do not go through the ingress: they read the pod directly on
-`/livez` (process only), `/readyz` (dependency and drain aware) and — for the
-worker — `/healthz`. Those paths are not part of the routed surface and do not
+`/livez` (process only), `/readyz` (dependency and drain aware) and, for the
+worker, `/healthz`. Those paths are not part of the routed surface and do not
 appear in the pinned OpenAPI document.
 
 `/internal/*` is deliberately not routed: that is the worker-to-core effect
@@ -124,21 +124,44 @@ the HPA owns the count. While it is false, set `replicaCount` as before. CPU
 targets need a metrics server in the cluster.
 
 **Read this before raising `coreApi.maxReplicas`.** Each core-api replica
-opens its own Postgres connections: 45 at the R1 defaults (20 app + 25
-reporting), per `docs/perf.md` §5. Six replicas would ask for 270 connections
-against Postgres's default `max_connections = 100`. Scale core-api only
-behind a session pooler (PgBouncer or pgcat), or with `max_connections`
-raised to match. The worker does not share that shape: it claims work with
+opens 29 client connections at the defaults (20 app + 8 reporting + 1 LISTEN,
+`docs/perf.md` §5), and the LISTEN connection does not go through a pooler.
+With `pooler.enabled` the database sees the pooler's server side instead, 15
+per (database, user) pair, so replicas no longer multiply what Postgres pays.
+Without it, six replicas would ask for 270 connections against Postgres's
+default `max_connections = 100`. Either enable the pooler
+(`docs/reference/connection-pooling.md`) or raise `max_connections` to match.
+The worker does not share that shape: it claims work with
 `FOR UPDATE SKIP LOCKED` (`core-db/src/outbox.rs:47`,
 `core-db/src/queue.rs:105`), so replicas never double-process a row.
+
+## Pooler
+
+The chart does not deploy one. It declines to deploy production Postgres for
+the same reason, and a pooler is on the same footing: the operator brings the
+instance that has to survive a failover. Turn the wiring on with the two URLs:
+
+    helm upgrade marula deploy/helm/marula \
+      --set pooler.enabled=true \
+      --set pooler.appUrl=postgres://marula_app:PASS@pgbouncer:6432/marula \
+      --set pooler.ownerUrl=postgres://marula:PASS@pgbouncer:6432/marula \
+      --set pooler.directAppUrl=postgres://marula_app:PASS@postgres:5432/marula \
+      --set pooler.directOwnerUrl=postgres://marula:PASS@postgres:5432/marula
+
+With it on, the chart sets `DATABASE_URL` to the pooled URL, sets
+`MARULA_LISTEN_DATABASE_URL` to the direct one (a `LISTEN` cannot ride a pooled
+connection) and sets `MARULA_DB_STATEMENT_CACHE=0` (a cached statement name
+cannot survive the pooler's reset between transactions). The pooler itself must
+run the config in `deploy/pooler/pgbouncer.ini`; `deploy/pooler/README.md` has
+a Kubernetes manifest for it.
 
 ## Lifecycle: stopping a pod without cutting work
 
 Both binaries install the same stop path (`crates/worker/src/shutdown.rs`):
 SIGINT or SIGTERM, whichever arrives first, stops accepting work and gives
 what is in flight a bounded window to finish. Before this, both processes
-waited on Ctrl-C (SIGINT) only — the signal a container runtime never sends —
-so every rolling deploy was a hard kill of whatever the process was holding.
+waited on Ctrl-C (SIGINT) only, the signal a container runtime never sends, so
+every rolling deploy was a hard kill of whatever the process was holding.
 
 What counts as in flight: a request core-api has accepted and not yet
 answered. Event streams are the documented exception. A stream is answered by

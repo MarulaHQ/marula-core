@@ -42,10 +42,14 @@ Notes the runbook enforces:
   garage data/meta volumes in the same window so attachments and rows stay
   as consistent as two separate stores allow — this is **not** atomic: a
   few seconds of drift between the WAL cutoff and the object snapshot is
-  possible. Repair path: the orphan object-hash scan (attachments pointed at
-  objects that restored rows reference but the snapshot missed) is
-  documented in the storage schema — re-upload those from the pre-snapshot
-  source of truth.
+  possible. Both directions of that drift have a repair path now: the
+  worker's object integrity pass (`MARULA_OBJECT_GC=on`) reclaims objects no
+  row references and marks rows whose bytes are gone, and re-uploading the
+  same file clears the mark, because the object key is that file's digest. See
+  [data lifecycle](../../reference/data-lifecycle.md) §3.
+- The same pass snapshots the local object store, which lives in the
+  `objectdata` volume now — it used to be a directory inside a read-only
+  container, which could not survive a restart.
 - Take a dump before every upgrade step (see [upgrade](../how-to/upgrade.md)
   step 3). The upgrade preflight runs against a database copy — supply it
   with a fresh one.
@@ -87,7 +91,10 @@ Notes the runbook enforces:
    `PGSOURCE_HOST`/`PGSOURCE_PORT` against a different server) to turn the
    parity check on. Without it the leg stops after the schema checks. It
    drops the scratch DB when done — a backup that has never restored is not
-   a backup.
+   a backup. The `backup` profile already runs this drill on a cadence
+   (`DRILL_EVERY_DAYS`, default 7) and records each run, with its duration, in
+   `ops.backup_drill_runs`; [RPO and RTO](../../reference/rpo-rto.md) explains
+   what that duration is for and what the drill cannot prove.
 4. Restore the garage data/meta volumes or bucket contents if you use object storage.
 5. Start the services. Do **not** re-run migrations between restore and
    start unless the restored dump predates a schema change you have since

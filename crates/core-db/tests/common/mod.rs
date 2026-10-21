@@ -160,7 +160,9 @@ pub async fn test_db() -> TestDb {
 }
 
 async fn reset_schema(admin: &PgPool) {
-    sqlx::query("DROP SCHEMA public CASCADE")
+    sqlx::query(
+            "DO $$ BEGIN DROP SCHEMA IF EXISTS ops CASCADE; DROP SCHEMA IF EXISTS public CASCADE; END $$",
+        )
         .execute(admin)
         .await
         .expect("drop schema");

@@ -97,7 +97,7 @@
     {
       "id": 6,
       "title": "Queue depth by state",
-      "description": "pending vs running vs dead jobs (alert: dead > 0 sustained).",
+      "description": "pending vs running vs dead jobs. The alert this panel describes is MarulaQueueDeadDetected (deploy/observability/prometheus/rules/marula-core.rules.yaml), which fires on any dead job sustained for 15 minutes; MarulaQueueDeadAgeHigh pages when the oldest dead job passes a day.",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "marula-metrics" },
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },

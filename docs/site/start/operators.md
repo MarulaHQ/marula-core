@@ -49,6 +49,9 @@ settings that make a resolved client IP mean anything.
 
 ## "Watch it"
 
+- [Database observability](../reference/db-observability.md) — the query mix and
+  the slow tail, the `EXPLAIN` signal, and scheduled maintenance inside
+  PostgreSQL.
 - [Observability](../reference/self-host-observability.md) — the optional
   OpenTelemetry profile (Tempo, Loki, Grafana) plus status monitoring, and the
   endpoint variable that turns export on.

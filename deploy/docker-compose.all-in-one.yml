@@ -15,6 +15,12 @@ services:
   core-api:
     environment:
       MARULA_ALL_IN_ONE: "1"
+      # Unpooled on purpose (Wave 52 lane P9): the command above starts three
+      # application services and no pooler, and one instance's 54 connections
+      # fit inside Postgres's default 100. Overriding the base file's pooled
+      # URLs keeps the documented all-in-one boot working without it.
+      DATABASE_URL: postgres://marula_app:marula_app@postgres:5432/marula
+      MARULA_LISTEN_DATABASE_URL: postgres://marula_app:marula_app@postgres:5432/marula
       # OWNER role on purpose: the worker loops read across orgs and must
       # bypass row-level security. The API's own DATABASE_URL stays the
       # RLS-scoped app role.
@@ -36,6 +42,16 @@ services:
       USAGE_REFRESH_SECS: "900"
       DIGEST_POLL_SECS: "3600"
       RETENTION_SWEEP_SECS: "86400"
+      # The embedded loops include the backup-age sample (lane R7a), so the stamp
+      # directory the `backup` profile writes has to be visible HERE, not only to
+      # the split worker service.
+      MARULA_BACKUP_STAMP_PATH: ${MARULA_BACKUP_STAMP_PATH:-/pgdumps/.last_success_epoch}
+    # A sequence in a compose override REPLACES the base list instead of adding
+    # to it — the same trap the ports list below documents — so the base object
+    # volume is repeated, and the stamp directory is added beside it.
+    volumes:
+      - objectdata:/data/objects
+      - backupdumps:/pgdumps:ro
     # The worker health endpoint binds 8082 inside this container alongside
     # the API on 8080, so publish both. A sequence in an override replaces
     # the base list, hence the repeat of 8080.

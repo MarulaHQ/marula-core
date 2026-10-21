@@ -110,9 +110,10 @@ async fn main() -> anyhow::Result<()> {
         config: std::sync::Arc::clone(&config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
         mail: std::sync::Arc::new(core_api::email::MailStack::from_config(&config)),
-        reporting: core_api::state::AppState::reporting_pool_with(
+        reporting: core_api::state::AppState::reporting_pool_sized(
             &config.database_url,
             config.reporting_pool_max,
+            config.statement_cache_capacity,
         )
         .await,
         store: {
@@ -144,8 +145,14 @@ async fn main() -> anyhow::Result<()> {
     // Live delivery (Wave 12 lane 12): ONE dedicated LISTEN connection per
     // process receives `marula_events` notifications (migration 0068)
     // and fans contract events + presence frames out to SSE subscribers.
+    // It dials `MARULA_LISTEN_DATABASE_URL` when set (Wave 52 lane P9): a
+    // transaction pooler cannot hold a subscription, so a pooled deployment
+    // points this one connection straight at Postgres.
+    if config.listen_database_url.is_some() {
+        tracing::info!("LISTEN connection uses MARULA_LISTEN_DATABASE_URL (bypassing the pooler)");
+    }
     tokio::spawn(core_api::realtime::run_listener(
-        config.database_url.clone(),
+        config.listen_url().to_string(),
     ));
     // The readiness probe needs the pool after the router takes ownership of
     // the state.

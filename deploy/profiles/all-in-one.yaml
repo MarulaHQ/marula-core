@@ -3,7 +3,7 @@
 # see docs/deploy-descriptor.md. Do not edit by hand.
 name: all-in-one
 title: "All-in-one (demo / one-box)"
-description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md."
+description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md. Unpooled on purpose: one instance's 54 connections fit inside Postgres's default 100, so the demo box does not need a second moving part."
 services:
   - name: core-api
     role: core-api

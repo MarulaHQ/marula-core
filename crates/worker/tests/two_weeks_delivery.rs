@@ -46,6 +46,7 @@ fn cfg() -> DeliveryLoopConfig {
         claim_batch: 50,
         poll_secs: 60,
         pool_max: 5,
+        statement_cache_capacity: 0,
     }
 }
 

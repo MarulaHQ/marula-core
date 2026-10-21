@@ -14,6 +14,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tokio::sync::watch;
 
+mod data;
 mod deploy;
 mod fixture;
 mod upgrade;
@@ -83,6 +84,42 @@ enum Command {
     Deploy {
         #[command(subcommand)]
         action: DeployAction,
+    },
+    /// Data lifecycle: the tenant erasure verb (docs/reference/data-lifecycle.md).
+    /// There is no HTTP surface for this on purpose; an erasure is an operator
+    /// decision with a receipt.
+    Data {
+        #[command(subcommand)]
+        action: DataAction,
+    },
+}
+
+/// Data-lifecycle verbs.
+#[derive(Debug, Subcommand)]
+enum DataAction {
+    /// Erase one tenant: rows (via the org cascade), then objects, then a
+    /// receipt. Prints the plan first; deletes nothing without --confirm.
+    #[command(name = "purge-org")]
+    PurgeOrg {
+        /// The org to erase.
+        #[arg(long)]
+        org_id: uuid::Uuid,
+        /// Who asked. Required to execute; recorded on the receipt.
+        #[arg(long)]
+        requested_by: Option<String>,
+        /// Why, in your words. Recorded on the receipt.
+        #[arg(long)]
+        reason: Option<String>,
+        /// The org's label, repeated back. Required to execute.
+        #[arg(long)]
+        confirm: Option<String>,
+        /// Show what would be deleted and stop.
+        #[arg(long)]
+        dry_run: bool,
+        /// Owner-role connection string (defaults to DATABASE_URL). The RLS app
+        /// role cannot erase a tenant.
+        #[arg(long)]
+        database_url: Option<String>,
     },
 }
 
@@ -188,6 +225,43 @@ async fn main() -> anyhow::Result<()> {
         Command::SeedDemo { force } => seed_demo(force).await,
         Command::PluginKey { action } => plugin_key(action).await,
         Command::Deploy { action } => deploy_command(action),
+        Command::Data { action } => data_command(action).await,
+    }
+}
+
+/// `marula data purge-org` (Wave 52 lane R6). The store is resolved from the
+/// process environment exactly as core-api resolves it, so the verb deletes the
+/// bytes the API wrote.
+async fn data_command(action: DataAction) -> anyhow::Result<()> {
+    match action {
+        DataAction::PurgeOrg {
+            org_id,
+            requested_by,
+            reason,
+            confirm,
+            dry_run,
+            database_url,
+        } => {
+            let url = database_url
+                .or_else(|| std::env::var("DATABASE_URL").ok())
+                .unwrap_or_else(|| DEFAULT_DATABASE_URL.to_string());
+            if !dry_run && std::env::var("OBJECT_STORE").is_err() {
+                eprintln!(
+                    "warning: OBJECT_STORE is unset, so the object leg targets the default local \
+                     directory. Point the store variables at what core-api writes, or the receipt \
+                     will say objects_incomplete."
+                );
+            }
+            let store = core_store::build(&core_store::StoreChoice::from_env());
+            let args = data::PurgeArgs {
+                org_id,
+                requested_by,
+                reason,
+                confirm,
+                dry_run,
+            };
+            data::purge_org(&url, store.as_ref(), &args).await
+        }
     }
 }
 
@@ -801,6 +875,63 @@ mod tests {
         ])
         .expect("parses");
         assert!(matches!(cmd, Command::Fixture { manifest: true, .. }));
+    }
+
+    /// The erasure verb has to be reachable and its flags have to mean what the
+    /// doc says: a dry run needs no confirmation, and executing carries the
+    /// tenant label and the operator identity.
+    #[test]
+    fn parses_data_purge_org() {
+        let cmd = parse(&[
+            "data",
+            "purge-org",
+            "--org-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--dry-run",
+        ])
+        .expect("parses");
+        match cmd {
+            Command::Data {
+                action:
+                    DataAction::PurgeOrg {
+                        org_id,
+                        dry_run,
+                        confirm,
+                        requested_by,
+                        ..
+                    },
+            } => {
+                assert_eq!(org_id.to_string(), "00000000-0000-4000-8000-000000000001");
+                assert!(dry_run);
+                assert!(confirm.is_none());
+                assert!(requested_by.is_none());
+            }
+            _ => panic!("expected data purge-org"),
+        }
+
+        let cmd = parse(&[
+            "data",
+            "purge-org",
+            "--org-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--confirm",
+            "acme",
+            "--requested-by",
+            "ops@example.test",
+            "--reason",
+            "customer request 1234",
+        ])
+        .expect("parses");
+        assert!(matches!(
+            cmd,
+            Command::Data {
+                action: DataAction::PurgeOrg { dry_run: false, .. }
+            }
+        ));
+
+        // The org id is not optional: without it the verb would have to guess
+        // which tenant to erase.
+        assert!(parse(&["data", "purge-org", "--dry-run"]).is_err());
     }
 
     #[test]

@@ -33,7 +33,9 @@ async fn test_state() -> (AppState, Router) {
     RESET
         .get_or_init(|| async {
             let admin = connect_admin(&admin_url).await.expect("admin pool (reset)");
-            sqlx::query("DROP SCHEMA public CASCADE")
+            sqlx::query(
+            "DO $$ BEGIN DROP SCHEMA IF EXISTS ops CASCADE; DROP SCHEMA IF EXISTS public CASCADE; END $$",
+        )
                 .execute(&admin)
                 .await
                 .ok();

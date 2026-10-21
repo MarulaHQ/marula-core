@@ -67,7 +67,9 @@ validation / admission) rather than silently floating. */ -}}
 {{- end -}}
 
 {{- define "marula.dbUrl" -}}
-{{- if .Values.postgresql.deploy -}}
+{{- if .Values.pooler.enabled -}}
+{{- required "pooler.ownerUrl required when pooler.enabled=true" .Values.pooler.ownerUrl -}}
+{{- else if .Values.postgresql.deploy -}}
 postgres://{{ .Values.postgresql.ownerUser }}:{{ .Values.postgresql.ownerPassword | default "changeme-owner" }}@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
 {{- else -}}
 {{- required "postgresql.externalUrl required when postgresql.deploy=false" (.Values.postgresql.externalUrl) -}}
@@ -75,10 +77,32 @@ postgres://{{ .Values.postgresql.ownerUser }}:{{ .Values.postgresql.ownerPasswor
 {{- end -}}
 
 {{- define "marula.dbAppUrl" -}}
-{{- if .Values.postgresql.deploy -}}
+{{- if .Values.pooler.enabled -}}
+{{- required "pooler.appUrl required when pooler.enabled=true" .Values.pooler.appUrl -}}
+{{- else if .Values.postgresql.deploy -}}
 postgres://{{ .Values.postgresql.appUser }}:{{ .Values.postgresql.appPassword | default "changeme-app" }}@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
 {{- else -}}
 {{- required "postgresql.externalAppUrl required when postgresql.deploy=false" (.Values.postgresql.externalAppUrl) -}}
+{{- end -}}
+{{- end -}}
+
+{{- /* Those two DIRECT. Lane P9: a LISTEN subscription cannot survive a
+connection a transaction pooler hands to the next client, and the migration
+job's DDL wants a session nobody else takes. Both take the direct URL when a
+pooler is enabled and fall through to the normal one when it is not. */ -}}
+{{- define "marula.directAppUrl" -}}
+{{- if .Values.pooler.enabled -}}
+{{- required "pooler.directAppUrl required when pooler.enabled=true" .Values.pooler.directAppUrl -}}
+{{- else -}}
+{{- include "marula.dbAppUrl" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "marula.directOwnerUrl" -}}
+{{- if .Values.pooler.enabled -}}
+{{- required "pooler.directOwnerUrl required when pooler.enabled=true" .Values.pooler.directOwnerUrl -}}
+{{- else -}}
+{{- include "marula.dbUrl" . -}}
 {{- end -}}
 {{- end -}}
 

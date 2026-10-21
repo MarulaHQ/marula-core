@@ -216,6 +216,24 @@
       "stability": "stable",
       "summary": "SLA ladder verdicts enqueued by trigger class",
       "unit": "{verdict}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.db.page1_p95",
+      "producer": "worker capacity_watch::sample (measured by core-db capacity::sample_page1)",
+      "stability": "experimental",
+      "summary": "p95 of the page-1 ticket-list SQL for the install's largest org, against the 150 ms budget docs/perf.md sets",
+      "unit": "ms"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.db.page1_sort_index_scan",
+      "producer": "worker capacity_watch::sample (plan read by core-db capacity::sample_page1)",
+      "stability": "experimental",
+      "summary": "1 when the page-1 ORDER BY is served by an ordered index scan, 0 when the planner sorts",
+      "unit": "1"
     }
   ]
 }

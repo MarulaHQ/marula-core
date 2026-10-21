@@ -430,9 +430,19 @@ if [ "${MODE:-}" = "isolated" ]; then
   export DATABASE_URL="postgres://postgres:postgres@localhost:${PG_PORT}/${DB_NAME}"
   docker rm -f "marula-e2e-pg-$RUN_ID" >/dev/null 2>&1 || true
   echo "[e2e-stack] starting scratch Postgres marula-e2e-pg-$RUN_ID on port $PG_PORT"
+  # Same instrumentation the compose stack runs (deploy/docker-compose.yml):
+  # the query mix and the slow tail are what migration 0145 reads, so the
+  # test database has to collect them too. Keep the two lists in step.
   docker run -d --name "marula-e2e-pg-$RUN_ID" \
     -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=marula_test \
-    -p "$PG_PORT:5432" pgvector/pgvector:pg18 >/dev/null \
+    -p "$PG_PORT:5432" pgvector/pgvector:pg18 \
+    -c shared_preload_libraries=pg_stat_statements,auto_explain \
+    -c pg_stat_statements.max=10000 \
+    -c auto_explain.log_min_duration=200ms \
+    -c auto_explain.log_analyze=on \
+    -c auto_explain.log_buffers=on \
+    -c auto_explain.log_format=json \
+    -c io_method=worker >/dev/null \
     || die "could not start scratch Postgres (docker down?)"
   # `pg_isready` reports the SERVER, not the database: a connection to a DB that
   # does not exist still returns "accepting connections" (it logs a FATAL and

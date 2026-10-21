@@ -28,6 +28,8 @@
 //! | `marula.org.requests`        | counter     | org_id, status_class=1xx…5xx | per-org request rate and error ratio |
 //! | `marula.sla.sweep.duration`  | histogram (ms) | –                | sweep cost over time |
 //! | `marula.sla.verdicts`        | counter     | trigger=risk\|breach\|escalation | SLA breach counters (trigger="breach") |
+//! | `marula.db.page1_p95`        | gauge (ms)  | –                   | page-1 ticket-list p95 against the 150 ms budget; the F4 trigger |
+//! | `marula.db.page1_sort_index_scan` | gauge  | –                   | 1 when the page-1 sort rides an ordered index; 0 when it is materialized |
 //!
 //! The table above is the human view; [`crate::contract::METRICS`] is the
 //! machine view and the one an external consumer depends on. A metric that is
@@ -64,6 +66,8 @@ struct Instruments {
     backup_age_seconds: Gauge<u64>,
     sla_sweep: Histogram<f64>,
     sla_verdicts: Counter<u64>,
+    page1_p95_ms: Gauge<f64>,
+    page1_sort_index_scan: Gauge<u64>,
 }
 
 static INSTRUMENTS: OnceLock<Instruments> = OnceLock::new();
@@ -151,6 +155,15 @@ fn instruments() -> &'static Instruments {
             sla_verdicts: meter
                 .u64_counter("marula.sla.verdicts")
                 .with_description("SLA ladder verdicts enqueued by trigger class")
+                .build(),
+            page1_p95_ms: meter
+                .f64_gauge("marula.db.page1_p95")
+                .with_unit("ms")
+                .with_description("p95 of the page-1 ticket-list SQL against the 150 ms budget")
+                .build(),
+            page1_sort_index_scan: meter
+                .u64_gauge("marula.db.page1_sort_index_scan")
+                .with_description("1 when the page-1 ORDER BY rides an ordered index scan")
                 .build(),
         }
     })
@@ -324,6 +337,34 @@ pub fn sla_verdict(trigger: &str) {
         .add(1, &[KeyValue::new("trigger", trigger.to_string())]);
 }
 
+/// p95 of the page-1 ticket-list SQL, in milliseconds.
+///
+/// This is the F4 trigger's first arm (`docs/perf.md`): the measured page-1
+/// SQL p95 for the install's largest org. The budget and the threshold live in
+/// `core_db::capacity` (150 ms and two thirds of it) rather than here, because
+/// this module publishes numbers and does not own the decision rule.
+///
+/// Emitted only from a completed sample. There is no "0 ms" for an install
+/// that has not been sampled: absence is what the alert pack reads as "the
+/// sampler is not running yet", which is the truth until the scheduled job
+/// (`docs/perf.md` F4 names it) is wired.
+pub fn capacity_page1_p95(p95_ms: f64) {
+    instruments().page1_p95_ms.record(p95_ms, &[]);
+}
+
+/// Whether the page-1 ORDER BY is served by an ordered index scan.
+///
+/// The F4 trigger's second arm, as a boolean a rule can read directly: `1`
+/// when the plan reaches the sort tuple through an index (no `Sort` node), `0`
+/// when the planner materializes the sort. `docs/perf.md` F4 records `0` as the
+/// shape measured at 50k and the index it measured would make it `1`; the rule
+/// that reads this is opt-in for exactly that reason.
+pub fn capacity_page1_sort_index_scan(index_scan: bool) {
+    instruments()
+        .page1_sort_index_scan
+        .record(u64::from(index_scan), &[]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,6 +396,9 @@ mod tests {
         job_settled("automation.effects", JobOutcome::Dead, 900.0);
         sla_sweep(33.3);
         sla_verdict("breach");
+        capacity_page1_p95(31.4);
+        capacity_page1_sort_index_scan(false);
+        capacity_page1_sort_index_scan(true);
     }
 
     /// Every hook added for the premium observability pack has an entry in the
@@ -382,6 +426,8 @@ mod tests {
             "marula.backup.age_seconds",
             "marula.sla.sweep.duration",
             "marula.sla.verdicts",
+            "marula.db.page1_p95",
+            "marula.db.page1_sort_index_scan",
         ];
         let published: std::collections::BTreeSet<&str> =
             crate::contract::METRICS.iter().map(|m| m.name).collect();

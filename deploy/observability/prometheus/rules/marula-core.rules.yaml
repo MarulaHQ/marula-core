@@ -1,0 +1,416 @@
+# The Marula core alert pack.
+#
+# Purpose: turn the metric contract (`crates/core-otel/contract/metrics.v1.json`)
+# into rules an operator can act on. Every rule names the contract metric it
+# reads in its `metric` annotation, and `scripts/check-alert-rules.mjs` fails if
+# that name is not in the contract, if the exported series name derived from it
+# does not appear in the expression, or if the runbook it points at does not
+# name the alert back.
+#
+# Thresholds are derived, not borrowed. Each rule's comment states the value it
+# is compared against and where that value comes from: a documented cadence in
+# `docs/worker-cadence.md`, a documented budget in `docs/perf.md`, or a bound
+# the code enforces. A threshold with no citation is the thing this pack
+# refuses to ship.
+#
+# Severity is a delivery promise, not a volume knob:
+#   page   — a person is woken. The product is losing events, data, or is down.
+#   ticket — next business day. Something is stuck or degrading and will not fix
+#            itself, but no data is being lost right now.
+#
+# Absence is a first-class case. The collector drops a series it has not
+# received in 5 minutes (`metric_expiration`), so "no data" is normal for
+# gauges that only report on activity (`marula_outbox_lag_ms_milliseconds`,
+# `marula_queue_dead_age_seconds`). A rule that reads such a gauge therefore
+# never alerts on absence; the one series that is expected continuously
+# (`marula_queue_depth`, written every queue tick) carries the worker-heartbeat
+# rule instead.
+
+groups:
+  # ---------------------------------------------------------------------------
+  # Ingest. Before any other rule can be trusted, the pipeline has to be
+  # delivering samples at all.
+  # ---------------------------------------------------------------------------
+  - name: marula-ingest
+    interval: 30s
+    rules:
+      - alert: MarulaCollectorDown
+        expr: up{job="otel-collector"} == 0
+        for: 5m
+        labels:
+          severity: page
+          surface: telemetry
+        annotations:
+          summary: "The OTel collector is not answering scrapes"
+          description: >-
+            The collector has failed {{ $value | humanize }} scrapes in a row for
+            five minutes. Every marula series is stale from this moment, so no
+            other rule in this pack can fire even if the product has failed.
+            Check the collector container, then the collector's own log for a
+            failed exporter.
+          metric: up
+          runbook: deploy/observability/runbooks/telemetry-blind.md
+
+      # The worker's queue loop writes `marula.queue.depth` on every tick
+      # (`QUEUE_IDLE_MS`, default 500 ms) whether or not there is work, so this
+      # gauge is the heartbeat the pack can rely on. Absence means the loop is
+      # not running or the worker cannot reach Postgres — the depth query is
+      # skipped on error and a failed query writes nothing — so both cases page
+      # here and `database-down.md` is the first branch of the runbook.
+      #
+      # Timing: the collector keeps a stale series for 5 minutes and this rule
+      # waits 4 more, so a page lands about 9 minutes after the last tick. That
+      # is the floor without a heartbeat the exporter never expires; a
+      # dedicated `marula.worker.up` gauge would shorten it and is recorded as a
+      # gap in the README.
+      #
+      # One documented false positive: a replica started with
+      # `WORKER_ROLES=housekeeping` runs no queue loop and is legitimately
+      # silent. A split-role install must run the rule against a `realtime`
+      # replica — which is the replica that carries delivery — or drop it.
+      - alert: MarulaWorkerNotReporting
+        expr: absent(marula_queue_depth)
+        for: 4m
+        labels:
+          severity: page
+          surface: worker
+        annotations:
+          summary: "The worker is not reporting a queue depth"
+          description: >-
+            `marula_queue_depth` has had no sample for four minutes after the
+            collector's five-minute expiry, so the worker's queue loop is either
+            not running or cannot read its own database. No jobs are being
+            claimed and no events are being relayed while this lasts.
+          metric: marula.queue.depth
+          runbook: deploy/observability/runbooks/worker-down.md
+
+  # ---------------------------------------------------------------------------
+  # The event pipeline: outbox to stream to consumer.
+  # ---------------------------------------------------------------------------
+  - name: marula-event-pipeline
+    interval: 30s
+    rules:
+      # `marula.outbox.lag_ms` is the age of the OLDEST unpublished outbox row
+      # at the last relay pass, recorded only when a pass found rows to publish.
+      # So a quiet outbox reports nothing, and this rule cannot fire on a healthy
+      # idle system.
+      #
+      # 30 s is six relay safety polls (`RELAY_POLL_MS`, default 5000 in
+      # `docs/worker-cadence.md`). Delivery is notification-driven, so a row
+      # that is still unpublished after six backstop polls means the listener
+      # path is down AND the backstop is not clearing the backlog: either the
+      # worker is wedged or the publish is failing.
+      #
+      # What this rule cannot see: a relay that has stopped entirely produces no
+      # samples at all, not a growing one. That failure is caught by
+      # `MarulaWorkerNotReporting`, which is why it is a page too.
+      #
+      # One wart worth knowing: the collector carries the last sample for five
+      # minutes, so a stall that lasted long enough to record a high lag and then
+      # recovered can still reach `for: 2m` and page once. That is the price of
+      # catching a wedged relay, and 30 s of lag is already six missed backstops,
+      # so the page is not wrong even when it is late.
+      - alert: MarulaOutboxLagHigh
+        expr: max(marula_outbox_lag_ms_milliseconds) > 30000
+        for: 2m
+        labels:
+          severity: page
+          surface: pipeline
+        annotations:
+          summary: "Events are not reaching the stream (outbox lag {{ $value }} ms)"
+          description: >-
+            The oldest unpublished outbox row is {{ $value | humanizeDuration }}
+            old. At six relay safety polls of lag the wakeup path is not
+            delivering and the backstop is not keeping up either. Every
+            downstream surface — live updates, webhooks, automations, workflows
+            — is behind by at least this much.
+          metric: marula.outbox.lag_ms
+          runbook: deploy/observability/runbooks/backlog.md
+
+      # One full safety poll of lag, sustained. Not a page: nothing is stuck,
+      # the notification path is merely being carried by the 5 s backstop, which
+      # still delivers. This is the early warning that the listener is flapping.
+      - alert: MarulaOutboxLagWarn
+        expr: max(marula_outbox_lag_ms_milliseconds) > 5000
+        for: 10m
+        labels:
+          severity: ticket
+          surface: pipeline
+        annotations:
+          summary: "Outbox lag is riding the relay safety poll"
+          description: >-
+            Lag has stayed above the relay's 5 s safety poll for ten minutes, so
+            delivery is being done by polling rather than by the notification
+            listener. Delivery still happens, one backstop interval behind.
+          metric: marula.outbox.lag_ms
+          runbook: deploy/observability/runbooks/backlog.md
+
+      # The oldest unacknowledged stream entry. This is the consumer-side twin
+      # of outbox lag and the only honest measure of "is the pipeline keeping
+      # up", because it measures the age of work not yet done rather than a
+      # count.
+      #
+      # 300 s: a consumer retries a failing entry from 250 ms doubling to a 10 s
+      # cap, so five minutes is thirty retries of one entry — long past any
+      # provider blip and into "this entry is poisoning the group". The gauge is
+      # exactly 0 while the pending list is empty, so silence is not a risk here.
+      - alert: MarulaConsumerPendingAgeHigh
+        expr: max by (group) (marula_consumer_oldest_pending_age_seconds) > 300
+        for: 10m
+        labels:
+          severity: page
+          surface: pipeline
+        annotations:
+          summary: "Consumer group {{ $labels.group }} has held an entry for {{ $value | humanizeDuration }}"
+          description: >-
+            The oldest unacknowledged entry in {{ $labels.group }} is
+            {{ $value | humanizeDuration }} old. That entry is blocking nothing
+            behind it (the harness acknowledges after it gives up), so the effect
+            is repeated retries of one unit of work, and the side effect of
+            those retries may repeat with it.
+          metric: marula.consumer.oldest_pending_age_seconds
+          runbook: deploy/observability/runbooks/dead-letter.md
+
+      # Pending-list depth: entries delivered and not yet acknowledged. A group
+      # normally sits near zero. Depth that persists means handlers are failing
+      # or slower than the stream.
+      #
+      # 500 entries: one percent of the 50,000-entry stream bound
+      # (`MARULA_EVENT_STREAM_MAXLEN`), which is the point where a backlog is
+      # visible in the PEL rather than a transient.
+      - alert: MarulaConsumerPelDepthHigh
+        expr: max by (group) (marula_consumer_pel_depth) > 500
+        for: 15m
+        labels:
+          severity: ticket
+          surface: pipeline
+        annotations:
+          summary: "Consumer group {{ $labels.group }} is not acknowledging"
+          description: >-
+            {{ $value | humanize }} entries are delivered to {{ $labels.group }}
+            and unacknowledged. Handlers are failing or not keeping up; the
+            retry budget is being spent rather than work being done.
+          metric: marula.consumer.pel_depth
+          runbook: deploy/observability/runbooks/dead-letter.md
+
+      # `marula.consumer.lag` is entries not yet delivered at all. It is
+      # explicitly absent when the server cannot tell, and absent between start
+      # and the first pass, so this rule fires on a value and never on a gap.
+      #
+      # 5,000 entries is ten percent of the stream bound: past that, a
+      # consumer's catch-up is measured in tens of minutes and the stream's own
+      # MAXLEN trimming starts to risk the tail it has not read.
+      - alert: MarulaConsumerLagHigh
+        expr: max by (group) (marula_consumer_lag) > 5000
+        for: 15m
+        labels:
+          severity: ticket
+          surface: pipeline
+        annotations:
+          summary: "Consumer group {{ $labels.group }} is {{ $value | humanize }} entries behind"
+          description: >-
+            {{ $labels.group }} has not been delivered {{ $value | humanize }}
+            stream entries. The stream keeps the newest 50,000, so a lag that
+            keeps growing will eventually be trimmed rather than delivered.
+          metric: marula.consumer.lag
+          runbook: deploy/observability/runbooks/backlog.md
+
+  # ---------------------------------------------------------------------------
+  # The job queue and its dead letters.
+  # ---------------------------------------------------------------------------
+  - name: marula-queue
+    interval: 30s
+    rules:
+      # The dashboard panel that described this wrote it as a suggestion
+      # ("alert: dead > 0 sustained"). This is that rule. Fifteen minutes is the
+      # shortest window that is not a retry: a job reaches `dead` only after its
+      # retry budget is spent, so a job still sitting there after a quarter of an
+      # hour needs a person to look at it.
+      #
+      # A ticket, not a page: a dead job is a stuck unit of work, not lost
+      # traffic. Webhook deliveries are the exception in practice, which is why
+      # they have their own rate rule below.
+      - alert: MarulaQueueDeadDetected
+        expr: max(marula_queue_depth{state="dead"}) > 0
+        for: 15m
+        labels:
+          severity: ticket
+          surface: queue
+        annotations:
+          summary: "{{ $value | humanize }} dead-lettered job(s) are waiting"
+          description: >-
+            {{ $value | humanize }} jobs are in the dead state. Each one gave up
+            after its retry budget. The redrive path and the two queries that
+            name them are in the runbook.
+          metric: marula.queue.depth
+          runbook: deploy/observability/runbooks/dead-letter.md
+
+      # `marula.queue.dead_age_seconds` is the age of the OLDEST dead job and is
+      # absent entirely while none is dead, so this rule cannot fire on an empty
+      # queue and cannot fire on absence.
+      #
+      # One day: a dead job that has survived a full day has outlived the daily
+      # sweep cadence and the working day of whoever was on call. It also
+      # escalates the dead-letter case from "queue it" to "page", because the
+      # payload is now a day stale and a customer-visible delivery is a day late.
+      - alert: MarulaQueueDeadAgeHigh
+        expr: max(marula_queue_dead_age_seconds) > 86400
+        for: 10m
+        labels:
+          severity: page
+          surface: queue
+        annotations:
+          summary: "A dead-lettered job is {{ $value | humanizeDuration }} old"
+          description: >-
+            The oldest dead job is {{ $value | humanizeDuration }} old. Nobody
+            has triaged it. Whatever it was going to do has not happened for a
+            day.
+          metric: marula.queue.dead_age_seconds
+          runbook: deploy/observability/runbooks/dead-letter.md
+
+      # Webhook deliveries that reached `dead`. The counter is settlements, so a
+      # rate over zero means a new delivery gave up inside the window — which is
+      # both a customer integration silently missing events and the clearest
+      # available proxy for "the receiver is failing".
+      #
+      # One death in fifteen minutes is enough for a ticket: webhook volume is
+      # low per install, and a receiver that refuses one delivery usually refuses
+      # the next. It is not a page because a receiver being down is the
+      # customer's outage, not this install's.
+      - alert: MarulaWebhookDeliveryDead
+        expr: sum(rate(marula_queue_jobs_total{kind="webhook.deliver", outcome="dead"}[15m])) > 0
+        for: 5m
+        labels:
+          severity: ticket
+          surface: queue
+        annotations:
+          summary: "A webhook delivery gave up"
+          description: >-
+            A `webhook.deliver` job reached the dead state in the last fifteen
+            minutes. The receiver is refusing, slow, or gone. The delivery-attempt
+            ledger names the response code for each attempt.
+          metric: marula.queue.jobs
+          runbook: deploy/observability/runbooks/dead-letter.md
+
+      # Pending depth. The queue tick is 500 ms (`QUEUE_IDLE_MS`) and jobs are
+      # claimed in batches, so a healthy queue is empty most of the time. 500
+      # pending that stays pending for a quarter of an hour is a queue that is
+      # not draining.
+      - alert: MarulaQueueBacklog
+        expr: max(marula_queue_depth{state="pending"}) > 500
+        for: 15m
+        labels:
+          severity: ticket
+          surface: queue
+        annotations:
+          summary: "{{ $value | humanize }} jobs are waiting to be claimed"
+          description: >-
+            {{ $value | humanize }} jobs have been pending for fifteen minutes.
+            The queue is not draining: either claims are failing, or the work
+            itself is slower than the arrival rate.
+          metric: marula.queue.depth
+          runbook: deploy/observability/runbooks/backlog.md
+
+      # Retries as a share of all settlements. This is the pack's provider-error
+      # signal: a dependency that is failing turns settled jobs into retried
+      # jobs, whatever the dependency is.
+      #
+      # 25 percent: below that, retries are a normal tail (a webhook receiver
+      # restarting, one flaky endpoint). At a quarter of settlements retrying for
+      # a quarter of an hour, the retry budget is the thing keeping the system
+      # working and it is finite.
+      - alert: MarulaJobRetryRatioHigh
+        expr: >-
+          sum(rate(marula_queue_jobs_total{outcome="retried"}[10m]))
+          /
+          clamp_min(sum(rate(marula_queue_jobs_total[10m])), 0.001)
+          > 0.25
+        for: 15m
+        labels:
+          severity: ticket
+          surface: queue
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of job settlements are retries"
+          description: >-
+            {{ $value | humanizePercentage }} of job settlements in the last ten
+            minutes were retries. A dependency is failing often enough that the
+            retry budget, not the work, is absorbing it.
+          metric: marula.queue.jobs
+          runbook: deploy/observability/runbooks/provider-down.md
+
+      # Claim-to-settle latency per job kind. `marula.queue.claim_to_apply` is a
+      # histogram of one job's life from claim to settle, so this is "work is
+      # slow", not "the queue tick is late".
+      #
+      # 30 s: the queue's own retry policy for a consumer subsystem caps a single
+      # backoff at 10 s, and a job kind whose p95 exceeds three capped backoffs
+      # is a job kind that is stalling on a dependency.
+      - alert: MarulaJobLatencyHigh
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (le, kind) (rate(marula_queue_claim_to_apply_milliseconds_bucket[10m]))
+          ) > 30000
+        for: 15m
+        labels:
+          severity: ticket
+          surface: queue
+        annotations:
+          summary: "{{ $labels.kind }} jobs take {{ $value | humanizeDuration }} at p95"
+          description: >-
+            p95 claim-to-settle for {{ $labels.kind }} is
+            {{ $value | humanizeDuration }}. The job kind is waiting on
+            something, and whatever enqueues it is waiting too.
+          metric: marula.queue.claim_to_apply
+          runbook: deploy/observability/runbooks/provider-down.md
+
+      # Parked workflow runs are legitimate — an approval step can wait days.
+      # The failure this catches is the one the reconciliation row describes: a
+      # run parked on a resume job that died, sitting `waiting` forever.
+      #
+      # Seven days matches the workflow run retention default (`workflow.
+      # run_retention_days`), which is the window after which the run's own
+      # record is swept. The gauge is absent while nothing is parked.
+      - alert: MarulaWorkflowParkedRunStale
+        expr: max(marula_workflow_parked_run_age_seconds) > 604800
+        for: 1h
+        labels:
+          severity: ticket
+          surface: workflow
+        annotations:
+          summary: "A workflow run has been parked for {{ $value | humanizeDuration }}"
+          description: >-
+            The oldest parked run is {{ $value | humanizeDuration }} idle. A run
+            parked past the retention window is one whose wakeup is never
+            coming; the resume job that owns it is gone.
+          metric: marula.workflow.parked_run_age_seconds
+          runbook: deploy/observability/runbooks/backlog.md
+
+  # ---------------------------------------------------------------------------
+  # Sweeps. A sweep that cannot finish inside its own cadence is a sweep that
+  # stops running, and SLA evaluation stopping is silent by nature.
+  # ---------------------------------------------------------------------------
+  - name: marula-sweeps
+    interval: 30s
+    rules:
+      # The SLA sweep runs every 60 s (`EVAL_INTERVAL_SECS`). p95 over 30 s
+      # means the sweep spends half its cadence doing nothing else, and the next
+      # one starts late; at 60 s it never keeps up at all. The threshold is the
+      # halfway mark because that is where a slow sweep becomes a permanent
+      # backlog rather than a slow pass.
+      - alert: MarulaSlaSweepSlow
+        expr: >-
+          histogram_quantile(0.95,
+            sum by (le) (rate(marula_sla_sweep_duration_milliseconds_bucket[30m]))
+          ) > 30000
+        for: 15m
+        labels:
+          severity: ticket
+          surface: workflow
+        annotations:
+          summary: "The SLA sweep is taking {{ $value | humanizeDuration }} at p95"
+          description: >-
+            SLA evaluation takes {{ $value | humanizeDuration }} at p95 against a
+            60 s cadence. Breach detection trails by at least that much, and the
+            sweep's own claim window starts to overlap.
+          metric: marula.sla.sweep.duration
+          runbook: deploy/observability/runbooks/backlog.md

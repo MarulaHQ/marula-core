@@ -1,0 +1,170 @@
+# Rule unit tests — `promtool test rules`.
+#
+# Purpose: prove each rule in this pack fires when its signal is bad and stays
+# quiet when it is not, with no Prometheus, no stack and no database. `promtool`
+# synthesises the input series, evaluates the rules on a fake clock and compares
+# the resulting alerts. That makes a threshold change a test failure rather than
+# a discovery at 03:00.
+#
+# Running it (the image pin is the same one the stack scrapes through):
+#
+#   docker run --rm --entrypoint promtool \
+#     -v "$PWD/deploy/observability/prometheus:/p:ro" \
+#     prom/prometheus@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218 \
+#     test rules /p/tests/marula-core.test.yaml
+#
+# `scripts/check-alert-rules.mjs` runs that command when docker is available and
+# says so when it is not.
+#
+# Maintenance note: promtool compares annotations EXACTLY, including the text the
+# alert template renders. If you edit an annotation, re-run the test: the failure
+# prints a `got:` block with the new labels and annotations, which is what
+# belongs in `exp_annotations` below.
+#
+# Non-purpose: this does not test that a series is exported with the name the
+# rule uses. That is `check-alert-rules.mjs`'s job, derived from the contract.
+
+rule_files:
+  - /p/rules/marula-core.rules.yaml
+  - /p/rules/marula-slo.rules.yaml
+  - /p/rules/marula-backup.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The outbox alert is a page on sustained lag and silence on a quiet outbox.
+  # The quiet arm matters more than the firing arm: the gauge is only written
+  # when a pass found rows, so a rule that fired on absence would page every
+  # healthy install.
+  - interval: 1m
+    input_series:
+      - series: 'marula_outbox_lag_ms_milliseconds'
+        values: '0x5 40000x12'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MarulaOutboxLagHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: MarulaOutboxLagHigh
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              surface: pipeline
+            exp_annotations:
+              summary: "Events are not reaching the stream (outbox lag 40000 ms)"
+              description: "The oldest unpublished outbox row is 11h 6m 40s old. At six relay safety polls of lag the wakeup path is not delivering and the backstop is not keeping up either. Every downstream surface — live updates, webhooks, automations, workflows — is behind by at least this much."
+              metric: "marula.outbox.lag_ms"
+              runbook: "deploy/observability/runbooks/backlog.md"
+
+  # Dead depth is the rule the dashboard promised ("alert on dead > 0
+  # sustained"). One dead job is enough; the `for` is what makes it sustained.
+  - interval: 1m
+    input_series:
+      - series: 'marula_queue_depth{state="dead"}'
+        values: '3x20'
+      - series: 'marula_queue_depth{state="pending"}'
+        values: '0x20'
+      - series: 'marula_queue_depth{state="running"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: MarulaQueueDeadDetected
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: MarulaQueueDeadDetected
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              surface: queue
+            exp_annotations:
+              summary: "3 dead-lettered job(s) are waiting"
+              description: "3 jobs are in the dead state. Each one gave up after its retry budget. The redrive path and the two queries that name them are in the runbook."
+              metric: "marula.queue.depth"
+              runbook: "deploy/observability/runbooks/dead-letter.md"
+
+  # The worker heartbeat is an absence rule: the queue depth stops being
+  # written, five minutes of exporter retention pass, then four minutes of
+  # `for`. A present, healthy series must never fire it.
+  - interval: 1m
+    input_series:
+      - series: 'marula_queue_depth{state="pending"}'
+        values: '2x9 stale'
+      - series: 'marula_queue_depth{state="dead"}'
+        values: '0x9 stale'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: MarulaWorkerNotReporting
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: MarulaWorkerNotReporting
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              surface: worker
+            exp_annotations:
+              summary: "The worker is not reporting a queue depth"
+              description: "`marula_queue_depth` has had no sample for four minutes after the collector's five-minute expiry, so the worker's queue loop is either not running or cannot read its own database. No jobs are being claimed and no events are being relayed while this lasts."
+              metric: "marula.queue.depth"
+              runbook: "deploy/observability/runbooks/worker-down.md"
+
+  # Fast burn needs both windows over 14.4x the 0.1% budget: 2% of requests
+  # failing is twenty times the budget and must page; 0.01% is a tenth of it and
+  # must not.
+  - interval: 1m
+    input_series:
+      - series: 'marula_http_requests_total{status="200", route="/api/v1/tickets", method="GET"}'
+        values: '0+980x20'
+      - series: 'marula_http_requests_total{status="500", route="/api/v1/tickets", method="GET"}'
+        values: '0+20x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: MarulaApiAvailabilityBurnFast
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: api-availability
+              surface: api
+            exp_annotations:
+              summary: "API availability is burning its monthly budget in hours"
+              description: "Five-letter errors are 2% of requests over the last hour, more than fourteen times the 0.1% the 99.9% objective allows. At this rate the month's budget is gone in about two days."
+              metric: "marula.http.requests"
+              runbook: "deploy/observability/runbooks/api-errors.md"
+
+  - interval: 1m
+    input_series:
+      - series: 'marula_http_requests_total{status="200", route="/api/v1/tickets", method="GET"}'
+        values: '0+9999x20'
+      - series: 'marula_http_requests_total{status="500", route="/api/v1/tickets", method="GET"}'
+        values: '0+1x20'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: MarulaApiAvailabilityBurnFast
+        exp_alerts: []
+
+  # The 26-hour backup threshold: a night and a bit is quiet, missing a whole
+  # night is a page.
+  - interval: 1m
+    input_series:
+      - series: 'marula_backup_age_seconds'
+        values: '90000x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MarulaBackupStale
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'marula_backup_age_seconds'
+        values: '100000x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: MarulaBackupStale
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              surface: backup
+            exp_annotations:
+              summary: "The last successful backup is 1d 3h 46m 40s old"
+              description: "The backup stamp says the last pass that finished without an error was 1d 3h 46m 40s ago, against a nightly schedule. Either last night's pass failed or the runner is not running; the runner's own log says which, and the stamp is only written when every layer succeeded."
+              metric: "marula.backup.age_seconds"
+              runbook: "deploy/observability/runbooks/restore-from-backup.md"
