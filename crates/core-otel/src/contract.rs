@@ -20,6 +20,13 @@
 //!   must be written deliberately. The old file stays in the tree: it is the
 //!   contract a consumer built against, and it must keep explaining what that
 //!   consumer can rely on.
+//! * Adding a descriptor is the one change that does NOT need a bump. A new
+//!   metric takes nothing away from a consumer: every entry the artifact
+//!   already listed keeps its name, kind, unit and attributes, so the file
+//!   stays truthful for anyone who built against it. The current version's
+//!   artifact is rewritten in place and the diff should be purely additive —
+//!   a rule pack derives its series names from this file, and a bump would
+//!   orphan every rule that has not been repointed yet.
 //!
 //! Stability meanings (the consumer's side of the promise):
 //!
@@ -270,6 +277,24 @@ pub const METRICS: &[MetricDescriptor] = &[
         stability: Stability::Stable,
         producer: "worker sla_sweep::sweep_inner",
         summary: "SLA ladder verdicts enqueued by trigger class",
+    },
+    MetricDescriptor {
+        name: "marula.db.page1_p95",
+        kind: MetricKind::Gauge,
+        unit: "ms",
+        attributes: &[],
+        stability: Stability::Experimental,
+        producer: "worker capacity_watch::sample (measured by core-db capacity::sample_page1)",
+        summary: "p95 of the page-1 ticket-list SQL for the install's largest org, against the 150 ms budget docs/perf.md sets",
+    },
+    MetricDescriptor {
+        name: "marula.db.page1_sort_index_scan",
+        kind: MetricKind::Gauge,
+        unit: "1",
+        attributes: &[],
+        stability: Stability::Experimental,
+        producer: "worker capacity_watch::sample (plan read by core-db capacity::sample_page1)",
+        summary: "1 when the page-1 ORDER BY is served by an ordered index scan, 0 when the planner sorts",
     },
 ];
 

@@ -187,6 +187,30 @@ a literal for the org filter, not `gen_random_uuid()` or another volatile
 expression: a volatile predicate stops the planner from using any index, and
 the plan will say so.
 
+## Watching the F4 trigger
+
+`docs/perf.md` F4 deferred that index with a condition attached: look again when
+page-1 p95 reaches about two thirds of the budget, or when the sort plan
+regresses. Both halves are metrics now, emitted by the worker's
+`capacity_watch` sample:
+
+| Metric | Unit | Means |
+|---|---|---|
+| `marula.db.page1_p95` | `ms` | p95 of the endpoint's page-1 statement, timed on the install's largest org |
+| `marula.db.page1_sort_index_scan` | `1` | `1` when the ORDER BY is served by an ordered index scan, `0` when the planner materializes the sort |
+
+The plan arm is read from `ops.explain_plan` on the same statement the endpoint
+issues, with its binds filled in, so the signal cannot drift from the query. The
+latency arm runs warmups and forty timed requests, which is a measurement rather
+than a probe: it belongs to a scheduled job, and until one runs, both series are
+absent.
+
+Two rules read them. `marula-capacity-trigger.rules.yaml` fires at 100ms, which
+is two thirds of the 150ms budget, as a ticket. `rules-optin/marula-capacity-plan-shape.rules.yaml`
+watches the plan, opt-in because `0` is the shape F4 measured and accepted, not a
+fault. `deploy/observability/runbooks/capacity-trigger.md` is the response to
+both.
+
 ## Managed Postgres
 
 Checked 2026-10-21 against each provider's current extension documentation. The

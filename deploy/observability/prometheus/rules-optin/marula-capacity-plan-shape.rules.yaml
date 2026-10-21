@@ -1,0 +1,61 @@
+# Opt-in rules — load these only after wiring the signal they check.
+#
+# Files in this directory are NOT in the shipped stack's default rule set:
+# `prometheus.yml` loads them, but the loader is a separate glob so that a
+# deployment can mount `rules/` alone. Each file here states the one piece of
+# configuration that must be true before it is switched on, because a rule that
+# fires on a signal nobody configured is a false page, and a false page teaches
+# people to ignore the pack.
+#
+# This file is lane P14's (`p52-capacity-trigger-watch`). The alert pack itself
+# is lane R7b's (`p52-alert-pack-runbooks`); when that pack lands, this file
+# belongs in its coverage table and its runbook index, and until then it stands
+# alone so the signal is not shipped without a reader.
+
+groups:
+  - name: marula-capacity-plan-optin
+    interval: 1m
+    rules:
+      # Requires: `docs/perf.md` F4's candidate index on the ticket list has
+      # shipped (or the plan shape has been re-baselined to something else). The
+      # sampler itself has to be scheduled too, or there is no series to read.
+      #
+      # Why opt-in rather than default: the value is 0 on every install today,
+      # and 0 is not a defect — F4 recorded a top-N heapsort over the org's rows
+      # at 50k and judged it fine. A default rule on `== 0` would fire on every
+      # healthy install and teach the operator to ignore it. What the trigger
+      # actually promises is "revisit whenever the SQL sort plan regresses", and
+      # a regression is only distinguishable from the recorded baseline once an
+      # ordered index path exists to lose.
+      #
+      # The expression: `min_over_time(...[6h]) == 0` is "at least one sample in
+      # the last six hours found the sort materialized". The window is the same
+      # six hours the latency arm uses, for the same reason — the sample is slow,
+      # so the window is what makes it visible. Absence of the series produces
+      # nothing, so a stopped sampler cannot raise this.
+      #
+      # `_ratio` on the name is not a publisher's flourish. The metric is a
+      # dimensionless gauge (`unit: 1` in
+      # `crates/core-otel/contract/metrics.v1.json`), and the OTel-to-Prometheus
+      # translation appends `_ratio` to those. `scripts/check-alert-rules.mjs`
+      # derives the same name from the contract, so a rename there fails the
+      # check instead of orphaning this rule.
+      - alert: MarulaPage1SortPlanLostItsIndex
+        expr: min_over_time(marula_db_page1_sort_index_scan_ratio[6h]) == 0
+        for: 1h
+        labels:
+          severity: ticket
+          surface: capacity
+        annotations:
+          summary: "The page-1 ticket sort is materialized, not index-backed"
+          description: >-
+            A sample in the last six hours found no ordered index path for the
+            page-1 ORDER BY: the planner is sorting the org's rows again, which is
+            the regression clause of `docs/perf.md` F4's trigger. If the F4 index
+            never shipped, this install is on the baseline F4 accepted and the
+            rule should not have been loaded — check the prerequisite above first.
+            If it did ship, something took the ordered path away: a dropped index,
+            a reordered sort tuple, or a statistics change that made the index
+            look expensive.
+          metric: marula.db.page1_sort_index_scan
+          runbook: deploy/observability/runbooks/capacity-trigger.md

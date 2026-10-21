@@ -20,6 +20,7 @@ pub mod automations;
 pub mod boards;
 pub mod byok;
 pub mod calendar_sync;
+pub mod capacity;
 pub mod catalog;
 pub mod checklists;
 pub mod client_completeness;
