@@ -1598,6 +1598,12 @@ impl PluginInstallStatus {
             Self::Revoked => "revoked",
         }
     }
+
+    /// Terminal-state predicate. Revocation is the only status nothing
+    /// leaves, so callers branch on it by name rather than by variant.
+    pub fn is_revoked(&self) -> bool {
+        matches!(self, Self::Revoked)
+    }
 }
 
 // --- ADR 0009 distribution: sources, staged imports, provenance, settings ----
@@ -1657,6 +1663,14 @@ pub enum PluginArtifactKind {
     /// validated against the theme-token schema, zero code, zero
     /// capabilities (restyle-only by construction).
     Theme,
+    /// The identity-bundle artifact: the declarative half of a pluggable
+    /// identity source (name, version, interface version, provider kinds,
+    /// settings schema, upstream scopes). It rides the SAME staged
+    /// consent diff and the SAME provenance chain as a plugin, and it
+    /// lands DISABLED. Its executable half is a core-side adapter
+    /// registered through `FederationBundle`; sessions, tokens and MFA
+    /// stay in core, and no `auth:*` capability exists for it to hold.
+    IdentityBundle,
 }
 
 impl PluginArtifactKind {
@@ -1665,6 +1679,7 @@ impl PluginArtifactKind {
             PluginArtifactKind::Plugin => "plugin",
             PluginArtifactKind::Skill => "skill",
             PluginArtifactKind::Theme => "theme",
+            PluginArtifactKind::IdentityBundle => "identity_bundle",
         }
     }
 
@@ -1673,6 +1688,7 @@ impl PluginArtifactKind {
             "plugin" => Some(Self::Plugin),
             "skill" => Some(Self::Skill),
             "theme" => Some(Self::Theme),
+            "identity_bundle" => Some(Self::IdentityBundle),
             _ => None,
         }
     }
@@ -1750,6 +1766,9 @@ pub struct PluginStagedItem {
     /// Wave 24: the theme-pack row minted on approval of a `theme`
     /// staged item.
     pub adopted_theme_pack_id: Option<Uuid>,
+    /// The identity-bundle install minted on approval of an
+    /// `identity_bundle` staged item.
+    pub adopted_identity_bundle_id: Option<Uuid>,
 }
 
 /// One link of the append-only provenance chain
@@ -2352,6 +2371,27 @@ mod tests {
         for k in PluginSourceKind::ALL {
             assert_eq!(PluginSourceKind::parse(k.as_str()).expect("round trip"), k);
         }
+    }
+
+    #[test]
+    fn artifact_kinds_should_round_trip_and_the_vocabulary_stays_closed() {
+        for k in [
+            PluginArtifactKind::Plugin,
+            PluginArtifactKind::Skill,
+            PluginArtifactKind::Theme,
+            PluginArtifactKind::IdentityBundle,
+        ] {
+            assert_eq!(
+                PluginArtifactKind::parse(k.as_str()).expect("round trip"),
+                k
+            );
+        }
+        assert_eq!(
+            PluginArtifactKind::IdentityBundle.as_str(),
+            "identity_bundle"
+        );
+        assert_eq!(PluginArtifactKind::parse("auth_bundle"), None);
+        assert_eq!(PluginArtifactKind::parse("identity"), None);
     }
 
     #[test]

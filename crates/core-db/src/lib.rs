@@ -51,6 +51,7 @@ pub mod export;
 pub mod federation;
 pub mod fx;
 pub mod hardening;
+pub mod identity_bundles;
 pub mod imports;
 pub mod instant;
 pub mod integrations;

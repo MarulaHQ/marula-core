@@ -567,6 +567,7 @@ async fn stage_bundle(
         adopted_install_id: None,
         adopted_skill_id: None,
         adopted_theme_pack_id: None,
+        adopted_identity_bundle_id: None,
     };
     let view = StagedItemView::from(item.clone());
     org_tx::with_org_tx(state, org_id, actor, |mut tx| async move {
@@ -946,8 +947,12 @@ pub async fn approve_staged(
             }
         }
         let granted_keys: Vec<String> = requested.iter().map(|c| c.as_str().to_string()).collect();
-        let (adopted_install_id, adopted_skill_id, adopted_theme_pack_id) = match item.artifact_kind
-        {
+        let (
+            adopted_install_id,
+            adopted_skill_id,
+            adopted_theme_pack_id,
+            adopted_identity_bundle_id,
+        ) = match item.artifact_kind {
             PluginArtifactKind::Plugin => {
                 let manifest: PluginManifestV2 = serde_json::from_value(item.manifest.clone())
                     .map_err(|e| {
@@ -1086,7 +1091,7 @@ pub async fn approve_staged(
                     },
                 )
                 .await?;
-                (Some(install.id), None, None)
+                (Some(install.id), None, None, None)
             }
             PluginArtifactKind::Skill => {
                 // Skills reuse the 0040 versioned-rows seam (append-only
@@ -1126,7 +1131,7 @@ pub async fn approve_staged(
                     &item.manifest,
                 )
                 .await?;
-                (None, Some(row.id), None)
+                (None, Some(row.id), None, None)
             }
             PluginArtifactKind::Theme => {
                 // Wave 24: approving a staged theme pack MINTS the org's
@@ -1164,7 +1169,79 @@ pub async fn approve_staged(
                     actor,
                 )
                 .await?;
-                (None, None, Some(pack.id))
+                (None, None, Some(pack.id), None)
+            }
+            PluginArtifactKind::IdentityBundle => {
+                // Approving a staged identity bundle MINTS the install
+                // row, landing DISABLED — approval adopts the artifact,
+                // activation is the separate audited admin act that
+                // `auth::identity_bundle_service::apply_action` performs.
+                //
+                // The capability refusal is restated HERE rather than
+                // trusted to ingest: a staged row can outlive a code
+                // change, and "an identity bundle confers no Marula
+                // capability" has to hold at the moment of adoption, not
+                // only at the moment of upload.
+                if !item.declared_capabilities.is_empty() || !granted_keys.is_empty() {
+                    return Err(ApiError::Conflict(
+                        "an identity bundle confers no Marula capability; the consent screen \
+                         has nothing to grant"
+                            .into(),
+                    ));
+                }
+                let manifest =
+                    core_domain::entities::identity_bundle::IdentityBundleManifest::from_value(
+                        &item.manifest,
+                    )
+                    .map_err(|e| {
+                        ApiError::Validation(format!("staged identity bundle manifest: {e}"))
+                    })?;
+                let install = core_db::identity_bundles::install_from_staged(
+                    &mut tx.tx,
+                    org_id,
+                    Uuid::now_v7(),
+                    Some(item.id),
+                    item.source_kind.as_str(),
+                    &item.source_url,
+                    item.fetched_ref.as_deref(),
+                    &item.artifact_digest,
+                    &item.manifest,
+                    actor,
+                )
+                .await?;
+                let _ = core_db::audit::insert(
+                    &mut *tx.tx,
+                    &core_domain::entities::AuditEvent {
+                        id: Uuid::now_v7(),
+                        org_id,
+                        actor: core_domain::entities::Actor::Human(actor),
+                        action: core_domain::events::types::IDENTITY_BUNDLE_INSTALLED.into(),
+                        entity_type: Some("identity_bundle_install".into()),
+                        entity_id: Some(install.id.to_string()),
+                        detail: core_db::identity_bundles::install_audit_detail(&install),
+                        ip: None,
+                        occurred_at: now,
+                    },
+                )
+                .await?;
+                tx.emit(
+                    core_domain::events::types::IDENTITY_BUNDLE_INSTALLED,
+                    "identity_bundle_install",
+                    Some(install.id.to_string().as_str()),
+                    &serde_json::to_value(core_domain::events::IdentityBundleInstalled {
+                        install_id: install.id,
+                        name: install.name.clone(),
+                        version: install.version.clone(),
+                        interface_version: manifest.interface_version,
+                        provider_kinds: install.provider_kinds.clone(),
+                        artifact_digest: install.provenance_digest.clone(),
+                        status: install.status.as_str().to_string(),
+                        occurred_at: now,
+                    })
+                    .unwrap_or(serde_json::Value::Null),
+                )
+                .await?;
+                (None, None, None, Some(install.id))
             }
         };
         core_db::plugin_distribution::update_staged_status(
@@ -1197,6 +1274,7 @@ pub async fn approve_staged(
                     "adopted_install_id": adopted_install_id,
                     "adopted_skill_id": adopted_skill_id,
                     "adopted_theme_pack_id": adopted_theme_pack_id,
+                    "adopted_identity_bundle_id": adopted_identity_bundle_id,
                 }),
                 ip: None,
                 occurred_at: now,

@@ -204,6 +204,20 @@ pub mod types {
     pub const PLUGIN_STAGED_IMPORT_REFUSED: &str = "plugin.staged_import_refused";
     pub const PLUGIN_UPDATE_PENDING: &str = "plugin.update_pending";
     pub const PLUGIN_SETTINGS_UPDATED: &str = "plugin.settings_updated";
+    /// The identity-bundle artifact lifecycle (this lane). A bundle is a
+    /// distribution artifact like a plugin or theme pack — staged,
+    /// consented, digest-pinned, adopted DISABLED — but its subject is an
+    /// identity SOURCE, so it reports under its own namespace rather than
+    /// borrowing `plugin.*`: a consumer watching identity should not have
+    /// to filter plugin traffic to find it.
+    /// `identity_bundle.installed` — an approved artifact minted the
+    /// install; `identity_bundle.updated` — enable/disable; and
+    /// `identity_bundle.revoked` — terminal withdrawal. Staging itself
+    /// rides the shared `plugin.staged_import_*` events, whose
+    /// `artifact_kind` field names `identity_bundle`.
+    pub const IDENTITY_BUNDLE_INSTALLED: &str = "identity_bundle.installed";
+    pub const IDENTITY_BUNDLE_UPDATED: &str = "identity_bundle.updated";
+    pub const IDENTITY_BUNDLE_REVOKED: &str = "identity_bundle.revoked";
     /// Emitted when an org- or user-scoped setting changes through the
     /// typed settings registry.
     pub const SETTING_UPDATED: &str = "setting.updated";
@@ -1416,6 +1430,67 @@ pub struct PluginInstallRevoked {
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub catalog_id: crate::ids::PluginCatalogEntryId,
     pub slug: String,
+    pub reason: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub revoked_at: DateTime<Utc>,
+}
+
+// --- identity-bundle artifact lifecycle (this lane) --------------------------
+
+/// `identity_bundle.installed` — an owner/admin approved a staged
+/// `identity_bundle` artifact and the install row was minted. The row
+/// lands DISABLED: adoption is not activation. The payload carries the
+/// pinned digest and the declared transports only — never settings
+/// values, which can hold a discovery URL or client id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IdentityBundleInstalled {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: Uuid,
+    pub name: String,
+    pub version: String,
+    pub interface_version: u32,
+    /// The transports the bundle's executable half attaches
+    /// (`oidc`, `edge_assertion`) — never a vendor.
+    pub provider_kinds: Vec<String>,
+    /// sha256 of the verified artifact, pinned at approval.
+    pub artifact_digest: String,
+    /// `disabled` at install; the event states it so a consumer need not
+    /// assume the deny-by-default posture.
+    pub status: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `identity_bundle.updated` — enable or disable. Identity source
+/// attached or detached from the login path; nothing about sessions,
+/// tokens or MFA changes, because those are core and not the bundle's.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IdentityBundleUpdated {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: Uuid,
+    pub name: String,
+    pub version: String,
+    /// `disabled` | `enabled`.
+    pub status: String,
+    /// Whether JIT provisioning is on for this install (always
+    /// accompanied by the core's verified-email rule).
+    pub jit_enabled: bool,
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// `identity_bundle.revoked` — TERMINAL. The bundle is dead: its
+/// registration is withdrawn, no re-enable exists, and the only path
+/// back is a fresh install through a new consent diff.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct IdentityBundleRevoked {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub install_id: Uuid,
+    pub name: String,
+    pub version: String,
     pub reason: Option<String>,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub revoked_at: DateTime<Utc>,

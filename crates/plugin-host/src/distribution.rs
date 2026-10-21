@@ -204,6 +204,10 @@ pub enum IngestReason {
     ArchiveCap,
     /// Not a zipper we accept (bad magic / traversal paths / dupes).
     BadArchive,
+    /// An identity-bundle artifact tried to arrive at Marula authority —
+    /// a `capabilities`/`permissions` key, or a scope spelling a plugin
+    /// capability. Refused rather than stripped, so the author learns.
+    CapabilityRefused,
 }
 
 impl std::fmt::Display for IngestReason {
@@ -223,6 +227,7 @@ impl IngestReason {
             IngestReason::BadManifest => "distribution_manifest_invalid",
             IngestReason::ArchiveCap => "distribution_archive_cap",
             IngestReason::BadArchive => "distribution_archive_invalid",
+            IngestReason::CapabilityRefused => "distribution_identity_bundle_capability_refused",
         }
     }
 }
@@ -313,6 +318,20 @@ pub fn ingest_registry_entry(
                 .and_then(|v| v.as_str())
                 .unwrap_or("unspecified")
         });
+    if is_identity_bundle_manifest(manifest_value) {
+        // The signature block above was already verified against the
+        // digest, so the registry path needs no second check here.
+        let manifest = validate_identity_bundle_manifest(manifest_value)?;
+        return Ok(bundle(
+            PluginArtifactKind::IdentityBundle,
+            PluginSourceKind::MarketplaceRegistry,
+            &format!("registry://{slug}"),
+            Some(tag),
+            digest,
+            serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null),
+            Vec::new(),
+        ));
+    }
     if is_theme_manifest(manifest_value) {
         let pack = validate_theme_manifest(manifest_value)?;
         return Ok(bundle(
@@ -374,6 +393,18 @@ pub fn ingest_github_pull(
             return Err(IngestReason::BadSignature);
         }
         block.verify(signing_keys, artifact_digest)?;
+    }
+    if is_identity_bundle_manifest(&manifest_json) {
+        let manifest = validate_identity_bundle_manifest(&manifest_json)?;
+        return Ok(bundle(
+            PluginArtifactKind::IdentityBundle,
+            PluginSourceKind::GithubRepo,
+            &format!("https://github.com/{owner}/{repo}"),
+            Some(&format!("{tag}@{sha}")),
+            artifact_digest,
+            serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null),
+            Vec::new(),
+        ));
     }
     if is_theme_manifest(&manifest_json) {
         let pack = validate_theme_manifest(&manifest_json)?;
@@ -450,6 +481,18 @@ pub fn ingest_local_zip(bytes: &[u8]) -> Result<DistributionBundle, IngestReason
     let digest = sha256_hex(bytes);
     let manifest_value: serde_json::Value =
         serde_json::from_slice(&manifest_bytes).map_err(|_| IngestReason::BadManifest)?;
+    if is_identity_bundle_manifest(&manifest_value) {
+        let manifest = validate_identity_bundle_manifest(&manifest_value)?;
+        return Ok(bundle(
+            PluginArtifactKind::IdentityBundle,
+            PluginSourceKind::LocalZip,
+            "local://zip-import",
+            None,
+            &digest,
+            serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null),
+            Vec::new(),
+        ));
+    }
     if is_theme_manifest(&manifest_value) {
         let pack = validate_theme_manifest(&manifest_value)?;
         return Ok(bundle(
@@ -505,6 +548,102 @@ pub fn ingest_skill_manifest(
         serde_json::to_value(&skill).unwrap_or(serde_json::Value::Null),
         skill.capabilities,
     ))
+}
+
+/// Identity-bundle import (this lane): the declarative half of a
+/// pluggable identity source, adopted through the SAME staged consent
+/// diff as a plugin or theme pack.
+///
+/// Two properties hold by construction here, not by convention:
+///
+/// * **Zero capabilities, always.** A bundle's `declared_capabilities`
+///   is the empty vector — the artifact has no field to declare one, and
+///   a manifest that carries a `capabilities`/`permissions` key or a
+///   scope spelling a capability key is REFUSED with
+///   [`IngestReason::CapabilityRefused`]. The core keeps sessions,
+///   tokens and MFA; a bundle names an identity source and nothing more.
+/// * **Pinned and signed.** The digest is a required sha256, the source
+///   must be pinned (a manual upload is the only unref'd source, and it
+///   still pins the digest), and with trusted keys configured an
+///   ed25519 signature over the digest is mandatory — same rule as every
+///   other signed artifact kind, so an identity bundle cannot be the
+///   soft spot in the supply chain.
+pub fn ingest_identity_bundle(
+    manifest_json: serde_json::Value,
+    source_kind: PluginSourceKind,
+    source_url: &str,
+    fetched_ref: Option<&str>,
+    artifact_digest: &str,
+    signature: Option<&serde_json::Value>,
+    signing_keys: &[TrustedSigningKey],
+) -> Result<DistributionBundle, IngestReason> {
+    if source_url.trim().is_empty() {
+        return Err(IngestReason::BadManifest);
+    }
+    require_sha256(artifact_digest)?;
+    // A registry or repo pull must be pinned; a local/manual upload has
+    // no ref to pin but still pins the digest above.
+    let needs_ref = matches!(
+        source_kind,
+        PluginSourceKind::MarketplaceRegistry | PluginSourceKind::GithubRepo
+    );
+    if needs_ref {
+        match fetched_ref {
+            Some(r) if !r.trim().is_empty() => validate_git_tag(r.split('@').next().unwrap_or(r))?,
+            _ => return Err(IngestReason::NoPin),
+        }
+    } else if !matches!(
+        source_kind,
+        PluginSourceKind::LocalZip | PluginSourceKind::ManualUpload
+    ) {
+        return Err(IngestReason::BadManifest);
+    }
+    if !signing_keys.is_empty() {
+        let value = signature.ok_or(IngestReason::BadSignature)?;
+        let block = SignatureBlock::from_value(value).ok_or(IngestReason::BadSignature)?;
+        if block.signature.trim().is_empty() {
+            return Err(IngestReason::BadSignature);
+        }
+        block.verify(signing_keys, artifact_digest)?;
+    }
+    let manifest = validate_identity_bundle_manifest(&manifest_json)?;
+    Ok(bundle(
+        PluginArtifactKind::IdentityBundle,
+        source_kind,
+        source_url,
+        fetched_ref,
+        artifact_digest,
+        serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null),
+        // Not a field of the manifest either: the empty set IS the
+        // boundary between an identity artifact and Marula authority.
+        Vec::new(),
+    ))
+}
+
+/// Whether the (already-parsed) manifest value is an identity bundle.
+/// Dispatch is by the same explicit `kind` tag theme packs use, so a
+/// bundle is never mistaken for a plugin whose name happens to mention
+/// identity.
+fn is_identity_bundle_manifest(manifest_value: &serde_json::Value) -> bool {
+    manifest_value.get("kind").and_then(|v| v.as_str()) == Some("identity_bundle")
+}
+
+/// The domain model is the single validation gate for a bundle too:
+/// closed provider-kind vocabulary, interface-version pin, settings-schema
+/// subset, and the capability boundary.
+fn validate_identity_bundle_manifest(
+    manifest_value: &serde_json::Value,
+) -> Result<core_domain::entities::identity_bundle::IdentityBundleManifest, IngestReason> {
+    match core_domain::entities::identity_bundle::IdentityBundleManifest::from_value(manifest_value)
+    {
+        Ok(manifest) => Ok(manifest),
+        Err(core_domain::error::DomainError::Validation(message))
+            if message.contains("capability") || message.contains("permission") =>
+        {
+            Err(IngestReason::CapabilityRefused)
+        }
+        Err(_) => Err(IngestReason::BadManifest),
+    }
 }
 
 /// The re-consent diff for an UPDATE proposal — the consent screen, one
@@ -1152,5 +1291,281 @@ mod tests {
         assert_eq!(diff.added, vec!["financial.read".to_string()]);
         assert!(diff.removed.is_empty());
         assert!(diff.settings_schema.is_some());
+    }
+
+    // --- identity-bundle artifact (this lane) --------------------------------
+
+    fn identity_bundle_manifest() -> serde_json::Value {
+        json!({
+            "kind": "identity_bundle",
+            "name": "corp-okta",
+            "version": "1.4.0",
+            "interface_version": 1,
+            "provider_kinds": ["oidc"],
+            "settings_schema": {
+                "type": "object",
+                "properties": {
+                    "issuer": {"type": "string"},
+                    "client_id": {"type": "string"}
+                }
+            },
+            "scopes": ["openid", "email", "profile"]
+        })
+    }
+
+    fn identity_bundle_signing() -> (ed25519_dalek::SigningKey, String, String) {
+        // Deterministic key, deterministic digest: the pin and the
+        // signature are exercised for real, not stubbed.
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[11u8; 32]);
+        let key_hex = hex::encode(signing.verifying_key().as_bytes());
+        (
+            signing,
+            key_hex,
+            digest_of("identity bundle artifact bytes"),
+        )
+    }
+
+    #[test]
+    fn identity_bundle_ingests_pinned_with_zero_capabilities() {
+        let (_, key_hex, digest) = identity_bundle_signing();
+        let keys = vec![TrustedSigningKey {
+            key_id: "ops-2026".into(),
+            public_key: key_hex,
+        }];
+        let bundle = ingest_identity_bundle(
+            identity_bundle_manifest(),
+            PluginSourceKind::ManualUpload,
+            "local://identity-bundle-upload",
+            None,
+            &digest,
+            None,
+            // Empty trust set = the documented dev posture; the signed
+            // path below is the production one.
+            &[],
+        )
+        .expect("a pinned bundle ingests");
+        assert_eq!(bundle.artifact_kind, PluginArtifactKind::IdentityBundle);
+        // THE BOUNDARY: the artifact arrives with an empty capability
+        // set — there is no field for one, and no code path adds one.
+        assert!(bundle.declared_capabilities.is_empty());
+        assert_eq!(bundle.manifest_name().as_deref(), Some("corp-okta"));
+        assert_eq!(bundle.manifest_version().as_deref(), Some("1.4.0"));
+        assert!(bundle.manifest.get("capabilities").is_none());
+        // And with keys configured an unsigned bundle refuses.
+        assert_eq!(
+            ingest_identity_bundle(
+                identity_bundle_manifest(),
+                PluginSourceKind::ManualUpload,
+                "local://identity-bundle-upload",
+                None,
+                &digest,
+                None,
+                &keys,
+            )
+            .unwrap_err(),
+            IngestReason::BadSignature
+        );
+    }
+
+    #[test]
+    fn identity_bundle_signature_is_verified_over_the_pinned_digest() {
+        use ed25519_dalek::Signer as _;
+        let (signing, key_hex, digest) = identity_bundle_signing();
+        let digest_bytes: [u8; 32] = hex::decode(&digest).unwrap().try_into().unwrap();
+        let sig_hex = hex::encode(signing.sign(&digest_bytes).to_bytes());
+        let keys = vec![TrustedSigningKey {
+            key_id: "ops-2026".into(),
+            public_key: key_hex,
+        }];
+        let block = json!({ "key_id": "ops-2026", "signature": sig_hex });
+        let bundle = ingest_identity_bundle(
+            identity_bundle_manifest(),
+            PluginSourceKind::ManualUpload,
+            "local://identity-bundle-upload",
+            None,
+            &digest,
+            Some(&block),
+            &keys,
+        )
+        .expect("a signed bundle verifies");
+        assert_eq!(bundle.artifact_kind, PluginArtifactKind::IdentityBundle);
+
+        // A digest that does not match the signature refuses: the pin
+        // and the signature are the same promise.
+        let other_digest = digest_of("some other artifact");
+        assert_eq!(
+            ingest_identity_bundle(
+                identity_bundle_manifest(),
+                PluginSourceKind::ManualUpload,
+                "local://identity-bundle-upload",
+                None,
+                &other_digest,
+                Some(&block),
+                &keys,
+            )
+            .unwrap_err(),
+            IngestReason::BadSignature
+        );
+        // A key_id outside the trust set is a NARROW refusal, never a
+        // wider sweep.
+        assert_eq!(
+            ingest_identity_bundle(
+                identity_bundle_manifest(),
+                PluginSourceKind::ManualUpload,
+                "local://identity-bundle-upload",
+                None,
+                &digest,
+                Some(&json!({ "key_id": "someone-else", "signature": block["signature"] })),
+                &keys,
+            )
+            .unwrap_err(),
+            IngestReason::UnknownKey
+        );
+    }
+
+    #[test]
+    fn identity_bundle_refuses_unpinned_sources_and_bad_digests() {
+        let digest = digest_of("bytes");
+        // A registry/repo source must be pinned.
+        assert_eq!(
+            ingest_identity_bundle(
+                identity_bundle_manifest(),
+                PluginSourceKind::MarketplaceRegistry,
+                "registry://corp-okta",
+                None,
+                &digest,
+                None,
+                &[],
+            )
+            .unwrap_err(),
+            IngestReason::NoPin
+        );
+        assert_eq!(
+            ingest_identity_bundle(
+                identity_bundle_manifest(),
+                PluginSourceKind::GithubRepo,
+                "https://github.com/acme/okta",
+                Some("HEAD"),
+                &digest,
+                None,
+                &[],
+            )
+            .unwrap_err(),
+            IngestReason::NoPin
+        );
+        // A digest is mandatory whatever the source.
+        assert_eq!(
+            ingest_identity_bundle(
+                identity_bundle_manifest(),
+                PluginSourceKind::ManualUpload,
+                "local://upload",
+                None,
+                "not-a-digest",
+                None,
+                &[],
+            )
+            .unwrap_err(),
+            IngestReason::BadDigest
+        );
+        // The skill-community source sells skills; an identity bundle
+        // may not ride it.
+        assert_eq!(
+            ingest_identity_bundle(
+                identity_bundle_manifest(),
+                PluginSourceKind::SkillCommunity,
+                "https://skills.example/api",
+                None,
+                &digest,
+                None,
+                &[],
+            )
+            .unwrap_err(),
+            IngestReason::BadManifest
+        );
+    }
+
+    /// The artifact cannot become a capability vector through either
+    /// door: a `capabilities` key, or a scope that spells a capability.
+    #[test]
+    fn identity_bundle_capability_attempts_are_refused_by_name() {
+        let digest = digest_of("bytes");
+        let mut with_caps = identity_bundle_manifest();
+        with_caps["capabilities"] = json!(["tickets.read"]);
+        assert_eq!(
+            ingest_identity_bundle(
+                with_caps,
+                PluginSourceKind::ManualUpload,
+                "local://upload",
+                None,
+                &digest,
+                None,
+                &[],
+            )
+            .unwrap_err(),
+            IngestReason::CapabilityRefused
+        );
+        let mut with_scope = identity_bundle_manifest();
+        with_scope["scopes"] = json!(["openid", "kb.read"]);
+        assert_eq!(
+            ingest_identity_bundle(
+                with_scope,
+                PluginSourceKind::ManualUpload,
+                "local://upload",
+                None,
+                &digest,
+                None,
+                &[],
+            )
+            .unwrap_err(),
+            IngestReason::CapabilityRefused
+        );
+        // And the refusal has its own typed code, distinguishable in
+        // audit from a generic malformed manifest.
+        assert_eq!(
+            IngestReason::CapabilityRefused.as_str(),
+            "distribution_identity_bundle_capability_refused"
+        );
+    }
+
+    #[test]
+    fn local_zip_dispatch_recognises_an_identity_bundle_manifest() {
+        let manifest = serde_json::to_vec_pretty(&identity_bundle_manifest()).unwrap();
+        let zip = build_zip(&[("manifest.json", manifest.as_slice())]);
+        let bundle = ingest_local_zip(&zip).expect("bundle zip ingests");
+        assert_eq!(bundle.artifact_kind, PluginArtifactKind::IdentityBundle);
+        assert_eq!(bundle.source_kind, PluginSourceKind::LocalZip);
+        assert!(bundle.declared_capabilities.is_empty());
+        assert_eq!(
+            bundle.artifact_digest,
+            sha256_hex(&zip),
+            "the pin is the archive digest, not the manifest's"
+        );
+        // A theme pack still dispatches to theme, and a plugin manifest
+        // to plugin — the new branch did not swallow either.
+        let theme = build_zip(&[(
+            "manifest.json",
+            br#"{"kind":"theme","name":"Pack","version":"1.0.0","schema_version":1,"light":{},"dark":{}}"#
+                .as_slice(),
+        )]);
+        assert_eq!(
+            ingest_local_zip(&theme).map(|b| b.artifact_kind).ok(),
+            Some(PluginArtifactKind::Theme)
+        );
+    }
+
+    #[test]
+    fn registry_dispatch_recognises_an_identity_bundle_entry() {
+        let digest = digest_of("bundle");
+        let catalog = json!({
+            "slug": "corp-okta",
+            "tag": "v1.4.0",
+            "artifact": { "digest": digest, "signature": "ab".repeat(64) },
+            "manifest": identity_bundle_manifest()
+        });
+        let bundle = ingest_registry_entry(catalog.to_string().as_bytes(), &[])
+            .expect("registry entry ingests");
+        assert_eq!(bundle.artifact_kind, PluginArtifactKind::IdentityBundle);
+        assert_eq!(bundle.fetched_ref.as_deref(), Some("v1.4.0"));
+        assert!(bundle.declared_capabilities.is_empty());
     }
 }

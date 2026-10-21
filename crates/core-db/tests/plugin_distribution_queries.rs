@@ -101,6 +101,7 @@ fn staged_item(n: u64, org: Uuid, uploader: Uuid, manifest: serde_json::Value) -
         adopted_install_id: None,
         adopted_skill_id: None,
         adopted_theme_pack_id: None,
+        adopted_identity_bundle_id: None,
     }
 }
 
