@@ -1,0 +1,41 @@
+# Backup freshness.
+#
+# Purpose: page when the install's last successful backup is older than a night.
+# The series comes from `marula.backup.age_seconds`, which the worker emits only
+# when `MARULA_BACKUP_STAMP_PATH` points at the stamp file `deploy/backup/
+# backupd.sh` writes after a pass in which no layer reported an error.
+#
+# This rule is safe to load on an install that has not wired the stamp: with no
+# stamp there is no series, so the rule cannot fire. The alert that says "backup
+# freshness is not being observed at all" is the opposite shape — it fires on
+# absence — and lives in `rules-optin/`, because firing it by default would mean
+# paging every install that has not opted in.
+
+groups:
+  - name: marula-backup
+    interval: 1m
+    rules:
+      # 26 hours: the runner takes one pass a day (`BACKUP_AT`, default 03:00
+      # UTC), so a healthy install is never more than 24 hours stale. The two
+      # extra hours are the grace for a slow dump and a late stamp, and they are
+      # what keeps this rule from paging on a backup that is merely still
+      # running.
+      #
+      # A page rather than a ticket: the objective this defends is recovery
+      # point, and a missed night is a night of committed data with no copy.
+      - alert: MarulaBackupStale
+        expr: max(marula_backup_age_seconds) > 93600
+        for: 10m
+        labels:
+          severity: page
+          surface: backup
+        annotations:
+          summary: "The last successful backup is {{ $value | humanizeDuration }} old"
+          description: >-
+            The backup stamp says the last pass that finished without an error
+            was {{ $value | humanizeDuration }} ago, against a nightly schedule.
+            Either last night's pass failed or the runner is not running; the
+            runner's own log says which, and the stamp is only written when every
+            layer succeeded.
+          metric: marula.backup.age_seconds
+          runbook: deploy/observability/runbooks/restore-from-backup.md

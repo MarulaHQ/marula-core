@@ -21,8 +21,8 @@
 # Ports: 15432 pg · 16379 valkey · 8080 api · 8082 worker-health
 #        · 3000 web · (stage2 profile) 3900-3903 garage · 1025/8025 mailpit
 #        · (observability profile) 4317/4318 otel-collector · 3200 tempo
-#        · 3100 loki · 3001 grafana · 8010 glitchtip · 3002 uptime-kuma
-#        · 18899 metrics exposition
+#        · 3100 loki · 9090 prometheus · 3001 grafana · 8010 glitchtip
+#        · 3002 uptime-kuma · 18899 metrics exposition
 #        · (ai profile) ollama — local model runtime, unpublished
 #
 # Security posture (Wave 38 p38-container-hardening): every third-party
@@ -449,6 +449,42 @@ services:
       - "4318:4318"   # OTLP HTTP
       - "18899:18899" # Prometheus exposition (scrape target)
 
+  # The rule evaluator. It scrapes the collector's exposition and evaluates
+  # deploy/observability/prometheus/rules/ — see that directory's README for the
+  # alert pack, the SLOs and the runbooks behind each alert. Without this
+  # container the rules are files that nothing reads: the collector exports
+  # series, and exporting is not evaluating.
+  prometheus:
+    mem_limit: 512m
+    cpus: 0.5
+    logging: *default-logging
+    # Upstream image (not a DHI build), pinned by digest like every other
+    # third-party image here. It declares the nobody uid as its own user and
+    # creates /prometheus owned by that uid, which is what makes the named
+    # volume writable without a root step.
+    image: prom/prometheus@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
+    profiles: ["observability"]
+    <<: *cap-common
+    # Writes only its TSDB under /prometheus (a volume) and needs /tmp for its
+    # own scratch, so the rootfs itself stays read-only.
+    read_only: true
+    user: "65534:65534"
+    tmpfs:
+      - /tmp
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - ./observability/prometheus/rules-optin:/etc/prometheus/rules-optin:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
   tempo:
     mem_limit: 512m
     cpus: 1.0
@@ -517,6 +553,7 @@ services:
       - otel-collector
       - tempo
       - loki
+      - prometheus
 
   # GlitchTip error tracking (2026-09 decision: activate). Needs its own DB —
   # once: `docker compose exec postgres createdb -U marula glitchtip`.
@@ -734,5 +771,6 @@ volumes:
   backupdumps:
   tempodata:
   lokidata:
+  promdata:
   uptimedata:
   ollamadata:

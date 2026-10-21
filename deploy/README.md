@@ -13,7 +13,7 @@
 | `preview/` | The per-PR preview environment: sizing overlay, publishing options, and the CI definition for it. |
 | `helm/marula/` | The Helm chart, with the same routing and both TLS modes expressed through `ingress`. |
 | `backup/` | WAL-G point-in-time recovery and restic snapshots, plus the restore rehearsal. |
-| `observability/` | OTel collector, Tempo, Loki and the Grafana provisioning for the `observability` profile. |
+| `observability/` | OTel collector, Tempo, Loki, Grafana provisioning, and the alert pack (Prometheus rules, SLOs and incident runbooks) for the `observability` profile. Start from [`observability/README.md`](observability/README.md). |
 | `runbooks/` | Operator runbook scaffolds. |
 | `garage.toml` | The Garage config the `stage2` profile binds read-only. |
 
@@ -44,9 +44,10 @@ The operator runbook is
 ## Profiles
 
 `stage2` (object storage + mail sink), `observability` (OTLP, Tempo, Loki,
-Grafana, status page), `ai` (local model runtime), `backup` (WAL-G +
-restic), and `edge` (the TLS proxy) are all opt-in. `docker compose up`
-without a `--profile` flag boots the same stack it always did.
+Prometheus with the alert pack, Grafana, status page), `ai` (local model
+runtime), `backup` (WAL-G + restic), and `edge` (the TLS proxy) are all opt-in.
+`docker compose up` without a `--profile` flag boots the same stack it always
+did.
 
 ## Stopping the stack
 
