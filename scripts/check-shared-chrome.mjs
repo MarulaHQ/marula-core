@@ -79,9 +79,9 @@ const SHARED_VOCABULARY = [
   "m-select", "m-separator", "m-shortcut", "m-skel", "m-spinner", "m-stepper",
   "m-surface", "m-table", "m-tag", "m-textarea", "m-th", "m-tooltip",
   "m-toolbar", "m-view",
-  // Time display (Wave 52): `packages/ui/src/components/time.tsx` emits these
-  // four, and it is a shared component — the record window and the clients list
-  // both render it. `.m-visually-hidden` is the screen-reader utility that
+  // Time display (Wave 52): `packages/ui/src/components/time.tsx` emits these,
+  // and it is a shared component — the record window and the clients list both
+  // render it. `.m-visually-hidden` is the screen-reader utility that
   // component introduced; it is not a global helper yet.
   "m-time", "m-dual-time", "m-visually-hidden",
 ];
