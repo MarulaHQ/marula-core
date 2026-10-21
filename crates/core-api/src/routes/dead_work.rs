@@ -317,11 +317,12 @@ pub async fn redrive(
             // A typed refusal, not a silent success: the caller asked for a
             // replay this surface cannot perform, and the reason names the path
             // that can.
-            return Err(ApiError::Conflict(format!(
+            return Err(ApiError::Conflict(
                 "a dead stream event cannot be redriven from the admin surface: its payload is \
                  the raw stream body and re-publishing needs the relay's stream writer; the \
                  consumer-gap reconciliation path owns that replay"
-            )));
+                    .to_string(),
+            ));
         }
     };
     if changed {

@@ -25,7 +25,8 @@ use core_domain::status::Priority;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
-/// Every view the v1 read model must expose (0026 + 0041 + 0059).
+/// Every view the `ops` schema must expose: the v1 read-model slices
+/// (0026 + 0041 + 0059) and the operator views that share the schema.
 const EXPECTED_V1_VIEWS: &[&str] = &[
     // 0026 reports slice
     "v1_tickets",
@@ -36,6 +37,9 @@ const EXPECTED_V1_VIEWS: &[&str] = &[
     // 0041 undo slice
     "v1_record_undo_stack",
     "v1_field_undo_stack",
+    // 0144 operator view, not a v1 slice: the dead-work union across jobs,
+    // email, webhook deliveries and dead stream events.
+    "dead_work",
     // 0059 operational tranche
     "v1_clients",
     "v1_sites",

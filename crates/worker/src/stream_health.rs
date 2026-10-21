@@ -90,17 +90,6 @@ fn sample_from(
     }
 }
 
-/// Reads one consumer group and emits its gauges.
-///
-/// Call it from the consumer's own loop, after its batch: the group it
-/// reports on is the group that loop owns, so a consumer that dies takes its
-/// own series stale instead of leaving a healthy-looking number behind.
-pub async fn probe(conn: &mut MultiplexedConnection, group: &str) {
-    if let Some(sample) = read_group(conn, group).await {
-        emit(group, sample);
-    }
-}
-
 /// Records one sample. Split from the read so a consumer that hides its
 /// connection behind a seam (webhooks-out) can still emit the same shape.
 pub fn emit(group: &str, sample: GroupSample) {
@@ -112,7 +101,7 @@ pub fn emit(group: &str, sample: GroupSample) {
     );
 }
 
-/// The Valkey half of [`probe`]: two commands, no metric side effects.
+/// The Valkey half of the pair: [`read_group`] reads, [`emit`] publishes.
 pub async fn read_group(conn: &mut MultiplexedConnection, group: &str) -> Option<GroupSample> {
     // XINFO GROUPS: does the group exist, how big is its PEL, and how far
     // behind is it? A group that is not there yet (the consumer has not run

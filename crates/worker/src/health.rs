@@ -65,75 +65,93 @@ pub struct HealthFlags {
     /// `disabled` and does not affect any status: a realtime-only replica is
     /// healthy even though it runs no sweeps.
     pub roles: WorkerRoles,
+    /// Loops this process would own but that the configuration switches off
+    /// (the email loop and the missing-time nudge need `EMAIL_INTERNAL_TOKEN`).
+    /// A loop that was never started is not a loop that died: reporting it as
+    /// `down` made `/healthz` answer 503 on every install without that token,
+    /// which is the stock profile.
+    pub email_enabled: bool,
+    pub time_enabled: bool,
     /// The shared stop flag. `true` means the process is inside its shutdown
     /// window: readiness is off, liveness stays on.
     pub draining: watch::Receiver<bool>,
 }
 
 impl HealthFlags {
-    /// (name, alive, owned here) for every loop this struct tracks.
-    pub fn loops(&self) -> [(&'static str, bool, bool); 14] {
+    /// (name, alive, owned here, enabled by config) for every loop this struct
+    /// tracks.
+    pub fn loops(&self) -> [(&'static str, bool, bool, bool); 14] {
         let realtime = self.roles.realtime();
         let housekeeping = self.roles.housekeeping();
         [
-            ("relay", self.relay_alive.load(Ordering::Relaxed), realtime),
-            ("email", self.email_alive.load(Ordering::Relaxed), realtime),
-            ("queue", self.queue_alive.load(Ordering::Relaxed), realtime),
+            ("relay", self.relay_alive.load(Ordering::Relaxed), realtime, true),
+            ("email", self.email_alive.load(Ordering::Relaxed), realtime, self.email_enabled),
+            ("queue", self.queue_alive.load(Ordering::Relaxed), realtime, true),
             (
                 "automations",
                 self.automations_alive.load(Ordering::Relaxed),
                 realtime,
+                true,
             ),
             (
                 "webhooks",
                 self.webhooks_alive.load(Ordering::Relaxed),
                 realtime,
+                true,
             ),
             (
                 "workflows",
                 self.workflow_alive.load(Ordering::Relaxed),
                 realtime,
+                true,
             ),
-            ("sla", self.sla_alive.load(Ordering::Relaxed), housekeeping),
+            ("sla", self.sla_alive.load(Ordering::Relaxed), housekeeping, true),
             (
                 "delivery",
                 self.delivery_alive.load(Ordering::Relaxed),
                 housekeeping,
+                true,
             ),
-            ("pm", self.pm_alive.load(Ordering::Relaxed), housekeeping),
+            ("pm", self.pm_alive.load(Ordering::Relaxed), housekeeping, true),
             (
                 "rotation",
                 self.rotation_alive.load(Ordering::Relaxed),
                 housekeeping,
+                true,
             ),
             (
                 "retention",
                 self.retention_alive.load(Ordering::Relaxed),
                 housekeeping,
+                true,
             ),
             (
                 "outbox",
                 self.outbox_alive.load(Ordering::Relaxed),
                 housekeeping,
+                true,
             ),
             (
                 "usage",
                 self.usage_alive.load(Ordering::Relaxed),
                 housekeeping,
+                true,
             ),
             (
                 "time",
                 self.time_alive.load(Ordering::Relaxed),
                 housekeeping,
+                self.time_enabled,
             ),
         ]
     }
 
-    /// Only the loops this process owns decide health.
+    /// Only the loops this process owns and the configuration turns on decide
+    /// health.
     pub fn healthy(&self) -> bool {
         self.loops()
             .iter()
-            .all(|(_, alive, owned)| !owned || *alive)
+            .all(|(_, alive, owned, enabled)| !owned || !enabled || *alive)
     }
 
     pub fn draining(&self) -> bool {
@@ -144,8 +162,8 @@ impl HealthFlags {
     pub fn owned_loops(&self) -> Vec<&'static str> {
         self.loops()
             .iter()
-            .filter(|(_, _, owned)| *owned)
-            .map(|(name, _, _)| *name)
+            .filter(|(_, _, owned, _)| *owned)
+            .map(|(name, _, _, _)| *name)
             .collect()
     }
 
@@ -154,8 +172,8 @@ impl HealthFlags {
     pub fn still_running(&self) -> Vec<&'static str> {
         self.loops()
             .iter()
-            .filter(|(_, alive, owned)| *owned && *alive)
-            .map(|(name, _, _)| *name)
+            .filter(|(_, alive, owned, _)| *owned && *alive)
+            .map(|(name, _, _, _)| *name)
             .collect()
     }
 }
@@ -171,8 +189,8 @@ pub async fn readyz(State(flags): State<Arc<HealthFlags>>) -> (StatusCode, Json<
     let down: Vec<&'static str> = flags
         .loops()
         .iter()
-        .filter(|(_, alive, owned)| *owned && !alive)
-        .map(|(name, _, _)| *name)
+        .filter(|(_, alive, owned, enabled)| *owned && *enabled && !alive)
+        .map(|(name, _, _, _)| *name)
         .collect();
     let ready = !draining && down.is_empty();
     let status = if ready {
@@ -208,10 +226,10 @@ pub async fn healthz(State(flags): State<Arc<HealthFlags>>) -> (StatusCode, Json
     body.insert("glitchtip".into(), json!(dsn_state("GLITCHTIP_DSN_WORKER")));
     body.insert("roles".into(), json!(roles.label()));
     body.insert("draining".into(), json!(draining));
-    for (name, alive, owned) in loops {
+    for (name, alive, owned, enabled) in loops {
         body.insert(
             name.to_string(),
-            json!(if !owned {
+            json!(if !owned || !enabled {
                 "disabled"
             } else if alive {
                 "alive"
@@ -259,8 +277,34 @@ mod tests {
             usage_alive: dead(true),
             workflow_alive: dead(true),
             roles,
+            email_enabled: true,
+            time_enabled: true,
             draining: watch::channel(false).1,
         }
+    }
+
+    /// A loop the configuration switches off is `disabled`, not `down`. The
+    /// stock profile has no `EMAIL_INTERNAL_TOKEN`, so treating the two as the
+    /// same made every install unhealthy and every readiness gate fail.
+    #[tokio::test]
+    async fn a_config_disabled_loop_is_disabled_not_down() {
+        let mut health = flags(WorkerRoles::all());
+        health.email_alive = Arc::new(AtomicBool::new(false));
+        health.time_alive = Arc::new(AtomicBool::new(false));
+        health.email_enabled = false;
+        health.time_enabled = false;
+        let health = Arc::new(health);
+
+        let (status, body) = healthz(State(Arc::clone(&health))).await;
+        assert_eq!(status, StatusCode::OK, "a switched-off loop is not a fault");
+        assert_eq!(body.0["status"], "ok");
+        assert_eq!(body.0["email"], "disabled");
+        assert_eq!(body.0["time"], "disabled");
+
+        let (status, body) = readyz(State(Arc::clone(&health))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body.0["status"], "ready");
+        assert!(body.0["down"].as_array().expect("down list").is_empty());
     }
 
     #[tokio::test]

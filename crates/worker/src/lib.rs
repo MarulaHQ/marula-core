@@ -615,6 +615,8 @@ pub async fn run(
         usage_alive,
         workflow_alive,
         roles: config.roles,
+        email_enabled: config.email.internal_token.is_some(),
+        time_enabled: config.time.internal_token.is_some(),
         // Readiness goes to 503 the moment the shared flag flips, before this
         // task has finished waiting on anything: a drain must stop NEW probes
         // succeeding first and only then spend the window.
