@@ -79,6 +79,28 @@ impl Target {
             | Target::Document(id) => *id,
         }
     }
+
+    /// The inverse of [`Self::kind`]: rebuild a target from the index's own
+    /// kind vocabulary.
+    ///
+    /// The reconciliation backfill (Wave 52 lane R4) asks the index which rows
+    /// are missing and gets back an `entity_kind` string; this is how it gets to
+    /// the same resolver the live consumer calls, so a backfilled row cannot be
+    /// built by a second, subtly different path. Total by construction: the
+    /// index's kind vocabulary and this enum are the same closed set (the
+    /// unknown-string case is rejected by `SearchKind::parse`, one step earlier).
+    #[must_use]
+    pub fn from_kind(kind: SearchKind, entity_id: Uuid) -> Self {
+        match kind {
+            SearchKind::Ticket => Self::Ticket(entity_id),
+            SearchKind::Comment => Self::Comment(entity_id),
+            SearchKind::Client => Self::Client(entity_id),
+            SearchKind::Site => Self::Site(entity_id),
+            SearchKind::Contact => Self::Contact(entity_id),
+            SearchKind::KbArticle => Self::Article(entity_id),
+            SearchKind::Document => Self::Document(entity_id),
+        }
+    }
 }
 
 /// Maps an envelope onto an indexing target, or None when the event does

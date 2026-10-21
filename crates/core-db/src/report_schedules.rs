@@ -22,7 +22,7 @@
 
 use crate::{DbError, DbResult};
 use chrono::{DateTime, Utc};
-use sqlx::Postgres;
+use sqlx::{PgConnection, Postgres};
 use uuid::Uuid;
 
 /// One delivery schedule as persisted. Cadence columns mirror migration
@@ -426,4 +426,35 @@ pub async fn list_deliveries_page(
     .fetch_one(&mut *conn)
     .await?;
     Ok((rows, total))
+}
+
+/// Replaces a schedule's visible error WITHOUT moving `last_run_at`.
+///
+/// A reconciliation retry (Wave 52 lane R4) re-attempts an EARLIER slot: the
+/// schedule's own clock did not fire, and rewriting `last_run_at` to the retried
+/// slot would claim it did. [`set_run_outcome`] owns the run path and always
+/// stamps both; this is the narrower statement the retry needs. Runtime query
+/// rather than `query!` for the same reason `workflow_runs::parked_stats` is —
+/// a new statement with no `.sqlx` entry, covered by
+/// `tests/reconciliation_queries.rs`.
+pub async fn set_retry_outcome(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    error: Option<&str>,
+) -> DbResult<()> {
+    let result = sqlx::query(
+        r#"UPDATE report_schedules
+              SET last_error = $3, updated_at = now()
+            WHERE org_id = $1 AND id = $2"#,
+    )
+    .bind(org_id)
+    .bind(id)
+    .bind(error)
+    .execute(conn)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
 }

@@ -19,7 +19,7 @@ check. Second, a default in the table is the value the process uses when nothing
 the variable; a profile can preset a different one, and the profiles are listed in
 `docs/deploy-descriptor.md`.
 
-Counts at this commit: 161 levers in 14 groups, and
+Counts at this commit: 165 levers in 14 groups, and
 28 retry budgets (7 subsystems across
 4 presets).
 
@@ -209,7 +209,7 @@ why only two are required.
 | `RELAY_POLL_MS` | integer | `5000` | Backstop poll interval for the outbox relay. |
 | `MARULA_RELAY_WAKEUP` | boolean | `true` | Listen on the outbox notification channel. Off restores pure polling. |
 
-### lifecycle (6)
+### lifecycle (10)
 
 | Lever | Kind | Default | Notes |
 |---|---|---|---|
@@ -219,6 +219,10 @@ why only two are required.
 | `MARULA_OBJECT_GC` | string | `off` | Object-integrity pass: off, dry_run or on. `on` deletes orphaned bytes. |
 | `MARULA_OBJECT_GC_GRACE_HOURS` | integer | `24` | How old an unreferenced object must be before the pass may delete it. |
 | `MARULA_OBJECT_GC_SECS` | integer | `3600` | Object-integrity pass interval. |
+| `MARULA_RECONCILE_SECS` | integer | `900` | Reconciliation pass interval: the four repairs nothing re-attempts on its own. |
+| `MARULA_RECONCILE_BATCH` | integer | `200` | Rows each reconciliation pass may repair. |
+| `MARULA_RECONCILE_MAX_REPLAYS` | integer | `3` | Deaths allowed per (group, event) before a dead entry stops being replayed. |
+| `MARULA_RECONCILE_WAKE_GRACE_SECS` | integer | none | How far past its deadline a parked run's wake job must be dead before the run is abandoned. Unset derives it from the queue retry policy. |
 
 ### observability (9)
 

@@ -47,6 +47,7 @@ pub mod outbox_retention_sweep;
 pub mod pm_sweep;
 pub mod project_billing;
 pub mod queue_runner;
+pub mod reconcile;
 pub mod reconnect;
 pub mod rotation_sweep;
 pub mod run_retention_sweep;
@@ -625,6 +626,40 @@ pub async fn run(
         }
     }
 
+    // Reconciliation (Wave 52 lane R4): the four repairs nothing re-attempts on
+    // its own — the search index's missing rows, dead stream entries, parked
+    // runs whose wake job died, and each consumer group's distance from the
+    // stream's bounds. Housekeeping, and for a second reason beyond the usual
+    // one: two reconcilers replaying the same dead event would double the
+    // work, and the dead set is small enough that a duplicate is invisible.
+    let reconcile_alive = Arc::new(AtomicBool::new(true));
+    if config.roles.housekeeping() {
+        let alive = Arc::clone(&reconcile_alive);
+        let reconcile_pool = pool.clone();
+        // The index backfill needs core-api's internal surface, exactly like
+        // the indexer does; without a token the pass is skipped and the other
+        // three still run.
+        let reconcile_sink = config
+            .internal_token
+            .as_ref()
+            .map(|token| search_indexer::HttpIndexSink::new(&config.internal_api_url, token));
+        let reconcile_config = config.reconcile.clone();
+        let reconcile_redis = config.redis_url.clone();
+        let reconcile_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            reconcile::run_reconcile(
+                reconcile_pool,
+                reconcile_config,
+                reconcile_sink,
+                reconcile_redis,
+                reconcile_shutdown,
+            )
+            .await;
+            alive.store(false, Ordering::Relaxed);
+            tracing::error!("reconcile loop exited; reporting unhealthy");
+        });
+    }
+
     // Signed-webhook delivery consumer: event stream → matched
     // subscriptions → durable webhook.deliver jobs (processed by the
     // queue runner above).
@@ -697,6 +732,7 @@ pub async fn run(
         outbox_alive,
         matrix_alive,
         object_gc_alive,
+        reconcile_alive,
         usage_alive,
         workflow_alive,
         roles: config.roles,

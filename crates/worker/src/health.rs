@@ -69,6 +69,11 @@ pub struct HealthFlags {
     /// rather than dead.
     pub object_gc_alive: Arc<AtomicBool>,
     pub usage_alive: Arc<AtomicBool>,
+    /// The reconciliation loop (Wave 52 lane R4): the index backfill, the
+    /// dead-entry replay, the parked-run reap and the consumer-gap probe. One
+    /// flag for four passes on purpose — they are one loop and one cadence, and
+    /// four flags for one loop would let a replica claim three are healthy.
+    pub reconcile_alive: Arc<AtomicBool>,
     pub workflow_alive: Arc<AtomicBool>,
     /// Which groups this process runs. A loop it does not own is reported as
     /// `disabled` and does not affect any status: a realtime-only replica is
@@ -90,7 +95,7 @@ pub struct HealthFlags {
 impl HealthFlags {
     /// (name, alive, owned here, enabled by config) for every loop this struct
     /// tracks.
-    pub fn loops(&self) -> [(&'static str, bool, bool, bool); 16] {
+    pub fn loops(&self) -> [(&'static str, bool, bool, bool); 17] {
         let realtime = self.roles.realtime();
         let housekeeping = self.roles.housekeeping();
         [
@@ -189,6 +194,12 @@ impl HealthFlags {
                 self.object_gc_alive.load(Ordering::Relaxed),
                 housekeeping,
                 self.object_gc_enabled,
+            ),
+            (
+                "reconcile",
+                self.reconcile_alive.load(Ordering::Relaxed),
+                housekeeping,
+                true,
             ),
         ]
     }
@@ -324,6 +335,7 @@ mod tests {
             matrix_alive: dead(true),
             object_gc_alive: dead(true),
             usage_alive: dead(true),
+            reconcile_alive: dead(true),
             workflow_alive: dead(true),
             roles,
             email_enabled: true,

@@ -31,6 +31,14 @@
 //! | `marula.sla.verdicts`        | counter     | trigger=risk\|breach\|escalation | SLA breach counters (trigger="breach") |
 //! | `marula.db.page1_p95`        | gauge (ms)  | –                   | page-1 ticket-list p95 against the 150 ms budget; the F4 trigger |
 //! | `marula.db.page1_sort_index_scan` | gauge  | –                   | 1 when the page-1 sort rides an ordered index; 0 when it is materialized |
+//! | `marula.reconcile.search_index_backlog` | gauge | –          | source rows with no search index row at the last backfill pass; zero means caught up |
+//! | `marula.reconcile.dead_events_replayable` | gauge | group   | dead stream entries a replay pass will attempt |
+//! | `marula.reconcile.dead_events_unrepairable` | gauge | group | dead stream entries replay cannot fix — needs a person |
+//! | `marula.reconcile.workflow_wake_lost` | gauge   | –          | parked runs whose wake deadline passed with no live wake job |
+//! | `marula.reconcile.report_retry_pending` | gauge | –        | report slots due another delivery attempt |
+//! | `marula.reconcile.report_retry_exhausted` | gauge | –      | report slots out of delivery attempts |
+//! | `marula.consumer.gap_entries` | gauge       | group               | entries after the group's position still in the stream |
+//! | `marula.consumer.gap_lost`   | gauge       | group               | 1 when the group's position is under the stream floor |
 //!
 //! The table above is the human view; [`crate::contract::METRICS`] is the
 //! machine view and the one an external consumer depends on. A metric that is
@@ -71,6 +79,14 @@ struct Instruments {
     sla_verdicts: Counter<u64>,
     page1_p95_ms: Gauge<f64>,
     page1_sort_index_scan: Gauge<u64>,
+    reconcile_search_index_backlog: Gauge<u64>,
+    reconcile_dead_events_replayable: Gauge<u64>,
+    reconcile_dead_events_unrepairable: Gauge<u64>,
+    reconcile_workflow_wake_lost: Gauge<u64>,
+    reconcile_report_retry_pending: Gauge<u64>,
+    reconcile_report_retry_exhausted: Gauge<u64>,
+    consumer_gap_entries: Gauge<u64>,
+    consumer_gap_lost: Gauge<u64>,
 }
 
 static INSTRUMENTS: OnceLock<Instruments> = OnceLock::new();
@@ -171,6 +187,49 @@ fn instruments() -> &'static Instruments {
             page1_sort_index_scan: meter
                 .u64_gauge("marula.db.page1_sort_index_scan")
                 .with_description("1 when the page-1 ORDER BY rides an ordered index scan")
+                .build(),
+            reconcile_search_index_backlog: meter
+                .u64_gauge("marula.reconcile.search_index_backlog")
+                .with_unit("{row}")
+                .with_description(
+                    "Source entities with no search index row at the last backfill pass",
+                )
+                .build(),
+            reconcile_dead_events_replayable: meter
+                .u64_gauge("marula.reconcile.dead_events_replayable")
+                .with_unit("{entry}")
+                .with_description(
+                    "Dead stream entries a replay pass will attempt, by consumer group",
+                )
+                .build(),
+            reconcile_dead_events_unrepairable: meter
+                .u64_gauge("marula.reconcile.dead_events_unrepairable")
+                .with_unit("{entry}")
+                .with_description("Dead stream entries replay cannot fix, by consumer group")
+                .build(),
+            reconcile_workflow_wake_lost: meter
+                .u64_gauge("marula.reconcile.workflow_wake_lost")
+                .with_unit("{run}")
+                .with_description("Parked runs whose wake deadline passed with no live wake job")
+                .build(),
+            reconcile_report_retry_pending: meter
+                .u64_gauge("marula.reconcile.report_retry_pending")
+                .with_unit("{slot}")
+                .with_description("Report slots with a failed delivery due another attempt")
+                .build(),
+            reconcile_report_retry_exhausted: meter
+                .u64_gauge("marula.reconcile.report_retry_exhausted")
+                .with_unit("{slot}")
+                .with_description("Report slots whose delivery failed with no attempts left")
+                .build(),
+            consumer_gap_entries: meter
+                .u64_gauge("marula.consumer.gap_entries")
+                .with_unit("{entry}")
+                .with_description("Entries after a consumer group's position still in the stream")
+                .build(),
+            consumer_gap_lost: meter
+                .u64_gauge("marula.consumer.gap_lost")
+                .with_description("1 when a group's position is under the stream floor")
                 .build(),
         }
     })
@@ -326,6 +385,68 @@ pub fn workflow_parked(count: u64, oldest_age_seconds: Option<u64>) {
     }
 }
 
+/// Search-index backfill: how many source entities the last pass found with no
+/// index row.
+///
+/// The number is the work FOUND, not the work done. It returns to zero when the
+/// backfill has caught up, which is what makes it the evidence that the repair
+/// works — a counter of "repaired rows" would keep climbing and prove nothing.
+pub fn reconcile_search_index_backlog(rows: u64) {
+    instruments()
+        .reconcile_search_index_backlog
+        .record(rows, &[]);
+}
+
+/// Dead stream entries waiting for a replay, and the ones replay cannot fix,
+/// per consumer group.
+///
+/// Both are recorded for a group that appears in the dead set at all: a group
+/// with nothing dead emits nothing, the same absence rule every dead-letter
+/// gauge in this file follows.
+pub fn reconcile_dead_events(group: &str, replayable: u64, unrepairable: u64) {
+    let i = instruments();
+    let group_attr = KeyValue::new("group", group.to_string());
+    i.reconcile_dead_events_replayable
+        .record(replayable, std::slice::from_ref(&group_attr));
+    i.reconcile_dead_events_unrepairable
+        .record(unrepairable, &[group_attr]);
+}
+
+/// Parked workflow runs whose wake deadline passed with no live wake job.
+///
+/// Recorded before the reap, so the number is what the pass FOUND. A pass that
+/// abandons them and then reports zero would be indistinguishable from a pass
+/// that never looked.
+pub fn reconcile_workflow_wake_lost(runs: u64) {
+    instruments().reconcile_workflow_wake_lost.record(runs, &[]);
+}
+
+/// Report slots due another delivery attempt, and the ones out of attempts.
+///
+/// Two series rather than one: `pending` is the reconciler working, `exhausted`
+/// is a person's problem, and a single number would hide which is which.
+pub fn reconcile_report_retry(pending: u64, exhausted: u64) {
+    let i = instruments();
+    i.reconcile_report_retry_pending.record(pending, &[]);
+    i.reconcile_report_retry_exhausted.record(exhausted, &[]);
+}
+
+/// One consumer group measured against the stream's bounds.
+///
+/// `gap_entries` counts entries after the group's position that are still in
+/// the stream; `lost` is `1` when the group's position is older than the
+/// stream's floor, which means entries it never processed were trimmed away and
+/// no replay can bring them back. Both are emitted for every group on the
+/// stream — zero is a true reading for a caught-up group, unlike the absence
+/// rule `dead_letter_age` follows.
+pub fn consumer_gap(group: &str, gap_entries: u64, lost: bool) {
+    let i = instruments();
+    let group_attr = KeyValue::new("group", group.to_string());
+    i.consumer_gap_entries
+        .record(gap_entries, std::slice::from_ref(&group_attr));
+    i.consumer_gap_lost.record(u64::from(lost), &[group_attr]);
+}
+
 /// Age of the last successful backup, in seconds.
 ///
 /// Only called when a stamp was actually read: there is no "0 seconds since
@@ -444,6 +565,12 @@ mod tests {
         capacity_page1_p95(31.4);
         capacity_page1_sort_index_scan(false);
         capacity_page1_sort_index_scan(true);
+        reconcile_search_index_backlog(12);
+        reconcile_dead_events("notifier", 1, 2);
+        reconcile_workflow_wake_lost(1);
+        reconcile_report_retry(2, 1);
+        consumer_gap("search-indexer", 4, true);
+        consumer_gap("notifier", 0, false);
     }
 
     /// Every hook added for the premium observability pack has an entry in the
@@ -474,6 +601,14 @@ mod tests {
             "marula.sla.verdicts",
             "marula.db.page1_p95",
             "marula.db.page1_sort_index_scan",
+            "marula.reconcile.search_index_backlog",
+            "marula.reconcile.dead_events_replayable",
+            "marula.reconcile.dead_events_unrepairable",
+            "marula.reconcile.workflow_wake_lost",
+            "marula.reconcile.report_retry_pending",
+            "marula.reconcile.report_retry_exhausted",
+            "marula.consumer.gap_entries",
+            "marula.consumer.gap_lost",
         ];
         let published: std::collections::BTreeSet<&str> =
             crate::contract::METRICS.iter().map(|m| m.name).collect();
