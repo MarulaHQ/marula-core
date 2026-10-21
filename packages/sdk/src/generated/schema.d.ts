@@ -1,4 +1,112 @@
 export interface paths {
+    "/api/v1/admin/dead-work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/admin/dead-work — every ledger's abandoned work, newest first. */
+        get: operations["dead_work_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/dead-work/destinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/admin/dead-work/destinations — webhook destinations and their
+         *     failure counters.
+         * @description Paused first, then the ones closest to pausing: the operator question is
+         *     "what is suppressed, and what is about to be".
+         */
+        get: operations["dead_work_destinations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/dead-work/destinations/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/admin/dead-work/destinations/{id}/resume — clear a pause.
+         * @description Also resets the counter, so the destination gets a full budget of failures
+         *     before it pauses again rather than pausing on the next one. The operator
+         *     fixed something; the evidence that it was broken is history, not a debt.
+         */
+        post: operations["dead_work_resume_destination"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/dead-work/{source}/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/admin/dead-work/{source}/{id}/cancel — record that this work is
+         *     not wanted.
+         * @description For a job (including a webhook delivery job) the row also moves to `failed`,
+         *     so the dead depth an alert reads actually falls. For email and dead events
+         *     the ledger state stays and the decision is this table's row: see
+         *     `core_db::dead_work::cancel` for why that asymmetry is deliberate.
+         */
+        post: operations["dead_work_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/dead-work/{source}/{id}/redrive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/admin/dead-work/{source}/{id}/redrive — requeue one item.
+         * @description The row is requeued in place: a webhook job keeps its dedupe key, so the
+         *     replay cannot deliver the same `(webhook, event)` twice, and the attempt
+         *     budget restarts so the retry is real. A repeat call is `not_dead` and writes
+         *     no second audit row.
+         */
+        post: operations["dead_work_redrive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/quarantine": {
         parameters: {
             query?: never;
@@ -15251,8 +15359,28 @@ export interface components {
              */
             user_id?: string | null;
         };
+        /**
+         * @description The cancel verb's body. Required, for the same reason the quarantine
+         *     release reason is: the row will be read a month later and "why did we give
+         *     up on this" is the only question it will be asked.
+         */
+        CancelDeadWorkRequest: {
+            reason: string;
+        };
         CancelOrderRequest: components["schemas"]["MutationParams"] & {
             reason?: string | null;
+        };
+        /** @description What a cancel did, as the caller sees it. */
+        CancelResponse: {
+            changed: boolean;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description `cancelled` — the decision is recorded. `already_cancelled` — an earlier
+             *     decision stands and nothing was written.
+             */
+            outcome: string;
+            source: string;
         };
         CandidateView: components["schemas"]["CiMergeCandidate"] & {
             candidate_tag: string;
@@ -18329,6 +18457,50 @@ export interface components {
              */
             user_id?: string | null;
         };
+        /** @description One page of the list. */
+        DeadWorkPage: {
+            /** @description Newest abandonment first. */
+            items: components["schemas"]["DeadWorkView"][];
+            /**
+             * Format: int64
+             * @description Offset for the next page; absent when this page is the last.
+             */
+            next_offset?: number | null;
+        };
+        /** @description One dead-work row as the operator surface reads it. */
+        DeadWorkView: {
+            /** Format: int32 */
+            attempts: number;
+            /**
+             * Format: date-time
+             * @description Set when an operator has already cancelled it and the caller asked for
+             *     cancelled rows.
+             */
+            cancelled_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When it was abandoned, not when it was enqueued.
+             */
+            dead_since: string;
+            /**
+             * Format: uuid
+             * @description The row id in that ledger; the argument the verbs take.
+             */
+            id: string;
+            last_error?: string | null;
+            /**
+             * @description Whether `POST .../redrive` can requeue it. False for a dead stream
+             *     event, whose payload needs the relay's stream writer.
+             */
+            replayable: boolean;
+            /** @description `job` | `email` | `webhook` | `event` — the ledger it came from. */
+            source: string;
+            /**
+             * @description What a human calls it: a job kind, an email subject and recipients, a
+             *     webhook URL and event type, a consumer group and event type.
+             */
+            subject: string;
+        };
         /** @description The deal aggregate: document + transition ledger. */
         DealDetail: components["schemas"]["PipelineDeal"] & {
             transitions: components["schemas"]["PipelineDealTransition"][];
@@ -18821,6 +18993,25 @@ export interface components {
             project_id: string;
             /** Format: uuid */
             task_id: string;
+        };
+        /** @description One webhook destination and the counters that decide its pause. */
+        DestinationView: {
+            /**
+             * Format: int32
+             * @description Retryable delivery failures since the last delivery it accepted (or
+             *     last refused on its merits).
+             */
+            consecutive_failures: number;
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date-time
+             * @description Set while the destination is paused: new events are not matched for it.
+             */
+            paused_at?: string | null;
+            paused_reason?: string | null;
+            url: string;
         };
         DetectionFile: {
             content_type: string;
@@ -25963,6 +26154,22 @@ export interface components {
             /** @description Plaintext codes — displayed once, stored only as argon2id hashes. */
             recovery_codes: string[];
         };
+        /** @description What a redrive did, as the caller sees it. */
+        RedriveResponse: {
+            /**
+             * @description True when this call changed the row, which is also when an audit row was
+             *     written. False means the call was a no-op repeat.
+             */
+            changed: boolean;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description `requeued` — the row is back in its ledger, due now, with a fresh
+             *     attempt budget. `not_dead` — someone already moved it; nothing changed.
+             */
+            outcome: string;
+            source: string;
+        };
         RefineNoteRequest: {
             body: string;
         };
@@ -31212,6 +31419,14 @@ export interface components {
             webhook: components["schemas"]["WebhookView"];
         };
         WebhookView: {
+            /**
+             * Format: int32
+             * @description Retryable delivery failures since the last delivery this destination
+             *     accepted. Visible here because it is the number that predicts a pause:
+             *     the operator fixing a receiver wants to see it climbing before the
+             *     destination disappears from the delivery set.
+             */
+            consecutive_failures: number;
             /** Format: date-time */
             created_at: string;
             /** Format: uuid */
@@ -31221,6 +31436,14 @@ export interface components {
             event_types: string[];
             /** Format: uuid */
             id: string;
+            /**
+             * Format: date-time
+             * @description Set while the destination is paused: new events are not matched for it,
+             *     so nothing new is queued until it is resumed (or its URL changes, which
+             *     is a different destination).
+             */
+            paused_at?: string | null;
+            paused_reason?: string | null;
             url: string;
         };
         /**
@@ -31401,6 +31624,126 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    dead_work_list: {
+        parameters: {
+            query?: {
+                /** @description Restrict to one ledger: `job`, `email`, `webhook` or `event`. */
+                source?: string | null;
+                /**
+                 * @description Include rows an operator already cancelled. Off by default: the list
+                 *     exists to show what still needs a decision.
+                 */
+                include_cancelled?: boolean | null;
+                /** @description Page size, clamped to 1..=200. */
+                limit?: number | null;
+                /** @description Rows to skip, from a previous page's `next_offset`. */
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadWorkPage"];
+                };
+            };
+        };
+    };
+    dead_work_destinations: {
+        parameters: {
+            query?: {
+                /** @description Only destinations that are currently paused. */
+                paused_only?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinationView"][];
+                };
+            };
+        };
+    };
+    dead_work_resume_destination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dead_work_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelDeadWorkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelResponse"];
+                };
+            };
+        };
+    };
+    dead_work_redrive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RedriveResponse"];
+                };
+            };
+        };
+    };
     quarantine_admin_list: {
         parameters: {
             query?: {

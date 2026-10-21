@@ -323,6 +323,7 @@ async fn outbound_claim_backoff_and_dead_transitions() {
             provider_message_id: None,
             error: Some("smtp down".into()),
             retry_delay_secs: 60,
+            permanent: false,
         },
         t0,
     )
@@ -368,6 +369,7 @@ async fn outbound_claim_backoff_and_dead_transitions() {
                 provider_message_id: None,
                 error: Some("still down".into()),
                 retry_delay_secs: 1,
+                permanent: false,
             },
             clock,
         )
@@ -423,6 +425,7 @@ async fn success_persists_provider_id_and_stale_reports_are_inert() {
             provider_message_id: Some("pm-42".into()),
             error: None,
             retry_delay_secs: 30,
+            permanent: false,
         },
         now,
     )
@@ -437,6 +440,7 @@ async fn success_persists_provider_id_and_stale_reports_are_inert() {
             provider_message_id: None,
             error: Some("late failure".into()),
             retry_delay_secs: 30,
+            permanent: false,
         },
         now,
     )

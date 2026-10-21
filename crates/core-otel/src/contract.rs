@@ -205,7 +205,7 @@ pub const METRICS: &[MetricDescriptor] = &[
         unit: "{entry}",
         attributes: &["group"],
         stability: Stability::Stable,
-        producer: "worker stream_health::probe",
+        producer: "worker consumer loop (stream_health::emit)",
         summary: "Entries delivered to a consumer group and not yet acknowledged",
     },
     MetricDescriptor {
@@ -214,7 +214,7 @@ pub const METRICS: &[MetricDescriptor] = &[
         unit: "{entry}",
         attributes: &["group"],
         stability: Stability::Stable,
-        producer: "worker stream_health::probe",
+        producer: "worker consumer loop (stream_health::emit)",
         summary: "Stream entries the group has not been delivered yet; absent when the server cannot tell",
     },
     MetricDescriptor {
@@ -223,7 +223,7 @@ pub const METRICS: &[MetricDescriptor] = &[
         unit: "s",
         attributes: &["group"],
         stability: Stability::Stable,
-        producer: "worker stream_health::probe",
+        producer: "worker consumer loop (stream_health::emit)",
         summary: "Age of the oldest unacknowledged entry in a consumer group",
     },
     MetricDescriptor {

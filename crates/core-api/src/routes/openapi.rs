@@ -766,6 +766,14 @@ use utoipa::OpenApi;
         crate::routes::quarantine_admin::get_one,
         crate::routes::quarantine_admin::release,
         crate::routes::quarantine_admin::remove,
+        // Wave 52 lane R3: dead work from every ledger that can abandon it,
+        // the two operator decisions over one row, and the pause/resume pair
+        // for a webhook destination.
+        crate::routes::dead_work::list,
+        crate::routes::dead_work::redrive,
+        crate::routes::dead_work::cancel,
+        crate::routes::dead_work::destinations,
+        crate::routes::dead_work::resume_destination,
         // Wave 43 track 2 lane 12 (migration 0127): sign-off capture, its
         // revocation trail, payload download, and consent-version control.
         crate::routes::sign_offs::create,

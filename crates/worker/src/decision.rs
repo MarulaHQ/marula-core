@@ -1,10 +1,10 @@
 //! worker/decision — the decision surfaces' stream consumer (Wave 23
 //! lane 3, ADR 0010 §3 #1–#4 + #9).
 //!
-//! Purpose: consume the domain event stream with the SAME discipline as
-//! the automations consumer (durable Redis consumer group, pending-entry
-//! recovery, malformed entries ACKed-and-skipped, reconnect with
-//! backoff), compose decision state from event envelopes + DB snapshots
+//! Purpose: consume the domain event stream through the shared harness
+//! ([`crate::consumer`]: durable Redis consumer group, per-replica consumer
+//! name, pending recovery, takeover of a dead replica's entries, live retry,
+//! dead-letter queue), compose decision state from event envelopes + DB snapshots
 //! per the surface's `state_template`, and dispatch ONE speculative
 //! fan-out per trigger through core-api's internal decision seam.
 //!
@@ -35,9 +35,8 @@
 //! wait on a decision model.
 
 use crate::config::WorkerConfig;
-use crate::reconnect::Reconnect;
-use core_events::{Envelope, EVENT_STREAM};
-use redis::AsyncCommands;
+use crate::consumer::{self, ConsumerSpec, Delivery, EntryHandler, EntryOutcome, PgLedger};
+use core_events::Envelope;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,9 +44,8 @@ use tokio::sync::watch;
 use uuid::Uuid;
 
 const CONSUMER_GROUP: &str = "decision-triage";
-const CONSUMER_NAME: &str = "worker";
-const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
+const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 
 /// Surfaces this subsystem dispatches.
 const TRIAGE: &str = "decision_ticket_triage";
@@ -362,8 +360,10 @@ fn ticket_state(
 }
 
 // ---------------------------------------------------------------------------
-// The consumer loop — mirrors run_automations exactly (pending recovery,
-// live tail under the group, ACKed-and-skipped poison entries).
+// The consumer loop: the shared harness (crate::consumer) plus this
+// subsystem's handler. Group, per-replica name, pending recovery, claiming,
+// live retry and the dead-letter queue are the harness's; the handler only
+// decides what a trigger means.
 // ---------------------------------------------------------------------------
 
 /// Runs the decision subsystem until shutdown. Disabled cleanly (none
@@ -379,140 +379,60 @@ pub async fn run_decision_triage(
         tracing::info!("decision triage disabled: MARULA_DECISION_BOT_USER_ID not configured");
         return;
     };
-    let client = match redis::Client::open(config.redis_url.as_str()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "invalid redis url; decision triage exiting");
-            return;
-        }
+    let handler = DecisionHandler {
+        pool: pool.clone(),
+        bot_user,
+        fan_out,
     };
-    let mut backoff = Reconnect::consumer();
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                backoff.reset();
-                // Durable group; '$' starts at live tail on FIRST creation
-                // (same posture as the automations consumer).
-                if let Err(error) = conn
-                    .xgroup_create_mkstream::<&str, &str, &str, ()>(
-                        EVENT_STREAM,
-                        CONSUMER_GROUP,
-                        "$",
-                    )
-                    .await
-                {
-                    let msg = error.to_string();
-                    if !msg.contains("BUSYGROUP") {
-                        tracing::error!(%error, "xgroup create failed");
-                        backoff.sleep().await;
-                        continue;
-                    }
+    let ledger = PgLedger::new(pool);
+    consumer::run(
+        &config.redis_url,
+        &SPEC,
+        consumer::consumer_name(CONSUMER_GROUP),
+        &ledger,
+        &handler,
+        &mut shutdown,
+    )
+    .await;
+}
+
+/// Dispatches one page of triggers through the decision seam.
+///
+/// Every outcome here is `Settled`: the fan-out is deliberately
+/// fire-and-forget (ADR 0010 — no retries, no failure propagation, so intake
+/// and billing never wait on a model), and the read paths behind it degrade to
+/// "no state" rather than an error. What the harness adds to this surface is
+/// the per-replica name, takeover of a dead replica's entries, and a record
+/// when an entry's body cannot be parsed at all.
+struct DecisionHandler {
+    pool: sqlx::PgPool,
+    bot_user: Uuid,
+    fan_out: Arc<dyn DecisionFanOut>,
+}
+
+impl EntryHandler for DecisionHandler {
+    async fn handle(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        let now = chrono::Utc::now();
+        for delivery in batch {
+            let envelope = &delivery.envelope;
+            if core_domain::automations::is_automation_echo(&envelope.payload) {
+                continue;
+            }
+            match match_event(envelope) {
+                Some(Trigger::AlertIngested) => {
+                    handle_alert(&self.pool, &self.bot_user, &self.fan_out, envelope, now).await;
                 }
-                follow_stream(&pool, &bot_user, &fan_out, &mut conn, &mut shutdown).await;
-                tracing::warn!("decision triage stream connection ended; reconnecting");
-            }
-            Err(error) => {
-                tracing::error!(%error, "decision triage redis connect failed");
-            }
-        }
-        backoff.sleep().await;
-    }
-}
-
-async fn follow_stream(
-    pool: &sqlx::PgPool,
-    bot_user: &Uuid,
-    fan_out: &Arc<dyn DecisionFanOut>,
-    conn: &mut redis::aio::MultiplexedConnection,
-    shutdown: &mut watch::Receiver<bool>,
-) {
-    use redis::streams::{StreamReadOptions, StreamReadReply};
-    // 1. Recover pending entries owned by this consumer name.
-    let options = StreamReadOptions::default().count(COUNT);
-    if let Ok(reply) = conn
-        .xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &["0"], &options)
-        .await
-    {
-        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-            handle_entry(pool, bot_user, fan_out, conn, &entry).await;
-        }
-    }
-    // 2. Live tail under the group.
-    let options = StreamReadOptions::default()
-        .block(BLOCK_MS)
-        .count(COUNT)
-        .group(CONSUMER_GROUP, CONSUMER_NAME);
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            result = conn.xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &[">"], &options) => {
-                match result {
-                    Ok(reply) => {
-                        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-                            handle_entry(pool, bot_user, fan_out, conn, &entry).await;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "decision triage xreadgroup failed");
-                        return;
-                    }
+                Some(Trigger::TicketCreated | Trigger::TicketUpdated) => {
+                    handle_ticket(&self.pool, &self.bot_user, &self.fan_out, envelope, now).await;
                 }
+                Some(Trigger::TimeEntryCreated) => {
+                    handle_time_entry(&self.pool, &self.bot_user, &self.fan_out, envelope).await;
+                }
+                None => {}
             }
         }
-        // Consumer backlog: PEL depth, lag and the age of the oldest unacked
-        // entry for THIS group, read after the batch (the private build tracker R7a).
-        crate::stream_health::probe(conn, CONSUMER_GROUP).await;
+        vec![EntryOutcome::Settled; batch.len()]
     }
-}
-
-async fn ack(conn: &mut redis::aio::MultiplexedConnection, id: &str) {
-    let _: Result<i64, _> = conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
-}
-
-async fn handle_entry(
-    pool: &sqlx::PgPool,
-    bot_user: &Uuid,
-    fan_out: &Arc<dyn DecisionFanOut>,
-    conn: &mut redis::aio::MultiplexedConnection,
-    entry: &redis::streams::StreamId,
-) {
-    let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "decision triage: stream entry missing data field");
-        ack(conn, entry.id.as_str()).await;
-        return;
-    };
-    let envelope = match serde_json::from_str::<Envelope>(&raw) {
-        Ok(envelope) => envelope,
-        Err(_) => {
-            tracing::warn!(entry_id = %entry.id, "decision triage: unparseable event");
-            ack(conn, entry.id.as_str()).await;
-            return;
-        }
-    };
-    if core_domain::automations::is_automation_echo(&envelope.payload) {
-        ack(conn, entry.id.as_str()).await;
-        return;
-    }
-    let now = chrono::Utc::now();
-    match match_event(&envelope) {
-        Some(Trigger::AlertIngested) => {
-            handle_alert(pool, bot_user, fan_out, &envelope, now).await;
-        }
-        Some(Trigger::TicketCreated | Trigger::TicketUpdated) => {
-            handle_ticket(pool, bot_user, fan_out, &envelope, now).await;
-        }
-        Some(Trigger::TimeEntryCreated) => {
-            handle_time_entry(pool, bot_user, fan_out, &envelope).await;
-        }
-        None => {}
-    }
-    ack(conn, entry.id.as_str()).await;
 }
 
 /// `decision_billing_audit` (ADR 0010 §3 #7): a fresh time entry gets its

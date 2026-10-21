@@ -135,6 +135,25 @@ pub fn backoff_secs_with(failed_attempt: i32, sample: f64) -> i64 {
     crate::retry::policy(crate::retry::Subsystem::Webhook).delay_secs(attempts, sample)
 }
 
+/// How many consecutive retryable delivery failures pause a destination.
+///
+/// It is the webhook policy's own attempt budget, not a second number: one
+/// event that exhausts every attempt without a single success has produced
+/// exactly this many failures, and an operator reading "the endpoint returned
+/// 503 six times in a row" is reading the same evidence either way. A policy
+/// widened for a flaky receiver therefore also delays the pause, which is the
+/// behaviour an operator who widened it asked for.
+///
+/// The floor of 2 keeps a one-attempt budget from pausing on a single try:
+/// "repeated failures" is the point, and one is not repeated. A destination
+/// that accepts nothing still pauses on its second failure.
+#[must_use]
+pub fn pause_after_failures() -> i32 {
+    crate::retry::policy(crate::retry::Subsystem::Webhook)
+        .max_attempts_i32(MAX_DELIVERY_ATTEMPTS)
+        .max(2)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,5 +251,17 @@ mod tests {
         // A nonsensical attempt count waits the first delay, not the last.
         assert!(backoff_secs_with(-4, 1.0) <= 30);
         assert!(backoff_secs_with(0, 1.0) <= 30);
+    }
+
+    /// The pause threshold is the policy's attempt budget, not a second
+    /// constant: widen the budget and the pause waits longer, which is what an
+    /// operator who widened it for a flaky receiver asked for.
+    #[test]
+    fn the_pause_threshold_is_the_webhook_attempt_budget() {
+        use crate::retry::{policy, Subsystem};
+        let budget = policy(Subsystem::Webhook).max_attempts_i32(MAX_DELIVERY_ATTEMPTS);
+        assert_eq!(pause_after_failures(), budget.max(2));
+        // Two failures is the floor, so a single wasted attempt never pauses.
+        assert!(pause_after_failures() >= 2);
     }
 }

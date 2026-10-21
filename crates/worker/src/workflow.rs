@@ -38,8 +38,8 @@
 //! Non-purpose: no document validation (core-domain refuses it), no ledger
 //! SQL (lane 14), no domain writes here (effects flow through core-api).
 
+use crate::consumer::{self, ConsumerSpec, Delivery, EntryHandler, EntryOutcome, PgLedger};
 use crate::effects::{EffectApi, EffectOutcome};
-use crate::reconnect::Reconnect;
 use core_db::queue::{ClaimedJob, NewJob};
 use core_db::workflow_runs as runs_db;
 use core_db::workflow_runs::NewStep;
@@ -51,18 +51,14 @@ use core_domain::workflow_document::{
     FLOW_WAIT_FOR_ALL, FLOW_WAIT_UNTIL,
 };
 use core_domain::workflow_runs::{RunStatus, RunTrigger, StepStatus, WORKFLOW_RESUME_JOB};
-use core_events::{Envelope, EVENT_STREAM};
-use redis::streams::{StreamReadOptions, StreamReadReply};
-use redis::AsyncCommands;
+use core_events::Envelope;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio::sync::watch;
 
-/// Durable group; `$` starts at the live tail on first creation.
 const CONSUMER_GROUP: &str = "workflows";
-const CONSUMER_NAME: &str = "worker";
-const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
+const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 
 /// The core-api internal endpoint that executes ONE registry node
 /// org-scoped, as the run's author.
@@ -139,121 +135,39 @@ struct RunContext {
 // The stream consumer: triggers and parked-run wakes
 // ---------------------------------------------------------------------------
 
-/// Runs the workflow stream consumer until shutdown. Matches each envelope
-/// against enabled workflow documents (to START runs) and against parked
-/// runs waiting on the event type (to WAKE them); both enqueue a
-/// `workflow.resume` job and ACK only once the job is durable.
-pub async fn run_workflow_stream(
+/// Runs the workflow stream consumer until shutdown. The harness owns the
+/// group, the per-replica name, recovery, claiming, the live retry and the
+/// dead-letter queue; this module decides which runs a trigger starts or wakes.
+pub async fn run_workflow_stream(pool: PgPool, redis_url: String, shutdown: watch::Receiver<bool>) {
+    let handler = WorkflowHandler { pool: pool.clone() };
+    let ledger = PgLedger::new(pool);
+    let mut shutdown = shutdown;
+    consumer::run(
+        &redis_url,
+        &SPEC,
+        consumer::consumer_name(CONSUMER_GROUP),
+        &ledger,
+        &handler,
+        &mut shutdown,
+    )
+    .await;
+}
+
+struct WorkflowHandler {
     pool: PgPool,
-    redis_url: String,
-    mut shutdown: watch::Receiver<bool>,
-) {
-    let client = match redis::Client::open(redis_url.as_str()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "invalid redis url; workflows exiting");
-            return;
-        }
-    };
-    let mut backoff = Reconnect::consumer();
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                backoff.reset();
-                if let Err(error) = conn
-                    .xgroup_create_mkstream::<&str, &str, &str, ()>(
-                        EVENT_STREAM,
-                        CONSUMER_GROUP,
-                        "$",
-                    )
-                    .await
-                {
-                    let msg = error.to_string();
-                    if !msg.contains("BUSYGROUP") {
-                        tracing::error!(%error, "workflows xgroup create failed");
-                        backoff.sleep().await;
-                        continue;
-                    }
-                }
-                follow_stream(&pool, &mut conn, &mut shutdown).await;
-                tracing::warn!("workflows stream connection ended; reconnecting");
-            }
-            Err(error) => {
-                tracing::error!(%error, "workflows redis connect failed");
-            }
-        }
-        backoff.sleep().await;
-    }
 }
 
-async fn follow_stream(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    shutdown: &mut watch::Receiver<bool>,
-) {
-    let options = StreamReadOptions::default().count(COUNT);
-    if let Ok(reply) = conn
-        .xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &["0"], &options)
-        .await
-    {
-        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-            handle_entry(pool, conn, &entry).await;
+impl EntryHandler for WorkflowHandler {
+    async fn handle(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        let mut outcomes = Vec::with_capacity(batch.len());
+        for delivery in batch {
+            outcomes.push(match match_envelope(&self.pool, &delivery.envelope).await {
+                Ok(()) => EntryOutcome::Settled,
+                Err(error) => EntryOutcome::Retry(format!("workflow match failed: {error}")),
+            });
         }
+        outcomes
     }
-    let options = StreamReadOptions::default()
-        .block(BLOCK_MS)
-        .count(COUNT)
-        .group(CONSUMER_GROUP, CONSUMER_NAME);
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            result = conn.xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &[">"], &options) => {
-                match result {
-                    Ok(reply) => {
-                        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-                            handle_entry(pool, conn, &entry).await;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "workflows xreadgroup failed");
-                        return;
-                    }
-                }
-            }
-        }
-        // Consumer backlog: PEL depth, lag and the age of the oldest unacked
-        // entry for THIS group, read after the batch (the private build tracker R7a).
-        crate::stream_health::probe(conn, CONSUMER_GROUP).await;
-    }
-}
-
-async fn handle_entry(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    entry: &redis::streams::StreamId,
-) {
-    let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "stream entry missing data field");
-        return;
-    };
-    let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
-        tracing::warn!(entry_id = %entry.id, "unparseable event; acking to skip");
-        ack(conn, &entry.id).await;
-        return;
-    };
-    if let Err(error) = match_envelope(pool, &envelope).await {
-        // NOT acking: the group redelivers after restart, so a DB hiccup
-        // retries matching instead of dropping the event.
-        tracing::error!(%error, entry_id = %entry.id, "workflow match failed; leaving unacked");
-        return;
-    }
-    ack(conn, &entry.id).await;
 }
 
 /// Starts runs for every enabled workflow document listening for this
@@ -282,7 +196,14 @@ async fn match_envelope(pool: &PgPool, envelope: &Envelope) -> anyhow::Result<()
             "event_type": envelope.event_type,
             "event_entity": envelope.entity,
         });
-        if let Err(error) = enqueue_resume(&mut *tx, envelope.org_id, payload).await {
+        if let Err(error) = enqueue_resume(
+            &mut *tx,
+            envelope.org_id,
+            payload,
+            &format!("{WORKFLOW_RESUME_JOB}:start:{}:{}", rule.id, envelope.id),
+        )
+        .await
+        {
             tracing::error!(%error, rule_id = %rule.id, "workflow start enqueue failed; leaving unacked");
             return Err(error.into());
         }
@@ -299,7 +220,14 @@ async fn match_envelope(pool: &PgPool, envelope: &Envelope) -> anyhow::Result<()
             "event_type": envelope.event_type,
             "event_entity": envelope.entity,
         });
-        if let Err(error) = enqueue_resume(&mut *tx, envelope.org_id, payload).await {
+        if let Err(error) = enqueue_resume(
+            &mut *tx,
+            envelope.org_id,
+            payload,
+            &format!("{WORKFLOW_RESUME_JOB}:resume:{}:{}", run.id, envelope.id),
+        )
+        .await
+        {
             tracing::error!(%error, run_id = %run.id, "workflow resume enqueue failed; leaving unacked");
             return Err(error.into());
         }
@@ -311,15 +239,22 @@ async fn match_envelope(pool: &PgPool, envelope: &Envelope) -> anyhow::Result<()
 
 /// Enqueues one `workflow.resume` job inside the caller's transaction, so
 /// the trigger/wake and the job that runs it are one durable fact.
+///
+/// Dedupe-keyed on the run (or rule) and the event. The stream is
+/// at-least-once: an entry replayed after a crash, or claimed from a consumer
+/// that died mid-handling, is read again, and a second resume job for the same
+/// pair would start or resume the same run twice. `Ok(None)` therefore is a
+/// settled entry — the job exists, in whatever state.
 async fn enqueue_resume<'e, E>(
     executor: E,
     org_id: uuid::Uuid,
     payload: Value,
-) -> core_db::DbResult<uuid::Uuid>
+    dedupe_key: &str,
+) -> core_db::DbResult<Option<uuid::Uuid>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    core_db::queue::enqueue(
+    core_db::queue::enqueue_deduped(
         executor,
         &NewJob {
             org_id,
@@ -327,12 +262,9 @@ where
             payload,
             max_attempts: crate::queue_runner::queue_max_attempts(),
         },
+        dedupe_key,
     )
     .await
-}
-
-async fn ack(conn: &mut redis::aio::MultiplexedConnection, id: &str) {
-    let _: Result<i64, _> = conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
 }
 
 // ---------------------------------------------------------------------------

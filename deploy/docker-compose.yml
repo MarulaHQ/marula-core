@@ -179,6 +179,15 @@ services:
     cpus: 2.0
     logging: *default-logging
     <<: *cap-common
+    # Supervisor policy (lane R5). `unless-stopped` restarts a crashed process
+    # but leaves a container an operator stopped alone across a daemon restart;
+    # a stop is drained, not cut — SIGTERM starts the binary's own window
+    # (MARULA_SHUTDOWN_GRACE_SECS) and stop_grace_period leaves room for it.
+    # No healthcheck here on purpose: the runtime image carries no shell and no
+    # curl, so a compose HEALTHCHECK could not exec one; the Helm chart probes
+    # /livez and /readyz over the network instead.
+    restart: unless-stopped
+    stop_grace_period: 30s
     # DHI debian-base nonroot 65532; the only writable path is the local
     # object-store dir (a volume), so the rootfs can stay read-only.
     read_only: true
@@ -227,6 +236,9 @@ services:
       # math and the pooler decision before a second instance ships.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
       MARULA_REPORTING_POOL_MAX: ${MARULA_REPORTING_POOL_MAX:-25}
+      # Bounded drain window (lane R5): how long in-flight requests may take
+      # after SIGTERM. Keep it under stop_grace_period above.
+      MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
       # OpenTelemetry (the private build tracker 2.18): empty ⇒ none mode (no OTel SDK, no
       # exporters). Set to http://otel-collector:4318 together with the
       # observability profile (see header comment).
@@ -265,6 +277,10 @@ services:
     cpus: 1.0
     logging: *default-logging
     <<: *cap-common
+    # Supervisor policy (lane R5); same contract as core-api above. The worker
+    # owns no traffic, so its window waits for the loops it runs.
+    restart: unless-stopped
+    stop_grace_period: 30s
     # Rust image nonroot uid 65532; queue relay with no local disk state —
     # read-only rootfs.
     read_only: true
@@ -285,6 +301,9 @@ services:
       # Pool ceilings (Wave 49 lane R1); see docs/perf.md §5.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
       DELIVERY_POOL_MAX: ${DELIVERY_POOL_MAX:-5}
+      # Bounded drain window (lane R5): how long the loops get to finish what
+      # they hold after SIGTERM. Keep it under stop_grace_period above.
+      MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
       CORE_API_URL: http://core-api:8080
       EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
@@ -308,6 +327,10 @@ services:
     cpus: 1.0
     logging: *default-logging
     <<: *cap-common
+    # Supervisor policy (lane R5): a crashed Next server restarts; a stop gets
+    # the same grace window as the API rather than Docker's 10s default.
+    restart: unless-stopped
+    stop_grace_period: 30s
     # Node standalone server as uid 1000 (matches the image USER); no
     # writes at runtime in production-mode Next standalone (no ISR/cache
     # dirs in use) — read-only rootfs with a tmpfs for /tmp.

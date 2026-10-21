@@ -20,7 +20,7 @@
 use crate::config::EmailLoopConfig;
 use crate::mail_config::OrgMailResolver;
 use core_mail::internal::{ClaimRequest, ClaimedOutbound, ResultsRequest, SendResult};
-use core_mail::{MailTransport, TransportError};
+use core_mail::MailTransport;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -61,7 +61,14 @@ pub async fn run_email_loop(
         match cycle(&config, &client, resolver.as_ref()).await {
             Ok(0) => {
                 failed_cycles = 0;
-                tokio::time::sleep(idle).await;
+                // Interruptible idle (lane R5): a plain `sleep` here made an
+                // idle loop ignore the stop flag for a whole poll interval, so
+                // a drained process waited out its window and reported this
+                // loop as cut while it was asleep.
+                tokio::select! {
+                    _ = shutdown.changed() => return,
+                    _ = tokio::time::sleep(idle) => {}
+                }
             }
             Ok(_) => {
                 // Work remains; loop immediately.
@@ -70,7 +77,10 @@ pub async fn run_email_loop(
             Err(e) => {
                 tracing::error!(error = %e, "email cycle failed");
                 failed_cycles = failed_cycles.saturating_add(1);
-                tokio::time::sleep(error_backoff(failed_cycles)).await;
+                tokio::select! {
+                    _ = shutdown.changed() => return,
+                    _ = tokio::time::sleep(error_backoff(failed_cycles)) => {}
+                }
             }
         }
         if shutdown.has_changed().unwrap_or(true) {
@@ -124,6 +134,10 @@ async fn cycle(
                     attempts: message.attempts,
                     provider_message_id: None,
                     error: Some(reason),
+                    // A configuration gap is never permanent: the operator can
+                    // configure a transport, and the ledger must not dead-letter
+                    // a message for a deployment fault.
+                    permanent: false,
                 });
                 continue;
             }
@@ -142,28 +156,28 @@ async fn cycle(
                     attempts: message.attempts,
                     provider_message_id: receipt.provider_message_id,
                     error: None,
+                    permanent: false,
                 }
             }
-            Err(TransportError::Rejected(reason)) => {
-                // Rejections are permanent for identical content but the
-                // ledger still owns retry/dead decisions.
-                tracing::warn!(id = %message.id, %reason, "transport rejected message");
+            Err(error) => {
+                // The retry decision is the transport's classification, and the
+                // ledger applies it. A rejection is the provider refusing THIS
+                // message on its merits, so the message dead-letters now instead
+                // of spending the rest of its budget proving the same thing; a
+                // throttle or an outage retries on the policy's schedule.
+                let permanent = error.permanent();
+                if permanent {
+                    tracing::warn!(id = %message.id, %error, "transport rejected message permanently");
+                } else {
+                    tracing::warn!(id = %message.id, %error, "transport failed; retrying");
+                }
                 SendResult {
                     id: message.id,
                     ok: false,
                     attempts: message.attempts,
                     provider_message_id: None,
-                    error: Some(reason),
-                }
-            }
-            Err(TransportError::Unavailable(reason)) => {
-                tracing::warn!(id = %message.id, reason, "transport unavailable");
-                SendResult {
-                    id: message.id,
-                    ok: false,
-                    attempts: message.attempts,
-                    provider_message_id: None,
-                    error: Some(reason),
+                    error: Some(error.to_string()),
+                    permanent,
                 }
             }
         };
@@ -317,8 +331,8 @@ mod tests {
             async fn send(
                 &self,
                 _m: &core_mail::OutboundEmail,
-            ) -> Result<core_mail::SendReceipt, TransportError> {
-                Err(TransportError::Unavailable("smtp down".into()))
+            ) -> Result<core_mail::SendReceipt, core_mail::TransportError> {
+                Err(core_mail::TransportError::Unavailable("smtp down".into()))
             }
         }
         let seen_results: Arc<std::sync::Mutex<Vec<SendResult>>> =
@@ -355,7 +369,14 @@ mod tests {
         let reported = seen_results.lock().unwrap();
         assert_eq!(reported.len(), 1);
         assert!(!reported[0].ok);
-        assert_eq!(reported[0].error.as_deref(), Some("smtp down"));
+        // The report carries the transport error's own Display, which names the
+        // class ("transport unavailable: smtp down") — an operator reading
+        // `email_outbound.last_error` can tell an outage from a refusal without
+        // the provider's raw body.
+        let error = reported[0].error.as_deref().unwrap_or_default();
+        assert!(error.contains("smtp down"), "{error}");
+        assert!(error.contains("unavailable"), "{error}");
+        assert!(!reported[0].permanent);
     }
 
     #[tokio::test]
@@ -408,5 +429,102 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("no outbound transport"));
+        // A configuration gap is never permanent: the ledger must not
+        // dead-letter a client's message for a deployment fault.
+        assert!(!reported[0].permanent);
+    }
+
+    /// The three failure classes a transport can report, for the tests below.
+    #[derive(Clone, Copy)]
+    enum Fail {
+        Rejected,
+        Throttled,
+        Unavailable,
+    }
+
+    /// Runs one cycle against a transport that always fails with the given
+    /// class, and returns what the worker reported.
+    async fn report_from_failing_transport(fail: Fail) -> Vec<SendResult> {
+        struct Always(Fail);
+        #[async_trait::async_trait]
+        impl MailTransport for Always {
+            fn name(&self) -> &'static str {
+                "always"
+            }
+            async fn send(
+                &self,
+                _m: &core_mail::OutboundEmail,
+            ) -> Result<core_mail::SendReceipt, core_mail::TransportError> {
+                Err(match self.0 {
+                    Fail::Rejected => core_mail::TransportError::Rejected("no such user".into()),
+                    Fail::Throttled => core_mail::TransportError::Throttled("provider 429".into()),
+                    Fail::Unavailable => {
+                        core_mail::TransportError::Unavailable("connection reset".into())
+                    }
+                })
+            }
+        }
+        let seen: Arc<std::sync::Mutex<Vec<SendResult>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let claimed = vec![fake_claimed(uuid::Uuid::now_v7())];
+        let clone = Arc::clone(&seen);
+        tokio::spawn(async move {
+            let app = Router::new()
+                .route(
+                    "/api/internal/email/outbound/claim",
+                    post(move || {
+                        let claimed = claimed.clone();
+                        async move { Json(ClaimResponse { messages: claimed }) }
+                    }),
+                )
+                .route(
+                    "/api/internal/email/outbound/results",
+                    post(move |Json(req): Json<ResultsRequest>| {
+                        let seen = Arc::clone(&clone);
+                        async move {
+                            seen.lock().unwrap().extend(req.results);
+                            Json(serde_json::json!({ "applied": 1 }))
+                        }
+                    }),
+                );
+            axum::serve(listener, app).await.unwrap();
+        });
+        let resolver = StaticResolver(Arc::new(Always(fail)) as Arc<dyn MailTransport>);
+        cycle(&cfg(addr, Some("tok")), &reqwest::Client::new(), &resolver)
+            .await
+            .expect("cycle completes even when sends fail");
+        let out = seen.lock().unwrap().clone();
+        out
+    }
+
+    /// The ledger's dead decision reads this flag, so the worker has to report
+    /// the transport's class rather than flattening every failure to "retry".
+    /// A rejected message that reports `permanent: false` spends the rest of its
+    /// attempt budget on the same refusal — the defect this lane closes.
+    #[tokio::test]
+    async fn a_permanent_rejection_is_reported_as_permanent() {
+        let reported = report_from_failing_transport(Fail::Rejected).await;
+        assert_eq!(reported.len(), 1);
+        assert!(!reported[0].ok);
+        assert!(
+            reported[0].permanent,
+            "a rejected message must report permanent"
+        );
+    }
+
+    /// A throttle or an outage is worth another attempt, and reporting it as
+    /// permanent would dead-letter mail a provider was about to accept.
+    #[tokio::test]
+    async fn an_outage_or_a_throttle_is_not_permanent() {
+        for fail in [Fail::Unavailable, Fail::Throttled] {
+            let reported = report_from_failing_transport(fail).await;
+            assert_eq!(reported.len(), 1);
+            assert!(
+                !reported[0].permanent,
+                "a transient failure must be retryable"
+            );
+        }
     }
 }

@@ -3,8 +3,19 @@
 //! Purpose: consume the single domain-event stream via a durable consumer
 //! group, match each event against enabled automation rules (pure
 //! core-domain matching on a read-only SUBJECT), and enqueue
-//! `automation.effects` jobs. Delivery is at-least-once: a job is ACKed
-//! only after it is durably queued; retries belong to the queue.
+//! `automation.effects` jobs. Delivery is at-least-once: an entry is ACKed
+//! only after every matching rule's job is durably queued; retries belong to
+//! the queue.
+//!
+//! The consumer half (group, per-replica name, pending recovery, claim, live
+//! retry, attempt counting and the dead-letter queue) is
+//! [`crate::consumer`]; this module supplies the handler.
+//!
+//! The enqueue is dedupe-keyed on `(rule, event)`. A stream entry can be read
+//! twice — replayed after a crash, or claimed from a consumer that died
+//! mid-handling — and a second `automation.effects` job for the same rule and
+//! event would run the same actions twice. `queue::enqueue_deduped` makes the
+//! repeat a no-op instead.
 //!
 //! The subject is `(ticket_id: Option, board_id)` resolved from the
 //! envelope (Wave 43 lane 3). A ticket event carries the read-only ticket
@@ -20,24 +31,18 @@
 //! Non-purpose: no writes outside queue tables, no condition logic here
 //! (core-domain), no effect application (queue runner → core-api).
 
-use crate::reconnect::Reconnect;
+use crate::consumer::{self, ConsumerSpec, Delivery, EntryHandler, EntryOutcome, PgLedger};
 use core_domain::automations::{
     is_automation_echo, AutomationRule, AutomationRuleRow, AutomationSubject,
     AutomationSubjectKind, TicketSnapshot,
 };
-use core_events::{Envelope, EVENT_STREAM};
-use redis::streams::{StreamReadOptions, StreamReadReply};
-use redis::AsyncCommands;
+use core_events::Envelope;
 use sqlx::PgPool;
 use tokio::sync::watch;
 
-/// Stable consumer name: a restarted process resumes its own pending
-/// entries through the same identity. Multi-worker fan-out with claim
-/// stealing lands later (XAUTOCLAIM).
 const CONSUMER_GROUP: &str = "automations";
-const CONSUMER_NAME: &str = "worker";
-const BLOCK_MS: usize = 2_000;
 const COUNT: usize = 50;
+const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 
 /// What an envelope says about its ticket subject.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -427,145 +432,74 @@ pub async fn match_rules(pool: &PgPool, envelope: &Envelope) -> Vec<MatchedRule>
     out
 }
 
-/// Runs the automations consumer until shutdown. Redis errors reconnect
-/// with backoff; malformed entries are logged, ACKed and skipped so one
-/// poison message never stalls the stream.
-pub async fn run_automations(pool: PgPool, redis_url: String, mut shutdown: watch::Receiver<bool>) {
-    let client = match redis::Client::open(redis_url.as_str()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "invalid redis url; automations exiting");
-            return;
+/// Runs the automations consumer until shutdown. The harness owns the group,
+/// the per-replica consumer name, pending recovery, `XAUTOCLAIM`, the live
+/// retry and the dead-letter queue; this module only says what an event means.
+pub async fn run_automations(pool: PgPool, redis_url: String, shutdown: watch::Receiver<bool>) {
+    let handler = AutomationHandler { pool: pool.clone() };
+    let ledger = PgLedger::new(pool);
+    let mut shutdown = shutdown;
+    consumer::run(
+        &redis_url,
+        &SPEC,
+        consumer::consumer_name(CONSUMER_GROUP),
+        &ledger,
+        &handler,
+        &mut shutdown,
+    )
+    .await;
+}
+
+/// Evaluates one page of events against the rule set.
+struct AutomationHandler {
+    pool: PgPool,
+}
+
+impl EntryHandler for AutomationHandler {
+    async fn handle(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        let mut outcomes = Vec::with_capacity(batch.len());
+        for delivery in batch {
+            outcomes.push(self.evaluate(&delivery.envelope).await);
         }
-    };
-    let mut backoff = Reconnect::consumer();
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                backoff.reset();
-                // Durable group; '$' starts at live tail on FIRST creation
-                // so we don't replay history from before this deploy.
-                if let Err(error) = conn
-                    .xgroup_create_mkstream::<&str, &str, &str, ()>(
-                        EVENT_STREAM,
-                        CONSUMER_GROUP,
-                        "$",
-                    )
-                    .await
-                {
-                    let msg = error.to_string();
-                    if !msg.contains("BUSYGROUP") {
-                        tracing::error!(%error, "xgroup create failed");
-                        backoff.sleep().await;
-                        continue;
-                    }
-                }
-                follow_stream(&pool, &mut conn, &mut shutdown).await;
-                tracing::warn!("automations stream connection ended; reconnecting");
-            }
-            Err(error) => {
-                tracing::error!(%error, "automations redis connect failed");
-            }
-        }
-        backoff.sleep().await;
+        outcomes
     }
 }
 
-/// Follows the group. On startup it first drains THIS consumer's pending
-/// entries ("0" reads the PEL), recovering work interrupted by a crash;
-/// then follows live entries (">"). Returns None on shutdown.
-async fn follow_stream(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    shutdown: &mut watch::Receiver<bool>,
-) {
-    // 1. Recover pending entries owned by this consumer name.
-    let options = StreamReadOptions::default().count(COUNT);
-    if let Ok(reply) = conn
-        .xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &["0"], &options)
-        .await
-    {
-        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-            handle_entry(pool, conn, &entry).await;
-        }
-    }
-
-    // 2. Live tail under the group.
-    let options = StreamReadOptions::default()
-        .block(BLOCK_MS)
-        .count(COUNT)
-        .group(CONSUMER_GROUP, CONSUMER_NAME);
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            result = conn.xread_options::<_, _, StreamReadReply>(&[EVENT_STREAM], &[">"], &options) => {
-                match result {
-                    Ok(reply) => {
-                        for entry in reply.keys.into_iter().flat_map(|k| k.ids) {
-                            handle_entry(pool, conn, &entry).await;
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "automations xreadgroup failed");
-                        return;
-                    }
-                }
-            }
-        }
-        // Consumer backlog: PEL depth, lag and the age of the oldest unacked
-        // entry for THIS group, read after the batch (the private build tracker R7a).
-        crate::stream_health::probe(conn, CONSUMER_GROUP).await;
-    }
-}
-
-async fn handle_entry(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    entry: &redis::streams::StreamId,
-) {
-    let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "stream entry missing data field");
-        return;
-    };
-    let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
-        tracing::warn!(entry_id = %entry.id, "unparseable event; acking to skip");
-        ack(conn, &entry.id).await;
-        return;
-    };
-    let matches = match_rules(pool, &envelope).await;
-    if !matches.is_empty() {
-        for m in matches {
+impl AutomationHandler {
+    /// Queues one job per matched rule, dedupe-keyed on `(rule, event)`.
+    ///
+    /// `Ok(None)` from `enqueue_deduped` is a settled entry: the job for this
+    /// rule and event already exists, in whatever state, so this read of the
+    /// entry has nothing left to do.
+    async fn evaluate(&self, envelope: &Envelope) -> EntryOutcome {
+        for matched in match_rules(&self.pool, envelope).await {
             let job = core_db::queue::NewJob {
-                org_id: m.org_id,
+                org_id: matched.org_id,
                 kind: "automation.effects".to_string(),
-                payload: effect_payload(&m),
+                payload: effect_payload(&matched),
                 max_attempts: crate::queue_runner::queue_max_attempts(),
             };
-            match core_db::queue::enqueue(pool, &job).await {
-                Ok(id) => {
-                    tracing::info!(job_id = %id, rule_id = %m.rule_id, "automation effect queued")
+            let dedupe_key = format!("automation.effects:{}:{}", matched.rule_id, envelope.id);
+            match core_db::queue::enqueue_deduped(&self.pool, &job, &dedupe_key).await {
+                Ok(Some(id)) => {
+                    tracing::info!(job_id = %id, rule_id = %matched.rule_id, "automation effect queued")
+                }
+                Ok(None) => {
+                    tracing::info!(
+                        rule_id = %matched.rule_id,
+                        event_id = %envelope.id,
+                        "automation effect already queued; not enqueuing again"
+                    )
                 }
                 Err(error) => {
-                    // NOT acking: the group redelivers this entry after
-                    // restart, so a failed enqueue retries by design.
-                    tracing::error!(%error, entry_id = %entry.id, "enqueue failed; leaving unacked");
-                    return;
+                    // Not settled: the entry stays in the PEL and this harness
+                    // retries it after the consumer policy's delay.
+                    return EntryOutcome::Retry(format!("enqueue failed: {error}"));
                 }
             }
         }
+        EntryOutcome::Settled
     }
-    // Work is durably queued (or nothing matched) — safe to settle.
-    ack(conn, &entry.id).await;
-}
-
-async fn ack(conn: &mut redis::aio::MultiplexedConnection, id: &str) {
-    let _: Result<i64, _> = conn.xack(EVENT_STREAM, CONSUMER_GROUP, &[id]).await;
 }
 
 #[cfg(test)]

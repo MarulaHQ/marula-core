@@ -120,6 +120,11 @@ pub async fn report_results(
             retry_delay_secs: backoff_delay(i64::from(result.attempts))
                 .num_seconds()
                 .max(1),
+            // The worker's transport classified this attempt; the ledger
+            // dead-letters a permanent refusal now instead of spending the rest
+            // of the attempt budget on the same answer. An older worker omits
+            // the field and reads as "not permanent" — the previous behaviour.
+            permanent: result.permanent,
         };
         // Each report in its own short transaction: one poisoned row must
         // not roll back the whole batch.
@@ -1266,10 +1271,40 @@ pub async fn webhook_deliveries(
             },
         )
         .await?;
-        tx.commit().await.map_err(ApiError::from)?;
         if logged {
+            // The destination's failure counter moves in the same transaction
+            // as the attempt it counts (R3, migration 0144): a counter that
+            // advanced while the attempt row rolled back would pause a
+            // destination for a delivery the ledger cannot show. A duplicate
+            // attempt (the replay the unique constraint rejected) does not
+            // count again, which is what `logged` guards.
+            //
+            // The classification is the webhook policy's, derived from what the
+            // ledger stores — delivered means the endpoint answered, a status
+            // the policy would not retry means the endpoint refused on the
+            // request's merits, anything else is the destination failing.
+            let outcome = core_db::webhooks::DestinationOutcome::from_attempt(
+                record.delivered_at.is_some(),
+                record.response_status,
+            );
+            let paused = core_db::webhooks::record_destination_outcome(
+                &mut tx,
+                req.org_id,
+                record.webhook_id,
+                outcome,
+                core_domain::webhooks::pause_after_failures(),
+            )
+            .await?;
+            if let Some(paused_at) = paused {
+                tracing::warn!(
+                    webhook_id = %record.webhook_id,
+                    paused_at = %paused_at,
+                    "webhook destination paused after repeated delivery failures"
+                );
+            }
             applied += 1;
         }
+        tx.commit().await.map_err(ApiError::from)?;
     }
     Ok(Json(WebhookDeliveriesResponse { applied }))
 }

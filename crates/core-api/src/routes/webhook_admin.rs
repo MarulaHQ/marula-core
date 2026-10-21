@@ -43,6 +43,16 @@ pub struct WebhookView {
     pub enabled: bool,
     pub created_by: Option<Uuid>,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Retryable delivery failures since the last delivery this destination
+    /// accepted. Visible here because it is the number that predicts a pause:
+    /// the operator fixing a receiver wants to see it climbing before the
+    /// destination disappears from the delivery set.
+    pub consecutive_failures: i32,
+    /// Set while the destination is paused: new events are not matched for it,
+    /// so nothing new is queued until it is resumed (or its URL changes, which
+    /// is a different destination).
+    pub paused_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub paused_reason: Option<String>,
 }
 
 impl From<core_db::webhooks::WebhookRow> for WebhookView {
@@ -54,6 +64,9 @@ impl From<core_db::webhooks::WebhookRow> for WebhookView {
             enabled: r.enabled,
             created_by: r.created_by,
             created_at: r.created_at,
+            consecutive_failures: r.consecutive_failures,
+            paused_at: r.paused_at,
+            paused_reason: r.paused_reason,
         }
     }
 }
@@ -373,7 +386,20 @@ pub async fn test_fire(
     let org_id = authed.principal.user.org_id;
 
     let mut tx = org_tx::begin(&state, org_id, user_id).await?;
-    core_db::webhooks::get_webhook(&mut *tx.tx, org_id, id).await?;
+    let webhook = core_db::webhooks::get_webhook(&mut *tx.tx, org_id, id).await?;
+    // A paused destination is not matched for events, so a test fire would
+    // accept the request (202), enqueue the probe, and deliver nothing — the
+    // worst possible answer to "did my fix work". Refuse instead, and name the
+    // verb that clears it.
+    if webhook.paused_at.is_some() {
+        return Err(ApiError::Conflict(
+            "this destination is paused after repeated delivery failures, so a test \
+             fire would be accepted and never sent; resume it from the dead-work \
+             surface (POST /api/admin/dead-work/destinations/{id}/resume) or change \
+             its URL first"
+                .into(),
+        ));
+    }
     let event_id = Uuid::now_v7();
     let payload = serde_json::json!({
         "source": "test_fire",

@@ -88,10 +88,11 @@ impl MailTransport for PostmarkTransport {
 
         if !status.is_success() {
             let msg = body["Message"].as_str().unwrap_or("unknown error");
-            return Err(TransportError::Rejected(format!(
-                "postmark {}: {msg}",
-                status.as_u16()
-            )));
+            return Err(crate::transport::http_status_error(
+                "postmark",
+                status.as_u16(),
+                msg,
+            ));
         }
         let code = body["ErrorCode"].as_i64().unwrap_or(0);
         if code != 0 {

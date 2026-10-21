@@ -26,6 +26,7 @@ pub mod client_completeness;
 pub mod clients;
 pub mod config_identity;
 pub mod connector;
+pub mod consumer;
 pub mod contracts;
 pub mod csat;
 pub mod custom_fields;
@@ -36,6 +37,7 @@ pub mod decision;
 // without it.
 pub mod costs;
 pub mod credit_notes;
+pub mod dead_work;
 pub mod demo;
 pub mod dispatch;
 pub mod document_attachments;

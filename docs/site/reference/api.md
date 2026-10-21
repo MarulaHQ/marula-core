@@ -3,12 +3,17 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**642 paths · 858 operations · 1354 schemas.**
+**647 paths · 863 operations · 1360 schemas.**
 
 ## admin
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
+| `GET` | `/api/v1/admin/dead-work` <a id="dead_work_list"></a> | GET /api/admin/dead-work — every ledger's abandoned work, newest first. | — |
+| `POST` | `/api/v1/admin/dead-work/{source}/{id}/cancel` <a id="dead_work_cancel"></a> | POST /api/admin/dead-work/{source}/{id}/cancel — record that this work is not wanted. | [CancelDeadWorkRequest](#schema-canceldeadworkrequest) |
+| `POST` | `/api/v1/admin/dead-work/{source}/{id}/redrive` <a id="dead_work_redrive"></a> | POST /api/admin/dead-work/{source}/{id}/redrive — requeue one item. | — |
+| `GET` | `/api/v1/admin/dead-work/destinations` <a id="dead_work_destinations"></a> | GET /api/admin/dead-work/destinations — webhook destinations and their failure counters. | — |
+| `POST` | `/api/v1/admin/dead-work/destinations/{id}/resume` <a id="dead_work_resume_destination"></a> | POST /api/admin/dead-work/destinations/{id}/resume — clear a pause. | — |
 | `GET` | `/api/v1/admin/quarantine` <a id="quarantine_admin_list"></a> | GET /api/admin/quarantine — the org's quarantined objects, newest first. | — |
 | `DELETE` | `/api/v1/admin/quarantine/{sha256}` <a id="quarantine_admin_delete"></a> | DELETE /api/admin/quarantine/{sha256} — remove the held bytes. | — |
 | `GET` | `/api/v1/admin/quarantine/{sha256}` <a id="quarantine_admin_get"></a> | GET /api/admin/quarantine/{sha256} — one held or released object. | — |
@@ -1570,7 +1575,9 @@
 | <a id="schema-calendarsyncevent"></a>`CalendarSyncEvent` | object | The inbound mirror of one external event. `exclusion_id` names the `calendar_exclusions` row the event currently feeds into the 2.12 availability foundation (NULL while not busy — cancelled or transpa |
 | <a id="schema-calendarsyncstatus"></a>`CalendarSyncStatus` | string | Connection health: `error` records the last poll failure while the connection stays configured; writes resume when a poll succeeds. |
 | <a id="schema-calendarviewresponse"></a>`CalendarViewResponse` | object |  |
+| <a id="schema-canceldeadworkrequest"></a>`CancelDeadWorkRequest` | object | The cancel verb's body. Required, for the same reason the quarantine release reason is: the row will be read a month later and "why did we give up on this" is the only question it will be asked. |
 | <a id="schema-cancelorderrequest"></a>`CancelOrderRequest` | composite |  |
+| <a id="schema-cancelresponse"></a>`CancelResponse` | object | What a cancel did, as the caller sees it. |
 | <a id="schema-candidateview"></a>`CandidateView` | composite |  |
 | <a id="schema-capabilitygrantlist"></a>`CapabilityGrantList` | object |  |
 | <a id="schema-capabilitygrantview"></a>`CapabilityGrantView` | object | One granted capability with its dial position. |
@@ -1783,6 +1790,8 @@
 | <a id="schema-daypacktripview"></a>`DayPackTripView` | object |  |
 | <a id="schema-daypackview"></a>`DayPackView` | object |  |
 | <a id="schema-dayweekquery"></a>`DayWeekQuery` | object |  |
+| <a id="schema-deadworkpage"></a>`DeadWorkPage` | object | One page of the list. |
+| <a id="schema-deadworkview"></a>`DeadWorkView` | object | One dead-work row as the operator surface reads it. |
 | <a id="schema-dealdetail"></a>`DealDetail` | composite | The deal aggregate: document + transition ledger. |
 | <a id="schema-deallistquery"></a>`DealListQuery` | object | GET /api/pipeline/deals query. |
 | <a id="schema-dealmutationresponse"></a>`DealMutationResponse` | composite |  |
@@ -1824,6 +1833,7 @@
 | <a id="schema-deliverypage"></a>`DeliveryPage` | object |  |
 | <a id="schema-deliveryquery"></a>`DeliveryQuery` | object |  |
 | <a id="schema-dependencylistresponse"></a>`DependencyListResponse` | object | A task's direct finish-to-start dependencies (full rows, so the client renders "blocked by" without extra fetches). |
+| <a id="schema-destinationview"></a>`DestinationView` | object | One webhook destination and the counters that decide its pause. |
 | <a id="schema-detectionfile"></a>`DetectionFile` | object |  |
 | <a id="schema-detectionview"></a>`DetectionView` | object |  |
 | <a id="schema-deviceasset"></a>`DeviceAsset` | object |  |
@@ -2337,6 +2347,7 @@
 | <a id="schema-recordpaymentrequest"></a>`RecordPaymentRequest` | composite |  |
 | <a id="schema-recordraterequest"></a>`RecordRateRequest` | composite |  |
 | <a id="schema-recoverycodesresponse"></a>`RecoveryCodesResponse` | object |  |
+| <a id="schema-redriveresponse"></a>`RedriveResponse` | object | What a redrive did, as the caller sees it. |
 | <a id="schema-refinenoterequest"></a>`RefineNoteRequest` | object |  |
 | <a id="schema-refinenoteresponse"></a>`RefineNoteResponse` | object | Refine outcome. `proposal` is a SUGGESTION — applying it is an explicit user action that posts through the normal comment-create envelope with `workflow_meta.kind = "refined"`; AI provenance rides the |
 | <a id="schema-refreshrequest"></a>`RefreshRequest` | object |  |
@@ -2777,4 +2788,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1354 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1360 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

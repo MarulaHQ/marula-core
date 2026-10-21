@@ -25,21 +25,20 @@
 //! with its own published + client-visible gate (never this index).
 
 use crate::config::WorkerConfig;
-use crate::reconnect::Reconnect;
+use crate::consumer::{self, ConsumerSpec, Delivery, EntryHandler, EntryOutcome, PgLedger};
 use core_db::search::SearchKind;
 use core_domain::entities::KbArticleStatus;
-use core_events::{Envelope, EVENT_STREAM};
-use redis::streams::{StreamReadOptions, StreamReadReply};
-use redis::AsyncCommands;
+use core_events::Envelope;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-/// Blocking-XREAD wait per poll; bounds shutdown latency.
-const BLOCK_MS: usize = 2_000;
+/// The consumer group this leg owns, and its page size.
+const CONSUMER_GROUP: &str = "search-indexer";
 const COUNT: usize = 200;
+const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 
 /// One entity whose indexed content may need refreshing.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -363,114 +362,80 @@ impl IndexSink for HttpIndexSink {
     }
 }
 
-/// Runs the indexer until `shutdown` fires. Redis errors reconnect with
-/// backoff; malformed entries are logged and skipped.
+/// Runs the indexer until `shutdown` fires.
+///
+/// This leg used a bare `$` cursor and no group, so a failed flush re-read the
+/// tail from wherever the last read started and the batch it failed on was
+/// skipped until the next unrelated event moved the cursor. It now runs under
+/// its own group: the failed page stays in the pending list, is retried live
+/// after the consumer policy's delay, and is dead-lettered with its envelope
+/// if core-api stays down long enough to exhaust the attempts.
 pub async fn run_search_indexer<S: IndexSink>(
     pool: PgPool,
     config: WorkerConfig,
     sink: S,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
 ) {
-    let client = match redis::Client::open(config.redis_url.as_str()) {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "invalid redis url; search indexer exiting");
-            return;
-        }
+    let handler = SearchHandler {
+        pool: pool.clone(),
+        sink,
     };
-    let mut backoff = Reconnect::consumer();
-    loop {
-        if *shutdown.borrow() {
-            return;
-        }
-        match client.get_multiplexed_async_connection().await {
-            Ok(mut conn) => {
-                backoff.reset();
-                let broke = follow_stream(&pool, &mut conn, &sink, &mut shutdown).await;
-                if broke.is_none() {
-                    return;
+    let ledger = PgLedger::new(pool);
+    let mut shutdown = shutdown;
+    consumer::run(
+        &config.redis_url,
+        &SPEC,
+        consumer::consumer_name(CONSUMER_GROUP),
+        &ledger,
+        &handler,
+        &mut shutdown,
+    )
+    .await;
+}
+
+impl<S: IndexSink> SearchHandler<S> {
+    async fn flush_batch(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        let mut targets: Vec<(Uuid, Target)> = Vec::new();
+        for delivery in batch {
+            if let Some(target) = match_event(&delivery.envelope) {
+                let pair = (delivery.envelope.org_id, target);
+                if !targets.contains(&pair) {
+                    targets.push(pair);
                 }
-                tracing::warn!("search indexer stream connection ended; reconnecting");
             }
+        }
+        if targets.is_empty() {
+            // Nothing indexable in this page: every entry is settled.
+            return vec![EntryOutcome::Settled; batch.len()];
+        }
+        match flush(&self.pool, &self.sink, targets).await {
+            Ok(()) => vec![EntryOutcome::Settled; batch.len()],
             Err(error) => {
-                tracing::error!(%error, "search indexer redis connect failed");
-            }
-        }
-        backoff.sleep().await;
-    }
-}
-
-/// Streams events; returns None on shutdown, Some when the connection
-/// dropped or a flush failed (the caller reconnects WITHOUT advancing the
-/// cursor, so the failed batch replays against idempotent upserts).
-async fn follow_stream<S: IndexSink>(
-    pool: &PgPool,
-    conn: &mut redis::aio::MultiplexedConnection,
-    sink: &S,
-    shutdown: &mut watch::Receiver<bool>,
-) -> Option<()> {
-    // `$` starts at the live tail: restarts skip history by design; a full
-    // re-index job is Stage-3 scope alongside the vector leg.
-    let mut cursor = "$".to_string();
-    let options = StreamReadOptions::default().block(BLOCK_MS).count(COUNT);
-    let keys = [EVENT_STREAM];
-    loop {
-        if *shutdown.borrow() {
-            return None;
-        }
-        let ids = [cursor.as_str()];
-        tokio::select! {
-            _ = shutdown.changed() => return None,
-            result = conn.xread_options::<_, _, StreamReadReply>(&keys, &ids, &options) => {
-                match result {
-                    Ok(reply) => {
-                        let mut targets: Vec<(Uuid, Target)> = Vec::new();
-                        for key in reply.keys {
-                            for entry in key.ids {
-                                cursor = entry.id.clone();
-                                collect_entry(&mut targets, &entry);
-                            }
-                        }
-                        if !targets.is_empty() {
-                            if let Err(error) = flush(pool, sink, targets).await {
-                                tracing::error!(%error, "search index flush failed; replaying batch");
-                                return Some(());
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "search indexer xread failed");
-                        return Some(());
-                    }
-                }
+                // One verdict for the page: the flush is a batch write, so the
+                // whole page is retried together. Upserts are keyed by
+                // (org, kind, entity), so replaying the batch is free.
+                let reason = format!("search index flush failed: {error}");
+                vec![EntryOutcome::Retry(reason); batch.len()]
             }
         }
     }
 }
 
-/// Parses one stream entry into zero or more deduplicated targets.
-fn collect_entry(targets: &mut Vec<(Uuid, Target)>, entry: &redis::streams::StreamId) {
-    let Some(raw) = entry.get::<String>("data") else {
-        tracing::warn!(entry_id = %entry.id, "stream entry missing data field");
-        return;
-    };
-    let Ok(envelope) = serde_json::from_str::<Envelope>(&raw) else {
-        tracing::warn!(entry_id = %entry.id, "unparseable event");
-        return;
-    };
-    if let Some(target) = match_event(&envelope) {
-        let pair = (envelope.org_id, target);
-        if !targets.contains(&pair) {
-            targets.push(pair);
-        }
+struct SearchHandler<S: IndexSink> {
+    pool: PgPool,
+    sink: S,
+}
+
+impl<S: IndexSink> EntryHandler for SearchHandler<S> {
+    async fn handle(&self, batch: &[Delivery]) -> Vec<EntryOutcome> {
+        self.flush_batch(batch).await
     }
 }
 
 /// Resolves every target against current rows and pushes per-org batches
 /// through the sink. Duplicate targets collapse; `Ok(None)` resolves to a
-/// delete so future source deletions keep the index honest.
-/// Resolves targets and pushes per-org batches — exposed for the flow tests.
-/// Duplicate (org, target) pairs collapse into one op: replays are free.
+/// delete so future source deletions keep the index honest, and duplicate
+/// (org, target) pairs collapse into one op so replays are free.
 pub async fn flush<S: IndexSink>(
     pool: &PgPool,
     sink: &S,

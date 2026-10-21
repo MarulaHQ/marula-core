@@ -82,6 +82,13 @@ pub struct SendResult {
     /// Error detail when `ok` is false — persisted as last_error.
     #[serde(default)]
     pub error: Option<String>,
+    /// The transport says retrying this identical message cannot succeed
+    /// (`TransportError::permanent`). The ledger dead-letters on this report
+    /// instead of retrying to the attempt budget. Defaults to false over the
+    /// wire so a worker built before this field existed reads as "not
+    /// permanent", which is the pre-existing behaviour.
+    #[serde(default)]
+    pub permanent: bool,
 }
 
 /// POST /api/internal/email/outbound/results — batched result reports.
@@ -193,6 +200,7 @@ mod tests {
                 attempts: 1,
                 provider_message_id: None,
                 error: Some("smtp down".into()),
+                permanent: false,
             }],
         };
         assert!(

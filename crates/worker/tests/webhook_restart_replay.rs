@@ -46,8 +46,8 @@ use uuid::Uuid;
 
 const GROUP: &str = "webhooks-out";
 /// Names standing in for distinct processes. The production name comes from
-/// `worker::webhook_out::consumer_name()`; naming them here is what lets one
-/// test process model a restart that got a new name.
+/// `worker::consumer::consumer_name("webhooks-out")`; naming them here is what
+/// lets one test process model a restart that got a new name.
 const CONSUMER_A: &str = "replica-a";
 const CONSUMER_B: &str = "replica-b";
 const CONSUMER_C: &str = "replica-c";

@@ -102,7 +102,13 @@ pub async fn run_time_loop(
             Ok(due) => tracing::info!(due, "gap-audit batch submitted"),
             Err(error) => tracing::error!(%error, "nudge scheduler cycle failed"),
         }
-        tokio::time::sleep(poll).await;
+        // Interruptible idle (lane R5): a plain `sleep` here made an idle loop
+        // ignore the stop flag for a whole poll interval, so a drained process
+        // waited out its window and reported this loop as cut while it slept.
+        tokio::select! {
+            _ = shutdown.changed() => return,
+            _ = tokio::time::sleep(poll) => {}
+        }
     }
 }
 
