@@ -293,8 +293,9 @@ the merged tree, not each lane, is what gets verified (user directive
 - P16-style final acts and any lane the plan marks solo keep the old
   per-lane gate rule.
 
-The mechanics, the group gate matrix, and a worked example live in
-[`docs/reference/parallel-lanes.md`](docs/reference/parallel-lanes.md).
+The mechanics, the group gate matrix, and a worked example live in the private
+half, in the parallel-lanes reference. It is not shipped in this repository, and
+a public link to it would dangle.
 
 ## Lane to-do lists (all agent worktrees)
 
