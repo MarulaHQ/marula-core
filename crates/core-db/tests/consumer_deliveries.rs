@@ -32,6 +32,15 @@ async fn attempts_defer_settle_and_dead_letter_one_stream_entry() {
     let entry = "1700000000000-0";
     let event_id = Uuid::now_v7();
     let org_id = Uuid::now_v7();
+    // The delivery ledger carries a cascading FK to `orgs` since 0146, so the
+    // org a failing entry names has to exist.
+    sqlx::query("INSERT INTO orgs (id, name, slug) VALUES ($1, $2, $3)")
+        .bind(org_id)
+        .bind("delivery test")
+        .bind(format!("delivery-{org_id}"))
+        .execute(pool)
+        .await
+        .expect("seed org");
 
     // 1. An entry nobody has failed on has no row and no dead record.
     let states = consumer::delivery_states(pool, group, &[entry.to_string()])

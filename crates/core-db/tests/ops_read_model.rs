@@ -27,6 +27,12 @@ use uuid::Uuid;
 
 /// Every view the `ops` schema must expose: the v1 read-model slices
 /// (0026 + 0041 + 0059) and the operator views that share the schema.
+/// Views in `ops` that are operator surfaces rather than tenant-scoped read
+/// models: no `org_id` seam, and the default-deny and column contracts below do
+/// not apply to them. `ops.query_tail` is created only where
+/// pg_stat_statements is available, so it is deliberately not listed.
+const OPERATOR_VIEWS: &[&str] = &["db_signals"]; // 0145 database observability
+
 const EXPECTED_V1_VIEWS: &[&str] = &[
     // 0026 reports slice
     "v1_tickets",
@@ -491,7 +497,7 @@ async fn count_view_where_id(tx: &mut Transaction<'_, Postgres>, view: &str, id:
 async fn every_expected_v1_view_exists_and_is_security_invoker() {
     let db = test_db().await;
     let names = view_names(&db.admin).await;
-    for expected in EXPECTED_V1_VIEWS {
+    for expected in EXPECTED_V1_VIEWS.iter().chain(OPERATOR_VIEWS) {
         assert!(
             names.iter().any(|n| n == expected),
             "ops.{expected} missing from the read model (found: {names:?})"
@@ -499,7 +505,7 @@ async fn every_expected_v1_view_exists_and_is_security_invoker() {
     }
     assert_eq!(
         names.len(),
-        EXPECTED_V1_VIEWS.len(),
+        EXPECTED_V1_VIEWS.len() + OPERATOR_VIEWS.len(),
         "unexpected extra views in schema ops: {names:?}"
     );
 

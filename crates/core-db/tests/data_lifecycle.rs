@@ -27,6 +27,12 @@
 
 mod common;
 
+/// These tests read global schema state — the partition catalogue, the row
+/// counts an erasure reports, the cascade scan — so one test's seeded partition
+/// or swept table is another test's false failure. One lock per process, taken
+/// by every test in this file.
+static SCHEMA_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 use common::{fixed_uuid, test_db, TestDb};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -57,6 +63,7 @@ async fn seed_org(db: &TestDb, n: u64) -> Uuid {
 
 #[tokio::test]
 async fn the_attempt_log_is_partitioned_with_a_default_and_rls_on_every_child() {
+    let _guard = SCHEMA_LOCK.lock().await;
     let db = test_db().await;
 
     let relkind: String =
@@ -117,6 +124,7 @@ async fn the_attempt_log_is_partitioned_with_a_default_and_rls_on_every_child() 
 
 #[tokio::test]
 async fn the_maintainer_drops_an_expired_partition_and_creates_the_months_ahead() {
+    let _guard = SCHEMA_LOCK.lock().await;
     let db = test_db().await;
     let plan = core_db::retention::RetentionPlan::resolve(|_| None);
 
@@ -184,6 +192,7 @@ async fn the_maintainer_drops_an_expired_partition_and_creates_the_months_ahead(
 
 #[tokio::test]
 async fn the_sweep_deletes_only_rows_past_their_window_that_are_not_owed() {
+    let _guard = SCHEMA_LOCK.lock().await;
     let db = test_db().await;
     clear_retention_tables(&db.admin).await;
     let org = seed_org(&db, 9_002).await;
@@ -246,6 +255,7 @@ async fn every_org_scoped_table_cascades_from_the_org_row() {
     // `org_id` column to a new table and forgets the cascade would leave rows
     // behind that the receipt calls deleted — the exact failure the contract
     // exists to prevent — so the rule is a test, not a convention.
+    let _guard = SCHEMA_LOCK.lock().await;
     let db = test_db().await;
     let offenders: Vec<String> = sqlx::query_scalar(
         r#"SELECT c.relname
@@ -281,6 +291,7 @@ async fn every_org_scoped_table_cascades_from_the_org_row() {
 
 #[tokio::test]
 async fn erasure_purges_the_tenant_by_cascade_and_leaves_a_receipt() {
+    let _guard = SCHEMA_LOCK.lock().await;
     let db = test_db().await;
     let org = seed_org(&db, 9_003).await;
     let user = fixed_uuid(9_300);
