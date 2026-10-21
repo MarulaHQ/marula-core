@@ -1,0 +1,343 @@
+{
+  "contract_version": 3,
+  "health": [
+    {
+      "path": "/api/v1/health",
+      "process": "core-api",
+      "shape": "text/plain: the constant `ok` on 200",
+      "stability": "stable"
+    },
+    {
+      "path": "/livez",
+      "process": "worker",
+      "shape": "empty body: 200 while the process answers, nothing else is checked",
+      "stability": "stable"
+    },
+    {
+      "path": "/readyz",
+      "process": "worker",
+      "shape": "application/json: status (ready|not_ready), draining (bool), down (array of loop labels), roles (label); 503 unless ready",
+      "stability": "stable"
+    },
+    {
+      "path": "/healthz",
+      "process": "worker",
+      "shape": "application/json: status (ok|unhealthy), glitchtip (configured|unset), roles (label), draining (bool), and one key per loop whose value is alive|down|disabled; 503 when a loop this process owns is down and it is not draining",
+      "stability": "stable"
+    }
+  ],
+  "log_fields": [
+    "org_id",
+    "user_id",
+    "session_id",
+    "correlation_id",
+    "entry_id",
+    "job.kind",
+    "kind",
+    "outcome",
+    "attempts",
+    "batch_size",
+    "settled",
+    "status",
+    "error"
+  ],
+  "metrics": [
+    {
+      "attributes": [
+        "route",
+        "method",
+        "status"
+      ],
+      "kind": "counter",
+      "name": "marula.http.requests",
+      "producer": "core-api otel_http::track",
+      "stability": "stable",
+      "summary": "HTTP requests by route template, method and status code",
+      "unit": "{request}"
+    },
+    {
+      "attributes": [
+        "route",
+        "method"
+      ],
+      "kind": "histogram",
+      "name": "marula.http.request.duration",
+      "producer": "core-api otel_http::track",
+      "stability": "stable",
+      "summary": "End-to-end HTTP request duration by route template",
+      "unit": "ms"
+    },
+    {
+      "attributes": [
+        "org_id",
+        "status_class"
+      ],
+      "kind": "counter",
+      "name": "marula.org.requests",
+      "producer": "core-api otel_http::record_org",
+      "stability": "stable",
+      "summary": "Authenticated requests attributed to an org, by status class",
+      "unit": "{request}"
+    },
+    {
+      "attributes": [
+        "org_id",
+        "source"
+      ],
+      "kind": "counter",
+      "name": "marula.org.ingest_requests",
+      "producer": "core-api routes::{webhook_receiver,alerts}::ingest",
+      "stability": "stable",
+      "summary": "Authenticated machine-ingest requests attributed to an org, by source",
+      "unit": "{request}"
+    },
+    {
+      "attributes": [],
+      "kind": "up_down_counter",
+      "name": "marula.live.sessions",
+      "producer": "core-api routes::events",
+      "stability": "stable",
+      "summary": "Currently open SSE live-stream sessions",
+      "unit": "{session}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.outbox.lag_ms",
+      "producer": "core-events relay",
+      "stability": "stable",
+      "summary": "Age of the oldest unpublished outbox row at the last relay pass",
+      "unit": "ms"
+    },
+    {
+      "attributes": [],
+      "kind": "histogram",
+      "name": "marula.relay.batch_size",
+      "producer": "core-events relay",
+      "stability": "stable",
+      "summary": "Outbox rows published per relay pass",
+      "unit": "{row}"
+    },
+    {
+      "attributes": [
+        "state"
+      ],
+      "kind": "gauge",
+      "name": "marula.queue.depth",
+      "producer": "worker queue_runner::tick",
+      "stability": "stable",
+      "summary": "Jobs depth by state (pending, running, dead)",
+      "unit": "{job}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.queue.dead_age_seconds",
+      "producer": "worker queue_runner::tick",
+      "stability": "stable",
+      "summary": "Age of the OLDEST dead-lettered job; absent while none is dead",
+      "unit": "s"
+    },
+    {
+      "attributes": [
+        "kind",
+        "outcome"
+      ],
+      "kind": "counter",
+      "name": "marula.queue.jobs",
+      "producer": "worker queue_runner::tick",
+      "stability": "stable",
+      "summary": "Job settlements by kind and outcome (done, retried, dead)",
+      "unit": "{job}"
+    },
+    {
+      "attributes": [
+        "kind"
+      ],
+      "kind": "histogram",
+      "name": "marula.queue.claim_to_apply",
+      "producer": "worker queue_runner::tick",
+      "stability": "stable",
+      "summary": "Claim-to-settle latency per job kind",
+      "unit": "ms"
+    },
+    {
+      "attributes": [
+        "group"
+      ],
+      "kind": "gauge",
+      "name": "marula.consumer.pel_depth",
+      "producer": "worker consumer loop (stream_health::emit)",
+      "stability": "stable",
+      "summary": "Entries delivered to a consumer group and not yet acknowledged",
+      "unit": "{entry}"
+    },
+    {
+      "attributes": [
+        "group"
+      ],
+      "kind": "gauge",
+      "name": "marula.consumer.lag",
+      "producer": "worker consumer loop (stream_health::emit)",
+      "stability": "stable",
+      "summary": "Stream entries the group has not been delivered yet; absent when the server cannot tell",
+      "unit": "{entry}"
+    },
+    {
+      "attributes": [
+        "group"
+      ],
+      "kind": "gauge",
+      "name": "marula.consumer.oldest_pending_age_seconds",
+      "producer": "worker consumer loop (stream_health::emit)",
+      "stability": "stable",
+      "summary": "Age of the oldest unacknowledged entry in a consumer group",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.workflow.parked_runs",
+      "producer": "worker queue_runner::tick",
+      "stability": "stable",
+      "summary": "Workflow runs waiting to be woken",
+      "unit": "{run}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.workflow.parked_run_age_seconds",
+      "producer": "worker queue_runner::tick",
+      "stability": "stable",
+      "summary": "Idle age of the oldest parked workflow run; absent while none is parked",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.backup.age_seconds",
+      "producer": "worker backup_health::sample (stamp written by deploy/backup/backupd.sh)",
+      "stability": "experimental",
+      "summary": "Age of the last successful backup; absent until a stamp is readable",
+      "unit": "s"
+    },
+    {
+      "attributes": [],
+      "kind": "histogram",
+      "name": "marula.sla.sweep.duration",
+      "producer": "worker sla_sweep::sweep_once",
+      "stability": "stable",
+      "summary": "SLA evaluation sweep duration",
+      "unit": "ms"
+    },
+    {
+      "attributes": [
+        "trigger"
+      ],
+      "kind": "counter",
+      "name": "marula.sla.verdicts",
+      "producer": "worker sla_sweep::sweep_inner",
+      "stability": "stable",
+      "summary": "SLA ladder verdicts enqueued by trigger class",
+      "unit": "{verdict}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.db.page1_p95",
+      "producer": "worker capacity_watch::sample (measured by core-db capacity::sample_page1)",
+      "stability": "experimental",
+      "summary": "p95 of the page-1 ticket-list SQL for the install's largest org, against the 150 ms budget docs/perf.md sets",
+      "unit": "ms"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.db.page1_sort_index_scan",
+      "producer": "worker capacity_watch::sample (plan read by core-db capacity::sample_page1)",
+      "stability": "experimental",
+      "summary": "1 when the page-1 ORDER BY is served by an ordered index scan, 0 when the planner sorts",
+      "unit": "1"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.reconcile.search_index_backlog",
+      "producer": "worker reconcile::backfill_search_index",
+      "stability": "stable",
+      "summary": "Source entities with no search index row at the last backfill pass; zero means caught up",
+      "unit": "{row}"
+    },
+    {
+      "attributes": [
+        "group"
+      ],
+      "kind": "gauge",
+      "name": "marula.reconcile.dead_events_replayable",
+      "producer": "worker reconcile::replay_dead_events",
+      "stability": "stable",
+      "summary": "Dead stream entries the next replay pass will attempt, by consumer group",
+      "unit": "{entry}"
+    },
+    {
+      "attributes": [
+        "group"
+      ],
+      "kind": "gauge",
+      "name": "marula.reconcile.dead_events_unrepairable",
+      "producer": "worker reconcile::replay_dead_events",
+      "stability": "stable",
+      "summary": "Dead stream entries a replay cannot fix, by consumer group",
+      "unit": "{entry}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.reconcile.workflow_wake_lost",
+      "producer": "worker reconcile::reap_parked_runs",
+      "stability": "stable",
+      "summary": "Parked workflow runs whose wake deadline passed with no live wake job",
+      "unit": "{run}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.reconcile.report_retry_pending",
+      "producer": "worker delivery::retry_due",
+      "stability": "stable",
+      "summary": "Report slots with a failed delivery due another attempt",
+      "unit": "{slot}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.reconcile.report_retry_exhausted",
+      "producer": "worker delivery::retry_due",
+      "stability": "stable",
+      "summary": "Report slots whose delivery failed with no attempts left",
+      "unit": "{slot}"
+    },
+    {
+      "attributes": [
+        "group"
+      ],
+      "kind": "gauge",
+      "name": "marula.consumer.gap_entries",
+      "producer": "worker reconcile::sample_consumer_gaps (read by stream_health::read_gaps)",
+      "stability": "stable",
+      "summary": "Entries after a consumer group's position that are still in the stream",
+      "unit": "{entry}"
+    },
+    {
+      "attributes": [
+        "group"
+      ],
+      "kind": "gauge",
+      "name": "marula.consumer.gap_lost",
+      "producer": "worker reconcile::sample_consumer_gaps (read by stream_health::read_gaps)",
+      "stability": "stable",
+      "summary": "1 when a group's position is older than the stream's first entry: entries it never processed were trimmed away",
+      "unit": "1"
+    }
+  ]
+}

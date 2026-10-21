@@ -49,7 +49,14 @@
 /// without the contract noticing, which is the drift this artifact exists to
 /// catch. `contract/metrics.v1.json` stays in the tree: it is what a consumer
 /// built against before this revision.
-pub const CONTRACT_VERSION: u32 = 2;
+///
+/// v3 (Wave 52 lane R4): the eight reconciliation gauges. Six report work that
+/// nothing re-attempted before — an index backfill, a stream replay, a lost
+/// workflow wake, two report-delivery retry states — and two report each
+/// consumer group's distance from the stream's bounds, including the case
+/// Redis's own `lag` cannot express. Additive: no v2 name changed.
+/// `contract/metrics.v2.json` stays in the tree for the same reason v1 did.
+pub const CONTRACT_VERSION: u32 = 3;
 
 /// The OTel instrument kind a metric is recorded with. This is part of the
 /// contract: a counter read as a gauge produces nonsense, so a kind change is
@@ -312,6 +319,78 @@ pub const METRICS: &[MetricDescriptor] = &[
         producer: "worker capacity_watch::sample (plan read by core-db capacity::sample_page1)",
         summary: "1 when the page-1 ORDER BY is served by an ordered index scan, 0 when the planner sorts",
     },
+    MetricDescriptor {
+        name: "marula.reconcile.search_index_backlog",
+        kind: MetricKind::Gauge,
+        unit: "{row}",
+        attributes: &[],
+        stability: Stability::Stable,
+        producer: "worker reconcile::backfill_search_index",
+        summary: "Source entities with no search index row at the last backfill pass; zero means caught up",
+    },
+    MetricDescriptor {
+        name: "marula.reconcile.dead_events_replayable",
+        kind: MetricKind::Gauge,
+        unit: "{entry}",
+        attributes: &["group"],
+        stability: Stability::Stable,
+        producer: "worker reconcile::replay_dead_events",
+        summary: "Dead stream entries the next replay pass will attempt, by consumer group",
+    },
+    MetricDescriptor {
+        name: "marula.reconcile.dead_events_unrepairable",
+        kind: MetricKind::Gauge,
+        unit: "{entry}",
+        attributes: &["group"],
+        stability: Stability::Stable,
+        producer: "worker reconcile::replay_dead_events",
+        summary: "Dead stream entries a replay cannot fix, by consumer group",
+    },
+    MetricDescriptor {
+        name: "marula.reconcile.workflow_wake_lost",
+        kind: MetricKind::Gauge,
+        unit: "{run}",
+        attributes: &[],
+        stability: Stability::Stable,
+        producer: "worker reconcile::reap_parked_runs",
+        summary: "Parked workflow runs whose wake deadline passed with no live wake job",
+    },
+    MetricDescriptor {
+        name: "marula.reconcile.report_retry_pending",
+        kind: MetricKind::Gauge,
+        unit: "{slot}",
+        attributes: &[],
+        stability: Stability::Stable,
+        producer: "worker delivery::retry_due",
+        summary: "Report slots with a failed delivery due another attempt",
+    },
+    MetricDescriptor {
+        name: "marula.reconcile.report_retry_exhausted",
+        kind: MetricKind::Gauge,
+        unit: "{slot}",
+        attributes: &[],
+        stability: Stability::Stable,
+        producer: "worker delivery::retry_due",
+        summary: "Report slots whose delivery failed with no attempts left",
+    },
+    MetricDescriptor {
+        name: "marula.consumer.gap_entries",
+        kind: MetricKind::Gauge,
+        unit: "{entry}",
+        attributes: &["group"],
+        stability: Stability::Stable,
+        producer: "worker reconcile::sample_consumer_gaps (read by stream_health::read_gaps)",
+        summary: "Entries after a consumer group's position that are still in the stream",
+    },
+    MetricDescriptor {
+        name: "marula.consumer.gap_lost",
+        kind: MetricKind::Gauge,
+        unit: "1",
+        attributes: &["group"],
+        stability: Stability::Stable,
+        producer: "worker reconcile::sample_consumer_gaps (read by stream_health::read_gaps)",
+        summary: "1 when a group's position is older than the stream's first entry: entries it never processed were trimmed away",
+    },
 ];
 
 /// Structured fields an OTLP log record may carry besides the resource
@@ -535,6 +614,7 @@ mod tests {
                         | "{entry}"
                         | "{run}"
                         | "{verdict}"
+                        | "{slot}"
                 ),
                 "{} declares unit {:?}, which is outside the agreed vocabulary",
                 m.name,
