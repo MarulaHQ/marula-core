@@ -76,6 +76,36 @@ every OIDC provider uses.
   admin CRUD. The seam itself (`AUTH_PROVIDER_INTERFACE_VERSION = 1`)
   already carries it.
 
+## Directory groups (added Wave 52 lane R10)
+
+A provider answers **who someone is**. It does not answer **what they may do**,
+and until migration 0148 core had nowhere to put the second answer in the shape
+a directory produces: `user_roles` holds one row per user per role, so a group
+of twelve technicians had to be flattened into twelve rows and could only be
+undone twelve times.
+
+Three tables carry it: `directory_groups` (one row per group, with an optional
+`external_id` that is unique per org, which is how a second sync pass finds the
+row it wrote last time instead of creating a duplicate), `directory_group_members`
+and `directory_group_roles`. All three are RLS-scoped to the org; the two child
+tables inherit the scope from their group.
+
+**Effective roles are the additive union** of `user_roles` and the roles reachable
+through group membership. There is no deny grant, so there is no precedence rule
+to write down: removing a membership takes away what that group alone granted and
+leaves every other grant in place. `core_db::users::effective_roles_for_user` is
+the one read that answers it, and `core_api::auth::middleware::principal_for` is
+the one place a principal is assembled from it, so a group-granted role reaches
+the same `Principal.permissions` a directly assigned role reaches. The direct
+read stays available as `direct_roles_for_user` for the org-users editor, which
+shows and edits assignments rather than effective authority.
+
+**The sync protocol is not core.** Core ships the storage and the API
+(`/api/directory-groups`, members, role mappings) and the `directory_group.*`
+events; a product that speaks a directory protocol writes through that API and
+keeps its protocol, its credentials and its reconciliation loop. There is no
+SCIM endpoint here, no sync token, and no tier check in this code path.
+
 ## Shipped provider kinds (v1)
 
 | Kind | Source registry | Identity claim | JIT |

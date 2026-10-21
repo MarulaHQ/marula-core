@@ -39,6 +39,7 @@ pub mod costs;
 pub mod credit_notes;
 pub mod dead_work;
 pub mod demo;
+pub mod directory_groups;
 pub mod dispatch;
 pub mod document_attachments;
 pub mod document_layouts;

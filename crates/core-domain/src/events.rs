@@ -29,6 +29,25 @@ pub mod types {
     /// A shipped preset role row was restored to its canonical permission
     /// set (RB1, ADR 0004) — the presets stay canonical, orgs fork.
     pub const ROLE_RESTORED: &str = "role.restored";
+    /// A directory group was created (Wave 52 lane R10). The group itself
+    /// grants nothing until a role is mapped onto it.
+    pub const DIRECTORY_GROUP_CREATED: &str = "directory_group.created";
+    /// A directory group's name, description or external id changed.
+    pub const DIRECTORY_GROUP_UPDATED: &str = "directory_group.updated";
+    /// A directory group was removed; its memberships and role mappings
+    /// went with it, so every member loses whatever that group alone granted.
+    pub const DIRECTORY_GROUP_DELETED: &str = "directory_group.deleted";
+    /// A user joined a directory group, and therefore holds that group's
+    /// roles from now on (additive union with `user_roles`).
+    pub const DIRECTORY_GROUP_MEMBER_ADDED: &str = "directory_group.member_added";
+    /// A user left a directory group: the roles that group carried for them
+    /// are gone, and every other grant survives.
+    pub const DIRECTORY_GROUP_MEMBER_REMOVED: &str = "directory_group.member_removed";
+    /// A role was mapped onto a directory group: every current and future
+    /// member of the group holds it.
+    pub const DIRECTORY_GROUP_ROLE_MAPPED: &str = "directory_group.role_mapped";
+    /// A role was unmapped from a directory group.
+    pub const DIRECTORY_GROUP_ROLE_UNMAPPED: &str = "directory_group.role_unmapped";
     /// A template was created (org-created, or a fork of a shipped
     /// default — KB3/KB4, ADR 0004 template registry).
     pub const TEMPLATE_CREATED: &str = "template.created";
@@ -867,6 +886,68 @@ pub struct RoleForked {
 pub struct RoleRestored {
     pub role_id: UserId,
     pub builtin: String,
+}
+
+/// A directory group was created (payload for `directory_group.created`).
+/// `external_id` is the directory's identifier, `None` for a group created in
+/// Marula.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupCreated {
+    pub group_id: Uuid,
+    pub name: String,
+    pub external_id: Option<String>,
+}
+
+/// A directory group's mutable fields changed (payload for
+/// `directory_group.updated`). `previous_name` is the name before the write,
+/// so a consumer holding the old label can match the row it just saw.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupUpdated {
+    pub group_id: Uuid,
+    pub name: String,
+    pub previous_name: String,
+    pub external_id: Option<String>,
+}
+
+/// A directory group was removed (payload for `directory_group.deleted`). The
+/// membership and role-mapping rows are gone with it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupDeleted {
+    pub group_id: Uuid,
+    pub name: String,
+    pub external_id: Option<String>,
+}
+
+/// A user joined a directory group (payload for
+/// `directory_group.member_added`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupMemberAdded {
+    pub group_id: Uuid,
+    pub user_id: Uuid,
+}
+
+/// A user left a directory group (payload for
+/// `directory_group.member_removed`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupMemberRemoved {
+    pub group_id: Uuid,
+    pub user_id: Uuid,
+}
+
+/// A role was mapped onto a directory group (payload for
+/// `directory_group.role_mapped`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupRoleMapped {
+    pub group_id: Uuid,
+    pub role_id: Uuid,
+}
+
+/// A role was unmapped from a directory group (payload for
+/// `directory_group.role_unmapped`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryGroupRoleUnmapped {
+    pub group_id: Uuid,
+    pub role_id: Uuid,
 }
 
 /// A template row was created (payload for `template.created`) — an

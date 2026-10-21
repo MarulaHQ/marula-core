@@ -480,7 +480,9 @@ use core_domain::events::{
     ClientWorkflowOverrideCleared, ClientWorkflowOverrideSet, ConfigItemCreated,
     ConfigItemMergeUndone, ConfigItemMerged, ConfigItemUpdated, ContactCreated, ContactUpdated,
     ContractCreated, ContractRemoved, ContractUpdated, CreditNoteApplied, CreditNoteIssued,
-    CreditNoteRefunded, DispatchQueueUpdated, DispatchStatusUpdated, DocumentAttachmentAdded,
+    CreditNoteRefunded, DirectoryGroupCreated, DirectoryGroupDeleted, DirectoryGroupMemberAdded,
+    DirectoryGroupMemberRemoved, DirectoryGroupRoleMapped, DirectoryGroupRoleUnmapped,
+    DirectoryGroupUpdated, DispatchQueueUpdated, DispatchStatusUpdated, DocumentAttachmentAdded,
     DocumentAttachmentDeleted, FxBaseCurrencyChanged, FxRateRecorded, ImportBatchFinished,
     ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded,
     InvoiceRunCompleted, InvoiceVoided, LabelTemplateCreated, LabelTemplateUpdated, LoanIssued,
@@ -1332,6 +1334,100 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             RoleRestored {
                 role_id: su(30),
                 builtin: "dispatcher".into(),
+            }
+        ),
+    },
+    // -- directory groups (Wave 52 lane R10) --------------------------------
+    //
+    // One event per fact an identity sync or a principal cache needs to hear:
+    // the group exists, it changed, it is gone, someone joined, someone left, a
+    // role was mapped, a role was unmapped. Membership and role events carry
+    // the user and the role so a consumer can act without reading the group.
+    PublishedEvent {
+        event_type: types::DIRECTORY_GROUP_CREATED,
+        entity: "directory_group",
+        variant: "default",
+        shape: typed_shape!(
+            DirectoryGroupCreated,
+            DirectoryGroupCreated {
+                group_id: su(40),
+                name: "Tier 2 Support".into(),
+                external_id: Some("0f1e2d3c-tier2".into()),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DIRECTORY_GROUP_UPDATED,
+        entity: "directory_group",
+        variant: "default",
+        shape: typed_shape!(
+            DirectoryGroupUpdated,
+            DirectoryGroupUpdated {
+                group_id: su(40),
+                name: "Tier 2 Escalations".into(),
+                previous_name: "Tier 2 Support".into(),
+                external_id: Some("0f1e2d3c-tier2".into()),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DIRECTORY_GROUP_DELETED,
+        entity: "directory_group",
+        variant: "default",
+        shape: typed_shape!(
+            DirectoryGroupDeleted,
+            DirectoryGroupDeleted {
+                group_id: su(40),
+                name: "Tier 2 Escalations".into(),
+                external_id: Some("0f1e2d3c-tier2".into()),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DIRECTORY_GROUP_MEMBER_ADDED,
+        entity: "directory_group",
+        variant: "default",
+        shape: typed_shape!(
+            DirectoryGroupMemberAdded,
+            DirectoryGroupMemberAdded {
+                group_id: su(40),
+                user_id: su(41),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DIRECTORY_GROUP_MEMBER_REMOVED,
+        entity: "directory_group",
+        variant: "default",
+        shape: typed_shape!(
+            DirectoryGroupMemberRemoved,
+            DirectoryGroupMemberRemoved {
+                group_id: su(40),
+                user_id: su(41),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DIRECTORY_GROUP_ROLE_MAPPED,
+        entity: "directory_group",
+        variant: "default",
+        shape: typed_shape!(
+            DirectoryGroupRoleMapped,
+            DirectoryGroupRoleMapped {
+                group_id: su(40),
+                role_id: su(30),
+            }
+        ),
+    },
+    PublishedEvent {
+        event_type: types::DIRECTORY_GROUP_ROLE_UNMAPPED,
+        entity: "directory_group",
+        variant: "default",
+        shape: typed_shape!(
+            DirectoryGroupRoleUnmapped,
+            DirectoryGroupRoleUnmapped {
+                group_id: su(40),
+                role_id: su(30),
             }
         ),
     },
