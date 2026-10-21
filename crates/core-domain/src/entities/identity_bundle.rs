@@ -679,7 +679,7 @@ mod tests {
         assert!(!row.jit_enabled);
         assert_eq!(row.provenance_digest, "ab".repeat(32));
         assert_eq!(row.provider_kinds, vec!["oidc"]);
-        assert!(row.pins(b"artifact bytes") == false);
+        assert!(!row.pins(b"artifact bytes"));
         assert!(row
             .pins(&[])
             .eq(&(row.provenance_digest == plugin_digest_of(&[]))));

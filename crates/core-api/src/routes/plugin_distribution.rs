@@ -1209,7 +1209,7 @@ pub async fn approve_staged(
                     actor,
                 )
                 .await?;
-                let _ = core_db::audit::insert(
+                core_db::audit::insert(
                     &mut *tx.tx,
                     &core_domain::entities::AuditEvent {
                         id: Uuid::now_v7(),

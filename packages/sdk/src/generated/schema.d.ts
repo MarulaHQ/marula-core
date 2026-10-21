@@ -3805,6 +3805,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/directory-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/directory-groups — every group in the org (manager+). */
+        get: operations["directory_groups_list"];
+        put?: never;
+        /**
+         * POST /api/directory-groups — create a group. The group grants nothing until
+         *     a role is mapped onto it.
+         */
+        post: operations["directory_groups_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/directory-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/directory-groups/{id} — the group with its members and role
+         *     mappings (manager+).
+         */
+        get: operations["directory_groups_detail"];
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/directory-groups/{id} — remove the group. Its memberships and
+         *     role mappings go with it, so every member loses exactly what this group
+         *     granted.
+         */
+        delete: operations["directory_groups_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/directory-groups/{id} — rename, re-describe, or re-point the
+         *     external id. Absent fields keep their values.
+         */
+        patch: operations["directory_groups_update"];
+        trace?: never;
+    };
+    "/api/v1/directory-groups/{id}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/directory-groups/{id}/members/{userId} — put a user in the group.
+         *     Idempotent; a repeated call reports the same membership and emits nothing.
+         */
+        put: operations["directory_groups_add_member"];
+        post?: never;
+        /**
+         * DELETE /api/directory-groups/{id}/members/{userId} — take a user out of the
+         *     group. The roles that group carried for them are gone; every other grant
+         *     survives.
+         */
+        delete: operations["directory_groups_remove_member"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/directory-groups/{id}/roles/{roleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/directory-groups/{id}/roles/{roleId} — map a role onto the group.
+         *     Every current and future member holds it from now on (additive union with
+         *     their directly assigned roles). Idempotent.
+         */
+        put: operations["directory_groups_map_role"];
+        post?: never;
+        /**
+         * DELETE /api/directory-groups/{id}/roles/{roleId} — drop a role from the
+         *     group. Members lose exactly that role where the group was its only source.
+         */
+        delete: operations["directory_groups_unmap_role"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatch-connector/appointments/{id}/status": {
         parameters: {
             query?: never;
@@ -17161,6 +17261,17 @@ export interface components {
             /** Format: uuid */
             stage_id: string;
         };
+        CreateDirectoryGroupRequest: components["schemas"]["MutationParams"] & {
+            /** @description Free-text purpose, up to 500 characters. */
+            description?: string | null;
+            /**
+             * @description The directory's own identifier for this group. Supply it when a sync
+             *     owns the row, so the next pass updates rather than duplicates it.
+             */
+            external_id?: string | null;
+            /** @description Display name, 1–64 characters, unique in the org. */
+            name: string;
+        };
         CreateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
             change_summary?: string | null;
@@ -19146,6 +19257,77 @@ export interface components {
             op: string;
             /** @description A stable location, e.g. `nodes/triage`, `edges/a→b`, `version`. */
             path: string;
+        };
+        /** @description One group with its current members and role mappings. */
+        DirectoryGroupDetailResponse: {
+            group: components["schemas"]["DirectoryGroupView"];
+            members: components["schemas"]["DirectoryGroupMemberView"][];
+            roles: components["schemas"]["DirectoryGroupRoleView"][];
+        };
+        /** @description One member of a group. */
+        DirectoryGroupMemberView: {
+            added_at: string;
+            /**
+             * Format: uuid
+             * @description Who added them: a staff user id, `null` for a write that came from a
+             *     sync.
+             */
+            added_by?: string | null;
+            display_name: string;
+            email: string;
+            /**
+             * @description A deactivated user keeps the membership row; the principal is refused at
+             *     auth instead, so nothing needs unwinding when someone leaves.
+             */
+            is_active: boolean;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /**
+         * @description Instant-first mutation response (IF2): the group fields at the top level
+         *     plus the additive `mutation` metadata.
+         */
+        DirectoryGroupMutationResponse: components["schemas"]["DirectoryGroupView"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description One role a group carries. */
+        DirectoryGroupRoleView: {
+            /** @description Shipped preset tag (owner, admin, …), `null` for a custom role. */
+            builtin?: string | null;
+            name: string;
+            /** Format: uuid */
+            role_id: string;
+        };
+        /** @description One directory group, with the counts a listing shows. */
+        DirectoryGroupView: {
+            created_at: string;
+            /** @description Free-text purpose. `null` when unset. */
+            description?: string | null;
+            /**
+             * @description The identity provider's identifier for this group, `null` for a group
+             *     created in Marula that no directory knows about. Unique per org.
+             */
+            external_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: int64
+             * @description Active and inactive users in the group.
+             */
+            member_count: number;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: int64
+             * @description Roles the group carries.
+             */
+            role_count: number;
+            updated_at: string;
+        };
+        DirectoryGroupsListResponse: {
+            /** @description Every group in the org, by name. */
+            groups: components["schemas"]["DirectoryGroupView"][];
         };
         /**
          * @description One booking block on the dispatch board: the appointment plus the
@@ -23438,7 +23620,7 @@ export interface components {
          *     no key for them).
          * @enum {string}
          */
-        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite" | "OrgCustomDomainManage" | "OrgSuspensionRead";
+        PluginCapability: "TicketsRead" | "TicketsWrite" | "ClientsRead" | "ClientsWrite" | "TimeRead" | "TimeWrite" | "ProjectsRead" | "ProjectsWrite" | "KbRead" | "KbWrite" | "DocumentsRead" | "DocumentsWrite" | "ReportingRead" | "FinancialRead" | "VaultIngress" | "RoutingMatrix" | "RoutingRoute" | "RoutingGeocode" | "RoutingIsochrone" | "UiWidgets" | "AutomationActions" | "ReportsRender" | "FieldsValidate" | "AutomationTriggers" | "AutomationReads" | "EventsEmit" | "ServiceAccountManage" | "OrgUsageRead" | "RagRead" | "RagWrite" | "OrgCustomDomainManage" | "OrgSuspensionRead" | "ObservabilityRead";
         /**
          * @description Install lifecycle. Deny-by-default: `Disabled` until an explicit
          *     admin enable; `Revoked` is terminal (registry revocation or explicit
@@ -30564,6 +30746,20 @@ export interface components {
             owner_user_id?: string | null;
             /** Format: uuid */
             quote_id?: string | null;
+        };
+        UpdateDirectoryGroupRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description New description. Absent keeps the current one; an explicit `null`
+             *     clears it.
+             */
+            description?: string | null;
+            /**
+             * @description New external id. Absent keeps it; an explicit `null` clears it (the row
+             *     is then locally owned again).
+             */
+            external_id?: string | null;
+            /** @description New name. Absent keeps the current one. */
+            name?: string | null;
         };
         UpdateDocumentRequest: components["schemas"]["MutationParams"] & {
             body?: string | null;
@@ -38747,6 +38943,287 @@ export interface operations {
             };
             /** @description the workflow is disabled or its decision model is unconfigured */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupsListResponse"];
+                };
+            };
+            /** @description requires manage_users or manage_roles */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDirectoryGroupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupMutationResponse"];
+                };
+            };
+            /** @description name or external id already in use, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupDetailResponse"];
+                };
+            };
+            /** @description group not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupMutationResponse"];
+                };
+            };
+            /** @description group not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateDirectoryGroupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupMutationResponse"];
+                };
+            };
+            /** @description group not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description name or external id already in use, version conflict, or idempotency key reused */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_add_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupDetailResponse"];
+                };
+            };
+            /** @description group or user not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_remove_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupDetailResponse"];
+                };
+            };
+            /** @description group or membership not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_map_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupDetailResponse"];
+                };
+            };
+            /** @description group or role not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    directory_groups_unmap_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryGroupDetailResponse"];
+                };
+            };
+            /** @description group or mapping not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
