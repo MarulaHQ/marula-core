@@ -14,7 +14,7 @@
 | `postgres/` | The opt-in Postgres image carrying `pg_cron` and `hypopg`, and the compose overlay that swaps it in. The database instrumentation itself (statement statistics, slow-plan logging) is in `docker-compose.yml`, because the stock image already has it. |
 | `helm/marula/` | The Helm chart, with the same routing and both TLS modes expressed through `ingress`. |
 | `backup/` | WAL-G point-in-time recovery and restic snapshots, plus the restore rehearsal. |
-| `observability/` | OTel collector, Tempo, Loki and the Grafana provisioning for the `observability` profile. |
+| `observability/` | OTel collector, Tempo, Loki, Grafana provisioning, and the alert pack (Prometheus rules, SLOs and incident runbooks) for the `observability` profile. Start from [`observability/README.md`](observability/README.md). |
 | `runbooks/` | Operator runbook scaffolds. |
 | `garage.toml` | The Garage config the `stage2` profile binds read-only. |
 
@@ -45,9 +45,10 @@ The operator runbook is
 ## Profiles
 
 `stage2` (object storage + mail sink), `observability` (OTLP, Tempo, Loki,
-Grafana, status page), `ai` (local model runtime), `backup` (WAL-G +
-restic), and `edge` (the TLS proxy) are all opt-in. `docker compose up`
-without a `--profile` flag boots the same stack it always did.
+Prometheus with the alert pack, Grafana, status page), `ai` (local model
+runtime), `backup` (WAL-G + restic), and `edge` (the TLS proxy) are all opt-in.
+`docker compose up` without a `--profile` flag boots the same stack it always
+did.
 
 ## Stopping the stack
 

@@ -3,8 +3,8 @@
 # Purpose: zero-click wiring so `--profile observability up` yields working
 # trace/log/metric views: Tempo for traces (trace→logs link), Loki for
 # logs (derived-fields deep-link back to Tempo by trace id), and a
-# Prometheus datasource pointed at the collector's exposition port for
-# marula.* metrics.
+# Prometheus datasource pointed at the rule evaluator, which scrapes the
+# collector's exposition port for marula.* metrics and holds the alert state.
 apiVersion: 1
 
 datasources:
@@ -39,7 +39,12 @@ datasources:
     uid: marula-metrics
     type: prometheus
     access: proxy
-    url: http://otel-collector:18899
+    # Grafana reads the Prometheus that evaluates the alert pack, not the
+    # collector directly. Same series either way (Prometheus scrapes the
+    # collector), plus `up` and the `ALERTS` series, so a panel and an alert
+    # cannot disagree about what is happening. `deploy/observability/README.md`
+    # describes the chain.
+    url: http://prometheus:9090
     isDefault: true
     jsonData:
       httpMethod: POST
