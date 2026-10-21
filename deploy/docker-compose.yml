@@ -109,6 +109,39 @@ services:
       POSTGRES_USER: marula
       POSTGRES_PASSWORD: marula
       POSTGRES_DB: marula
+    # Instrumentation, not tuning. `pg_stat_statements` records the query mix
+    # the perf harness never sees (it measures one endpoint at a time), and
+    # `auto_explain` logs the plan of anything slower than 200ms — the tail
+    # §7 of docs/perf.md shows is where dataset cost lands. Both need the
+    # library preloaded; the SQL objects are created by migration 0145 and
+    # are skipped on a server that forbids them.
+    #
+    # 200ms is above the 150ms page budget on purpose: only a statement that
+    # has already broken the budget writes a plan. Raise it on a slower box,
+    # or lower it to 50ms when investigating a regression.
+    #
+    # `io_method` is pinned even though `worker` is the PG18 default: it can
+    # only be set at server start, so a future default change would otherwise
+    # alter behaviour silently. `io_workers` (3) and the 16-value
+    # effective/maintenance_io_concurrency defaults are left alone — raising
+    # them is a sizing decision, documented in
+    # docs/site/reference/db-observability.md.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements,auto_explain
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - auto_explain.log_min_duration=200ms
+      - -c
+      - auto_explain.log_analyze=on
+      - -c
+      - auto_explain.log_buffers=on
+      - -c
+      - auto_explain.log_format=json
+      - -c
+      - io_method=worker
     ports:
       - "15432:5432"
     volumes:

@@ -1,0 +1,43 @@
+# Opt-in overlay: the Postgres image that carries pg_cron and hypopg.
+#
+#   docker compose -f docker-compose.yml \
+#                  -f postgres/compose.extensions.yml \
+#                  up -d
+#
+# The base file stays authoritative for everything else. Two things are
+# restated here and must be kept in step with it:
+#
+#   * `command:` — compose replaces a list rather than merging it, so the
+#     whole preload and async-I/O set appears again with `pg_cron` appended.
+#     Missing an entry here silently drops it from the server.
+#   * `build:` with `image:` — compose builds the Dockerfile and tags it under
+#     the same name, so `docker compose build` works without a separate step.
+#
+# `cron.database_name` is the database pg_cron keeps its job table in; it must
+# match POSTGRES_DB above, or `CREATE EXTENSION pg_cron` fails and migration
+# 0145 leaves the maintenance jobs unscheduled (it reports a notice and
+# continues).
+services:
+  postgres:
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    image: marula/postgres-extensions:18
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_stat_statements,auto_explain,pg_cron
+      - -c
+      - cron.database_name=marula
+      - -c
+      - pg_stat_statements.max=10000
+      - -c
+      - auto_explain.log_min_duration=200ms
+      - -c
+      - auto_explain.log_analyze=on
+      - -c
+      - auto_explain.log_buffers=on
+      - -c
+      - auto_explain.log_format=json
+      - -c
+      - io_method=worker

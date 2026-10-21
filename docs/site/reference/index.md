@@ -23,6 +23,7 @@ Reference pages give you exact endpoints, database view columns, environment var
 - [Observability](self-host-observability.md) — Optional OpenTelemetry export (`Tempo`, `Loki`, `Grafana`) plus `Uptime Kuma` status monitoring.
 - [Backup & restore runbook](backup-restore.md) — How to back up PostgreSQL and Garage object storage using `pg_dump`, `restic`, or `WAL-G` point-in-time recovery, and how to rehearse restores with `deploy/backup/restore.sh`.
 - [Postgres 17 to 18 upgrade](pg18-upgrade.md) — One-time data migration guide for deployments created before the PostgreSQL 18 transition.
+- [Database observability](db-observability.md) — The query mix (`ops.query_tail`), the plan of one statement (`ops.explain_plan`), the signal readiness view (`ops.db_signals`), scheduled maintenance, and which of these a managed Postgres will not let you enable.
 - [Reverse proxy & TLS runbook](reverse-proxy-tls.md) — The public front door: required upstream routes, the streamed SSE live leg, upload size limits, Direct-mode ACME, Cloudflare Edge mode (Origin CA vs DNS-01), origin IP-range lockdown, and the trusted-proxy settings that make the resolved client IP mean something.
 - Desktop packaging and release workflow: [`docs/desktop-release.md`](../../desktop-release.md).
 - Runbook scaffold index: [`deploy/runbooks/README.md`](../../../deploy/runbooks/README.md).

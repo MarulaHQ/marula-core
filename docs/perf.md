@@ -215,7 +215,9 @@ control: this lane changed search only.
   budget pressure that would justify a new index + its write-path tax
   does not exist today. Revisit when page-1 p95 exceeds ~2/3 budget OR
   whenever the SQL sort plan regresses. The full measured recipe is in
-  the lane landing record (the private build tracker).
+  the lane landing record (the private build tracker), and the same index
+  can now be tried without building it — `hypopg` and the recipe are in
+  [`docs/site/reference/db-observability.md`](site/reference/db-observability.md).
 
 ## 5. HTTP capacity decision (Wave 15 lane 3)
 
