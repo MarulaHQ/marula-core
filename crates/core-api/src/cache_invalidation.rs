@@ -42,6 +42,14 @@ pub fn invalidate_for(frame: &StreamFrame) {
         // The org flush is bounded, correct, and cheaper than the query these
         // caches exist to remove.
         other if other.starts_with("role.") => caches.invalidate_org(frame.org_id),
+        // A directory-group event names the group, not the people in it: a
+        // member added or removed changes the effective roles of exactly one
+        // user, and a role mapped onto the group changes them for every member.
+        // The frame cannot say which users those are, so the org flush is the
+        // same honest answer a `role.*` event gets — and it is required here:
+        // without it a removed member keeps their group-granted authority in
+        // this replica's cache until the TTL expires.
+        other if other.starts_with("directory_group.") => caches.invalidate_org(frame.org_id),
 
         // --- reference families ----------------------------------------------
         // Each family caches under `"<namespace>|<org>"`, so one event clears
@@ -174,6 +182,44 @@ mod tests {
             caches.principal.get(&(org, in_org)).is_none(),
             "org cleared"
         );
+        assert!(
+            caches.principal.get(&(other_org, in_other)).is_some(),
+            "another org's cache survives"
+        );
+    }
+
+    #[test]
+    fn a_directory_group_event_flushes_the_whole_org() {
+        let _guard = only_one_at_a_time();
+        cache::__reset_for_tests();
+        let org = Uuid::new_v4();
+        let other_org = Uuid::new_v4();
+        let (in_org, in_other) = (Uuid::new_v4(), Uuid::new_v4());
+        let caches = cache::caches();
+        caches
+            .principal
+            .insert((org, in_org), sample_principal(org, in_org));
+        caches
+            .principal
+            .insert((other_org, in_other), sample_principal(other_org, in_other));
+
+        // Membership and role mappings both move what a principal may do, and
+        // the frame names the group rather than the people, so every cached
+        // principal in the org goes.
+        for event in [
+            "directory_group.member_removed",
+            "directory_group.role_mapped",
+            "directory_group.deleted",
+        ] {
+            caches
+                .principal
+                .insert((org, in_org), sample_principal(org, in_org));
+            invalidate_for(&frame(event, org, None));
+            assert!(
+                caches.principal.get(&(org, in_org)).is_none(),
+                "{event} clears the org"
+            );
+        }
         assert!(
             caches.principal.get(&(other_org, in_other)).is_some(),
             "another org's cache survives"

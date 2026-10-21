@@ -774,6 +774,17 @@ use utoipa::OpenApi;
         crate::routes::dead_work::cancel,
         crate::routes::dead_work::destinations,
         crate::routes::dead_work::resume_destination,
+        // Wave 52 lane R10 (migration 0148): directory groups, their members
+        // and the roles a group carries.
+        crate::routes::directory_groups::list,
+        crate::routes::directory_groups::create,
+        crate::routes::directory_groups::detail_handler,
+        crate::routes::directory_groups::update,
+        crate::routes::directory_groups::remove,
+        crate::routes::directory_groups::add_member,
+        crate::routes::directory_groups::remove_member,
+        crate::routes::directory_groups::map_role,
+        crate::routes::directory_groups::unmap_role,
         // Wave 43 track 2 lane 12 (migration 0127): sign-off capture, its
         // revocation trail, payload download, and consent-version control.
         crate::routes::sign_offs::create,
@@ -1565,6 +1576,15 @@ use utoipa::OpenApi;
         crate::routes::roles::ForkRoleRequest,
         crate::routes::roles::RestoreRoleRequest,
         crate::routes::roles::RoleMutationResponse,
+        // directory groups (Wave 52 lane R10, migration 0148)
+        crate::routes::directory_groups::DirectoryGroupView,
+        crate::routes::directory_groups::DirectoryGroupMemberView,
+        crate::routes::directory_groups::DirectoryGroupRoleView,
+        crate::routes::directory_groups::DirectoryGroupsListResponse,
+        crate::routes::directory_groups::DirectoryGroupDetailResponse,
+        crate::routes::directory_groups::DirectoryGroupMutationResponse,
+        crate::routes::directory_groups::CreateDirectoryGroupRequest,
+        crate::routes::directory_groups::UpdateDirectoryGroupRequest,
         // ticket taxonomy (Wave 11 lane 3)
         crate::routes::taxonomy::TaxonomyNodeView,
         crate::routes::taxonomy::ListTaxonomyQuery,

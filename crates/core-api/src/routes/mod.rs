@@ -70,6 +70,7 @@ pub mod decision_edge;
 pub mod decision_suggestions;
 pub mod dedupe;
 pub mod dev;
+pub mod directory_groups;
 pub mod dispatch;
 pub mod dispatch_connector;
 pub mod document_attachments;
@@ -2106,6 +2107,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // taxonomy, capture defaults, billing-audit suggestion reads —
         // module-owned router; mutations ride the IF1-IF3 envelope.
         .merge(time_categories::routes(gen))
+        // directory groups (Wave 52 lane R10, migration 0148): the groups a
+        // directory syncs into, their members, and the roles a group carries —
+        // module-owned router; group CRUD rides the IF1-IF3 envelope, and the
+        // permission union the mappings feed lives in core-db.
+        .merge(directory_groups::routes(gen))
         // billing verification workspace (Wave 39 lane 2, migration
         // 0111): the pre-invoice review surface, its in-context entry
         // actions, and the close sign-off — module-owned router.
