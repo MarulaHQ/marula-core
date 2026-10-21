@@ -653,7 +653,7 @@ fn params() -> Vec<Param> {
             Integer,
             Some("60"),
             false,
-            "SLA, project-billing, rotation and dedupe sweep interval.",
+            "Shared interval for the SLA, project billing, rotation, dedupe sweeps.",
         ),
         param(
             "TIME_AUDIT_POLL_SECS",

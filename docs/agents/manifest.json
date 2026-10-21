@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "about": "The machine-readable agent surface for marula-core: what an agent can be granted, how it reaches it, and what it may never do. Human prose lives beside this file in README.md.",
+  "tool_derivation": {
+    "spec": "packages/sdk/openapi.json",
+    "adapter": "crates/mcp-server/src/catalog.rs",
+    "rule": "One tool per GET path that carries an operationId and sits under /api/, named by that operationId.",
+    "capability": "The first path segment after the version prefix derives the namespace, and the tool holds <namespace>:read.",
+    "grant_model": "Deny-by-default. filter_granted drops every namespace without a grant row, so an ungranted tool is absent from tools/list rather than refused at call time.",
+    "excluded_prefixes_source": "crates/mcp-server/src/lib.rs",
+    "note": "Excluded prefixes and any path containing /attachments never enter the catalog, whatever the grant says."
+  },
+  "surfaces": [
+    {
+      "id": "mcp-stdio",
+      "kind": "mcp",
+      "transport": "stdio JSON-RPC",
+      "source": "crates/mcp-server/src/stdio.rs",
+      "notes": "The canonical transport, and what runs with no arguments."
+    },
+    {
+      "id": "mcp-http",
+      "kind": "mcp",
+      "transport": "POST /mcp on loopback",
+      "source": "crates/mcp-server/src/http.rs",
+      "notes": "mcp-server serve-http, for local development."
+    },
+    {
+      "id": "rest",
+      "kind": "http",
+      "transport": "HTTPS",
+      "source": "packages/sdk/openapi.json",
+      "notes": "The pinned API snapshot. A service key scopes what may be called."
+    },
+    {
+      "id": "events",
+      "kind": "stream",
+      "transport": "SSE",
+      "source": "crates/core-api/src/routes/events.rs",
+      "notes": "A read of the outbox stream, not a second bus. Bounded by MARULA_EVENT_STREAM_MAXLEN."
+    },
+    {
+      "id": "audit-export",
+      "kind": "http",
+      "transport": "HTTPS",
+      "source": "crates/core-api/src/routes/audit.rs",
+      "notes": "Forward-only cursor export on (occurred_at, id). Read grant only."
+    }
+  ],
+  "namespaces": [
+    "admin",
+    "agent-proposals",
+    "agent-skills",
+    "ai",
+    "alert-sources",
+    "alerts",
+    "appointment-requests",
+    "appointments",
+    "assets",
+    "audit-events",
+    "automation-rules",
+    "availability",
+    "billing",
+    "board-groups",
+    "boards",
+    "calendar",
+    "calendar-exclusions",
+    "calendar-sync",
+    "catalog-items",
+    "client-loans",
+    "clients",
+    "config-items",
+    "connectors",
+    "contracts",
+    "credit-notes",
+    "day-pack",
+    "dedupe",
+    "directory-groups",
+    "dispatch",
+    "dispatch-connector",
+    "documents",
+    "entity-dedupe",
+    "events",
+    "fx",
+    "imports",
+    "invoice-candidates",
+    "invoices",
+    "kb",
+    "label-templates",
+    "mcp",
+    "me",
+    "meeting-types",
+    "migration",
+    "notification-org-defaults",
+    "notification-preferences",
+    "notifications",
+    "on-call-blocks",
+    "onboarding",
+    "org",
+    "orgs",
+    "passwords",
+    "pipeline",
+    "plugins",
+    "pm-schedules",
+    "project-templates",
+    "project-views",
+    "projects",
+    "provenance",
+    "public",
+    "purchase-orders",
+    "quotes",
+    "rag",
+    "reply-snippets",
+    "report-catalog",
+    "report-definitions",
+    "report-schedules",
+    "reports",
+    "roles",
+    "scheduling-groups",
+    "scheduling-links",
+    "scorecards",
+    "search",
+    "secrets",
+    "settings",
+    "sign-offs",
+    "sla",
+    "stock",
+    "stock-items",
+    "stock-locations",
+    "stock-serials",
+    "tags",
+    "taxonomy",
+    "templates",
+    "tickets",
+    "time-categories",
+    "time-entries",
+    "time-gaps",
+    "time-settings",
+    "timers",
+    "tool-checkouts",
+    "tool-kits",
+    "tools",
+    "vendors",
+    "workflow-overrides",
+    "workflows"
+  ],
+  "sensitive": {
+    "admin": "Administrative surfaces. A read grant here sees configuration an ordinary technician never needs.",
+    "migration": "Migration state and control endpoints. Useful to a release tool, dangerous to an unattended agent.",
+    "passwords": "Password reset requests and state. A read here is close to an account-recovery capability.",
+    "roles": "Role definitions. Reading them is how a client learns which escalations exist.",
+    "secrets": "Secret metadata. Values stay sealed, and the metadata still maps which integration holds which key.",
+    "settings": "Instance settings, including the switches that decide what the product does under load."
+  },
+  "prohibitions": [
+    {
+      "id": "no-writes-through-mcp",
+      "statement": "An MCP tool can never write. The catalog derives GET operations only.",
+      "enforced_by": "crates/mcp-server/src/catalog.rs:201"
+    },
+    {
+      "id": "no-ungranted-namespace",
+      "statement": "A namespace without a grant row does not appear in tools/list, so the tool does not exist for that principal.",
+      "enforced_by": "crates/mcp-server/src/catalog.rs:102"
+    },
+    {
+      "id": "no-sensitive-content",
+      "statement": "Attachments, export bundles, webhook delivery logs, API keys, auth, email, internal and portal paths never enter the catalog, whatever the grant says.",
+      "enforced_by": "crates/mcp-server/src/lib.rs:57"
+    },
+    {
+      "id": "no-admin-special",
+      "statement": "No plugin capability maps onto an administrative special, and the build fails if one ever does.",
+      "enforced_by": "docs/reference/extension-points.md"
+    },
+    {
+      "id": "no-audit-write",
+      "statement": "The audit trail is export only. No agent, pack or connector writes, edits or deletes a row.",
+      "enforced_by": "crates/core-api/src/routes/audit.rs"
+    },
+    {
+      "id": "no-core-import",
+      "statement": "A connector talks to the public API and holds no path dependency into crates/.",
+      "enforced_by": "docs/reference/extension-points.md"
+    }
+  ],
+  "docs": {
+    "readme": "docs/agents/README.md",
+    "extension_points": "docs/reference/extension-points.md",
+    "core_and_packs": "docs/reference/core-and-packs.md",
+    "reliability_matrix": "docs/reference/reliability-matrix.md"
+  },
+  "check": {
+    "script": "scripts/check-agent-manifest.mjs",
+    "command": "node scripts/check-agent-manifest.mjs"
+  }
+}

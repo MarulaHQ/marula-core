@@ -52,6 +52,9 @@ does not exist yet.
 | [database-down](database-down.md) | `MarulaWorkerNotReporting` | no reachability series for Postgres |
 | [valkey-down](valkey-down.md) | `MarulaWorkerNotReporting`, `MarulaConsumerPelDepthHigh` | no reachability series for Valkey |
 | [mail-provider-down](mail-provider-down.md) | `MarulaJobRetryRatioHigh` | no send-outcome series for mail |
+| [pooler-degraded](pooler-degraded.md) | `MarulaApiLatencyBudgetBreach`, `MarulaWorkerNotReporting` | PgBouncer is not a scrape target, so nothing reads its pools |
+| [retention-and-partitions](retention-and-partitions.md) | `MarulaWorkerNotReporting` | the pass reports to its log and `/healthz`, and has no series of its own |
+| [backup-drill-failed](backup-drill-failed.md) | `MarulaBackupStale`, `MarulaBackupUnobserved` | no rule reads `ops.backup_drill_runs` |
 
 The missing series are named, with the shape each one would need, in
 `deploy/observability/README.md` under coverage gaps.
