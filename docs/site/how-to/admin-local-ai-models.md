@@ -4,10 +4,10 @@
 > starts infrastructure on your host.
 
 Marula will call a model runtime you run. The image you already deploy
-carries no model weights, so this is a separate opt-in step: start a local
-runtime, pull two models, and point the AI settings at it. Twenty minutes
-of work, and after that voice notes transcribe and knowledge search stays
-vector-backed without a byte leaving your network.
+carries no model weights, so the models are a separate opt-in step: start
+the local runtime, and it fetches the embedding model Marula uses by
+default. Embeddings then work without a byte leaving your network, and
+transcription is one more pull away.
 
 Before you start, read
 [Local AI: transcription and embeddings on your own hardware](../reference/self-host-local-ai.md)
@@ -17,10 +17,12 @@ model is data, not a dependency, and you should be the one holding it.
 ## 1. Start the model runtime
 
 ```sh
-docker compose -f deploy/docker-compose.yml --profile ai up -d ollama
+docker compose -f deploy/docker-compose.yml --profile ai up -d
 ```
 
-Check it is up:
+That starts Ollama and a one-shot `ollama-model` job that pulls the bundled
+embedding model, EmbeddingGemma 2 (text-only build,
+`embeddinggemma-2:270m-q8_0-text`). Check what landed:
 
 ```sh
 docker compose -f deploy/docker-compose.yml exec ollama ollama list
@@ -28,18 +30,20 @@ docker compose -f deploy/docker-compose.yml exec ollama ollama list
 
 The slot publishes no host port on purpose — see step 5.
 
-## 2. Pull the two models
+## 2. Pull the transcription model
+
+The embedding model is already there. Transcription is a separate pull:
 
 ```sh
-# Transcription. Marula's own default name for this provider, so you can
-# leave the model field empty in settings.
+# Marula's own default name for this provider, so you can leave the model
+# field empty in settings.
 docker compose -f deploy/docker-compose.yml exec ollama ollama pull whisper
-
-# Embeddings. nomic-embed-text is 768 dimensions natively, which is exactly
-# the width Marula's search vectors require. A narrower model would leave
-# vector search dark and silently fall back to full-text.
-docker compose -f deploy/docker-compose.yml exec ollama ollama pull nomic-embed-text
 ```
+
+Embeddings need no pull and no model field. EmbeddingGemma 2 is 768
+dimensions natively, which is exactly the width Marula's search vectors
+require, so it fills the column with no truncation. A model of another width
+would leave vector search dark and silently fall back to full-text.
 
 Confirm what landed on disk:
 
@@ -61,11 +65,15 @@ In **Settings → AI**, add a provider:
 
 | Field | Value |
 | --- | --- |
-| Provider | `ollama` |
+| Provider | `ollama` (already the default; setting it explicitly does no harm) |
 | Base URL | `http://ollama:11434` |
 | API key | leave empty — a local runtime does not check one |
 | Transcription model | `whisper` (or empty, which means the same thing) |
-| Embedding model | `nomic-embed-text` |
+| Embedding model | empty — the bundled default applies |
+
+An install that never opens this page already has the local embedder: an
+unset provider means the bundled model, loaded on first use and dropped
+after five idle minutes. Naming a provider here is how you replace it.
 
 `http://ollama:11434` is the compose **service name**, and it has to be:
 it is the address that resolves inside the compose network, where Marula
@@ -100,7 +108,10 @@ a laptop, tunnel it the same way you would a database.
 Whatever it can reach, it can send.
 
 **Do not skip the dimension check on embeddings.** If you swap in a
-different embedding model, confirm it returns 768 dimensions first.
+different embedding model, confirm it returns 768 dimensions first. The
+multimodal build of the same model (`embeddinggemma-2:740m-q8_0`) is 768 as
+well, and it is the one to choose if you need image or audio chunks
+embedded, at a larger resident set.
 Marula refuses to store a wrong-width vector. The column stays dark and
 search falls back to full-text, so a dimension mismatch shows up as
 "search got worse" rather than as an error. That is an annoying way to
@@ -108,8 +119,8 @@ find out.
 
 ## What you learned
 
-- Local models are a separate profile, a separate volume, and two
-  `ollama pull` commands.
+- Local models are a separate profile and a separate volume. The embedding
+  model arrives with the profile; transcription is one extra pull.
 - The provider URL is a service name, never `localhost`.
 - Configuring a provider enables nothing; the surfaces and grants are
   separate switches.

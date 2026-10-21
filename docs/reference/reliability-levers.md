@@ -19,7 +19,7 @@ check. Second, a default in the table is the value the process uses when nothing
 the variable; a profile can preset a different one, and the profiles are listed in
 `docs/deploy-descriptor.md`.
 
-Counts at this commit: 165 levers in 14 groups, and
+Counts at this commit: 167 levers in 14 groups, and
 28 retry budgets (7 subsystems across
 4 presets).
 
@@ -262,12 +262,14 @@ why only two are required.
 | `MARULA_VAULT_WRITE_BUDGET_PER_MIN` | integer | `600` | Vault writes allowed per org per minute. |
 | `MARULA_VAULT_BULK_ROWS_PER_SEC` | integer | `50` | Vault bulk-import rows per second. |
 
-### ai (2)
+### ai (4)
 
 | Lever | Kind | Default | Notes |
 |---|---|---|---|
 | `OPENAI_BASE_URL` | url | none | OpenAI-compatible base URL. Unset keeps the built-in default. |
 | `OLLAMA_BASE_URL` | url | none | Ollama base URL for the local model option. |
+| `MARULA_EMBEDDING_MODEL` | string | `embeddinggemma-2:270m-q8_0-text` | Embedding model this instance runs when no org names one. Must return 768 dimensions. |
+| `MARULA_EMBEDDING_KEEP_ALIVE` | string | `5m` | How long the local embedding model stays resident after its last request (Ollama duration syntax). |
 
 ### retries (36)
 

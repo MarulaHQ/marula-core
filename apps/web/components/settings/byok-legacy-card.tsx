@@ -209,8 +209,10 @@ export function ByokLegacyCard() {
     <Card className="mb-4">
       <h2 className="text-sm font-semibold">Bring-your-own providers & connectors</h2>
       <p className="mb-3 mt-1 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-        Keys are sealed at rest and never rendered back — presence only. Removing a key takes
-        effect immediately.
+        Embeddings run on the bundled local model when AI features are on and no provider
+        below replaces it, so the active line names what would actually serve them. Keys are
+        sealed at rest and never rendered back — presence only. Removing a key takes effect
+        immediately.
       </p>
 
       {loadError !== null ? (

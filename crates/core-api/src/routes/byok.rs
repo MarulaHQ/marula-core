@@ -123,12 +123,7 @@ pub struct ByokOverviewResponse {
 
 // --- handlers -----------------------------------------------------------------
 
-async fn active_org_value<'e, E>(
-    executor: E,
-    org_id: Uuid,
-    key: &str,
-    fallback: &str,
-) -> ApiResult<String>
+async fn active_org_value<'e, E>(executor: E, org_id: Uuid, key: &str) -> ApiResult<Option<String>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
@@ -137,8 +132,7 @@ where
         .iter()
         .find(|o| o.key == key)
         .and_then(|o| o.value.as_str())
-        .unwrap_or(fallback)
-        .to_string())
+        .map(str::to_string))
 }
 
 /// GET /api/settings/ai/status — overview of AI completion provider & configured keys.
@@ -165,20 +159,21 @@ pub async fn get_ai_status(
         .await
         .map_err(ApiError::from)?;
 
-    let active_provider = active_org_value(
+    let provider_setting = active_org_value(
         &mut *tx,
         org_id,
         core_domain::settings::AI_COMPLETION_PROVIDER,
-        "none",
     )
     .await?;
-    let active_model = active_org_value(
-        &mut *tx,
-        org_id,
-        core_domain::settings::AI_COMPLETION_MODEL,
-        "none",
-    )
-    .await?;
+    let model_setting =
+        active_org_value(&mut *tx, org_id, core_domain::settings::AI_COMPLETION_MODEL).await?;
+    // Report what would actually serve the vector leg. An install that
+    // configured nothing runs the bundled local embedder, and a card that
+    // said "none (none)" while that model was running would be wrong.
+    let (active_provider, active_model) = crate::ai::effective_embedding_labels(
+        provider_setting.as_deref(),
+        model_setting.as_deref(),
+    );
 
     let secrets = core_db::byok::list_secret_summaries(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -499,17 +494,18 @@ pub async fn test_ai_connection(
         .await
         .map_err(ApiError::from)?;
 
-    // Resolve provider: explicit in request or active in org settings
+    // Resolve provider: explicit in request, else whatever the embeddings
+    // edge would actually use (the bundled local default when nothing is set).
     let provider = match req.provider {
         Some(p) if !p.trim().is_empty() => p.trim().to_ascii_lowercase(),
         _ => {
-            active_org_value(
+            let setting = active_org_value(
                 &mut *tx,
                 org_id,
                 core_domain::settings::AI_COMPLETION_PROVIDER,
-                "none",
             )
-            .await?
+            .await?;
+            crate::ai::effective_embedding_labels(setting.as_deref(), None).0
         }
     };
 

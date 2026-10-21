@@ -3,14 +3,15 @@
 //! seam and the org's BYOK sealed keys — no new provider abstraction.
 //!
 //! Purpose:
-//! - resolve one org's provider from the typed settings registry
-//!   (`ai.completion_provider` / `ai.completion_model`) plus the sealed
-//!   BYOK secret (migration 0044), decrypting in-process only;
-//! - ship the OpenAI-compatible embeddings adapter (`/embeddings`) that the
-//!   `CompletionProvider::embed` default left to this lane — `openai` and
-//!   `ollama`'s OpenAI-compatible endpoint are wired; providers without a
-//!   usable embeddings API (none/anthropic/custom in v1) resolve to
-//!   none-mode and the vector leg simply stays dark;
+//! - resolve one org's provider from a raw settings read plus the sealed BYOK
+//!   secret (migration 0044), decrypting in-process only;
+//! - ship the embeddings adapter: the OpenAI-compatible `/embeddings` shape
+//!   for cloud providers, and Ollama's native `/api/embed` for the local
+//!   default, which is the only shape that carries `keep_alive` and therefore
+//!   the only one where load-on-demand and unload-when-idle are explicit;
+//! - run the bundled model locally when the org configured nothing: an
+//!   unset `ai.completion_provider` resolves to the bundled EmbeddingGemma 2
+//!   on the local runtime, while an explicit `none` keeps the vector leg dark;
 //! - degrade, never fail: a search or an index upsert that hits an
 //!   unconfigured, broken or wrong-dimension provider logs and proceeds
 //!   lexical-only. Search NEVER 5xxs because AI is down, and no vector of
@@ -24,8 +25,9 @@
 use crate::error::ApiError;
 use crate::state::AppState;
 use core_domain::completion::{
-    CompletionError, CompletionProvider, CompletionRequest, CompletionResponse, CompletionUsage,
-    EmbeddingRequest, EmbeddingResponse, NoneCompletionProvider, SEARCH_EMBEDDING_DIM,
+    resolve_embedding_config, CompletionError, CompletionProvider, CompletionRequest,
+    CompletionResponse, CompletionUsage, EmbeddingRequest, EmbeddingResponse,
+    NoneCompletionProvider, BUNDLED_EMBEDDING_MODEL, SEARCH_EMBEDDING_DIM,
 };
 use uuid::Uuid;
 
@@ -34,23 +36,48 @@ const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 /// Model used when the org has not set `ai.completion_model` (or set it to
 /// the "none" placeholder): the cheapest OpenAI-compatible text embedder.
 const OPENAI_DEFAULT_MODEL: &str = "text-embedding-3-small";
-/// Ollama's OpenAI-compatible endpoint (documented self-host LLM serving).
-const OLLAMA_DEFAULT_BASE: &str = "http://localhost:11434/v1";
-/// Default self-host embedder: 768-dim, matching SEARCH_EMBEDDING_DIM.
-const OLLAMA_DEFAULT_MODEL: &str = "nomic-embed-text";
+/// Ollama's endpoint. The bundled embedder talks to its native `/api/embed`
+/// (which carries `keep_alive`), and an operator who points the cloud adapter
+/// at Ollama's OpenAI compatibility layer still gets `/v1` handled.
+const OLLAMA_DEFAULT_BASE: &str = "http://localhost:11434";
+/// Idle window for the local embedder. Ollama loads the model on the first
+/// request that needs it and drops it after this much quiet, so an install
+/// that searches twice an hour is not holding a model resident all day.
+const LOCAL_EMBED_KEEP_ALIVE: &str = "5m";
+/// Request budget for one local batch. A backfill batch is 128 inputs
+/// (`core_db::search::EMBEDDING_BATCH`), and the slowest single batch measured
+/// on the 4-core reference profile ran to double-digit seconds; the cloud
+/// adapter's budget would cut that off mid-sweep on a host doing exactly what
+/// the product asks of it.
+const LOCAL_EMBED_TIMEOUT_SECS: u64 = 300;
+/// Request budget for one cloud batch. A cloud embedder answers a batch of
+/// this size in well under a second, so a request that takes longer is a
+/// broken endpoint rather than a slow one.
+const CLOUD_EMBED_TIMEOUT_SECS: u64 = 30;
 
-/// The OpenAI-compatible embeddings adapter — the real HTTP adapter the
-/// `CompletionProvider` trait comment anticipated. `send_dimensions` is set
-/// only for providers that support Matryoshka truncation (OpenAI
-/// text-embedding-3): the Ollama compatibility layer rejects unknown
-/// request fields, so it gets the plain request and must return the
-/// configured width natively.
+/// Which HTTP shape the adapter speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmbedTransport {
+    /// `POST {base}/embeddings` — the OpenAI wire format.
+    OpenAiCompatible,
+    /// `POST {base}/api/embed` — Ollama's native format, the only one that
+    /// takes `keep_alive`.
+    Ollama,
+}
+
+/// The embeddings adapter behind `CompletionProvider::embed`. The OpenAI wire
+/// format is the general case; the Ollama transport exists because load-on-
+/// demand and unload-when-idle are request parameters on the native endpoint
+/// and nowhere else, and the bundled default runs there.
 pub struct OpenAiEmbeddings {
     http: reqwest::Client,
     base_url: String,
     api_key: Option<String>,
     model: String,
     send_dimensions: bool,
+    transport: EmbedTransport,
+    keep_alive: String,
+    timeout: std::time::Duration,
 }
 
 impl OpenAiEmbeddings {
@@ -58,6 +85,13 @@ impl OpenAiEmbeddings {
     /// every vector as provenance; a change re-embeds on the next sweep).
     pub fn model_name(&self) -> &str {
         &self.model
+    }
+
+    /// Root of the native Ollama API: the configured base with any OpenAI
+    /// compatibility suffix removed, so one setting serves both shapes.
+    fn native_base(&self) -> &str {
+        let base = self.base_url.trim_end_matches('/');
+        base.strip_suffix("/v1").unwrap_or(base)
     }
 }
 
@@ -81,6 +115,34 @@ struct UsageWire {
     #[serde(default)]
     completion_tokens: Option<u32>,
     total_tokens: Option<u32>,
+}
+
+/// Ollama's native `/api/embed` response: vectors in input order, with no
+/// per-item index and no usage block.
+#[derive(Debug, serde::Deserialize)]
+struct OllamaEmbedWire {
+    #[serde(default)]
+    embeddings: Vec<Vec<f32>>,
+    model: Option<String>,
+    prompt_eval_count: Option<u32>,
+}
+
+/// Refuses any vector that is not [`SEARCH_EMBEDDING_DIM`] wide, so a
+/// misconfigured provider leaves the vector leg dark rather than writing a
+/// vector the rest of the search path cannot compare against.
+fn check_embedding_width(embeddings: &[Vec<f32>]) -> Result<(), CompletionError> {
+    for embedding in embeddings {
+        if embedding.len() != SEARCH_EMBEDDING_DIM {
+            return Err(CompletionError::InvalidRequest {
+                reason: format!(
+                    "provider returned {}-dim vectors, search requires exactly {SEARCH_EMBEDDING_DIM} \
+                     (configure a conforming model or leave the provider at none)",
+                    embedding.len()
+                ),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Parses an OpenAI-compatible `/embeddings` response into the domain
@@ -108,17 +170,7 @@ pub fn parse_embedding_response(
         .collect();
     items.sort_by_key(|(index, _)| *index);
     let embeddings: Vec<Vec<f32>> = items.into_iter().map(|(_, vector)| vector).collect();
-    for embedding in &embeddings {
-        if embedding.len() != SEARCH_EMBEDDING_DIM {
-            return Err(CompletionError::InvalidRequest {
-                reason: format!(
-                    "provider returned {}-dim vectors, search requires exactly {SEARCH_EMBEDDING_DIM} \
-                     (configure a conforming model or leave the provider at none)",
-                    embedding.len()
-                ),
-            });
-        }
-    }
+    check_embedding_width(&embeddings)?;
     Ok(EmbeddingResponse {
         embeddings,
         model: wire.model.unwrap_or_else(|| fallback_model.to_string()),
@@ -126,6 +178,33 @@ pub fn parse_embedding_response(
             prompt_tokens: u.prompt_tokens.unwrap_or(0),
             completion_tokens: u.completion_tokens.unwrap_or(0),
             total_tokens: u.total_tokens.unwrap_or(0),
+        }),
+    })
+}
+
+/// Parses Ollama's native `/api/embed` response. The vectors come back in
+/// input order, so arity is the whole ordering contract. Pure, unit-tested.
+pub fn parse_ollama_embed_response(
+    fallback_model: &str,
+    body: &serde_json::Value,
+) -> Result<EmbeddingResponse, CompletionError> {
+    let wire: OllamaEmbedWire =
+        serde_json::from_value(body.clone()).map_err(|error| CompletionError::Backend {
+            reason: format!("malformed ollama embed response: {error}"),
+        })?;
+    if wire.embeddings.is_empty() {
+        return Err(CompletionError::Backend {
+            reason: "embeddings response carried no vectors".to_string(),
+        });
+    }
+    check_embedding_width(&wire.embeddings)?;
+    Ok(EmbeddingResponse {
+        embeddings: wire.embeddings,
+        model: wire.model.unwrap_or_else(|| fallback_model.to_string()),
+        usage: wire.prompt_eval_count.map(|count| CompletionUsage {
+            prompt_tokens: count,
+            completion_tokens: 0,
+            total_tokens: count,
         }),
     })
 }
@@ -155,23 +234,43 @@ impl CompletionProvider for OpenAiEmbeddings {
                 usage: None,
             });
         }
-        let url = format!("{}/embeddings", self.base_url.trim_end_matches('/'));
-        // Providers with Matryoshka truncation (OpenAI text-embedding-3)
-        // get the explicit target width; others must return it natively.
-        let mut body = serde_json::json!({
-            "model": req.model.as_deref().unwrap_or(&self.model),
-            "input": req.inputs,
-            "encoding_format": "float",
-        });
-        if self.send_dimensions {
-            body["dimensions"] = serde_json::json!(core_domain::SEARCH_EMBEDDING_DIM);
-        }
+        let model = req.model.as_deref().unwrap_or(&self.model);
+        let (url, body) = match self.transport {
+            EmbedTransport::OpenAiCompatible => {
+                // Providers with Matryoshka truncation (OpenAI
+                // text-embedding-3) get the explicit target width; others
+                // must return it natively.
+                let mut body = serde_json::json!({
+                    "model": model,
+                    "input": req.inputs,
+                    "encoding_format": "float",
+                });
+                if self.send_dimensions {
+                    body["dimensions"] = serde_json::json!(SEARCH_EMBEDDING_DIM);
+                }
+                (
+                    format!("{}/embeddings", self.base_url.trim_end_matches('/')),
+                    body,
+                )
+            }
+            EmbedTransport::Ollama => (
+                format!("{}/api/embed", self.native_base()),
+                serde_json::json!({
+                    "model": model,
+                    "input": req.inputs,
+                    // The model loads on this request and is dropped again
+                    // after this much quiet. The window is the difference
+                    // between a resident model and a warm one.
+                    "keep_alive": self.keep_alive,
+                }),
+            ),
+        };
         let mut request = self.http.post(url).json(&body);
         if let Some(key) = &self.api_key {
             request = request.bearer_auth(key);
         }
         let response = request
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(self.timeout)
             .send()
             .await
             .map_err(|error| CompletionError::Backend {
@@ -195,7 +294,10 @@ impl CompletionProvider for OpenAiEmbeddings {
                 .map_err(|error| CompletionError::Backend {
                     reason: format!("embeddings response was not JSON: {error}"),
                 })?;
-        parse_embedding_response(self.model_name(), &body)
+        match self.transport {
+            EmbedTransport::OpenAiCompatible => parse_embedding_response(self.model_name(), &body),
+            EmbedTransport::Ollama => parse_ollama_embed_response(self.model_name(), &body),
+        }
     }
 }
 
@@ -237,30 +339,37 @@ impl CompletionProvider for OrgCompletionProvider {
 /// BYOK store. Every failure mode — none mode, unsupported embeddings
 /// provider, missing or undecryptable key — degrades to none mode with a
 /// warning, never an error: the vector leg stays dark, search keeps working.
+///
+/// An org that configured nothing gets the bundled local embedder rather than
+/// a dark vector leg. That is the default the product ships: EmbeddingGemma 2
+/// on the `ollama` runtime, loaded on demand. `ai.features_enabled` still
+/// gates whether any AI edge runs at all, so this does not turn AI on for an
+/// org that left it off.
 pub async fn resolve_org_completion_provider(
     state: &AppState,
     org_id: Uuid,
 ) -> OrgCompletionProvider {
-    let Ok((provider_name, model_setting, secret)) = read_provider_config(state, org_id).await
+    let Ok((provider_setting, model_setting, secret)) = read_provider_config(state, org_id).await
     else {
         return OrgCompletionProvider::None(NoneCompletionProvider);
     };
-    if provider_name_is_none(&provider_name) {
-        return OrgCompletionProvider::None(NoneCompletionProvider);
-    }
-    let (base_url, default_model, send_dimensions) = match provider_name.as_str() {
+    let config = resolve_embedding_config(provider_setting.as_deref(), model_setting.as_deref());
+    let (base_url, default_model, send_dimensions, transport) = match config.provider.as_str() {
         "openai" => (
             std::env::var("OPENAI_BASE_URL").unwrap_or_else(|_| OPENAI_BASE_URL.to_string()),
-            OPENAI_DEFAULT_MODEL,
+            OPENAI_DEFAULT_MODEL.to_string(),
             true,
+            EmbedTransport::OpenAiCompatible,
         ),
         "ollama" => (
             std::env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| OLLAMA_DEFAULT_BASE.to_string()),
-            OLLAMA_DEFAULT_MODEL,
+            bundled_embedding_model(),
             false,
+            EmbedTransport::Ollama,
         ),
-        // anthropic has no embeddings API; "custom" has no base-URL setting
-        // yet — both stay none mode rather than guess an endpoint.
+        // "none" is the documented off switch. anthropic has no embeddings
+        // API and "custom" has no base-URL setting yet, so both stay none
+        // mode rather than guess an endpoint.
         _ => return OrgCompletionProvider::None(NoneCompletionProvider),
     };
     let api_key = match &secret {
@@ -273,32 +382,69 @@ pub async fn resolve_org_completion_provider(
         },
         None => None,
     };
-    let model = if model_setting_is_none(&model_setting) {
-        default_model.to_string()
-    } else {
-        model_setting
-    };
+    let local = transport == EmbedTransport::Ollama;
     OrgCompletionProvider::Embeddings(OpenAiEmbeddings {
         http: reqwest::Client::new(),
         base_url,
         api_key,
-        model,
+        model: config.model.unwrap_or(default_model),
         send_dimensions,
+        transport,
+        keep_alive: embedding_keep_alive(),
+        timeout: std::time::Duration::from_secs(if local {
+            LOCAL_EMBED_TIMEOUT_SECS
+        } else {
+            CLOUD_EMBED_TIMEOUT_SECS
+        }),
     })
 }
 
-fn provider_name_is_none(value: &str) -> bool {
-    value.trim().is_empty() || value == "none"
+/// The model an install runs when no org names one. `MARULA_EMBEDDING_MODEL`
+/// is the instance-level lever; the catalogue lane owns the selection surface
+/// that replaces it.
+fn bundled_embedding_model() -> String {
+    std::env::var("MARULA_EMBEDDING_MODEL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| BUNDLED_EMBEDDING_MODEL.to_string())
 }
 
-fn model_setting_is_none(value: &str) -> bool {
-    value.trim().is_empty() || value == "none"
+/// How long the local model stays resident after its last request.
+/// `MARULA_EMBEDDING_KEEP_ALIVE` takes Ollama's duration syntax (`30s`,
+/// `5m`, `0` to unload immediately after every batch).
+fn embedding_keep_alive() -> String {
+    std::env::var("MARULA_EMBEDDING_KEEP_ALIVE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| LOCAL_EMBED_KEEP_ALIVE.to_string())
 }
 
+/// What the settings surface should report: the provider and model that would
+/// actually serve the vector leg, not the raw override. Without this the card
+/// shows "none (none)" while the bundled embedder is the thing running.
+pub fn effective_embedding_labels(
+    provider_setting: Option<&str>,
+    model_setting: Option<&str>,
+) -> (String, String) {
+    let config = resolve_embedding_config(provider_setting, model_setting);
+    let model = match config.provider.as_str() {
+        "openai" => config
+            .model
+            .unwrap_or_else(|| OPENAI_DEFAULT_MODEL.to_string()),
+        "ollama" => config.model.unwrap_or_else(bundled_embedding_model),
+        _ => return ("none".to_string(), "none".to_string()),
+    };
+    (config.provider, model)
+}
+
+/// Reads the org's raw provider and model settings. `None` means the org
+/// never set the key, which is different from setting it to "none".
 async fn read_provider_config(
     state: &AppState,
     org_id: Uuid,
-) -> core_db::DbResult<(String, String, Option<Vec<u8>>)> {
+) -> core_db::DbResult<(Option<String>, Option<String>, Option<Vec<u8>>)> {
     let mut tx = state.pool.begin().await?;
     core_db::set_org(&mut tx, org_id).await?;
     let overrides = core_db::settings::list_org_overrides(&mut *tx, org_id).await?;
@@ -306,15 +452,18 @@ async fn read_provider_config(
         .iter()
         .find(|o| o.key == core_domain::settings::AI_COMPLETION_PROVIDER)
         .and_then(|o| o.value.as_str())
-        .unwrap_or("none")
-        .to_ascii_lowercase();
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
     let model = overrides
         .iter()
         .find(|o| o.key == core_domain::settings::AI_COMPLETION_MODEL)
         .and_then(|o| o.value.as_str())
-        .unwrap_or("none")
-        .to_string();
-    let secret = core_db::byok::get_secret(&mut *tx, org_id, &provider).await?;
+        .map(str::to_string);
+    // The sealed key is looked up for the provider that will actually run:
+    // an unconfigured org looks up the bundled provider and finds nothing,
+    // which is correct — the local runtime needs no credential.
+    let secret_provider = resolve_embedding_config(provider.as_deref(), model.as_deref()).provider;
+    let secret = core_db::byok::get_secret(&mut *tx, org_id, &secret_provider).await?;
     tx.commit().await?;
     Ok((provider, model, secret))
 }
@@ -577,5 +726,117 @@ mod tests {
     #[test]
     fn embed_text_joins_title_and_body() {
         assert_eq!(search_embed_text("Mail relay", "down"), "Mail relay\ndown");
+    }
+
+    #[test]
+    fn bundled_default_is_an_embeddinggemma_model() {
+        // The bundled default has to produce exactly the pinned width, or the
+        // first search it serves would write vectors nothing can compare to.
+        assert_eq!(core_domain::SEARCH_EMBEDDING_DIM, 768);
+        assert!(
+            BUNDLED_EMBEDDING_MODEL.starts_with("embeddinggemma-2:"),
+            "bundled default moved off EmbeddingGemma 2: {BUNDLED_EMBEDDING_MODEL}"
+        );
+        assert!(
+            BUNDLED_EMBEDDING_MODEL.contains("-text"),
+            "the default should be the text-only variant, which is the cheaper \
+             resident set for the same text vectors: {BUNDLED_EMBEDDING_MODEL}"
+        );
+    }
+
+    #[test]
+    fn unset_settings_report_the_bundled_local_default() {
+        let (provider, model) = effective_embedding_labels(None, None);
+        assert_eq!(
+            provider,
+            core_domain::completion::BUNDLED_EMBEDDING_PROVIDER
+        );
+        assert_eq!(model, BUNDLED_EMBEDDING_MODEL);
+    }
+
+    #[test]
+    fn explicit_none_stays_off() {
+        assert_eq!(
+            effective_embedding_labels(Some("none"), None),
+            ("none".to_string(), "none".to_string())
+        );
+    }
+
+    #[test]
+    fn cloud_override_is_reported_as_chosen() {
+        let (provider, model) = effective_embedding_labels(Some("openai"), None);
+        assert_eq!(provider, "openai");
+        assert_eq!(model, OPENAI_DEFAULT_MODEL);
+        let (provider, model) =
+            effective_embedding_labels(Some("openai"), Some("text-embedding-3-large"));
+        assert_eq!(provider, "openai");
+        assert_eq!(model, "text-embedding-3-large");
+    }
+
+    #[test]
+    fn a_provider_without_an_embeddings_api_reports_none() {
+        assert_eq!(
+            effective_embedding_labels(Some("anthropic"), Some("claude")),
+            ("none".to_string(), "none".to_string())
+        );
+    }
+
+    #[test]
+    fn ollama_base_url_serves_both_wire_shapes() {
+        // One setting, two shapes: the native endpoint strips the OpenAI
+        // compatibility suffix, and a bare host is left alone.
+        let with_suffix = OpenAiEmbeddings {
+            http: reqwest::Client::new(),
+            base_url: "http://localhost:11434/v1".to_string(),
+            api_key: None,
+            model: BUNDLED_EMBEDDING_MODEL.to_string(),
+            send_dimensions: false,
+            transport: EmbedTransport::Ollama,
+            keep_alive: LOCAL_EMBED_KEEP_ALIVE.to_string(),
+            timeout: std::time::Duration::from_secs(LOCAL_EMBED_TIMEOUT_SECS),
+        };
+        assert_eq!(with_suffix.native_base(), "http://localhost:11434");
+        let bare = OpenAiEmbeddings {
+            base_url: "http://ollama:11434".to_string(),
+            ..with_suffix
+        };
+        assert_eq!(bare.native_base(), "http://ollama:11434");
+    }
+
+    #[test]
+    fn parse_reads_ollama_native_embeddings_in_input_order() {
+        let body = json!({
+            "model": BUNDLED_EMBEDDING_MODEL,
+            "embeddings": [vector(1.0), vector(2.0)],
+            "prompt_eval_count": 11
+        });
+        let parsed = parse_ollama_embed_response("fallback", &body).expect("parse");
+        assert_eq!(parsed.model, BUNDLED_EMBEDDING_MODEL);
+        assert_eq!(parsed.embeddings.len(), 2);
+        assert_eq!(parsed.embeddings[1][0], 2.0);
+        assert_eq!(parsed.usage.expect("usage").prompt_tokens, 11);
+    }
+
+    #[test]
+    fn parse_refuses_wrong_width_ollama_vectors() {
+        let body = json!({
+            "model": "matryoshka-truncated",
+            "embeddings": [vec![0.5_f32; 512]]
+        });
+        match parse_ollama_embed_response("fallback", &body) {
+            Err(CompletionError::InvalidRequest { reason }) => {
+                assert!(
+                    reason.contains("768"),
+                    "error must name the width: {reason}"
+                );
+            }
+            other => panic!("expected InvalidRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_refuses_an_empty_ollama_payload() {
+        assert!(parse_ollama_embed_response("f", &json!({ "embeddings": [] })).is_err());
+        assert!(parse_ollama_embed_response("f", &json!({ "embeddings": "nope" })).is_err());
     }
 }

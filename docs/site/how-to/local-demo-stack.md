@@ -69,17 +69,18 @@ scripts/demo-up.sh --ai
 ```
 
 Ollama comes up on 127.0.0.1:11434, loopback only. The shipped compose
-file publishes nothing, on purpose. Pull the two models that match the
-two contracts, then point the AI settings at `http://127.0.0.1:11434`:
+file publishes nothing, on purpose. Pull the transcription model that
+matches its contract, then point the AI settings at `http://127.0.0.1:11434`:
 
 ```sh
 docker compose -f deploy/docker-compose.yml --profile ai exec ollama ollama pull whisper
-docker compose -f deploy/docker-compose.yml --profile ai exec ollama ollama pull nomic-embed-text
 ```
 
-The pulls are a few gigabytes, so the script prints the commands instead
-of running them. The first inference after a pull is slow while the model
-loads, and every call after that is fast.
+Embeddings need no pull: the profile's one-shot `ollama-model` job fetches
+EmbeddingGemma 2, the bundled default. The transcription pull is a few
+gigabytes, so the script prints the command instead of running it. The first
+inference after a pull is slow while the model loads, and every call after
+that is fast.
 
 ## Reset and stop
 
