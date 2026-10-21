@@ -291,6 +291,22 @@ pub async fn run_delivery_loop(
                     Ok(_) => {}
                     Err(error) => tracing::error!(%error, "delivery cycle failed"),
                 }
+                // Retry of an earlier failed slot (Wave 52 lane R4). Same
+                // cycle, same pooled reporting connection and same resolved
+                // transport: handing this to the reconcile loop would mean a
+                // second copy of both. A failure here never stops the claim
+                // sweep above, so a broken retry cannot cost a new slot.
+                match retry_due(&pool, &reporting, transport.as_ref(), &transport_kind, &config, now).await {
+                    Ok(report) if report.retried > 0 || report.failed > 0 => tracing::info!(
+                        pending = report.pending,
+                        retried = report.retried,
+                        exhausted = report.exhausted,
+                        failed = report.failed,
+                        "report delivery retry pass"
+                    ),
+                    Ok(_) => {}
+                    Err(error) => tracing::error!(%error, "report delivery retry pass failed"),
+                }
             }
         }
     }
@@ -542,6 +558,348 @@ async fn run_one(
     );
 }
 
+// --- retry of a failed slot (Wave 52 lane R4) -------------------------------------
+//
+// Why this exists: claiming and advancing are one transaction, so a slot is
+// claimed exactly once and a failed one is never claimed again. The ledger
+// recorded the failure and nothing read it — at-most-once by construction, with
+// the ledger row the only trace of a report a recipient never got.
+//
+// The repair appends rather than rewrites: `report_deliveries` is append-only
+// and `record_delivery`'s own doc says a retry of the same slot appends a new
+// row. That keeps the history honest (the failure and the recovery are both in
+// it, which is what the delivery-history dialog shows) and removes the need for
+// a status the ledger never had.
+//
+// The budget and the delay come from `Subsystem::Email`: a report goes out over
+// the same provider as every other message, so the same policy answers "how long
+// before the next try" and "when do we stop". Nothing here re-invents a backoff.
+
+/// When the next attempt for a failed slot is due, or `None` when its budget is
+/// spent.
+///
+/// `attempts` is how many ledger rows exist for the slot, so the first retry is
+/// attempt 2 and takes the policy's delay for attempt 1.
+#[must_use]
+pub fn retry_due_at(
+    policy: &core_domain::retry::RetryPolicy,
+    attempts: i64,
+    recorded_at: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    let made = u32::try_from(attempts).unwrap_or(u32::MAX);
+    if policy.exhausted(made) {
+        return None;
+    }
+    let delay = policy.delay(made.max(1), 1.0);
+    Some(recorded_at + Duration::from_std(delay).unwrap_or_else(|_| Duration::zero()))
+}
+
+/// What one retry pass did. The first two fields are the gauges' values.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RetryReport {
+    /// Slots attempted this pass (`marula.reconcile.report_retry_pending`).
+    pub pending: u64,
+    /// Slots whose newest row is a failure with no attempts left
+    /// (`marula.reconcile.report_retry_exhausted`).
+    pub exhausted: u64,
+    /// Slots whose retry delivered to every previously failed recipient.
+    pub retried: u64,
+    /// Slots whose retry did not finish (render or transport failure).
+    pub failed: u64,
+}
+
+/// Re-attempts the failed report slots whose retry delay has elapsed.
+///
+/// Deliberately addressed: the retry mails only the recipients the failed row
+/// names, so a `partial` slot never re-sends to the people who already have it.
+/// The slot window is unchanged (`render_slot` takes the ledger's `slot_at`), so
+/// a retry is the same report over the same period, re-read from the same
+/// views — not a second report.
+pub async fn retry_due(
+    pool: &PgPool,
+    reporting: &PgPool,
+    transport: &dyn core_mail::MailTransport,
+    transport_kind: &TransportKind,
+    config: &DeliveryLoopConfig,
+    now: DateTime<Utc>,
+) -> anyhow::Result<RetryReport> {
+    let policy = core_domain::retry::policy(core_domain::retry::Subsystem::Email);
+    let base = Duration::from_std(policy.delay(1, 1.0)).unwrap_or_else(|_| Duration::zero());
+    let base_secs = base.num_seconds().max(0) as f64;
+
+    let mut report = RetryReport::default();
+    // The exhausted count is a whole-set read, not a batch slice: the operator
+    // number is "how many slots are dead", which does not depend on how many
+    // this pass can attempt.
+    report.exhausted = u64::try_from(
+        core_db::reconcile::exhausted_report_retries(pool, i64::from(policy.max_attempts_i32(1)))
+            .await?,
+    )
+    .unwrap_or(0);
+
+    let due = config.claim_batch.max(1);
+    let candidates = core_db::reconcile::due_report_retries(pool, base_secs, due).await?;
+    for candidate in candidates {
+        let Some(next_due) = retry_due_at(&policy, candidate.attempts, candidate.recorded_at)
+        else {
+            continue;
+        };
+        if next_due > now {
+            // Inside its backoff: not due yet. Waiting here rather than in SQL
+            // keeps one policy decision in one place.
+            continue;
+        }
+        report.pending += 1;
+        match retry_one(
+            pool,
+            reporting,
+            transport,
+            transport_kind,
+            config,
+            &candidate,
+        )
+        .await
+        {
+            RetryOutcome::Delivered => report.retried += 1,
+            RetryOutcome::StillFailing => {}
+            // `pending` is the work FOUND (it is recorded before the attempt),
+            // so it is not discounted by an outcome: a slot the pass could not
+            // retry is still a slot that needed one, and the gauge has to keep
+            // saying so until a later pass fixes it.
+            RetryOutcome::Skipped => {}
+            RetryOutcome::Error => report.failed += 1,
+        }
+    }
+    core_otel::metrics::reconcile_report_retry(report.pending, report.exhausted);
+    Ok(report)
+}
+
+/// The three ways one retry attempt can end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryOutcome {
+    Delivered,
+    StillFailing,
+    /// Nothing to do: the schedule or its definition vanished.
+    Skipped,
+    /// The attempt could not run (database or render failure).
+    Error,
+}
+
+/// One slot's retry: re-render, mail only the previously failed recipients, and
+/// append the outcome.
+async fn retry_one(
+    pool: &PgPool,
+    reporting: &PgPool,
+    transport: &dyn core_mail::MailTransport,
+    transport_kind: &TransportKind,
+    config: &DeliveryLoopConfig,
+    slot: &core_db::reconcile::DueRetry,
+) -> RetryOutcome {
+    let mut conn = match pool.acquire().await {
+        Ok(conn) => conn,
+        Err(error) => {
+            tracing::error!(%error, schedule_id = %slot.schedule_id, "retry: pool acquire failed");
+            return RetryOutcome::Error;
+        }
+    };
+    let row = match core_db::report_schedules::get(&mut *conn, slot.org_id, slot.schedule_id).await
+    {
+        Ok(row) => row,
+        Err(core_db::DbError::NotFound) => return RetryOutcome::Skipped,
+        Err(error) => {
+            tracing::error!(%error, schedule_id = %slot.schedule_id, "retry: schedule read failed");
+            return RetryOutcome::Error;
+        }
+    };
+    drop(conn);
+
+    let recipients = failed_recipients(&slot.detail);
+    if recipients.is_empty() {
+        // A `failed` row with no named recipient cannot exist past `run_one`
+        // (that path records `delivered`), so this is a hand-edited row. Say so
+        // and stop rather than guessing at the whole recipient list.
+        tracing::warn!(
+            schedule_id = %slot.schedule_id,
+            slot = %slot.slot_at,
+            "retry: failed slot names no recipient; not retrying"
+        );
+        return RetryOutcome::Skipped;
+    }
+
+    // A deployment that lost its mail provider records the attempt as skipped,
+    // exactly like a first attempt in none mode: the slot stays visible, the
+    // attempts budget is not burned on a transport that cannot send.
+    if matches!(transport_kind, TransportKind::None) {
+        record(
+            pool,
+            core_db::report_schedules::DeliveryRecord {
+                id: Uuid::now_v7(),
+                org_id: slot.org_id,
+                schedule_id: slot.schedule_id,
+                slot_at: slot.slot_at,
+                status: "skipped".into(),
+                detail: serde_json::json!({ "reason": "transport_none", "retry": true }),
+            },
+        )
+        .await;
+        return RetryOutcome::Skipped;
+    }
+
+    let csv = match render_slot(pool, reporting, &row, slot.slot_at).await {
+        Ok(csv) => csv,
+        Err(error) => {
+            tracing::error!(schedule = %row.name, %error, "retry: render failed");
+            record(
+                pool,
+                core_db::report_schedules::DeliveryRecord {
+                    id: Uuid::now_v7(),
+                    org_id: slot.org_id,
+                    schedule_id: slot.schedule_id,
+                    slot_at: slot.slot_at,
+                    status: "failed".into(),
+                    detail: serde_json::json!({
+                        "retry": true,
+                        "error": error.to_string(),
+                        "failed": recipients
+                            .iter()
+                            .map(|id| serde_json::json!({ "user_id": id, "error": error.to_string() }))
+                            .collect::<Vec<_>>(),
+                    }),
+                },
+            )
+            .await;
+            return RetryOutcome::Error;
+        }
+    };
+
+    let mut delivered = 0_u32;
+    let mut disabled = 0_u32;
+    let mut quiet_deferred = 0_u32;
+    let mut failures: Vec<serde_json::Value> = Vec::new();
+    for user_id in &recipients {
+        let Some(plan) = plan_recipient(
+            pool,
+            slot.org_id,
+            *user_id,
+            NotificationKind::ReportDelivery,
+            slot.slot_at,
+        )
+        .await
+        else {
+            failures.push(
+                serde_json::json!({ "user_id": user_id, "error": "recipient not resolvable" }),
+            );
+            continue;
+        };
+        match plan.decision {
+            Decision::Disabled => disabled += 1,
+            Decision::QuietDeferred => quiet_deferred += 1,
+            Decision::Deliver => {
+                let message = OutboundEmail {
+                    from_address: config.from_address.clone(),
+                    from_name: config.from_name.clone(),
+                    reply_to: None,
+                    to_addresses: vec![plan.user.email.clone()],
+                    subject: format!("Scheduled report: {}", row.name),
+                    body_text: csv.clone(),
+                    // The FAILED row's id, not a fresh one: a retry of one
+                    // message carries one Message-ID, so a client that already
+                    // holds a copy (the send succeeded and the report was lost)
+                    // threads it instead of showing a duplicate.
+                    rfc_message_id: format!("<report-{}-{user_id}@marula.local>", slot.row_id),
+                    in_reply_to: None,
+                    references: vec![],
+                };
+                match transport.send(&message).await {
+                    Ok(_) => delivered += 1,
+                    Err(error) => {
+                        tracing::warn!(
+                            schedule = %row.name,
+                            user = %user_id,
+                            %error,
+                            "retry: transport refused message"
+                        );
+                        failures.push(
+                            serde_json::json!({ "user_id": user_id, "error": error.to_string() }),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    let status = if failures.is_empty() {
+        "delivered"
+    } else if delivered > 0 {
+        "partial"
+    } else {
+        "failed"
+    };
+    record(
+        pool,
+        core_db::report_schedules::DeliveryRecord {
+            id: Uuid::now_v7(),
+            org_id: slot.org_id,
+            schedule_id: slot.schedule_id,
+            slot_at: slot.slot_at,
+            status: status.into(),
+            detail: serde_json::json!({
+                "retry": true,
+                "delivered": delivered,
+                "disabled": disabled,
+                "quiet_deferred": quiet_deferred,
+                "failed": failures,
+            }),
+        },
+    )
+    .await;
+    // The schedule's visible error tracks the LATEST attempt: a retry that
+    // delivered clears it, one that failed replaces it. `last_run_at` keeps the
+    // instant the schedule itself last fired — moving it back to the retried
+    // slot would rewrite when the schedule last ran.
+    let last_error = (!failures.is_empty()).then(|| {
+        failures
+            .first()
+            .and_then(|f| f.get("error").and_then(|e| e.as_str()))
+            .unwrap_or("retry failed")
+            .to_string()
+    });
+    // `set_retry_outcome`, not `set_outcome`: a retry is not a run, and moving
+    // `last_run_at` onto the retried slot would claim the schedule fired then.
+    set_retry_outcome(pool, slot.org_id, slot.schedule_id, last_error.as_deref()).await;
+
+    if failures.is_empty() {
+        tracing::info!(
+            schedule = %row.name,
+            slot = %slot.slot_at,
+            recipients = delivered,
+            "retry: report slot recovered"
+        );
+        RetryOutcome::Delivered
+    } else {
+        RetryOutcome::StillFailing
+    }
+}
+
+/// The recipients a failed ledger row names, in the order they were recorded.
+///
+/// The detail shape is `run_one`'s: `failed: [{user_id, error}]`. Anything else
+/// is a row this code did not write, and an unparseable element is skipped
+/// rather than turned into a wildcard send.
+fn failed_recipients(detail: &serde_json::Value) -> Vec<Uuid> {
+    detail
+        .get("failed")
+        .and_then(|f| f.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("user_id").and_then(|id| id.as_str()))
+                .filter_map(|id| Uuid::parse_str(id).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Renders one slot's CSV: load the referenced definition, revalidate the
 /// stored spec through the registry (fail closed on drift), apply the
 /// window, execute on the reporting pool.
@@ -579,6 +937,20 @@ async fn record(pool: &PgPool, rec: core_db::report_schedules::DeliveryRecord) {
     }
 }
 
+/// The retry's cosmetic write: the error moves, `last_run_at` does not.
+/// Best effort, like every other ledger-adjacent write here.
+async fn set_retry_outcome(pool: &PgPool, org_id: Uuid, schedule_id: Uuid, error: Option<&str>) {
+    let result = async {
+        let mut conn = pool.acquire().await?;
+        core_db::report_schedules::set_retry_outcome(&mut conn, org_id, schedule_id, error).await?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::error!(%schedule_id, %e, "retry outcome write failed");
+    }
+}
+
 /// Last-run cosmetics; same best-effort contract as `record`.
 async fn set_outcome(
     pool: &PgPool,
@@ -597,5 +969,81 @@ async fn set_outcome(
     .await;
     if let Err(e) = result {
         tracing::error!(schedule_id = %schedule_id, %e, "run outcome write failed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_domain::retry::Subsystem;
+
+    fn email_policy() -> core_domain::retry::RetryPolicy {
+        core_domain::retry::policy(Subsystem::Email)
+    }
+
+    /// The deliberate failure at the heart of the retry: a slot inside its
+    /// backoff must NOT be retried. Without this the pass would re-mail a
+    /// provider that is rate limiting on every delivery tick, which is the
+    /// storm the retry matrix exists to prevent.
+    #[test]
+    fn a_slot_inside_its_backoff_is_not_due_yet() {
+        let recorded = Utc::now();
+        let next = retry_due_at(&email_policy(), 1, recorded).expect("one retry left");
+        assert!(
+            next > recorded,
+            "the first retry must wait for the policy's delay, not fire immediately"
+        );
+        assert!(
+            next > Utc::now(),
+            "a freshly failed slot is not due in the same tick"
+        );
+    }
+
+    #[test]
+    fn each_attempt_waits_longer_than_the_one_before_it() {
+        let recorded = Utc::now();
+        let first = retry_due_at(&email_policy(), 1, recorded).expect("due");
+        let second = retry_due_at(&email_policy(), 2, recorded).expect("due");
+        assert!(second > first, "the delay must grow with the attempt count");
+    }
+
+    /// The budget is the same one every other mail path uses; a slot that has
+    /// spent it is reported as exhausted and never attempted again.
+    #[test]
+    fn a_slot_past_the_policy_budget_is_never_due_again() {
+        let attempts = i64::from(email_policy().max_attempts_i32(1));
+        assert_eq!(retry_due_at(&email_policy(), attempts, Utc::now()), None);
+    }
+
+    /// The addressee list is the whole safety property: a retry mails the
+    /// recipients the failed row named, and a row that names none retries
+    /// nobody rather than falling back to "everyone".
+    #[test]
+    fn only_the_named_failures_are_retried() {
+        let detail = serde_json::json!({
+            "delivered": 2,
+            "failed": [
+                { "user_id": "00000000-0000-0000-0000-000000000001", "error": "550" },
+                { "user_id": "00000000-0000-0000-0000-000000000002", "error": "timeout" },
+                { "user_id": "not-a-uuid", "error": "malformed" }
+            ]
+        });
+        let recipients = failed_recipients(&detail);
+        assert_eq!(
+            recipients.len(),
+            2,
+            "the unparseable id is skipped, not a wildcard"
+        );
+        assert_eq!(
+            recipients[0],
+            Uuid::parse_str("00000000-0000-0000-0000-000000000001").expect("uuid")
+        );
+    }
+
+    #[test]
+    fn a_row_with_no_named_fallback_retries_nobody() {
+        assert!(failed_recipients(&serde_json::json!({ "delivered": 0 })).is_empty());
+        assert!(failed_recipients(&serde_json::json!({ "failed": [] })).is_empty());
+        assert!(failed_recipients(&serde_json::json!(null)).is_empty());
     }
 }

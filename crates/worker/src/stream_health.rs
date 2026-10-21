@@ -148,6 +148,168 @@ pub async fn read_group(conn: &mut MultiplexedConnection, group: &str) -> Option
     ))
 }
 
+// ---------------------------------------------------------------------------
+// The whole-stream view (Wave 52 lane R4 `p52-reconciliation-jobs`)
+// ---------------------------------------------------------------------------
+//
+// Why this exists beside `read_group`: that probe answers "how is MY group
+// doing" and runs inside that group's own consumer loop, so a group whose
+// consumer is not running produces no sample at all — the one stall an operator
+// most needs to see. This pair answers "how does every group on the stream
+// stand", from outside any consumer, so a stopped consumer's backlog is still
+// visible and a group nobody in this build knows about cannot hide.
+//
+// The second thing it adds is the floor. Redis reports `lag = null` once a
+// group's position has fallen behind entries that were trimmed away, and
+// `read_group` reports that as absence — which is correct for a lag gauge and
+// wrong for the question "did this group lose events". So the floor comparison
+// is explicit: a position older than the stream's first surviving entry means
+// entries that group never processed are gone, and no backfill of the stream can
+// restore them. That is the number `reconcile::search_index_backfill` exists to
+// answer for the index.
+
+/// How far one group is from the stream's bounds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupGap {
+    /// The group name.
+    pub group: String,
+    /// Entries after the group's position that are still in the stream. The
+    /// server's own count when it states one, otherwise a bounded `XRANGE`
+    /// count of the surviving tail (so a trimmed stream still yields a number
+    /// rather than silence).
+    pub gap_entries: u64,
+    /// True when the group's position is behind the stream's first surviving
+    /// entry: it never processed entries that have since been trimmed away.
+    /// Those are unrecoverable from the stream — only a rebuild repairs them.
+    pub lost: bool,
+}
+
+/// The ceiling on a fallback `XRANGE` count.
+///
+/// A gap larger than this is reported as this number. A gauge that says "at
+/// least a thousand behind" is honest; one that walks a million entries to say
+/// "a million" is an outage of its own. Chosen to be an order of magnitude above
+/// any lag worth alerting on.
+pub const GAP_COUNT_CAP: u64 = 1_000;
+
+/// The id Valkey gives a group that has never been delivered anything.
+const NIL_GROUP_ID: &str = "0-0";
+
+/// The `(ms, seq)` pair a stream id encodes.
+fn id_parts(id: &str) -> Option<(u64, u64)> {
+    let (ms, seq) = id.split_once('-')?;
+    Some((ms.parse().ok()?, seq.parse().ok()?))
+}
+
+/// Whether `a` is strictly older than `b`.
+///
+/// Compared as the two integers the id encodes, never as text: `10-0` sorts
+/// before `9-0` as a string, and a lexicographic comparison here would report a
+/// group as caught up exactly when it is far behind. An unparseable id returns
+/// `false` — an unknown position is not evidence of loss.
+fn id_is_older(a: &str, b: &str) -> bool {
+    match (id_parts(a), id_parts(b)) {
+        (Some(a), Some(b)) => a < b,
+        _ => false,
+    }
+}
+
+/// The gap arithmetic, split from the round trips so the two bugs that matter —
+/// "a trimmed tail reads as caught up" and "a never-read group reads as lost" —
+/// are pinned by tests that need no server.
+///
+/// `lag` is what `XINFO GROUPS` stated. `surviving_after` is the caller's
+/// `XRANGE` count, only consulted when the server declined to compute a lag.
+#[must_use]
+pub fn classify(
+    lag: Option<u64>,
+    last_delivered_id: &str,
+    first_entry_id: Option<&str>,
+    surviving_after: u64,
+) -> (u64, bool) {
+    // A group that has never been delivered anything is behind the floor by
+    // construction — it was created at 0 and has not read yet. That is lag, not
+    // loss, and calling it loss would page someone about a group that is about
+    // to work.
+    let lost = lag.is_none()
+        && last_delivered_id != NIL_GROUP_ID
+        && first_entry_id.is_some_and(|first| id_is_older(last_delivered_id, first));
+    let gap = lag.unwrap_or(surviving_after);
+    (gap.min(GAP_COUNT_CAP), lost)
+}
+
+/// Every group on the stream, measured against the stream's bounds.
+///
+/// One `XINFO STREAM` and one `XINFO GROUPS` per call, plus an `XRANGE` per
+/// group whose lag the server cannot compute. `None` when the stream cannot be
+/// read at all — the absence rule `read_group` already follows: a probe that
+/// cannot reach Valkey emits nothing rather than a fabricated zero.
+pub async fn read_gaps(conn: &mut MultiplexedConnection) -> Option<Vec<GroupGap>> {
+    let stream: redis::streams::StreamInfoStreamReply = match conn.xinfo_stream(EVENT_STREAM).await
+    {
+        Ok(reply) => reply,
+        Err(error) => {
+            tracing::debug!(%error, "consumer gap: xinfo stream failed");
+            return None;
+        }
+    };
+    let first_entry = (!stream.first_entry.id.is_empty()).then_some(stream.first_entry.id.as_str());
+
+    let groups: redis::streams::StreamInfoGroupsReply = match conn.xinfo_groups(EVENT_STREAM).await
+    {
+        Ok(reply) => reply,
+        Err(error) => {
+            tracing::debug!(%error, "consumer gap: xinfo groups failed");
+            return None;
+        }
+    };
+
+    let mut gaps = Vec::with_capacity(groups.groups.len());
+    for info in groups.groups {
+        let lag = info.lag.map(|l| l as u64);
+        // Only pay for the count when the server withheld one: the common case
+        // is a server that states its lag.
+        let surviving_after = if lag.is_some() {
+            0
+        } else {
+            match conn
+                .xrange_count::<&str, String, &str, u64, redis::streams::StreamRangeReply>(
+                    EVENT_STREAM,
+                    format!("({}", info.last_delivered_id),
+                    "+",
+                    GAP_COUNT_CAP + 1,
+                )
+                .await
+            {
+                Ok(reply) => reply.ids.len() as u64,
+                // A malformed exclusive start (a group id that is not an id)
+                // would fail the whole probe; the group then reports no gap
+                // rather than a guessed one.
+                Err(error) => {
+                    tracing::debug!(%error, group = %info.name, "consumer gap: xrange failed");
+                    0
+                }
+            }
+        };
+        let (gap_entries, lost) =
+            classify(lag, &info.last_delivered_id, first_entry, surviving_after);
+        gaps.push(GroupGap {
+            group: info.name,
+            gap_entries,
+            lost,
+        });
+    }
+    gaps.sort_by(|a, b| a.group.cmp(&b.group));
+    Some(gaps)
+}
+
+/// Emits one group's gap and loss flag. Zero is a true reading here — a group
+/// with nothing undelivered is caught up — which is why the series is emitted
+/// unconditionally per group rather than only when non-zero.
+pub fn emit_gap(gap: &GroupGap) {
+    core_otel::metrics::consumer_gap(&gap.group, gap.gap_entries, gap.lost);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +363,61 @@ mod tests {
     fn unknown_server_lag_stays_absent_instead_of_becoming_zero() {
         let sample = sample_from(0, None, None, 1_700_000_000_000);
         assert_eq!(sample.lag, None);
+    }
+
+    // --- the whole-stream gap view (Wave 52 lane R4) ----------------------
+
+    #[test]
+    fn a_server_stated_lag_is_used_as_is_and_costs_no_extra_read() {
+        // No XRANGE count was taken, so the surviving count is 0; the stated lag
+        // wins anyway.
+        assert_eq!(classify(Some(42), "100-0", Some("50-0"), 0), (42, false));
+    }
+
+    /// The defect this pass exists for: Redis withholds `lag` once the group's
+    /// position is under the stream floor, and the probe that reports absence
+    /// leaves the worst case invisible.
+    #[test]
+    fn a_position_under_the_floor_is_flagged_lost_and_still_counts_its_gap() {
+        // Group last delivered 10-0; the stream now starts at 50-0, so entries
+        // 11..49 were trimmed before the group ever saw them.
+        assert_eq!(
+            classify(None, "10-0", Some("50-0"), 7),
+            (7, true),
+            "the surviving tail is the gap and the flag says the rest is gone"
+        );
+    }
+
+    /// A group created at 0 (a test fixture, or an operator's `XGROUP CREATE …
+    /// 0`) is behind the floor by construction but has lost nothing: it simply
+    /// has not read yet.
+    #[test]
+    fn a_never_delivered_group_is_behind_the_floor_without_having_lost_anything() {
+        assert_eq!(classify(None, "0-0", Some("50-0"), 12), (12, false));
+    }
+
+    /// Ids compare as the integers they encode, not as text: as strings `10-0`
+    /// sorts before `9-0`, which would report a group that is thousands of
+    /// entries behind as caught up.
+    #[test]
+    fn ids_compare_by_their_encoded_milliseconds_not_lexicographically() {
+        assert!(id_is_older("9-0", "10-0"));
+        assert!(!id_is_older("10-0", "9-0"));
+        assert!(id_is_older("10-0", "10-1"), "the sequence breaks the tie");
+        assert!(!id_is_older("10-0", "10-0"));
+    }
+
+    #[test]
+    fn an_unparseable_position_is_not_evidence_of_loss() {
+        assert_eq!(classify(None, "garbage", Some("50-0"), 3), (3, false));
+        assert_eq!(classify(None, "10-0", None, 3), (3, false));
+    }
+
+    #[test]
+    fn a_huge_fallback_count_is_reported_at_the_cap_rather_than_walked() {
+        assert_eq!(
+            classify(None, "10-0", Some("50-0"), 10_000),
+            (GAP_COUNT_CAP, true)
+        );
     }
 }

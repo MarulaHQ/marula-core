@@ -196,6 +196,11 @@ pub struct WorkerConfig {
     /// resolution point so the boot log can name the windows this process will
     /// enforce instead of an operator having to read nine modules.
     pub data_retention: crate::data_retention_sweep::DataRetentionConfig,
+    /// The reconciliation loop (Wave 52 lane R4): the cadence, the batch and
+    /// the two bounds (replay deaths, wake grace). One resolution point so the
+    /// boot log can name what this process will repair instead of an operator
+    /// reading five modules.
+    pub reconcile: crate::reconcile::ReconcileConfig,
     /// The object-store integrity pass (Wave 52 lane R6). Off unless
     /// `MARULA_OBJECT_GC` says otherwise: a pass that deletes bytes should
     /// never be something an operator discovers they enabled.
@@ -489,6 +494,7 @@ impl WorkerConfig {
             data_retention: crate::data_retention_sweep::DataRetentionConfig::from_lookup(|key| {
                 lookup(key)
             }),
+            reconcile: crate::reconcile::ReconcileConfig::from_lookup(|key| lookup(key)),
             object_gc: crate::object_gc_sweep::ObjectGcConfig::from_lookup(|key| lookup(key)),
             object_store: core_store::StoreChoice::from_lookup(|key| lookup(key)),
             outbox_retention: crate::outbox_retention_sweep::OutboxRetentionConfig::from_values(
