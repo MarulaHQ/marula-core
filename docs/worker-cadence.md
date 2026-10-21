@@ -25,6 +25,7 @@ profile a small install can adopt.
 | event-outbox retention | sweep | 6h | `OUTBOX_SWEEP_SECS` |
 | retention matrix (nine tables + partition upkeep) | sweep | 1h | `MARULA_RETENTION_SWEEP_SECS` |
 | object integrity (`MARULA_OBJECT_GC`, off by default) | sweep | 1h | `MARULA_OBJECT_GC_SECS` |
+| reconciliation (index backfill, dead-entry replay, parked-run reap, consumer gaps) | sweep | 15m | `MARULA_RECONCILE_SECS`, `MARULA_RECONCILE_BATCH` |
 
 Two things hold for every loop. It paces on the host clock, and the decisions
 themselves read `now()` from Postgres, so a longer interval changes the latency
@@ -59,7 +60,7 @@ The loops fall into two groups that scale differently.
 | `WORKER_ROLES` | Runs |
 |---|---|
 | `realtime` | the outbox relay and the stream/queue consumers: webhooks, automations, notifier, search, workflow, CSAT, project billing, decision triage, the job queue, and outbound email |
-| `housekeeping` | the sweeps: SLA, PM schedules, rotation, dedupe, missing-time nudges, scheduled reports, usage refresh, digest, the workflow-run retention pass, the event-outbox retention pass, the retention matrix (with its partition upkeep) and the object integrity pass |
+| `housekeeping` | the sweeps: SLA, PM schedules, rotation, dedupe, missing-time nudges, scheduled reports, usage refresh, digest, the workflow-run retention pass, the event-outbox retention pass, the retention matrix (with its partition upkeep), the object integrity pass and the reconciliation loop |
 | `all` (default) | both groups in one process |
 
 Every replica can run `realtime`: the relay claims outbox rows inside one

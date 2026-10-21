@@ -744,6 +744,40 @@ fn params() -> Vec<Param> {
             false,
             "Object-integrity pass interval.",
         ),
+        // reconciliation (index backfill, dead-entry replay, parked-run reap,
+        // consumer gaps; docs/worker-cadence.md)
+        param(
+            "MARULA_RECONCILE_SECS",
+            "lifecycle",
+            Integer,
+            Some("900"),
+            false,
+            "Reconciliation pass interval: the four repairs nothing re-attempts on its own.",
+        ),
+        param(
+            "MARULA_RECONCILE_BATCH",
+            "lifecycle",
+            Integer,
+            Some("200"),
+            false,
+            "Rows each reconciliation pass may repair.",
+        ),
+        param(
+            "MARULA_RECONCILE_MAX_REPLAYS",
+            "lifecycle",
+            Integer,
+            Some("3"),
+            false,
+            "Deaths allowed per (group, event) before a dead entry stops being replayed.",
+        ),
+        param(
+            "MARULA_RECONCILE_WAKE_GRACE_SECS",
+            "lifecycle",
+            Integer,
+            None,
+            false,
+            "How far past its deadline a parked run's wake job must be dead before the run is abandoned. Unset derives it from the queue retry policy.",
+        ),
         // observability
         param(
             "OTEL_EXPORTER_OTLP_ENDPOINT",
