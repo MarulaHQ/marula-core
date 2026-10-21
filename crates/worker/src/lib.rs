@@ -28,6 +28,7 @@
 
 pub mod automations;
 pub mod backup_health;
+pub mod capacity_watch;
 pub mod config;
 pub mod consumer;
 pub mod csat;

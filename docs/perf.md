@@ -219,6 +219,19 @@ control: this lane changed search only.
   can now be tried without building it — `hypopg` and the recipe are in
   [`docs/site/reference/db-observability.md`](site/reference/db-observability.md).
 
+  That trigger is instrumented now, so it fires on evidence instead of
+  recollection. `marula.db.page1_p95` carries the measured p95 against the
+  150ms budget and `marula.db.page1_sort_index_scan` carries the plan shape
+  as a boolean: 1 when the ORDER BY is served by an ordered index scan, 0
+  when the planner materializes the sort, which is the shape measured
+  above. Both come from the worker's `capacity_watch` sampler, which times
+  the harness's page-1 statement on the install's largest org and reads
+  its plan through `ops.explain_plan`. Two rules read them: the latency arm
+  fires at **100ms, exactly two thirds of the budget**, and the plan arm is
+  opt-in, because 0 is the baseline recorded above and is not a defect
+  until the index ships. See
+  `deploy/observability/runbooks/capacity-trigger.md`.
+
 ## 5. HTTP capacity decision (Wave 15 lane 3)
 
 The saturated closed-loop point is **concurrency 8** — 8 back-to-back
