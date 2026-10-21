@@ -21,14 +21,15 @@
 //! migration 0131 computes from recorded rows. Two facts a shared database
 //! cannot attribute per org are REPORTED AS UNAVAILABLE with the reason
 //! beside them rather than filled in with an estimate: API-call volume in
-//! the last 24h (requests ARE counted — as the OTLP metric
+//! the last 24h (requests ARE counted — as the OTLP metrics
 //! `marula.org.requests`, emitted at the auth boundary by
-//! `crate::otel_http::record_org` — but a metric series cannot be read back
-//! into this endpoint's recorded-row answer, so it is named here rather than
-//! estimated) and per-org database bytes (a shared table's pages belong to
-//! every org sharing them). The unavailable list is DATA, not an apology: a
-//! monitoring surface can render it, and a future lane can fill the gap
-//! honestly.
+//! `crate::otel_http::record_org`, and `marula.org.ingest_requests`, emitted by
+//! the machine ingest endpoints for the traffic a connector generates — but a
+//! metric series cannot be read back into this endpoint's recorded-row answer,
+//! so it is named here rather than estimated) and per-org database bytes (a
+//! shared table's pages belong to every org sharing them). The unavailable
+//! list is DATA, not an apology: a monitoring surface can render it, and a
+//! future lane can fill the gap honestly.
 //!
 //! AUTHORIZATION (the private build tracker A6 (D)):
 //!   * A human member reads their OWN org. The org id in the path must be
@@ -266,11 +267,13 @@ fn unavailable_metrics() -> Vec<UnavailableMetric> {
         UnavailableMetric {
             metric: "api_calls_last_24h".into(),
             reason: "this endpoint reports RECORDED rows, and per-org request volume \
-                     is not recorded in one: requests are counted as the OTLP metric \
-                     `marula.org.requests` (org_id × status class) at the auth \
-                     boundary, and metric series cannot be read back out of the \
-                     export pipeline into a query. Chart it from the metrics store \
-                     with increase(...[24h]); it is deliberately not estimated here"
+                     is not recorded in one: requests are counted as the OTLP metrics \
+                     `marula.org.requests` (org_id × status class, at the auth \
+                     boundary) and `marula.org.ingest_requests` (org_id × source, at \
+                     the machine ingest endpoints), and metric series cannot be read \
+                     back out of the export pipeline into a query. Chart them from the \
+                     metrics store with increase(...[24h]); they are deliberately not \
+                     estimated here"
                 .into(),
         },
         UnavailableMetric {
