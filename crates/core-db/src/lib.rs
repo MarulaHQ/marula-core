@@ -37,6 +37,7 @@ pub mod decision;
 // without it.
 pub mod costs;
 pub mod credit_notes;
+pub mod dead_work;
 pub mod demo;
 pub mod dispatch;
 pub mod document_attachments;

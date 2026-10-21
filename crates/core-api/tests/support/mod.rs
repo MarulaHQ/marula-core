@@ -510,6 +510,7 @@ impl MailHarness {
                                 provider_message_id: receipt.provider_message_id,
                                 error: None,
                                 retry_delay_secs: 0,
+                                permanent: false,
                             },
                             clock,
                         )
@@ -527,6 +528,7 @@ impl MailHarness {
                                 retry_delay_secs: backoff_delay(i64::from(claimed.attempts))
                                     .num_seconds()
                                     .max(1),
+                                permanent: e.permanent(),
                             },
                             clock,
                         )

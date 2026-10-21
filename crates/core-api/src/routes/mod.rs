@@ -64,6 +64,7 @@ pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
 pub mod day_pack;
+pub mod dead_work;
 pub mod decision_config;
 pub mod decision_edge;
 pub mod decision_suggestions;
@@ -941,6 +942,30 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/admin/quarantine/{sha256}/release"),
             post(quarantine_admin::release),
+        )
+        // Dead work (Wave 52 lane R3): one list over every ledger that can
+        // abandon a unit of work, plus the two decisions an operator can make
+        // about one row — requeue it or cancel it — and the resume verb for a
+        // webhook destination that repeated failures paused. Reads are
+        // Admin:View; every verb is Admin:Edit and audited. API-only on
+        // purpose: the wave's close-out lane wires the staff-facing page, and
+        // this lane's contract is that the verbs exist and are accountable.
+        .route(&rp("/admin/dead-work"), get(dead_work::list))
+        .route(
+            &rp("/admin/dead-work/destinations"),
+            get(dead_work::destinations),
+        )
+        .route(
+            &rp("/admin/dead-work/destinations/{id}/resume"),
+            post(dead_work::resume_destination),
+        )
+        .route(
+            &rp("/admin/dead-work/{source}/{id}/redrive"),
+            post(dead_work::redrive),
+        )
+        .route(
+            &rp("/admin/dead-work/{source}/{id}/cancel"),
+            post(dead_work::cancel),
         )
         // Customer sign-offs (Wave 43 track 2 lane 12, migration 0127):
         // one JSON route carries the whole capture (base64 PNG + signer

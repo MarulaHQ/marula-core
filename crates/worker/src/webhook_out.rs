@@ -21,6 +21,17 @@
 //! delivery jobs dead-letter with a loud reason — a documented fail-closed
 //! none mode, never plaintext anywhere in between.
 //!
+//! A destination that keeps failing stops being a destination: the counter on
+//! `webhooks` (migration 0144) pauses it once the webhook policy's own attempt
+//! budget is spent on consecutive failures, and the subscription is then not
+//! matched for new events, so the dead set stops growing while someone fixes
+//! the receiver. The pause does NOT gate this half. A job already in the queue
+//! when the pause lands still runs: suppressing it here would mean either
+//! marking a delivery done that never happened, or holding it until a resume
+//! of unknown date, and the queue's own retry/dead/redrive path is a better
+//! home for a known-scoped failure. Those jobs dead-letter as usual and are
+//! visible, and redrivable, on the dead-work surface.
+//!
 //! Non-purpose: no event semantics (everything not filtered by the
 //! subscription is delivered verbatim), no receiver-side logic, no direct
 //! writes to domain tables.
@@ -62,16 +73,19 @@ pub enum SinkResult {
 impl SinkResult {
     /// Whether this failure is permanent *for the webhook policy*.
     ///
-    /// 410 is the receiver saying "stop sending me this" — a permanent
-    /// unsubscribe, never retried. Every other status goes through the
-    /// webhook [`RetryPolicy`](core_domain::retry::RetryPolicy): a 429 (the
-    /// receiver is throttling us) or a 5xx retries, a 404 means the endpoint
-    /// the operator configured does not exist, and a 409 means the receiver
-    /// already has this event — a replay adds nothing.
+    /// One question, one answer: does the webhook
+    /// [`RetryPolicy`](core_domain::retry::RetryPolicy) retry this status? A
+    /// 429 (the receiver is throttling us) or a 5xx retries; a 404 means the
+    /// endpoint the operator configured does not exist; a 410 is the receiver
+    /// saying "stop sending me this"; a 409 means the receiver already has the
+    /// event. All three of the latter are permanent because
+    /// [`classify_http`](core_domain::retry::classify_http) calls them permanent
+    /// — there is deliberately no status list here, because a second list is a
+    /// second taxonomy to keep in step, and the one that drifts is always the
+    /// one furthest from the policy.
     #[must_use]
     pub fn is_permanent(&self) -> bool {
         match self {
-            Self::Rejected(410) => true,
             Self::Rejected(status) => {
                 !core_domain::retry::policy(core_domain::retry::Subsystem::Webhook)
                     .retries_status(*status)
