@@ -36,6 +36,8 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | [`worker-cadence.md`](worker-cadence.md) | Which worker loops exist, how often they run, what a small install can trim |
 | [`reference/data-lifecycle.md`](reference/data-lifecycle.md) | Retention windows per table and profile, object-store integrity, and what a tenant erasure means for each surface |
 | [`reference/rpo-rto.md`](reference/rpo-rto.md) | The recovery numbers each deploy profile actually delivers, how they were derived, and the drill that measures them |
+| [`reference/reliability-matrix.md`](reference/reliability-matrix.md) | What each subsystem guarantees, what it does not, how it fails, and which page shows it |
+| [`reference/reliability-levers.md`](reference/reliability-levers.md) | Every descriptor lever and the retry budget each preset resolves to (generated) |
 | [`perf.md`](perf.md) | Budgets, the measurement harness, the recorded baselines |
 | [`upgrade-compatibility-policy.md`](upgrade-compatibility-policy.md) | The N−2 support window and the expand-then-contract migration rule |
 | [`desktop-release.md`](desktop-release.md) | Desktop packaging, signing and the auto-update path |
@@ -58,6 +60,8 @@ upgrade and observability.
 | [`reference/workflow-node-catalogue.md`](reference/workflow-node-catalogue.md) | Every workflow node the builder offers |
 | [`reference/read-model.md`](reference/read-model.md) | The reporting view contract, with per-view pages in [`reference/read-model/`](reference/read-model/) |
 | [`reference/engineering-glossary.md`](reference/engineering-glossary.md) | Wave, lane, merge group, gate, honest gap — the shorthand in tracker rows and evidence directories |
+| [`reference/core-and-packs.md`](reference/core-and-packs.md) | Where the open core ends and a premium pack begins, and what enforces the line |
+| [`agents/README.md`](agents/README.md) | What an agent may reach, what it may never do, and [`agents/manifest.json`](agents/manifest.json) as the machine-readable index |
 | [`rn-groundwork.md`](rn-groundwork.md) | What the native app foundation shipped and what it reuses |
 | [`e2e-event-type-registry.md`](e2e-event-type-registry.md) | The event-type registry the webhook admin surface reads |
 | [`e2e-inbound-webhook-receiver.md`](e2e-inbound-webhook-receiver.md) | Signed inbound webhooks, and the deduplication rule behind the ingest event |
