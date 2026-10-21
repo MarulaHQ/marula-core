@@ -25,6 +25,19 @@ checkout with no committed `.trail/` wiring yet — never commit, symlink, or
 force-add it; if a lane ever sees either in `git status`, fail the check and
 re-ignore rather than committing the graph.
 
+## Repository boundary — this repo is the public product (BINDING, added 2026-10-21)
+
+`marula-core` is the public product repository: it is what users clone. Company material lives
+outside it, in a private repository, and **must never be added here** — not the build tracker, not
+lane evidence, not the security audit, not strategy or commercial documents, not per-agent configs.
+
+If something you expect is missing, it is not lost: it is in the private half. Ask the maintainer,
+or read the private repository's `WHERE-THINGS-LIVE.md`. Do not recreate it here to make a path
+resolve, and do not cite a private path from public prose — describe the thing instead.
+
+Treat the commit history as public too. Do not add comments, docs or evidence that reveal internal
+planning, customer data, credentials, or unfixed vulnerabilities.
+
 ## Lane isolation: worktrees, branches, pushes (BINDING, corrected 2026-10-18)
 
 Three rules, from user directive:
@@ -107,14 +120,15 @@ designed for ultimate UX and looks, not invented from scratch (user directive
   compliance — project tokens always win.
 - **Aesthetic reference (2026-09-30, user directive — repointed from the retired
   Workbench mockup):**
-  `internal/design/mockups/marula-app-mockup-images/` (the private sibling repo) is the canonical look-and-feel
-  reference. Open `source/marula-app-mockups.html` for the interactive mockup and
-  `DESIGN-NOTES.md` for the rules behind each state; `desktop/neutral/states/`
-  and `mobile/light/states/` hold the per-state PNGs, `manifest.json` indexes all
-  70. It sets the bar for layout, hierarchy, density and both modes — use it
-  alongside lazyweb research, which supplies pattern breadth. The pre-rebrand
-  `meridian-ticket-workbench-html-mockup-v2.html` stays in `internal/design/mockups/` as
-  history and is checked for geometry only.
+  the mockup pack `marula-app-mockup-images` is the canonical look-and-feel
+  reference. It is maintained privately and is **not part of this repository** —
+  ask the maintainer for the current pack. Inside it, `source/marula-app-mockups.html`
+  is the interactive mockup and `DESIGN-NOTES.md` carries the rules behind each
+  state; `desktop/neutral/states/` and `mobile/light/states/` hold the per-state
+  PNGs, `manifest.json` indexes all 70. It sets the bar for layout, hierarchy,
+  density and both modes — use it alongside lazyweb research, which supplies
+  pattern breadth. The pre-rebrand `meridian-ticket-workbench-html-mockup-v2.html`
+  is kept in the private archive as history and is checked for geometry only.
 - **Motion:** subtle, tasteful animation is encouraged — entrance/transition
   motion, staggered reveals, hover micro-feedback. Guardrails: transform/opacity
   only, ≤120ms, `prefers-reduced-motion` honored (`docs/theme.md` §5).
