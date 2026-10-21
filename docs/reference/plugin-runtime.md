@@ -27,4 +27,7 @@ mapped onto the existing permission matrix, and every lifecycle step audited. Th
 runtime wave adds execution around that contract, not a second contract.
 
 The boundary between the core plugin host and the commercial pack catalogue is
-described in the private repository's `docs/strategy/core-vs-premium.md`.
+deliberately not described here: the core ships the seam and the security model,
+and what a pack builds on top of it belongs to whoever builds the pack. The
+extension points a pack may rely on, point by point, are in
+[extension-points.md](extension-points.md).
