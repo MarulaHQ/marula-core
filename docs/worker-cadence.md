@@ -72,9 +72,14 @@ them out of its health decision, so a realtime-only replica is healthy without
 its eight sweeps.
 
 A one-box install that wants the sweeps off the worker entirely can run
-`WORKER_ROLES=realtime` and schedule the same passes from `pg_cron` with the
-cadence knobs above. Nothing in the sweeps needs to live in the worker process;
-it hosts them because something has to.
+`WORKER_ROLES=realtime` and drive the cadence from outside the process. The
+database-side half of that is already scheduled: where `pg_cron` is installed,
+migration 0145 runs `VACUUM (ANALYZE)` on the hot tables overnight (see
+[`docs/site/reference/db-observability.md`](site/reference/db-observability.md)).
+The sweeps themselves are Rust and have no SQL entry point, so `pg_cron` cannot
+run them — moving one out of the worker means giving it a callable function
+first. Nothing in the sweeps needs to live in the worker process; it hosts them
+because something has to.
 
 ## The event stream is bounded, and that is not a loop
 

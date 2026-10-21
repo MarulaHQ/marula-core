@@ -11,6 +11,7 @@
 | `Dockerfile.rust` / `Dockerfile.web` | The workspace images. `NEXT_PUBLIC_API_URL` is baked into the web bundle at build time. |
 | `edge/` | **The public front door.** A Caddy proxy that terminates TLS, the three TLS modes (Direct ACME, Cloudflare Origin CA, Cloudflare DNS-01), and the origin firewall helper. |
 | `preview/` | The per-PR preview environment: sizing overlay, publishing options, and the CI definition for it. |
+| `postgres/` | The opt-in Postgres image carrying `pg_cron` and `hypopg`, and the compose overlay that swaps it in. The database instrumentation itself (statement statistics, slow-plan logging) is in `docker-compose.yml`, because the stock image already has it. |
 | `helm/marula/` | The Helm chart, with the same routing and both TLS modes expressed through `ingress`. |
 | `backup/` | WAL-G point-in-time recovery and restic snapshots, plus the restore rehearsal. |
 | `observability/` | OTel collector, Tempo, Loki and the Grafana provisioning for the `observability` profile. |
