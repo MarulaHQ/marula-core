@@ -23,6 +23,8 @@ profile a small install can adopt.
 | daily digest | sweep | 900s | `DIGEST_POLL_SECS` |
 | run retention | sweep | 6h | `RETENTION_SWEEP_SECS` |
 | event-outbox retention | sweep | 6h | `OUTBOX_SWEEP_SECS` |
+| retention matrix (nine tables + partition upkeep) | sweep | 1h | `MARULA_RETENTION_SWEEP_SECS` |
+| object integrity (`MARULA_OBJECT_GC`, off by default) | sweep | 1h | `MARULA_OBJECT_GC_SECS` |
 
 Two things hold for every loop. It paces on the host clock, and the decisions
 themselves read `now()` from Postgres, so a longer interval changes the latency
@@ -57,7 +59,7 @@ The loops fall into two groups that scale differently.
 | `WORKER_ROLES` | Runs |
 |---|---|
 | `realtime` | the outbox relay and the stream/queue consumers: webhooks, automations, notifier, search, workflow, CSAT, project billing, decision triage, the job queue, and outbound email |
-| `housekeeping` | the sweeps: SLA, PM schedules, rotation, dedupe, missing-time nudges, scheduled reports, usage refresh, digest, the workflow-run retention pass, the event-outbox retention pass |
+| `housekeeping` | the sweeps: SLA, PM schedules, rotation, dedupe, missing-time nudges, scheduled reports, usage refresh, digest, the workflow-run retention pass, the event-outbox retention pass, the retention matrix (with its partition upkeep) and the object integrity pass |
 | `all` (default) | both groups in one process |
 
 Every replica can run `realtime`: the relay claims outbox rows inside one
@@ -69,7 +71,7 @@ included.
 
 `/healthz` reports the loops a process does not own as `disabled` and leaves
 them out of its health decision, so a realtime-only replica is healthy without
-its eight sweeps.
+its sweeps.
 
 A one-box install that wants the sweeps off the worker entirely can run
 `WORKER_ROLES=realtime` and drive the cadence from outside the process. The
@@ -108,11 +110,11 @@ as the unit of work. A handler that fails leaves its entry in the group's
 pending list and the process retries it after a delay from the retry policy
 (`Subsystem::Consumer`: 250 ms doubling to a 10 s cap). The attempt count, the
 last error and the next attempt time live in `consumer_deliveries`, one row per
-group and entry. When the entry runs out of attempts — the queue's budget, so a
-unit of work gets the same number of tries whether it is a job or a stream entry
-— it is written to `dead_events` with its event identity, the consumer that gave
-up, the last error and the raw payload, and it is acknowledged so it stops
-holding back the entries behind it.
+group and entry. When the entry runs out of attempts it is written to `dead_events` with its
+event identity, the consumer that gave up, the last error and the raw payload,
+and it is acknowledged so it stops holding back the entries behind it. The budget
+is the queue's own, so a unit of work gets the same number of tries whether it is
+a job or a stream entry.
 
 Two tables to watch, and both are empty on a healthy install because only
 failed entries are written to them:

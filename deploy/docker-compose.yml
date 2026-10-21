@@ -361,6 +361,14 @@ services:
       CLAMD_ADDR: ${CLAMD_ADDR:-clamav:3310}
     ports:
       - "8080:8080"
+    # The local object store is a VOLUME, not a directory in the container.
+    # The rootfs is read-only (see the header); before this volume existed the
+    # documented `OBJECT_STORE=local` mode could not persist a single upload, and
+    # every restart turned every attachment row into a reference to missing
+    # bytes. The worker mounts the same volume so the integrity pass
+    # (MARULA_OBJECT_GC) walks the bytes this process writes.
+    volumes:
+      - objectdata:/data/objects
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -414,6 +422,35 @@ services:
       # GlitchTip DSN presence for the self-host pane (Wave 36 lane 3);
       # the value itself is never printed by any surface.
       GLITCHTIP_DSN_WORKER: ${GLITCHTIP_DSN_WORKER:-}
+      # Backup age (lane R7a): the runner writes one epoch-second stamp after a
+      # pass with no failed layer, and this is the path it reads. It is mounted
+      # below; unset would mean the gauge is simply not emitted, which is why the
+      # stock profile now sets it instead of leaving the metric absent.
+      MARULA_BACKUP_STAMP_PATH: ${MARULA_BACKUP_STAMP_PATH:-/pgdumps/.last_success_epoch}
+      # Object-store integrity pass (lane R6): off unless set. `on` deletes
+      # orphaned bytes and marks rows whose bytes are gone; `dry_run` only
+      # reports. Enable it only where this container sees the same store
+      # core-api writes (the objectdata volume below, or the same S3 bucket).
+      MARULA_OBJECT_GC: ${MARULA_OBJECT_GC:-off}
+      MARULA_OBJECT_GC_GRACE_HOURS: ${MARULA_OBJECT_GC_GRACE_HOURS:-24}
+      OBJECT_STORE: ${OBJECT_STORE:-local}
+      OBJECT_STORE_LOCAL_DIR: ${OBJECT_STORE_LOCAL_DIR:-/data/objects}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://garage:3900}
+      S3_BUCKET: ${S3_BUCKET:-marula}
+      S3_REGION: ${S3_REGION:-garage}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
+      # Retention matrix (lane R6): `standard` ships; `compact` and `extended`
+      # move all nine windows at once. Per-table overrides exist
+      # (MARULA_RETENTION_<TABLE>_DAYS) and are clamped by a floor.
+      MARULA_RETENTION_PROFILE: ${MARULA_RETENTION_PROFILE:-standard}
+    volumes:
+      # Same objects core-api writes, so the integrity pass sees them. Read-write
+      # because reclaiming an orphan is a delete.
+      - objectdata:/data/objects
+      # The backup runner's stamp directory, read-only: the worker reads the
+      # file and never writes it.
+      - backupdumps:/pgdumps:ro
     ports:
       - "8082:8082"
     depends_on:
@@ -853,6 +890,14 @@ services:
       PGUSER: marula
       PGDATABASE: marula
       PGDUMPS_DIR: /pgdumps
+      BACKUP_SCRIPTS_DIR: /opt/backup
+      # Restore drill (lane R6): every seventh pass, restore the dump just
+      # written into a scratch database and assert it carries data. 0 turns it
+      # off; the ledger row it writes is the record either way.
+      DRILL_EVERY_DAYS: ${DRILL_EVERY_DAYS:-7}
+      # The local object store is part of the backup: rows without their bytes
+      # restore into a database whose attachments all 404. Mounted below.
+      BACKUP_SOURCES: ${BACKUP_SOURCES:-/data/objects /pgdumps}
       # When OBJECT_STORE is the local none-mode, snapshot that dir too:
       # extra hosts: core-api shares /data/objects — mount the named coreapi volume
       # when it exists, else leave BACKUP_SOURCES unset for PG-only backups.
@@ -863,10 +908,16 @@ services:
         required: false
     volumes:
       - backupdumps:/pgdumps
+      # Read-only: the runner snapshots the object store, it never writes it.
+      - objectdata:/data/objects:ro
     command: ["/bin/sh", "/opt/backup/backupd.sh"]
 
 volumes:
   pgdata:
+  # The local object store (OBJECT_STORE=local). Named so it survives a
+  # `down`, is snapshotted by the backup runner, and is visible to the worker's
+  # integrity pass — three things a directory inside the container cannot be.
+  objectdata:
   garagedata:
   garagemeta:
   clamavdata:

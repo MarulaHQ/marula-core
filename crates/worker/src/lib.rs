@@ -32,6 +32,7 @@ pub mod capacity_watch;
 pub mod config;
 pub mod consumer;
 pub mod csat;
+pub mod data_retention_sweep;
 pub mod decision;
 pub mod dedupe_sweep;
 pub mod delivery;
@@ -41,6 +42,7 @@ pub mod email;
 pub mod health;
 pub mod mail_config;
 pub mod notifier;
+pub mod object_gc_sweep;
 pub mod outbox_retention_sweep;
 pub mod pm_sweep;
 pub mod project_billing;
@@ -172,6 +174,39 @@ pub async fn run(
         relay_poll_ms = config.relay_poll_ms,
         "worker loop groups"
     );
+    // The retention matrix is the answer to "what does this instance keep", so
+    // it is read out once at boot rather than discovered by reading nine modules
+    // or waiting for the first delete. A refused override is a warning, not a
+    // silent adjustment.
+    for warning in &config.data_retention.plan.warnings {
+        tracing::warn!(%warning, "retention setting refused");
+    }
+    tracing::info!(
+        profile = config.data_retention.plan.profile.as_str(),
+        audit_events_days = config
+            .data_retention
+            .plan
+            .window("audit_events")
+            .map(|w| w.days),
+        attempt_log_days = config
+            .data_retention
+            .plan
+            .window("auth_attempt_log")
+            .map(|w| w.days),
+        interval_secs = config.data_retention.interval_secs,
+        "retention matrix resolved"
+    );
+    if config.object_gc.mode != object_gc_sweep::GcMode::Off {
+        for warning in &config.object_gc.warnings {
+            tracing::warn!(%warning, "object gc setting refused");
+        }
+        tracing::info!(
+            mode = ?config.object_gc.mode,
+            grace_hours = config.object_gc.grace.as_secs() / 3600,
+            store = ?config.object_store,
+            "object integrity pass configured"
+        );
+    }
 
     let relay_alive = Arc::new(AtomicBool::new(true));
     if config.roles.realtime() {
@@ -474,6 +509,12 @@ pub async fn run(
     // Event-outbox retention (Wave 52 lane P1): declared alongside, for the
     // same reason — /healthz reads it long after the spawn block closes.
     let outbox_alive = Arc::new(AtomicBool::new(true));
+    // The retention MATRIX (Wave 52 lane R6) — nine tables, two mechanisms —
+    // and the object-integrity pass that reclaims bytes. Separate flags from
+    // the run-ledger `retention_alive` above because they are separate loops: a
+    // single flag for three sweeps would hide which one died.
+    let matrix_alive = Arc::new(AtomicBool::new(true));
+    let object_gc_alive = Arc::new(AtomicBool::new(true));
     if config.roles.housekeeping() {
         let alive = Arc::clone(&rotation_alive);
         let rot_pool = pool.clone();
@@ -522,6 +563,43 @@ pub async fn run(
                 .await;
                 alive.store(false, Ordering::Relaxed);
                 tracing::error!("outbox retention sweep exited; reporting unhealthy");
+            });
+        }
+
+        // Retention matrix (Wave 52 lane R6): partition maintenance first (the
+        // only step whose failure refuses an INSERT), then one batched delete
+        // per windowed table. Housekeeping-only: the drops and deletes must not
+        // run on three replicas.
+        {
+            let alive = Arc::clone(&matrix_alive);
+            let matrix_pool = pool.clone();
+            let matrix_shutdown = shutdown.clone();
+            let retention = config.data_retention.clone();
+            tokio::spawn(async move {
+                data_retention_sweep::run_data_retention_sweep(
+                    matrix_pool,
+                    retention,
+                    matrix_shutdown,
+                )
+                .await;
+                alive.store(false, Ordering::Relaxed);
+                tracing::error!("data retention sweep exited; reporting unhealthy");
+            });
+        }
+
+        // Object-store integrity (Wave 52 lane R6): off unless
+        // `MARULA_OBJECT_GC` asks for it, because the pass deletes bytes and the
+        // worker host has to be looking at the same store core-api writes.
+        if config.object_gc.mode != object_gc_sweep::GcMode::Off {
+            let alive = Arc::clone(&object_gc_alive);
+            let gc_pool = pool.clone();
+            let gc_shutdown = shutdown.clone();
+            let gc_config = config.object_gc.clone();
+            let store = core_store::build(&config.object_store);
+            tokio::spawn(async move {
+                object_gc_sweep::run_object_gc(gc_pool, store, gc_config, gc_shutdown).await;
+                alive.store(false, Ordering::Relaxed);
+                tracing::error!("object integrity pass exited; reporting unhealthy");
             });
         }
 
@@ -617,11 +695,14 @@ pub async fn run(
         rotation_alive,
         retention_alive,
         outbox_alive,
+        matrix_alive,
+        object_gc_alive,
         usage_alive,
         workflow_alive,
         roles: config.roles,
         email_enabled: config.email.internal_token.is_some(),
         time_enabled: config.time.internal_token.is_some(),
+        object_gc_enabled: config.object_gc.mode != object_gc_sweep::GcMode::Off,
         // Readiness goes to 503 the moment the shared flag flips, before this
         // task has finished waiting on anything: a drain must stop NEW probes
         // succeeding first and only then spend the window.

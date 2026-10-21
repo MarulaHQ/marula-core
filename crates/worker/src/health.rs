@@ -59,6 +59,15 @@ pub struct HealthFlags {
     pub rotation_alive: Arc<AtomicBool>,
     pub retention_alive: Arc<AtomicBool>,
     pub outbox_alive: Arc<AtomicBool>,
+    /// The retention MATRIX's clock (lane R6): partition maintenance plus the
+    /// batched deletes over the nine windowed tables. Distinct from
+    /// `retention_alive` above, which is the workflow run ledger's sweep — two
+    /// windows, two loops, and one flag for both would hide which one died.
+    pub matrix_alive: Arc<AtomicBool>,
+    /// The object-store integrity pass (lane R6). Only started when
+    /// `MARULA_OBJECT_GC` is set, so a stock install reports it `disabled`
+    /// rather than dead.
+    pub object_gc_alive: Arc<AtomicBool>,
     pub usage_alive: Arc<AtomicBool>,
     pub workflow_alive: Arc<AtomicBool>,
     /// Which groups this process runs. A loop it does not own is reported as
@@ -72,6 +81,7 @@ pub struct HealthFlags {
     /// which is the stock profile.
     pub email_enabled: bool,
     pub time_enabled: bool,
+    pub object_gc_enabled: bool,
     /// The shared stop flag. `true` means the process is inside its shutdown
     /// window: readiness is off, liveness stays on.
     pub draining: watch::Receiver<bool>,
@@ -80,7 +90,7 @@ pub struct HealthFlags {
 impl HealthFlags {
     /// (name, alive, owned here, enabled by config) for every loop this struct
     /// tracks.
-    pub fn loops(&self) -> [(&'static str, bool, bool, bool); 14] {
+    pub fn loops(&self) -> [(&'static str, bool, bool, bool); 16] {
         let realtime = self.roles.realtime();
         let housekeeping = self.roles.housekeeping();
         [
@@ -167,6 +177,18 @@ impl HealthFlags {
                 self.time_alive.load(Ordering::Relaxed),
                 housekeeping,
                 self.time_enabled,
+            ),
+            (
+                "retention_matrix",
+                self.matrix_alive.load(Ordering::Relaxed),
+                housekeeping,
+                true,
+            ),
+            (
+                "object_gc",
+                self.object_gc_alive.load(Ordering::Relaxed),
+                housekeeping,
+                self.object_gc_enabled,
             ),
         ]
     }
@@ -299,11 +321,14 @@ mod tests {
             rotation_alive: dead(true),
             retention_alive: dead(true),
             outbox_alive: dead(true),
+            matrix_alive: dead(true),
+            object_gc_alive: dead(true),
             usage_alive: dead(true),
             workflow_alive: dead(true),
             roles,
             email_enabled: true,
             time_enabled: true,
+            object_gc_enabled: false,
             draining: watch::channel(false).1,
         }
     }

@@ -12,6 +12,7 @@ core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
 core-otel = { path = "../core-otel" }
 core-reports = { path = "../core-reports" }
+core-store = { path = "../core-store" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }

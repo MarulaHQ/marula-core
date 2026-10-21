@@ -34,6 +34,8 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | [`deploy-descriptor.md`](deploy-descriptor.md) | The machine-readable deploy surface and every runtime parameter |
 | [`capacity-model.md`](capacity-model.md) | How many agents one instance serves, from measurements |
 | [`worker-cadence.md`](worker-cadence.md) | Which worker loops exist, how often they run, what a small install can trim |
+| [`reference/data-lifecycle.md`](reference/data-lifecycle.md) | Retention windows per table and profile, object-store integrity, and what a tenant erasure means for each surface |
+| [`reference/rpo-rto.md`](reference/rpo-rto.md) | The recovery numbers each deploy profile actually delivers, how they were derived, and the drill that measures them |
 | [`perf.md`](perf.md) | Budgets, the measurement harness, the recorded baselines |
 | [`upgrade-compatibility-policy.md`](upgrade-compatibility-policy.md) | The N−2 support window and the expand-then-contract migration rule |
 | [`desktop-release.md`](desktop-release.md) | Desktop packaging, signing and the auto-update path |

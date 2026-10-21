@@ -9,8 +9,12 @@
 #      for every public table must match the dump's origin — a dump that
 #      loses rows in transit is not restorable cleanly. Override
 #      PGSOURCE_HOST/PGSOURCE_PORT when the source is a different server.
-# Drops the scratch DB when done. A backup that has never restored is not a
-# backup — rehearse this.
+#      Set RESTORE_PARITY=none to skip it: an automated drill restores a dump
+#      taken minutes ago against a live database, where exact counts are
+#      EXPECTED to differ and the comparison would fail every time.
+# Drops the scratch DB when done; RESTORE_KEEP=1 leaves it in place so a caller
+# (deploy/backup/drill.sh) can assert against the restored rows before dropping
+# it. A backup that has never restored is not a backup — rehearse this.
 set -eu
 DUMP="${1:?usage: restore.sh <path to .dump>}"
 [ -f "$DUMP" ] || { echo "no such dump: $DUMP" >&2; exit 1; }
@@ -52,9 +56,12 @@ log "  $TABLES tables in public schema"
 log "verify: RLS enforced on every public table"
 # Everything org-scoped carries RLS; four server-wide registry tables are
 # deliberately sans-RLS (no org_id column by design, see
-# 0076_plugin_v2.sql, 0095_wave19_supplychain_identity.sql). This allowlist
-# must match the migration suite exactly — count rows should not be edited.
-NO_RLS="plugin_catalog|plugin_versions|plugin_signing_keys|ai_decision_question_sets"
+# 0076_plugin_v2.sql, 0095_wave19_supplychain_identity.sql), and
+# `org_erasure_receipts` is a platform record whose tenant column is
+# `purged_org_id` — the org it names no longer exists (0146, see
+# docs/reference/data-lifecycle.md §3). This allowlist must match the migration
+# suite exactly — count rows should not be edited.
+NO_RLS="plugin_catalog|plugin_versions|plugin_signing_keys|ai_decision_question_sets|org_erasure_receipts"
 RLS_OFF=$(psql_scratch -tA -c \
   "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relrowsecurity = false
@@ -62,7 +69,7 @@ RLS_OFF=$(psql_scratch -tA -c \
 [ -z "${RLS_OFF:-}" ] || fail "public tables lack RLS: $RLS_OFF — restore is partial"
 log "  RLS on for all $TABLES public tables"
 
-if [ -n "${PGDATABASE:-}" ]; then
+if [ -n "${PGDATABASE:-}" ] && [ "${RESTORE_PARITY:-exact}" != "none" ]; then
   # Parity target: the DB the dump was taken from. Defaults to the same
   # server as the restore target; point PGSOURCE_HOST/PGSOURCE_PORT at the
   # live stack when rehearsing into a separate scratch server.
@@ -86,10 +93,16 @@ if [ -n "${PGDATABASE:-}" ]; then
   fi
   rm -f "$MISMATCHES"
   log "  row parity OK for all $TABLES tables"
+elif [ -n "${PGDATABASE:-}" ]; then
+  log "verify: round-trip skipped (RESTORE_PARITY=none — the caller asserts on the restored rows)"
 else
   log "verify: round-trip skipped (PGDATABASE not set — point it at the source stack to assert row parity)"
 fi
 
-log "drop scratch"
-psql -h "$PGHOST" -p "$PGPORT" -U marula -d postgres -c "DROP DATABASE $SCRATCH_DB;"
+if [ "${RESTORE_KEEP:-0}" = "1" ]; then
+  log "scratch kept ($SCRATCH_DB) — the caller drops it after its own assertions"
+else
+  log "drop scratch"
+  psql -h "$PGHOST" -p "$PGPORT" -U marula -d postgres -c "DROP DATABASE $SCRATCH_DB;"
+fi
 log "scratch restore OK — schema complete, RLS enforced, row parity holds"

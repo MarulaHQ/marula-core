@@ -47,6 +47,7 @@ pub mod document_links;
 pub mod documents;
 pub mod emails;
 pub mod entity_dedupe;
+pub mod erasure;
 pub mod event_types;
 pub mod export;
 pub mod federation;
@@ -65,6 +66,7 @@ pub mod mfa;
 pub mod node_registry;
 pub mod note_drafts;
 pub mod notifications;
+pub mod object_gc;
 pub mod oidc;
 pub mod onboarding;
 pub mod org_config;
@@ -75,6 +77,7 @@ pub mod org_usage;
 pub mod org_users;
 pub mod orgs;
 pub mod outbox;
+pub mod partitions;
 pub mod passwords;
 pub mod pipeline;
 pub mod plugin_distribution;
@@ -92,6 +95,7 @@ pub mod recurring;
 pub mod reply_snippets;
 pub mod report_defs;
 pub mod report_schedules;
+pub mod retention;
 pub mod roles;
 pub mod routing;
 pub mod scheduling;
@@ -324,6 +328,14 @@ pub async fn set_org_and_user(
 /// CI gate helper: every user-data table (has org_id, not an RLS-internal
 /// table) must carry at least one RLS policy. A migration adding a
 /// policy-less table fails this query.
+///
+/// `relkind` is `('r', 'p')` and not `'r'` alone: a PARTITIONED TABLE reports
+/// `'p'`, so converting a table to a partition (migration 0146 does this to
+/// `auth_attempt_log`) would otherwise walk it out of the one gate that checks
+/// it — the table would keep RLS only because someone remembered to re-enable
+/// it on the new parent. The child partitions are `'r'` and are checked too,
+/// which matters because a policy on the parent does not answer for a query
+/// that targets a child directly.
 pub async fn assert_rls_coverage(pool: &PgPool) -> DbResult<()> {
     let offenders: Vec<String> = sqlx::query_scalar(
         r#"
@@ -331,7 +343,7 @@ pub async fn assert_rls_coverage(pool: &PgPool) -> DbResult<()> {
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public'
-          AND c.relkind = 'r'
+          AND c.relkind IN ('r', 'p')
           AND EXISTS (
             SELECT 1 FROM information_schema.columns col
             WHERE col.table_schema = 'public'
