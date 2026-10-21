@@ -307,6 +307,12 @@ const API_KEY_PATHS: &[&str] = &[
     // (`/api/v1/rag`) gated by `rag:read` (`kb:view`) and `rag:write`
     // (`kb:edit`).
     "/api/rag",
+    // The audit trail (Wave 52 lane R12): a premium pack that exports or
+    // forwards the trail calls `GET /api/audit-events` with an
+    // `observability:read` key and the ascending `after` cursor. An allowance
+    // is not a grant — the handler's own gate still runs, and that gate is what
+    // refuses a key holding only matrix reads.
+    "/api/audit-events",
 ];
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
@@ -349,6 +355,13 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
         && !out.contains(&Permission::ViewOrgSuspension)
     {
         out.push(Permission::ViewOrgSuspension);
+    }
+    // Wave 52 lane R12: the observability reader. Read-only by construction —
+    // the audit trail is append-only and this grant reaches no other route.
+    if scopes.iter().any(|s| s.as_str() == "observability:read")
+        && !out.contains(&Permission::ViewObservability)
+    {
+        out.push(Permission::ViewObservability);
     }
     let mut push = |module: Module, actions: &[Action]| {
         for a in actions {
