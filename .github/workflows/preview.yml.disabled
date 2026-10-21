@@ -1,31 +1,34 @@
 name: Preview environment (per PR)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# USER-GATED. This file is a DEFINITION, not a gate.
+# STAYS DISABLED (`.disabled` suffix), by decision of Wave 52 lane
+# `p52-ci-gates-restore`. The reason, in one line: a preview needs an
+# environment this repository cannot create — a host, a wildcard DNS record,
+# TLS for it, and credentials to deploy with.
 #
-# The whole `.github/workflows/*.disabled` set is kept byte-current and
-# re-enabled by the user, never by a lane (committed posture f00cdb3,
-# re-affirmed by Wave 34 lane 6 and the Phase-4 checklist). This one is
-# listed in `docs/BUILD-PROMPT-VERDICTS.md` under the Stage-0
-# "Preview environment per PR" row, which is what this leg closes:
+# This file is a definition, not a gate. Its teardown and deploy steps fail
+# deliberately (`exit 1` with a message) rather than pretending: enabling the
+# suffix alone would produce a red check on every pull request, not a preview.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The detail behind that line, so nobody re-litigates it. This one is listed in
+# `docs/BUILD-PROMPT-VERDICTS.md` under the Stage-0 "Preview environment per PR"
+# row. The definition and the compose sizing are done
+# (`deploy/preview/compose.preview.yml`). What cannot be done from a repository
+# is the part that makes a preview environment exist:
 #
-#   The DEFINITION and the compose sizing are here and are done
-#   (deploy/preview/compose.preview.yml). What cannot be done from a
-#   repository is the part that actually makes a preview env exist:
+#   1. A host with a domain you control, and TLS for it. No workflow can
+#      provision those, and nothing in this file invents them.
+#   2. Deciding who may see a preview of an unreleased branch. That is an
+#      access-control decision about the product, not a CI default.
+#   3. Provisioning credentials for that host, and a place for the preview to
+#      live while the pull request is open.
 #
-#     1. Renaming this file to `preview.yml` — the user's checkbox, the
-#        same one as every other workflow in the disabled set.
-#     2. A host with a domain you control, and TLS for it. No workflow
-#        can provision those, and nothing in this file invents them.
-#     3. Deciding who may see a preview of an unreleased branch. That is
-#        an access-control decision about your product, not a CI default.
-#
-# Without 2 and 3 the job below will correctly fail at the readiness
-# gate rather than deploy a preview nothing can reach.
-#
-# What this file DOES establish, so the enable is a one-line change and
-# not a project: the whole boot sequence, the required secrets, the
-# teardown, the concurrency policy, and the PR-comment hand-off.
+# Without them the job below fails at the readiness gate by design, rather than
+# deploying a preview nothing can reach. What the file DOES establish, so the
+# enable is a one-line change and not a project: the boot sequence, the required
+# secrets, the teardown on close, the concurrency policy, and the PR-comment
+# hand-off.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:

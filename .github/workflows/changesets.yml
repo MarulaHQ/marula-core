@@ -5,6 +5,11 @@
 # TS packages ahead of the next tag. Publishing to a public registry is
 # deliberately disabled (privatePackages.version only) — packages are
 # consumed from the workspace today.
+#
+# Wave 52 lane `p52-ci-gates-restore` enabled this file. It is not a per-PR
+# gate: its whole job is to act on main, where the pending changesets are
+# consumed and the version PR is opened. It is cheap (an install plus one
+# changesets invocation), so it needs no schedule of its own.
 
 name: Changesets
 
@@ -15,6 +20,13 @@ on:
 concurrency:
   group: changesets-${{ github.ref }}
   cancel-in-progress: true
+
+# The default GITHUB_TOKEN is read-only in this repository's posture; the
+# action has to push a branch and open the version PR, so the capability is
+# declared here rather than inherited.
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   version:

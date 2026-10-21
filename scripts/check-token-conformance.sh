@@ -10,6 +10,13 @@
 #   - any file outside the ledger contains a raw colour at all.
 # Growing the ledger or its counts is a review-visible act, never a silent one.
 # When a file reaches zero it is removed from the ledger in the same PR.
+#
+# The pattern is a shape match, not a parser: it sees any `#` followed by three
+# or six hex-shaped characters, including inside a comment. Write a React error
+# number as `error 185`, not `error #185`, or the gate reports a colour that is
+# not there. (Two comments hit this in Wave 52; the numbers were reworded, not
+# the gate, because the same pattern has to catch `color: #fff` in a stylesheet
+# and no preamble tells the two apart.)
 
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"

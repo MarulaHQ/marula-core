@@ -135,5 +135,5 @@ the foundation's checks above.
 3. **Simulator and TestFlight legs.** The foundation host runs no Xcode, so
    simulator captures, Maestro runs, and TestFlight checklist items (real
    camera scan, push delivery, App Store review) are pending hardware or
-   runner access. The CI workflow in `.github/workflows/native.yml.disabled`
-   defines the macOS runner path.
+   runner access. The CI workflow in `.github/workflows/native.yml` defines
+   the macOS runner path and runs it nightly.

@@ -1,0 +1,278 @@
+name: CI
+
+# Per push and pull request — the set that decides whether a change may merge.
+#
+# Wave 52 lane `p52-ci-gates-restore` split the disabled workflow set in two.
+# This file is the merge-blocking half: the checks that are fast, deterministic
+# and machine-independent, so a red one is a defect in the change and not in the
+# runner. Everything that needs a long clock, a simulator, or a saturated load
+# loop moved to `nightly.yml`; the reasons per job live in `.github/workflows/README.md`.
+#
+# The rule for a job here: it runs in minutes, it fails the same way on a
+# developer's machine, and a person can act on the red without asking what the
+# machine was doing.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The boundary rules this repository is published under. If this job is red,
+  # the open core is not open.
+  boundary:
+    name: Boundary — no proprietary code, no entitlement checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the open/closed boundary
+        run: ./scripts/check-boundary.sh
+
+  rust:
+    name: Rust — fmt · clippy · test · sqlx offline cache
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector/pgvector:pg18 — the same major the compose files and
+        # scripts/e2e-stack.sh run (PostgreSQL 18, pgvector 0.8). core-db
+        # integration tests attach to THIS container through DATABASE_URL, so
+        # no Docker-in-Docker is needed on the runner.
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marula_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        # valkey/valkey:8-alpine — the tag scripts/e2e-stack.sh uses, so the
+        # service container and a local stack are the same image.
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # The sweep. Every test target in the workspace runs here, including the
+      # RLS-coverage assertion and the deprecation clock; the dedicated jobs
+      # below re-run three of them by name so one red does not hide the rest.
+      - run: cargo test --workspace
+      # Trap this step closes: a `query!` edit without `cargo sqlx prepare`
+      # passes a DB-online test run and then breaks every offline consumer
+      # (developer builds, the Docker image build). `prepare --check` compares
+      # the committed `.sqlx` metadata against what the macros generate from
+      # the real schema, and exits 1 when it is stale.
+      # SHA-pinned, the pin the retired `ga-gates.yml` already carried for this
+      # action. If the release has no prebuilt binary for the runner, the action
+      # falls back to `cargo install`; the step is slower, not different.
+      - name: Install sqlx-cli (for the offline-metadata check)
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: sqlx-cli@0.8.6
+      - name: sqlx offline metadata is current
+        run: |
+          cargo sqlx migrate run --source crates/core-db/migrations
+          cargo sqlx prepare --check --workspace -- --all-targets
+
+  frontend:
+    name: Web — lint · types · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run lint typecheck test
+
+  ui-gates:
+    name: UI ratchets — shared chrome · theme packs · evidence writes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No `pnpm install`: all three checkers are stdlib-only. The theme-pack
+      # checker imports `packages/ui/src/theme-tokens.ts` by path, which needs a
+      # Node that strips types — 24 here, while the build jobs stay on 22.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Feature CSS injected into the shared stylesheet layer, and pages that
+      # hand-roll their own <h1> block. Both ledgers may only SHRINK — a ratchet,
+      # not a one-off cleanup (Wave 41 lane `p41-ui-chrome`).
+      - name: Shared chrome boundary
+        run: node scripts/check-shared-chrome.mjs
+      # Every shipped theme preset's hexes against the docs/theme.md contrast
+      # floors, and the fixed-axis rule: a preset may move neutrals, chrome and
+      # the accent tint, never the brand semantics.
+      - name: Theme-pack drift
+        run: node scripts/check-theme-packs.mjs
+      # A capture must write its own lane's evidence directory. The incident
+      # behind it: a full Playwright sweep rewrote seven tracked files owned by
+      # three other lanes (Wave 47 lane `p47-lane-env-hygiene`).
+      - name: Evidence writes stay lane-local
+        run: node scripts/check-evidence-writes.mjs
+
+  token-conformance:
+    name: Token conformance — no colours outside the Marula token set
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The one-brand doctrine (design spec §4.5): Core's theme is derived from
+      # Marula's brand, so no component may define a colour — it imports the
+      # token. This is a shrink-only ratchet: the ledger inside the script
+      # records where raw hexes remain from before the token migration, any file
+      # outside it is a violation outright. Pure grep, nothing to install.
+      - run: ./scripts/check-token-conformance.sh
+
+  migrations:
+    name: Migration safety + customization cross-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No destructive change without --breaking, and no checksum drift.
+      - run: ./scripts/check-migrations.sh
+      # Policy §4.5 (folded in from the retired `ga-gates.yml`): a migration
+      # that modifies a construct referenced by customization rows must carry
+      # the in-transaction transform, declared with `-- customization-transform:`.
+      - name: Customization-aware migration cross-check (U9)
+        run: ./scripts/check-customization-crosscheck.sh
+
+  openapi-pins:
+    name: OpenAPI pin format (compact minified snapshots, byte-identical pair — DX12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-openapi-pins.sh
+
+  # Folded in from the retired `ga-gates.yml`. hadolint is a file lint: seconds,
+  # no network policy bundle, and a Dockerfile edited in a PR is exactly the
+  # thing that should fail in that PR. The trivy config scan over deploy/ stays
+  # nightly, because it downloads a policy bundle and a compose lint is not a
+  # merge blocker.
+  container-lint:
+    name: Dockerfiles — hadolint (p38 supply chain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `failure-threshold: error` matches what `release.yml` enforces on the
+      # same files, and keeps this job honest on day one: Dockerfile.backup
+      # carries three warnings (DL3018 twice, DL4006 once, apk pins and a pipe
+      # without `SHELL -o pipefail`), which print in the log and do not block.
+      # An error fails, as it does at release.
+      - name: Hadolint the Rust image
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: deploy/Dockerfile.rust
+          failure-threshold: error
+      - name: Hadolint the web image
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: deploy/Dockerfile.web
+          failure-threshold: error
+      - name: Hadolint the backup image
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: deploy/backup/Dockerfile.backup
+          failure-threshold: error
+
+  rls-pool-reads:
+    name: RLS pool-read gate (no new unscoped &state.pool reads in routes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Every tenant read must ride an org-bound tx (set_org_and_user);
+      # allowlisted pre-auth SECURITY DEFINER bridges and dev-tools surfaces are
+      # the only raw-pool reads. A new pool-read fails review here.
+      - run: ./scripts/check-rls-pool-reads.sh
+
+  rls-coverage:
+    name: RLS coverage (every user-data table has a policy)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector/pgvector:pg18 — prod parity. The gate runs the same
+        # assert_rls_coverage check core-api performs at boot, as a standalone
+        # test target: a migration that adds an org_id table without a policy
+        # fails here, independent of server start. The test also creates a
+        # policy-less probe table and expects the gate to flag it, so the
+        # assertion cannot pass by being vacuous.
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marula_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p core-db --test rls_coverage
+
+  rust-contract:
+    name: Rust contract — deprecation clock · API conformance · golden OpenAPI
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # api_versioning builds the real router and needs a database; the
+        # golden suites read the pinned fixture and need none, but share the job
+        # because they answer one question: does the pinned surface still match
+        # the code?
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marula_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Fails when deprecations.json carries a construct past its
+      # removal_target, or when a construct is gone before it (policy §8/U4).
+      # Gate plus self-tests, no database.
+      - name: Deprecation clock
+        run: cargo test -p core-events --test deprecation_clock
+      # Contract probes generated from the COMMITTED pin: every path+method in
+      # fixtures/openapi/v1/openapi.json is probed against the real router
+      # (auth posture, versioning parity, existence sentinels). Drift in either
+      # direction fails.
+      - name: API contract probes from the pinned OpenAPI
+        run: cargo test -q -p core-api --test api_versioning
+      # Two of the three golden layers: the spec derived from the compiled
+      # handlers equals the pin, and packages/sdk/openapi.json equals the pin.
+      # The third layer compares a RUNNING server's served spec and boots a
+      # database, an api and a 60-second readiness loop — that is the nightly
+      # `api-live-conformance` job, not this one.
+      - name: Golden OpenAPI conformance (derived + SDK snapshot vs pin)
+        run: cargo test -q -p marula-core-cli --test golden_openapi

@@ -14,7 +14,7 @@
 | Search deep pagination, keyset (`cursor`, depth 40k) | same primary budget — Wave 52 lane P5 | same smoke (the `search_keyset40k` mix) |
 | Search deep pagination, legacy `OFFSET 40000` | 400ms regression tripwire (not a product budget) | same smoke (the `search_deep_offset40k` mix) |
 | Deep pagination, legacy `OFFSET 40000` | 400ms regression tripwire (not a product budget) | same smoke. See the finding below |
-| HTTP capacity (saturated closed-loop) | p95 ≤ 150ms @ 50k, concurrency 8, keyset mix | `Nightly perf` job (`.github/workflows/nightly.yml.disabled`) via `perf-harness load --budget-ms` |
+| HTTP capacity (saturated closed-loop) | p95 ≤ 150ms @ 50k, concurrency 8, keyset mix | `Nightly perf` job (`.github/workflows/nightly.yml`) via `perf-harness load --budget-ms` |
 | Scale harness | 100k tickets/org, reproducible | `perf-harness seed/load` (nightly: measurement + 600ms tripwire, not gated) |
 
 The primary budget covers every standard list shape: unfiltered page 1,
@@ -285,13 +285,13 @@ order-of-magnitude tripwire (capacity observation, not budget).
 
 ## 6. CI contract
 
-- `perf-smoke` job runs `scripts/perf-smoke.sh` on every push/PR: seeds
+- `perf-smoke` job runs `scripts/perf-smoke.sh` on the night schedule: seeds
   50k, measures (page-1, priority, assignee, client, keyset deep-page,
   legacy offset mixes), asserts. The SQL gate covers every shape the
   budget covers — including the keyset deep page since the cursor
   shipped. The test is env-gated (`MARULA_PERF_SMOKE=1`) so the plain
   `cargo test --workspace` sweep skips it (fast sweeps).
-- `Nightly perf` (`.github/workflows/nightly.yml.disabled`, cron 05:30 UTC
+- `Nightly perf` (`.github/workflows/nightly.yml`, cron 05:30 UTC
   + workflow_dispatch): gates the saturated HTTP capacity point
   (`perf-harness load --concurrency 8 --budget-ms 150` @50k through the
   release-built core-api, connected as `marula_app` so RLS is in the
@@ -305,8 +305,9 @@ order-of-magnitude tripwire (capacity observation, not budget).
     `JWT_SECRET` / `MARULA_SECRET_KEY` that fail-closed core-api
     requires since Wave 19, and both inherited the superuser
     `DATABASE_URL` (RLS bypassed) instead of the app role.
-  - The `.disabled` suffix is USER-GATED: turning the schedule on is a
-    user decision, never a lane action.
+  - Wave 52 lane `p52-ci-gates-restore` enabled the schedule and moved
+    `perf-smoke` here from the per-push set: a p95 budget is a trend, and a
+    saturated load loop has no place in a merge gate.
 - Budget overrides are for local triage only: `PERF_SMOKE_BUDGET_MS` /
   `PERF_SMOKE_DEEP_PAGE_BUDGET_MS` (via `measure::assert_budget`
   constants). A CI failure is investigated, never shrugged off.

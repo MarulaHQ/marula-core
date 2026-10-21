@@ -10,9 +10,11 @@ name: Native (Expo / React Native)
 #     per-merge path by design: this job runs at lane close, nightly, and
 #     on manual dispatch only.
 #
-# NOTE: like every workflow in this repo, triggers are disabled at the file
-# level (see commit f00cdb3). Re-enable with `git mv` when CI minutes are
-# provisioned; the job graph below is complete.
+# Nightly on a schedule, plus manual dispatch. `native-checks` is the cheap
+# lane (typecheck, lint, unit tests, web export on ubuntu); `maestro-ios` keeps
+# macOS runner minutes off the per-merge path by design. The Wave 52 split put
+# the native set on the nightly side as a whole: a native regression is real,
+# but it is not the thing a web or backend change should wait for.
 
 on:
   workflow_dispatch: {}
