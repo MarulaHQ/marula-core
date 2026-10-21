@@ -137,10 +137,40 @@ coreApi:
     minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 70
+  # Lifecycle (lane R5). The window the process gives in-flight requests after
+  # SIGTERM; the chart passes it through as MARULA_SHUTDOWN_GRACE_SECS so the
+  # value an operator reads here is the value the binary obeys.
+  shutdownGraceSeconds: 20
+  # Must exceed preStopSleepSeconds + shutdownGraceSeconds, or the runtime
+  # kills the process mid-drain and the window is decorative.
+  terminationGracePeriodSeconds: 45
+  # Runs BEFORE the process gets SIGTERM: the Service stops routing new
+  # connections while requests already pointed at this pod still finish.
+  preStopSleepSeconds: 5
+  # Which question each probe asks (lane R5):
+  #   startup   — /livez, generous: boot runs migrations and opens two pools
+  #   liveness  — /livez, process-level only: a drain must not fail it
+  #   readiness — /readyz, database answered inside 2s and not draining
+  probes:
+    startup:
+      path: /livez
+      periodSeconds: 2
+      failureThreshold: 30
+    liveness:
+      path: /livez
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: /readyz
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 2
   extraEnv: []
 
 worker:
   replicaCount: 1
+  bindAddr: 0.0.0.0:8082
   relayBatch: 200
   # Pool ceilings (Wave 49 lane R1): pass MARULA_DB_POOL_MAX /
   # DELIVERY_POOL_MAX through extraEnv to move the worker's pools past the
@@ -162,6 +192,30 @@ worker:
     minReplicas: 1
     maxReplicas: 6
     targetCPUUtilizationPercentage: 75
+  # Lifecycle (lane R5). The worker owns no traffic, so its drain waits for the
+  # loops this process runs rather than for requests.
+  shutdownGraceSeconds: 20
+  terminationGracePeriodSeconds: 35
+  preStopSleepSeconds: 5
+  # The worker's three probes answer three different questions: liveness reads
+  # /healthz, which is 503 when an owned loop has died (a worker serving no
+  # traffic has no other restart signal), readiness reads /readyz, and startup
+  # reads /livez so a slow database does not trip liveness.
+  probes:
+    startup:
+      path: /livez
+      periodSeconds: 2
+      failureThreshold: 30
+    liveness:
+      path: /healthz
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: /readyz
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 2
   extraEnv: []
 
 web:
@@ -186,6 +240,26 @@ web:
     minReplicas: 1
     maxReplicas: 4
     targetCPUUtilizationPercentage: 70
+  # Next's own server: a stop closes it; give it the same shape as the API so
+  # all three workloads answer a rolling deploy the same way.
+  shutdownGraceSeconds: 20
+  terminationGracePeriodSeconds: 35
+  preStopSleepSeconds: 5
+  probes:
+    startup:
+      path: /
+      periodSeconds: 2
+      failureThreshold: 30
+    liveness:
+      path: /
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: /
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 2
   extraEnv: []
 
 # Email: `smtp` with the bundled Mailpit profile for evaluation, `none` or
@@ -297,9 +371,45 @@ ingress:
   # Annotations set here win.
   annotations: {}
 
+# ------------------------------------------------- disruption / network --
+# PodDisruptionBudgets (lane R5). `maxUnavailable: 1`, never `minAvailable`,
+# and that is the single-box decision: `minAvailable: 1` on a one-replica
+# install blocks every node drain forever — the pod can be ready or evicted,
+# not both. `maxUnavailable` lets a one-replica install be evicted (the brief
+# interruption a single replica already accepts on a restart) and keeps a
+# multi-replica install serving.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# Soft topology spread over nodes. `ScheduleAnyway`, not `DoNotSchedule`: a
+# single-node cluster must still schedule, and this is about not stacking every
+# replica on one node when there is a choice.
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+# NetworkPolicy is OPT-IN and ingress-only (lane R5). Turning it on makes this
+# chart the sole authority for who may reach the app pods, so a scraper, a
+# service mesh sidecar or a debug pod in another namespace stops working until
+# it is listed in `extraIngress`. Opt-in rather than default-on because that
+# failure is silent from the pod's side: requests simply never arrive.
+# Egress is left alone on purpose — the apps need DNS, the object store and
+# whatever mail relay the operator configured, and a wrong egress rule there
+# reads as an app hang, not a policy.
+networkPolicy:
+  enabled: false
+  # Namespace the ingress controller runs in; allowed to reach core-api and web
+  # when ingress.enabled.
+  ingressControllerNamespace: ingress-nginx
+  # Extra ingress rules, merged after the chart's own (same shape as a
+  # NetworkPolicy `ingress:` list item).
+  extraIngress: []
+
 podSecurityContext:
   runAsNonRoot: true
-
 # Per-deployable uid/gid matching the images (p38-container-hardening):
 # marula rust images run as the DHI debian-base `nonroot` user (65532),
 # web as 1000, postgres image inits as root (chown-based init — runAsUser 0

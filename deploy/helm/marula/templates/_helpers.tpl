@@ -89,3 +89,21 @@ redis://{{ include "marula.fullname" . }}-redis:6379/0
 {{- required "redis.externalUrl required when redis.deploy=false" .Values.redis.externalUrl -}}
 {{- end -}}
 {{- end -}}
+
+{{- /* One HTTP probe (lane R5). `.spec` is the values block for that probe
+(path + timings); `.port` is the container port derived from the component's
+own bind address, so a probe can never point at a port the process does not
+listen on. Omitted timings are left to the API server. */ -}}
+{{- define "marula.probe" -}}
+httpGet:
+  path: {{ .spec.path | quote }}
+  port: {{ .port }}
+{{- with omit .spec "path" }}
+{{ toYaml . | indent 0 }}
+{{- end }}
+{{- end -}}
+
+{{- /* Container port from a bind address: "0.0.0.0:8080" -> 8080. */ -}}
+{{- define "marula.portFromBind" -}}
+{{- . | regexFind ":\\d+$" | trimPrefix ":" -}}
+{{- end -}}

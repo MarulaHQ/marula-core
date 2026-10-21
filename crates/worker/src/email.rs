@@ -61,7 +61,14 @@ pub async fn run_email_loop(
         match cycle(&config, &client, resolver.as_ref()).await {
             Ok(0) => {
                 failed_cycles = 0;
-                tokio::time::sleep(idle).await;
+                // Interruptible idle (lane R5): a plain `sleep` here made an
+                // idle loop ignore the stop flag for a whole poll interval, so
+                // a drained process waited out its window and reported this
+                // loop as cut while it was asleep.
+                tokio::select! {
+                    _ = shutdown.changed() => return,
+                    _ = tokio::time::sleep(idle) => {}
+                }
             }
             Ok(_) => {
                 // Work remains; loop immediately.
@@ -70,7 +77,10 @@ pub async fn run_email_loop(
             Err(e) => {
                 tracing::error!(error = %e, "email cycle failed");
                 failed_cycles = failed_cycles.saturating_add(1);
-                tokio::time::sleep(error_backoff(failed_cycles)).await;
+                tokio::select! {
+                    _ = shutdown.changed() => return,
+                    _ = tokio::time::sleep(error_backoff(failed_cycles)) => {}
+                }
             }
         }
         if shutdown.has_changed().unwrap_or(true) {

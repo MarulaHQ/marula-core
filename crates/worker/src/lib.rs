@@ -5,7 +5,8 @@
 //! consumer (noop transport until a real MailTransport is configured),
 //! the outbound email send loop, the general job queue processor, the
 //! periodic SLA evaluation sweep, and the automations stream consumer —
-//! plus a `/healthz` endpoint reflecting loop liveness. `marula-core-cli`
+//! plus a health surface (`health`: `/livez`, `/readyz`, `/healthz`)
+//! reflecting loop liveness and shutdown state. `marula-core-cli`
 //! hosts this same library via `marula serve-worker`.
 //!
 //! Non-purpose: no domain writes — effects flow back through core-api's
@@ -13,9 +14,12 @@
 //! and the email loop never touches Postgres at all.
 //! Purpose: run the outbox→Redis relay (`core_events::run_relay`) as the
 //! primary loop plus the notification email fan-out consumer and the
-//! unified-search indexer consumer, and expose a `/healthz` endpoint that
-//! reflects relay liveness. `marula-core-cli` hosts this same library via
-//! `marula serve-worker`.
+//! unified-search indexer consumer.
+//!
+//! The stop path is shared with core-api (`shutdown`): SIGINT or SIGTERM ends
+//! every loop's claim along with the health surface, and the process exits
+//! inside a bounded window rather than being killed mid-claim. `marula-core-cli`
+//! hosts this same library via `marula serve-worker`.
 //!
 //! Non-purpose: no general job queue, webhook delivery, or SLA evaluation
 //! — those are later-stage scope — and no direct database writes of its own
@@ -32,6 +36,7 @@ pub mod delivery;
 pub mod digest;
 pub mod effects;
 pub mod email;
+pub mod health;
 pub mod mail_config;
 pub mod notifier;
 pub mod outbox_retention_sweep;
@@ -42,6 +47,7 @@ pub mod reconnect;
 pub mod rotation_sweep;
 pub mod run_retention_sweep;
 pub mod search_indexer;
+pub mod shutdown;
 pub mod sla_sweep;
 pub mod stream_health;
 pub mod time;
@@ -50,11 +56,10 @@ pub mod webhook_out;
 pub mod workflow;
 
 use anyhow::Context as _;
-use axum::extract::State;
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::Router;
 use core_events::Publisher;
-use serde_json::json;
+use std::future::IntoFuture;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -593,7 +598,7 @@ pub async fn run(
         });
     }
 
-    let health = HealthFlags {
+    let health = Arc::new(health::HealthFlags {
         relay_alive,
         email_alive,
         time_alive,
@@ -609,7 +614,11 @@ pub async fn run(
         usage_alive,
         workflow_alive,
         roles: config.roles,
-    };
+        // Readiness goes to 503 the moment the shared flag flips, before this
+        // task has finished waiting on anything: a drain must stop NEW probes
+        // succeeding first and only then spend the window.
+        draining: shutdown.clone(),
+    });
     // The search indexer is spawned once, above, with the other real-time
     // consumers. A second identical spawn used to sit here: it read the same
     // stream with a plain XREAD (no consumer group), so both instances
@@ -617,8 +626,10 @@ pub async fn run(
     // process. Removed rather than gated.
 
     let app = Router::new()
-        .route("/healthz", get(healthz))
-        .with_state(Arc::new(health));
+        .route("/livez", get(health::livez))
+        .route("/readyz", get(health::readyz))
+        .route("/healthz", get(health::healthz))
+        .with_state(Arc::clone(&health));
     let listener = tokio::net::TcpListener::bind(&config.bind_addr)
         .await
         .with_context(|| {
@@ -629,228 +640,35 @@ pub async fn run(
             )
         })?;
     tracing::info!(addr = %config.bind_addr, "worker health endpoint listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(wait_for_shutdown(shutdown))
-        .await?;
-    Ok(())
-}
 
-#[derive(Clone)]
-struct HealthFlags {
-    relay_alive: Arc<AtomicBool>,
-    email_alive: Arc<AtomicBool>,
-    time_alive: Arc<AtomicBool>,
-    queue_alive: Arc<AtomicBool>,
-    sla_alive: Arc<AtomicBool>,
-    automations_alive: Arc<AtomicBool>,
-    webhooks_alive: Arc<AtomicBool>,
-    delivery_alive: Arc<AtomicBool>,
-    pm_alive: Arc<AtomicBool>,
-    rotation_alive: Arc<AtomicBool>,
-    retention_alive: Arc<AtomicBool>,
-    outbox_alive: Arc<AtomicBool>,
-    usage_alive: Arc<AtomicBool>,
-    workflow_alive: Arc<AtomicBool>,
-    /// Which groups this process runs. A loop it does not own is reported
-    /// as `disabled` and does not affect `status`: a realtime-only replica
-    /// is healthy even though it runs no sweeps.
-    roles: crate::config::WorkerRoles,
-}
-
-async fn healthz(State(flags): State<Arc<HealthFlags>>) -> Json<serde_json::Value> {
-    let roles = flags.roles;
-    // (name, alive, owned here)
-    let loops: [(&str, bool, bool); 14] = [
-        (
-            "relay",
-            flags.relay_alive.load(Ordering::Relaxed),
-            roles.realtime(),
-        ),
-        (
-            "email",
-            flags.email_alive.load(Ordering::Relaxed),
-            roles.realtime(),
-        ),
-        (
-            "queue",
-            flags.queue_alive.load(Ordering::Relaxed),
-            roles.realtime(),
-        ),
-        (
-            "automations",
-            flags.automations_alive.load(Ordering::Relaxed),
-            roles.realtime(),
-        ),
-        (
-            "webhooks",
-            flags.webhooks_alive.load(Ordering::Relaxed),
-            roles.realtime(),
-        ),
-        (
-            "workflows",
-            flags.workflow_alive.load(Ordering::Relaxed),
-            roles.realtime(),
-        ),
-        (
-            "sla",
-            flags.sla_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-        (
-            "delivery",
-            flags.delivery_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-        (
-            "pm",
-            flags.pm_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-        (
-            "rotation",
-            flags.rotation_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-        (
-            "retention",
-            flags.retention_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-        (
-            "outbox",
-            flags.outbox_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-        (
-            "usage",
-            flags.usage_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-        (
-            "time",
-            flags.time_alive.load(Ordering::Relaxed),
-            roles.housekeeping(),
-        ),
-    ];
-    // Only the loops this process owns decide health.
-    let ok = loops.iter().all(|(_, alive, owned)| !owned || *alive);
-    if ok {
-        let mut body = serde_json::Map::new();
-        body.insert("status".into(), json!("ok"));
-        body.insert("glitchtip".into(), json!(dsn_state("GLITCHTIP_DSN_WORKER")));
-        body.insert("roles".into(), json!(roles.label()));
-        for (name, alive, owned) in loops {
-            body.insert(
-                name.to_string(),
-                json!(if !owned {
-                    "disabled"
-                } else if alive {
-                    "alive"
-                } else {
-                    "down"
-                }),
+    // Drain contract (see `shutdown`): the flag ends the loops' claims, then
+    // the window decides what finished and what is cut. The report names the
+    // loops this process owns; the ones without a liveness flag are listed
+    // separately rather than quietly omitted.
+    let window = shutdown::grace_window();
+    let drain = {
+        let health = Arc::clone(&health);
+        let shutdown = shutdown.clone();
+        async move {
+            shutdown::wait(shutdown).await;
+            let owed = health.owned_loops();
+            let cut = shutdown::wait_until_idle(window, || health.still_running()).await;
+            let report = shutdown::DrainReport::new(window, &owed, cut);
+            shutdown::log_drain(&report, "worker");
+            tracing::info!(
+                loops = ?health::UNTRACKED_LOOPS,
+                "loops without a liveness flag are not in the drain report above"
             );
         }
-        Json(serde_json::Value::Object(body))
-    } else {
-        Json(json!({ "status": "unhealthy", "glitchtip": dsn_state("GLITCHTIP_DSN_WORKER") }))
+    };
+    let serving = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown::wait(shutdown))
+        .into_future();
+    tokio::pin!(drain);
+    tokio::pin!(serving);
+    tokio::select! {
+        result = &mut serving => result?,
+        _ = &mut drain => {}
     }
-}
-
-/// `configured` | `unset` — GlitchTip DSN presence for the self-host
-/// settings pane (Wave 36 lane 3); the DSN value never leaves env.
-fn dsn_state(name: &str) -> &'static str {
-    match std::env::var(name) {
-        Ok(v) if !v.trim().is_empty() => "configured",
-        _ => "unset",
-    }
-}
-
-/// Resolves when the shared flag flips true (or the channel closes).
-async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
-    while !*shutdown.borrow_and_update() {
-        if shutdown.changed().await.is_err() {
-            return;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn healthz_reflects_the_liveness_flags() {
-        let flags = HealthFlags {
-            rotation_alive: Arc::new(AtomicBool::new(true)),
-            relay_alive: Arc::new(AtomicBool::new(true)),
-            email_alive: Arc::new(AtomicBool::new(true)),
-            time_alive: Arc::new(AtomicBool::new(true)),
-            queue_alive: Arc::new(AtomicBool::new(true)),
-            sla_alive: Arc::new(AtomicBool::new(true)),
-            automations_alive: Arc::new(AtomicBool::new(true)),
-            webhooks_alive: Arc::new(AtomicBool::new(true)),
-            delivery_alive: Arc::new(AtomicBool::new(true)),
-            pm_alive: Arc::new(AtomicBool::new(true)),
-            retention_alive: Arc::new(AtomicBool::new(true)),
-            outbox_alive: Arc::new(AtomicBool::new(true)),
-            usage_alive: Arc::new(AtomicBool::new(true)),
-            workflow_alive: Arc::new(AtomicBool::new(true)),
-            roles: crate::config::WorkerRoles::all(),
-        };
-        let healthy = healthz(State(Arc::new(flags.clone()))).await;
-        assert_eq!(healthy.0["relay"], "alive");
-        assert_eq!(healthy.0["email"], "alive");
-        assert_eq!(healthy.0["webhooks"], "alive");
-        assert_eq!(healthy.0["delivery"], "alive");
-        assert_eq!(healthy.0["outbox"], "alive");
-        assert_eq!(healthy.0["roles"], "all");
-        assert_eq!(healthy.0["status"], "ok");
-
-        flags.queue_alive.store(false, Ordering::Relaxed);
-        let unhealthy = healthz(State(Arc::new(flags))).await;
-        assert_eq!(unhealthy.0["status"], "unhealthy");
-    }
-
-    /// A role-limited replica is healthy for the loops it owns and reports
-    /// the rest as `disabled`, so an orchestrator does not read a
-    /// realtime-only worker as eight dead sweeps.
-    #[tokio::test]
-    async fn healthz_ignores_loops_this_process_does_not_own() {
-        let mut flags = HealthFlags {
-            rotation_alive: Arc::new(AtomicBool::new(true)),
-            relay_alive: Arc::new(AtomicBool::new(true)),
-            email_alive: Arc::new(AtomicBool::new(true)),
-            time_alive: Arc::new(AtomicBool::new(true)),
-            queue_alive: Arc::new(AtomicBool::new(true)),
-            sla_alive: Arc::new(AtomicBool::new(true)),
-            automations_alive: Arc::new(AtomicBool::new(true)),
-            webhooks_alive: Arc::new(AtomicBool::new(true)),
-            delivery_alive: Arc::new(AtomicBool::new(true)),
-            pm_alive: Arc::new(AtomicBool::new(true)),
-            retention_alive: Arc::new(AtomicBool::new(true)),
-            outbox_alive: Arc::new(AtomicBool::new(true)),
-            usage_alive: Arc::new(AtomicBool::new(true)),
-            workflow_alive: Arc::new(AtomicBool::new(true)),
-            roles: crate::config::WorkerRoles::realtime_only(),
-        };
-        let body = healthz(State(Arc::new(flags.clone()))).await;
-        assert_eq!(body.0["status"], "ok");
-        assert_eq!(body.0["roles"], "realtime");
-        assert_eq!(body.0["relay"], "alive");
-        assert_eq!(body.0["webhooks"], "alive");
-        assert_eq!(body.0["sla"], "disabled");
-        assert_eq!(body.0["outbox"], "disabled");
-        assert_eq!(body.0["time"], "disabled");
-
-        // A sweep that has never been started cannot take the replica down,
-        // but the loops it does own still can.
-        flags.roles = crate::config::WorkerRoles::housekeeping_only();
-        let body = healthz(State(Arc::new(flags.clone()))).await;
-        assert_eq!(body.0["status"], "ok");
-        assert_eq!(body.0["relay"], "disabled");
-        flags.rotation_alive.store(false, Ordering::Relaxed);
-        let body = healthz(State(Arc::new(flags))).await;
-        assert_eq!(body.0["status"], "unhealthy");
-    }
+    Ok(())
 }

@@ -88,7 +88,9 @@ fn loopback_api_url(config: &Config) -> String {
 }
 
 /// Starts the worker loops in this process. Errors are logged, not fatal:
-/// the API keeps serving even if a background loop dies.
+/// the API keeps serving even if a background loop dies. `shutdown` is the
+/// receiver from `worker::shutdown::install`, shared with the API's own
+/// serve, so one signal ends both halves inside one grace window.
 pub fn spawn_worker(
     config: Arc<Config>,
     shutdown: watch::Receiver<bool>,
@@ -99,16 +101,6 @@ pub fn spawn_worker(
             tracing::error!(%error, "all-in-one: the worker loops exited");
         }
     })
-}
-
-/// Completes when the shared shutdown flag is true — at once if it already
-/// is, otherwise at the next flip. The API's own serve awaits this so one
-/// Ctrl-C drains the HTTP server and the embedded worker together.
-pub async fn wait_for_shutdown(mut shutdown: watch::Receiver<bool>) {
-    if *shutdown.borrow() {
-        return;
-    }
-    let _ = shutdown.changed().await;
 }
 
 #[cfg(test)]

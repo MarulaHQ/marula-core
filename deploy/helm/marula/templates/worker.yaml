@@ -40,9 +40,13 @@ spec:
             - name: REDIS_URL
               value: {{ include "marula.redisUrl" . | quote }}
             - name: BIND_ADDR
-              value: "0.0.0.0:8082"
+              value: {{ .Values.worker.bindAddr | quote }}
             - name: RELAY_BATCH
               value: {{ .Values.worker.relayBatch | quote }}
+            # Bounded drain window (lane R5): the loops get this long to finish
+            # what they are holding; the line it logs names what it cut.
+            - name: MARULA_SHUTDOWN_GRACE_SECS
+              value: {{ .Values.worker.shutdownGraceSeconds | quote }}
             - name: CORE_API_URL
               value: http://{{ include "marula.fullname" . }}-core-api:{{ .Values.service.coreApi.port }}
             - name: EMAIL_INTERNAL_TOKEN
@@ -63,14 +67,41 @@ spec:
             {{- end }}
           ports:
             - name: health
-              containerPort: 8082
+              containerPort: {{ include "marula.portFromBind" .Values.worker.bindAddr }}
+          # Liveness on /healthz (a dead loop must restart this process — it
+          # owns no traffic, so readiness alone would leave it running dead),
+          # readiness on /readyz (drain-aware), startup on /livez.
+          {{- with .Values.worker.probes.startup }}
+          startupProbe:
+            {{- include "marula.probe" (dict "spec" . "port" (include "marula.portFromBind" $.Values.worker.bindAddr)) | nindent 12 }}
+          {{- end }}
+          {{- with .Values.worker.probes.liveness }}
+          livenessProbe:
+            {{- include "marula.probe" (dict "spec" . "port" (include "marula.portFromBind" $.Values.worker.bindAddr)) | nindent 12 }}
+          {{- end }}
+          {{- with .Values.worker.probes.readiness }}
           readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8082
-            initialDelaySeconds: 5
-            periodSeconds: 5
+            {{- include "marula.probe" (dict "spec" . "port" (include "marula.portFromBind" $.Values.worker.bindAddr)) | nindent 12 }}
+          {{- end }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", {{ .Values.worker.preStopSleepSeconds | quote }}]
           resources: {{- toYaml (default .Values.resources .Values.worker.resources) | nindent 12 }}
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
+      {{- with .Values.topologySpread }}
+      {{- if .enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .maxSkew }}
+          topologyKey: {{ .topologyKey }}
+          whenUnsatisfiable: {{ .whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ include "marula.name" $ }}
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: worker
+      {{- end }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}

@@ -54,6 +54,11 @@ web:
 | `/openapi.json` | core-api | SDK contract |
 | `/api/health` | core-api | liveness for probes outside the cluster (`/api/v1/health` on the canonical mount; a bare `/healthz` is a core-api 404) |
 
+In-cluster probes do not go through the ingress: they read the pod directly on
+`/livez` (process only), `/readyz` (dependency and drain aware) and — for the
+worker — `/healthz`. Those paths are not part of the routed surface and do not
+appear in the pinned OpenAPI document.
+
 `/internal/*` is deliberately not routed: that is the worker-to-core effect
 seam, guarded by its own token. An unmatched path falls through to web.
 
@@ -126,3 +131,63 @@ behind a session pooler (PgBouncer or pgcat), or with `max_connections`
 raised to match. The worker does not share that shape: it claims work with
 `FOR UPDATE SKIP LOCKED` (`core-db/src/outbox.rs:47`,
 `core-db/src/queue.rs:105`), so replicas never double-process a row.
+
+## Lifecycle: stopping a pod without cutting work
+
+Both binaries install the same stop path (`crates/worker/src/shutdown.rs`):
+SIGINT or SIGTERM, whichever arrives first, stops accepting work and gives
+what is in flight a bounded window to finish. Before this, both processes
+waited on Ctrl-C (SIGINT) only — the signal a container runtime never sends —
+so every rolling deploy was a hard kill of whatever the process was holding.
+
+What counts as in flight: a request core-api has accepted and not yet
+answered. Event streams are the documented exception. A stream is answered by
+closing, and a client reconnects and resyncs from its snapshot, so one that
+outlives the window is cut on purpose.
+
+The numbers, and how they relate:
+
+| Value | Where | Default |
+|---|---|---|
+| drain window | `MARULA_SHUTDOWN_GRACE_SECS` (`coreApi.shutdownGraceSeconds`, `worker.shutdownGraceSeconds`) | 20s |
+| pod grace period | `.spec.terminationGracePeriodSeconds` | 45s core-api, 35s worker and web |
+| pre-stop delay | `.spec.lifecycle.preStop` (`preStopSleepSeconds`) | 5s |
+| compose stop grace | `deploy/docker-compose.yml` `stop_grace_period` | 30s |
+
+`terminationGracePeriodSeconds` has to exceed `preStopSleepSeconds` plus the
+drain window, or the runtime kills the process mid-drain and the window is
+decorative. If you raise the drain window, raise the pod grace period with it.
+
+Each application answers three probes, and they are not interchangeable:
+
+| Probe | core-api | worker | web |
+|---|---|---|---|
+| startup | `/livez` | `/livez` | `/` |
+| liveness | `/livez` | `/healthz` | `/` |
+| readiness | `/readyz` | `/readyz` | `/` |
+
+- `/livez` reads nothing but the process's ability to answer, and stays 200
+  inside the drain window. A drain that failed liveness would restart the pod
+  it is retiring.
+- `/readyz` is 503 while draining, and 503 when a dependency does not answer
+  (core-api runs a `SELECT 1` with a 2s ceiling; the worker reads its own loop
+  flags). Readiness used to point at `/api/v1/health`, which is a constant
+  `ok`, so a replica with an unreachable database stayed Ready and kept
+  taking traffic.
+- The worker's liveness reads `/healthz` because a worker owns no traffic: a
+  dead loop there is a restart-worthy fault, and readiness alone would leave
+  it running dead. `/healthz` stays 200 while draining, and now answers 503
+  (instead of 200 with a body saying `unhealthy`) when a loop has died.
+
+`podDisruptionBudget.enabled` renders a `maxUnavailable: 1` budget for each
+component. It is not `minAvailable: 1` on purpose: a one-replica install with
+`minAvailable: 1` cannot be evicted at all, so every node drain hangs until
+someone deletes the budget. `topologySpread` is soft (`ScheduleAnyway`) for
+the same reason — a single-node cluster still has to schedule.
+
+`networkPolicy.enabled` is off by default. Turning it on restricts ingress to
+the release namespace plus the ingress controller's namespace, and everything
+else must be listed in `networkPolicy.extraIngress`; egress is untouched.
+Check that kubelet probes still reach the pods after enabling it — some CNIs
+treat node-originated traffic differently, and the symptom is a probe failing
+with nothing in the container log.

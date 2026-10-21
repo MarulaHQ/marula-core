@@ -1,0 +1,57 @@
+{{- /*
+PodDisruptionBudgets (lane R5).
+
+`maxUnavailable`, never `minAvailable`: a one-replica install with
+`minAvailable: 1` cannot be evicted at all, so every node drain hangs until
+someone deletes the budget. `maxUnavailable: 1` lets a single-replica install
+take the brief interruption it already accepts on any restart, and keeps a
+multi-replica install serving one pod at a time.
+*/ -}}
+{{- if .Values.podDisruptionBudget.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "marula.fullname" . }}-core-api
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core-api
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: core-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "marula.fullname" . }}-worker
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: worker
+{{- if .Values.web.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "marula.fullname" . }}-web
+  labels:
+    {{- include "marula.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "marula.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: web
+{{- end }}
+{{- end }}
