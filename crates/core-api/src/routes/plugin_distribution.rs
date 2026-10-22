@@ -513,31 +513,15 @@ async fn fetch_bytes(url: &str) -> ApiResult<Vec<u8>> {
     Ok(bytes.to_vec())
 }
 
-/// SSRF posture: http(s)-only; localhost / private-network targets are
-/// never accepted — the distribution seam must not become an internal
-/// scanner for an unauthenticated surface.
+/// SSRF posture: https-only, and no host that is not publicly routable. The
+/// decision lives in `core_domain::egress` so the distribution seam, the plugin
+/// egress path and Wave 54's connector egress cannot drift apart. This call
+/// site previously accepted `http://`; it no longer does, because a plaintext
+/// fetch of an executable artifact is a rewrite of the bytes that run.
 fn url_guard(url: &str) -> ApiResult<()> {
-    if !url.starts_with("https://") && !url.starts_with("http://") {
-        return Err(ApiError::Validation("source url must be http(s)".into()));
-    }
-    let after = url.split_once("://").map(|(_s, rest)| rest).unwrap_or("");
-    let authority = after.split('/').next().unwrap_or("");
-    let host = authority.split(':').next().unwrap_or("").to_lowercase();
-    if host.is_empty()
-        || host == "localhost"
-        || host == "0.0.0.0"
-        || host.ends_with(".local")
-        || host.starts_with("127.")
-        || host.starts_with("10.")
-        || host.starts_with("192.168.")
-        || host.starts_with("169.254.")
-        || host == "metadata.google.internal"
-    {
-        return Err(ApiError::Validation(
-            "source url host is not reachable from the distribution seam".into(),
-        ));
-    }
-    Ok(())
+    core_domain::egress::screen(url)
+        .map(|_| ())
+        .map_err(|denial| ApiError::Validation(format!("source url refused: {denial}")))
 }
 
 fn validate_repo_component(value: &str) -> ApiResult<()> {

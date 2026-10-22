@@ -14,6 +14,7 @@ pub mod custom_fields;
 pub mod data_surface;
 pub mod day_pack;
 pub mod deprecation;
+pub mod egress;
 pub mod email_signature;
 pub mod embedding;
 pub mod entities;
