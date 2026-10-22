@@ -241,6 +241,9 @@ pub async fn list_for_installs(
 ///    tenant, or a client-scope record, yields [`BindOutcome::NoSuchRecord`]
 ///    before anything is written — the check is the SELECT that feeds the
 ///    INSERT, not a Rust comparison over a row someone else already trusted.
+///    The same statement checks that the install belongs to this org; a
+///    foreign install id is `NotFound`, so no route can be tricked into
+///    parking a consent on another tenant's install.
 /// 2. [`secret_vault::folder_access`] answers with the ROLES BEING BOUND. An
 ///    operator who cannot read the category cannot hand it to a plugin; this
 ///    is the same check the reveal endpoint runs, with the same arguments.
@@ -256,17 +259,28 @@ pub async fn bind(
 ) -> DbResult<BindOutcome> {
     // Org scope only, and deliberately not `secret_vault::in_org_scope`'s
     // client arm: an install is org-wide, so a client's record is out of
-    // reach here even though the vault itself can see it.
-    let folder_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT sr.folder_id FROM secret_records sr WHERE sr.id = $2 AND sr.org_id = $1",
+    // reach here even though the vault itself can see it. The install is
+    // checked in the same statement for the same reason — an install id from
+    // another tenant must not be able to own a row here, even though the
+    // route always hands over one it resolved through `get_install`.
+    let found: Option<(Uuid, bool)> = sqlx::query_as(
+        "SELECT sr.folder_id,
+                EXISTS (SELECT 1 FROM plugin_installs i
+                         WHERE i.id = $3 AND i.org_id = $1) AS install_in_org
+           FROM secret_records sr
+          WHERE sr.id = $2 AND sr.org_id = $1",
     )
     .bind(org_id)
     .bind(binding.secret_record_id)
+    .bind(install_id)
     .fetch_optional(&mut *conn)
     .await?;
-    let Some(folder_id) = folder_id else {
+    let Some((folder_id, install_in_org)) = found else {
         return Ok(BindOutcome::NoSuchRecord);
     };
+    if !install_in_org {
+        return Err(DbError::NotFound);
+    }
     if !secret_vault::folder_access(conn, org_id, &binding.bound_role_ids, folder_id, false).await?
     {
         return Ok(BindOutcome::CategoryDenied);

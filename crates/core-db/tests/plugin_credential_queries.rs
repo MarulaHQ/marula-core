@@ -3,16 +3,17 @@
 //!
 //! Purpose: prove the negative properties, which are the deliverable.
 //!
-//!   * a record from ANOTHER org cannot be bound, and neither can a
-//!     client-scope record — the INSERT selects the record through the
-//!     caller's org, so there is no row to bind;
+//!   * a record from ANOTHER org cannot be bound, neither can a client-scope
+//!     record, and neither can an install from another tenant — the SELECT that
+//!     feeds the INSERT is scoped by org, so there is no row to write;
 //!   * the vault's CATEGORY grant decides twice: an operator whose roles
 //!     cannot read a restricted folder cannot bind the record, and a resolve
 //!     refuses once the recorded role's grant is withdrawn — consent is
 //!     re-checked, never trusted because it was true at bind time;
 //!   * a resolve returns CIPHERTEXT: the bytes are the column's bytes, they
 //!     are not the plaintext, and they are the only bytes this crate hands out;
-//!   * uninstalling the install removes the binding (the FK cascade);
+//!   * uninstalling the install removes the binding, and so does deleting the
+//!     record (both FK cascades);
 //!   * a PIN MOVE clears every binding (the trigger), a status-only update does
 //!     not, and a cleared move leaves an audit row behind;
 //!   * RLS isolates the table like every other org-scoped plugin table.
@@ -22,7 +23,11 @@
 //! that will consume a resolve (phase 2, `p53-host-callbridge`), and the
 //! decrypt itself (core-api owns the key; `core-db` never sees one).
 //!
-//! Slot discipline: fixed-UUID slots 94800–94849 only.
+//! Slot discipline: fixed-UUID slots 94800–94899 only, one block of ten per
+//! test — 94800, 94810, 94820, 94830, 94840, 94850, 94860, 94870. Inside a
+//! block: org at +0, owner at +1, and an install's (entry, version, install) at
+//! +4/+5/+6. The owner does NOT ride the repo's usual `+40`, because at this
+//! depth that lands in the next block.
 
 mod common;
 
@@ -45,10 +50,11 @@ struct Seeded {
     owner_role: Uuid,
 }
 
-/// Seeds one org with its default roles and an owner at slot `n`.
-async fn seed_org_at(db: &common::TestDb, n: u64, slug: &str) -> Seeded {
-    let org = fixed_uuid(n);
-    let owner = fixed_uuid(n + 40);
+/// Seeds one org with its default roles and an owner, at explicit slots so a
+/// block of ten is never overrun.
+async fn seed_org_at(db: &common::TestDb, org_slot: u64, owner_slot: u64, slug: &str) -> Seeded {
+    let org = fixed_uuid(org_slot);
+    let owner = fixed_uuid(owner_slot);
     let mut tx = org_tx(&db.admin, org).await;
     orgs::insert_org(&mut *tx, org, "Credential Co", slug, "CRED")
         .await
@@ -58,7 +64,7 @@ async fn seed_org_at(db: &common::TestDb, n: u64, slug: &str) -> Seeded {
         &mut *tx,
         owner,
         org,
-        &format!("owner-{n}@cred.test"),
+        &format!("owner-{org_slot}@cred.test"),
         "Owner",
         "argon2hash",
         "UTC",
@@ -137,8 +143,42 @@ async fn restricted_folder_with_record(
     (folder_id, record_id)
 }
 
+/// One record in the org's UNRESTRICTED seeded tree, so a test about tenancy is
+/// not also a test about the category grant.
+async fn plain_record(db: &common::TestDb, seeded: &Seeded, slot: u64, marker: &str) -> Uuid {
+    let mut tx = org_tx(&db.admin, seeded.org).await;
+    let folder = secret_vault::list_org_folders(&mut tx, seeded.org)
+        .await
+        .expect("folders")
+        .into_iter()
+        .find(|f| f.slug == "documents")
+        .expect("seed folder");
+    let record = fixed_uuid(slot);
+    secret_vault::create_record(
+        &mut tx,
+        seeded.org,
+        None,
+        folder.id,
+        record,
+        core_domain::entities::SecretRecordKind::ApiKey,
+        "Acme tenant token",
+        None,
+        None,
+        None,
+        None,
+        None,
+        &[("secret".to_string(), fake_ciphertext(marker))],
+        seeded.owner,
+    )
+    .await
+    .expect("record");
+    tx.commit().await.expect("commit");
+    record
+}
+
 /// A catalog entry + an install at an empty module digest, so a pin move is a
-/// version change and nothing has to exist in the artifact store.
+/// version change and nothing has to exist in the artifact store. Uses slots
+/// `base`, `base+1`, `base+2`.
 async fn install_at(db: &common::TestDb, seeded: &Seeded, base: u64) -> Uuid {
     let mut tx = org_tx(&db.admin, seeded.org).await;
     let slug = format!("cred-plugin-{base}");
@@ -244,11 +284,10 @@ async fn revoke_grant(db: &common::TestDb, seeded: &Seeded, role: Uuid, folder: 
 #[tokio::test]
 async fn bind_and_resolve_follow_the_category_grant_and_only_return_ciphertext() {
     let db = common::test_db().await;
-    let seeded = seed_org_at(&db, 94800, "cred-grant").await;
+    let seeded = seed_org_at(&db, 94800, 94801, "cred-grant").await;
     let (folder, record) =
-        restricted_folder_with_record(&db, &seeded, 94801, 94802, "acme-tenant-token-plaintext")
-            .await;
-    let install = install_at(&db, &seeded, 94810).await;
+        restricted_folder_with_record(&db, &seeded, 94802, 94803, "acme-token-plaintext").await;
+    let install = install_at(&db, &seeded, 94804).await;
 
     let mut tx = org_tx(&db.app, seeded.org).await;
     // Restricted and ungranted: the owner's own roles cannot read it yet, so
@@ -323,7 +362,8 @@ async fn bind_and_resolve_follow_the_category_grant_and_only_return_ciphertext()
     };
     assert_eq!(
         credential.sealed,
-        fake_ciphertext("acme-tenant-token-plaintext")
+        fake_ciphertext("acme-token-plaintext"),
+        "the resolve returns the stored ciphertext and nothing else"
     );
     assert_eq!(credential.field_key, "secret");
     assert_eq!(credential.header_name, "x-api-key");
@@ -331,9 +371,17 @@ async fn bind_and_resolve_follow_the_category_grant_and_only_return_ciphertext()
     assert!(
         !credential
             .sealed
-            .windows(b"acme-tenant-token-plaintext".len())
-            .any(|w| w == b"acme-tenant-token-plaintext"),
+            .windows(b"acme-token-plaintext".len())
+            .any(|w| w == b"acme-token-plaintext"),
         "the resolve must not return the plaintext"
+    );
+    // The Debug impl must not print the bytes either — a log line is a leak
+    // path this type closes by construction.
+    let debugged = format!("{credential:?}");
+    assert!(debugged.contains("sealed bytes"));
+    assert!(
+        !debugged.contains("acme-token-plaintext") && !debugged.contains("115, 101, 97, 108"),
+        "Debug must print a length, not the ciphertext: {debugged}"
     );
     tx.commit().await.expect("commit");
 
@@ -365,25 +413,26 @@ async fn bind_and_resolve_follow_the_category_grant_and_only_return_ciphertext()
             .expect("resolve"),
         plugin_credentials::ResolveOutcome::NotBound
     ));
-    // Unbind is a real withdrawal, and it is idempotent-refusing.
+    // Unbind is a real withdrawal and a second one is refused.
     plugin_credentials::unbind(&mut tx, seeded.org, install, "acme")
         .await
         .expect("unbind");
     assert!(
         plugin_credentials::unbind(&mut tx, seeded.org, install, "acme")
             .await
-            .is_err()
+            .is_err(),
+        "unbinding an absent consent is not a success"
     );
     tx.commit().await.expect("commit");
 }
 
 /// A record without the vault's `secret` field refuses instead of injecting
-/// whatever field happens to be there (`notes`, `username`, `url` are
+/// whatever field happens to be there (`notes`, `username` and `url` are
 /// metadata, not credentials).
 #[tokio::test]
 async fn resolve_refuses_a_record_with_no_secret_field() {
     let db = common::test_db().await;
-    let seeded = seed_org_at(&db, 94820, "cred-field").await;
+    let seeded = seed_org_at(&db, 94810, 94811, "cred-field").await;
     let mut tx = org_tx(&db.admin, seeded.org).await;
     let folder = secret_vault::list_org_folders(&mut tx, seeded.org)
         .await
@@ -391,7 +440,7 @@ async fn resolve_refuses_a_record_with_no_secret_field() {
         .into_iter()
         .find(|f| f.slug == "documents")
         .expect("seed folder");
-    let record = fixed_uuid(94821);
+    let record = fixed_uuid(94812);
     secret_vault::create_record(
         &mut tx,
         seeded.org,
@@ -411,7 +460,7 @@ async fn resolve_refuses_a_record_with_no_secret_field() {
     .await
     .expect("record");
     tx.commit().await.expect("commit");
-    let install = install_at(&db, &seeded, 94822).await;
+    let install = install_at(&db, &seeded, 94813).await;
 
     let mut tx = org_tx(&db.app, seeded.org).await;
     // The seeded tree is unrestricted, so the category gate passes.
@@ -444,21 +493,23 @@ async fn resolve_refuses_a_record_with_no_secret_field() {
 // Cross-tenant refusal
 // ---------------------------------------------------------------------------
 
-/// Another org's record cannot be bound, and neither can a client-scope record
-/// in the caller's own org. Both answer `NoSuchRecord`, so a probe cannot tell
-/// "not yours" from "not there".
+/// Another org's record cannot be bound, a client-scope record in our own org
+/// cannot be bound, and another org's install cannot own a binding. The first
+/// two answer `NoSuchRecord`, so a probe cannot tell "not yours" from "not
+/// there"; the third is `NotFound` for the same reason.
 #[tokio::test]
-async fn a_foreign_org_or_client_scope_record_cannot_be_bound() {
+async fn a_foreign_record_install_or_client_scope_record_cannot_be_bound() {
     let db = common::test_db().await;
-    let ours = seed_org_at(&db, 94830, "cred-ours").await;
-    let theirs = seed_org_at(&db, 94831, "cred-theirs").await;
-    let (_, their_record) =
-        restricted_folder_with_record(&db, &theirs, 94832, 94833, "their-secret").await;
+    let ours = seed_org_at(&db, 94820, 94821, "cred-ours").await;
+    let theirs = seed_org_at(&db, 94822, 94823, "cred-theirs").await;
+    let (their_folder, their_record) =
+        restricted_folder_with_record(&db, &theirs, 94824, 94825, "their-secret").await;
     // Their grant is real and their folder is readable to them; the refusal
     // below is about tenancy, not about authority.
-    grant_read(&db, &theirs, theirs.owner_role, fixed_uuid(94832)).await;
+    grant_read(&db, &theirs, theirs.owner_role, their_folder).await;
+    let our_record = plain_record(&db, &ours, 94829, "ours").await;
+    let install = install_at(&db, &ours, 94826).await;
 
-    let install = install_at(&db, &ours, 94834).await;
     let mut tx = org_tx(&db.app, ours.org).await;
     let outcome = plugin_credentials::bind(
         &mut tx,
@@ -482,11 +533,35 @@ async fn a_foreign_org_or_client_scope_record_cannot_be_bound() {
         .await
         .expect("list")
         .is_empty());
+
+    // An install id from the other org cannot own a binding here either.
+    let their_install = install_at(&db, &theirs, 94830).await;
+    let foreign_install = plugin_credentials::bind(
+        &mut tx,
+        ours.org,
+        their_install,
+        &plugin_credentials::NewBinding {
+            profile: "acme",
+            secret_record_id: our_record,
+            header_name: "x-api-key",
+            bound_by: Some(ours.owner),
+            bound_role_ids: vec![ours.owner_role],
+        },
+    )
+    .await;
+    assert!(
+        foreign_install.is_err(),
+        "an install from another org cannot own a binding"
+    );
+    assert!(plugin_credentials::list(&mut tx, ours.org, their_install)
+        .await
+        .expect("list")
+        .is_empty());
     tx.commit().await.expect("commit");
 
     // A client-scope record in OUR org: the install is org-wide, so a client's
     // credential is out of reach even though the vault can see it.
-    let client = fixed_uuid(94835);
+    let client = fixed_uuid(94833);
     let mut tx = org_tx(&db.admin, ours.org).await;
     sqlx::query("INSERT INTO clients (id, org_id, name) VALUES ($1, $2, $3)")
         .bind(client)
@@ -495,7 +570,7 @@ async fn a_foreign_org_or_client_scope_record_cannot_be_bound() {
         .execute(&mut *tx)
         .await
         .expect("client insert");
-    let client_folder = fixed_uuid(94836);
+    let client_folder = fixed_uuid(94834);
     secret_vault::create_folder(
         &mut tx,
         ours.org,
@@ -511,7 +586,7 @@ async fn a_foreign_org_or_client_scope_record_cannot_be_bound() {
     )
     .await
     .expect("client folder");
-    let client_record = fixed_uuid(94837);
+    let client_record = fixed_uuid(94835);
     secret_vault::create_record(
         &mut tx,
         ours.org,
@@ -559,12 +634,12 @@ async fn a_foreign_org_or_client_scope_record_cannot_be_bound() {
 #[tokio::test]
 async fn bindings_are_invisible_to_another_org() {
     let db = common::test_db().await;
-    let ours = seed_org_at(&db, 94840, "cred-rls-ours").await;
-    let theirs = seed_org_at(&db, 94841, "cred-rls-theirs").await;
+    let ours = seed_org_at(&db, 94840, 94841, "cred-rls-ours").await;
+    let theirs = seed_org_at(&db, 94842, 94843, "cred-rls-theirs").await;
     let (folder, record) =
-        restricted_folder_with_record(&db, &ours, 94842, 94843, "rls-secret").await;
+        restricted_folder_with_record(&db, &ours, 94844, 94845, "rls-secret").await;
     grant_read(&db, &ours, ours.owner_role, folder).await;
-    let install = install_at(&db, &ours, 94844).await;
+    let install = install_at(&db, &ours, 94846).await;
 
     let mut tx = org_tx(&db.app, ours.org).await;
     plugin_credentials::bind(
@@ -604,7 +679,7 @@ async fn bindings_are_invisible_to_another_org() {
 }
 
 // ---------------------------------------------------------------------------
-// Lifecycle: uninstall and pin moves
+// Lifecycle: uninstall, record deletion and pin moves
 // ---------------------------------------------------------------------------
 
 /// Uninstalling the install removes the binding through the FK cascade — no
@@ -612,10 +687,10 @@ async fn bindings_are_invisible_to_another_org() {
 #[tokio::test]
 async fn uninstalling_the_install_removes_the_binding() {
     let db = common::test_db().await;
-    let seeded = seed_org_at(&db, 94850, "cred-uninstall").await;
-    let (folder, record) = restricted_folder_with_record(&db, &seeded, 94851, 94852, "gone").await;
+    let seeded = seed_org_at(&db, 94850, 94851, "cred-uninstall").await;
+    let (folder, record) = restricted_folder_with_record(&db, &seeded, 94852, 94853, "gone").await;
     grant_read(&db, &seeded, seeded.owner_role, folder).await;
-    let install = install_at(&db, &seeded, 94853).await;
+    let install = install_at(&db, &seeded, 94854).await;
 
     let mut tx = org_tx(&db.admin, seeded.org).await;
     plugin_credentials::bind(
@@ -645,16 +720,54 @@ async fn uninstalling_the_install_removes_the_binding() {
     assert_eq!(count, 0, "the uninstall takes the consent with it");
 }
 
+/// A deleted vault record takes its binding with it: a consent that points at
+/// nothing must not keep looking live on the consent screen.
+#[tokio::test]
+async fn deleting_the_record_removes_the_binding() {
+    let db = common::test_db().await;
+    let seeded = seed_org_at(&db, 94860, 94861, "cred-record-gone").await;
+    let (folder, record) = restricted_folder_with_record(&db, &seeded, 94862, 94863, "bye").await;
+    grant_read(&db, &seeded, seeded.owner_role, folder).await;
+    let install = install_at(&db, &seeded, 94864).await;
+
+    let mut tx = org_tx(&db.admin, seeded.org).await;
+    plugin_credentials::bind(
+        &mut tx,
+        seeded.org,
+        install,
+        &plugin_credentials::NewBinding {
+            profile: "acme",
+            secret_record_id: record,
+            header_name: "x-api-key",
+            bound_by: Some(seeded.owner),
+            bound_role_ids: vec![seeded.owner_role],
+        },
+    )
+    .await
+    .expect("bind");
+    secret_vault::delete_record(&mut tx, seeded.org, record)
+        .await
+        .expect("record deleted");
+    assert!(
+        plugin_credentials::list(&mut tx, seeded.org, install)
+            .await
+            .expect("list")
+            .is_empty(),
+        "a deleted credential leaves no binding"
+    );
+    tx.commit().await.expect("commit");
+}
+
 /// A binding does not survive a pin move, and the trigger is what guarantees
 /// it: a hand-written UPDATE that moves the version clears the row and leaves
 /// an audit trail. A status-only update leaves the binding alone.
 #[tokio::test]
 async fn a_pin_move_clears_bindings_and_a_status_change_does_not() {
     let db = common::test_db().await;
-    let seeded = seed_org_at(&db, 94860, "cred-pin").await;
-    let (folder, record) = restricted_folder_with_record(&db, &seeded, 94861, 94862, "pin").await;
+    let seeded = seed_org_at(&db, 94870, 94871, "cred-pin").await;
+    let (folder, record) = restricted_folder_with_record(&db, &seeded, 94872, 94873, "pin").await;
     grant_read(&db, &seeded, seeded.owner_role, folder).await;
-    let install = install_at(&db, &seeded, 94863).await;
+    let install = install_at(&db, &seeded, 94874).await;
 
     let mut tx = org_tx(&db.admin, seeded.org).await;
     plugin_credentials::bind(
@@ -735,42 +848,4 @@ async fn a_pin_move_clears_bindings_and_a_status_change_does_not() {
     assert_eq!(rows[0].1["cleared_bindings"], 1);
     assert_eq!(rows[0].1["from_version"], "1.0.0");
     assert_eq!(rows[0].1["to_version"], "2.0.0");
-}
-
-/// A deleted vault record takes its binding with it: a consent that points at
-/// nothing must not keep looking live on the consent screen.
-#[tokio::test]
-async fn deleting_the_record_removes_the_binding() {
-    let db = common::test_db().await;
-    let seeded = seed_org_at(&db, 94870, "cred-record-gone").await;
-    let (folder, record) = restricted_folder_with_record(&db, &seeded, 94871, 94872, "bye").await;
-    grant_read(&db, &seeded, seeded.owner_role, folder).await;
-    let install = install_at(&db, &seeded, 94873).await;
-
-    let mut tx = org_tx(&db.admin, seeded.org).await;
-    plugin_credentials::bind(
-        &mut tx,
-        seeded.org,
-        install,
-        &plugin_credentials::NewBinding {
-            profile: "acme",
-            secret_record_id: record,
-            header_name: "x-api-key",
-            bound_by: Some(seeded.owner),
-            bound_role_ids: vec![seeded.owner_role],
-        },
-    )
-    .await
-    .expect("bind");
-    secret_vault::delete_record(&mut tx, seeded.org, record)
-        .await
-        .expect("record deleted");
-    assert!(
-        plugin_credentials::list(&mut tx, seeded.org, install)
-            .await
-            .expect("list")
-            .is_empty(),
-        "a deleted credential leaves no binding"
-    );
-    tx.commit().await.expect("commit");
 }
