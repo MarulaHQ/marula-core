@@ -72,6 +72,12 @@ statement_context() {
 # context), so a new pool-read in the same file still fails.
 typeset -a allowlist
 allowlist=(
+  # The embedding space state is one row (`id text PRIMARY KEY CHECK (id =
+  # 'instance')`) with no org column, so there is no tenant to scope it to: it
+  # answers "which space may a vector leg rank in during a re-index", which is
+  # the same answer for every tenant on the instance. Every tenant read that
+  # follows it still rides an org-bound tx.
+  'search.rs:read_spaces(&state.pool'
   # Pre-auth alert ingest (webhook HMAC): the source_ref is public routing
   # info; identity resolves via the 0014 SECURITY DEFINER seam before any
   # session exists. All subsequent reads ride an org-bound tx.

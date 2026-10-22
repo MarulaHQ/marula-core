@@ -233,5 +233,5 @@ of distance order, and the fused ranking has not been measured under it. Only
   decides *which* vectors exist; this page decides how they are searched.
 - [Embedding model catalogue](../reference/embedding-model-catalogue.md) — the
   model table, floors and the space tag the index filters on.
-- [Deploy descriptor](../deploy-descriptor.md) — the `retrieval` section this
+- [Deploy descriptor](../../deploy-descriptor.md) — the `retrieval` section this
   page reads, and the other levers beside it.

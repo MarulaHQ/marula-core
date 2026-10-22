@@ -53,6 +53,15 @@ ALTER TABLE search_embeddings ALTER COLUMN space SET DEFAULT '';
 
 -- One vector per entity per space. 0062's key, dropped by name (Postgres names
 -- an inline UNIQUE after the table and its columns).
+--
+-- Data impact, stated for the `--breaking` flag: this drops a constraint and
+-- adds a wider one. No row is deleted or rewritten by the drop itself, and the
+-- rows it used to reject are now legal — an entity may hold one vector per
+-- space while a re-index runs, which is what makes dual-write possible. The
+-- only rows at risk are ones that already violate the old three-column key,
+-- and there are none, because the constraint enforced it. Existing rows get
+-- `@unversioned/` above, so they form their own space rather than being read
+-- as the new model's.
 ALTER TABLE search_embeddings
   DROP CONSTRAINT IF EXISTS search_embeddings_org_id_entity_kind_entity_id_key;
 ALTER TABLE search_embeddings
