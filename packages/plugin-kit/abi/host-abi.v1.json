@@ -21,10 +21,9 @@
       "params": ["i32", "i32", "i32", "i32"],
       "returns": "data",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
@@ -33,12 +32,11 @@
       "params": ["i32", "i32", "i32", "i32", "i32", "i32"],
       "returns": "status",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
         "plugin_kv_quota_exceeded",
         "plugin_kv_value_too_large",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
@@ -47,10 +45,9 @@
       "params": ["i32", "i32", "i32", "i32"],
       "returns": "status",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
@@ -59,10 +56,9 @@
       "params": ["i32", "i32", "i32", "i32", "i32", "i32"],
       "returns": "data",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },

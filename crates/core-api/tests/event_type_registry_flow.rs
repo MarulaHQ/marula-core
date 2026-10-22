@@ -31,6 +31,7 @@ async fn test_state() -> AppState {
     config.database_url = admin_url;
     config.secret_key = core_api::config::SecretKey([11; 32]);
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

@@ -82,6 +82,7 @@ async fn test_state() -> (AppState, Arc<core_store::memory::MemoryStore>) {
         from_name: config.email_from_name.clone(),
     });
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

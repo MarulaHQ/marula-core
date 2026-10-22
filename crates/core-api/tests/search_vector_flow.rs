@@ -34,6 +34,7 @@ async fn test_state() -> AppState {
     // Enable the internal machine surface for the upsert/backfill probes.
     config.internal_token = Some("test-internal-token".to_string());
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

@@ -38,6 +38,7 @@ async fn test_state(dev_tools: bool) -> AppState {
     config.database_url = admin_url;
     config.dev_tools = dev_tools;
     AppState {
+        plugin_pool: Default::default(),
         pool,
         reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
             .expect("reporting pool"),

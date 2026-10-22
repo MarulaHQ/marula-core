@@ -35,6 +35,7 @@ async fn test_state() -> AppState {
     let reporting_url = config.database_url.clone();
     config.database_url = admin_url;
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

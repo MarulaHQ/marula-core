@@ -37,6 +37,7 @@ async fn test_state() -> AppState {
     // Deterministic at-rest key so secret sealing round-trips in-process.
     config.secret_key = core_api::config::SecretKey([11; 32]);
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

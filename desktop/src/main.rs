@@ -488,6 +488,7 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     ));
     let pool = core_db::connect(&config.database_url).await?;
     let state = core_api::state::AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::clone(&config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),

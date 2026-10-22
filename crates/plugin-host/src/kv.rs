@@ -16,19 +16,31 @@
 //! the invocation it was given.
 //!
 //! So the store arrives through a handle this module owns. [`install`] sets it
-//! once per process (the worker or an `in_process` core-api), [`with_store`]
+//! once per process (the worker, or an `in_process` core-api), [`with_store`]
 //! sets it for one thread (a test, or a caller that owns the scope), and
 //! [`current`] resolves thread-first then process. A worker is single-threaded,
 //! so for the shipped isolation profile the two are the same thing.
 //!
+//! ## Three stores, one seam
+//!
+//! - [`MemoryKvStore`] — quota, TTL and ordering rules without a database. It is
+//!   what `cargo test -p plugin-host` drives the four host entries against, and
+//!   it must keep passing with no database and no parent process.
+//! - [`BridgeKvStore`] — what BOTH transports install. It holds no connection
+//!   and no tenant identity: it hands one call to a
+//!   [`HostCallChannel`] and returns the answer, and the parent answers from
+//!   its own record of the invocation (`crate::runtime::HostCallService`).
+//!   A pool worker's channel writes a frame to stdout and blocks on the reply;
+//!   `in_process`'s channel is a message to the task that owns the transaction.
+//!   The store is the same in both, which is what ADR 0023 Decision 2 means by
+//!   "the transport changes nothing about what a plugin may do".
+//! - `core_db::plugin_kv`'s SQL — the parent's side of that bridge
+//!   (`crate::exec`), inside the invocation's own transaction.
+//!
 //! **When no store is installed every verb refuses `plugin_not_implemented`.**
-//! That is not a placeholder: the entry exists and its body is written, but
-//! nothing in this lane's files boots the worker with a store, so a process with
-//! none genuinely cannot serve plugin state. The wiring is the seam this module
-//! publishes — `install(Arc<dyn KvStore>)` at process start — and the two
-//! implementations it can be handed are [`MemoryKvStore`] here and
-//! `core_db::plugin_kv`'s SQL behind a blocking adapter, which needs a runtime
-//! the worker binary does not have yet.
+//! That is still a real answer, not a leftover: a bare `PluginRuntime::invoke`
+//! passes [`crate::runtime::NoHostCalls`] and a unit test installs nothing, and
+//! both are processes with nowhere to put the bytes.
 //!
 //! ## The two quota numbers
 //!
@@ -50,6 +62,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use chrono::{DateTime, Utc};
@@ -57,6 +70,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::abi::{self, Refusal};
+use crate::wire;
 
 /// Keys one install may hold (ADR 0023 Decision 4: "KV keys per install").
 pub const KV_KEYS_PER_INSTALL: i64 = 100_000;
@@ -90,6 +104,11 @@ pub enum KvError {
     QuotaExceeded,
     /// No store is installed in this process, so the verb cannot be served.
     Unavailable,
+    /// The invocation has spent the parent's host-call allowance
+    /// (`crate::runtime::MAX_HOST_CALLS_PER_INVOCATION`). Only
+    /// [`BridgeKvStore`] produces it: a store inside the parent answers the
+    /// call itself and has no allowance to spend.
+    HostCallBudgetExhausted,
     /// The store's backend failed. The message is for the log, never for the
     /// guest.
     Backend(String),
@@ -107,10 +126,16 @@ impl KvError {
     /// `plugin_kv_unavailable` code (25) in the next ABI amendment, and until
     /// then a store implementation should prefer to answer from whatever it can
     /// rather than surface `Backend`.
+    ///
+    /// `HostCallBudgetExhausted` derives [`Refusal::FuelExhausted`] for the same
+    /// reason: the closed vocabulary has no "host-call allowance" code, and fuel
+    /// is the code it already has for an invocation that used up the work it was
+    /// given. A dedicated code belongs in the same amendment as the one above.
     pub fn refusal(&self) -> Refusal {
         match self {
             KvError::QuotaExceeded => Refusal::KvQuotaExceeded,
             KvError::Unavailable => Refusal::NotImplemented,
+            KvError::HostCallBudgetExhausted => Refusal::FuelExhausted,
             KvError::Backend(_) => Refusal::WorkerFailed,
         }
     }
@@ -241,6 +266,207 @@ pub fn with_store<T>(store: Arc<dyn KvStore>, f: impl FnOnce() -> T) -> T {
     let previous = THREAD_STORE.with(|slot| slot.borrow_mut().replace(store));
     let _restore = Restore(previous);
     f()
+}
+
+// ---------------------------------------------------------------------------
+// The bridge: the worker asks the parent (W53-11)
+// ---------------------------------------------------------------------------
+
+/// The transport a [`BridgeKvStore`] hands one call to. The worker binary
+/// implements it over the stdin/stdout pair it already owns; a test implements
+/// it with a queue.
+///
+/// `Err` is a transport failure — a closed pipe, a frame that will not decode,
+/// an answer to another call. It is never a refusal: a refusal is a well-formed
+/// [`wire::HostCallOutcome::Refused`] the parent chose, which is a different
+/// thing and must not be reported as [`KvError::Backend`] by accident.
+pub trait HostCallChannel: Send + Sync {
+    fn exchange(&self, frame: &wire::HostCallFrame) -> Result<wire::HostReplyFrame, String>;
+}
+
+/// The store a POOL worker installs: it implements [`KvStore`] by asking the
+/// parent.
+///
+/// The worker holds no database handle, no tenant identity and no credential.
+/// Every call it makes is one frame on a pipe it already owns, answered by the
+/// parent from the parent's own record of the invocation — which is why the
+/// frames name only an invocation id and a call number (see `wire`'s header).
+///
+/// ## Why the invocation is bound per run
+///
+/// The store is installed once, at worker start (there is one worker per
+/// process and its pipes never change). The invocation id is not, so
+/// [`BridgeKvStore::begin_invocation`] sets it immediately before
+/// `sandbox.run` and [`BridgeKvStore::end_invocation`] clears it afterwards.
+/// A call with no bound invocation is [`KvError::Unavailable`] rather than a
+/// frame with a guessed id: the parent would refuse it anyway, and inventing
+/// one would put a wrong correlator in a log.
+pub struct BridgeKvStore {
+    channel: Arc<dyn HostCallChannel>,
+    invocation: RwLock<Option<Uuid>>,
+    next_call: AtomicU64,
+}
+
+impl BridgeKvStore {
+    pub fn new(channel: Arc<dyn HostCallChannel>) -> Self {
+        BridgeKvStore {
+            channel,
+            invocation: RwLock::new(None),
+            next_call: AtomicU64::new(0),
+        }
+    }
+
+    /// Binds the store to the invocation about to run. The counter restarts at
+    /// zero, because the parent counts calls per invocation.
+    pub fn begin_invocation(&self, invocation_id: Uuid) {
+        *self
+            .invocation
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(invocation_id);
+        self.next_call.store(0, Ordering::SeqCst);
+    }
+
+    /// Unbinds the invocation. A host call after this point is unavailable
+    /// rather than attributed to the invocation that just finished.
+    pub fn end_invocation(&self) {
+        *self
+            .invocation
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    /// One frame out, one frame back, with both correlators checked.
+    fn ask(&self, op: wire::HostCallOp) -> Result<wire::HostCallValue, KvError> {
+        let invocation_id = self
+            .invocation
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_ref()
+            .copied()
+            .ok_or(KvError::Unavailable)?;
+        let call_id = self.next_call.fetch_add(1, Ordering::SeqCst);
+        let reply = self
+            .channel
+            .exchange(&wire::HostCallFrame {
+                invocation_id,
+                call_id,
+                op,
+            })
+            .map_err(KvError::Backend)?;
+        if reply.invocation_id != invocation_id || reply.call_id != call_id {
+            // A stale or crossed reply would otherwise be handed to the guest
+            // as if it answered the call it just made.
+            return Err(KvError::Backend(
+                "the parent answered a different host call".to_string(),
+            ));
+        }
+        match reply.outcome {
+            wire::HostCallOutcome::Ok(value) => Ok(value),
+            wire::HostCallOutcome::Refused(refusal) => Err(match refusal {
+                wire::HostCallRefusal::QuotaExceeded => KvError::QuotaExceeded,
+                wire::HostCallRefusal::BudgetExhausted => KvError::HostCallBudgetExhausted,
+                wire::HostCallRefusal::Unavailable => KvError::Unavailable,
+                wire::HostCallRefusal::Failed => {
+                    KvError::Backend("the parent's store failed".to_string())
+                }
+            }),
+        }
+    }
+}
+
+/// The value a reply must carry for one verb, or the transport error that says
+/// the parent answered the wrong shape for the call that was made.
+fn shape_mismatch(verb: &str, value: &wire::HostCallValue) -> KvError {
+    KvError::Backend(format!(
+        "the parent answered {verb} with {}",
+        match value {
+            wire::HostCallValue::Unit => "unit",
+            wire::HostCallValue::Absent => "an absent value",
+            wire::HostCallValue::Value(_) => "a value",
+            wire::HostCallValue::Existed(_) => "an existence flag",
+            wire::HostCallValue::Page { .. } => "a page",
+        }
+    ))
+}
+
+impl KvStore for BridgeKvStore {
+    fn get(
+        &self,
+        _org_id: Uuid,
+        _install_id: Uuid,
+        namespace: &str,
+        key: &str,
+    ) -> Result<Option<Vec<u8>>, KvError> {
+        // The two identities are the CALLER's and stay in this process: the
+        // frame has no field for them, and the parent composes them from the
+        // invocation it dispatched. That is the whole reason a worker may hold
+        // this store and a worker may not hold a connection.
+        match self.ask(wire::HostCallOp::KvGet {
+            namespace: namespace.to_string(),
+            key: key.to_string(),
+        })? {
+            wire::HostCallValue::Absent => Ok(None),
+            wire::HostCallValue::Value(value) => Ok(Some(value)),
+            other => Err(shape_mismatch("kv_get", &other)),
+        }
+    }
+
+    fn put(
+        &self,
+        _org_id: Uuid,
+        _install_id: Uuid,
+        namespace: &str,
+        key: &str,
+        value: &[u8],
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<(), KvError> {
+        match self.ask(wire::HostCallOp::KvPut {
+            namespace: namespace.to_string(),
+            key: key.to_string(),
+            value: value.to_vec(),
+            expires_at,
+        })? {
+            wire::HostCallValue::Unit => Ok(()),
+            other => Err(shape_mismatch("kv_put", &other)),
+        }
+    }
+
+    fn delete(
+        &self,
+        _org_id: Uuid,
+        _install_id: Uuid,
+        namespace: &str,
+        key: &str,
+    ) -> Result<bool, KvError> {
+        match self.ask(wire::HostCallOp::KvDelete {
+            namespace: namespace.to_string(),
+            key: key.to_string(),
+        })? {
+            wire::HostCallValue::Existed(existed) => Ok(existed),
+            other => Err(shape_mismatch("kv_delete", &other)),
+        }
+    }
+
+    fn list(
+        &self,
+        _org_id: Uuid,
+        _install_id: Uuid,
+        namespace: &str,
+        prefix: &str,
+        cursor: Option<&str>,
+    ) -> Result<KvKeyPage, KvError> {
+        match self.ask(wire::HostCallOp::KvList {
+            namespace: namespace.to_string(),
+            prefix: prefix.to_string(),
+            cursor: cursor.map(str::to_string),
+        })? {
+            wire::HostCallValue::Page { keys, cursor } => Ok(KvKeyPage {
+                keys,
+                next_cursor: cursor,
+            }),
+            other => Err(shape_mismatch("kv_list", &other)),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -924,5 +1150,248 @@ mod tests {
             current().is_none(),
             "the thread handle was cleared on unwind"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // The bridge, driven by a channel a test controls
+    // -----------------------------------------------------------------------
+
+    type Answer =
+        Box<dyn Fn(&wire::HostCallFrame) -> Result<wire::HostReplyFrame, String> + Send + Sync>;
+
+    struct CannedChannel {
+        calls: Mutex<Vec<wire::HostCallFrame>>,
+        answer: Answer,
+    }
+
+    impl CannedChannel {
+        fn new(
+            answer: impl Fn(&wire::HostCallFrame) -> Result<wire::HostReplyFrame, String>
+                + Send
+                + Sync
+                + 'static,
+        ) -> Arc<Self> {
+            Arc::new(CannedChannel {
+                calls: Mutex::new(Vec::new()),
+                answer: Box::new(answer),
+            })
+        }
+
+        fn calls(&self) -> Vec<wire::HostCallFrame> {
+            self.calls
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+    }
+
+    impl HostCallChannel for CannedChannel {
+        fn exchange(&self, frame: &wire::HostCallFrame) -> Result<wire::HostReplyFrame, String> {
+            self.calls
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(frame.clone());
+            (self.answer)(frame)
+        }
+    }
+
+    /// A channel that answers every call with `outcome`, echoing both
+    /// correlators the way the parent does.
+    fn replying(
+        outcome: impl Fn(&wire::HostCallFrame) -> wire::HostCallOutcome + Send + Sync + 'static,
+    ) -> Arc<CannedChannel> {
+        CannedChannel::new(move |frame| {
+            Ok(wire::HostReplyFrame {
+                invocation_id: frame.invocation_id,
+                call_id: frame.call_id,
+                outcome: outcome(frame),
+            })
+        })
+    }
+
+    /// A store bound to the harness's invocation, and the channel behind it.
+    fn bridged(invocation_id: Uuid, channel: Arc<CannedChannel>) -> Arc<BridgeKvStore> {
+        let store = Arc::new(BridgeKvStore::new(channel));
+        store.begin_invocation(invocation_id);
+        store
+    }
+
+    #[test]
+    fn a_bridge_names_only_the_invocation_and_the_call_it_is_making() {
+        let channel = replying(|frame| match &frame.op {
+            wire::HostCallOp::KvGet { .. } => wire::HostCallValue::Value(b"stored".to_vec()).into(),
+            wire::HostCallOp::KvPut { value, .. } => {
+                assert_eq!(value, b"new value");
+                wire::HostCallValue::Unit.into()
+            }
+            wire::HostCallOp::KvDelete { .. } => wire::HostCallValue::Existed(true).into(),
+            wire::HostCallOp::KvList { cursor, .. } => wire::HostCallValue::Page {
+                keys: vec!["a1".into(), "a2".into()],
+                cursor: cursor.as_ref().map(|_| "a3".to_string()),
+            }
+            .into(),
+        });
+        let store = bridged(Uuid::now_v7(), Arc::clone(&channel));
+        let invocation_id = store
+            .invocation
+            .read()
+            .unwrap()
+            .expect("the test bound an invocation");
+        with_store(store, || {
+            let mut harness = Harness::new(state());
+            let (ns, ns_len) = harness.put_str("cache");
+            let (k, k_len) = harness.put_str("k");
+            let args = [ns as i32, ns_len as i32, k as i32, k_len as i32];
+
+            assert_eq!(
+                payload(harness.call("kv_get", &args)),
+                Ok(b"stored".to_vec())
+            );
+            assert_eq!(
+                put_call(&mut harness, "cache", "k", b"new value"),
+                Ok(HostReturn::Status(0))
+            );
+            assert_eq!(harness.call("kv_delete", &args), Ok(HostReturn::Status(0)));
+            let (prefix, prefix_len) = harness.put_str("a");
+            let (cur, cur_len) = harness.put_str("");
+            let page = payload(harness.call(
+                "kv_list",
+                &[
+                    ns as i32,
+                    ns_len as i32,
+                    prefix as i32,
+                    prefix_len as i32,
+                    cur as i32,
+                    cur_len as i32,
+                ],
+            ))
+            .expect("a page");
+            assert!(String::from_utf8_lossy(&page).contains("a1"));
+        });
+
+        let calls = channel.calls();
+        assert_eq!(calls.len(), 4, "one frame per verb");
+        for (index, frame) in calls.iter().enumerate() {
+            assert_eq!(
+                frame.invocation_id, invocation_id,
+                "every frame names the invocation the worker is running"
+            );
+            assert_eq!(
+                frame.call_id, index as u64,
+                "the correlator is the worker's own count, in order"
+            );
+        }
+        assert_eq!(calls[0].op.verb(), wire::HostVerb::KvGet);
+        assert_eq!(calls[3].op.verb(), wire::HostVerb::KvList);
+    }
+
+    #[test]
+    fn every_parent_refusal_maps_onto_an_existing_abi_code_and_never_invents_one() {
+        for (refusal, expected) in [
+            (
+                wire::HostCallRefusal::QuotaExceeded,
+                Refusal::KvQuotaExceeded,
+            ),
+            (
+                wire::HostCallRefusal::BudgetExhausted,
+                Refusal::FuelExhausted,
+            ),
+            (wire::HostCallRefusal::Unavailable, Refusal::NotImplemented),
+            (wire::HostCallRefusal::Failed, Refusal::WorkerFailed),
+        ] {
+            let channel = replying(move |_| wire::HostCallOutcome::Refused(refusal));
+            let store = bridged(Uuid::now_v7(), channel);
+            with_store(store, || {
+                let mut harness = Harness::new(state());
+                assert_eq!(
+                    get_call(&mut harness, "cache", "k"),
+                    Err(expected),
+                    "{refusal:?} must map onto a code the ABI already has"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn a_reply_to_another_call_is_a_transport_failure_not_an_answer() {
+        // The parent echoes both correlators. A reply that answers a different
+        // call must never reach the guest as if it answered this one.
+        let channel = CannedChannel::new(|frame| {
+            Ok(wire::HostReplyFrame {
+                invocation_id: frame.invocation_id,
+                call_id: frame.call_id + 1,
+                outcome: wire::HostCallOutcome::Ok(wire::HostCallValue::Value(b"x".to_vec())),
+            })
+        });
+        let store = bridged(Uuid::now_v7(), channel);
+        with_store(store, || {
+            let mut harness = Harness::new(state());
+            assert_eq!(
+                get_call(&mut harness, "cache", "k"),
+                Err(Refusal::WorkerFailed)
+            );
+        });
+    }
+
+    #[test]
+    fn a_reply_of_the_wrong_shape_for_the_verb_is_a_transport_failure() {
+        // A page where a value belongs would otherwise be handed to the guest
+        // as a `kv_get` answer.
+        let channel = replying(|_| {
+            wire::HostCallValue::Page {
+                keys: vec!["a".into()],
+                cursor: None,
+            }
+            .into()
+        });
+        let store = bridged(Uuid::now_v7(), channel);
+        with_store(store, || {
+            let mut harness = Harness::new(state());
+            assert_eq!(
+                get_call(&mut harness, "cache", "k"),
+                Err(Refusal::WorkerFailed)
+            );
+        });
+    }
+
+    #[test]
+    fn a_bridge_with_no_invocation_bound_is_unavailable_without_writing_a_frame() {
+        let channel = replying(|_| wire::HostCallValue::Unit.into());
+        let store: Arc<dyn KvStore> = Arc::new(BridgeKvStore::new(
+            Arc::clone(&channel) as Arc<dyn HostCallChannel>
+        ));
+        with_store(store, || {
+            let mut harness = Harness::new(state());
+            assert_eq!(
+                get_call(&mut harness, "cache", "k"),
+                Err(Refusal::NotImplemented)
+            );
+            assert_eq!(
+                put_call(&mut harness, "cache", "k", b"v"),
+                Err(Refusal::NotImplemented)
+            );
+        });
+        assert!(
+            channel.calls().is_empty(),
+            "an unbound bridge must not invent an invocation id"
+        );
+    }
+
+    #[test]
+    fn the_call_counter_restarts_for_each_invocation() {
+        let channel = replying(|_| wire::HostCallValue::Absent.into());
+        let store = bridged(Uuid::now_v7(), Arc::clone(&channel));
+        with_store(store.clone(), || {
+            let mut harness = Harness::new(state());
+            let _ = get_call(&mut harness, "cache", "a");
+            let _ = get_call(&mut harness, "cache", "b");
+        });
+        store.begin_invocation(Uuid::now_v7());
+        with_store(store, || {
+            let mut harness = Harness::new(state());
+            let _ = get_call(&mut harness, "cache", "c");
+        });
+        let ids: Vec<u64> = channel.calls().iter().map(|frame| frame.call_id).collect();
+        assert_eq!(ids, vec![0, 1, 0], "the parent counts per invocation");
     }
 }

@@ -39,6 +39,7 @@ async fn test_state() -> AppState {
     // Deterministic at-rest key so the signed-download scheme is testable.
     config.secret_key = core_api::config::SecretKey([13; 32]);
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
