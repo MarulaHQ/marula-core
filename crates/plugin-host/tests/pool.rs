@@ -1,0 +1,358 @@
+//! The pool against a REAL worker process: the reference plugin, a killed
+//! worker, a runaway guest, the install rate bucket, and the two transports.
+//!
+//! These are integration tests because the thing under test is a child process
+//! and a pipe. `cargo` builds `marula-plugin-worker` for this target and hands
+//! its path over in `CARGO_BIN_EXE_<name>`.
+
+use std::time::{Duration, Instant};
+
+use plugin_host::abi::{InvocationOutcome, InvocationRequest, Refusal, MAX_INPUT_BYTES};
+use plugin_host::isolation::{ModuleArtifact, SandboxLimits};
+use plugin_host::runtime::{IsolationMode, PluginPool, PoolConfig, PoolError};
+use plugin_host::wire;
+use plugin_host::{InvocationResult, PluginRuntime};
+use uuid::Uuid;
+
+fn worker_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_marula-plugin-worker")
+}
+
+fn pool_config(mode: IsolationMode) -> PoolConfig {
+    PoolConfig {
+        mode,
+        workers: 1,
+        worker_bin: Some(worker_bin().into()),
+        health: None,
+        sandbox_limits: SandboxLimits::default(),
+    }
+}
+
+async fn pool() -> std::sync::Arc<PluginPool> {
+    PluginPool::start(pool_config(IsolationMode::Pool))
+        .await
+        .expect("the pool starts")
+}
+
+/// The committed reference plugin, byte for byte: the same artifact an operator
+/// installs, not a fixture that could drift from it.
+fn reference_plugin() -> ModuleArtifact {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../plugins/wasm/escalation-widget/plugin.wasm"
+    );
+    let bytes = std::fs::read(path).expect("the reference plugin is committed");
+    ModuleArtifact {
+        digest: ModuleArtifact::digest_of(&bytes),
+        bytes,
+    }
+}
+
+fn artifact_from_wat(source: &str) -> ModuleArtifact {
+    let bytes = wat::parse_str(source).expect("valid WAT");
+    ModuleArtifact {
+        digest: ModuleArtifact::digest_of(&bytes),
+        bytes,
+    }
+}
+
+fn request(install_id: Uuid) -> InvocationRequest {
+    InvocationRequest {
+        invocation_id: Uuid::now_v7(),
+        org_id: Uuid::now_v7(),
+        install_id,
+        entry: "plugin.escalation-widget.escalation_policy".into(),
+        payload: br#"{"ticket":"01J"}"#.to_vec(),
+        granted: vec!["ui.widgets".into()],
+        declared_events: Vec::new(),
+        egress: Default::default(),
+    }
+}
+
+fn install() -> Uuid {
+    Uuid::now_v7()
+}
+
+/// A guest that will not stop is stopped by whichever cap comes first. For a
+/// pure spin that is fuel: 200,000,000 fuel is about 200 ms of Cranelift code,
+/// which lands before the 250 ms epoch — the ADR's own arithmetic. The epoch's
+/// own path is proven in `isolation`'s unit test, where the limits are narrow.
+fn is_a_limit_refusal(reason: Option<Refusal>) -> bool {
+    matches!(
+        reason,
+        Some(Refusal::FuelExhausted) | Some(Refusal::WallClockExceeded)
+    )
+}
+
+fn output_text(result: &InvocationResult) -> String {
+    String::from_utf8(
+        result
+            .reply
+            .output
+            .clone()
+            .expect("the reference plugin returns its props"),
+    )
+    .expect("the props are UTF-8")
+}
+
+#[tokio::test]
+async fn a_pool_runs_the_reference_plugin_in_a_real_worker() {
+    let pool = pool().await;
+    let result = pool.invoke(&request(install()), &reference_plugin()).await;
+
+    assert_eq!(result.reply.outcome, InvocationOutcome::Ok);
+    assert_eq!(result.reply.validate(), Ok(()), "{:?}", result.reply);
+    assert_eq!(result.reply.invocation_id, result.reply.invocation_id);
+    assert!(
+        result.reply.fuel_used.expect("ok replies carry fuel") > 0,
+        "a real guest burns fuel"
+    );
+    assert!(output_text(&result).contains("escalation_policy"));
+    let worker = result.worker.expect("a pool result names its worker");
+    assert!(
+        worker.starts_with("marula-plugin-worker:"),
+        "worker label was {worker}"
+    );
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_dead_worker_yields_a_reply_and_a_replacement() {
+    let pool = pool().await;
+    let plugin = reference_plugin();
+
+    let first = pool.invoke(&request(install()), &plugin).await;
+    assert_eq!(first.reply.outcome, InvocationOutcome::Ok);
+    let worker = first.worker.clone().expect("worker label");
+    let pid: u32 = worker
+        .rsplit(':')
+        .next()
+        .and_then(|pid| pid.parse().ok())
+        .expect("the label ends in a pid");
+
+    // The one way to reach the worker-failure path from outside: kill the child.
+    let killed = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .status()
+        .expect("kill runs");
+    assert!(killed.success(), "kill -9 {pid} failed");
+
+    let second = pool.invoke(&request(install()), &plugin).await;
+    assert_eq!(
+        second.reply.outcome,
+        InvocationOutcome::WorkerFailed,
+        "{:?}",
+        second.reply
+    );
+    assert_eq!(second.reply.reason, Some(Refusal::WorkerFailed));
+    assert_eq!(
+        second.reply.fuel_used, None,
+        "a dead worker has no fuel figure to report (Decision 7)"
+    );
+    assert_eq!(second.reply.validate(), Ok(()));
+    assert_eq!(
+        second.worker.as_deref(),
+        Some(worker.as_str()),
+        "the audit row names the worker that died"
+    );
+
+    // Crash containment: the next invocation gets a fresh worker and succeeds.
+    let third = pool.invoke(&request(install()), &plugin).await;
+    assert_eq!(
+        third.reply.outcome,
+        InvocationOutcome::Ok,
+        "{:?}",
+        third.reply
+    );
+    assert_ne!(third.worker, second.worker);
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_runaway_guest_is_stopped_and_its_worker_survives_it() {
+    let pool = pool().await;
+    let spinner = artifact_from_wat(
+        r#"
+        (module
+          (memory (export "memory") 1)
+          (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
+          (func (export "marula_free") (param i32) (param i32))
+          (func (export "marula_entry") (param i32) (param i32) (result i64)
+            (loop $spin (br $spin))
+            (i64.const 0)))
+        "#,
+    );
+
+    let started = Instant::now();
+    let runaway = pool.invoke(&request(install()), &spinner).await;
+    assert_eq!(runaway.reply.outcome, InvocationOutcome::Refused);
+    assert!(
+        is_a_limit_refusal(runaway.reply.reason),
+        "{:?}",
+        runaway.reply.reason
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(2_000),
+        "the epoch deadline is 250 ms; {:?} means it did not fire",
+        started.elapsed()
+    );
+
+    let after = pool.invoke(&request(install()), &reference_plugin()).await;
+    assert_eq!(
+        after.reply.outcome,
+        InvocationOutcome::Ok,
+        "{:?}",
+        after.reply
+    );
+    assert_eq!(
+        after.worker, runaway.worker,
+        "a guest that burns its wall clock must not take the worker with it"
+    );
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn an_artifact_whose_bytes_do_not_match_its_digest_is_refused_by_the_worker() {
+    let pool = pool().await;
+    let mut tampered = reference_plugin();
+    tampered.bytes.push(0);
+
+    let result = pool.invoke(&request(install()), &tampered).await;
+    assert_eq!(result.reply.outcome, InvocationOutcome::Refused);
+    assert_eq!(result.reply.reason, Some(Refusal::FrameInvalid));
+    assert!(
+        result.worker.is_some(),
+        "the worker answered; it did not die"
+    );
+
+    // And it is still healthy for the honest artifact.
+    let honest = pool.invoke(&request(install()), &reference_plugin()).await;
+    assert_eq!(honest.reply.outcome, InvocationOutcome::Ok);
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn frames_that_never_reach_a_worker_are_refused_with_no_worker_label() {
+    let pool = pool().await;
+
+    let mut oversized = request(install());
+    oversized.payload = vec![0; MAX_INPUT_BYTES + 1];
+    let result = pool.invoke(&oversized, &reference_plugin()).await;
+    assert_eq!(result.reply.reason, Some(Refusal::InputTooLarge));
+    assert_eq!(result.worker, None);
+    assert_eq!(result.reply.validate(), Ok(()));
+
+    let mut bad_digest = reference_plugin();
+    bad_digest.digest = "not-a-sha256".into();
+    let result = pool.invoke(&request(install()), &bad_digest).await;
+    assert_eq!(result.reply.reason, Some(Refusal::FrameInvalid));
+    assert_eq!(result.worker, None);
+
+    // A grant the closed vocabulary does not define never leaves this process.
+    let mut smuggled = request(install());
+    smuggled.granted = vec!["sudo.everything".into()];
+    let result = pool.invoke(&smuggled, &reference_plugin()).await;
+    assert_eq!(result.reply.reason, Some(Refusal::FrameInvalid));
+    assert_eq!(result.worker, None);
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_install_rate_bucket_refuses_sustained_load() {
+    let pool = pool().await;
+    let plugin = reference_plugin();
+    let request = request(install());
+
+    let mut first_refusal = None;
+    for index in 0..90 {
+        let result = pool.invoke(&request, &plugin).await;
+        if result.reply.reason == Some(Refusal::RateLimited) {
+            first_refusal = Some(index);
+            break;
+        }
+    }
+    let first_refusal = first_refusal.expect("a sustained loop must be refused");
+    assert!(
+        first_refusal >= usize::try_from(plugin_host::abi::INVOCATION_BURST_PER_INSTALL).unwrap(),
+        "the burst of {} was served before the refusal at {first_refusal}",
+        plugin_host::abi::INVOCATION_BURST_PER_INSTALL
+    );
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_disabled_runtime_refuses_everything_without_spawning_a_worker() {
+    let pool = PluginPool::start(pool_config(IsolationMode::Disabled))
+        .await
+        .expect("a disabled pool starts without a worker");
+    assert!(!pool.enabled());
+    let result = pool.invoke(&request(install()), &reference_plugin()).await;
+    assert_eq!(result.reply.outcome, InvocationOutcome::Refused);
+    assert_eq!(result.reply.reason, Some(Refusal::RuntimeDisabled));
+    assert_eq!(result.worker, None);
+}
+
+#[tokio::test]
+async fn in_process_runs_the_same_plugin_under_the_same_limits() {
+    let pool = PluginPool::start(pool_config(IsolationMode::InProcess))
+        .await
+        .expect("in-process sandbox builds");
+    let result = pool.invoke(&request(install()), &reference_plugin()).await;
+    assert_eq!(
+        result.reply.outcome,
+        InvocationOutcome::Ok,
+        "{:?}",
+        result.reply
+    );
+    assert_eq!(result.worker.as_deref(), Some("in-process"));
+    assert!(output_text(&result).contains("escalation_policy"));
+
+    let spinner = artifact_from_wat(
+        r#"
+        (module
+          (memory (export "memory") 1)
+          (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
+          (func (export "marula_free") (param i32) (param i32))
+          (func (export "marula_entry") (param i32) (param i32) (result i64)
+            (loop $spin (br $spin))
+            (i64.const 0)))
+        "#,
+    );
+    let runaway = pool.invoke(&request(install()), &spinner).await;
+    assert!(
+        is_a_limit_refusal(runaway.reply.reason),
+        "{:?}",
+        runaway.reply.reason
+    );
+}
+
+#[tokio::test]
+async fn a_pool_without_its_worker_binary_fails_to_start() {
+    let error = PluginPool::start(
+        PoolConfig::default().with_worker_bin("/nonexistent/marula-plugin-worker"),
+    )
+    .await
+    .expect_err("a missing worker must fail the boot");
+    assert!(
+        matches!(error, PoolError::WorkerUnavailable { .. }),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn a_binary_that_does_not_speak_the_protocol_fails_to_start() {
+    // `/bin/cat` starts, stays alive and answers nothing: exactly the wrong
+    // binary. The pool must refuse it at boot, not hang the first invocation.
+    let error = PluginPool::start(PoolConfig::default().with_worker_bin("/bin/cat"))
+        .await
+        .expect_err("a foreign binary must fail the boot");
+    assert!(
+        matches!(error, PoolError::WorkerUnavailable { .. }),
+        "{error}"
+    );
+}
+
+const _: () = assert!(
+    wire::MAX_FRAME_BYTES > wire::MAX_MODULE_BYTES + MAX_INPUT_BYTES,
+    "a full module plus a full payload must fit"
+);

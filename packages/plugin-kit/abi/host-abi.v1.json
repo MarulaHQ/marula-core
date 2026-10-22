@@ -1,5 +1,5 @@
 {
-  "$comment": "The v1 guest ABI of ADR 0023, as DATA. Source of truth for the numbers and the namespace: crates/plugin-host/src/abi.rs and src/host_fns/. The kit reads this file to validate a module at build time, and crates/plugin-host tests read it to prove the mirror still agrees. Change the Rust first, then this file in the same commit.",
+  "$comment": "The v1 guest ABI of ADR 0023, as DATA. Source of truth for the numbers and the namespace: crates/plugin-host/src/abi.rs and src/host_fns/. The kit reads this file to validate a module at build time, and crates/plugin-host tests read it to prove the mirror still agrees. Change the Rust first, then this file in the same commit. A refusal row carrying \"scope\": \"executor\" is decided by the sandbox or the pool around the guest and never arrives in-band — its code is reserved, not handed back by a host function.",
   "abi_version": 1,
   "namespace": "marula",
   "exports": [
@@ -158,6 +158,13 @@
     { "code": 14, "reason": "plugin_unknown_host_fn" },
     { "code": 15, "reason": "plugin_abi_frame_invalid" },
     { "code": 16, "reason": "plugin_input_too_large" },
-    { "code": 17, "reason": "plugin_output_too_large" }
+    { "code": 17, "reason": "plugin_output_too_large" },
+    { "code": 18, "reason": "plugin_fuel_exhausted", "scope": "executor" },
+    { "code": 19, "reason": "plugin_wall_clock_exceeded", "scope": "executor" },
+    { "code": 20, "reason": "plugin_guest_trap", "scope": "executor" },
+    { "code": 21, "reason": "plugin_install_quarantined", "scope": "executor" },
+    { "code": 22, "reason": "plugin_rate_limited", "scope": "executor" },
+    { "code": 23, "reason": "plugin_concurrency_limited", "scope": "executor" },
+    { "code": 24, "reason": "plugin_runtime_disabled", "scope": "executor" }
   ]
 }

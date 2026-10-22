@@ -67,10 +67,20 @@ pub enum Refusal {
     FrameInvalid,
     InputTooLarge,
     OutputTooLarge,
+    // Executor refusals (host side of ADR 0023 Decision 4). They never arrive
+    // in-band; the variants exist here so a plugin that greps the catalogue and
+    // this crate sees one vocabulary rather than two.
+    FuelExhausted,
+    WallClockExceeded,
+    GuestTrap,
+    Quarantined,
+    RateLimited,
+    ConcurrencyLimited,
+    RuntimeDisabled,
 }
 
 impl Refusal {
-    pub const ALL: [Refusal; 17] = [
+    pub const ALL: [Refusal; 24] = [
         Refusal::CapabilityNotGranted,
         Refusal::LogBudgetExceeded,
         Refusal::KvNamespaceDenied,
@@ -88,6 +98,13 @@ impl Refusal {
         Refusal::FrameInvalid,
         Refusal::InputTooLarge,
         Refusal::OutputTooLarge,
+        Refusal::FuelExhausted,
+        Refusal::WallClockExceeded,
+        Refusal::GuestTrap,
+        Refusal::Quarantined,
+        Refusal::RateLimited,
+        Refusal::ConcurrencyLimited,
+        Refusal::RuntimeDisabled,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -109,6 +126,13 @@ impl Refusal {
             Refusal::FrameInvalid => "plugin_abi_frame_invalid",
             Refusal::InputTooLarge => "plugin_input_too_large",
             Refusal::OutputTooLarge => "plugin_output_too_large",
+            Refusal::FuelExhausted => "plugin_fuel_exhausted",
+            Refusal::WallClockExceeded => "plugin_wall_clock_exceeded",
+            Refusal::GuestTrap => "plugin_guest_trap",
+            Refusal::Quarantined => "plugin_install_quarantined",
+            Refusal::RateLimited => "plugin_rate_limited",
+            Refusal::ConcurrencyLimited => "plugin_concurrency_limited",
+            Refusal::RuntimeDisabled => "plugin_runtime_disabled",
         }
     }
 
@@ -131,6 +155,13 @@ impl Refusal {
             Refusal::FrameInvalid => 15,
             Refusal::InputTooLarge => 16,
             Refusal::OutputTooLarge => 17,
+            Refusal::FuelExhausted => 18,
+            Refusal::WallClockExceeded => 19,
+            Refusal::GuestTrap => 20,
+            Refusal::Quarantined => 21,
+            Refusal::RateLimited => 22,
+            Refusal::ConcurrencyLimited => 23,
+            Refusal::RuntimeDisabled => 24,
         }
     }
 

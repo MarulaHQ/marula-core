@@ -84,6 +84,7 @@ pub mod partitions;
 pub mod passwords;
 pub mod pipeline;
 pub mod plugin_distribution;
+pub mod plugin_health;
 pub mod plugin_signing_keys;
 pub mod plugin_surface;
 pub mod plugins;

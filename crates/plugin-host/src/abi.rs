@@ -82,6 +82,21 @@ pub const INSTANCE_MEMORY_MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// Worker resident ceiling (W53-3 restarts above it).
 pub const WORKER_RESIDENT_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
+// The three numbers below are the rest of ADR 0023 Decision 4 and live beside the
+// ones above so nothing retypes them. They are deliberately absent from
+// `packages/plugin-kit/abi/host-abi.v1.json`: that catalogue is the GUEST
+// contract, and a guest can neither read nor act on a restart threshold or a
+// rate budget. The executor is their only consumer.
+
+/// Worker restart threshold for one invocation. A worker that has not answered
+/// within this window is killed and replaced, whatever it is doing.
+pub const WORKER_RESTART_THRESHOLD_MS: u64 = 500;
+/// Invocations one install may make per minute (the refill of its token bucket).
+pub const INVOCATIONS_PER_MINUTE_PER_INSTALL: u32 = 300;
+/// Burst allowance of the same bucket — peaks are absorbed, sustained load is
+/// not.
+pub const INVOCATION_BURST_PER_INSTALL: u32 = 60;
+
 // ---------------------------------------------------------------------------
 // The refusal vocabulary. One enum over ADR 0023 Decision 3's static strings,
 // plus the ABI-level codes this lane owns. Every value has a stable wire
@@ -132,11 +147,35 @@ pub enum Refusal {
     InputTooLarge,
     /// The guest's reply is above [`MAX_OUTPUT_BYTES`].
     OutputTooLarge,
+
+    // -- Executor refusals (W53-3). None of these can arrive in-band: they are
+    // decided by the sandbox or the pool around the guest, never by a host
+    // function, so a guest SDK sees them only through the audit row. ---------
+    /// The invocation consumed its [`FUEL_PER_INVOCATION`] budget.
+    FuelExhausted,
+    /// The invocation reached the wall-clock deadline ([`WALL_CLOCK_MS`])
+    /// before it ran out of fuel. The worker survived; the invocation did not.
+    WallClockExceeded,
+    /// The guest trapped: a panic, `unreachable`, an out-of-bounds access, a
+    /// stack overflow, or a memory growth past [`INSTANCE_MEMORY_MAX_BYTES`].
+    /// The worker survived.
+    GuestTrap,
+    /// The install is quarantined after repeated worker failures and an
+    /// operator has not cleared it.
+    Quarantined,
+    /// The install is over its invocation rate ([`INVOCATIONS_PER_MINUTE_PER_INSTALL`],
+    /// burst [`INVOCATION_BURST_PER_INSTALL`]).
+    RateLimited,
+    /// No worker, org or install slot came free inside the wait budget.
+    ConcurrencyLimited,
+    /// Plugin execution is admin-disabled on this deployment. `enabled()` on
+    /// the runtime is the outermost gate and this is what it refuses with.
+    RuntimeDisabled,
 }
 
 impl Refusal {
     /// Every refusal, in code order.
-    pub const ALL: [Refusal; 17] = [
+    pub const ALL: [Refusal; 24] = [
         Refusal::CapabilityNotGranted,
         Refusal::LogBudgetExceeded,
         Refusal::KvNamespaceDenied,
@@ -154,6 +193,13 @@ impl Refusal {
         Refusal::FrameInvalid,
         Refusal::InputTooLarge,
         Refusal::OutputTooLarge,
+        Refusal::FuelExhausted,
+        Refusal::WallClockExceeded,
+        Refusal::GuestTrap,
+        Refusal::Quarantined,
+        Refusal::RateLimited,
+        Refusal::ConcurrencyLimited,
+        Refusal::RuntimeDisabled,
     ];
 
     /// The static string an audit row and an API envelope carry. Never prose
@@ -177,6 +223,13 @@ impl Refusal {
             Refusal::FrameInvalid => "plugin_abi_frame_invalid",
             Refusal::InputTooLarge => "plugin_input_too_large",
             Refusal::OutputTooLarge => "plugin_output_too_large",
+            Refusal::FuelExhausted => "plugin_fuel_exhausted",
+            Refusal::WallClockExceeded => "plugin_wall_clock_exceeded",
+            Refusal::GuestTrap => "plugin_guest_trap",
+            Refusal::Quarantined => "plugin_install_quarantined",
+            Refusal::RateLimited => "plugin_rate_limited",
+            Refusal::ConcurrencyLimited => "plugin_concurrency_limited",
+            Refusal::RuntimeDisabled => "plugin_runtime_disabled",
         }
     }
 
@@ -201,6 +254,13 @@ impl Refusal {
             Refusal::FrameInvalid => 15,
             Refusal::InputTooLarge => 16,
             Refusal::OutputTooLarge => 17,
+            Refusal::FuelExhausted => 18,
+            Refusal::WallClockExceeded => 19,
+            Refusal::GuestTrap => 20,
+            Refusal::Quarantined => 21,
+            Refusal::RateLimited => 22,
+            Refusal::ConcurrencyLimited => 23,
+            Refusal::RuntimeDisabled => 24,
         }
     }
 
@@ -600,7 +660,7 @@ mod tests {
             assert_eq!(Refusal::parse(refusal.as_str()), Some(refusal));
             assert_eq!(Refusal::from_code(refusal.code()), Some(refusal));
         }
-        assert_eq!(Refusal::ALL.len(), 17);
+        assert_eq!(Refusal::ALL.len(), 24);
         assert_eq!(Refusal::from_code(0), None);
         assert_eq!(Refusal::from_code(99), None);
     }

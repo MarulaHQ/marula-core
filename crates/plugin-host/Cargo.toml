@@ -16,3 +16,13 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 ed25519-dalek = { workspace = true }
 sqlx = { workspace = true }
+wasmtime = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# WAT fixtures for the sandbox tests: the pool and the limit tests need a module
+# that loops forever, one that grows memory without bound and one that calls an
+# import the namespace does not declare. A WAT string compiled in the test is
+# cheaper than three checked-in binaries nobody can read.
+wat = "1"
