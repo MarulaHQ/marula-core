@@ -771,6 +771,10 @@ async fn restore_retrieval_mode(conn: &mut PgConnection, mode: RetrievalMode) ->
 /// made of two incomparable spaces rather than a miss. Callers pass the spaces
 /// they may read — the target space, plus the previous one while a re-index is
 /// unfinished — and each space is ranked in its own call.
+// Each argument is one predicate of the same statement: org, kind, space,
+// vector, document scope, page size and mode. Folding them into a struct would
+// move the query's shape away from the query without making it clearer.
+#[allow(clippy::too_many_arguments)]
 pub async fn vector_candidates(
     conn: &mut PgConnection,
     org_id: Uuid,

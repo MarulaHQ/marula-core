@@ -175,6 +175,9 @@ impl EmbeddingModelEntry {
         }
     }
 
+    // One call per catalogue row, so the table reads as a table. A struct
+    // literal per entry would be three times the lines for the same data.
+    #[allow(clippy::too_many_arguments)]
     fn borrowed(
         id: &'static str,
         display_name: &'static str,
@@ -760,8 +763,8 @@ pub fn detect_host_capacity(lookup: &impl Fn(&str) -> Option<String>) -> HostCap
         .and_then(|value| value.trim().parse::<u32>().ok())
         .filter(|mb| *mb > 0);
     let ram_mb = declared
-        .or_else(|| read_cgroup_memory_mb())
-        .or_else(|| read_proc_meminfo_mb());
+        .or_else(read_cgroup_memory_mb)
+        .or_else(read_proc_meminfo_mb);
     HostCapacity { cores, ram_mb }
 }
 

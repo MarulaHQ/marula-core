@@ -186,7 +186,7 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
     // Passing case: the same query vector, restricted to the space it was
     // produced in, ranks the two new-space rows and misses `a` honestly.
     let target = search::vector_candidates(
-        &mut *tx,
+        &mut tx,
         org,
         &kinds,
         &new_space,
@@ -240,7 +240,7 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
         "zzzznomatch",
         false,
         None,
-        &[new_space.clone()],
+        std::slice::from_ref(&new_space),
         &query,
         10,
         0,
@@ -257,7 +257,7 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
         "zzzznomatch",
         false,
         None,
-        &[new_space.clone()],
+        std::slice::from_ref(&new_space),
         search::SEARCH_COUNT_CAP,
     )
     .await

@@ -877,7 +877,7 @@ async fn finish_run_if_complete(
             );
         }
     }
-    core_db::embedding_space::record_progress(&mut *tx, run_id, report.total_rows, 0, None)
+    core_db::embedding_space::record_progress(&mut tx, run_id, report.total_rows, 0, None)
         .await
         .map_err(ApiError::from)?;
     core_db::embedding_space::clear_previous_when_done(&mut *tx)
