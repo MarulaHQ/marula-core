@@ -22,8 +22,8 @@ mod common;
 use common::TestDb;
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
 use core_db::{
-    attachment_scans, audit, automations, notifications as notif, orgs, outbox, portal, queue,
-    search, sign_offs, sla, tickets, timers, users, DbError, DbResult,
+    attachment_scans, audit, automations, notifications as notif, orgs, outbox, plugin_health,
+    portal, queue, search, sign_offs, sla, tickets, timers, users, DbError, DbResult,
 };
 use core_domain::entities::{
     Actor, Attachment, AttachmentKind, AuditEvent, BusinessCalendar, NotificationPreference,
@@ -9510,4 +9510,290 @@ async fn attachment_scan_verdicts_are_first_wins_and_escalate() {
         half_set.is_err(),
         "status='infected' with no quarantined_at must be refused"
     );
+}
+
+/// One org install of a fresh catalog entry. Migration 0154's table hangs off
+/// `plugin_installs`, so the health tests need a real install row rather than a
+/// bare uuid. `n` spaces the fixed UUIDs so parallel tests in this binary never
+/// collide, and `slug` is unique per catalog entry because the registry's slug
+/// index is global.
+async fn seed_plugin_install(app: &PgPool, org: Uuid, n: u64, slug: &str, admin: Uuid) -> Uuid {
+    use core_db::plugins;
+
+    let entry = core_domain::entities::PluginCatalogEntry {
+        id: fixed_uuid(n),
+        slug: slug.into(),
+        name: slug.into(),
+        description: "d".into(),
+        publisher: "p".into(),
+        origin_org_id: None,
+        latest_version: Some("1.0.0".into()),
+        interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
+        revoked_at: None,
+        revoked_reason: None,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+    };
+    let manifest = core_domain::entities::PluginManifestV2 {
+        name: slug.into(),
+        version: "1.0.0".into(),
+        interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
+        description: "d".into(),
+        capabilities: vec!["automation.actions".into()],
+        settings_schema: None,
+        artifact_kind: None,
+        connector_profile: None,
+        surface_profile: None,
+    };
+    let version = core_domain::entities::PluginVersion {
+        id: fixed_uuid(n + 1),
+        catalog_id: entry.id,
+        version: "1.0.0".into(),
+        manifest,
+        created_at: chrono::Utc::now(),
+    };
+    let install = core_domain::entities::PluginInstall {
+        id: fixed_uuid(n + 2),
+        org_id: org,
+        catalog_id: entry.id,
+        slug: slug.into(),
+        version: "1.0.0".into(),
+        status: core_domain::entities::PluginInstallStatus::Disabled,
+        granted_capabilities: vec!["automation.actions".to_string()],
+        installed_by: Some(admin),
+        installed_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
+        revoked_at: None,
+        revoked_by: None,
+    };
+
+    let mut tx = org_tx(app, org).await;
+    plugins::create_catalog_entry(&mut tx, &entry, &version)
+        .await
+        .expect("catalog entry");
+    plugins::create_install(&mut tx, &install)
+        .await
+        .expect("install");
+    tx.commit().await.expect("commit install");
+    install.id
+}
+
+/// Wave 53 lane 3, migration 0154: the counter behind quarantine.
+///
+/// The rule is three CONSECUTIVE worker failures, and the row has to keep the
+/// number that caused the quarantine rather than the number of attempts since.
+/// The fourth call is the interesting one: the upsert's
+/// `WHERE quarantined_at IS NULL` stops the increment and returns no row, so
+/// the module's follow-up read is what answers. If that read were missing, the
+/// operator's panel would show the quarantine with a null or stale count.
+#[tokio::test]
+async fn plugin_health_quarantines_after_three_failures_and_stops_counting() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 9100).await;
+    let admin = seed_user(&app, &s, 91_010).await;
+    let install = seed_plugin_install(&app, s.org, 91_020, "health-threshold", admin).await;
+
+    let mut tx = org_tx(&app, s.org).await;
+    assert!(
+        plugin_health::load(&mut tx, install)
+            .await
+            .expect("load")
+            .is_none(),
+        "a fresh install has no health row"
+    );
+
+    let first = plugin_health::record_failure(&mut tx, install, "plugin_worker_failed", 3)
+        .await
+        .expect("first failure")
+        .expect("the install is visible, so a row exists");
+    assert_eq!(first.consecutive_failures, 1);
+    assert!(
+        first.quarantined_at.is_none(),
+        "one failure is a flake, not a quarantine"
+    );
+    assert!(first.quarantine_reason.is_none());
+
+    let second = plugin_health::record_failure(&mut tx, install, "plugin_worker_failed", 3)
+        .await
+        .expect("second failure")
+        .expect("row");
+    assert_eq!(second.consecutive_failures, 2);
+    assert!(second.quarantined_at.is_none());
+
+    let third = plugin_health::record_failure(&mut tx, install, "plugin_worker_failed", 3)
+        .await
+        .expect("third failure")
+        .expect("row");
+    assert_eq!(third.consecutive_failures, 3);
+    assert!(
+        third.quarantined_at.is_some(),
+        "the third consecutive failure quarantines"
+    );
+    assert_eq!(
+        third.quarantine_reason.as_deref(),
+        Some("plugin_worker_failed"),
+        "the reason is the static refusal string the audit row carries"
+    );
+    assert!(third.is_quarantined());
+
+    // A failure that arrives after the quarantine does not move the counter:
+    // the number an operator sees is the number that caused it.
+    let fourth = plugin_health::record_failure(&mut tx, install, "plugin_worker_failed", 3)
+        .await
+        .expect("fourth failure")
+        .expect("the follow-up read returns the quarantined row");
+    assert_eq!(fourth.consecutive_failures, 3);
+    assert_eq!(fourth.quarantined_at, third.quarantined_at);
+    tx.commit().await.expect("commit failures");
+
+    // The clear: attributed, zeroed, reason dropped, and the next failure
+    // starts again at one instead of re-quarantining on the spot.
+    let mut tx = org_tx(&app, s.org).await;
+    assert!(
+        plugin_health::clear_quarantine(&mut tx, install, Some(admin))
+            .await
+            .expect("clear"),
+        "a quarantined install reports that it was cleared"
+    );
+    let cleared = plugin_health::load(&mut tx, install)
+        .await
+        .expect("load")
+        .expect("the row survives the clear");
+    assert_eq!(cleared.consecutive_failures, 0);
+    assert!(cleared.quarantined_at.is_none());
+    assert!(cleared.quarantine_reason.is_none());
+    assert!(cleared.cleared_at.is_some(), "the clear is timestamped");
+    let cleared_by: Option<Uuid> =
+        sqlx::query_scalar("SELECT cleared_by FROM plugin_install_health WHERE install_id = $1")
+            .bind(install)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("cleared_by");
+    assert_eq!(cleared_by, Some(admin), "the clear is attributed");
+    tx.commit().await.expect("commit clear");
+
+    let mut tx = org_tx(&app, s.org).await;
+    assert!(
+        !plugin_health::clear_quarantine(&mut tx, install, Some(admin))
+            .await
+            .expect("second clear"),
+        "clearing an install that is not quarantined reports no clear"
+    );
+    let after = plugin_health::record_failure(&mut tx, install, "plugin_worker_failed", 3)
+        .await
+        .expect("failure after clear")
+        .expect("row");
+    assert_eq!(after.consecutive_failures, 1);
+    assert!(
+        after.quarantined_at.is_none(),
+        "one failure after a clear is not a quarantine"
+    );
+
+    // A worker that survives resets the count, which is what makes the rule
+    // CONSECUTIVE rather than cumulative.
+    plugin_health::record_success(&mut tx, install)
+        .await
+        .expect("worker survived");
+    let survived = plugin_health::load(&mut tx, install)
+        .await
+        .expect("load")
+        .expect("row");
+    assert_eq!(survived.consecutive_failures, 0);
+    tx.commit().await.expect("commit restart");
+}
+
+/// Migration 0154's RLS policy: a health write scoped to org A must not reach
+/// an install that belongs to org B. The empty `RETURNING` from the upsert
+/// means two different things, and this is the one that matters, because the
+/// other reading is a row written into another tenant's table.
+#[tokio::test]
+async fn plugin_health_writes_nothing_for_an_install_outside_the_tenant_scope() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let a = seed_org(&app, 9110).await;
+    let b = seed_org(&app, 9111).await;
+    let admin_b = seed_user(&app, &b, 91_030).await;
+    let foreign = seed_plugin_install(&app, b.org, 91_040, "health-foreign", admin_b).await;
+
+    // Org A's scope, org B's install.
+    let mut tx = org_tx(&app, a.org).await;
+    assert!(
+        plugin_health::record_failure(&mut tx, foreign, "plugin_worker_failed", 3)
+            .await
+            .expect("a foreign install is not an error")
+            .is_none(),
+        "the install is invisible under this scope, so nothing is recorded"
+    );
+    assert!(plugin_health::load(&mut tx, foreign)
+        .await
+        .expect("load")
+        .is_none());
+    tx.commit().await.expect("commit");
+
+    // Nothing was written at all: the owner-role pool bypasses RLS, so a zero
+    // here is the table's own answer rather than the policy hiding a row.
+    let rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM plugin_install_health WHERE install_id = $1")
+            .bind(foreign)
+            .fetch_one(&db.admin)
+            .await
+            .expect("count");
+    assert_eq!(rows, 0, "no health row was created for the foreign install");
+
+    // And the row the foreign org CAN write is still reachable for it, so the
+    // refusal above is about the scope and not about a broken fixture.
+    let mut tx = org_tx(&app, b.org).await;
+    let own = plugin_health::record_failure(&mut tx, foreign, "plugin_worker_failed", 3)
+        .await
+        .expect("own failure")
+        .expect("row");
+    assert_eq!(own.consecutive_failures, 1);
+    tx.commit().await.expect("commit");
+}
+
+/// An uninstall takes its quarantine with it (`ON DELETE CASCADE`), so a
+/// reinstall of the same id cannot inherit state from the install it replaced.
+#[tokio::test]
+async fn plugin_health_row_cascades_with_the_install() {
+    use core_db::plugins;
+
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 9120).await;
+    let admin = seed_user(&app, &s, 91_050).await;
+    let install = seed_plugin_install(&app, s.org, 91_060, "health-cascade", admin).await;
+
+    let mut tx = org_tx(&app, s.org).await;
+    for _ in 0..3 {
+        plugin_health::record_failure(&mut tx, install, "plugin_worker_failed", 3)
+            .await
+            .expect("failure")
+            .expect("row");
+    }
+    assert!(plugin_health::load(&mut tx, install)
+        .await
+        .expect("load")
+        .expect("row")
+        .is_quarantined());
+
+    plugins::delete_install(&mut tx, s.org, install)
+        .await
+        .expect("uninstall");
+    assert!(
+        plugin_health::load(&mut tx, install)
+            .await
+            .expect("load after uninstall")
+            .is_none(),
+        "the uninstall removes the health row"
+    );
+    tx.commit().await.expect("commit uninstall");
+
+    let rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM plugin_install_health WHERE install_id = $1")
+            .bind(install)
+            .fetch_one(&db.admin)
+            .await
+            .expect("count");
+    assert_eq!(rows, 0, "nothing is left behind for a reinstall to inherit");
 }

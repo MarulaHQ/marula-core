@@ -126,11 +126,6 @@ impl ModuleArtifact {
         hasher.update(bytes);
         hex::encode(hasher.finalize())
     }
-
-    /// A digest that cannot match any artifact.
-    pub fn mismatched_digest() -> String {
-        "0".repeat(64)
-    }
 }
 
 /// Why a module was not loaded. Both variants are the parent's problem: the
