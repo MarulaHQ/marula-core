@@ -36,7 +36,9 @@
 //!    reply.
 //! 5. **The send**, bounded by the caller's remaining transport budget (which is
 //!    already at most [`abi::HTTP_TIMEOUT_MS`]), with redirects refused and the
-//!    body capped while it is read rather than after it is buffered.
+//!    body capped while it is read rather than after it is buffered. A response
+//!    header that echoes the credential's own name is dropped: the guest never
+//!    had the value, so a reply header must not hand it one.
 //!
 //! The URL itself was screened by the caller against the install's consented
 //! scopes and arrives as an [`EgressTarget`]; this module fetches that string
@@ -172,6 +174,7 @@ impl ParentEgress {
             request,
             &headers,
             credentials.as_ref(),
+            credential.map(|credential| credential.header_name.as_str()),
             timeout,
         )
         .await
@@ -311,6 +314,7 @@ async fn send_with(
     request: &HttpRequest,
     headers: &[(String, String)],
     credentials: Option<&HostCredentials>,
+    bound_header: Option<&str>,
     timeout: Duration,
 ) -> Result<HttpResponse, Refusal> {
     let method = parse_method(&request.method)?;
@@ -346,7 +350,13 @@ async fn send_with(
     {
         return Err(Refusal::EgressResponseTooLarge);
     }
-    let headers = response_headers(&response);
+    let mut headers = response_headers(&response);
+    // A vendor that echoes the credential back must not have it forwarded to
+    // the guest: the guest never had the value, and a reply header is a reply
+    // field. Cheap to close, and a header is the likely shape of an echo.
+    if let Some(bound) = bound_header {
+        headers.remove(bound);
+    }
     let mut body = Vec::new();
     // Read one chunk at a time and stop at the cap, so a body that lies about
     // its length is refused while it is read rather than after it is buffered.
@@ -574,6 +584,7 @@ mod tests {
             &request(&format!("http://{addr}/v1")),
             &headers,
             Some(&credentials),
+            Some("x-api-key"),
             Duration::from_millis(abi::HTTP_TIMEOUT_MS),
         )
         .await
@@ -673,6 +684,54 @@ mod tests {
         );
     }
 
+    /// A vendor that echoes the credential in a response header must not have it
+    /// forwarded to the guest: the guest never had the value, and a reply header
+    /// is a reply field.
+    #[tokio::test]
+    async fn a_response_header_echoing_the_credential_is_stripped() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0u8; 8192];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(
+                b"HTTP/1.1 200 OK\r\nX-Api-Key: s3cret-token\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            );
+        });
+        let credential = sealed_for(uuid::Uuid::now_v7(), uuid::Uuid::now_v7(), "s3cret-token");
+        let egress = ParentEgress::new(key());
+        let (headers, credentials) = egress
+            .prepare(&request(&format!("http://{addr}/v1")), Some(&credential))
+            .expect("presentable");
+        let client = reqwest::Client::builder()
+            .redirect(Policy::none())
+            .build()
+            .expect("test client");
+        let response = send_with(
+            &client,
+            &format!("http://{addr}/v1"),
+            &request(&format!("http://{addr}/v1")),
+            &headers,
+            credentials.as_ref(),
+            Some("x-api-key"),
+            Duration::from_millis(abi::HTTP_TIMEOUT_MS),
+        )
+        .await
+        .expect("a bounded response");
+        handle.join().expect("listener");
+        assert!(
+            !response.headers.contains_key("x-api-key"),
+            "the echo is stripped: {:?}",
+            response.headers
+        );
+        assert_eq!(response.body, "ok");
+        assert!(
+            !format!("{response:?}").contains("s3cret-token"),
+            "and nothing else in the reply carries it"
+        );
+    }
+
     /// The type that holds the value must not print it. Phase 2 adds a log line;
     /// this is where a secret usually gets into one.
     #[test]
@@ -724,6 +783,7 @@ mod tests {
                 &request(&format!("http://{addr}/v1")),
                 &[],
                 None,
+                None,
                 Duration::from_millis(abi::HTTP_TIMEOUT_MS),
             )
             .await,
@@ -755,6 +815,7 @@ mod tests {
                 &format!("http://{addr}/v1"),
                 &request(&format!("http://{addr}/v1")),
                 &[],
+                None,
                 None,
                 Duration::from_millis(abi::HTTP_TIMEOUT_MS),
             )
