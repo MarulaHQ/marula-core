@@ -7613,6 +7613,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/plugins/installed/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/installed/{id}/revoke — the org's own kill switch for ONE
+         *     install.
+         * @description Distinct from disabling (reversible, grants untouched) and from the
+         *     catalog-wide revocation (which cascades to every tenant's installs). Revoke
+         *     is terminal, the reason is required, and execution stops at the parent's
+         *     gate: `authorize_invocation` refuses a revoked status, and the artifact load
+         *     path refuses before it reads a byte.
+         */
+        post: operations["plugin_install_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/installed/{id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/installed/{id}/rollback — move the pin back to the
+         *     previous digest.
+         * @description A rollback is a POINTER MOVE: version, digest and grants return to what they
+         *     were before the last update, and no bytes are fetched. The old module is
+         *     still in the store because keys are content-addressed, so an update wrote a
+         *     new key rather than overwriting the old one.
+         *
+         *     One step, not a toggle: the parked target is cleared, so a second rollback
+         *     answers `409` until the update is re-consented. That is deliberate — the
+         *     operator should say which bytes they want, not ping-pong between two.
+         */
+        post: operations["plugin_install_rollback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/plugins/installed/{id}/settings": {
         parameters: {
             query?: never;
@@ -16354,6 +16407,25 @@ export interface components {
          *     the platform's egress posture from the declared endpoint list.
          */
         ConnectorProfile: {
+            /**
+             * @description ADR 0023 Decision 3 (Wave 53 lane 2): the EGRESS allowlist a wasm
+             *     guest's `http_request` reads — profile name -> consented scopes. Each
+             *     scope is `https://host[:port][/path-prefix]`; a request whose scheme is
+             *     not https, whose authority is not listed, or whose path is outside the
+             *     scope's prefix is refused (`plugin_egress_scheme_denied`,
+             *     `plugin_egress_host_denied`). The map is what makes
+             *     `plugin_egress_profile_missing` a real refusal: a guest names a profile,
+             *     and a name the install did not consent has no list to fall back to.
+             *
+             *     This one field is why the profile is no longer connector-only. The
+             *     relaxation is narrow on purpose: `webhook_endpoints` and `routing` stay
+             *     connector-only, so the rule that stopped a connector faking a UI
+             *     surface still holds, and a wasm manifest gains exactly the declaration
+             *     the executor needs.
+             */
+            outbound_scopes?: {
+                [key: string]: string[];
+            };
             routing?: null | components["schemas"]["RoutingProfile"];
             /**
              * @description The outbound scopes the connector asks the upstream SaaS for
@@ -20840,7 +20912,17 @@ export interface components {
             id: string;
             /** Format: date-time */
             installed_at: string;
+            /**
+             * @description The digest pin: sha256 of the module this install adopted, or empty for
+             *     a declarative-only install. An operator can see exactly which bytes the
+             *     install names, and the executor is handed the same value.
+             */
+            module_digest: string;
             name: string;
+            /** @description The version a rollback would return to, when one is parked. */
+            previous_version?: string | null;
+            /** @description Why the install was revoked, when it is. */
+            revoked_reason?: string | null;
             slug: string;
             status: components["schemas"]["PluginInstallStatus"];
             version: string;
@@ -26871,6 +26953,13 @@ export interface components {
         RevokeCatalogEntryRequest: {
             reason: string;
         };
+        RevokeInstallRequest: {
+            /**
+             * @description Required. A kill switch with no recorded reason is an incident nobody
+             *     can review.
+             */
+            reason: string;
+        };
         /** @description POST /api/sign-offs/{id}/revoke */
         RevokeSignOffRequest: {
             /** @description Why the sign-off no longer stands. Part of the audit record. */
@@ -28634,6 +28723,12 @@ export interface components {
             /** Format: uuid */
             id: string;
             manifest: unknown;
+            /**
+             * @description The digest of the executable module this import carries, when it carries
+             *     one. This is the value the install will pin and the executor will load;
+             *     the consent screen shows it so an operator approves bytes, not a name.
+             */
+            module_digest: string;
             review_note?: string | null;
             source_kind: string;
             source_url: string;
@@ -46396,6 +46491,76 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeInstallRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_install_rollback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstallView"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
