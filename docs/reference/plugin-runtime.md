@@ -1,30 +1,35 @@
 # Plugin runtime
 
-The plugin contract is real. The executor is not yet.
+The executor ships. The route that calls it does not yet.
 
-Marula Core ships the declarative half of the plugin system: manifest v2,
-capabilities, installs and per-install grants, signed distribution with digest
-pinning, surface profiles, and workflow node contracts. The host in
-`crates/plugin-host` authorises an invocation and derives the surfaces an install
-may contribute. Three reference plugins live in `plugins/wasm/`, and the
-`plugin.action` workflow path applies a small trusted effect set.
+Marula Core carries both halves of the plugin system. The declarative half is
+manifest v2, the capability vocabulary, installs and per-install grants, signed
+distribution with digest pinning, surface profiles, and workflow node contracts.
+The execution half is the sandbox in `crates/plugin-host/src/isolation.rs`, the
+worker pool in `runtime.rs`, and the guest ABI in `abi.rs` that ADR 0023 fixes.
+Three reference plugins live in `plugins/wasm/` and run on that ABI.
 
-What the core does **not** yet do is execute plugin code. That runtime is scoped
-as **Wave 53** in the private build tracker. It covers the sandboxed
-WASM host, the host-function ABI, resource limits, connector egress and the
-lifecycle around them.
+What is still missing is the request path. No HTTP route invokes the pool, so a
+plugin action runs only through the trusted effects the core implements, and no
+audit row is written for an invocation. That belongs to the rest of Wave 53:
+`plugin.action` in core-api, the KV store, connector egress, and the admin
+surface for quarantine.
 
-Until then:
+What works today:
 
 - a plugin manifest can be published, installed, granted and surfaced
-- a plugin action runs only through the trusted effects the core implements
-- no plugin can execute arbitrary code, open a socket, read a file or mint a
-  session
+- a signed module runs in a supervised worker under the limits ADR 0023 sets out,
+  which `cargo test -p plugin-host` exercises against a real worker process
+- `log` and `now` answer a guest; the other seven ABI entries resolve their gate
+  and then refuse with `plugin_not_implemented`
+- a guest that loops, floods its log, returns an oversized payload or grows past
+  its memory cap is refused with a typed reason instead of taking the API down
 
-The security model that the runtime must preserve is already written down in
-`crates/plugin-host/src/lib.rs`: deny-by-default, admin-enabled, capabilities
-mapped onto the existing permission matrix, and every lifecycle step audited. The
-runtime wave adds execution around that contract, not a second contract.
+The security model is unchanged from `crates/plugin-host/src/lib.rs`:
+deny-by-default, admin-enabled, capabilities mapped onto the existing permission
+matrix, and every lifecycle step audited. The runtime adds execution around that
+contract rather than a second contract. The worker performs no authorization of
+its own, and a capability the parent refused cannot be granted inside it.
 
 The boundary between the core plugin host and the commercial pack catalogue is
 deliberately not described here: the core ships the seam and the security model,
