@@ -1,0 +1,13 @@
+[package]
+name = "marula-pdk"
+version = "1.0.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "The v1 guest PDK for Marula plugins: the marula_alloc/marula_entry/marula_free ABI and typed host-function bindings (ADR 0023)."
+
+# Detached from the Marula workspace: this crate is linked into wasm32 plugin
+# artifacts, never into the host. It must never become a workspace member.
+[workspace]
+
+[lib]
+crate-type = ["rlib"]
