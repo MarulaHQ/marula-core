@@ -85,6 +85,7 @@ async fn test_state(rate_limit_per_min: u32) -> (AppState, Router) {
     config.database_url = admin_url;
     config.migration_rate_limit_per_min = rate_limit_per_min;
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
             .expect("reporting pool"),

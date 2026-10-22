@@ -352,6 +352,42 @@ async fn a_binary_that_does_not_speak_the_protocol_fails_to_start() {
     );
 }
 
+#[tokio::test]
+async fn a_pool_slot_does_not_cache_a_failed_start_and_never_shares_another_slot() {
+    let slot = plugin_host::exec::PoolSlot::new();
+    let other = plugin_host::exec::PoolSlot::new();
+    assert!(!slot.is_same_slot(&other));
+    assert!(!slot.is_initialized());
+
+    // A start that fails (a missing worker binary) is not cached: the next
+    // call tries again, which is what lets a deployment recover without a
+    // restart.
+    let failed = slot
+        .get_with(|| async {
+            PluginPool::start(
+                PoolConfig::default().with_worker_bin("/nonexistent/marula-plugin-worker"),
+            )
+            .await
+        })
+        .await;
+    assert!(failed.is_err());
+    assert!(!slot.is_initialized(), "a failed start must not be cached");
+
+    let started = slot
+        .get_with(|| async { PluginPool::start(pool_config(IsolationMode::Disabled)).await })
+        .await
+        .expect("the retry starts");
+    assert!(slot.is_initialized());
+
+    // Once started, the slot answers the same pool and starts nothing again.
+    let again = slot
+        .get_with(|| async { panic!("a started slot must not start twice") })
+        .await
+        .expect("the started pool");
+    assert!(std::sync::Arc::ptr_eq(&started, &again));
+    assert!(!other.is_initialized(), "the other slot was never touched");
+}
+
 const _: () = assert!(
     wire::MAX_FRAME_BYTES > wire::MAX_MODULE_BYTES + MAX_INPUT_BYTES,
     "a full module plus a full payload must fit"

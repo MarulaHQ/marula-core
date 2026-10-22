@@ -48,11 +48,13 @@
 //!
 //! ## The pool, and the declarative path
 //!
-//! [`pool`] starts the process's pool once, on the first module-bearing
-//! invocation, and reuses it. `MARULA_PLUGIN_ISOLATION=disabled` turns every
-//! such invocation into a `plugin_runtime_disabled` refusal WITH a row, which
-//! is what a deployment without the worker binary gets; nothing falls back to
-//! running the effect without the module.
+//! The caller's [`PoolSlot`] starts the pool once, on the first module-bearing
+//! invocation, and reuses it; the slot belongs to the process's `AppState`, not
+//! to a `static`, so it can be shut down and two states never share one.
+//! `MARULA_PLUGIN_ISOLATION=disabled` turns every such invocation into a
+//! `plugin_runtime_disabled` refusal WITH a row, which is what a deployment
+//! without the worker binary gets; nothing falls back to running the effect
+//! without the module.
 //!
 //! ## The guest's own host calls
 //!
@@ -129,23 +131,59 @@ pub mod refusal_reasons {
     pub const NO_EFFECT: &str = "plugin_effect_not_applied";
 }
 
-/// The process's plugin pool. Started on the first module-bearing invocation
-/// and reused; `PluginPool::start` is expensive (it spawns and handshakes the
-/// workers), so it must not run per request.
+/// The process's plugin pool: started on the first module-bearing invocation
+/// and reused.
 ///
-/// A failed start is not cached: the next call retries, which lets a
-/// deployment that booted before the worker binary existed recover without a
-/// restart. Until it does, each attempt is a typed, audited refusal.
-static POOL: OnceCell<Arc<PluginPool>> = OnceCell::const_new();
+/// **The slot belongs to an `AppState`, not to the process** (W53-11 commit 2).
+/// It used to be a `static OnceCell`, which meant a pool could never be shut
+/// down and every test in a binary shared one. A state owns its slot, so a test
+/// can start and stop a pool, and two states never share one.
+///
+/// A failed start is not cached: `tokio::sync::OnceCell::get_or_try_init`
+/// retries on the next call, which lets a deployment that booted before the
+/// worker binary existed recover without a restart. Until it does, each attempt
+/// is a typed, audited refusal.
+#[derive(Clone, Default)]
+pub struct PoolSlot {
+    cell: Arc<OnceCell<Arc<PluginPool>>>,
+}
 
-/// The process's plugin pool, started once from the environment with `health`
-/// as its quarantine store.
-pub async fn pool(health: sqlx::PgPool) -> Result<Arc<PluginPool>, PoolError> {
-    POOL.get_or_try_init(|| async move {
-        PluginPool::start(PoolConfig::from_env()?.with_health(health)).await
-    })
-    .await
-    .cloned()
+impl PoolSlot {
+    pub fn new() -> Self {
+        PoolSlot::default()
+    }
+
+    /// The pool, started once from the environment with `health` as its
+    /// quarantine store. `PluginPool::start` is expensive (it spawns and
+    /// handshakes its workers), so it must not run per request.
+    pub async fn get(&self, health: sqlx::PgPool) -> Result<Arc<PluginPool>, PoolError> {
+        self.get_with(|| async move {
+            PluginPool::start(PoolConfig::from_env()?.with_health(health)).await
+        })
+        .await
+    }
+
+    /// [`PoolSlot::get`] with an explicit start, which is how a test proves the
+    /// lazy retry (a failed start is not cached) without touching the
+    /// environment.
+    pub async fn get_with<F, Fut>(&self, start: F) -> Result<Arc<PluginPool>, PoolError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Arc<PluginPool>, PoolError>>,
+    {
+        self.cell.get_or_try_init(start).await.cloned()
+    }
+
+    /// Whether a pool has been started in this slot.
+    pub fn is_initialized(&self) -> bool {
+        self.cell.initialized()
+    }
+
+    /// Whether `other` is this same slot. Two `AppState`s answering `false`
+    /// have two pools, which is the property this type exists for.
+    pub fn is_same_slot(&self, other: &PoolSlot) -> bool {
+        Arc::ptr_eq(&self.cell, &other.cell)
+    }
 }
 
 /// One surface invocation, as a caller asks for it.
@@ -207,7 +245,7 @@ impl SurfaceOutcome {
 ///    its ticket;
 /// 5. `lifecycle::load_module` — the pin, re-hashed; an unpinned install takes
 ///    the declarative path instead;
-/// 6. [`PluginPool::invoke`] — the worker's own gates (enabled, frame, digest,
+/// 6. [`PluginPool::invoke_with`] — the worker's own gates (enabled, frame, digest,
 ///    quarantine, rate, concurrency) run there;
 /// 7. the effect, from the CONSENTED definition and never from the guest's
 ///    output, in the caller's transaction;
@@ -219,6 +257,7 @@ pub async fn invoke_surface(
     tx: &mut PgConnection,
     db: &sqlx::PgPool,
     store: &dyn ObjectStore,
+    plugins: &PoolSlot,
     call: &SurfaceCall<'_>,
 ) -> core_db::DbResult<SurfaceOutcome> {
     let started = Instant::now();
@@ -376,7 +415,7 @@ pub async fn invoke_surface(
         return refuse(tx, call, Some(install.id), refusal.as_str(), started).await;
     }
 
-    let plugins = match pool(db.clone()).await {
+    let plugins = match plugins.get(db.clone()).await {
         Ok(plugins) => plugins,
         Err(error) => {
             tracing::warn!(

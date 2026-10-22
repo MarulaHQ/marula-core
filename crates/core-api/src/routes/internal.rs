@@ -874,9 +874,11 @@ pub async fn effects(
     core_domain::automations::validate_actions(&actions)?;
 
     // The plugin action arm needs the artifact store and the plugin pool; both
-    // are process-wide, so cloning them before the transaction costs nothing.
+    // are cheap clones, and taking them before the transaction means the
+    // closure does not have to borrow the state it is running inside.
     let db = state.pool.clone();
     let store = state.store.clone();
+    let plugin_pool = state.plugin_pool.clone();
 
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         // Ticket subject: the ticket row the effects write through. Board
@@ -1079,6 +1081,7 @@ pub async fn effects(
                         &mut ctx.tx,
                         &db,
                         &*store,
+                        &plugin_pool,
                         &plugin_exec::SurfaceCall {
                             org_id: req.org_id,
                             entry_key,
@@ -2102,9 +2105,17 @@ pub async fn workflow_node(
     // The artifact store and the plugin pool are what the `plugin.action` arm
     // needs: the module is read from the store and run in the pool (ADR 0023).
     let store = state.store.clone();
+    let plugin_pool = state.plugin_pool.clone();
     let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
         let output = execute_workflow_node(
-            &mut ctx, &pool, &*store, org_id, &node_id, &params, &context,
+            &mut ctx,
+            &pool,
+            &*store,
+            &plugin_pool,
+            org_id,
+            &node_id,
+            &params,
+            &context,
         )
         .await?;
         Ok((ctx, output))
@@ -2122,6 +2133,7 @@ async fn execute_workflow_node(
     ctx: &mut org_tx::OrgTx<'_>,
     pool: &sqlx::PgPool,
     store: &dyn core_store::ObjectStore,
+    plugins: &plugin_exec::PoolSlot,
     org_id: Uuid,
     node_id: &str,
     params: &Value,
@@ -2440,6 +2452,7 @@ async fn execute_workflow_node(
                 &mut ctx.tx,
                 pool,
                 store,
+                plugins,
                 &plugin_exec::SurfaceCall {
                     org_id,
                     entry_key,

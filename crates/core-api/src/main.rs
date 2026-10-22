@@ -121,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let state = core_api::state::AppState {
+        plugin_pool: Default::default(),
         pool,
         config: std::sync::Arc::clone(&config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),

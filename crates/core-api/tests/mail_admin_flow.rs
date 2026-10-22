@@ -67,6 +67,7 @@ async fn test_state() -> (AppState, Router) {
     config.database_url = admin_url.clone();
     let reporting_url = admin_url;
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

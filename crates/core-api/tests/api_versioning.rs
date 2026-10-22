@@ -69,6 +69,7 @@ async fn test_state() -> AppState {
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url;
     AppState {
+        plugin_pool: Default::default(),
         pool,
         reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
             .expect("reporting pool"),

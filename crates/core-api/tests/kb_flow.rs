@@ -45,6 +45,7 @@ async fn test_state() -> AppState {
     // exercises the exact indexer write path (2.16 pattern).
     config.internal_token = Some("kb-flow-internal-token".to_string());
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
