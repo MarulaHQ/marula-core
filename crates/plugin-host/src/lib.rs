@@ -33,6 +33,9 @@
 
 pub mod abi;
 pub mod distribution;
+pub mod exec;
+pub mod http;
+pub mod kv;
 pub mod host_fns;
 pub mod isolation;
 pub mod lifecycle;
