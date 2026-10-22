@@ -4751,6 +4751,7 @@ dependencies = [
  "core-domain",
  "ed25519-dalek",
  "hex",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "sqlx 0.8.6",

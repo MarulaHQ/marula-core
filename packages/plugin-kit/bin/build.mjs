@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { basename, join } from "node:path";
+import { validateModuleAbi } from "../pdk/marula-abi.mjs";
 
 //
 // The closed vocabulary is `PluginCapability` in
@@ -52,6 +53,12 @@ const EFFECTS = new Set(["add_internal_comment"]);
 const SCHEMA_TYPES = new Set(["string", "number", "integer", "boolean"]);
 const INTERFACE_VERSION = 1;
 const MAX_PER_SECTION = 8;
+// ADR 0023 Decision 3 / crates/core-domain `ConnectorProfile::validate`.
+const ARTIFACT_KINDS = new Set(["wasm", "http_connector"]);
+const EGRESS_PROFILE = /^[a-z][a-z0-9_-]{0,63}$/;
+const MAX_EGRESS_PROFILES = 8;
+const MAX_EGRESS_SCOPE_BYTES = 512;
+const MAX_EGRESS_SCOPES = 32;
 
 const fail = (msg) => {
   console.error(`plugin-kit: ${msg}`);
@@ -80,6 +87,46 @@ function checkSchema(schema, what) {
   }
 }
 
+/** ADR 0023 Decision 3 (used with `ConnectorProfile::validate` on the host). */
+function checkOutboundScopes(scopes, where) {
+  if (typeof scopes !== "object" || scopes === null || Array.isArray(scopes))
+    fail(`${where} must be an object of profile -> scope list`);
+  const names = Object.keys(scopes);
+  if (names.length > MAX_EGRESS_PROFILES)
+    fail(`${where}: max ${MAX_EGRESS_PROFILES} egress profiles`);
+  let total = 0;
+  for (const [name, list] of Object.entries(scopes)) {
+    if (!EGRESS_PROFILE.test(name))
+      fail(`${where}.${name}: profile name must match [a-z][a-z0-9_-]{0,63}`);
+    if (!Array.isArray(list) || list.length === 0)
+      fail(`${where}.${name}: an egress profile declares at least one scope`);
+    total += list.length;
+    const seen = new Set();
+    for (const scope of list) {
+      if (typeof scope !== "string" || Buffer.byteLength(scope) > MAX_EGRESS_SCOPE_BYTES)
+        fail(`${where}.${name}: scope must be a string of at most ${MAX_EGRESS_SCOPE_BYTES} bytes`);
+      let url;
+      try {
+        url = new URL(scope);
+      } catch {
+        fail(`${where}.${name}: ${JSON.stringify(scope)} is not an absolute URL`);
+      }
+      if (url.protocol !== "https:")
+        fail(`${where}.${name}: ${JSON.stringify(scope)} must be https`);
+      if (url.username !== "" || url.password !== "")
+        fail(`${where}.${name}: ${JSON.stringify(scope)} must not carry credentials`);
+      if (url.hostname === "") fail(`${where}.${name}: ${JSON.stringify(scope)} is missing a host`);
+      if (url.hostname.includes("*"))
+        fail(`${where}.${name}: ${JSON.stringify(scope)} must name an exact host — wildcards are not consent`);
+      if (url.search !== "" || url.hash !== "")
+        fail(`${where}.${name}: ${JSON.stringify(scope)} must not carry a query or fragment`);
+      if (seen.has(scope)) fail(`${where}.${name}: ${JSON.stringify(scope)} is declared twice`);
+      seen.add(scope);
+    }
+  }
+  if (total > MAX_EGRESS_SCOPES) fail(`${where}: max ${MAX_EGRESS_SCOPES} scopes in total`);
+}
+
 const dir = process.argv[2];
 if (!dir) fail("usage: node bin/build.mjs <plugin-dir>");
 const manifestPath = join(dir, "manifest.json");
@@ -99,7 +146,33 @@ if (!Array.isArray(m.capabilities) || m.capabilities.length === 0) fail("manifes
 for (const cap of m.capabilities) {
   if (!KNOWN_CAPABILITIES.has(cap)) fail(`unknown capability ${JSON.stringify(cap)} — the vocabulary is closed`);
 }
-if (m.connector_profile) fail("surface plugins must not declare a connector_profile");
+
+const kind = m.artifact_kind ?? "wasm";
+if (!ARTIFACT_KINDS.has(kind))
+  fail(`manifest.artifact_kind must be "wasm" or "http_connector", got ${JSON.stringify(m.artifact_kind)}`);
+
+// ADR 0023 Decision 3 (Wave 53 lane 2): the egress allowlist is legal on any
+// artifact kind — a wasm guest's `http_request` reads it. The two
+// connector-only members stay refused here, exactly as
+// `PluginManifestV2::validate` refuses them, because the kit and the host are
+// mirrors of one vocabulary.
+if (m.connector_profile !== undefined && m.connector_profile !== null) {
+  const profile = m.connector_profile;
+  if (typeof profile !== "object" || Array.isArray(profile))
+    fail("manifest.connector_profile must be an object");
+  if (kind !== "http_connector") {
+    if (Array.isArray(profile.webhook_endpoints) && profile.webhook_endpoints.length > 0)
+      fail(
+        "wasm manifests must not declare connector webhook_endpoints (connector-only); " +
+          "a wasm manifest may declare only connector_profile.outbound_scopes",
+      );
+    if (profile.routing !== undefined && profile.routing !== null)
+      fail("wasm manifests must not declare a routing profile (connector-only)");
+  }
+  if (profile.outbound_scopes !== undefined) {
+    checkOutboundScopes(profile.outbound_scopes, "connector_profile.outbound_scopes");
+  }
+}
 
 const profile = m.surface_profile ?? {};
 const sections = ["widgets", "actions", "render_kinds", "field_validators"];
@@ -165,6 +238,12 @@ const wasm = readFileSync(wasmPath);
 if (wasm.length < 4 || wasm.subarray(0, 4).toString("hex") !== "0061736d")
   fail("plugin.wasm is not a WASM module (missing \\0asm magic)");
 if (wasm.length > 4 * 1024 * 1024) fail("plugin.wasm exceeds the 4 MiB member cap");
+
+// ADR 0023 Decision 1: the v1 ABI is a core module, not a component. A module
+// with WASI, an unknown import, or a missing/wrong `marula_*` export would be
+// refused at instantiation; refusing it here keeps a broken bundle unbuilt.
+const abi = validateModuleAbi(wasm);
+if (!abi.ok) fail(`plugin.wasm does not match ABI v1:\n  - ${abi.errors.join("\n  - ")}`);
 
 const slug = m.name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
 const outDir = join(dir, "dist");

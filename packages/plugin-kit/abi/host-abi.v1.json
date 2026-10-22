@@ -1,0 +1,163 @@
+{
+  "$comment": "The v1 guest ABI of ADR 0023, as DATA. Source of truth for the numbers and the namespace: crates/plugin-host/src/abi.rs and src/host_fns/. The kit reads this file to validate a module at build time, and crates/plugin-host tests read it to prove the mirror still agrees. Change the Rust first, then this file in the same commit.",
+  "abi_version": 1,
+  "namespace": "marula",
+  "exports": [
+    { "name": "marula_alloc", "params": ["i32"], "returns": "i32" },
+    { "name": "marula_entry", "params": ["i32", "i32"], "returns": "i64" },
+    { "name": "marula_free", "params": ["i32", "i32"], "returns": null }
+  ],
+  "host_functions": [
+    {
+      "name": "log",
+      "params": ["u32", "i32", "i32"],
+      "returns": "none",
+      "gate": "install_scope",
+      "status": "shipped",
+      "refusals": ["plugin_log_budget_exceeded", "plugin_abi_frame_invalid"]
+    },
+    {
+      "name": "kv_get",
+      "params": ["i32", "i32", "i32", "i32"],
+      "returns": "data",
+      "gate": "install_scope",
+      "status": "deferred:W53-6",
+      "refusals": [
+        "plugin_kv_namespace_denied",
+        "plugin_not_implemented",
+        "plugin_abi_frame_invalid"
+      ]
+    },
+    {
+      "name": "kv_put",
+      "params": ["i32", "i32", "i32", "i32", "i32", "i32"],
+      "returns": "status",
+      "gate": "install_scope",
+      "status": "deferred:W53-6",
+      "refusals": [
+        "plugin_kv_namespace_denied",
+        "plugin_kv_quota_exceeded",
+        "plugin_kv_value_too_large",
+        "plugin_not_implemented",
+        "plugin_abi_frame_invalid"
+      ]
+    },
+    {
+      "name": "kv_delete",
+      "params": ["i32", "i32", "i32", "i32"],
+      "returns": "status",
+      "gate": "install_scope",
+      "status": "deferred:W53-6",
+      "refusals": [
+        "plugin_kv_namespace_denied",
+        "plugin_not_implemented",
+        "plugin_abi_frame_invalid"
+      ]
+    },
+    {
+      "name": "kv_list",
+      "params": ["i32", "i32", "i32", "i32", "i32", "i32"],
+      "returns": "data",
+      "gate": "install_scope",
+      "status": "deferred:W53-6",
+      "refusals": [
+        "plugin_kv_namespace_denied",
+        "plugin_not_implemented",
+        "plugin_abi_frame_invalid"
+      ]
+    },
+    {
+      "name": "http_request",
+      "params": ["i32", "i32", "i32", "i32"],
+      "returns": "data",
+      "gate": "egress",
+      "status": "deferred:W53-7",
+      "refusals": [
+        "plugin_capability_not_granted",
+        "plugin_egress_profile_missing",
+        "plugin_egress_host_denied",
+        "plugin_egress_scheme_denied",
+        "plugin_egress_response_too_large",
+        "plugin_not_implemented",
+        "plugin_abi_frame_invalid"
+      ]
+    },
+    {
+      "name": "emit_event",
+      "params": ["i32", "i32", "i32", "i32"],
+      "returns": "status",
+      "gate": "event",
+      "status": "deferred:W53-5",
+      "refusals": [
+        "plugin_capability_not_granted",
+        "plugin_event_type_not_declared",
+        "plugin_not_implemented",
+        "plugin_abi_frame_invalid"
+      ]
+    },
+    {
+      "name": "read_model_query",
+      "params": ["u32", "i32", "i32"],
+      "returns": "data",
+      "gate": "query",
+      "status": "deferred:W53-5",
+      "refusals": [
+        "plugin_query_unknown",
+        "plugin_capability_not_granted",
+        "plugin_not_implemented",
+        "plugin_abi_frame_invalid"
+      ]
+    },
+    {
+      "name": "now",
+      "params": [],
+      "returns": "int",
+      "gate": "install_scope",
+      "status": "shipped",
+      "refusals": []
+    }
+  ],
+  "query_ids": [
+    { "id": 1, "name": "ticket.by_id", "capability": "tickets.read" },
+    { "id": 2, "name": "board.list", "capability": "tickets.read" },
+    { "id": 3, "name": "client.by_id", "capability": "clients.read" },
+    { "id": 4, "name": "contact.by_client", "capability": "clients.read" }
+  ],
+  "limits": {
+    "input_bytes": 1048576,
+    "output_bytes": 1048576,
+    "log_line_bytes": 4096,
+    "log_lines": 100,
+    "kv_namespace_bytes": 64,
+    "kv_key_bytes": 512,
+    "kv_value_bytes": 1048576,
+    "kv_list_page": 500,
+    "http_response_bytes": 2097152,
+    "http_timeout_ms": 5000,
+    "http_redirects": 0,
+    "fuel": 200000000,
+    "wall_clock_ms": 250,
+    "epoch_tick_ms": 50,
+    "instance_memory_bytes": 67108864,
+    "worker_resident_bytes": 268435456
+  },
+  "refusals": [
+    { "code": 1, "reason": "plugin_capability_not_granted" },
+    { "code": 2, "reason": "plugin_log_budget_exceeded" },
+    { "code": 3, "reason": "plugin_kv_namespace_denied" },
+    { "code": 4, "reason": "plugin_kv_quota_exceeded" },
+    { "code": 5, "reason": "plugin_kv_value_too_large" },
+    { "code": 6, "reason": "plugin_egress_profile_missing" },
+    { "code": 7, "reason": "plugin_egress_host_denied" },
+    { "code": 8, "reason": "plugin_egress_scheme_denied" },
+    { "code": 9, "reason": "plugin_egress_response_too_large" },
+    { "code": 10, "reason": "plugin_event_type_not_declared" },
+    { "code": 11, "reason": "plugin_query_unknown" },
+    { "code": 12, "reason": "plugin_worker_failed" },
+    { "code": 13, "reason": "plugin_not_implemented" },
+    { "code": 14, "reason": "plugin_unknown_host_fn" },
+    { "code": 15, "reason": "plugin_abi_frame_invalid" },
+    { "code": 16, "reason": "plugin_input_too_large" },
+    { "code": 17, "reason": "plugin_output_too_large" }
+  ]
+}

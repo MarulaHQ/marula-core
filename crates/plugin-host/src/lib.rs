@@ -11,8 +11,9 @@
 //!   manifest (name/version/capabilities — data, never code) adopted
 //!   fork-like from the marketplace registry catalog. Nothing in this
 //!   seam accepts, compiles, or executes inline code; the v1 runtime
-//!   seam below authorizes invocations and resolves grants — the
-//!   Extism WASM host lands behind this same interface later.
+//!   seam below authorizes invocations and resolves grants, and
+//!   [`abi`] + [`host_fns`] carry the wasm ABI the executor (W53-3)
+//!   drives. A module body is never accepted over an API.
 //! * **Capability grants are DATA.** The closed capability vocabulary
 //!   (`core_domain::entities::plugins::PluginCapability`) maps onto the
 //!   EXISTING permission matrix — a grant resolves to a standard
@@ -30,7 +31,9 @@
 //!   revoked) — emitted by the route layer through the existing
 //!   append-only `audit_events` table.
 
+pub mod abi;
 pub mod distribution;
+pub mod host_fns;
 pub mod surface;
 
 use core_domain::entities::{
@@ -60,8 +63,9 @@ pub mod denial_reasons {
 /// router owns the registry so a disabled or unknown runtime simply has
 /// no route that can execute (deny-by-default by construction).
 pub trait PluginRuntime: Send + Sync {
-    /// Machine kind of the host (e.g. `"wasm"` for the future Extism
-    /// host).
+    /// Machine kind of the host (`"wasm"` is the core-module host of ADR
+    /// 0023: `marula_alloc` / `marula_entry` / `marula_free`, and the
+    /// `marula` import namespace).
     const KIND: &'static str;
     /// Interface version this runtime implements.
     const INTERFACE_VERSION: u32 = PLUGIN_HOST_INTERFACE_VERSION;
