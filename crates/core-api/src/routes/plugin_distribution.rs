@@ -732,7 +732,7 @@ pub async fn stage_from_github(
     Json(req): Json<StageFromGithubRequest>,
 ) -> ApiResult<Json<StagedItemView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, plugins(Action::View))?;
+    require_plugin_admin(&authed)?;
     let owner = req.owner.trim().to_string();
     let repo = req.repo.trim().to_string();
     validate_repo_component(&owner)?;
@@ -792,7 +792,7 @@ pub async fn stage_from_zip(
     body: Bytes,
 ) -> ApiResult<Json<StagedItemView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, plugins(Action::View))?;
+    require_plugin_admin(&authed)?;
     if body.len() as i64 > MAX_ARCHIVE_BYTES {
         return Err(ApiError::Validation(format!(
             "zip exceeds the sandbox cap of {MAX_ARCHIVE_BYTES} bytes"
