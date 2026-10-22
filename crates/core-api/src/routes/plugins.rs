@@ -38,7 +38,10 @@ use core_domain::events::{
 };
 use core_domain::policy::{Action, Module, Permission};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
+
+use super::plugin_credentials::{BindContext, CredentialBindingInput, CredentialBindingView};
 
 /// Plugins-module permission shorthand.
 fn plugins(action: Action) -> Permission {
@@ -139,6 +142,17 @@ pub struct UpdateInstallRequest {
     /// Upgrade the pinned version (explicit, never automatic).
     pub version: Option<String>,
     pub granted_capabilities: Option<Vec<String>>,
+    /// The install's credential bindings, as a REPLACE-SET: what this list
+    /// names is what the install holds afterwards, so an omitted profile is a
+    /// withdrawn consent. `None` leaves the set untouched — the same
+    /// distinction `granted_capabilities` uses, so a PATCH that only flips
+    /// `status` cannot silently drop a credential.
+    ///
+    /// Each entry names a profile from the pinned manifest's `outbound_scopes`
+    /// and a vault record in this org. The vault's category grant decides
+    /// whether the acting operator may bind it; the value never travels
+    /// through this API and never leaves the server.
+    pub credential_bindings: Option<Vec<CredentialBindingInput>>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -198,6 +212,17 @@ pub struct InstallView {
     pub previous_version: Option<String>,
     /// Why the install was revoked, when it is.
     pub revoked_reason: Option<String>,
+    /// The egress profiles the PINNED manifest declares, as
+    /// `profile -> allowlisted https scopes`. Shown beside the bindings
+    /// because a profile name on its own is not consent: the operator has to
+    /// see which hosts that name reaches. Empty for an install whose manifest
+    /// declares none.
+    pub egress_profiles: BTreeMap<String, Vec<String>>,
+    /// The credential bindings this install holds (Wave 53 lane 12): which
+    /// profile wears which vault record, as which header. The record is named
+    /// by title only — [`CredentialBindingView`] has no member that could
+    /// carry a field or a value.
+    pub credential_bindings: Vec<CredentialBindingView>,
     #[schema(value_type = String, format = "date-time")]
     pub installed_at: chrono::DateTime<chrono::Utc>,
 }
@@ -207,12 +232,18 @@ impl InstallView {
         install: PluginInstall,
         name: String,
         manifest: &PluginManifestV2,
+        credential_bindings: Vec<core_db::plugin_credentials::CredentialBinding>,
     ) -> Self {
         let effective_permissions = install
             .granted_permissions()
             .iter()
             .map(|p| p.key())
             .collect();
+        let egress_profiles = manifest
+            .connector_profile
+            .as_ref()
+            .map(|p| p.outbound_scopes.clone())
+            .unwrap_or_default();
         Self {
             id: install.id,
             slug: install.slug,
@@ -225,6 +256,11 @@ impl InstallView {
             module_digest: install.module_digest,
             previous_version: install.previous_version,
             revoked_reason: install.revoked_reason,
+            egress_profiles,
+            credential_bindings: credential_bindings
+                .into_iter()
+                .map(CredentialBindingView::from)
+                .collect(),
             installed_at: install.installed_at,
         }
     }
@@ -587,6 +623,22 @@ pub async fn list_installs(
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
     let installs = core_db::plugins::list_installs(&mut tx, org_id).await?;
+    // One read for every install's bindings, not one per install: the roster
+    // already costs two reads per row and a third would be the N+1 that shows
+    // up as a slow settings page.
+    let install_ids: Vec<Uuid> = installs.iter().map(|i| i.id).collect();
+    let mut bindings_by_install: HashMap<
+        Uuid,
+        Vec<core_db::plugin_credentials::CredentialBinding>,
+    > = HashMap::new();
+    for binding in
+        core_db::plugin_credentials::list_for_installs(&mut tx, org_id, &install_ids).await?
+    {
+        bindings_by_install
+            .entry(binding.install_id)
+            .or_default()
+            .push(binding);
+    }
     let mut views = Vec::with_capacity(installs.len());
     for install in installs {
         let name = core_db::plugins::get_catalog_entry(&mut tx, &install.slug)
@@ -597,7 +649,10 @@ pub async fn list_installs(
             .await
             .map(|v| v.manifest)
             .unwrap_or_else(|_| fallback_manifest(&install));
-        views.push(InstallView::from_install(install, name, &manifest));
+        let bindings = bindings_by_install.remove(&install.id).unwrap_or_default();
+        views.push(InstallView::from_install(
+            install, name, &manifest, bindings,
+        ));
     }
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(views))
@@ -778,7 +833,7 @@ pub async fn create_install(
         .await?;
         Ok((
             tx,
-            InstallView::from_install(install, entry.name, &pinned.manifest),
+            InstallView::from_install(install, entry.name, &pinned.manifest, Vec::new()),
         ))
     })
     .await?;
@@ -859,6 +914,26 @@ pub async fn update_install(
         )
         .await?;
         let updated = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
+        // Wave 53 lane 12: the credential bindings ride this route as a
+        // replace-set, AFTER the install row is final and BEFORE the view is
+        // built, so the response shows the consented state. A binding is
+        // checked against the vault's own category grant using the roles the
+        // acting operator holds right now — not the ones an earlier operator
+        // held when they consented.
+        if let Some(desired) = req.credential_bindings.as_deref() {
+            super::plugin_credentials::apply(
+                &mut tx.tx,
+                &BindContext {
+                    org_id,
+                    install: &updated,
+                    manifest: &target_manifest,
+                    actor,
+                    role_ids: authed.roles.iter().map(|r| r.id).collect(),
+                },
+                desired,
+            )
+            .await?;
+        }
         // §4.6: grant/version changes rewrite the surface registrations
         // to exactly what the new (manifest, grants) pair declares — the
         // deny-by-default residue is deletion, not retention.
@@ -905,9 +980,10 @@ pub async fn update_install(
             .await
             .map(|e| e.name)
             .unwrap_or_else(|_| updated.slug.clone());
+        let bindings = core_db::plugin_credentials::list(&mut tx.tx, org_id, updated.id).await?;
         Ok((
             tx,
-            InstallView::from_install(updated, name, &target_manifest),
+            InstallView::from_install(updated, name, &target_manifest, bindings),
         ))
     })
     .await?;

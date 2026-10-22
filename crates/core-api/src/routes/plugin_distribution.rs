@@ -428,6 +428,17 @@ pub struct UpdateProposalView {
     pub pending_version: Option<String>,
     pub pending_digest: Option<String>,
     pub consent_diff: ConsentDiffView,
+    /// The credential bindings this consent would CLEAR, by profile name
+    /// (Wave 53 lane 12).
+    ///
+    /// `outbound_scopes` is manifest-declared, so the same profile name in the
+    /// next version can allowlist a different host. A binding that outlived
+    /// the pin move would be consent to a name, quietly extended to whatever
+    /// the new publisher pointed it at, with the org's credential attached —
+    /// so a pin move clears them. This field is how the screen says so before
+    /// the operator clicks, rather than leaving them to notice afterwards.
+    /// Empty when nothing is bound or nothing is pending.
+    pub credential_bindings_cleared: Vec<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -1914,9 +1925,13 @@ pub async fn rollback_install(
             .await
             .map(|e| e.name)
             .unwrap_or_else(|_| updated.slug.clone());
+        // A rollback moved the pin, so the trigger has already cleared every
+        // credential binding: the profile names may mean different hosts
+        // under the older manifest. Read the truth rather than assuming it.
+        let bindings = core_db::plugin_credentials::list(&mut tx.tx, org_id, updated.id).await?;
         Ok((
             tx,
-            InstallView::from_install(updated, name, &target_manifest),
+            InstallView::from_install(updated, name, &target_manifest, bindings),
         ))
     })
     .await?;
@@ -2001,7 +2016,14 @@ pub async fn revoke_install(
             .await
             .map(|e| e.name)
             .unwrap_or_else(|_| revoked.slug.clone());
-        Ok((tx, InstallView::from_install(revoked, name, &manifest)))
+        // Revoke is terminal but not a deletion, so the bindings stay. They are
+        // inert because `authorize_invocation` refuses a revoked install before
+        // any host function runs, and the view carries the status beside them.
+        let bindings = core_db::plugin_credentials::list(&mut tx.tx, org_id, revoked.id).await?;
+        Ok((
+            tx,
+            InstallView::from_install(revoked, name, &manifest, bindings),
+        ))
     })
     .await?;
     Ok(Json(view))
@@ -2018,6 +2040,19 @@ async fn get_update_view(
     let existing = core_db::plugins::get_install(&mut tx, org_id, install_id).await?;
     let pending =
         core_db::plugin_distribution::get_pending_manifest(&mut tx, org_id, install_id).await?;
+    // A pending consent swaps the pin, and the trigger on `plugin_installs`
+    // clears every binding when it does. Name them here so the screen can say
+    // what the click costs. Read only when something is pending: with no
+    // proposal there is nothing to clear.
+    let bindings_cleared = if pending.is_some() {
+        core_db::plugin_credentials::list(&mut tx, org_id, install_id)
+            .await?
+            .into_iter()
+            .map(|b| b.profile)
+            .collect()
+    } else {
+        Vec::new()
+    };
     tx.commit().await.map_err(ApiError::from)?;
     let (pending_version, pending_manifest, pending_digest, pending_caps) = match pending {
         Some(p) => (Some(p.0), Some(p.1), Some(p.2), p.3),
@@ -2056,6 +2091,7 @@ async fn get_update_view(
             removed: diff.1,
             unchanged: diff.2,
         },
+        credential_bindings_cleared: bindings_cleared,
     }))
 }
 

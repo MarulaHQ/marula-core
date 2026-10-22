@@ -102,6 +102,7 @@ pub mod org_usage;
 pub mod org_users;
 pub mod passwords;
 pub mod pipeline;
+pub mod plugin_credentials;
 pub mod plugin_distribution;
 pub mod plugin_surface;
 pub mod plugins;
