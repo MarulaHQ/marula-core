@@ -274,8 +274,7 @@ pub async fn bind(
     // The INSERT selects the record again rather than trusting the value read
     // above: one statement that can only produce a row when (org, record,
     // install) agree is simpler to audit than two that must be read together.
-    let sql = format!(
-        "INSERT INTO plugin_credential_bindings
+    let sql = "INSERT INTO plugin_credential_bindings
            (id, org_id, install_id, profile, secret_record_id, header_name, bound_by, bound_role_ids)
          SELECT $2, $1, $3, $4, sr.id, $5, $6, $7
            FROM secret_records sr
@@ -286,9 +285,8 @@ pub async fn bind(
                bound_by = EXCLUDED.bound_by,
                bound_role_ids = EXCLUDED.bound_role_ids,
                updated_at = now()
-         RETURNING id"
-    );
-    let id: Option<Uuid> = sqlx::query_scalar(&sql)
+         RETURNING id";
+    let id: Option<Uuid> = sqlx::query_scalar(sql)
         .bind(org_id)
         .bind(Uuid::now_v7())
         .bind(install_id)

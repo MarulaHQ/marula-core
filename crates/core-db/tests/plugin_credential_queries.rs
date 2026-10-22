@@ -90,7 +90,7 @@ async fn restricted_folder_with_record(
     marker: &str,
 ) -> (Uuid, Uuid) {
     let mut tx = org_tx(&db.admin, seeded.org).await;
-    let seed = secret_vault::list_org_folders(&mut *tx, seeded.org)
+    let seed = secret_vault::list_org_folders(&mut tx, seeded.org)
         .await
         .expect("seeded folders")
         .into_iter()
@@ -219,23 +219,15 @@ async fn install_at(db: &common::TestDb, seeded: &Seeded, base: u64) -> Uuid {
 
 async fn grant_read(db: &common::TestDb, seeded: &Seeded, role: Uuid, folder: Uuid) {
     let mut tx = org_tx(&db.admin, seeded.org).await;
-    secret_vault::upsert_grant(
-        &mut *tx,
-        seeded.org,
-        role,
-        folder,
-        true,
-        false,
-        seeded.owner,
-    )
-    .await
-    .expect("read grant");
+    secret_vault::upsert_grant(&mut tx, seeded.org, role, folder, true, false, seeded.owner)
+        .await
+        .expect("read grant");
     tx.commit().await.expect("commit");
 }
 
 async fn revoke_grant(db: &common::TestDb, seeded: &Seeded, role: Uuid, folder: Uuid) {
     let mut tx = org_tx(&db.admin, seeded.org).await;
-    secret_vault::delete_grant(&mut *tx, seeded.org, role, folder)
+    secret_vault::delete_grant(&mut tx, seeded.org, role, folder)
         .await
         .expect("grant revoked");
     tx.commit().await.expect("commit");
@@ -393,7 +385,7 @@ async fn resolve_refuses_a_record_with_no_secret_field() {
     let db = common::test_db().await;
     let seeded = seed_org_at(&db, 94820, "cred-field").await;
     let mut tx = org_tx(&db.admin, seeded.org).await;
-    let folder = secret_vault::list_org_folders(&mut *tx, seeded.org)
+    let folder = secret_vault::list_org_folders(&mut tx, seeded.org)
         .await
         .expect("folders")
         .into_iter()
