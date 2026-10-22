@@ -19,7 +19,7 @@ check. Second, a default in the table is the value the process uses when nothing
 the variable; a profile can preset a different one, and the profiles are listed in
 `docs/deploy-descriptor.md`.
 
-Counts at this commit: 176 levers in 14 groups, and
+Counts at this commit: 178 levers in 14 groups, and
 28 retry budgets (7 subsystems across
 4 presets).
 
@@ -262,7 +262,7 @@ why only two are required.
 | `MARULA_VAULT_WRITE_BUDGET_PER_MIN` | integer | `600` | Vault writes allowed per org per minute. |
 | `MARULA_VAULT_BULK_ROWS_PER_SEC` | integer | `50` | Vault bulk-import rows per second. |
 
-### ai (13)
+### ai (15)
 
 | Lever | Kind | Default | Notes |
 |---|---|---|---|
@@ -279,6 +279,8 @@ why only two are required.
 | `MARULA_EMBEDDING_REINDEX_ROWS_PER_MIN` | integer | `600` | Ceiling on rows embedded per minute during a re-index; the sweep pauses between batches to hold it. |
 | `MARULA_EMBEDDING_REINDEX_SECS` | integer | `60` | How often an idle re-index sweep looks for work, in seconds. A tick with work is paced by the ceiling instead. |
 | `MARULA_EMBEDDING_REINDEX_WINDOW` | string | none | UTC hours a re-index may run, as `HH-HH` such as 22-06 (end exclusive, a start after the end wraps midnight). Unset runs any hour. |
+| `MARULA_RETRIEVAL_MODE` | string | `exact` | How the search vector leg answers: exact (sequential scan, true nearest neighbours, the default), iterative (pgvector HNSW with hnsw.iterative_scan, needs pgvector 0.8 and the HNSW index) or index (VectorChord with vchordrq.prefilter, needs the vchord extension preloaded and its index). A mode this database cannot run refuses at boot; it never falls back to exact. |
+| `MARULA_RETRIEVAL_WATCH_SECS` | integer | `300` | How often the worker reports each tenant's embedding count as `marula.embedding.count`, in seconds. The report marks tenants past the 20,000 threshold where an index starts to pay. |
 
 ### retries (36)
 

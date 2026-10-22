@@ -248,6 +248,15 @@ pub struct Config {
     /// (`MARULA_EMBEDDING_API_KEY`). Consulted before an org's BYOK key, and
     /// only for the provider this instance selected. Never logged.
     pub embedding_api_key: Option<String>,
+    /// How the search vector leg answers (Wave 52 lane R15). Resolved here so
+    /// an unknown token refuses boot; whether the selected mode can RUN is
+    /// probed against the database immediately after the pool opens, because
+    /// pgvector's version and an extension's preload are not environment facts.
+    ///
+    /// `exact` is the default and the only always-satisfiable mode. A mode that
+    /// cannot run refuses at boot rather than falling back to the exact scan:
+    /// the fallback would be invisible and would read as search working badly.
+    pub retrieval: core_domain::retrieval::RetrievalMode,
 }
 
 /// Which distance/duration provider the process registers (Wave 32 lane 7).
@@ -504,6 +513,7 @@ impl Config {
             embedding,
             embedding_host,
             embedding_api_key: None,
+            retrieval: core_domain::retrieval::RetrievalMode::Exact,
         }
     }
 
@@ -705,6 +715,12 @@ impl Config {
         // Resolved before the struct so a floor refusal fails boot with the
         // numbers, not on the first search after a green health check.
         let (embedding, embedding_host) = embedding_from_env()?;
+        // An unknown retrieval-mode token fails here, before the pool opens, so
+        // a typo never becomes a deployment that looks healthy. Satisfiability
+        // is checked after the pool opens (see `main.rs`).
+        let retrieval =
+            core_domain::retrieval::RetrievalMode::from_lookup(&|key| std::env::var(key).ok())
+                .map_err(|error| error.to_string())?;
         let cfg = Self {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://marula_app:marula_app@localhost:15432/marula".into()
@@ -837,6 +853,7 @@ impl Config {
                 .ok()
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty()),
+            retrieval,
         };
         // Fail-closed at the parse step, so the binary and any test that
         // goes through `from_env` inherit the all-in-one preconditions.
@@ -1149,6 +1166,7 @@ impl Config {
             embedding: shipped_embedding().0,
             embedding_host: shipped_embedding().1,
             embedding_api_key: None,
+            retrieval: core_domain::retrieval::RetrievalMode::Exact,
         }
     }
 }
@@ -1238,6 +1256,9 @@ mod hardening_tests {
                 "MARULA_EMBEDDING_API_KEY",
                 "MARULA_EMBEDDING_CUSTOM_MODELS",
                 "MARULA_HOST_MEMORY_MB",
+                // The retrieval mode is resolved at boot too, so a test that
+                // sets a bad token must not leak it into the next one.
+                "MARULA_RETRIEVAL_MODE",
             ] {
                 state.push((key.to_string(), std::env::var(key).ok()));
             }
@@ -1347,6 +1368,42 @@ mod hardening_tests {
         assert!(
             err.contains("MARULA_EMBEDDING_PROVIDER=openai"),
             "the cloud escape hatch is named too: {err}"
+        );
+    }
+
+    /// The retrieval mode is a deployment lever, so the boot path has to do two
+    /// things with it (Wave 52 lane R15): take a valid token, and refuse a typo
+    /// by listing the tokens. Resolving a typo to `exact` would put a
+    /// deployment on the slow scan while its operator believed an index was
+    /// answering. Satisfiability is not tested here — it is a database fact
+    /// (`crates/core-db/tests/retrieval_mode_queries.rs`); this is only the
+    /// resolve-from-environment contract.
+    #[test]
+    fn the_retrieval_lever_resolves_known_tokens_and_refuses_a_typo() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "f".repeat(64));
+        std::env::set_var("MARULA_SECRET_KEY", "e".repeat(64));
+        std::env::remove_var("MARULA_DEV_TOOLS");
+
+        std::env::remove_var("MARULA_RETRIEVAL_MODE");
+        let cfg = Config::from_env().expect("unset means exact");
+        assert_eq!(cfg.retrieval, core_domain::retrieval::RetrievalMode::Exact);
+
+        for mode in core_domain::retrieval::RetrievalMode::ALL {
+            std::env::set_var("MARULA_RETRIEVAL_MODE", mode.as_str());
+            let cfg = Config::from_env().expect("a known token boots");
+            assert_eq!(cfg.retrieval, mode, "the lever selects {}", mode.as_str());
+        }
+
+        std::env::set_var("MARULA_RETRIEVAL_MODE", "iterativ");
+        let err = Config::from_env().expect_err("a typo must refuse boot");
+        assert!(
+            err.contains("MARULA_RETRIEVAL_MODE") && err.contains("iterativ"),
+            "the refusal names the lever and the token: {err}"
+        );
+        assert!(
+            err.contains("exact") && err.contains("iterative") && err.contains("index"),
+            "the refusal lists the tokens that would have worked: {err}"
         );
     }
 

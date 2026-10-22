@@ -100,6 +100,7 @@ pub mod reply_snippets;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod retention;
+pub mod retrieval;
 pub mod roles;
 pub mod routing;
 pub mod scheduling;

@@ -74,6 +74,15 @@ SET hnsw.iterative_scan = strict_order;
 SELECT bench.run_arm('hnsw-iter-strict', 'S', :iters);
 SELECT bench.run_arm('hnsw-iter-strict', 'L', :iters);
 SELECT bench.capture_plan('hnsw-iter-strict', 'S');
+
+-- The shipped `iterative` mode is ef_search 200 with strict_order
+-- (crates/core-db/src/search.rs), so the number the descriptor quotes for that
+-- mode has to come from this arm. The 40 baseline above is the curve's cheap
+-- end; it is not what a deployment runs.
+SET hnsw.ef_search = 200;
+SELECT bench.run_arm('hnsw-iter200-strict', 'S', :iters);
+SELECT bench.run_arm('hnsw-iter200-strict', 'L', :iters);
+SELECT bench.capture_plan('hnsw-iter200-strict', 'S');
 RESET ROLE;
 
 -- The control: same index, same queries, no policy and no tenant predicate.

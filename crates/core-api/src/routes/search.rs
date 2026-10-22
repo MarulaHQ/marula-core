@@ -399,6 +399,7 @@ pub async fn search(
                     embedding,
                     limit,
                     Some(anchor.clone()),
+                    state.config.retrieval,
                 )
                 .await?
             }
@@ -417,6 +418,7 @@ pub async fn search(
                     embedding,
                     limit,
                     offset,
+                    state.config.retrieval,
                 )
                 .await?
             }

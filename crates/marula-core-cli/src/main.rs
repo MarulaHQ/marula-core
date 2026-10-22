@@ -135,6 +135,12 @@ enum DeployAction {
         /// Narrow the descriptor to one profile.
         #[arg(long)]
         profile: Option<String>,
+        /// Probe this database for retrieval-mode satisfiability and the
+        /// per-tenant embedding distribution. Defaults to `DATABASE_URL`;
+        /// without either the descriptor reports `probe: not_run` instead of
+        /// claiming the mode can run.
+        #[arg(long)]
+        database_url: Option<String>,
         /// Write to this path instead of stdout.
         #[arg(long)]
         out: Option<std::path::PathBuf>,
@@ -224,7 +230,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::SeedDemo { force } => seed_demo(force).await,
         Command::PluginKey { action } => plugin_key(action).await,
-        Command::Deploy { action } => deploy_command(action),
+        Command::Deploy { action } => deploy_command(action).await,
         Command::Data { action } => data_command(action).await,
     }
 }
@@ -267,13 +273,19 @@ async fn data_command(action: DataAction) -> anyhow::Result<()> {
 
 /// `marula deploy describe|profiles` (Wave 49 lane R7). Pure and synchronous:
 /// it reads and writes files, never the network or the database.
-fn deploy_command(action: DeployAction) -> anyhow::Result<()> {
+async fn deploy_command(action: DeployAction) -> anyhow::Result<()> {
     match action {
-        DeployAction::Describe { json, profile, out } => {
+        DeployAction::Describe {
+            json,
+            profile,
+            database_url,
+            out,
+        } => {
+            let database_url = database_url.or_else(|| std::env::var("DATABASE_URL").ok());
             let text = if json {
-                deploy::describe_json(profile.as_deref())?
+                deploy::describe_json_probed(profile.as_deref(), database_url.as_deref()).await?
             } else {
-                deploy::describe_summary()
+                deploy::describe_summary_probed(database_url.as_deref()).await
             };
             match out {
                 Some(path) => {
@@ -307,6 +319,24 @@ async fn migrate() -> anyhow::Result<()> {
          (the compose `migrate` one-shot role), NOT as the RLS-scoped \
          app role, which cannot CREATE TABLE on fresh installs",
     )?;
+    // The retrieval index is DDL and this is the owner path, so a deployment
+    // that selected `iterative` or `index` builds its index here. `exact`
+    // (the default) builds nothing: an index costs build time and memory that
+    // the many-small-tenants shape should not pay (Wave 52 lane R15).
+    let mode = core_domain::retrieval::RetrievalMode::from_lookup(&|key| std::env::var(key).ok())
+        .context("MARULA_RETRIEVAL_MODE names no retrieval mode")?;
+    if mode != core_domain::retrieval::RetrievalMode::Exact {
+        let report = core_db::retrieval::ensure_index(&pool, mode)
+            .await
+            .context("building the retrieval index")?;
+        tracing::info!(
+            mode = %mode,
+            index = ?report.index,
+            present = report.present,
+            detail = %report.detail,
+            "retrieval index"
+        );
+    }
     tracing::info!("migrations applied");
     Ok(())
 }

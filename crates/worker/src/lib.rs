@@ -50,6 +50,7 @@ pub mod project_billing;
 pub mod queue_runner;
 pub mod reconcile;
 pub mod reconnect;
+pub mod retrieval_watch;
 pub mod rotation_sweep;
 pub mod run_retention_sweep;
 pub mod search_indexer;
@@ -637,6 +638,19 @@ pub async fn run(
                 "embedding re-index disabled: MARULA_INTERNAL_TOKEN is unset, so the worker \
                  cannot reach core-api's backfill surface"
             ),
+        }
+
+        // Retrieval distribution (Wave 52 lane R15): per-tenant embedding counts
+        // as `marula.embedding.count{org}`. Housekeeping only, and it changes no
+        // mode — the count is the evidence an operator needs to decide whether
+        // the exact vector scan still fits a tenant.
+        {
+            let watch_pool = pool.clone();
+            let watch_shutdown = shutdown.clone();
+            let interval = config.retrieval_watch_secs;
+            tokio::spawn(async move {
+                retrieval_watch::run(watch_pool, interval, watch_shutdown).await;
+            });
         }
 
         // Object-store integrity (Wave 52 lane R6): off unless

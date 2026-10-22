@@ -98,6 +98,21 @@ async fn main() -> anyhow::Result<()> {
                  see the RLS conventions block in crates/core-db before \
                  adding tables to the allowlist",
         )?;
+        // The retrieval index is DDL, so it belongs to the path that owns DDL.
+        // It is built only when the deployment selected a mode that needs one
+        // (Wave 52 lane R15); `exact` stays index-free on purpose.
+        if config.retrieval != core_domain::retrieval::RetrievalMode::Exact {
+            let report = core_db::retrieval::ensure_index(&pool, config.retrieval)
+                .await
+                .context("building the retrieval index for MARULA_RETRIEVAL_MODE")?;
+            tracing::info!(
+                mode = %config.retrieval,
+                index = ?report.index,
+                present = report.present,
+                detail = %report.detail,
+                "retrieval index"
+            );
+        }
         tracing::info!("migrations applied; RLS coverage verified");
     } else {
         tracing::info!(
@@ -127,6 +142,30 @@ async fn main() -> anyhow::Result<()> {
             registry
         },
     };
+    // Retrieval-mode satisfiability (Wave 52 lane R15). This is the fail-fast
+    // the row asks for: `iterative` on pgvector 0.7 and `index` without the
+    // extension, the preload or the index are typed refusals here, not a
+    // quiet fallback to the exact scan on the first query. The probe reads
+    // `pg_extension`, `pg_settings` and `pg_indexes` as the app role.
+    {
+        let probe = core_db::retrieval::probe(&state.pool, config.retrieval)
+            .await
+            .context("probing the retrieval mode against Postgres")?;
+        match probe.verdict {
+            Ok(()) => tracing::info!(
+                mode = %config.retrieval,
+                pgvector = ?probe.capabilities.pgvector_version,
+                vchord = probe.capabilities.vchord_installed,
+                preloads_vchord = probe.capabilities.preloads("vchord"),
+                "retrieval mode satisfied"
+            ),
+            Err(refusal) => {
+                tracing::error!(mode = %config.retrieval, %refusal, "retrieval mode cannot run");
+                return Err(anyhow::anyhow!("{refusal}"));
+            }
+        }
+    }
+
     // The instance's embedding space (Wave 52 lane R14): record what this
     // process writes, and open a re-index window when the model changed. A
     // failure here is loud but not fatal — search keeps working on its lexical

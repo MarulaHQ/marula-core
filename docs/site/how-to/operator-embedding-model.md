@@ -170,9 +170,10 @@ AI off) or supplies a credential. Its `ai.completion_model` selects nothing.
 target model only, with the same model the live search path uses. When a switch
 is in progress the previous space is read-only and never re-embedded.
 
-**Do not add a vector index to speed this up.** The table is an exact scan on
-purpose in this release. The decision is recorded in migration 0062 and the
-retrieval-mode work is separate.
+**Do not add a vector index to speed this up on its own.** The retrieval mode
+decides whether an index exists and which one; see
+[how to choose the retrieval mode](operator-retrieval-mode.md). `exact` is the
+default and builds nothing.
 
 **Do not expect the job to re-embed uploaded media.** `rag_embeddings` holds
 vectors a connector computed. They carry the tag and are filtered on it. Their

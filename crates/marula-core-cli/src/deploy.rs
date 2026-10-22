@@ -99,6 +99,12 @@ pub struct DeployDescriptor {
     /// `core_domain::embedding`, so a descriptor reader and the process that
     /// boots see the same table, the same floors and the same refusal wording.
     pub embedding: EmbeddingSpec,
+    /// The retrieval mode (Wave 52 lane R15): the lever, the three modes with
+    /// their measured consequence, the requirement each one carries, whether
+    /// this deployment can run the selected one, and the per-tenant embedding
+    /// distribution. The policy is `core_domain::retrieval`'s; this is a
+    /// projection plus a live probe, never a second copy of the rules.
+    pub retrieval: RetrievalSpec,
 }
 
 /// Every retry preset and the budgets it sets, one entry per subsystem.
@@ -320,6 +326,192 @@ pub fn embedding_spec() -> EmbeddingSpec {
     }
 }
 
+/// The retrieval-mode section of the descriptor.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetrievalSpec {
+    /// The lever that selects the mode.
+    pub mode_env: &'static str,
+    /// Embeddings in one tenant at which the exact scan stops fitting the
+    /// vector leg's database share. The distribution marks tenants past it.
+    pub threshold_embeddings: u64,
+    /// Which table the mode governs. Named explicitly so nobody reads the
+    /// descriptor as claiming the connector RAG vectors changed too.
+    pub applies_to: Vec<&'static str>,
+    /// Every mode with its measured consequence.
+    pub modes: Vec<RetrievalModeSpec>,
+    /// What this environment resolves to and whether it can run.
+    pub resolved: RetrievalResolved,
+    /// Per-tenant embedding counts, when a database was reachable.
+    pub distribution: Option<RetrievalDistribution>,
+}
+
+/// One retrieval mode, in the operator's words.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetrievalModeSpec {
+    pub name: &'static str,
+    pub default: bool,
+    pub summary: &'static str,
+    pub latency: &'static str,
+    pub index_memory: &'static str,
+    pub recall: &'static str,
+    /// Model time plus database time against the 50 ms vector leg.
+    pub leg_note: &'static str,
+    pub recommend_when: &'static str,
+    /// What the database must provide. Empty for `exact`.
+    pub requires: Vec<&'static str>,
+}
+
+/// The mode this environment selected, or the reason it selected none.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetrievalResolved {
+    pub mode: Option<&'static str>,
+    /// `null` when the mode can run. The same sentence the boot would print.
+    pub refusal: Option<String>,
+    /// `live` when a database answered, `unreachable` when one was configured
+    /// but did not, `not_run` when there was none to ask.
+    pub probe: &'static str,
+    /// The connection fault, when `probe` is `unreachable`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pgvector_version: Option<String>,
+    pub vchord_installed: bool,
+    pub vchord_preloaded: bool,
+    pub hnsw_index: bool,
+    pub vchord_index: bool,
+}
+
+/// One tenant's embedding count.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetrievalTenantSpec {
+    pub org_id: String,
+    pub embeddings: i64,
+    pub index_recommended: bool,
+}
+
+/// The distribution report. It is deliberately not a mean: the operator needs
+/// to see WHICH tenant crossed the threshold.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetrievalDistribution {
+    pub threshold_embeddings: u64,
+    pub tenants: Vec<RetrievalTenantSpec>,
+    pub tenants_over_threshold: usize,
+    pub total_embeddings: i64,
+    /// What the numbers say to do. The mode still changes by hand.
+    pub recommendation: String,
+}
+
+/// The retrieval section with no database probe. Kept separate so
+/// [`descriptor`] stays cheap and sync: a descriptor read must work on a host
+/// that cannot reach the database, and say that it did not ask.
+#[must_use]
+pub fn retrieval_spec() -> RetrievalSpec {
+    retrieval_spec_from(None, None, None)
+}
+
+fn retrieval_spec_from(
+    probe: Option<&core_db::retrieval::Probe>,
+    distribution: Option<Vec<core_db::retrieval::TenantDistribution>>,
+    database_error: Option<String>,
+) -> RetrievalSpec {
+    use core_domain::retrieval::{RetrievalMode, INDEX_THRESHOLD_EMBEDDINGS, MODE_ENV};
+
+    let modes = RetrievalMode::ALL
+        .into_iter()
+        .map(|mode| {
+            let consequence = mode.consequence();
+            RetrievalModeSpec {
+                name: mode.as_str(),
+                default: mode.is_default(),
+                summary: consequence.summary,
+                latency: consequence.latency,
+                index_memory: consequence.index_memory,
+                recall: consequence.recall,
+                leg_note: consequence.leg_note,
+                recommend_when: consequence.recommend_when,
+                requires: mode.requires().to_vec(),
+            }
+        })
+        .collect();
+    let (mode, mode_error) = match RetrievalMode::from_lookup(&|key| std::env::var(key).ok()) {
+        Ok(mode) => (Some(mode), None),
+        Err(error) => (None, Some(error.to_string())),
+    };
+    let (probe_state, refusal) = if let Some(error) = database_error.as_ref() {
+        (
+            "unreachable",
+            Some(format!(
+                "the retrieval mode was not checked: the database could not be reached ({error})"
+            )),
+        )
+    } else if let Some(probe) = probe {
+        match &probe.verdict {
+            Ok(()) => ("live", mode_error),
+            Err(refusal) => ("live", Some(refusal.to_string())),
+        }
+    } else {
+        ("not_run", mode_error)
+    };
+    let resolved = RetrievalResolved {
+        mode: mode.map(RetrievalMode::as_str),
+        refusal,
+        probe: probe_state,
+        database_error,
+        pgvector_version: probe.and_then(|p| p.capabilities.pgvector_version.clone()),
+        vchord_installed: probe.is_some_and(|p| p.capabilities.vchord_installed),
+        vchord_preloaded: probe.is_some_and(|p| p.capabilities.preloads("vchord")),
+        hnsw_index: probe
+            .is_some_and(|p| p.capabilities.has_index(core_domain::retrieval::HNSW_INDEX)),
+        vchord_index: probe.is_some_and(|p| {
+            p.capabilities
+                .has_index(core_domain::retrieval::VCHORD_INDEX)
+        }),
+    };
+    let distribution = distribution.map(|tenants| {
+        let over = tenants.iter().filter(|t| t.index_recommended).count();
+        let total = tenants.iter().map(|t| t.embeddings).sum();
+        let recommendation = if tenants.is_empty() {
+            "No vectors stored yet. The mode has nothing to accelerate.".to_string()
+        } else if over == 0 {
+            format!(
+                "Every tenant is below {INDEX_THRESHOLD_EMBEDDINGS} embeddings. Keep \
+                 `exact`: the scan is the true nearest neighbours and costs no index memory."
+            )
+        } else {
+            let biggest = tenants.first().map_or(0, |t| t.embeddings);
+            format!(
+                "{over} of {} tenants are at or past {INDEX_THRESHOLD_EMBEDDINGS} \
+                 embeddings (largest {biggest}). That is the shape `index` is for: a \
+                 per-org deployment on Postgres you control. `iterative` is the managed \
+                 alternative. Change the mode by hand.",
+                tenants.len()
+            )
+        };
+        RetrievalDistribution {
+            threshold_embeddings: INDEX_THRESHOLD_EMBEDDINGS,
+            tenants: tenants
+                .into_iter()
+                .map(|t| RetrievalTenantSpec {
+                    org_id: t.org_id.to_string(),
+                    embeddings: t.embeddings,
+                    index_recommended: t.index_recommended,
+                })
+                .collect(),
+            tenants_over_threshold: over,
+            total_embeddings: total,
+            recommendation,
+        }
+    });
+    RetrievalSpec {
+        mode_env: MODE_ENV,
+        threshold_embeddings: INDEX_THRESHOLD_EMBEDDINGS,
+        applies_to: vec!["search_embeddings"],
+        modes,
+        resolved,
+        distribution,
+    }
+}
+
 fn param(
     name: &'static str,
     group: &'static str,
@@ -374,6 +566,7 @@ pub fn descriptor() -> DeployDescriptor {
         params: params(),
         retries: retry_spec(),
         embedding: embedding_spec(),
+        retrieval: retrieval_spec(),
     }
 }
 
@@ -1600,6 +1793,22 @@ fn params() -> Vec<Param> {
             false,
             "UTC hours a re-index may run, as `HH-HH` such as 22-06 (end exclusive, a start after the end wraps midnight). Unset runs any hour.",
         ),
+        param(
+            "MARULA_RETRIEVAL_MODE",
+            "ai",
+            String,
+            Some("exact"),
+            false,
+            "How the search vector leg answers: exact (sequential scan, true nearest neighbours, the default), iterative (pgvector HNSW with hnsw.iterative_scan, needs pgvector 0.8 and the HNSW index) or index (VectorChord with vchordrq.prefilter, needs the vchord extension preloaded and its index). A mode this database cannot run refuses at boot; it never falls back to exact.",
+        ),
+        param(
+            "MARULA_RETRIEVAL_WATCH_SECS",
+            "ai",
+            Integer,
+            Some("300"),
+            false,
+            "How often the worker reports each tenant's embedding count as `marula.embedding.count`, in seconds. The report marks tenants past the 20,000 threshold where an index starts to pay.",
+        ),
 
         // --- retries (Wave 52 lane R1) ---
         //
@@ -1899,8 +2108,71 @@ fn params() -> Vec<Param> {
 }
 
 /// JSON rendering of the descriptor, optionally narrowed to one profile.
+///
+/// No database is consulted: the retrieval section says `probe: not_run`. Use
+/// [`describe_json_probed`] for the satisfiability check the row asks for.
 pub fn describe_json(profile: Option<&str>) -> anyhow::Result<String> {
+    describe_json_of(descriptor(), profile)
+}
+
+/// JSON rendering with the retrieval mode probed against a database.
+///
+/// A connection fault is reported inside the descriptor rather than as a
+/// command failure: an operator asking what a deployment looks like should
+/// still get the answer when Postgres is down, with the unsatisfied check
+/// labelled `unreachable` instead of a claim it did not verify.
+pub async fn describe_json_probed(
+    profile: Option<&str>,
+    database_url: Option<&str>,
+) -> anyhow::Result<String> {
+    if database_url.is_none_or(|url| url.trim().is_empty()) {
+        return describe_json(profile);
+    }
     let mut desc = descriptor();
+    desc.retrieval = probe_retrieval(database_url).await;
+    describe_json_of(desc, profile)
+}
+
+/// Probe the retrieval mode and distribution, with a short timeout.
+pub async fn probe_retrieval(database_url: Option<&str>) -> RetrievalSpec {
+    use std::time::Duration;
+
+    let Some(url) = database_url.filter(|u| !u.trim().is_empty()) else {
+        return retrieval_spec();
+    };
+    let connect = tokio::time::timeout(
+        Duration::from_secs(3),
+        sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(3))
+            .connect(url),
+    )
+    .await;
+    let pool = match connect {
+        Ok(Ok(pool)) => pool,
+        Ok(Err(error)) => {
+            return retrieval_spec_from(None, None, Some(error.to_string()));
+        }
+        Err(_) => {
+            return retrieval_spec_from(
+                None,
+                None,
+                Some("connection timed out after 3 s".to_string()),
+            );
+        }
+    };
+    let mode = core_domain::retrieval::RetrievalMode::from_lookup(&|key| std::env::var(key).ok())
+        .unwrap_or(core_domain::retrieval::RetrievalMode::Exact);
+    let probe = match core_db::retrieval::probe(&pool, mode).await {
+        Ok(probe) => probe,
+        Err(error) => return retrieval_spec_from(None, None, Some(error.to_string())),
+    };
+    let distribution = core_db::retrieval::embedding_distribution(&pool).await.ok();
+    pool.close().await;
+    retrieval_spec_from(Some(&probe), distribution, None)
+}
+
+fn describe_json_of(mut desc: DeployDescriptor, profile: Option<&str>) -> anyhow::Result<String> {
     if let Some(name) = profile {
         let kept: Vec<Profile> = desc
             .profiles
@@ -1925,7 +2197,20 @@ pub fn describe_json(profile: Option<&str>) -> anyhow::Result<String> {
 /// A short human summary for `marula deploy describe` without `--json`.
 #[must_use]
 pub fn describe_summary() -> String {
-    let d = descriptor();
+    describe_summary_of(&descriptor())
+}
+
+/// The same summary, with the retrieval mode probed against a database.
+pub async fn describe_summary_probed(database_url: Option<&str>) -> String {
+    if database_url.is_none_or(|url| url.trim().is_empty()) {
+        return describe_summary();
+    }
+    let mut desc = descriptor();
+    desc.retrieval = probe_retrieval(database_url).await;
+    describe_summary_of(&desc)
+}
+
+fn describe_summary_of(d: &DeployDescriptor) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "marula-core {} — deploy descriptor schema {}\n",
@@ -1949,6 +2234,41 @@ pub fn describe_summary() -> String {
         if !p.sets.is_empty() {
             out.push_str(&format!("  presets {} parameters\n", p.sets.len()));
         }
+    }
+    out.push_str(&format!(
+        "\nretrieval: mode via {} (default {}); this environment: {} (probe {})\n",
+        d.retrieval.mode_env,
+        d.retrieval
+            .modes
+            .iter()
+            .find(|m| m.default)
+            .map_or("exact", |m| m.name),
+        d.retrieval.resolved.mode.unwrap_or("(refused)"),
+        d.retrieval.resolved.probe,
+    ));
+    if let Some(refusal) = &d.retrieval.resolved.refusal {
+        out.push_str(&format!("  refusal: {refusal}\n"));
+    }
+    if let Some(distribution) = &d.retrieval.distribution {
+        out.push_str(&format!(
+            "  embeddings per tenant (threshold {}): {} tenant(s), {} over\n",
+            distribution.threshold_embeddings,
+            distribution.tenants.len(),
+            distribution.tenants_over_threshold,
+        ));
+        for tenant in distribution.tenants.iter().take(10) {
+            out.push_str(&format!(
+                "    {} {}{}\n",
+                tenant.org_id,
+                tenant.embeddings,
+                if tenant.index_recommended {
+                    "  (at/over threshold: index mode recommended)"
+                } else {
+                    ""
+                }
+            ));
+        }
+        out.push_str(&format!("  {}\n", distribution.recommendation));
     }
     out.push_str(&format!(
         "\nretries: preset via {} ({} presets, {} subsystems, {} levers each)\n",
@@ -2062,7 +2382,7 @@ fn first_caps_literal(fragment: &str) -> Option<String> {
 /// Values read through a computed variable, so the scan cannot see them. Every
 /// entry still has to be a descriptor parameter — that is the assertion.
 #[cfg(test)]
-const DYNAMIC_ENV_READS: [&str; 8] = [
+const DYNAMIC_ENV_READS: [&str; 9] = [
     // `read_key(inline_var, file_var)` in core-api's EdDSA resolution.
     "MARULA_JWT_EDDSA_PRIVATE_KEY",
     "MARULA_JWT_EDDSA_PRIVATE_KEY_FILE",
@@ -2073,6 +2393,9 @@ const DYNAMIC_ENV_READS: [&str; 8] = [
     "GOOGLE_CALENDAR_CLIENT_SECRET",
     "MICROSOFT_GRAPH_CLIENT_ID",
     "MICROSOFT_GRAPH_CLIENT_SECRET",
+    // `RetrievalMode::from_lookup` reads it once at boot (Wave 52 lane R15), so
+    // the source scan cannot see the name.
+    "MARULA_RETRIEVAL_MODE",
 ];
 
 /// Values the processes read that are not operator levers, each for a reason.
@@ -2272,6 +2595,82 @@ mod tests {
         assert_eq!(queue["attempts"], 10);
         assert_eq!(queue["cap_ms"], 3_600_000);
         assert_eq!(queue["jitter"], "full");
+    }
+
+    /// The retrieval section is the deployment decision, in the descriptor:
+    /// three modes with the requirement each one adds, exact as the default,
+    /// and `probe: not_run` when no database was asked. An operator must be
+    /// able to read the whole decision without the source (Wave 52 lane R15).
+    #[test]
+    fn the_json_publishes_the_retrieval_modes_and_their_requirements() {
+        let json = describe_json(None).expect("json");
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid json");
+        let retrieval = &v["retrieval"];
+        assert_eq!(retrieval["mode_env"], "MARULA_RETRIEVAL_MODE");
+        assert_eq!(retrieval["threshold_embeddings"], 20_000);
+        assert_eq!(retrieval["applies_to"][0], "search_embeddings");
+        assert_eq!(retrieval["resolved"]["probe"], "not_run");
+        assert!(
+            retrieval["distribution"].is_null(),
+            "a descriptor read with no database must not invent a distribution"
+        );
+
+        let modes = retrieval["modes"].as_array().expect("modes array");
+        assert_eq!(modes.len(), 3);
+        let names: Vec<&str> = modes
+            .iter()
+            .map(|m| m["name"].as_str().unwrap_or_default())
+            .collect();
+        assert_eq!(names, vec!["exact", "iterative", "index"]);
+
+        let exact = &modes[0];
+        assert_eq!(exact["default"], true);
+        assert_eq!(exact["requires"].as_array().map(Vec::len), Some(0));
+
+        let iterative = &modes[1];
+        let iterative_requires = iterative["requires"].as_array().expect("requires");
+        assert!(
+            iterative_requires
+                .iter()
+                .any(|r| r.as_str().unwrap_or_default().contains("0.8")),
+            "iterative must name its pgvector floor: {iterative_requires:?}"
+        );
+        assert!(
+            iterative_requires.iter().any(|r| r
+                .as_str()
+                .unwrap_or_default()
+                .contains("search_embeddings_hnsw")),
+            "iterative must name the index it needs: {iterative_requires:?}"
+        );
+
+        let index = &modes[2];
+        let index_requires = index["requires"].as_array().expect("requires");
+        assert!(
+            index_requires
+                .iter()
+                .any(|r| r.as_str().unwrap_or_default().contains("vchord")),
+            "index must name the extension: {index_requires:?}"
+        );
+        assert!(
+            index_requires.iter().any(|r| r
+                .as_str()
+                .unwrap_or_default()
+                .contains("shared_preload_libraries")),
+            "index must name the preload, which is the requirement a managed \
+             instance cannot satisfy: {index_requires:?}"
+        );
+
+        // Every mode states the shared-leg arithmetic, so the numbers cannot be
+        // read as "the database owns 50 ms".
+        for mode in modes {
+            let note = mode["leg_note"].as_str().unwrap_or_default();
+            assert!(
+                note.contains("47 ms"),
+                "{} lacks the leg note",
+                mode["name"]
+            );
+            assert!(!mode["latency"].as_str().unwrap_or_default().is_empty());
+        }
     }
 
     #[test]

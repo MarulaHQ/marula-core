@@ -16,6 +16,7 @@
 //! core-domain/core-api.
 
 use crate::DbResult;
+use core_domain::retrieval::RetrievalMode;
 use core_domain::search::{reciprocal_rank_fusion, SearchKey};
 use sqlx::{PgConnection, Postgres};
 use std::collections::HashMap;
@@ -706,6 +707,59 @@ where
         .collect())
 }
 
+/// Apply the retrieval mode's session settings to this connection.
+///
+/// `SET LOCAL` is deliberate: every caller is inside the RLS transaction, and
+/// the setting must die with it. A session-level setting would leak an
+/// `ef_search` from one request into the next request on a pooled connection.
+///
+/// `exact` turns index scans off for the duration of the vector statement.
+/// That is stronger than trusting the planner not to choose an ANN index that
+/// exists: the exact mode promises the true nearest neighbours, and a graph
+/// walk with a tenant filter returns a fraction of the rows asked for (P10
+/// measured 1.3 of 10). [`restore_retrieval_mode`] turns it back on before the
+/// page is hydrated, because `hydrate_keys` needs its index.
+async fn apply_retrieval_mode(conn: &mut PgConnection, mode: RetrievalMode) -> DbResult<()> {
+    match mode {
+        RetrievalMode::Exact => {
+            sqlx::query("SET LOCAL enable_indexscan = off")
+                .execute(&mut *conn)
+                .await?;
+        }
+        RetrievalMode::Iterative => {
+            // 200 is P10's full-recall setting at the small tenant; strict order
+            // keeps the distance order that reciprocal rank fusion consumes.
+            sqlx::query("SET LOCAL hnsw.ef_search = 200")
+                .execute(&mut *conn)
+                .await?;
+            sqlx::query("SET LOCAL hnsw.iterative_scan = strict_order")
+                .execute(&mut *conn)
+                .await?;
+        }
+        RetrievalMode::Index => {
+            // VectorChord's prefilter runs the tenant and space filters inside
+            // the index scan, which is what keeps a small tenant's rows from
+            // being discarded after a table-wide walk.
+            sqlx::query("SET LOCAL vchordrq.prefilter = on")
+                .execute(&mut *conn)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Undo [`apply_retrieval_mode`]'s session settings for the rest of the
+/// transaction. Only `exact` needs it: the indexed modes' settings are read by
+/// the vector statement alone and are harmless afterwards.
+async fn restore_retrieval_mode(conn: &mut PgConnection, mode: RetrievalMode) -> DbResult<()> {
+    if mode == RetrievalMode::Exact {
+        sqlx::query("SET LOCAL enable_indexscan = on")
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
 /// Vector leg: cosine-distance nearest neighbors within the org's rows and ONE
 /// embedding space (RLS applies on top — reads are tenant-scoped by the policy,
 /// and the explicit org filter keeps the exact-KNN scan bounded). Exact search,
@@ -717,21 +771,23 @@ where
 /// made of two incomparable spaces rather than a miss. Callers pass the spaces
 /// they may read — the target space, plus the previous one while a re-index is
 /// unfinished — and each space is ranked in its own call.
-pub async fn vector_candidates<'e, E>(
-    executor: E,
+pub async fn vector_candidates(
+    conn: &mut PgConnection,
     org_id: Uuid,
     kinds: &[String],
     space: &str,
     embedding: &[f32],
     client_id: Option<Uuid>,
     limit: i64,
-) -> DbResult<Vec<SearchKey>>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+    mode: RetrievalMode,
+) -> DbResult<Vec<SearchKey>> {
     // Embeddings carry no scope of their own — the document scoping is
     // re-derived from the mirrored search_index row (an orphaned embedding
     // of a deleted document cannot answer; the EXISTS resolves the scope).
+    //
+    // The mode is applied to THIS statement's session, then unwound, so the
+    // same transaction can hydrate its page without a seq scan of search_index.
+    apply_retrieval_mode(conn, mode).await?;
     let rows = sqlx::query!(
         r#"SELECT e.entity_kind, e.entity_id
            FROM search_embeddings e
@@ -758,8 +814,9 @@ where
         client_id,
         limit
     )
-    .fetch_all(executor)
+    .fetch_all(&mut *conn)
     .await?;
+    restore_retrieval_mode(conn, mode).await?;
     Ok(rows
         .into_iter()
         .map(|row| SearchKey::new(row.entity_kind, row.entity_id))
@@ -879,9 +936,10 @@ pub async fn search_hybrid_page(
     embedding: &[f32],
     limit: i64,
     offset: i64,
+    mode: RetrievalMode,
 ) -> DbResult<Vec<SearchHit>> {
     Ok(hybrid_page_inner(
-        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, offset, None,
+        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, offset, None, mode,
     )
     .await?
     .hits)
@@ -904,9 +962,10 @@ pub async fn search_hybrid_page_paged(
     embedding: &[f32],
     limit: i64,
     offset: i64,
+    mode: RetrievalMode,
 ) -> DbResult<FusedPage> {
     hybrid_page_inner(
-        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, offset, None,
+        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, offset, None, mode,
     )
     .await
 }
@@ -928,9 +987,10 @@ pub async fn search_hybrid_page_after(
     embedding: &[f32],
     limit: i64,
     cursor: Option<FusedCursor>,
+    mode: RetrievalMode,
 ) -> DbResult<FusedPage> {
     hybrid_page_inner(
-        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, 0, cursor,
+        tx, org_id, kinds, q, trigram, client_id, spaces, embedding, limit, 0, cursor, mode,
     )
     .await
 }
@@ -948,6 +1008,7 @@ async fn hybrid_page_inner(
     limit: i64,
     offset: i64,
     cursor: Option<FusedCursor>,
+    mode: RetrievalMode,
 ) -> DbResult<FusedPage> {
     // A cursor page must fuse the same candidates as the page it continues,
     // so it uses the page-1 window regardless of the offset the first request
@@ -961,7 +1022,10 @@ async fn hybrid_page_inner(
     let mut vector_legs: Vec<Vec<SearchKey>> = Vec::with_capacity(spaces.len());
     for space in spaces {
         vector_legs.push(
-            vector_candidates(&mut *tx, org_id, kinds, space, embedding, client_id, depth).await?,
+            vector_candidates(
+                &mut *tx, org_id, kinds, space, embedding, client_id, depth, mode,
+            )
+            .await?,
         );
     }
     let mut legs: Vec<&[SearchKey]> = Vec::with_capacity(vector_legs.len() + 1);

@@ -31,6 +31,7 @@ pub mod notifications;
 pub mod policy;
 pub mod rag;
 pub mod reply_snippets;
+pub mod retrieval;
 pub mod retry;
 pub mod routing;
 pub mod scheduling;

@@ -31,6 +31,7 @@ use core_domain::entities::{
     TimeEntry, TimerSession,
 };
 use core_domain::policy::BuiltinRole;
+use core_domain::retrieval::RetrievalMode;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use std::collections::HashMap;
@@ -7800,6 +7801,7 @@ async fn search_hybrid_fuses_fts_and_vector_legs_by_rrf() {
         &near,
         10,
         0,
+        RetrievalMode::Exact,
     )
     .await
     .expect("hybrid page");
@@ -7920,6 +7922,7 @@ async fn search_hybrid_vector_leg_respects_kind_allow_list() {
         &embedding(0.3),
         10,
         0,
+        RetrievalMode::Exact,
     )
     .await
     .expect("hybrid page");
@@ -7997,6 +8000,7 @@ async fn search_hybrid_walk_matches_the_offset_walk_and_ends_honestly() {
             &query,
             3,
             page * 3,
+            RetrievalMode::Exact,
         )
         .await
         .expect("hybrid offset page");
@@ -8018,6 +8022,7 @@ async fn search_hybrid_walk_matches_the_offset_walk_and_ends_honestly() {
             &query,
             3,
             cursor,
+            RetrievalMode::Exact,
         )
         .await
         .expect("fused page");

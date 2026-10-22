@@ -64,6 +64,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 - [Bring up AI with your own API keys](admin-ai-bringup.md) — Make the six AI settings decisions in the order that makes the first live call work, with the refusal naming the step you skipped when you get the order wrong.
 - [Run transcription and embeddings on your own hardware](admin-local-ai-models.md) — Run Whisper voice transcription and 768-dimension vector search locally with Ollama so no data leaves your network.
 - [Change the embedding model](operator-embedding-model.md) — Pick a tier or a named model, read the capacity refusal, and watch the resumable re-index that follows a switch.
+- [Choose the retrieval mode](operator-retrieval-mode.md) — Run the exact scan, pgvector's iterative HNSW walk, or VectorChord's prefiltered index, and read the refusal when the database cannot run your choice.
 - [Configure the plugin consent flow](admin-plugin-consent.md) — Install digest-verified plugins and review capability permissions before enabling them.
 - [Extend Marula with plugin surfaces](admin-plugin-surfaces.md) — Register declarative dashboard widgets, automation triggers, read nodes, action steps, and custom field validators.
 - [Manage API keys](admin-api-keys.md) — Create narrowly scoped bearer tokens for external scripts and rotate keys without downtime.

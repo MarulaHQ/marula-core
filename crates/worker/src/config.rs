@@ -256,6 +256,11 @@ pub struct WorkerConfig {
     /// describes in its boot log and the CLI prints, so the three cannot
     /// disagree about the rate.
     pub embedding_reindex: core_domain::embedding::ReindexPolicy,
+    /// How often the retrieval-distribution sweep records each tenant's
+    /// embedding count (`MARULA_RETRIEVAL_WATCH_SECS`, default 300). Wave 52
+    /// lane R15: the count is what tells an operator whether the exact vector
+    /// scan still fits the tenant (see `retrieval_watch`).
+    pub retrieval_watch_secs: u64,
 }
 
 /// Which loop groups a worker process runs.
@@ -505,6 +510,7 @@ impl WorkerConfig {
             embedding_reindex: core_domain::embedding::ReindexPolicy::from_lookup(&|key| {
                 lookup(key)
             }),
+            retrieval_watch_secs: crate::retrieval_watch::interval_from_lookup(&|key| lookup(key)),
             object_store: core_store::StoreChoice::from_lookup(|key| lookup(key)),
             outbox_retention: crate::outbox_retention_sweep::OutboxRetentionConfig::from_values(
                 lookup("OUTBOX_SWEEP_SECS").and_then(|v| v.parse().ok()),

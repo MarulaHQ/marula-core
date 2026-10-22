@@ -93,6 +93,7 @@ struct Instruments {
     embedding_reindex_remaining: Gauge<u64>,
     embedding_reindex_runs_pending: Gauge<u64>,
     embedding_reindex_embedded: Counter<u64>,
+    embedding_count: Gauge<u64>,
 }
 
 static INSTRUMENTS: OnceLock<Instruments> = OnceLock::new();
@@ -249,6 +250,13 @@ fn instruments() -> &'static Instruments {
                 .u64_counter("marula.embedding.reindex.embedded")
                 .with_unit("{row}")
                 .with_description("Rows the re-index job embedded, by org")
+                .build(),
+            embedding_count: meter
+                .u64_gauge("marula.embedding.count")
+                .with_unit("{embedding}")
+                .with_description(
+                    "Embeddings stored per org. Past the retrieval-mode threshold an index starts to pay",
+                )
                 .build(),
             consumer_gap_lost: meter
                 .u64_gauge("marula.consumer.gap_lost")
@@ -577,6 +585,18 @@ pub fn embedding_reindex_embedded(org_id: &str, rows: u64) {
         .add(rows, &[KeyValue::new("org", org_id.to_string())]);
 }
 
+/// How many embeddings one org stores (Wave 52 lane R15).
+///
+/// The gauge is the deployment decision, not a health signal: the exact vector
+/// scan fits the leg budget until a tenant crosses roughly 20,000 embeddings,
+/// and past that the operator should move to `iterative` or `index`. It is per
+/// org because a mean hides the one tenant that crossed.
+pub fn embedding_count(org_id: &str, embeddings: u64) {
+    instruments()
+        .embedding_count
+        .record(embeddings, &[KeyValue::new("org", org_id.to_string())]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -660,6 +680,7 @@ mod tests {
             "marula.embedding.reindex.remaining",
             "marula.embedding.reindex.runs_pending",
             "marula.embedding.reindex.embedded",
+            "marula.embedding.count",
         ];
         let published: std::collections::BTreeSet<&str> =
             crate::contract::METRICS.iter().map(|m| m.name).collect();

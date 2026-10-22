@@ -25,6 +25,7 @@ use common::{fixed_uuid, org_tx, test_db};
 use core_db::embedding_space::{self, RunProgress, SpaceState};
 use core_db::{orgs, search};
 use core_domain::embedding::{space_for_model, Catalogue};
+use core_domain::retrieval::RetrievalMode;
 use core_domain::SEARCH_EMBEDDING_DIM;
 use uuid::Uuid;
 
@@ -184,9 +185,18 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
 
     // Passing case: the same query vector, restricted to the space it was
     // produced in, ranks the two new-space rows and misses `a` honestly.
-    let target = search::vector_candidates(&mut *tx, org, &kinds, &new_space, &query, None, 10)
-        .await
-        .expect("target space");
+    let target = search::vector_candidates(
+        &mut *tx,
+        org,
+        &kinds,
+        &new_space,
+        &query,
+        None,
+        10,
+        RetrievalMode::Exact,
+    )
+    .await
+    .expect("target space");
     let target_ids: Vec<Uuid> = target.iter().map(|key| key.entity_id).collect();
     assert_eq!(target_ids, vec![b, c], "one space, its own order");
     assert!(
@@ -209,6 +219,7 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
         &query,
         10,
         0,
+        RetrievalMode::Exact,
     )
     .await
     .expect("dual-read page");
@@ -233,6 +244,7 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
         &query,
         10,
         0,
+        RetrievalMode::Exact,
     )
     .await
     .expect("target-only page");
@@ -265,6 +277,7 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
         &query,
         10,
         0,
+        RetrievalMode::Exact,
     )
     .await
     .expect("dark page");
