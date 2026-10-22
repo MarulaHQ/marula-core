@@ -3,6 +3,7 @@
 use crate::policy::{Action, Module, Permission};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// Version of the plugin-runtime interface contract. Bump on any
@@ -491,11 +492,12 @@ pub struct PluginManifestV2 {
     pub artifact_kind: Option<PluginRuntimeKind>,
     /// ADR 0009 §6 full semantics (Wave 19 lane 2) — the connector
     /// governance profile: webhook endpoints + outbound scopes as MODELED
-    /// manifest fields, never free text. Valid and OPTIONAL ONLY on
-    /// `http_connector` manifests (a connector may legitimately declare no
-    /// webhooks — the default posture an absent profile already encodes);
-    /// forbidden on `wasm` manifests. Declared endpoints are the
-    /// connector's egress-allowlist seed (the same posture the WASM
+    /// manifest fields, never free text. Optional on any artifact kind since
+    /// ADR 0023 (Wave 53 lane 2): its two connector-only members are
+    /// `webhook_endpoints` and `routing`, and the egress declaration
+    /// (`outbound_scopes`) is legal on a wasm manifest too, because that is
+    /// where `http_request` reads its allowlist from. Declared endpoints are
+    /// the connector's egress-allowlist seed (the same posture the WASM
     /// resource profile carries); declared scopes render on the consent
     /// screen verbatim so an admin consents to exactly the SaaS scopes the
     /// connector asks for.
@@ -574,6 +576,22 @@ pub struct ConnectorProfile {
     /// exactly what the adapter will honor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingProfile>,
+    /// ADR 0023 Decision 3 (Wave 53 lane 2): the EGRESS allowlist a wasm
+    /// guest's `http_request` reads — profile name -> consented scopes. Each
+    /// scope is `https://host[:port][/path-prefix]`; a request whose scheme is
+    /// not https, whose authority is not listed, or whose path is outside the
+    /// scope's prefix is refused (`plugin_egress_scheme_denied`,
+    /// `plugin_egress_host_denied`). The map is what makes
+    /// `plugin_egress_profile_missing` a real refusal: a guest names a profile,
+    /// and a name the install did not consent has no list to fall back to.
+    ///
+    /// This one field is why the profile is no longer connector-only. The
+    /// relaxation is narrow on purpose: `webhook_endpoints` and `routing` stay
+    /// connector-only, so the rule that stopped a connector faking a UI
+    /// surface still holds, and a wasm manifest gains exactly the declaration
+    /// the executor needs.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub outbound_scopes: BTreeMap<String, Vec<String>>,
 }
 
 /// The routing-capability declaration a provider pack carries. Closed
@@ -708,8 +726,11 @@ impl RoutingProfile {
 /// declarations at the data boundary).
 pub const MAX_CONNECTOR_ENDPOINTS: usize = 8;
 pub const MAX_CONNECTOR_SCOPES: usize = 32;
+/// Egress profiles one manifest may consent (ADR 0023, Wave 53 lane 2).
+pub const MAX_EGRESS_PROFILES: usize = 8;
 const MAX_ENDPOINT_URL_BYTES: usize = 2048;
 const MAX_SCOPE_BYTES: usize = 64;
+const MAX_EGRESS_SCOPE_BYTES: usize = 512;
 
 impl ConnectorProfile {
     /// Validates the closed profile: https-only endpoints (host present,
@@ -749,6 +770,95 @@ impl ConnectorProfile {
         // its capabilities here, validated against the closed vocabulary.
         if let Some(routing) = &self.routing {
             routing.validate()?;
+        }
+        self.validate_outbound_scopes()?;
+        Ok(())
+    }
+
+    /// ADR 0023 Decision 3 (Wave 53 lane 2): the egress allowlist is MODELED,
+    /// not free text. A profile name is a lowercase identifier, each profile
+    /// declares at least one scope, the whole declaration stays inside the
+    /// existing scope cap, and every scope is an https URL with a host, no
+    /// credentials, no query or fragment, and no wildcard.
+    fn validate_outbound_scopes(&self) -> Result<(), crate::error::DomainError> {
+        if self.outbound_scopes.len() > MAX_EGRESS_PROFILES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "connector profile declares {} egress profiles (max {MAX_EGRESS_PROFILES})",
+                self.outbound_scopes.len()
+            )));
+        }
+        let mut total = 0usize;
+        for (name, scopes) in &self.outbound_scopes {
+            let name_ok = !name.is_empty()
+                && name.len() <= 64
+                && name.starts_with(|c: char| c.is_ascii_lowercase())
+                && name.chars().all(|c| {
+                    c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-')
+                });
+            if !name_ok {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "egress profile name {name:?} must match [a-z][a-z0-9_-]{{0,63}}"
+                )));
+            }
+            if scopes.is_empty() {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "egress profile {name:?} declares no scopes"
+                )));
+            }
+            total += scopes.len();
+            for (i, scope) in scopes.iter().enumerate() {
+                Self::validate_egress_scope(scope)?;
+                if scopes[..i].contains(scope) {
+                    return Err(crate::error::DomainError::Validation(format!(
+                        "egress profile {name:?} declares the scope {scope:?} twice"
+                    )));
+                }
+            }
+        }
+        if total > MAX_CONNECTOR_SCOPES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "connector profile declares {total} egress scopes (max {MAX_CONNECTOR_SCOPES})"
+            )));
+        }
+        Ok(())
+    }
+
+    fn validate_egress_scope(scope: &str) -> Result<(), crate::error::DomainError> {
+        if scope.len() > MAX_EGRESS_SCOPE_BYTES {
+            return Err(crate::error::DomainError::Validation(format!(
+                "egress scope exceeds the {MAX_EGRESS_SCOPE_BYTES}-byte cap"
+            )));
+        }
+        let parsed = url::Url::parse(scope).map_err(|_| {
+            crate::error::DomainError::Validation(format!(
+                "egress scope {scope:?} is not an absolute URL"
+            ))
+        })?;
+        if parsed.scheme() != "https" {
+            return Err(crate::error::DomainError::Validation(format!(
+                "egress scope {scope:?} must be https"
+            )));
+        }
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err(crate::error::DomainError::Validation(
+                "egress scopes must not carry credentials in the URL".into(),
+            ));
+        }
+        let host = parsed.host_str().unwrap_or_default();
+        if host.is_empty() {
+            return Err(crate::error::DomainError::Validation(format!(
+                "egress scope {scope:?} is missing a host"
+            )));
+        }
+        if host.contains('*') {
+            return Err(crate::error::DomainError::Validation(format!(
+                "egress scope {scope:?} must name an exact host — wildcards are not consent"
+            )));
+        }
+        if parsed.query().is_some() || parsed.fragment().is_some() {
+            return Err(crate::error::DomainError::Validation(format!(
+                "egress scope {scope:?} must not carry a query or fragment"
+            )));
         }
         Ok(())
     }
@@ -1499,11 +1609,14 @@ impl PluginManifestV2 {
             SettingsSchema::new(schema.clone())?;
         }
         // ADR 0009 §6 full semantics: the connector profile is
-        // kind-coherent — modeled/validated for http_connector manifests
-        // (optional: a connector that declares no webhooks keeps the
-        // absent-profile default posture), forbidden on wasm manifests (a
-        // WASM executable has no webhook endpoints to govern — declaring
-        // the field refuses rather than being ignored).
+        // kind-coherent. Since ADR 0023 (Wave 53 lane 2) the profile itself is
+        // legal on any artifact kind, because a wasm guest's `http_request`
+        // reads its egress allowlist from `outbound_scopes`. The two
+        // CONNECTOR-ONLY members are still refused on a wasm manifest:
+        // `webhook_endpoints` (a wasm guest receives no inbound webhooks) and
+        // `routing` (the Routing Contract is answered by an HTTP pack). A
+        // connector that declares no webhooks keeps the absent-profile default
+        // posture.
         match self.runtime_kind() {
             PluginRuntimeKind::HttpConnector => {
                 if let Some(profile) = &self.connector_profile {
@@ -1511,10 +1624,23 @@ impl PluginManifestV2 {
                 }
             }
             PluginRuntimeKind::Wasm => {
-                if self.connector_profile.is_some() {
-                    return Err(crate::error::DomainError::Validation(
-                        "wasm manifests must not declare a connector_profile".into(),
-                    ));
+                if let Some(profile) = &self.connector_profile {
+                    if !profile.webhook_endpoints.is_empty() {
+                        return Err(crate::error::DomainError::Validation(
+                            "wasm manifests must not declare connector webhook_endpoints \
+                             (connector-only); a wasm manifest may declare only \
+                             connector_profile.outbound_scopes for its http_request egress"
+                                .into(),
+                        ));
+                    }
+                    if profile.routing.is_some() {
+                        return Err(crate::error::DomainError::Validation(
+                            "wasm manifests must not declare a routing profile \
+                             (the Routing Contract is answered by an HTTP connector)"
+                                .into(),
+                        ));
+                    }
+                    profile.validate()?;
                 }
             }
         }
@@ -3355,6 +3481,7 @@ mod tests {
             ],
             scopes: vec!["graph:mail.read".into(), "graph:calendars.readwrite".into()],
             routing: None,
+            outbound_scopes: std::collections::BTreeMap::new(),
         });
         assert!(m.validate().is_ok());
 
@@ -3374,6 +3501,7 @@ mod tests {
                 webhook_endpoints: vec![url.into()],
                 scopes: vec!["graph:mail.read".into()],
                 routing: None,
+                outbound_scopes: std::collections::BTreeMap::new(),
             }
             .validate()
             .is_err()
@@ -3386,6 +3514,7 @@ mod tests {
             webhook_endpoints: vec!["https://hooks.example.com/x".into()],
             scopes: vec![],
             routing: None,
+            outbound_scopes: std::collections::BTreeMap::new(),
         };
         assert!(ok.validate().is_ok());
         // Over-cap declarations refuse.
@@ -3396,6 +3525,7 @@ mod tests {
             webhook_endpoints: many,
             scopes: vec![],
             routing: None,
+            outbound_scopes: std::collections::BTreeMap::new(),
         }
         .validate()
         .is_err());
@@ -3404,6 +3534,7 @@ mod tests {
             webhook_endpoints: vec![],
             scopes,
             routing: None,
+            outbound_scopes: std::collections::BTreeMap::new(),
         }
         .validate()
         .is_err());
@@ -3411,9 +3542,141 @@ mod tests {
             webhook_endpoints: vec![],
             scopes: vec!["bad scope with spaces".into()],
             routing: None,
+            outbound_scopes: std::collections::BTreeMap::new(),
         }
         .validate()
         .is_err());
+    }
+
+    /// ADR 0023 Decision 3: the one manifest relaxation. A wasm manifest may
+    /// declare the egress allowlist its `http_request` reads, and may not
+    /// declare the two members that stay connector-only.
+    #[test]
+    fn a_wasm_manifest_may_declare_outbound_scopes_but_not_webhooks_or_routing() {
+        let mut m = manifest(&["automation.reads"]);
+        m.connector_profile = Some(ConnectorProfile {
+            webhook_endpoints: vec![],
+            scopes: vec![],
+            routing: None,
+            outbound_scopes: [(
+                "telemetry".to_string(),
+                vec!["https://api.example.com/v1".to_string()],
+            )]
+            .into_iter()
+            .collect(),
+        });
+        assert!(
+            m.validate().is_ok(),
+            "a wasm manifest must be able to declare its egress allowlist"
+        );
+
+        // The two connector-only members stay refused on a wasm manifest.
+        let mut with_webhook = m.clone();
+        with_webhook
+            .connector_profile
+            .as_mut()
+            .unwrap()
+            .webhook_endpoints = vec!["https://hooks.example.com/x".into()];
+        assert!(with_webhook.validate().is_err());
+
+        let mut with_routing = m.clone();
+        with_routing.connector_profile.as_mut().unwrap().routing = Some(RoutingProfile {
+            capabilities: vec!["matrix".into()],
+            modes: vec!["driving".into()],
+            base_url: "https://relay.example.com".into(),
+            quality: "measured".into(),
+            time_control: "none".into(),
+            contract_revision: ROUTING_CONTRACT_REVISION,
+        });
+        assert!(with_routing.validate().is_err());
+
+        // A connector keeps the profile it always had, egress included.
+        let mut connector = manifest(&["automation.actions"]);
+        connector.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+        connector.connector_profile = Some(ConnectorProfile {
+            webhook_endpoints: vec!["https://hooks.example.com/x".into()],
+            scopes: vec![],
+            routing: None,
+            outbound_scopes: [(
+                "crm".to_string(),
+                vec!["https://api.example.com".to_string()],
+            )]
+            .into_iter()
+            .collect(),
+        });
+        assert!(connector.validate().is_ok());
+    }
+
+    /// The egress allowlist is modeled: exact https hosts, no credentials, no
+    /// query, no wildcard, bounded profile and scope counts.
+    #[test]
+    fn outbound_scopes_validate_like_a_consent_screen_reads_them() {
+        let profile = |scopes: Vec<&str>| ConnectorProfile {
+            webhook_endpoints: vec![],
+            scopes: vec![],
+            routing: None,
+            outbound_scopes: [(
+                "telemetry".to_string(),
+                scopes.into_iter().map(str::to_string).collect(),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        assert!(
+            profile(vec!["https://api.example.com/v1", "https://b.example.com"])
+                .validate()
+                .is_ok()
+        );
+
+        assert!(
+            profile(vec!["http://api.example.com"]).validate().is_err(),
+            "http"
+        );
+        assert!(
+            profile(vec!["https://user:pw@api.example.com"])
+                .validate()
+                .is_err(),
+            "credentials"
+        );
+        assert!(
+            profile(vec!["https://*.example.com"]).validate().is_err(),
+            "wildcard"
+        );
+        assert!(
+            profile(vec!["https://api.example.com/v1?x=1"])
+                .validate()
+                .is_err(),
+            "query"
+        );
+        assert!(
+            profile(vec!["https://api.example.com/v1#frag"])
+                .validate()
+                .is_err(),
+            "fragment"
+        );
+        assert!(profile(vec!["not a url"]).validate().is_err(), "relative");
+        assert!(profile(vec![]).validate().is_err(), "empty profile");
+        assert!(
+            profile(vec!["https://a.example.com", "https://a.example.com"])
+                .validate()
+                .is_err(),
+            "duplicate scope"
+        );
+
+        let mut bad_name = profile(vec!["https://a.example.com"]);
+        bad_name.outbound_scopes = [(
+            "Telemetry".to_string(),
+            vec!["https://a.example.com".to_string()],
+        )]
+        .into_iter()
+        .collect();
+        assert!(bad_name.validate().is_err(), "profile name grammar");
+
+        let mut too_many_profiles = profile(vec!["https://a.example.com"]);
+        too_many_profiles.outbound_scopes = (0..MAX_EGRESS_PROFILES + 1)
+            .map(|i| (format!("p{i}"), vec!["https://a.example.com".to_string()]))
+            .collect();
+        assert!(too_many_profiles.validate().is_err(), "profile cap");
     }
 
     #[test]

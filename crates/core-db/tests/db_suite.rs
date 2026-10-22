@@ -4614,6 +4614,7 @@ async fn seeded_connector_endpoints_follow_the_install_lifecycle() {
             ],
             scopes: vec![],
             routing: None,
+            outbound_scopes: std::collections::BTreeMap::new(),
         }),
         surface_profile: None,
     };
