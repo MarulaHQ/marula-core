@@ -157,6 +157,20 @@ async fn vector_leg_stays_dark_in_none_mode_and_backfill_is_inert() {
     .await;
     assert_eq!(response.status(), 200, "master switch on");
 
+    // Unset is no longer none: an install that configured nothing runs the
+    // instance's local embedder. This flow is about none mode, so it declares
+    // none rather than inheriting it — otherwise the upsert below embeds for
+    // real wherever a model runtime happens to be installed.
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/settings/org",
+        Some(&token),
+        Some(json!({ "key": "ai.completion_provider", "value": "none" })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "declare none mode");
+
     // --- internal upsert in none mode: rows land, vectors stay dark --------
     let entity = Uuid::now_v7();
     let response = send_with_headers(
@@ -283,33 +297,11 @@ async fn configured_but_unreachable_provider_degrades_search_never_5xxs() {
     .await;
     assert_eq!(response.status(), 200, "master switch on");
 
-    // Configure OpenAI BYOK against an unroutable gateway: provider present,
-    // network dead. `OPENAI_BASE_URL` points at a closed port for this test.
-    let response = send(
-        &app,
-        axum::http::Method::PUT,
-        "/api/settings/ai/byok",
-        Some(&token),
-        Some(json!({ "provider": "openai", "api_key": "sk-test-degrade" })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "byok seal must succeed");
-
-    // Activate the provider: the BYOK key store and the settings-registry
-    // active-provider setting are two declarations — one key, one switch.
-    let response = send(
-        &app,
-        axum::http::Method::PUT,
-        "/api/settings/org",
-        Some(&token),
-        Some(json!({ "key": "ai.completion_provider", "value": "openai" })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "activate openai must succeed");
-
-    // Force the adapter at the local kernel loopback that closes every
-    // connection immediately.
-    std::env::set_var("OPENAI_BASE_URL", "http://127.0.0.1:9/v1");
+    // Configure a provider against an unroutable gateway: provider present,
+    // network dead. The provider is an instance-level choice now, so an org
+    // cannot name a different one and the org setting is not the lever here;
+    // what makes the instance's runtime unreachable is its base URL.
+    std::env::set_var("OLLAMA_BASE_URL", "http://127.0.0.1:9");
 
     // The index row exists so the lexical leg has something to match.
     let response = send_with_headers(
@@ -362,5 +354,5 @@ async fn configured_but_unreachable_provider_degrades_search_never_5xxs() {
     assert_eq!(report["embedded"], 0);
     assert_eq!(report["complete"], false);
 
-    std::env::remove_var("OPENAI_BASE_URL");
+    std::env::remove_var("OLLAMA_BASE_URL");
 }

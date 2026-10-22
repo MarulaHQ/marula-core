@@ -351,10 +351,29 @@ async fn hybrid_rrf_cross_modal_provenance_isolation_and_deletion_receipts_flow(
     assert_eq!(body3["updated"], 1);
     assert_eq!(body3["unchanged"], 2);
 
-    // 2. Hybrid query (BM25 + vector RRF) & cross-modal retrieval:
-    //    Querying for "IPsec VPN tunnel rekey" + `vec_vpn` fuses lexical and vector legs:
-    //    - Hit 0 is `kb-vpn-101` (text, matched both BM25 and vector).
-    //    - Hit 1 is `att- screenshot-vpn` (image, matched cross-modally via vector leg).
+    // 2. Hybrid query (BM25 + vector RRF) & cross-modal retrieval.
+    //    A query is ranked only inside the space it names (Wave 52 lane R14),
+    //    and this batch now spans two: chunk 0 was upgraded to `-v2` while the
+    //    two media chunks stayed in `-768`. The space id comes from the same
+    //    catalogue the ingest used, not from a hand-written tag.
+    let space_768 = core_domain::embedding::space_for_model(
+        &core_domain::embedding::Catalogue::builtin(),
+        "embeddinggemma-2-768",
+    )
+    .id();
+    let space_v2 = core_domain::embedding::space_for_model(
+        &core_domain::embedding::Catalogue::builtin(),
+        "embeddinggemma-2-768-v2",
+    )
+    .id();
+
+    //    Querying for "IPsec VPN tunnel rekey" + `vec_vpn` inside `-768` fuses
+    //    the lexical and vector legs:
+    //    - `att-screenshot-vpn` (image) is reached cross-modally through the
+    //      vector leg.
+    //    - `kb-vpn-101` matches BM25, but its vector lives in `-v2` now, so it
+    //      is returned without a vector distance rather than ranked in a
+    //      space it is not part of.
     let q_res = send(
         &app,
         axum::http::Method::POST,
@@ -364,6 +383,7 @@ async fn hybrid_rrf_cross_modal_provenance_isolation_and_deletion_receipts_flow(
             "namespace": "msp-kb",
             "query_text": "IPsec VPN tunnel rekey",
             "query_vector": vec_vpn,
+            "query_space": space_768,
             "limit": 10
         })),
     )
@@ -373,21 +393,65 @@ async fn hybrid_rrf_cross_modal_provenance_isolation_and_deletion_receipts_flow(
     assert_eq!(q_body["lexical_leg_active"], true);
     assert_eq!(q_body["vector_leg_active"], true);
     let hits = q_body["hits"].as_array().expect("hits array");
-    assert_eq!(hits.len(), 3);
-    assert_eq!(hits[0]["source_id"], "kb-vpn-101");
-    assert_eq!(hits[0]["modality"], "text");
-    assert_eq!(hits[0]["model"], "embeddinggemma-2-768-v2");
-    assert_eq!(hits[0]["metadata"]["uri"], "/kb/ipsec-rekey");
-    assert!(hits[0]["lexical_score"].is_number());
-    assert!(hits[0]["vector_distance"].is_number());
+    assert_eq!(
+        hits.len(),
+        3,
+        "the lexical leg sees the whole namespace, the vector leg sees its own space"
+    );
+    let hit = |source_id: &str| {
+        hits.iter()
+            .find(|h| h["source_id"] == source_id)
+            .cloned()
+            .unwrap_or_else(|| panic!("missing {source_id} in {hits:?}"))
+    };
 
-    assert_eq!(hits[1]["source_id"], "att-screenshot-vpn");
-    assert_eq!(hits[1]["modality"], "image");
-    assert!(hits[1]["lexical_score"].is_null());
-    assert!(hits[1]["vector_distance"].is_number());
+    let text_hit = hit("kb-vpn-101");
+    assert_eq!(text_hit["modality"], "text");
+    assert_eq!(text_hit["model"], "embeddinggemma-2-768-v2");
+    assert_eq!(text_hit["metadata"]["uri"], "/kb/ipsec-rekey");
+    assert!(text_hit["lexical_score"].is_number());
+    assert!(
+        text_hit["vector_distance"].is_null(),
+        "its vector belongs to the `-v2` space, so this query must not rank it: {text_hit}"
+    );
+
+    let image_hit = hit("att-screenshot-vpn");
+    assert_eq!(image_hit["modality"], "image");
+    assert!(image_hit["lexical_score"].is_null());
+    assert!(image_hit["vector_distance"].is_number());
+
+    let audio_hit = hit("att-audio-printer");
+    assert_eq!(audio_hit["modality"], "audio");
+    assert!(audio_hit["vector_distance"].is_number());
+
+    //    The upgraded chunk's own space still answers for it: naming `-v2`
+    //    returns the text passage and nothing from the other space.
+    let upgraded_res = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/rag/query",
+        &[bearer(&token_a)],
+        Some(json!({
+            "namespace": "msp-kb",
+            "query_vector": vec_vpn,
+            "query_space": space_v2,
+            "limit": 10
+        })),
+    )
+    .await;
+    assert_eq!(upgraded_res.status(), 200);
+    let upgraded_body = body_json(upgraded_res).await;
+    let upgraded_hits = upgraded_body["hits"].as_array().expect("v2 hits");
+    assert_eq!(
+        upgraded_hits.len(),
+        1,
+        "only the upgraded chunk is in `-v2`"
+    );
+    assert_eq!(upgraded_hits[0]["source_id"], "kb-vpn-101");
+    assert!(upgraded_hits[0]["vector_distance"].is_number());
 
     // Media->Text query: precomputed vector alone with `modalities: ["text"]`
-    // retrieves the text passage.
+    // retrieves the text passage from its own space.
     let m2t_res = send(
         &app,
         axum::http::Method::POST,
@@ -396,6 +460,7 @@ async fn hybrid_rrf_cross_modal_provenance_isolation_and_deletion_receipts_flow(
         Some(json!({
             "namespace": "msp-kb",
             "query_vector": vec_vpn,
+            "query_space": space_v2,
             "modalities": ["text"],
             "limit": 5
         })),

@@ -111,6 +111,18 @@ async fn byok_seal_replay_test_delete_flow() {
     let key = format!("key-{}", Uuid::now_v7().simple());
 
     // --- none-mode probe: typed unavailable, zero network --------------------
+    // Unset is no longer none: an install that configured nothing runs the
+    // instance's local embedder, so a probe with no provider would reach a real
+    // runtime. This section is about none mode, so it declares none.
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        "/api/settings/org",
+        Some(&token),
+        Some(json!({ "key": "ai.completion_provider", "value": "none" })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "declare none mode");
     let response = send(
         &app,
         axum::http::Method::POST,
