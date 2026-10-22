@@ -891,6 +891,9 @@ pub async fn effects(
     let db = state.pool.clone();
     let store = state.store.clone();
     let plugin_pool = state.plugin_pool.clone();
+    // The at-rest key the parent-side egress transport needs (W53-12): it is
+    // `Copy`, so it rides into the closure beside the handles.
+    let secret_key = state.config.secret_key;
 
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         // Ticket subject: the ticket row the effects write through. Board
@@ -1089,11 +1092,15 @@ pub async fn effects(
                     // module and the audit row (ADR 0023 Decisions 3 and 7).
                     // A refused attempt is a skip for this batch, exactly as the
                     // hardcoded effect skipped — and now it is audited.
-                    let outcome = plugin_exec::invoke_surface(
+                    // `secret_key` is a copy taken before the transaction, so
+                    // this closure does not borrow the state it runs inside.
+                    let mut egress = crate::plugin_http::ParentEgress::new(secret_key);
+                    let outcome = plugin_exec::invoke_surface_with(
                         &mut ctx.tx,
                         &db,
                         &*store,
                         &plugin_pool,
+                        &mut egress,
                         &plugin_exec::SurfaceCall {
                             org_id: req.org_id,
                             entry_key,
@@ -2126,12 +2133,16 @@ pub async fn workflow_node(
     // needs: the module is read from the store and run in the pool (ADR 0023).
     let store = state.store.clone();
     let plugin_pool = state.plugin_pool.clone();
+    // The at-rest key the parent-side egress transport needs (W53-12): it is
+    // `Copy`, so it rides into the closure beside the handles.
+    let secret_key = state.config.secret_key;
     let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
         let output = execute_workflow_node(
             &mut ctx,
             &pool,
             &*store,
             &plugin_pool,
+            secret_key,
             org_id,
             &node_id,
             &params,
@@ -2149,11 +2160,13 @@ pub async fn workflow_node(
 
 /// Applies one workflow node's operation inside the org-scoped transaction.
 /// A node this build cannot apply is refused, never skipped.
+#[allow(clippy::too_many_arguments)]
 async fn execute_workflow_node(
     ctx: &mut org_tx::OrgTx<'_>,
     pool: &sqlx::PgPool,
     store: &dyn core_store::ObjectStore,
     plugins: &plugin_exec::PoolSlot,
+    secret_key: crate::config::SecretKey,
     org_id: Uuid,
     node_id: &str,
     params: &Value,
@@ -2468,11 +2481,13 @@ async fn execute_workflow_node(
             // install, the pinned manifest, `authorize_invocation`, the module
             // and the audit row (ADR 0023 Decisions 3 and 7). This arm names
             // the entry and the ticket; it decides no authority.
-            let outcome = plugin_exec::invoke_surface(
+            let mut egress = crate::plugin_http::ParentEgress::new(secret_key);
+            let outcome = plugin_exec::invoke_surface_with(
                 &mut ctx.tx,
                 pool,
                 store,
                 plugins,
+                &mut egress,
                 &plugin_exec::SurfaceCall {
                     org_id,
                     entry_key,

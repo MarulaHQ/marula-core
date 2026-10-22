@@ -179,7 +179,7 @@ fn refusal_strings_and_codes_match_the_rust_enum() {
         // removed, which breaks every already-compiled guest switching on it.
         assert_eq!(u32::try_from(index).unwrap() + 1, refusal.code());
     }
-    assert_eq!(Refusal::ALL.len(), 24);
+    assert_eq!(Refusal::ALL.len(), 25);
 }
 
 #[test]

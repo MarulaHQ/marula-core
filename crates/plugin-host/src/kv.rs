@@ -62,7 +62,6 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 use chrono::{DateTime, Utc};
@@ -123,9 +122,10 @@ impl KvError {
     /// compromise, not a neat fit: it reports a backend outage against the
     /// install, so the pool's three-strike quarantine would eventually stop an
     /// install that did nothing wrong. The fix is an append-only
-    /// `plugin_kv_unavailable` code (25) in the next ABI amendment, and until
-    /// then a store implementation should prefer to answer from whatever it can
-    /// rather than surface `Backend`.
+    /// `plugin_kv_unavailable` code in the next ABI amendment (26, since 25 is
+    /// `plugin_credential_refused`), and until then a store implementation
+    /// should prefer to answer from whatever it can rather than surface
+    /// `Backend`.
     ///
     /// `HostCallBudgetExhausted` derives [`Refusal::FuelExhausted`] for the same
     /// reason: the closed vocabulary has no "host-call allowance" code, and fuel
@@ -272,17 +272,11 @@ pub fn with_store<T>(store: Arc<dyn KvStore>, f: impl FnOnce() -> T) -> T {
 // The bridge: the worker asks the parent (W53-11)
 // ---------------------------------------------------------------------------
 
-/// The transport a [`BridgeKvStore`] hands one call to. The worker binary
-/// implements it over the stdin/stdout pair it already owns; a test implements
-/// it with a queue.
-///
-/// `Err` is a transport failure — a closed pipe, a frame that will not decode,
-/// an answer to another call. It is never a refusal: a refusal is a well-formed
-/// [`wire::HostCallOutcome::Refused`] the parent chose, which is a different
-/// thing and must not be reported as [`KvError::Backend`] by accident.
-pub trait HostCallChannel: Send + Sync {
-    fn exchange(&self, frame: &wire::HostCallFrame) -> Result<wire::HostReplyFrame, String>;
-}
+/// Re-exported so the KV seam keeps its historical path. The transport, the
+/// counter and the correlator check live in [`crate::bridge`], because the HTTP
+/// transport shares them: two counters would repeat a `call_id` and the parent
+/// would refuse the second call of either kind.
+pub use crate::bridge::HostCallChannel;
 
 /// The store a POOL worker installs: it implements [`KvStore`] by asking the
 /// parent.
@@ -302,74 +296,53 @@ pub trait HostCallChannel: Send + Sync {
 /// frame with a guessed id: the parent would refuse it anyway, and inventing
 /// one would put a wrong correlator in a log.
 pub struct BridgeKvStore {
-    channel: Arc<dyn HostCallChannel>,
-    invocation: RwLock<Option<Uuid>>,
-    next_call: AtomicU64,
+    client: Arc<crate::bridge::HostCallClient>,
 }
 
 impl BridgeKvStore {
+    /// From the channel alone, which is how a test builds one.
     pub fn new(channel: Arc<dyn HostCallChannel>) -> Self {
         BridgeKvStore {
-            channel,
-            invocation: RwLock::new(None),
-            next_call: AtomicU64::new(0),
+            client: crate::bridge::HostCallClient::new(channel),
         }
     }
 
-    /// Binds the store to the invocation about to run. The counter restarts at
-    /// zero, because the parent counts calls per invocation.
+    /// From the client the process already shares with the HTTP transport.
+    /// This is the constructor the worker uses: one counter, both features.
+    pub fn with_client(client: Arc<crate::bridge::HostCallClient>) -> Self {
+        BridgeKvStore { client }
+    }
+
+    /// Binds the store to the invocation about to run.
     pub fn begin_invocation(&self, invocation_id: Uuid) {
-        *self
-            .invocation
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(invocation_id);
-        self.next_call.store(0, Ordering::SeqCst);
+        self.client.begin_invocation(invocation_id);
     }
 
     /// Unbinds the invocation. A host call after this point is unavailable
     /// rather than attributed to the invocation that just finished.
     pub fn end_invocation(&self) {
-        *self
-            .invocation
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        self.client.end_invocation();
     }
 
-    /// One frame out, one frame back, with both correlators checked.
+    /// One frame out, one frame back. The correlators are the shared client's
+    /// business; this maps its answer onto the store's own vocabulary.
     fn ask(&self, op: wire::HostCallOp) -> Result<wire::HostCallValue, KvError> {
-        let invocation_id = self
-            .invocation
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .as_ref()
-            .copied()
-            .ok_or(KvError::Unavailable)?;
-        let call_id = self.next_call.fetch_add(1, Ordering::SeqCst);
-        let reply = self
-            .channel
-            .exchange(&wire::HostCallFrame {
-                invocation_id,
-                call_id,
-                op,
-            })
-            .map_err(KvError::Backend)?;
-        if reply.invocation_id != invocation_id || reply.call_id != call_id {
-            // A stale or crossed reply would otherwise be handed to the guest
-            // as if it answered the call it just made.
-            return Err(KvError::Backend(
-                "the parent answered a different host call".to_string(),
-            ));
-        }
-        match reply.outcome {
-            wire::HostCallOutcome::Ok(value) => Ok(value),
-            wire::HostCallOutcome::Refused(refusal) => Err(match refusal {
+        match self.client.ask(op) {
+            Ok(value) => Ok(value),
+            Err(crate::bridge::CallError::Refused(refusal)) => Err(match refusal {
                 wire::HostCallRefusal::QuotaExceeded => KvError::QuotaExceeded,
                 wire::HostCallRefusal::BudgetExhausted => KvError::HostCallBudgetExhausted,
                 wire::HostCallRefusal::Unavailable => KvError::Unavailable,
                 wire::HostCallRefusal::Failed => {
                     KvError::Backend("the parent's store failed".to_string())
                 }
+                // The KV verbs cannot produce the egress or credential
+                // refusals; a parent that answers one has a bug, and a bug is
+                // a backend failure rather than a store decision.
+                other => KvError::Backend(format!("unexpected host refusal {other:?}")),
             }),
+            Err(crate::bridge::CallError::NotBound) => Err(KvError::Unavailable),
+            Err(crate::bridge::CallError::Transport(detail)) => Err(KvError::Backend(detail)),
         }
     }
 }
@@ -385,6 +358,7 @@ fn shape_mismatch(verb: &str, value: &wire::HostCallValue) -> KvError {
             wire::HostCallValue::Value(_) => "a value",
             wire::HostCallValue::Existed(_) => "an existence flag",
             wire::HostCallValue::Page { .. } => "a page",
+            wire::HostCallValue::Http(_) => "an http response",
         }
     ))
 }
@@ -1225,6 +1199,12 @@ mod tests {
                 wire::HostCallValue::Unit.into()
             }
             wire::HostCallOp::KvDelete { .. } => wire::HostCallValue::Existed(true).into(),
+            // This canned parent answers KV only; a KV unit test never sends
+            // this verb, and `Unavailable` is what a parent with no transport
+            // would say.
+            wire::HostCallOp::HttpRequest { .. } => {
+                wire::HostCallOutcome::Refused(wire::HostCallRefusal::Unavailable)
+            }
             wire::HostCallOp::KvList { cursor, .. } => wire::HostCallValue::Page {
                 keys: vec!["a1".into(), "a2".into()],
                 cursor: cursor.as_ref().map(|_| "a3".to_string()),
@@ -1233,9 +1213,8 @@ mod tests {
         });
         let store = bridged(Uuid::now_v7(), Arc::clone(&channel));
         let invocation_id = store
-            .invocation
-            .read()
-            .unwrap()
+            .client
+            .bound_invocation()
             .expect("the test bound an invocation");
         with_store(store, || {
             let mut harness = Harness::new(state());

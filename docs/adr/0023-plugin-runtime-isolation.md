@@ -239,7 +239,7 @@ socket calls `http_request`, because a WASI instance would hand out `fd_*`,
 | `kv_put` | `(ns, key, value_ptr, value_len) -> u32` | same | `plugin_kv_namespace_denied`, `plugin_kv_quota_exceeded`, `plugin_kv_value_too_large` |
 | `kv_delete` | `(ns, key) -> u32` | same | `plugin_kv_namespace_denied` |
 | `kv_list` | `(ns, prefix, cursor) -> i64` | same, capped at 500 keys per page | `plugin_kv_namespace_denied` |
-| `http_request` | `(profile_ptr, profile_len, req_ptr, req_len) -> i64` | `automation.reads` for a read, `automation.actions` for a write, plus the install's consented egress profile | `plugin_egress_profile_missing`, `plugin_egress_host_denied`, `plugin_egress_scheme_denied`, `plugin_egress_response_too_large` |
+| `http_request` | `(profile_ptr, profile_len, req_ptr, req_len) -> i64` | `automation.reads` for a read, `automation.actions` for a write, plus the install's consented egress profile | `plugin_egress_profile_missing`, `plugin_egress_host_denied`, `plugin_egress_scheme_denied`, `plugin_egress_response_too_large`, `plugin_credential_refused` |
 | `emit_event` | `(type_ptr, type_len, payload_ptr, payload_len) -> u32` | `events.emit`, and the type must be in the manifest's declared `emits` and the `event_types` registry | `plugin_event_type_not_declared` |
 | `read_model_query` | `(query_id: u32, params_ptr, params_len) -> i64` | per query id: `ticket.by_id` and `board.list` need `tickets.read`, `client.by_id` needs `clients.read`, `contact.by_client` needs `clients.read` | `plugin_query_unknown`, `plugin_capability_not_granted` |
 | `now` | `() -> i64` | none | — |

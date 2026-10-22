@@ -75,25 +75,12 @@ impl From<core_db::plugin_credentials::CredentialBinding> for CredentialBindingV
     }
 }
 
-/// Headers the transport owns. A credential bound to one of these would be
-/// refused at the first call (`Refusal::FrameInvalid`), so the bind refuses it
-/// while an operator is looking at the form instead.
+/// Headers the transport owns, from the one place that owns them.
 ///
-/// The authority is `HOST_OWNED_HEADERS` in `crates/plugin-host/src/http.rs`;
-/// that constant is private to the transport and this list is a courtesy copy,
-/// which is acceptable only because it can reject a bind and never allow one.
-/// The follow-up that removes the copy is making the transport's constant
-/// public, which this lane may not do while a sibling lane holds the file.
-const TRANSPORT_OWNED_HEADERS: [&str; 8] = [
-    "host",
-    "content-length",
-    "transfer-encoding",
-    "connection",
-    "upgrade",
-    "proxy-connection",
-    "te",
-    "trailer",
-];
+/// Phase 1 kept a copy here because the transport's constant was private to a
+/// crate this lane did not own. Phase 2 moved the transport into core-api, so the
+/// copy is gone: a bind now asks the module that would send the request.
+const TRANSPORT_OWNED_HEADERS: [&str; 8] = crate::plugin_http::HOST_OWNED_HEADERS;
 
 /// The manifest caps a profile name at `[a-z][a-z0-9_-]{0,63}`; the column
 /// CHECK repeats it so a hand-written insert cannot park another spelling.

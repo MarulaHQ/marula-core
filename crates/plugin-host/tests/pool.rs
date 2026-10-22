@@ -519,6 +519,12 @@ impl plugin_host::runtime::HostCallService for MemoryKvService {
                     .store
                     .delete(org, install, &namespace, &key)
                     .map(wire::HostCallValue::Existed),
+                // This service is a KV store, so the network is not something
+                // it can answer. The composed HTTP path lives in
+                // `tests/http_egress.rs`.
+                wire::HostCallOp::HttpRequest { .. } => {
+                    return wire::HostCallOutcome::Refused(wire::HostCallRefusal::Unavailable)
+                }
                 wire::HostCallOp::KvList {
                     namespace,
                     prefix,

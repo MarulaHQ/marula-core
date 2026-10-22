@@ -37,6 +37,23 @@
 //! Every limit lives in [`plugin_host::isolation`]; this binary is transport,
 //! dispatch, the host-call pipe and its own resident-set check.
 
+//! # What this binary must not link
+//!
+//! No HTTP client, no TLS stack, no credential, no key. `plugin-host` has no
+//! `reqwest` dependency at all (W53-12 moved the transport into core-api), and
+//! the transitive path through `core-store`'s object layer is not reachable from
+//! anything this binary calls, so the linker drops it. That is measurable, not
+//! assumed:
+//!
+//! ```text
+//! cargo build -p plugin-host --bin marula-plugin-worker
+//! nm -a .kilo/target-shared/debug/marula-plugin-worker | grep -c reqwest   # 0
+//! ```
+//!
+//! If you add a dependency or a call here, run that before you commit it. A
+//! worker that can construct a request is a worker where a guest's next escape
+//! is a network egress rather than a trap.
+
 use std::fs::File;
 use std::io::{Read, Write};
 use std::process::ExitCode;
@@ -44,9 +61,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use plugin_host::abi::{InvocationReply, Refusal};
+use plugin_host::bridge::{HostCallChannel, HostCallClient};
+use plugin_host::egress::{self, BridgeHttp};
 use plugin_host::host_fns::register_all;
 use plugin_host::isolation::{LoadError, ModuleArtifact, Sandbox};
-use plugin_host::kv::{self, BridgeKvStore, HostCallChannel};
+use plugin_host::kv::{self, BridgeKvStore};
 use plugin_host::runtime::{forward_logs, over_resident_ceiling, RESIDENT_CHECK_EVERY};
 use plugin_host::wire::{self, HostCallFrame, HostReplyFrame, InvokeFrame, ReplyFrame};
 
@@ -74,10 +93,18 @@ fn main() -> ExitCode {
     let channel = Arc::new(WorkerChannel {
         pipes: Arc::clone(&pipes),
     });
-    // The one store this process will ever serve from. It is installed before
-    // the hello frame, so no invocation can run with the seam unset.
-    let bridge = Arc::new(BridgeKvStore::new(channel));
+    // ONE client for both features, installed before the hello frame so no
+    // invocation can run with a seam unset. The parent expects each invocation's
+    // host calls to be numbered 0, 1, 2, … across every verb, so the KV store and
+    // the HTTP transport must share one counter — see `plugin_host::bridge`.
+    //
+    // The HTTP transport is a frame, not a client: this process has no network
+    // library to link (W53-12 moved the transport parent-side, which is why
+    // `plugin-host` no longer depends on `reqwest`).
+    let client = HostCallClient::new(channel);
+    let bridge = Arc::new(BridgeKvStore::with_client(Arc::clone(&client)));
     kv::install(Arc::clone(&bridge) as Arc<dyn kv::KvStore>);
+    egress::install(Arc::new(BridgeHttp::with_client(client)));
 
     // Announce ourselves before reading anything: the parent's `start()` proves
     // the binary speaks this protocol at boot instead of on a user request.
