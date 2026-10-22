@@ -17,19 +17,21 @@
 //! the store carries no cross-tenant refusal of its own. Both identities are
 //! read from [`InvocationState`], never from the frame's payload.
 //!
-//! ## Why every verb still answers `plugin_not_implemented` today
+//! ## How the verbs reach a store
 //!
-//! Not because the body is missing — it is written — but because no store is
-//! installed in the process that runs these entries. [`crate::kv::current`]
-//! returns `None` and each verb refuses with [`Refusal::NotImplemented`], which
-//! is the honest answer for "this process cannot serve plugin state".
+//! The handlers below never see a database. They resolve the store this process
+//! installed ([`crate::kv::current`]) and hand it the two identities from
+//! [`InvocationState`]:
 //!
-//! `ImplStatus::Deferred { owner: "W53-6" }` below says the same thing, and it
-//! stays that way on purpose: the entry is deferred until something installs a
-//! store at process start, and the two files that pin that status
-//! (`host_fns::tests` and `packages/plugin-kit/abi/host-abi.v1.json`) belong to
-//! other lanes. Flipping it is a one-line change in each, to be made together
-//! with the wiring, not before it.
+//! - in a POOL worker the store is [`crate::kv::BridgeKvStore`], which asks the
+//!   parent over the worker's own pipe (W53-11). The worker holds no connection
+//!   and no tenant identity; the parent composes both from the invocation it
+//!   dispatched;
+//! - in `in_process` it is the same store over a different channel: a message
+//!   from the API's blocking thread to the task that owns the invocation's
+//!   transaction, so the two transports answer identically;
+//! - in `cargo test` it is [`crate::kv::MemoryKvStore`], which enforces the same
+//!   quota, TTL and ordering rules with no database at all.
 //!
 //! ## TTL
 //!
@@ -66,10 +68,12 @@ const LIST_PARAMS: &[AbiParam] = &[
 
 /// The store, plus the label/key/value rules the ABI fixes.
 pub(super) fn register(registry: &mut Registry) {
-    // See the module header: the body ships with this lane, the process wiring
-    // does not, so the status stays deferred until something calls
-    // `kv::install`. The two files that pin this string are not this lane's.
-    let owner = ImplStatus::Deferred { owner: "W53-6" };
+    // Shipped since W53-11: both transports serve these through the parent
+    // bridge (`crate::kv::BridgeKvStore` over a pipe or over a channel), and
+    // the executor answers them on the invocation's own transaction
+    // (`crate::exec`). The `Unavailable` arm is what a bare
+    // `PluginRuntime::invoke` gets, which is a caller with no service.
+    let owner = ImplStatus::Shipped;
     registry.register(HostEntry::new(
         "kv_get",
         GET_PARAMS,
@@ -104,6 +108,19 @@ pub(super) fn register(registry: &mut Registry) {
     ));
 }
 
+/// Whether `namespace` is a label the host will compose: `[a-z0-9_.-]{1,64}`.
+///
+/// Public because the PARENT re-validates the namespace a worker's host-call
+/// frame carries: the worker already refused an illegal one at the ABI edge, and
+/// a parent that trusted that would be trusting the process it isolates.
+pub fn namespace_is_legal(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.len() <= abi::KV_NAMESPACE_MAX_BYTES
+        && namespace.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
+        })
+}
+
 /// A namespace label: `[a-z0-9_.-]{1,64}`. Anything else is
 /// `plugin_kv_namespace_denied` — the ADR's refusal for a namespace the host
 /// will not compose.
@@ -111,16 +128,16 @@ pub fn read_namespace(memory: &dyn GuestMemory, ptr: u32, len: u32) -> Result<St
     let namespace = memory
         .read_str(ptr, len)
         .map_err(|_| Refusal::KvNamespaceDenied)?;
-    let legal = !namespace.is_empty()
-        && namespace.len() <= abi::KV_NAMESPACE_MAX_BYTES
-        && namespace.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-')
-        });
-    if legal {
+    if namespace_is_legal(&namespace) {
         Ok(namespace)
     } else {
         Err(Refusal::KvNamespaceDenied)
     }
+}
+
+/// Whether `key` is one the store accepts: 1..=512 bytes of UTF-8 without NUL.
+pub fn key_is_legal(key: &str) -> bool {
+    !key.is_empty() && key.len() <= abi::KV_KEY_MAX_BYTES && !key.contains('\0')
 }
 
 /// A key: 1..=512 bytes of UTF-8 without NUL (the column is `text`). A key that
@@ -129,10 +146,11 @@ pub fn read_namespace(memory: &dyn GuestMemory, ptr: u32, len: u32) -> Result<St
 /// would make the audit trail say the wrong thing.
 pub fn read_key(memory: &dyn GuestMemory, ptr: u32, len: u32) -> Result<String, Refusal> {
     let key = memory.read_str(ptr, len)?;
-    if key.is_empty() || key.len() > abi::KV_KEY_MAX_BYTES || key.contains('\0') {
-        return Err(Refusal::FrameInvalid);
+    if key_is_legal(&key) {
+        Ok(key)
+    } else {
+        Err(Refusal::FrameInvalid)
     }
-    Ok(key)
 }
 
 /// A value: at most 1 MiB (`plugin_kv_value_too_large`).

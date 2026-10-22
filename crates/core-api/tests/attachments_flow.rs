@@ -120,6 +120,7 @@ async fn test_state_with(
         None => Arc::new(core_api::email::MailStack::from_config(&config)),
     };
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

@@ -642,10 +642,15 @@ mod tests {
         let registry = register_all();
         assert_eq!(registry.get("log").unwrap().status, ImplStatus::Shipped);
         assert_eq!(registry.get("now").unwrap().status, ImplStatus::Shipped);
-        assert_eq!(
-            registry.get("kv_get").unwrap().status,
-            ImplStatus::Deferred { owner: "W53-6" }
-        );
+        // W53-11 shipped the parent bridge; the four verbs work in the default
+        // (pool) profile, so the catalogue stops calling them deferred.
+        for name in ["kv_get", "kv_put", "kv_delete", "kv_list"] {
+            assert_eq!(
+                registry.get(name).unwrap().status,
+                ImplStatus::Shipped,
+                "{name} works in the pool profile"
+            );
+        }
         // W53-7 shipped the transport; the entry no longer defers.
         assert_eq!(
             registry.get("http_request").unwrap().status,

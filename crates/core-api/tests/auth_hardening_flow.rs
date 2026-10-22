@@ -37,6 +37,7 @@ async fn test_state(admin_url: &str) -> AppState {
     let mut config = Config::from_env_allow_dev_fallback().expect("config");
     config.database_url = admin_url.to_string();
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),

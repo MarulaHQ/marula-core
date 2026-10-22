@@ -48,6 +48,7 @@ async fn test_state() -> AppState {
     // play the worker.
     config.internal_token = Some(INTERNAL_TOKEN.to_string());
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

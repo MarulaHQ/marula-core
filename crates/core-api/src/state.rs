@@ -34,6 +34,14 @@ pub struct AppState {
     /// Build with [`AppState::reporting_pool`] (rewrites credentials to
     /// `marula_app` when the configured URL carries elevated creds).
     pub reporting: PgPool,
+    /// The plugin runtime's pool, started on the first module-bearing
+    /// invocation and owned by THIS state (W53-11).
+    ///
+    /// It lives here rather than in a process-wide `static` so it can be shut
+    /// down and so two states — two tests, two instances in one process —
+    /// never share a pool. `Default` is a fresh, unstarted slot; the start
+    /// happens lazily because it spawns and handshakes worker processes.
+    pub plugin_pool: plugin_host::exec::PoolSlot,
 }
 
 impl AppState {
@@ -138,3 +146,65 @@ impl AppState {
 /// the hot path's proven concurrency. Raise it with
 /// `MARULA_REPORTING_POOL_MAX` when reports queue.
 pub const DEFAULT_REPORTING_POOL_MAX: u32 = 8;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use plugin_host::runtime::{IsolationMode, PluginPool, PoolConfig};
+    use plugin_host::PluginRuntime;
+
+    fn state() -> AppState {
+        // A lazily-connected pool never dials, so this test needs no database.
+        let url = "postgres://marula:marula@127.0.0.1:1/marula";
+        let config = Arc::new(crate::config::Config::test_with_secret("state-test"));
+        AppState {
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy(url)
+                .expect("a lazily-connected pool parses"),
+            oidc: crate::auth::oidc_client::OidcHttpClient::new(),
+            mail: Arc::new(crate::email::MailStack::from_config(&config)),
+            store: core_store::build(&core_store::StoreChoice::Local(
+                std::env::temp_dir().to_string_lossy().into_owned(),
+            )),
+            routing: crate::routing::build_registry(&config),
+            reporting: AppState::reporting_pool_lazy(url).expect("lazy reporting pool"),
+            config,
+            plugin_pool: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn two_app_states_do_not_share_a_plugin_pool() {
+        let first = state();
+        let second = state();
+        assert!(
+            !first.plugin_pool.is_same_slot(&second.plugin_pool),
+            "each state owns its slot; a shared pool is what W53-11 moved out of a static"
+        );
+        assert!(!first.plugin_pool.is_initialized());
+
+        // Start a real pool in the FIRST state only. `disabled` is a pool with
+        // no worker process, which is all this test needs: the point is which
+        // state is holding it, not what it runs.
+        let started = first
+            .plugin_pool
+            .get_with(|| async {
+                PluginPool::start(PoolConfig {
+                    mode: IsolationMode::Disabled,
+                    workers: 1,
+                    worker_bin: None,
+                    health: None,
+                    sandbox_limits: Default::default(),
+                })
+                .await
+            })
+            .await
+            .expect("a disabled pool starts without a worker binary");
+        assert!(first.plugin_pool.is_initialized());
+        assert!(
+            !second.plugin_pool.is_initialized(),
+            "starting one state's pool must not start another's"
+        );
+        assert!(!started.enabled());
+    }
+}

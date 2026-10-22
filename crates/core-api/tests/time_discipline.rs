@@ -36,6 +36,7 @@ async fn test_state() -> (AppState, Router) {
     let reporting_url = admin_url;
     config.email_internal_token = Some(TOKEN.into());
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

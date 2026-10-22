@@ -46,6 +46,7 @@ async fn test_state() -> (AppState, Router) {
     config.database_url = admin_url;
     config.secret_key = core_api::config::SecretKey([41; 32]);
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

@@ -38,6 +38,7 @@ async fn test_state() -> (PgPool, Router) {
     config.database_url = admin_url.clone();
     let reporting_url = admin_url.clone();
     let state = AppState {
+        plugin_pool: Default::default(),
         pool: pool.clone(),
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

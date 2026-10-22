@@ -51,6 +51,7 @@ async fn test_state() -> (AppState, Router) {
     config.database_url = admin_url;
     config.dev_tools = false;
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
             .expect("reporting pool"),

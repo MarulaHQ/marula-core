@@ -180,6 +180,7 @@ fn make_state(
     let store = Arc::new(core_store::memory::MemoryStore::new());
     let reporting_url = config.database_url.clone();
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),

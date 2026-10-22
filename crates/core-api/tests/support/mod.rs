@@ -275,6 +275,7 @@ impl MailHarness {
             from_name: config.email_from_name.clone(),
         });
         let state = AppState {
+            plugin_pool: Default::default(),
             pool: app.clone(),
             config: Arc::new(config),
             mail: mail_stack,

@@ -88,6 +88,7 @@ mod tests {
             store: std::sync::Arc::new(core_store::memory::MemoryStore::new()),
             routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
             oidc: crate::auth::oidc_client::OidcHttpClient::new(),
+            plugin_pool: Default::default(),
         }
     }
 

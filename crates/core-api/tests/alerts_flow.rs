@@ -51,6 +51,7 @@ async fn test_state() -> AppState {
     // on create and opened with it on ingest — same AppState, both sides.
     config.secret_key = core_api::config::SecretKey([37; 32]);
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
