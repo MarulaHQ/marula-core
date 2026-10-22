@@ -167,12 +167,20 @@ to run only modules it has verified against a digest the parent named, so a bug
 in the worker cannot grant a capability the parent refused. It can run a module it
 should not have; it cannot decide that a call is allowed.
 
-**Per profile:**
+**Per deployment profile:**
 
 | Profile | Worker count | Where the worker runs | Why |
 |---|---|---|---|
-| `single_box` (all-in-one) | 1 | child of core-api, same container | one box, one container, no second moving part to operate |
-| `durable` (split) | 2 | own process, own role, restart supervised | the profile already runs separate processes and expects to scale them |
+| `all-in-one` | 1 | child of core-api, same container | one box, one container, no second moving part to operate |
+| `split` | 2 | own process, own role, restart supervised | the profile already runs separate processes and expects to scale them |
+
+`all-in-one` and `split` are the deployment profiles (`docs/deploy-descriptor.md:58-61`).
+`single_box`, `balanced`, `durable` and `best_effort` are reliability presets instead: retry
+and lease budgets per lever, chosen by `MARULA_ROBUSTNESS`
+(`docs/reference/reliability-levers.md:28`, `:289`). The two vocabularies are orthogonal, so
+a split deployment can run the `single_box` preset, and this ADR sizes the pool by profile
+and never by preset. The `durable` in Decision 4's timeout row is the preset, and there it is
+the right word.
 
 Two workers is a deliberate small number. On this box, 4 workers under 8 callers
 were slower than 1 worker under 8 callers (26.46 µs against 10.29 µs at p50),
@@ -221,6 +229,15 @@ runs the same `policy::check` a human actor's action would run. `log`, `kv_*` an
 `now` carry no permission because the namespace and the clock are the install's
 own scope, and a store scoped to `(org_id, install_id)` cannot reach another
 tenant by construction.
+
+**This list is a deviation from the Wave 53 row, and the row is amended to match.** The row
+names `secret_get` and `ai_complete` in the v1 set. v1 ships six functions without them:
+`secret_get` because plaintext egress to plugin code, composed with `http_request`, is the
+exact pair the vault boundary was built to keep apart, and `ai_complete` because the model
+surface already has deny-by-default grant machinery and a second path into it would be the
+second auth system the wave forbids. Both keep a route back below, and "six functions, two
+deferred, each with a named route" is now the row rather than a divergence nobody wrote
+down.
 
 **What is deliberately absent, and the route back:**
 
@@ -346,6 +363,52 @@ plugin_kv_entries
   that needs another function needs an amendment here, which is the point of
   writing the list down.
 
+## Decision 7 — Every invocation leaves one audit row, written by the parent
+
+The wave's acceptance criterion is that every invocation is audited.
+`crates/plugin-host/README.md:3` already claims "audit logging of every invocation" as a
+shipped property, and `crates/plugin-host/src/lib.rs:28-31` audits lifecycle steps rather
+than invocations. So the claim exists ahead of the design. This decision fixes the minimum
+the ABI and the frame must carry, so the executor writes the claim instead of inheriting
+it.
+
+- **The row is an `audit_events` row.** No new table. The actor kind check already admits
+  `'plugin'` (`crates/core-db/migrations/0001_orgs_auth.sql:83`), `Actor::Plugin` already
+  exists in the domain, and `core_db::audit::insert` (`crates/core-db/src/audit.rs:22`)
+  takes it unchanged.
+- **One row per attempt, one shape.** `actor_id` is the install, `action` is
+  `plugin.invoke`, `entity_type` is `plugin_entry`, `entity_id` is the entry key, and
+  `detail` carries `outcome` (`ok`, `refused`, `worker_failed`), `reason` (the static
+  denial string, or null), `capability`, `invocation_id`, `fuel_used`, `duration_us` and
+  `worker`. A refusal is the same row with `outcome = "refused"` and a reason filled in, so
+  one install's trail is one query rather than a union of two row shapes.
+- **The parent writes it, never the worker.** An audit row written by a worker that then
+  dies is not an audit row. So the reply frame carries `invocation_id`, `fuel_used` and
+  `duration_us`, and core-api writes the row once the reply arrives. A worker that dies
+  mid-call produces `outcome = "worker_failed"`, `reason = "plugin_worker_failed"` and a
+  null fuel figure, which records the restart instead of leaving a hole in it.
+- **Refusals before dispatch are audited.** The five gates in `authorize_invocation` run
+  before a frame exists, and a call refused there still writes the row with `outcome =
+  "refused"` and the denial string, with no `invocation_id`. The gate function stays pure:
+  the write belongs to the call site that owns the transaction.
+- **Durability.** The insert runs on the request's own connection and is awaited before the
+  response leaves. When the invocation applies an effect it joins that transaction, so a
+  rollback drops the effect and the audit row together. The limit is stated rather than
+  hidden: a core-api crash between the worker's reply and the insert loses the row and the
+  effect with it. A pre-dispatch intent row would survive that and costs a second write per
+  call, and it waits for a requirement that asks for it.
+- **Retention is inherited.** `audit_events` keeps two years standard and seven extended
+  (`crates/core-db/src/retention.rs:106`, `:177`), and the existing sweep already defines
+  how it is deleted. Plugin invocations get no shorter window and no separate policy.
+- **What it costs, and what is not measured.** One insert per invocation, which at the
+  anchor is one insert per request. Decision 2's measurement does not include it, so the
+  guardrail arithmetic above does not cover the audit write. The gate that runs the pool at
+  the anchor measures both together.
+
+The row shape, those `detail` keys and the parent-writes rule are the minimum. W53-3 owns
+the rest: the query surface, the admin filters, and any export of plugin invocations. Those
+extend this row rather than inventing a second one.
+
 ## Consequences
 
 - `crates/plugin-host` grows the executor and keeps its authorization. The
@@ -354,6 +417,8 @@ plugin_kv_entries
   of core-api, `split` runs it as its own process.
 - Two migrations follow: `plugin_kv_entries` plus `plugin_kv_usage`, and the TTL
   sweep registration. Both are additive and both carry the existing RLS shape.
+- Plugin invocations land in `audit_events` with no schema change: the actor kind
+  already admits `'plugin'`, and the existing retention window and sweep carry them.
 - The manifest validator and `packages/plugin-kit` relax one rule together
   (`outbound_scopes` on any artifact kind), in the same change, because they are
   mirrors of one vocabulary and a split lands an accept that the other refuses.
@@ -362,6 +427,40 @@ plugin_kv_entries
 - `docs/reference/plugin-runtime.md` stops describing a gap.
 - A plugin author writes against a nine-entry import namespace and no WASI.
   That is a smaller surface than Extism's and a larger one than a no-op.
+
+### The Extism claim is written in nine files, and each has an owner
+
+Rejecting Extism leaves prose in the tree that says otherwise. Nine files carry it, plus
+one historical verdict table. Nothing has to change before W53-2 can build: every one of
+them is documentation rather than code, and the compiler reads none of it. The rows W53-2
+owns travel in W53-2's own commit, so the ABI and its description land together and no
+later sweep has to find them.
+
+| File and line | What it says | Owner |
+|---|---|---|
+| `docs/tech-stack.md:233` | "The Extism runtime is not wired yet" | W53-9 |
+| `docs/upgrade-compatibility-policy.md:24` | the PDK promise names "Extism/WASM host functions" | W53-9 |
+| `crates/plugin-host/README.md:3` | the purpose line is "Extism WASM runtime + HTTP connector proxy" | W53-2 |
+| `plugins/README.md:12` | the folder map calls `wasm/` "first-party Extism/WASM plugins" | W53-9 |
+| `plugins/README.md:20` | the kinds table calls the kind "a sandboxed Extism plugin" | W53-9 |
+| `crates/plugin-host/src/lib.rs:15` | "the Extism WASM host lands behind this same interface later" | W53-2 |
+| `crates/plugin-host/src/lib.rs:63` | the `KIND` comment says `"wasm"` is "for the future Extism host" | W53-2 |
+| `plugins/wasm/*/src/lib.rs:7` (three files) | "the Extism runtime (when it ships) invokes" the exported entry point | W53-2 |
+| `plugins/wasm/README.md:3` | "First-party Extism/WASM plugins", and a build recipe that predates the ABI | W53-2 |
+
+The compatibility promise deserves its own sentence because it is the one that sounds
+broken. No PDK generation has ever shipped: the three reference plugins are a scaffold
+(`plugins/README.md:20`) and nothing has ever been authored against a published
+host-function set. So v1 breaks no promise, and the add-only rule starts from a first
+generation rather than replacing a second. W53-9 rewrites that row to name the `marula`
+namespace and leaves the rule as it stands.
+
+The three plugin `Cargo.toml` files were on the list to check and do not name Extism: they
+carry the detached-workspace comment and nothing else, so nothing changes there.
+
+`docs/BUILD-PROMPT-VERDICTS.md:105` and `:173` record "Plugins: Extism + TS SDK … shipped"
+as a past verdict. That is a historical record, not a live claim, so W53-9 adds an erratum
+line under it and does not rewrite the verdict.
 
 ## What this does not decide, and what would reopen it
 
