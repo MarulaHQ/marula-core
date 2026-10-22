@@ -145,13 +145,13 @@ test("the catalogue is the v1 ABI the ADR fixes", () => {
 });
 
 test("refusal codes are dense from 1 and every reason is unique", () => {
-  assert.equal(REFUSALS.length, 17);
+  assert.equal(REFUSALS.length, 24);
   const codes = REFUSALS.map((row) => row.code).toSorted((a, b) => a - b);
   assert.deepEqual(
     codes,
-    Array.from({ length: 17 }, (_, index) => index + 1),
+    Array.from({ length: 24 }, (_, index) => index + 1),
   );
-  assert.equal(new Set(REFUSALS.map((row) => row.reason)).size, 17);
+  assert.equal(new Set(REFUSALS.map((row) => row.reason)).size, 24);
 });
 
 test("refusalCode resolves the strings an author will actually see", () => {
