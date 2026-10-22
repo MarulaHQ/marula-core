@@ -34,7 +34,9 @@
 pub mod abi;
 pub mod distribution;
 pub mod host_fns;
+pub mod isolation;
 pub mod surface;
+pub mod wire;
 
 use core_domain::entities::{
     PluginCapability, PluginInstall, PluginInstallStatus, PLUGIN_RUNTIME_INTERFACE_VERSION,
