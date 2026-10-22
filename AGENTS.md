@@ -263,6 +263,33 @@ once and waits for the user before running heavy verification (user directive
   whose branch is unmerged, whose tree is dirty, or that hosts a stack registered
   in `scripts/dev-status.sh`.
 
+## Every commit is reviewed before it is made (BINDING, all agents)
+
+Added 2026-10-22 by user directive. The gate set proves that a merged tree builds
+and passes; it never looks at one diff. So the agent that writes a commit reviews
+it first, on four axes:
+
+- **Security** — trust boundaries, authz and RLS scoping on every new query,
+  input validation, secrets in code, logs or fixtures, and the risk a new
+  dependency brings. Load `skill: insecure-defaults` for the pattern catalog and
+  `skill: security-audit` (Cloudflare's, installed user-level) for the review
+  itself. The skill's guidance mode is what one commit needs; its full six-phase
+  audit is a lane of its own, asked for by name, never step one of a commit.
+- **Speed** — query plans and N+1s, work added to a hot path, payload and bundle
+  growth, round trips that one call could replace.
+- **Functionality** — the change does what the row asked, the error, empty and
+  retry paths hold, and a test or a reproduced command proves it.
+- **Quality** — naming, layering, duplication, dead code, doc comments, and a
+  tree that is `fmt` and clippy clean.
+
+Record the verdict in the commit body when the commit stands on its own, or in
+the lane's `REVIEW.md` when the lane is bigger than one commit. A commit that
+fails an axis is fixed before it is written, not left for the gate run to find.
+
+This holds for merge-group lanes as well: the light-check allowance below says
+which **gates** a lane may skip, not whether it reviews the diff it commits. A
+lane that commits still reviews every commit it makes.
+
 ## Parallel lanes: merge groups (BINDING, default for parallel work)
 
 Parallel lanes are planned in **merge groups**, not as independent lanes that
