@@ -566,48 +566,27 @@ pub struct HttpResponse {
     pub body: String,
 }
 
-/// Authorizes one outbound request against a consented profile. The
-/// authorization half of egress; the transport half (DNS, SSRF, redirects) is
-/// W53-7's and runs after this returns `Ok`.
+/// Authorizes one outbound request against a consented profile.
+///
+/// The decision itself lives in [`core_domain::egress`], shared with the
+/// distribution seam and Wave 54's connector egress; this function only keeps
+/// the plugin vocabulary (`plugin_egress_profile_missing` for a profile the
+/// install did not consent) and maps the domain verdict onto [`Refusal`]. The
+/// transport half — resolution, pinning, the response cap, the redirect
+/// refusal — runs after this returns `Ok`, in `crate::http`.
 ///
 /// Refusals, in order: the profile is not consented, the scheme is not
-/// `https`, the authority is not in the allowlist, the path is not under the
-/// scope's prefix.
+/// `https`, the URL carries userinfo or a non-default port, the host is not
+/// publicly routable, the authority is not in the allowlist, the path is not
+/// under the scope's prefix.
 pub fn authorize_egress(scopes: &EgressScopes, profile: &str, url: &str) -> Result<(), Refusal> {
     let allowlist = scopes
         .get(profile)
         .filter(|list| !list.is_empty())
         .ok_or(Refusal::EgressProfileMissing)?;
-
-    let rest = url
-        .strip_prefix("https://")
-        .ok_or(Refusal::EgressSchemeDenied)?;
-    let (authority, path) = match rest.find('/') {
-        Some(idx) => (&rest[..idx], &rest[idx..]),
-        None => (rest, "/"),
-    };
-    if authority.is_empty() || authority.contains('@') {
-        return Err(Refusal::EgressHostDenied);
-    }
-    // A query or fragment on the request URL never reaches the host match.
-    let path = path.split(['?', '#']).next().unwrap_or("/");
-
-    for scope in allowlist {
-        let Some(scope_rest) = scope.strip_prefix("https://") else {
-            continue;
-        };
-        let (scope_authority, scope_path) = match scope_rest.find('/') {
-            Some(idx) => (&scope_rest[..idx], &scope_rest[idx..]),
-            None => (scope_rest, "/"),
-        };
-        if !scope_authority.eq_ignore_ascii_case(authority) {
-            continue;
-        }
-        if scope_path == "/" || path == scope_path || path.starts_with(&format!("{scope_path}/")) {
-            return Ok(());
-        }
-    }
-    Err(Refusal::EgressHostDenied)
+    core_domain::egress::authorize_strings(url, allowlist)
+        .map(|_| ())
+        .map_err(crate::http::refusal_for)
 }
 
 #[cfg(test)]
