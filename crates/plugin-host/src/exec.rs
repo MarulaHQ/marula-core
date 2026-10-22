@@ -65,6 +65,24 @@
 //! never the frame (which has no field for them). See
 //! [`TransactionHostCalls`] for the connection choice and its price.
 //!
+//! ## A fault is not a refusal
+//!
+//! [`SurfaceOutcome::is_fault`] is the distinction callers act on. A refusal is
+//! the plugin saying no: policy, consent, validation, a schema, the guest
+//! declining its own effect. The mechanism worked, so the node is a skip. A
+//! FAULT is the mechanism failing — the worker died, the transport broke, the
+//! reply never came, the pool could not start — and a caller must fail the node
+//! rather than record an outage as a decision.
+//!
+//! The attempt's audit row is still written here, once, for either. What the
+//! caller's refusal does to it is ADR 0023's documented transaction rule: the
+//! row and the effect commit or roll back together, so a fault — which the
+//! caller answers with a 5xx — takes its row with it and the retry writes its
+//! own. The durable record of a worker death does not depend on that row: the
+//! pool's health counter is written outside the request's transaction, on
+//! purpose, so a rolled-back request cannot roll back the fact that the worker
+//! died.
+//!
 //! An install with no module pin is a declarative install: `enable` allows it
 //! (a surface/connector/settings plugin has no module to run), and the
 //! consented effect is applied by the parent exactly as core did before this
@@ -227,6 +245,23 @@ impl SurfaceOutcome {
     /// answer for a caller that asks about an attempt that applied nothing.
     pub fn skip_reason(&self) -> &'static str {
         self.reason.unwrap_or(refusal_reasons::NO_EFFECT)
+    }
+
+    /// Whether this attempt is a FAULT rather than an answer.
+    ///
+    /// A refusal is the plugin saying no (policy, consent, a schema, the guest
+    /// declining its own effect): the mechanism worked, the answer is "no", and
+    /// a caller skips the node. A fault is the mechanism failing (the worker
+    /// died, the transport broke, the reply never came, the pool could not
+    /// start): the effect did not happen because something is broken, and
+    /// skipping it would record a broken thing as a decision. Callers must fail
+    /// on a fault and skip on a refusal.
+    ///
+    /// `WorkerFailed` is never produced for a guest that trapped or refused —
+    /// those are `Refused` with their own code — so this predicate cannot
+    /// mistake a guest's answer for an outage.
+    pub fn is_fault(&self) -> bool {
+        self.outcome == InvocationOutcome::WorkerFailed
     }
 }
 
@@ -1268,6 +1303,26 @@ mod tests {
         // A module that says nothing leaves the consented effect standing.
         assert_eq!(effect_verdict(None, consented), EffectVerdict::Apply);
         assert_eq!(effect_verdict(Some(b""), consented), EffectVerdict::Apply);
+    }
+
+    #[test]
+    fn a_fault_is_reported_and_a_refusal_is_not() {
+        let refused = SurfaceOutcome {
+            entry_key: "plugin.triage-note-action.triage_note".into(),
+            outcome: InvocationOutcome::Refused,
+            reason: Some(refusal_reasons::ENTRY_UNAVAILABLE),
+            comment: None,
+            output: None,
+        };
+        assert!(!refused.is_fault(), "a refusal is an answer");
+
+        let failed = SurfaceOutcome {
+            outcome: InvocationOutcome::WorkerFailed,
+            reason: Some(abi::Refusal::WorkerFailed.as_str()),
+            ..refused
+        };
+        assert!(failed.is_fault(), "a worker that died is a fault");
+        assert_eq!(failed.skip_reason(), "plugin_worker_failed");
     }
 
     #[test]

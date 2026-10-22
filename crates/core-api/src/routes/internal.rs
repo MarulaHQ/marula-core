@@ -831,6 +831,18 @@ pub async fn sla_verdict(
     Ok(Json(applied))
 }
 
+/// A plugin invocation FAULT as the HTTP answer the caller classifies on.
+///
+/// `503 service_unavailable` is not a new code: `core_domain::retry` already
+/// reads 5xx as `ErrorClass::Transient`, so the workflow executor records the
+/// step as `node_unreachable` and stops the run `Failed` (the retryable state),
+/// and the automation runner retries its batch under the queue's backoff. A 4xx
+/// would be classified permanent and kill the job instead. The reason is the
+/// audit row's own word, so the two records agree.
+fn plugin_fault(outcome: &plugin_exec::SurfaceOutcome) -> ApiError {
+    ApiError::Unavailable(format!("plugin runtime fault: {}", outcome.skip_reason()))
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct EffectsRequest {
     pub org_id: Uuid,
@@ -1091,6 +1103,14 @@ pub async fn effects(
                         },
                     )
                     .await?;
+                    // A FAULT is not a skip. The worker died or the transport
+                    // broke, so the comment did not happen because something is
+                    // broken; a 5xx makes the automation job retry the batch
+                    // (`worker::effects` classifies 5xx as transient), where a
+                    // skip would record the outage as the plugin's decision.
+                    if outcome.is_fault() {
+                        return Err(plugin_fault(&outcome));
+                    }
                     let Some(comment) = outcome.comment else {
                         continue;
                     };
@@ -2462,6 +2482,15 @@ async fn execute_workflow_node(
                 },
             )
             .await?;
+            // A FAULT fails the node; a refusal is a typed skip. The engine's
+            // own classification does the rest: 5xx is transient
+            // (`core_domain::retry::classify_http`), so the step fails with
+            // `node_unreachable` and the run stops `Failed`, which is the
+            // retryable state `retry_run` accepts. A skip here would let the
+            // run continue past a node whose effect never happened.
+            if outcome.is_fault() {
+                return Err(plugin_fault(&outcome));
+            }
             // A refused attempt is a typed skip, exactly as this arm behaved
             // before the executor existed — and now it is audited rather than
             // silently dropped. The reason is the static code the audit row
@@ -2593,5 +2622,53 @@ mod workflow_ticket_tests {
         assert!(trigger_ticket_id(&json!({})).is_none());
         // A malformed id is not silently accepted.
         assert!(trigger_ticket_id(&json!({ "event": { "ticket_id": "not-a-uuid" } })).is_none());
+    }
+}
+
+#[cfg(test)]
+mod plugin_fault_tests {
+    use super::*;
+    use plugin_host::abi::InvocationOutcome;
+
+    fn outcome(
+        outcome: InvocationOutcome,
+        reason: Option<&'static str>,
+    ) -> plugin_exec::SurfaceOutcome {
+        plugin_exec::SurfaceOutcome {
+            entry_key: "plugin.triage-note-action.triage_note".into(),
+            outcome,
+            reason,
+            comment: None,
+            output: None,
+        }
+    }
+
+    #[test]
+    fn a_fault_is_a_503_and_a_refusal_is_not() {
+        // The classification the callers act on: a fault answers 503, which
+        // `core_domain::retry` reads as transient, so a workflow step fails as
+        // `node_unreachable` and an automation batch is retried. A refusal must
+        // never reach this helper, but if it did it would be a 503 too — so the
+        // predicate is what guards it, and the test pins both halves.
+        let fault = outcome(
+            InvocationOutcome::WorkerFailed,
+            Some("plugin_worker_failed"),
+        );
+        assert!(fault.is_fault());
+        let response = plugin_fault(&fault).into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            core_domain::retry::classify_http(503),
+            core_domain::retry::ErrorClass::Transient,
+            "the engine's own classification is what makes this retryable"
+        );
+
+        let refusal = outcome(InvocationOutcome::Refused, Some("plugin_entry_unavailable"));
+        assert!(!refusal.is_fault(), "a refusal is an answer, not a fault");
+        let ok = outcome(InvocationOutcome::Ok, None);
+        assert!(!ok.is_fault());
     }
 }
