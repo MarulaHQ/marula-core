@@ -35,6 +35,7 @@ pub mod abi;
 pub mod distribution;
 pub mod host_fns;
 pub mod isolation;
+pub mod lifecycle;
 pub mod runtime;
 pub mod surface;
 pub mod wire;
@@ -204,6 +205,7 @@ mod tests {
             catalog_id: Uuid::now_v7(),
             slug: "ticket-summarizer".into(),
             version: "1.0.0".into(),
+            module_digest: String::new(),
             status,
             granted_capabilities: grants.iter().map(|s| s.to_string()).collect(),
             installed_by: None,
@@ -211,6 +213,10 @@ mod tests {
             updated_at: Utc::now(),
             revoked_at: None,
             revoked_by: None,
+            revoked_reason: None,
+            previous_version: None,
+            previous_module_digest: None,
+            previous_capabilities: Vec::new(),
         }
     }
 

@@ -1749,6 +1749,11 @@ pub struct PluginVersion {
     pub catalog_id: Uuid,
     pub version: String,
     pub manifest: PluginManifestV2,
+    /// sha256 hex of the executable module this version ships, when it ships
+    /// one. The digest is captured at admission (where the bytes were verified)
+    /// and travels with the version so an install or an update can PIN it —
+    /// without it, an update has no artifact to name and no pin to enforce.
+    pub module_digest: String,
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "date-time"))]
     pub created_at: DateTime<Utc>,
 }
@@ -1927,6 +1932,15 @@ pub struct PluginStagedItem {
     pub fetched_ref: Option<String>,
     /// sha256 of the verified artifact (hex).
     pub artifact_digest: String,
+    /// sha256 hex of the EXECUTABLE module inside that artifact, when the
+    /// artifact carries one (a `.wasm` member of an imported zip, or the
+    /// fetched binary a registry/GitHub entry points at). Empty for a
+    /// declarative-only import, a skill, a theme or an identity bundle.
+    ///
+    /// Two digests on purpose: `artifact_digest` identifies what was imported
+    /// (the archive), and this one identifies what would RUN. The install pins
+    /// this one, because a pin over the archive cannot address a module.
+    pub module_digest: String,
     /// The full declarative manifest (plugin v2 shape incl.
     /// settings_schema, or the skill manifest).
     pub manifest: serde_json::Value,
@@ -2452,6 +2466,11 @@ pub struct PluginInstall {
     pub slug: String,
     /// The pinned adopted version.
     pub version: String,
+    /// The DIGEST PIN: sha256 hex of the executable module this install
+    /// adopted. Empty means the install is declarative-only (no module to
+    /// run), and the load path refuses rather than guessing. An update moves
+    /// this to a new digest; a rollback moves it back.
+    pub module_digest: String,
     pub status: PluginInstallStatus,
     /// Granted capability keys (subset of the pinned manifest's
     /// declared set).
@@ -2466,6 +2485,20 @@ pub struct PluginInstall {
     pub revoked_at: Option<DateTime<Utc>>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub revoked_by: Option<Uuid>,
+    /// Why the install was revoked, for the operator's trail. The audit row
+    /// carries the same string; the column exists so the install's own state
+    /// explains itself without a join.
+    pub revoked_reason: Option<String>,
+    /// The pin a rollback returns to: the version, digest and grant set the
+    /// install held before its last update. `None` means nothing to roll back
+    /// to (never updated, or already rolled back).
+    pub previous_version: Option<String>,
+    pub previous_module_digest: Option<String>,
+    /// The grants the install held at `previous_version`. Restored verbatim on
+    /// rollback, because an older manifest may declare a narrower set and
+    /// keeping the newer grants would run the old code with authority its
+    /// manifest never asked for.
+    pub previous_capabilities: Vec<String>,
 }
 
 impl PluginInstall {

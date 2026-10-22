@@ -466,6 +466,8 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::get_update_proposal,
         crate::routes::plugin_distribution::consent_update,
         crate::routes::plugin_distribution::discard_update,
+        crate::routes::plugin_distribution::rollback_install,
+        crate::routes::plugin_distribution::revoke_install,
         crate::routes::plugin_distribution::get_install_settings,
         crate::routes::plugin_distribution::put_install_settings,
         crate::routes::plugin_distribution::list_install_provenance,

@@ -60,8 +60,11 @@ use plugin_host::distribution::{
     ingest_github_pull, ingest_local_zip, ingest_registry_entry, ingest_skill_manifest,
     MAX_ARCHIVE_BYTES,
 };
+use plugin_host::lifecycle::{ArtifactError, LifecycleAction, LifecycleRefusal, LifecycleState};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use crate::routes::plugins::{fallback_manifest, InstallView};
 
 fn plugins(action: Action) -> Permission {
     Permission::Matrix {
@@ -84,6 +87,26 @@ fn require_plugin_admin(authed: &crate::auth::AuthedUser) -> ApiResult<()> {
 
 fn ingest_reason_api(reason: plugin_host::distribution::IngestReason) -> ApiError {
     ApiError::Validation(format!("distribution intake refused: {reason}"))
+}
+
+/// The artifact store's refusals, as an API answer. The reason code rides in
+/// the message so a client sees a stable token before the prose.
+fn artifact_api(error: ArtifactError) -> ApiError {
+    ApiError::Conflict(format!(
+        "plugin artifact refused ({}): {error}",
+        error.as_str()
+    ))
+}
+
+/// A lifecycle refusal, as an API answer. `409` for a state conflict (revoked,
+/// already installed, nothing to roll back), `422` for an incoherent request.
+fn lifecycle_api(error: LifecycleRefusal) -> ApiError {
+    match &error {
+        LifecycleRefusal::Invalid(_) => {
+            ApiError::Validation(format!("lifecycle refused ({}): {error:?}", error.as_str()))
+        }
+        _ => ApiError::Conflict(format!("lifecycle refused ({}): {error:?}", error.as_str())),
+    }
 }
 
 /// The LIVE signing-key trust set (Wave 19 lane 2 rotation semantics):
@@ -171,6 +194,10 @@ pub struct StagedItemView {
     pub source_url: String,
     pub fetched_ref: Option<String>,
     pub artifact_digest: String,
+    /// The digest of the executable module this import carries, when it carries
+    /// one. This is the value the install will pin and the executor will load;
+    /// the consent screen shows it so an operator approves bytes, not a name.
+    pub module_digest: String,
     pub manifest: serde_json::Value,
     pub declared_capabilities: Vec<String>,
     pub status: String,
@@ -194,6 +221,7 @@ impl From<PluginStagedItem> for StagedItemView {
             source_url: i.source_url,
             fetched_ref: i.fetched_ref,
             artifact_digest: i.artifact_digest,
+            module_digest: i.module_digest,
             manifest: i.manifest,
             declared_capabilities: i.declared_capabilities,
             status: i.status.as_str().into(),
@@ -529,12 +557,27 @@ fn validate_repo_component(value: &str) -> ApiResult<()> {
 
 // --- staging: every source funnels through ONE pending path -----------------------
 
-/// Validated bundle → org-scoped PENDING row → audit + event. Staging
-/// is the row BEFORE install; it executes nothing and grants nothing.
+/// Validated bundle → org-scoped PENDING row → audit + event. Staging is the
+/// row BEFORE install; it executes nothing and grants nothing.
+///
+/// Stages a verified bundle, persisting its executable module when it carries
+/// one.
+///
+/// The bytes are written HERE because this is the only place they exist: the
+/// registry and GitHub adapters fetch a manifest and (optionally) the artifact
+/// binary, and the zip adapter holds the archive. Everything downstream keeps a
+/// digest, so a staged row without its object would be a consent screen for
+/// something that can never run.
+///
+/// The write is content-addressed and idempotent, and it happens before the row
+/// exists — so a staging failure cannot leave a row pointing at nothing. The
+/// install is still DISABLED until an admin approves: writing bytes grants no
+/// authority, and nothing executes from a staged row.
 async fn stage_bundle(
     state: &AppState,
     authed: &crate::auth::AuthedUser,
     mut bundle: plugin_host::distribution::DistributionBundle,
+    module: Option<&[u8]>,
     source_url_override: Option<String>,
 ) -> ApiResult<Json<StagedItemView>> {
     if let Some(url) = source_url_override {
@@ -548,6 +591,18 @@ async fn stage_bundle(
     }
     let org_id = authed.principal.user.org_id;
     let actor = authed.principal.user.id;
+    // Only an executable artifact gets a pin. A skill, a theme or an identity
+    // bundle is data; a plugin manifest with no `.wasm` member is declarative.
+    let module_digest = match (bundle.artifact_kind, module) {
+        (PluginArtifactKind::Plugin, Some(bytes)) => {
+            let digest = plugin_host::isolation::ModuleArtifact::digest_of(bytes);
+            plugin_host::lifecycle::admit_module(&*state.store, org_id, bytes, &digest)
+                .await
+                .map_err(artifact_api)?;
+            digest
+        }
+        _ => String::new(),
+    };
     let item = PluginStagedItem {
         id: Uuid::now_v7(),
         org_id,
@@ -556,6 +611,7 @@ async fn stage_bundle(
         source_url: bundle.source_url,
         fetched_ref: bundle.fetched_ref,
         artifact_digest: bundle.artifact_digest,
+        module_digest,
         manifest: bundle.manifest,
         declared_capabilities: bundle.declared_capabilities,
         status: PluginStagedStatus::Pending,
@@ -587,6 +643,7 @@ async fn stage_bundle(
                     "source_url": item.source_url,
                     "fetched_ref": item.fetched_ref,
                     "artifact_digest": item.artifact_digest,
+                    "module_digest": item.module_digest,
                     "declared_capabilities": item.declared_capabilities,
                     "status": "pending",
                 }),
@@ -642,6 +699,7 @@ pub async fn stage_from_registry(
     };
     // B2: re-fetch the artifact bytes and verify the digest myself —
     // the catalog's pinned digest is a claim until these bytes agree.
+    let mut module: Option<Vec<u8>> = None;
     if let Some(artifact_url) = req
         .artifact_url
         .as_deref()
@@ -656,8 +714,9 @@ pub async fn stage_from_registry(
         }
         plugin_host::distribution::verify_artifact_bytes(&artifact_bytes, &bundle.artifact_digest)
             .map_err(ingest_reason_api)?;
+        module = Some(artifact_bytes);
     }
-    stage_bundle(&state, &authed, bundle, Some(url)).await
+    stage_bundle(&state, &authed, bundle, module.as_deref(), Some(url)).await
 }
 
 /// POST /api/plugins/distribution/staged/github — the pinned GitHub
@@ -697,6 +756,7 @@ pub async fn stage_from_github(
             .map_err(ingest_reason_api)?
     };
     // B2: optional artifact-bytes refetch + cross-digest verification.
+    let mut module: Option<Vec<u8>> = None;
     if let Some(artifact_url) = req
         .artifact_url
         .as_deref()
@@ -711,8 +771,9 @@ pub async fn stage_from_github(
         }
         plugin_host::distribution::verify_artifact_bytes(&artifact_bytes, &bundle.artifact_digest)
             .map_err(ingest_reason_api)?;
+        module = Some(artifact_bytes);
     }
-    stage_bundle(&state, &authed, bundle, Some(source_url)).await
+    stage_bundle(&state, &authed, bundle, module.as_deref(), Some(source_url)).await
 }
 
 /// POST /api/plugins/distribution/staged/zip — the local zip import.
@@ -738,7 +799,13 @@ pub async fn stage_from_zip(
         )));
     }
     let bundle = ingest_local_zip(&body).map_err(ingest_reason_api)?;
-    stage_bundle(&state, &authed, bundle, None).await
+    // The archive digest identifies what was imported; the module inside it is
+    // what would run. Extraction refuses an archive with two candidate modules
+    // rather than choosing one, and a declarative-only import legitimately has
+    // none.
+    let module =
+        plugin_host::distribution::extract_module_from_zip(&body).map_err(ingest_reason_api)?;
+    stage_bundle(&state, &authed, bundle, module.as_deref(), None).await
 }
 
 /// POST /api/plugins/distribution/staged/skill — skills from free/open
@@ -775,7 +842,7 @@ pub async fn stage_from_skill(
                 req.artifact_digest.as_deref().unwrap_or(""),
             )
             .map_err(ingest_reason_api)?;
-            stage_bundle(&state, &authed, bundle, None).await
+            stage_bundle(&state, &authed, bundle, None, None).await
         }
         PluginSourceKind::SkillCommunity => {
             let url = req.source_url.trim().to_string();
@@ -799,7 +866,7 @@ pub async fn stage_from_skill(
             let bundle =
                 ingest_skill_manifest(json, source_kind, &url, req.fetched_ref.as_deref(), &digest)
                     .map_err(ingest_reason_api)?;
-            stage_bundle(&state, &authed, bundle, None).await
+            stage_bundle(&state, &authed, bundle, None, None).await
         }
         _ => Err(ApiError::Validation(
             "source_kind is not a skills source (closed vocabulary)".into(),
@@ -920,6 +987,8 @@ pub async fn approve_staged(
     let actor = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     let now = chrono::Utc::now();
+    // Cloned out of `state` because `with_org_tx` borrows it for the closure.
+    let store = state.store.clone();
     let requested: Vec<PluginCapability> = req
         .granted_capabilities
         .iter()
@@ -961,6 +1030,20 @@ pub async fn approve_staged(
                 manifest
                     .validate()
                     .map_err(|e| ApiError::Validation(e.to_string()))?;
+                // The pin must be loadable BEFORE it becomes an install's
+                // digest. The bytes were written at staging and verified then;
+                // this re-reads them, so an object deleted or corrupted between
+                // staging and approval is refused here rather than at the first
+                // invocation.
+                if !item.module_digest.is_empty() {
+                    plugin_host::lifecycle::verify_stored_module(
+                        &*store,
+                        org_id,
+                        &item.module_digest,
+                    )
+                    .await
+                    .map_err(artifact_api)?;
+                }
                 // The adoption handle: slug derived from the artifact's
                 // own declared name (lowercase, install-safe).
                 let slug: String = manifest
@@ -1009,6 +1092,7 @@ pub async fn approve_staged(
                                 catalog_id: existing.id,
                                 version: manifest.version.clone(),
                                 manifest: manifest.clone(),
+                                module_digest: item.module_digest.clone(),
                                 created_at: now,
                             },
                         )
@@ -1040,6 +1124,7 @@ pub async fn approve_staged(
                                 catalog_id: entry.id,
                                 version: manifest.version.clone(),
                                 manifest: manifest.clone(),
+                                module_digest: item.module_digest.clone(),
                                 created_at: now,
                             },
                         )
@@ -1054,6 +1139,7 @@ pub async fn approve_staged(
                     catalog_id: entry.id,
                     slug: entry.slug.clone(),
                     version: manifest.version.clone(),
+                    module_digest: item.module_digest.clone(),
                     status: PluginInstallStatus::Disabled,
                     granted_capabilities: granted_keys.clone(),
                     installed_by: Some(actor),
@@ -1061,6 +1147,10 @@ pub async fn approve_staged(
                     updated_at: now,
                     revoked_at: None,
                     revoked_by: None,
+                    revoked_reason: None,
+                    previous_version: None,
+                    previous_module_digest: None,
+                    previous_capabilities: Vec::new(),
                 };
                 core_db::plugins::create_install(&mut tx.tx, &install).await?;
                 // §4.6: the adopt's surface registrations derive from the
@@ -1408,6 +1498,7 @@ pub async fn propose_update(
     let actor = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     let now = chrono::Utc::now();
+    let store = state.store.clone();
     let requested_caps = match &req.granted_capabilities {
         Some(keys) => Some(
             keys.iter()
@@ -1432,6 +1523,22 @@ pub async fn propose_update(
                         req.version.trim()
                     ))
                 })?;
+        // The proposal carries the candidate's DIGEST, and a candidate with no
+        // module cannot take over an install that has one: consenting to it
+        // would leave the install naming bytes it does not run. Refused here,
+        // at the point an operator can still see why.
+        if pinned.module_digest.is_empty() && !existing.module_digest.is_empty() {
+            return Err(ApiError::Conflict(format!(
+                "version {} ships no module, and this install runs a pinned one; an update may \
+                 not clear a pin",
+                pinned.manifest.version
+            )));
+        }
+        if !pinned.module_digest.is_empty() {
+            plugin_host::lifecycle::verify_stored_module(&*store, org_id, &pinned.module_digest)
+                .await
+                .map_err(artifact_api)?;
+        }
         let new_caps: Vec<String> = match &requested_caps {
             Some(caps) => {
                 for cap in caps {
@@ -1457,7 +1564,7 @@ pub async fn propose_update(
             id,
             pinned.manifest.version.as_str(),
             &serde_json::to_value(&pinned.manifest).unwrap_or(serde_json::Value::Null),
-            "",
+            &pinned.module_digest,
             Some(&new_caps),
             now,
         )
@@ -1478,12 +1585,13 @@ pub async fn propose_update(
                 source_kind: last_kind,
                 source_url: last_url,
                 fetched_ref: Some(pinned.manifest.version.clone()),
-                artifact_digest: String::new(),
+                artifact_digest: pinned.module_digest.clone(),
                 uploader: Some(actor),
                 action: "updated".into(),
                 detail: Some(serde_json::json!({
                     "from_version": existing.version,
                     "to_version": pinned.manifest.version,
+                    "module_digest": pinned.module_digest,
                     "state": "pending_consent",
                 })),
                 recorded_at: now,
@@ -1525,7 +1633,7 @@ pub async fn propose_update(
                 slug: existing.slug.clone(),
                 current_version: existing.version.clone(),
                 pending_version: pinned.manifest.version.clone(),
-                pending_digest: String::new(),
+                pending_digest: pinned.module_digest.clone(),
                 added_capabilities: diff.added.clone(),
                 removed_capabilities: diff.removed.clone(),
                 occurred_at: now,
@@ -1572,6 +1680,7 @@ pub async fn consent_update(
     let actor = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     let now = chrono::Utc::now();
+    let store = state.store.clone();
     org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let pending = core_db::plugin_distribution::get_pending_manifest(&mut tx.tx, org_id, id)
             .await?
@@ -1579,6 +1688,15 @@ pub async fn consent_update(
                 ApiError::Conflict("this install has no update proposal awaiting consent".into())
             })?;
         let (pending_version, _pending_manifest, pending_digest, _pending_caps) = pending;
+        // The candidate's bytes are re-verified at the moment they would become
+        // the pin. Between proposal and consent an operator can delete an
+        // object; consenting to a digest the store cannot serve would produce an
+        // install that enables and then fails.
+        if !pending_digest.is_empty() {
+            plugin_host::lifecycle::verify_stored_module(&*store, org_id, &pending_digest)
+                .await
+                .map_err(artifact_api)?;
+        }
         let before = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
         core_db::plugin_distribution::commit_pending_version(&mut tx.tx, org_id, id).await?;
         let updated = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
@@ -1696,6 +1814,214 @@ pub async fn discard_update(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct RevokeInstallRequest {
+    /// Required. A kill switch with no recorded reason is an incident nobody
+    /// can review.
+    pub reason: String,
+}
+
+/// POST /api/plugins/installed/{id}/rollback — move the pin back to the
+/// previous digest.
+///
+/// A rollback is a POINTER MOVE: version, digest and grants return to what they
+/// were before the last update, and no bytes are fetched. The old module is
+/// still in the store because keys are content-addressed, so an update wrote a
+/// new key rather than overwriting the old one.
+///
+/// One step, not a toggle: the parked target is cleared, so a second rollback
+/// answers `409` until the update is re-consented. That is deliberate — the
+/// operator should say which bytes they want, not ping-pong between two.
+#[utoipa::path(operation_id = "plugin_install_rollback", post,
+    path = "/api/plugins/installed/{id}/rollback", tag = "plugins",
+    security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    responses((status = 200, body = InstallView), (status = 404), (status = 409)))]
+pub async fn rollback_install(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<InstallView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let actor = authed.principal.user.id;
+    let org_id = authed.principal.user.org_id;
+    let now = chrono::Utc::now();
+    let view = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+        let before = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
+        // The pure transition table answers first, so the refusal is the same
+        // typed one the model and the tests describe.
+        let state_before = LifecycleState::from_install(&before);
+        plugin_host::lifecycle::apply(Some(&state_before), &LifecycleAction::Rollback)
+            .map_err(lifecycle_api)?;
+        let (version, digest) = core_db::plugins::rollback_pin(&mut tx.tx, org_id, id).await?;
+        let updated = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
+        // The older manifest's surface profile is what should render now.
+        let target_manifest =
+            core_db::plugins::get_version(&mut tx.tx, updated.catalog_id, &version)
+                .await?
+                .manifest;
+        plugin_host::surface::sync_install_surface(&mut tx.tx, &updated, &target_manifest)
+            .await
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))?;
+        let last = core_db::plugin_distribution::latest_provenance(&mut tx.tx, org_id, id).await;
+        let (last_kind, last_url) = match &last {
+            Ok(l) => (l.source_kind, l.source_url.clone()),
+            Err(_) => (PluginSourceKind::MarketplaceRegistry, String::new()),
+        };
+        core_db::plugin_distribution::insert_provenance(
+            &mut tx.tx,
+            &PluginProvenanceEntry {
+                id: Uuid::now_v7(),
+                org_id,
+                install_id: id,
+                source_kind: last_kind,
+                source_url: last_url,
+                fetched_ref: Some(version.clone()),
+                artifact_digest: digest.clone(),
+                uploader: Some(actor),
+                action: "rolled_back".into(),
+                detail: Some(serde_json::json!({
+                    "from_version": before.version,
+                    "to_version": version,
+                    "module_digest": digest,
+                })),
+                recorded_at: now,
+            },
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "plugin.install_rolled_back".into(),
+                entity_type: Some("plugin_install".into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({
+                    "slug": updated.slug,
+                    "from_version": before.version,
+                    "to_version": updated.version,
+                    "module_digest": updated.module_digest,
+                }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
+        .await?;
+        tx.emit(
+            types::PLUGIN_INSTALL_UPDATED,
+            "plugin_install",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::PluginInstallUpdated {
+                install_id: id,
+                catalog_id: updated.catalog_id,
+                slug: updated.slug.clone(),
+                version: updated.version.clone(),
+                status: updated.status.as_str().into(),
+                granted_capabilities: updated.granted_capabilities.clone(),
+                occurred_at: now,
+            })
+            .unwrap_or(serde_json::Value::Null),
+        )
+        .await?;
+        let name = core_db::plugins::get_catalog_entry(&mut tx.tx, &updated.slug)
+            .await
+            .map(|e| e.name)
+            .unwrap_or_else(|_| updated.slug.clone());
+        Ok((
+            tx,
+            InstallView::from_install(updated, name, &target_manifest),
+        ))
+    })
+    .await?;
+    Ok(Json(view))
+}
+
+/// POST /api/plugins/installed/{id}/revoke — the org's own kill switch for ONE
+/// install.
+///
+/// Distinct from disabling (reversible, grants untouched) and from the
+/// catalog-wide revocation (which cascades to every tenant's installs). Revoke
+/// is terminal, the reason is required, and execution stops at the parent's
+/// gate: `authorize_invocation` refuses a revoked status, and the artifact load
+/// path refuses before it reads a byte.
+#[utoipa::path(operation_id = "plugin_install_revoke", post,
+    path = "/api/plugins/installed/{id}/revoke", tag = "plugins",
+    security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    request_body = RevokeInstallRequest,
+    responses((status = 200, body = InstallView), (status = 404), (status = 409)))]
+pub async fn revoke_install(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RevokeInstallRequest>,
+) -> ApiResult<Json<InstallView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let actor = authed.principal.user.id;
+    let org_id = authed.principal.user.org_id;
+    let reason = req.reason.trim().to_string();
+    if reason.is_empty() {
+        return Err(ApiError::Validation(
+            "a revocation reason is required".into(),
+        ));
+    }
+    let now = chrono::Utc::now();
+    let view = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+        let before = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
+        core_db::plugins::revoke_install(&mut tx.tx, org_id, id, Some(actor), &reason, now).await?;
+        let revoked = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
+        let manifest =
+            core_db::plugins::get_version(&mut tx.tx, revoked.catalog_id, &revoked.version)
+                .await
+                .map(|v| v.manifest)
+                .unwrap_or_else(|_| fallback_manifest(&revoked));
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "plugin.install_revoked".into(),
+                entity_type: Some("plugin_install".into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({
+                    "slug": revoked.slug,
+                    "reason": reason,
+                    "from_status": before.status.as_str(),
+                    "module_digest": revoked.module_digest,
+                }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
+        .await?;
+        tx.emit(
+            types::PLUGIN_INSTALL_REVOKED,
+            "plugin_install",
+            Some(id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::PluginInstallRevoked {
+                install_id: id,
+                catalog_id: revoked.catalog_id,
+                slug: revoked.slug.clone(),
+                reason: Some(reason.clone()),
+                revoked_at: now,
+            })
+            .unwrap_or(serde_json::Value::Null),
+        )
+        .await?;
+        let name = core_db::plugins::get_catalog_entry(&mut tx.tx, &revoked.slug)
+            .await
+            .map(|e| e.name)
+            .unwrap_or_else(|_| revoked.slug.clone());
+        Ok((tx, InstallView::from_install(revoked, name, &manifest)))
+    })
+    .await?;
+    Ok(Json(view))
+}
 /// The shared read for the update view: install + pending columns →
 /// consent diff against the pending manifest's declared set.
 async fn get_update_view(
