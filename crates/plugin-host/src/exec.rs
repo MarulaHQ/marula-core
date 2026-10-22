@@ -1,5 +1,1013 @@
 //! The request path: turning an authorized invocation into an effect (W53-5).
 //!
-//! Empty on purpose. `p53-runtime` pre-declares this module so the three lanes
-//! of R3 each own one file and none of them edits `lib.rs` — the same seam trick
-//! `host_fns/` uses. W53-5 fills this in.
+//! One function, [`invoke_surface`], is the whole path: a surface entry the
+//! registry knows about, the install that owns it, the capability the surface
+//! requires, the module the install pinned, the worker that runs it, and the
+//! audit row that records the attempt. Every surface goes through it —
+//! [`SurfaceKind`] is the closed list of six — so a widget, a report render, a
+//! field validator, an action, a trigger, a read node and a workflow node are
+//! callers of one mechanism, not six mechanisms.
+//!
+//! ## What may and may not enter the request
+//!
+//! The [`abi::InvocationRequest`] is built from
+//! [`crate::authorize_invocation`]'s own answer. `granted` is
+//! `install.granted_capabilities` and nothing else: not the payload, not the
+//! entry definition, not the worker's frame, not anything a guest returned.
+//! The payload, the entry key and the ticket id come from the caller; the grant
+//! set, the declared event types and the egress profile do not. The pool
+//! re-validates every grant key against the closed vocabulary, so a caller bug
+//! there fails closed. `host_fns::InvocationState::grant()` is reachable only
+//! from the worker's own frame parsing and from tests; this module never calls
+//! it.
+//!
+//! ## The audit row (ADR 0023 Decision 7)
+//!
+//! One `audit_events` row per attempt, written here, by the parent, on the
+//! caller's connection, awaited before the caller answers. The shape is
+//! [`audit_event`]: `actor = Actor::Plugin(<install>)`, `action =
+//! plugin.invoke`, `entity_type = plugin_entry`, `entity_id = <entry key>`, and
+//! a `detail` carrying exactly `outcome`, `reason`, `capability`,
+//! `invocation_id`, `fuel_used`, `duration_us` and `worker`.
+//!
+//! - A refusal decided before dispatch is the same row with `outcome =
+//!   "refused"` and `invocation_id = null`.
+//! - A dead worker is `outcome = "worker_failed"`, `reason =
+//!   "plugin_worker_failed"`, `fuel_used = null`.
+//! - A refusal that cannot name an install — the registry row is gone, so no
+//!   install is resolvable — is attributed to `system` with a null actor id.
+//!   The entry key is caller-supplied, so it may never choose the actor.
+//!
+//! ## The transaction
+//!
+//! The row and the effect share the caller's transaction: a rollback drops
+//! both. The limit is ADR 0023's and is stated rather than hidden — a core-api
+//! crash between the worker's reply and the insert loses the row and the effect
+//! together. The pool's concurrency slots (one invocation per org, one per
+//! install) bound how many request transactions sit open across a worker call.
+//!
+//! ## The pool, and the declarative path
+//!
+//! [`pool`] starts the process's pool once, on the first module-bearing
+//! invocation, and reuses it. `MARULA_PLUGIN_ISOLATION=disabled` turns every
+//! such invocation into a `plugin_runtime_disabled` refusal WITH a row, which
+//! is what a deployment without the worker binary gets; nothing falls back to
+//! running the effect without the module.
+//!
+//! An install with no module pin is a declarative install: `enable` allows it
+//! (a surface/connector/settings plugin has no module to run), and the
+//! consented effect is applied by the parent exactly as core did before this
+//! lane. That path is the old behaviour, kept reachable and now audited.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use core_db::plugin_surface::{self, SurfaceEntryRow};
+use core_domain::entities::plugins::{PluginInstall, PluginManifestV2, SurfaceActionEffect};
+use core_domain::entities::{Actor, AuditEvent, TicketComment};
+use core_domain::status::NoteKind;
+use core_store::ObjectStore;
+use serde_json::{json, Value};
+use sqlx::PgConnection;
+use tokio::sync::OnceCell;
+use uuid::Uuid;
+
+use crate::abi::{self, InvocationOutcome, InvocationRequest};
+use crate::lifecycle::{self, ArtifactError};
+use crate::runtime::{PluginPool, PoolConfig, PoolError};
+use crate::surface::{self, SurfaceKind};
+
+/// The `audit_events.action` every invocation writes.
+pub const AUDIT_ACTION: &str = "plugin.invoke";
+/// The `audit_events.entity_type` every invocation writes.
+pub const AUDIT_ENTITY: &str = "plugin_entry";
+/// `detail.worker` on the declarative path: the parent applied the effect, so
+/// no worker was reached.
+pub const WORKER_DECLARATIVE: &str = "declarative";
+
+/// The body cap the hardcoded effect enforced before this lane, kept so a
+/// comment that used to be refused is still refused.
+pub const MAX_EFFECT_BODY_BYTES: usize = 4000;
+
+/// The static reasons this path decides before `authorize_invocation` can
+/// answer. Same posture as [`crate::denial_reasons`]: a stable string an audit
+/// row and an API envelope carry, never prose to parse.
+pub mod refusal_reasons {
+    /// The registry row is absent: the install is disabled or revoked, the
+    /// grant was withdrawn, or the entry itself is disabled.
+    pub const ENTRY_UNAVAILABLE: &str = "plugin_entry_unavailable";
+    /// The registry row named an install the org no longer has.
+    pub const INSTALL_UNAVAILABLE: &str = "plugin_install_unavailable";
+    /// The catalog entry or the pinned version row is gone.
+    pub const MANIFEST_UNAVAILABLE: &str = "plugin_manifest_unavailable";
+    /// The entry's own `params_schema` is not a schema the manifest subset
+    /// accepts, so the entry cannot be run safely.
+    pub const ENTRY_SCHEMA_INVALID: &str = "plugin_entry_schema_invalid";
+    /// The caller's params do not satisfy the entry's `params_schema`, or the
+    /// effect's own body bounds.
+    pub const PARAMS_REFUSED: &str = "plugin_params_refused";
+    /// The entry declares no effect, or one outside the closed vocabulary.
+    pub const EFFECT_NOT_CONSENTED: &str = "plugin_effect_not_consented";
+    /// The guest answered that it did not accept the call.
+    pub const EFFECT_DECLINED: &str = "plugin_effect_declined";
+    /// The effect needs a ticket and the call named none.
+    pub const EFFECT_TARGET_MISSING: &str = "plugin_effect_target_missing";
+    /// Defensive: an attempt that finished without applying an effect a caller
+    /// expected one from. The action path cannot reach it.
+    pub const NO_EFFECT: &str = "plugin_effect_not_applied";
+}
+
+/// The process's plugin pool. Started on the first module-bearing invocation
+/// and reused; `PluginPool::start` is expensive (it spawns and handshakes the
+/// workers), so it must not run per request.
+///
+/// A failed start is not cached: the next call retries, which lets a
+/// deployment that booted before the worker binary existed recover without a
+/// restart. Until it does, each attempt is a typed, audited refusal.
+static POOL: OnceCell<Arc<PluginPool>> = OnceCell::const_new();
+
+/// The process's plugin pool, started once from the environment with `health`
+/// as its quarantine store.
+pub async fn pool(health: sqlx::PgPool) -> Result<Arc<PluginPool>, PoolError> {
+    POOL.get_or_try_init(|| async move {
+        PluginPool::start(PoolConfig::from_env()?.with_health(health)).await
+    })
+    .await
+    .cloned()
+}
+
+/// One surface invocation, as a caller asks for it.
+///
+/// Everything here is the caller's decision about WHAT to invoke. Nothing here
+/// is authority: the capability comes from `surface`, and the grant set comes
+/// from the install row.
+pub struct SurfaceCall<'a> {
+    pub org_id: Uuid,
+    /// The registry key (`plugin.<slug>.<id>`) the caller wants to run.
+    pub entry_key: &'a str,
+    pub surface: SurfaceKind,
+    /// The task input handed to the guest, and the params the entry's schema
+    /// validates. JSON by convention.
+    pub params: &'a Value,
+    /// The ticket an effect acts on. `None` on a surface that writes nothing.
+    pub ticket_id: Option<Uuid>,
+}
+
+/// What one attempt produced, for the caller to act on.
+///
+/// `outcome` is the audit row's word, so a caller that renders a skip and an
+/// operator who reads the trail say the same thing.
+#[derive(Debug, Clone)]
+pub struct SurfaceOutcome {
+    pub entry_key: String,
+    pub outcome: InvocationOutcome,
+    /// The static reason code when the attempt did not apply its effect.
+    pub reason: Option<&'static str>,
+    /// The internal comment an `add_internal_comment` effect inserted, in the
+    /// caller's transaction. `None` when no effect was applied.
+    pub comment: Option<TicketComment>,
+    /// The guest's own bytes, when it returned a payload. Untrusted: a caller
+    /// that renders them validates them first.
+    pub output: Option<Vec<u8>>,
+}
+
+impl SurfaceOutcome {
+    /// The typed reason a workflow node renders as `skipped`. Always present on
+    /// a refused attempt; [`refusal_reasons::NO_EFFECT`] is the defensive
+    /// answer for a caller that asks about an attempt that applied nothing.
+    pub fn skip_reason(&self) -> &'static str {
+        self.reason.unwrap_or(refusal_reasons::NO_EFFECT)
+    }
+}
+
+/// Runs one surface invocation end to end and writes its audit row.
+///
+/// Order, and where each gate sits:
+///
+/// 1. the registry row (`plugin_surface::get_entry_by_key`) — a missing row is
+///    a refusal, because the row exists only while the install is enabled, the
+///    grant stands and the entry is enabled;
+/// 2. the install row, then the catalog entry and the pinned version — the
+///    inputs `authorize_invocation` needs;
+/// 3. [`crate::authorize_invocation`] — interface version, registry
+///    revocation, admin-enabled, grant, matrix resolution;
+/// 4. the entry's `params_schema` and, for an action, the consented effect and
+///    its ticket;
+/// 5. `lifecycle::load_module` — the pin, re-hashed; an unpinned install takes
+///    the declarative path instead;
+/// 6. [`PluginPool::invoke`] — the worker's own gates (enabled, frame, digest,
+///    quarantine, rate, concurrency) run there;
+/// 7. the effect, from the CONSENTED definition and never from the guest's
+///    output, in the caller's transaction;
+/// 8. the audit row, once, whatever happened above.
+///
+/// A database failure is returned as an error (the caller's transaction rolls
+/// back); a refusal is a written row and an `Ok` outcome.
+pub async fn invoke_surface(
+    tx: &mut PgConnection,
+    db: &sqlx::PgPool,
+    store: &dyn ObjectStore,
+    call: &SurfaceCall<'_>,
+) -> core_db::DbResult<SurfaceOutcome> {
+    let started = Instant::now();
+
+    let entry = match plugin_surface::get_entry_by_key(
+        &mut *tx,
+        call.org_id,
+        call.surface.as_str(),
+        call.entry_key,
+    )
+    .await?
+    {
+        Some(entry) => entry,
+        None => return refuse(tx, call, None, refusal_reasons::ENTRY_UNAVAILABLE, started).await,
+    };
+
+    let install = match core_db::plugins::get_install(&mut *tx, call.org_id, entry.install_id)
+        .await
+        .map_err(|error| error.normalized())
+    {
+        Ok(install) => install,
+        Err(core_db::DbError::NotFound) => {
+            return refuse(
+                tx,
+                call,
+                None,
+                refusal_reasons::INSTALL_UNAVAILABLE,
+                started,
+            )
+            .await
+        }
+        Err(error) => return Err(error),
+    };
+
+    let catalog = match core_db::plugins::get_catalog_entry(&mut *tx, &install.slug)
+        .await
+        .map_err(|error| error.normalized())
+    {
+        Ok(catalog) => catalog,
+        Err(core_db::DbError::NotFound) => {
+            return refuse(
+                tx,
+                call,
+                Some(install.id),
+                refusal_reasons::MANIFEST_UNAVAILABLE,
+                started,
+            )
+            .await
+        }
+        Err(error) => return Err(error),
+    };
+    let version =
+        match core_db::plugins::get_version(&mut *tx, install.catalog_id, &install.version)
+            .await
+            .map_err(|error| error.normalized())
+        {
+            Ok(version) => version,
+            Err(core_db::DbError::NotFound) => {
+                return refuse(
+                    tx,
+                    call,
+                    Some(install.id),
+                    refusal_reasons::MANIFEST_UNAVAILABLE,
+                    started,
+                )
+                .await
+            }
+            Err(error) => return Err(error),
+        };
+
+    // The authorization gate. `entry_interface_version` is the version the
+    // install ADOPTED (its pinned manifest), not the catalog's latest: an
+    // install keeps running the version it consented to.
+    if let Err(reason) = crate::authorize_invocation(
+        &install,
+        catalog.revoked_at.is_some(),
+        version.manifest.interface_version,
+        call.surface.capability(),
+    ) {
+        return refuse(tx, call, Some(install.id), reason, started).await;
+    }
+
+    match surface::params_schema(&entry.definition) {
+        surface::DeclaredSchema::Absent => {}
+        surface::DeclaredSchema::Valid(schema) => {
+            if schema.validate_config(call.params).is_err() {
+                return refuse(
+                    tx,
+                    call,
+                    Some(install.id),
+                    refusal_reasons::PARAMS_REFUSED,
+                    started,
+                )
+                .await;
+            }
+        }
+        surface::DeclaredSchema::Invalid => {
+            return refuse(
+                tx,
+                call,
+                Some(install.id),
+                refusal_reasons::ENTRY_SCHEMA_INVALID,
+                started,
+            )
+            .await
+        }
+    }
+
+    // The effect is the MANIFEST's declaration, resolved before dispatch: a
+    // module is not worth running for an effect nobody consented to, and an
+    // effect that needs a ticket must have one before a worker is spent.
+    let consented = if call.surface.applies_effect() {
+        let Some(effect) = surface::consented_effect(&entry.definition) else {
+            return refuse(
+                tx,
+                call,
+                Some(install.id),
+                refusal_reasons::EFFECT_NOT_CONSENTED,
+                started,
+            )
+            .await;
+        };
+        if call.ticket_id.is_none() {
+            return refuse(
+                tx,
+                call,
+                Some(install.id),
+                refusal_reasons::EFFECT_TARGET_MISSING,
+                started,
+            )
+            .await;
+        }
+        Some(effect)
+    } else {
+        None
+    };
+
+    let artifact = match lifecycle::load_module(store, &install).await {
+        Ok(artifact) => artifact,
+        // A declarative install (no module pin) applies its consented effect in
+        // the parent. Only an effectful surface has anything to apply; a data
+        // surface on such an install has nothing to run.
+        Err(ArtifactError::Unpinned) if consented.is_some() => {
+            return declarative_attempt(tx, call, &install, &entry, started).await
+        }
+        Err(error) => {
+            return refuse(tx, call, Some(install.id), error.as_str(), started).await;
+        }
+    };
+
+    let invocation_id = Uuid::now_v7();
+    let payload = serde_json::to_vec(call.params).unwrap_or_default();
+    let request = build_request(invocation_id, &install, &version.manifest, &entry, payload);
+    if let Err(refusal) = request.validate() {
+        return refuse(tx, call, Some(install.id), refusal.as_str(), started).await;
+    }
+
+    let plugins = match pool(db.clone()).await {
+        Ok(plugins) => plugins,
+        Err(error) => {
+            tracing::warn!(
+                entry = call.entry_key,
+                error = %error,
+                "plugin pool unavailable; the invocation is refused and recorded"
+            );
+            return worker_failed_attempt(tx, call, Some(install.id), started).await;
+        }
+    };
+
+    let result = plugins.invoke(&request, &artifact).await;
+    let mut outcome = result.reply.outcome;
+    let mut reason = result.reply.reason.map(|refusal| refusal.as_str());
+    let mut comment = None;
+
+    if outcome == InvocationOutcome::Ok {
+        if let Some(consented) = consented {
+            match effect_verdict(result.reply.output.as_deref(), consented) {
+                EffectVerdict::Apply => match apply_consented_effect(tx, call, consented).await? {
+                    EffectOutcome::Applied(inserted) => comment = Some(inserted),
+                    EffectOutcome::Refused(refusal) => {
+                        outcome = InvocationOutcome::Refused;
+                        reason = Some(refusal);
+                    }
+                },
+                EffectVerdict::Declined => {
+                    outcome = InvocationOutcome::Refused;
+                    reason = Some(refusal_reasons::EFFECT_DECLINED);
+                }
+                EffectVerdict::Contradicted => {
+                    outcome = InvocationOutcome::Refused;
+                    reason = Some(refusal_reasons::EFFECT_NOT_CONSENTED);
+                }
+            }
+        }
+    }
+
+    let worker = result.worker.clone();
+    let attempt = Attempt {
+        org_id: call.org_id,
+        install_id: Some(install.id),
+        entry_key: call.entry_key,
+        capability: call.surface.capability().as_str(),
+        outcome,
+        reason,
+        invocation_id: Some(result.reply.invocation_id),
+        fuel_used: result.reply.fuel_used,
+        duration_us: result.reply.duration_us,
+        worker: worker.as_deref(),
+    };
+    write_audit(tx, &attempt).await?;
+
+    Ok(SurfaceOutcome {
+        entry_key: call.entry_key.to_string(),
+        outcome,
+        reason,
+        comment,
+        output: result.reply.output,
+    })
+}
+
+/// The declarative attempt: an install with no module pin, whose consented
+/// effect the parent applies itself. This is the behaviour core had before the
+/// executor existed, kept reachable for the declarative plugins `enable`
+/// explicitly allows — and now recorded like every other attempt.
+async fn declarative_attempt(
+    tx: &mut PgConnection,
+    call: &SurfaceCall<'_>,
+    install: &PluginInstall,
+    entry: &SurfaceEntryRow,
+    started: Instant,
+) -> core_db::DbResult<SurfaceOutcome> {
+    let Some(consented) = surface::consented_effect(&entry.definition) else {
+        return refuse(
+            tx,
+            call,
+            Some(install.id),
+            refusal_reasons::EFFECT_NOT_CONSENTED,
+            started,
+        )
+        .await;
+    };
+    let (outcome, reason, comment) = match apply_consented_effect(tx, call, consented).await? {
+        EffectOutcome::Applied(comment) => (InvocationOutcome::Ok, None, Some(comment)),
+        EffectOutcome::Refused(refusal) => (InvocationOutcome::Refused, Some(refusal), None),
+    };
+    let attempt = Attempt {
+        org_id: call.org_id,
+        install_id: Some(install.id),
+        entry_key: call.entry_key,
+        capability: call.surface.capability().as_str(),
+        outcome,
+        reason,
+        invocation_id: None,
+        fuel_used: None,
+        duration_us: elapsed_us(started),
+        worker: Some(WORKER_DECLARATIVE),
+    };
+    write_audit(tx, &attempt).await?;
+    Ok(SurfaceOutcome {
+        entry_key: call.entry_key.to_string(),
+        outcome,
+        reason,
+        comment,
+        output: None,
+    })
+}
+
+/// The row a dead or absent worker leaves: `worker_failed`, no fuel figure and
+/// no invocation id, because no frame was answered.
+async fn worker_failed_attempt(
+    tx: &mut PgConnection,
+    call: &SurfaceCall<'_>,
+    install_id: Option<Uuid>,
+    started: Instant,
+) -> core_db::DbResult<SurfaceOutcome> {
+    let reason = abi::Refusal::WorkerFailed.as_str();
+    let attempt = Attempt {
+        org_id: call.org_id,
+        install_id,
+        entry_key: call.entry_key,
+        capability: call.surface.capability().as_str(),
+        outcome: InvocationOutcome::WorkerFailed,
+        reason: Some(reason),
+        invocation_id: None,
+        fuel_used: None,
+        duration_us: elapsed_us(started),
+        worker: None,
+    };
+    write_audit(tx, &attempt).await?;
+    Ok(SurfaceOutcome {
+        entry_key: call.entry_key.to_string(),
+        outcome: InvocationOutcome::WorkerFailed,
+        reason: Some(reason),
+        comment: None,
+        output: None,
+    })
+}
+
+/// A pre-dispatch refusal: write the row, answer the caller, write nothing
+/// else.
+async fn refuse(
+    tx: &mut PgConnection,
+    call: &SurfaceCall<'_>,
+    install_id: Option<Uuid>,
+    reason: &'static str,
+    started: Instant,
+) -> core_db::DbResult<SurfaceOutcome> {
+    let attempt = Attempt {
+        org_id: call.org_id,
+        install_id,
+        entry_key: call.entry_key,
+        capability: call.surface.capability().as_str(),
+        outcome: InvocationOutcome::Refused,
+        reason: Some(reason),
+        invocation_id: None,
+        fuel_used: None,
+        duration_us: elapsed_us(started),
+        worker: None,
+    };
+    write_audit(tx, &attempt).await?;
+    Ok(SurfaceOutcome {
+        entry_key: call.entry_key.to_string(),
+        outcome: InvocationOutcome::Refused,
+        reason: Some(reason),
+        comment: None,
+        output: None,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// The request frame
+// ---------------------------------------------------------------------------
+
+/// Builds the frame the worker runs. `granted`, `declared_events` and `egress`
+/// are the install's and the pinned manifest's; `payload`, `entry` and the ids
+/// are the call's.
+fn build_request(
+    invocation_id: Uuid,
+    install: &PluginInstall,
+    manifest: &PluginManifestV2,
+    entry: &SurfaceEntryRow,
+    payload: Vec<u8>,
+) -> InvocationRequest {
+    InvocationRequest {
+        invocation_id,
+        org_id: install.org_id,
+        install_id: install.id,
+        entry: entry.entry_key.clone(),
+        payload,
+        // THE constraint: the grant set is the install's, verbatim. Nothing a
+        // request body, a guest or a worker says can add to it.
+        granted: install.granted_capabilities.clone(),
+        declared_events: surface::declared_events(&entry.definition),
+        egress: manifest
+            .connector_profile
+            .as_ref()
+            .map(|profile| profile.outbound_scopes.clone())
+            .unwrap_or_default(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The effect
+// ---------------------------------------------------------------------------
+
+/// What the guest's answer says about the consented effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EffectVerdict {
+    /// Apply the consented effect.
+    Apply,
+    /// The guest said it did not accept the call (or its answer is not a frame
+    /// this path can read). Fail closed: no effect.
+    Declined,
+    /// The guest named a DIFFERENT effect than the one consented. The guest
+    /// does not choose the effect; the manifest does.
+    Contradicted,
+}
+
+/// Reads the guest's answer against the consented effect.
+///
+/// No output means the module said nothing and the consented effect stands. A
+/// JSON object may carry `effect` (which must be the consented one) and
+/// `accepted` (which must not be `false`). Anything unreadable is a decline,
+/// because an unreadable answer is not an acceptance.
+fn effect_verdict(output: Option<&[u8]>, consented: SurfaceActionEffect) -> EffectVerdict {
+    let Some(bytes) = output else {
+        return EffectVerdict::Apply;
+    };
+    if bytes.is_empty() {
+        return EffectVerdict::Apply;
+    }
+    let Ok(value) = serde_json::from_slice::<Value>(bytes) else {
+        return EffectVerdict::Declined;
+    };
+    let Some(object) = value.as_object() else {
+        return EffectVerdict::Declined;
+    };
+    if let Some(named) = object.get("effect").and_then(Value::as_str) {
+        if named != consented.as_str() {
+            return EffectVerdict::Contradicted;
+        }
+    }
+    if object.get("accepted").and_then(Value::as_bool) == Some(false) {
+        return EffectVerdict::Declined;
+    }
+    EffectVerdict::Apply
+}
+
+/// The result of applying one consented effect.
+enum EffectOutcome {
+    Applied(TicketComment),
+    Refused(&'static str),
+}
+
+/// Applies the effect the entry's manifest consented, in the caller's
+/// transaction. `params` are the caller's, already schema-checked; the body
+/// bounds are the effect's own and are checked here so a comment the old
+/// hardcoded effect refused is still refused.
+async fn apply_consented_effect(
+    tx: &mut PgConnection,
+    call: &SurfaceCall<'_>,
+    effect: SurfaceActionEffect,
+) -> core_db::DbResult<EffectOutcome> {
+    match effect {
+        SurfaceActionEffect::AddInternalComment => {
+            let Some(ticket_id) = call.ticket_id else {
+                return Ok(EffectOutcome::Refused(
+                    refusal_reasons::EFFECT_TARGET_MISSING,
+                ));
+            };
+            let Some(body) = call.params.get("body").and_then(Value::as_str) else {
+                return Ok(EffectOutcome::Refused(refusal_reasons::PARAMS_REFUSED));
+            };
+            let body = body.trim();
+            if body.is_empty() || body.len() > MAX_EFFECT_BODY_BYTES {
+                return Ok(EffectOutcome::Refused(refusal_reasons::PARAMS_REFUSED));
+            }
+            let comment = core_db::tickets::insert_comment(
+                &mut *tx,
+                core_db::tickets::NewTicketComment {
+                    id: Uuid::now_v7(),
+                    org_id: call.org_id,
+                    ticket_id,
+                    // No human author: the install is the actor, and the audit
+                    // row names it. The same shape the hardcoded effect wrote.
+                    author_id: None,
+                    kind: NoteKind::Internal,
+                    body,
+                    workflow_meta: None,
+                },
+            )
+            .await?;
+            Ok(EffectOutcome::Applied(comment))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The audit row
+// ---------------------------------------------------------------------------
+
+/// Everything one attempt's row needs. `reason` is a static string, never the
+/// guest's prose and never a database error message.
+struct Attempt<'a> {
+    org_id: Uuid,
+    /// `None` only when no install was resolvable; the row is then attributed
+    /// to `system`.
+    install_id: Option<Uuid>,
+    entry_key: &'a str,
+    /// The capability the surface requires, from the closed
+    /// [`SurfaceKind`] mapping — never from the entry or the caller.
+    capability: &'static str,
+    outcome: InvocationOutcome,
+    reason: Option<&'static str>,
+    invocation_id: Option<Uuid>,
+    fuel_used: Option<u64>,
+    duration_us: u64,
+    worker: Option<&'a str>,
+}
+
+/// The `audit_events` row ADR 0023 Decision 7 fixes. Pure, so the shape is
+/// testable without a database.
+fn audit_event(attempt: &Attempt<'_>) -> AuditEvent {
+    AuditEvent {
+        id: Uuid::now_v7(),
+        org_id: attempt.org_id,
+        actor: match attempt.install_id {
+            Some(install_id) => Actor::Plugin(install_id.to_string()),
+            // The entry key is caller-supplied, so it may never choose the
+            // actor. With no install resolvable, `system` is the only honest
+            // attribution, and `reason` says why.
+            None => Actor::System,
+        },
+        action: AUDIT_ACTION.to_string(),
+        entity_type: Some(AUDIT_ENTITY.to_string()),
+        entity_id: Some(attempt.entry_key.to_string()),
+        detail: json!({
+            "outcome": attempt.outcome.as_str(),
+            "reason": attempt.reason,
+            "capability": attempt.capability,
+            "invocation_id": attempt.invocation_id,
+            "fuel_used": attempt.fuel_used,
+            "duration_us": attempt.duration_us,
+            "worker": attempt.worker,
+        }),
+        ip: None,
+        occurred_at: chrono::Utc::now(),
+    }
+}
+
+async fn write_audit(tx: &mut PgConnection, attempt: &Attempt<'_>) -> core_db::DbResult<()> {
+    core_db::audit::insert(&mut *tx, &audit_event(attempt)).await
+}
+
+fn elapsed_us(started: Instant) -> u64 {
+    started.elapsed().as_micros() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_domain::entities::plugins::ConnectorProfile;
+    use core_domain::entities::plugins::{
+        PluginCapability, PluginInstallStatus, PluginSurfaceProfile, SurfaceAction,
+        SurfaceActionEffect, PLUGIN_RUNTIME_INTERFACE_VERSION,
+    };
+
+    fn install(grants: &[&str]) -> PluginInstall {
+        PluginInstall {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            catalog_id: Uuid::now_v7(),
+            slug: "triage-note-action".into(),
+            version: "1.0.1".into(),
+            module_digest: String::new(),
+            status: PluginInstallStatus::Enabled,
+            granted_capabilities: grants.iter().map(|grant| grant.to_string()).collect(),
+            installed_by: None,
+            installed_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            revoked_at: None,
+            revoked_by: None,
+            revoked_reason: None,
+            previous_version: None,
+            previous_module_digest: None,
+            previous_capabilities: Vec::new(),
+        }
+    }
+
+    fn manifest() -> PluginManifestV2 {
+        let mut outbound_scopes = std::collections::BTreeMap::new();
+        outbound_scopes.insert(
+            "telemetry".to_string(),
+            vec!["https://api.example.com".to_string()],
+        );
+        PluginManifestV2 {
+            name: "Triage Note Action".into(),
+            version: "1.0.1".into(),
+            interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
+            description: "Adds the triage note.".into(),
+            capabilities: vec!["automation.actions".into()],
+            settings_schema: None,
+            artifact_kind: None,
+            connector_profile: Some(ConnectorProfile {
+                webhook_endpoints: Vec::new(),
+                scopes: Vec::new(),
+                routing: None,
+                outbound_scopes,
+            }),
+            surface_profile: Some(PluginSurfaceProfile {
+                actions: vec![SurfaceAction {
+                    id: "triage_note".into(),
+                    label: "Triage note".into(),
+                    description: "Adds the note.".into(),
+                    effect: SurfaceActionEffect::AddInternalComment,
+                    params_schema: None,
+                    output_schema: None,
+                    idempotent: false,
+                    emits: vec!["ticket.comment_added".into()],
+                    audience: None,
+                    agent_description: None,
+                }],
+                ..PluginSurfaceProfile::default()
+            }),
+        }
+    }
+
+    fn entry() -> SurfaceEntryRow {
+        SurfaceEntryRow {
+            id: Uuid::now_v7(),
+            install_id: Uuid::now_v7(),
+            surface: "automation_action".into(),
+            entry_key: "plugin.triage-note-action.triage_note".into(),
+            label: "Triage note".into(),
+            definition: json!({
+                "effect": "add_internal_comment",
+                "node_contract": {"emits": ["ticket.comment_added"]},
+            }),
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn a_request_carries_only_the_installs_own_grants() {
+        let install = install(&["automation.actions"]);
+        let entry = entry();
+        // A payload that NAMES capabilities is still only bytes: the request's
+        // grant set comes from the install row and nowhere else.
+        let payload = serde_json::to_vec(&json!({
+            "body": "hello",
+            "granted": ["tickets.write", "secrets.read"],
+            "capabilities": ["tickets.write"],
+            "grant": ["tickets.write"],
+        }))
+        .expect("payload serialises");
+        let request = build_request(
+            Uuid::now_v7(),
+            &install,
+            &manifest(),
+            &entry,
+            payload.clone(),
+        );
+        assert_eq!(request.granted, vec!["automation.actions".to_string()]);
+        assert_eq!(request.payload, payload);
+        assert_eq!(request.org_id, install.org_id);
+        assert_eq!(request.install_id, install.id);
+        assert_eq!(request.entry, entry.entry_key);
+        // The frame validates: the payload's claims are not grants to reject.
+        assert_eq!(request.validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_request_takes_declared_events_and_egress_from_the_pinned_manifest() {
+        let install = install(&["automation.actions"]);
+        let request = build_request(
+            Uuid::now_v7(),
+            &install,
+            &manifest(),
+            &entry(),
+            b"{}".to_vec(),
+        );
+        assert_eq!(
+            request.declared_events,
+            vec!["ticket.comment_added".to_string()]
+        );
+        assert_eq!(
+            request.egress.get("telemetry").map(Vec::as_slice),
+            Some(&["https://api.example.com".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn a_manifest_without_an_egress_declaration_consents_nothing() {
+        let install = install(&["automation.actions"]);
+        let mut manifest = manifest();
+        manifest.connector_profile = None;
+        let request = build_request(
+            Uuid::now_v7(),
+            &install,
+            &manifest,
+            &entry(),
+            b"{}".to_vec(),
+        );
+        assert!(request.egress.is_empty());
+    }
+
+    #[test]
+    fn the_audit_row_has_the_seven_decision_detail_keys_and_the_install_actor() {
+        let install = install(&["automation.actions"]);
+        let invocation_id = Uuid::now_v7();
+        let attempt = Attempt {
+            org_id: install.org_id,
+            install_id: Some(install.id),
+            entry_key: "plugin.triage-note-action.triage_note",
+            capability: PluginCapability::AutomationActions.as_str(),
+            outcome: InvocationOutcome::Ok,
+            reason: None,
+            invocation_id: Some(invocation_id),
+            fuel_used: Some(38_909),
+            duration_us: 42,
+            worker: Some("marula-plugin-worker:1234"),
+        };
+        let event = audit_event(&attempt);
+        assert_eq!(event.actor, Actor::Plugin(install.id.to_string()));
+        assert_eq!(event.action, "plugin.invoke");
+        assert_eq!(event.entity_type.as_deref(), Some("plugin_entry"));
+        assert_eq!(
+            event.entity_id.as_deref(),
+            Some("plugin.triage-note-action.triage_note")
+        );
+        let detail = event.detail.as_object().expect("detail is an object");
+        let mut keys: Vec<&str> = detail.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "capability",
+                "duration_us",
+                "fuel_used",
+                "invocation_id",
+                "outcome",
+                "reason",
+                "worker",
+            ]
+        );
+        assert_eq!(detail["outcome"], "ok");
+        assert_eq!(detail["reason"], Value::Null);
+        assert_eq!(detail["capability"], "automation.actions");
+        assert_eq!(detail["invocation_id"], invocation_id.to_string());
+        assert_eq!(detail["fuel_used"], 38_909);
+        assert_eq!(detail["duration_us"], 42);
+        assert_eq!(detail["worker"], "marula-plugin-worker:1234");
+    }
+
+    #[test]
+    fn a_refusal_without_an_install_is_attributed_to_system_never_to_the_entry_key() {
+        let attempt = Attempt {
+            org_id: Uuid::now_v7(),
+            install_id: None,
+            entry_key: "plugin.somebody-elses.triage_note",
+            capability: PluginCapability::AutomationActions.as_str(),
+            outcome: InvocationOutcome::Refused,
+            reason: Some(refusal_reasons::ENTRY_UNAVAILABLE),
+            invocation_id: None,
+            fuel_used: None,
+            duration_us: 3,
+            worker: None,
+        };
+        let event = audit_event(&attempt);
+        assert_eq!(event.actor, Actor::System);
+        assert_eq!(event.detail["reason"], refusal_reasons::ENTRY_UNAVAILABLE);
+        assert_eq!(event.detail["invocation_id"], Value::Null);
+        assert_eq!(event.detail["fuel_used"], Value::Null);
+        assert_eq!(event.detail["worker"], Value::Null);
+    }
+
+    #[test]
+    fn a_worker_failure_row_reports_no_fuel_and_the_static_reason() {
+        let attempt = Attempt {
+            org_id: Uuid::now_v7(),
+            install_id: Some(Uuid::now_v7()),
+            entry_key: "plugin.triage-note-action.triage_note",
+            capability: PluginCapability::AutomationActions.as_str(),
+            outcome: InvocationOutcome::WorkerFailed,
+            reason: Some(abi::Refusal::WorkerFailed.as_str()),
+            invocation_id: None,
+            fuel_used: None,
+            duration_us: 700,
+            worker: None,
+        };
+        let event = audit_event(&attempt);
+        assert_eq!(event.detail["outcome"], "worker_failed");
+        assert_eq!(event.detail["reason"], "plugin_worker_failed");
+        assert_eq!(event.detail["fuel_used"], Value::Null);
+    }
+
+    #[test]
+    fn the_guest_does_not_choose_the_effect() {
+        let consented = SurfaceActionEffect::AddInternalComment;
+        // The reference plugin's own answer.
+        assert_eq!(
+            effect_verdict(
+                Some(br#"{"effect":"add_internal_comment","accepted":true}"#),
+                consented
+            ),
+            EffectVerdict::Apply
+        );
+        // A different effect, even one the vocabulary knows.
+        assert_eq!(
+            effect_verdict(Some(br#"{"effect":"add_internal_comment"}"#), consented),
+            EffectVerdict::Apply
+        );
+        assert_eq!(
+            effect_verdict(Some(br#"{"effect":"not_consented"}"#), consented),
+            EffectVerdict::Contradicted
+        );
+        // The plugin declining its own call.
+        assert_eq!(
+            effect_verdict(
+                Some(br#"{"effect":"add_internal_comment","accepted":false,"reason":"body_required"}"#),
+                consented
+            ),
+            EffectVerdict::Declined
+        );
+        // An answer this path cannot read is not an acceptance.
+        assert_eq!(
+            effect_verdict(Some(b"not json"), consented),
+            EffectVerdict::Declined
+        );
+        assert_eq!(
+            effect_verdict(Some(b"[1,2]"), consented),
+            EffectVerdict::Declined
+        );
+        // A module that says nothing leaves the consented effect standing.
+        assert_eq!(effect_verdict(None, consented), EffectVerdict::Apply);
+        assert_eq!(effect_verdict(Some(b""), consented), EffectVerdict::Apply);
+    }
+
+    #[test]
+    fn the_declarative_label_is_not_a_worker_name() {
+        assert_eq!(WORKER_DECLARATIVE, "declarative");
+        assert!(!WORKER_DECLARATIVE.starts_with("marula-plugin-worker:"));
+    }
+}
