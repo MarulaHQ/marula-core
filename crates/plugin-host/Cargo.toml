@@ -23,6 +23,7 @@ serde = { workspace = true }
 ed25519-dalek = { workspace = true }
 sqlx = { workspace = true }
 wasmtime = { workspace = true }
+reqwest = { workspace = true, features = ["blocking"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

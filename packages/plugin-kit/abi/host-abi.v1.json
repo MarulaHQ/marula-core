@@ -71,14 +71,13 @@
       "params": ["i32", "i32", "i32", "i32"],
       "returns": "data",
       "gate": "egress",
-      "status": "deferred:W53-7",
+      "status": "shipped",
       "refusals": [
         "plugin_capability_not_granted",
         "plugin_egress_profile_missing",
         "plugin_egress_host_denied",
         "plugin_egress_scheme_denied",
         "plugin_egress_response_too_large",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
