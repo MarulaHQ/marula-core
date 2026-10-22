@@ -181,6 +181,20 @@ pub fn quarantine_key(org_id: uuid::Uuid, sha256_hex: &str) -> String {
     format!("org/{org_id}/quarantine/{sha256_hex}")
 }
 
+/// Builds the executable-artifact key for one plugin module: content-addressed
+/// by the module's sha256 inside the org's namespace.
+///
+/// The digest IS the pin. An install row stores the digest it adopted, so the
+/// object it loads is addressed by that digest and nothing else; an update
+/// writes a NEW key rather than mutating this one, which is what makes a
+/// rollback a pointer move over immutable bytes. Two installs of the same
+/// module share one object, and a digest that does not name the bytes is
+/// refused before the object is written.
+#[must_use]
+pub fn plugin_artifact_key(org_id: uuid::Uuid, sha256_hex: &str) -> String {
+    format!("org/{org_id}/plugins/{sha256_hex}")
+}
+
 /// Which backend a process should use. Parsed from config; unknown values
 /// degrade to the documented none mode rather than failing boot.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,6 +310,19 @@ mod tests {
         // admitted under its canonical key without re-hashing.
         assert_ne!(q, attachment_key(org, "cafe"));
         assert!(q.ends_with("/cafe") && attachment_key(org, "cafe").ends_with("/cafe"));
+    }
+
+    #[test]
+    fn plugin_artifact_key_is_content_addressed_and_never_collides_with_attachments() {
+        let org = uuid::Uuid::nil();
+        let k = plugin_artifact_key(org, "cafe");
+        assert_eq!(k, "org/00000000-0000-0000-0000-000000000000/plugins/cafe");
+        assert!(validate_key(&k).is_ok());
+        // A plugin module and an attachment sharing a digest are still two
+        // objects: the namespace says which one a key names, and the install
+        // row's pin addresses only the plugin one.
+        assert_ne!(k, attachment_key(org, "cafe"));
+        assert_ne!(k, quarantine_key(org, "cafe"));
     }
 
     /// One parser for every process: an unset environment must land on the

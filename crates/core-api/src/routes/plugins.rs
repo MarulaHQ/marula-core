@@ -190,12 +190,24 @@ pub struct InstallView {
     /// EXISTING matrix vocabulary — `tickets:read`, `financial:read`,
     /// …). Informational; enforcement re-derives from the same matrix.
     pub effective_permissions: Vec<String>,
+    /// The digest pin: sha256 of the module this install adopted, or empty for
+    /// a declarative-only install. An operator can see exactly which bytes the
+    /// install names, and the executor is handed the same value.
+    pub module_digest: String,
+    /// The version a rollback would return to, when one is parked.
+    pub previous_version: Option<String>,
+    /// Why the install was revoked, when it is.
+    pub revoked_reason: Option<String>,
     #[schema(value_type = String, format = "date-time")]
     pub installed_at: chrono::DateTime<chrono::Utc>,
 }
 
 impl InstallView {
-    fn from_install(install: PluginInstall, name: String, manifest: &PluginManifestV2) -> Self {
+    pub(crate) fn from_install(
+        install: PluginInstall,
+        name: String,
+        manifest: &PluginManifestV2,
+    ) -> Self {
         let effective_permissions = install
             .granted_permissions()
             .iter()
@@ -210,6 +222,9 @@ impl InstallView {
             granted_capabilities: install.granted_capabilities,
             artifact_kind: manifest.runtime_kind().as_str().to_string(),
             effective_permissions,
+            module_digest: install.module_digest,
+            previous_version: install.previous_version,
+            revoked_reason: install.revoked_reason,
             installed_at: install.installed_at,
         }
     }
@@ -353,6 +368,11 @@ pub async fn publish_catalog_entry(
         catalog_id: entry.id,
         version: manifest.version.clone(),
         manifest: manifest.clone(),
+        // This surface publishes a DECLARATIVE manifest only: no artifact bytes
+        // pass through it, so there is no module to pin. A version that ships
+        // code is admitted through the distribution import path, which captures
+        // the digest where it verifies the bytes.
+        module_digest: String::new(),
         created_at: now,
     };
     let entry_for_tx = entry.clone();
@@ -444,6 +464,8 @@ pub async fn append_catalog_version(
             catalog_id: entry.id,
             version: manifest.version.clone(),
             manifest,
+            // Declarative append: no bytes pass through this route, so no pin.
+            module_digest: String::new(),
             created_at: now,
         };
         core_db::plugins::append_version(&mut tx.tx, entry.id, &version).await?;
@@ -584,7 +606,7 @@ pub async fn list_installs(
 /// Degraded manifest for an orphaned pin (the catalog entry vanished):
 /// the roster still renders the install (the tab split degrades to the
 /// wasm baseline) rather than failing the whole roster read.
-fn fallback_manifest(install: &PluginInstall) -> PluginManifestV2 {
+pub(crate) fn fallback_manifest(install: &PluginInstall) -> PluginManifestV2 {
     PluginManifestV2 {
         name: install.slug.clone(),
         version: install.version.clone(),
@@ -620,6 +642,9 @@ pub async fn create_install(
     // already borrowed). Wave 43 lane 4 (A) needs it to seal a seeded
     // connector's signing secret.
     let at_rest_key = state.config.secret_key;
+    // The store handle is cloned out here for the same reason: the closure
+    // borrows `&state`, and pin verification happens inside the transaction.
+    let store = state.store.clone();
     let view = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let entry = core_db::plugins::get_catalog_entry(&mut tx.tx, req.slug.trim()).await?;
         if entry.revoked_at.is_some() {
@@ -640,12 +665,28 @@ pub async fn create_install(
         };
         let pinned = core_db::plugins::get_version(&mut tx.tx, entry.id, &version).await?;
         validate_grants_against_manifest(&pinned.manifest, &requested)?;
+        // The pin: a version that ships a module installs only if this org
+        // holds the bytes. An install that names bytes it cannot load would
+        // enable cleanly and fail at the first invocation, which is a worse
+        // answer than a refusal that says what is missing.
+        if !pinned.module_digest.is_empty() {
+            plugin_host::lifecycle::verify_stored_module(&*store, org_id, &pinned.module_digest)
+                .await
+                .map_err(|error| {
+                    ApiError::Conflict(format!(
+                        "this version's module is not in the org's artifact store ({}); import \
+                         the artifact through the distribution surface before installing",
+                        error.as_str()
+                    ))
+                })?;
+        }
         let install = PluginInstall {
             id: Uuid::now_v7(),
             org_id,
             catalog_id: entry.id,
             slug: entry.slug.clone(),
             version: version.clone(),
+            module_digest: pinned.module_digest.clone(),
             status: PluginInstallStatus::Disabled,
             granted_capabilities: req.granted_capabilities.clone(),
             installed_by: Some(actor),
@@ -653,6 +694,10 @@ pub async fn create_install(
             updated_at: now,
             revoked_at: None,
             revoked_by: None,
+            revoked_reason: None,
+            previous_version: None,
+            previous_module_digest: None,
+            previous_capabilities: Vec::new(),
         };
         core_db::plugins::create_install(&mut tx.tx, &install).await?;
         // §4.6: derive + persist the surface registrations the pinned
@@ -776,12 +821,24 @@ pub async fn update_install(
     let now = chrono::Utc::now();
     let view = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let existing = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
-        // Grant/version changes validate against the TARGET manifest:
-        // the new version when upgrading, else the current pinned one.
-        let target_version = req
-            .version
-            .clone()
-            .unwrap_or_else(|| existing.version.clone());
+        // A version change is a PIN change, and the pin moves only through the
+        // update proposal + consent path (propose_update → consent_update),
+        // where the new digest is verified and the old one parked for rollback.
+        // Letting this route write `version` alone would leave the install
+        // naming one version while running another version's module — the exact
+        // silent pin drop this lane exists to prevent.
+        if let Some(requested_version) = req.version.as_deref() {
+            if requested_version.trim() != existing.version {
+                return Err(ApiError::Conflict(
+                    "a version change moves the artifact digest pin; use the update proposal and \
+                     consent surface so the new digest is verified and the old one kept for \
+                     rollback"
+                        .into(),
+                ));
+            }
+        }
+        // Grants validate against the install's current pinned manifest.
+        let target_version = existing.version.clone();
         let target_manifest =
             core_db::plugins::get_version(&mut tx.tx, existing.catalog_id, &target_version)
                 .await?
@@ -794,7 +851,10 @@ pub async fn update_install(
             org_id,
             id,
             status,
-            req.version.as_deref(),
+            // Version is deliberately not settable here (see the pin check
+            // above); the parameter stays in the DB signature for the consent
+            // path's use.
+            None,
             req.granted_capabilities.as_deref(),
         )
         .await?;

@@ -4624,6 +4624,7 @@ async fn seeded_connector_endpoints_follow_the_install_lifecycle() {
         catalog_id: entry.id,
         slug: "rmm-connector".into(),
         version: "1.0.0".into(),
+        module_digest: String::new(),
         // DISABLED is the created state — the seeded rows must be inert.
         status: core_domain::entities::PluginInstallStatus::Disabled,
         granted_capabilities: vec!["automation.triggers".to_string()],
@@ -4632,6 +4633,10 @@ async fn seeded_connector_endpoints_follow_the_install_lifecycle() {
         updated_at: chrono::Utc::now(),
         revoked_at: None,
         revoked_by: None,
+        revoked_reason: None,
+        previous_version: None,
+        previous_module_digest: None,
+        previous_capabilities: Vec::new(),
     };
     {
         let mut tx = org_tx(&app, s.org).await;
@@ -4643,6 +4648,7 @@ async fn seeded_connector_endpoints_follow_the_install_lifecycle() {
                 catalog_id: entry.id,
                 version: "1.0.0".into(),
                 manifest,
+                module_digest: String::new(),
                 created_at: chrono::Utc::now(),
             },
         )
@@ -9550,6 +9556,7 @@ async fn seed_plugin_install(app: &PgPool, org: Uuid, n: u64, slug: &str, admin:
         catalog_id: entry.id,
         version: "1.0.0".into(),
         manifest,
+        module_digest: String::new(),
         created_at: chrono::Utc::now(),
     };
     let install = core_domain::entities::PluginInstall {
@@ -9558,6 +9565,7 @@ async fn seed_plugin_install(app: &PgPool, org: Uuid, n: u64, slug: &str, admin:
         catalog_id: entry.id,
         slug: slug.into(),
         version: "1.0.0".into(),
+        module_digest: String::new(),
         status: core_domain::entities::PluginInstallStatus::Disabled,
         granted_capabilities: vec!["automation.actions".to_string()],
         installed_by: Some(admin),
@@ -9565,6 +9573,10 @@ async fn seed_plugin_install(app: &PgPool, org: Uuid, n: u64, slug: &str, admin:
         updated_at: chrono::Utc::now(),
         revoked_at: None,
         revoked_by: None,
+        revoked_reason: None,
+        previous_version: None,
+        previous_module_digest: None,
+        previous_capabilities: Vec::new(),
     };
 
     let mut tx = org_tx(app, org).await;
@@ -9701,6 +9713,175 @@ async fn plugin_health_quarantines_after_three_failures_and_stops_counting() {
         .expect("row");
     assert_eq!(survived.consecutive_failures, 0);
     tx.commit().await.expect("commit restart");
+}
+
+/// Wave 53 lane 4, migration 0156: the digest pin, its rollback target, and
+/// revoke's reason.
+///
+/// The properties under test are the ones the lane is accountable for: a
+/// consented update moves the pin and parks the outgoing one, a rollback moves
+/// it back and clears the target (so a second rollback is refused rather than
+/// ping-ponging), an update cannot clear a pin the install already holds, and
+/// revoke is terminal with a reason that cannot outlive its revocation.
+///
+/// It drives the SAME functions the routes call — `set_pending_version` then
+/// `commit_pending_version` — rather than a test-only shortcut, so a regression
+/// in the consent path fails here.
+#[tokio::test]
+async fn plugin_install_pin_moves_forward_rolls_back_and_revokes_terminally() {
+    use core_db::plugin_distribution::{commit_pending_version, set_pending_version};
+    use core_db::plugins;
+
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 9120).await;
+    let admin = seed_user(&app, &s, 91_050).await;
+    let install = seed_plugin_install(&app, s.org, 91_060, "pin-move", admin).await;
+
+    let pin_a = "a".repeat(64);
+    let pin_b = "b".repeat(64);
+    let caps = vec!["automation.actions".to_string()];
+    let candidate = |version: &str| {
+        serde_json::json!({
+            "name": "pin-move",
+            "version": version,
+            "interface_version": 1,
+            "description": "d",
+            "capabilities": ["automation.actions"],
+        })
+    };
+    let mut tx = org_tx(&app, s.org).await;
+
+    // 1.0.0 is declarative-only (empty pin). Consenting to a module pins it and
+    // parks the outgoing state, including the empty digest it came from.
+    set_pending_version(
+        &mut tx,
+        s.org,
+        install,
+        "2.0.0",
+        &candidate("2.0.0"),
+        &pin_a,
+        Some(&caps),
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("proposal");
+    commit_pending_version(&mut tx, s.org, install)
+        .await
+        .expect("consent");
+    let after_first = plugins::get_install(&mut tx, s.org, install)
+        .await
+        .expect("install");
+    assert_eq!(after_first.version, "2.0.0");
+    assert_eq!(after_first.module_digest, pin_a);
+    assert_eq!(after_first.previous_version.as_deref(), Some("1.0.0"));
+    assert_eq!(
+        after_first.previous_module_digest.as_deref(),
+        Some(""),
+        "the declarative pin it came from is the rollback target"
+    );
+
+    // A second consented update parks the first.
+    set_pending_version(
+        &mut tx,
+        s.org,
+        install,
+        "3.0.0",
+        &candidate("3.0.0"),
+        &pin_b,
+        None,
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("second proposal");
+    commit_pending_version(&mut tx, s.org, install)
+        .await
+        .expect("second consent");
+    let after_second = plugins::get_install(&mut tx, s.org, install)
+        .await
+        .expect("install");
+    assert_eq!(after_second.module_digest, pin_b);
+    assert_eq!(after_second.previous_version.as_deref(), Some("2.0.0"));
+    assert_eq!(
+        after_second.previous_module_digest.as_deref(),
+        Some(pin_a.as_str())
+    );
+
+    // A version with no module cannot take over a pinned install: the commit
+    // refuses rather than clearing the pin.
+    set_pending_version(
+        &mut tx,
+        s.org,
+        install,
+        "4.0.0",
+        &candidate("4.0.0"),
+        "",
+        None,
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("proposal stores the empty digest");
+    assert!(
+        commit_pending_version(&mut tx, s.org, install)
+            .await
+            .is_err(),
+        "an update may not drop a pin the install already holds"
+    );
+
+    // Rollback is a pointer move and clears the target.
+    let (version, digest) = plugins::rollback_pin(&mut tx, s.org, install)
+        .await
+        .expect("rollback");
+    assert_eq!(version, "2.0.0");
+    assert_eq!(digest, pin_a);
+    let rolled = plugins::get_install(&mut tx, s.org, install)
+        .await
+        .expect("install");
+    assert_eq!(rolled.module_digest, pin_a);
+    assert_eq!(rolled.previous_version, None);
+    assert!(
+        plugins::rollback_pin(&mut tx, s.org, install)
+            .await
+            .is_err(),
+        "one step, not a toggle"
+    );
+
+    // Revoke is terminal, carries its reason, and refuses a later pin move.
+    plugins::revoke_install(
+        &mut tx,
+        s.org,
+        install,
+        Some(admin),
+        "supply-chain incident",
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("revoke");
+    let revoked = plugins::get_install(&mut tx, s.org, install)
+        .await
+        .expect("install");
+    assert_eq!(
+        revoked.status,
+        core_domain::entities::PluginInstallStatus::Revoked
+    );
+    assert_eq!(
+        revoked.revoked_reason.as_deref(),
+        Some("supply-chain incident")
+    );
+    assert!(
+        plugins::revoke_install(
+            &mut tx,
+            s.org,
+            install,
+            Some(admin),
+            "again",
+            chrono::Utc::now()
+        )
+        .await
+        .is_err(),
+        "a second revoke is a conflict, not a silent success"
+    );
+    tx.commit().await.expect("commit pin lifecycle");
 }
 
 /// Migration 0154's RLS policy: a health write scoped to org A must not reach

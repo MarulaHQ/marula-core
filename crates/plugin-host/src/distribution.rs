@@ -517,6 +517,60 @@ pub fn ingest_local_zip(bytes: &[u8]) -> Result<DistributionBundle, IngestReason
     ))
 }
 
+/// Pulls the executable module out of an imported archive (Wave 53 lane 4).
+///
+/// `ingest_local_zip` records the digest of the ARCHIVE, which is the right
+/// identity for provenance and the wrong address for execution: the thing that
+/// runs is a `.wasm` member inside it. This function finds that member.
+///
+/// The rule is deliberately narrow: an archive may carry **at most one**
+/// `.wasm` member, and it is the module. Zero is legal and means a
+/// declarative-only import (a manifest with settings and a surface, no code) —
+/// which is what every pre-Wave-53 fixture is. Two is refused rather than
+/// guessed at, because "which of these runs" is not a question a distribution
+/// layer gets to answer by file order.
+///
+/// The caps match `ingest_local_zip`'s: same archive limit, same per-member
+/// limit, same traversal refusal. Extraction re-opens the archive the caller
+/// already ingested, which costs one extra pass at import time and keeps
+/// `ingest_local_zip`'s tested contract untouched.
+pub fn extract_module_from_zip(bytes: &[u8]) -> Result<Option<Vec<u8>>, IngestReason> {
+    if bytes.len() as i64 > MAX_ARCHIVE_BYTES {
+        return Err(IngestReason::ArchiveCap);
+    }
+    let reader = std::io::Cursor::new(bytes);
+    let Ok(mut archive) = zip::ZipArchive::new(reader) else {
+        return Err(IngestReason::BadArchive);
+    };
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        return Err(IngestReason::ArchiveCap);
+    }
+    let mut module: Option<Vec<u8>> = None;
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).map_err(|_| IngestReason::BadArchive)?;
+        let Some(name) = std::str::from_utf8(entry.name_raw()).ok().map(String::from) else {
+            return Err(IngestReason::BadArchive);
+        };
+        if name.contains('/') || name.contains('\\') || name.starts_with('.') {
+            return Err(IngestReason::BadArchive);
+        }
+        if !name.to_ascii_lowercase().ends_with(".wasm") {
+            continue;
+        }
+        if (entry.size() as usize) > MAX_MEMBER_BYTES {
+            return Err(IngestReason::ArchiveCap);
+        }
+        if module.is_some() {
+            // Two candidate modules: refuse rather than pick one.
+            return Err(IngestReason::BadArchive);
+        }
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut entry, &mut buf).map_err(|_| IngestReason::BadArchive)?;
+        module = Some(buf);
+    }
+    Ok(module)
+}
+
 /// Skill import (community marketplace/repo API, or a manual member
 /// upload): skills reuse ONLY the skills half — no executable
 /// lifecycle; content is untrusted RAG-class data
@@ -1053,6 +1107,46 @@ mod tests {
         assert_eq!(
             ingest_local_zip(&big).unwrap_err(),
             IngestReason::ArchiveCap
+        );
+    }
+
+    #[test]
+    fn zip_extraction_finds_one_module_and_refuses_two() {
+        let wasm: &[u8] = b"\0asm\x01\0\0\0";
+        let with_module = build_zip(&[
+            ("manifest.json", GOOD_MANIFEST.as_bytes()),
+            ("plugin.wasm", wasm),
+        ]);
+        assert_eq!(
+            extract_module_from_zip(&with_module).unwrap(),
+            Some(wasm.to_vec()),
+            "the archive's single .wasm member is the module"
+        );
+
+        // A declarative-only import is legal and has no module to pin.
+        let declarative = build_zip(&[("manifest.json", GOOD_MANIFEST.as_bytes())]);
+        assert_eq!(extract_module_from_zip(&declarative).unwrap(), None);
+
+        // Two candidates: refused, never chosen by file order.
+        let ambiguous = build_zip(&[
+            ("manifest.json", GOOD_MANIFEST.as_bytes()),
+            ("a.wasm", wasm),
+            ("b.wasm", wasm),
+        ]);
+        assert_eq!(
+            extract_module_from_zip(&ambiguous).unwrap_err(),
+            IngestReason::BadArchive
+        );
+
+        // Traversal and non-archives are refused by the same rules as ingest.
+        let traversal = build_zip(&[("../evil.wasm", wasm)]);
+        assert_eq!(
+            extract_module_from_zip(&traversal).unwrap_err(),
+            IngestReason::BadArchive
+        );
+        assert_eq!(
+            extract_module_from_zip(b"not a zip").unwrap_err(),
+            IngestReason::BadArchive
         );
     }
 

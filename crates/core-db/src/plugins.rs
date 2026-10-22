@@ -41,8 +41,9 @@ fn row_to_catalog_entry(row: &sqlx::postgres::PgRow) -> DbResult<PluginCatalogEn
 }
 
 const INSTALL_COLS: &str = "i.id, i.org_id, i.catalog_id, c.slug AS slug, i.version, \
-     i.status::text AS status, i.granted_capabilities, i.installed_by, i.installed_at, \
-     i.updated_at, i.revoked_at, i.revoked_by";
+     i.module_digest, i.status::text AS status, i.granted_capabilities, i.installed_by, \
+     i.installed_at, i.updated_at, i.revoked_at, i.revoked_by, i.revoked_reason, \
+     i.previous_version, i.previous_module_digest, i.previous_capabilities";
 
 fn row_to_install(row: &sqlx::postgres::PgRow) -> DbResult<PluginInstall> {
     let status: String = row.get("status");
@@ -61,6 +62,7 @@ fn row_to_install(row: &sqlx::postgres::PgRow) -> DbResult<PluginInstall> {
         catalog_id: row.get("catalog_id"),
         slug: row.get("slug"),
         version: row.get("version"),
+        module_digest: row.get("module_digest"),
         status: PluginInstallStatus::parse(&status).ok_or_else(|| {
             DbError::Conflict(format!("unknown plugin install status {status:?}"))
         })?,
@@ -70,6 +72,13 @@ fn row_to_install(row: &sqlx::postgres::PgRow) -> DbResult<PluginInstall> {
         updated_at: row.get("updated_at"),
         revoked_at: row.get("revoked_at"),
         revoked_by: row.get("revoked_by"),
+        revoked_reason: row.get("revoked_reason"),
+        previous_version: row.get("previous_version"),
+        previous_module_digest: row.get("previous_module_digest"),
+        previous_capabilities: row
+            .get::<Option<serde_json::Value>, _>("previous_capabilities")
+            .map(|value| crate::plugin_distribution::caps_from_json(&value))
+            .unwrap_or_default(),
     })
 }
 
@@ -130,14 +139,17 @@ pub async fn create_catalog_entry(
 pub async fn insert_version(tx: &mut PgConnection, version: &PluginVersion) -> DbResult<()> {
     let manifest = serde_json::to_value(&version.manifest)
         .map_err(|e| DbError::Conflict(format!("manifest does not serialize: {e}")))?;
-    sqlx::query!(
-        r#"INSERT INTO plugin_versions (id, catalog_id, version, manifest)
-           VALUES ($1, $2, $3, $4)"#,
-        version.id,
-        version.catalog_id,
-        version.version,
-        manifest,
+    // `query()` because the column list gained `module_digest` in 0156 and a
+    // changed `query!` needs a refreshed offline cache (a group-gate action).
+    sqlx::query(
+        r#"INSERT INTO plugin_versions (id, catalog_id, version, manifest, module_digest)
+           VALUES ($1, $2, $3, $4, $5)"#,
     )
+    .bind(version.id)
+    .bind(version.catalog_id)
+    .bind(&version.version)
+    .bind(manifest)
+    .bind(&version.module_digest)
     .execute(&mut *tx)
     .await?;
     Ok(())
@@ -226,13 +238,15 @@ pub async fn revoke_catalog_entry(
             None => Err(DbError::NotFound),
         };
     }
-    let installs = sqlx::query!(
-        "UPDATE plugin_installs SET status = 'revoked', revoked_at = $2, updated_at = now()
+    let installs = sqlx::query(
+        "UPDATE plugin_installs SET status = 'revoked', revoked_at = $2,
+                revoked_reason = $3, updated_at = now()
          WHERE catalog_id = $1 AND status <> 'revoked'
          RETURNING id, org_id",
-        catalog_id,
-        now,
     )
+    .bind(catalog_id)
+    .bind(now)
+    .bind(reason)
     .fetch_all(&mut *tx)
     .await?;
     // Wave 43 lane 4 (A): a revoked install's outbound subscriptions must
@@ -248,9 +262,14 @@ pub async fn revoke_catalog_entry(
     // this delete silently correct only while the policy holds; binding
     // the pair makes it exact either way.
     for install in &installs {
-        crate::webhooks::remove_install_webhooks(&mut *tx, install.org_id, install.id).await?;
+        let install_org: Uuid = install.get("org_id");
+        let install_id: Uuid = install.get("id");
+        crate::webhooks::remove_install_webhooks(&mut *tx, install_org, install_id).await?;
     }
-    Ok(installs.iter().map(|r| (r.id, r.org_id)).collect())
+    Ok(installs
+        .iter()
+        .map(|row| (row.get::<Uuid, _>("id"), row.get::<Uuid, _>("org_id")))
+        .collect())
 }
 
 // --- versions ----------------------------------------------------------------
@@ -263,11 +282,12 @@ fn manifest_from_row(row: &sqlx::postgres::PgRow) -> DbResult<PluginVersion> {
         version: row.get("version"),
         manifest: serde_json::from_value(manifest)
             .map_err(|e| DbError::Conflict(format!("stored manifest does not parse: {e}")))?,
+        module_digest: row.get("module_digest"),
         created_at: row.get("created_at"),
     })
 }
 
-const VERSION_COLS: &str = "id, catalog_id, version, manifest, created_at";
+const VERSION_COLS: &str = "id, catalog_id, version, manifest, module_digest, created_at";
 
 pub async fn get_version(
     executor: &mut PgConnection,
@@ -301,21 +321,28 @@ pub async fn list_versions(
 
 /// Inserts an org install. The route layer always creates DISABLED
 /// (deny-by-default); the DB default backs it up.
+///
+/// Written with `sqlx::query()` rather than the `query!` macro: the column
+/// list gained `module_digest` in migration 0156, and a `query!` whose text
+/// changed needs a refreshed offline cache (`cargo sqlx prepare`). The crate
+/// already carries both styles (`ai_policy.rs`, `plugin_health.rs`), and this
+/// path is one INSERT on an admin action, so the macro buys nothing here.
 pub async fn create_install(executor: &mut PgConnection, install: &PluginInstall) -> DbResult<()> {
     let granted = serde_json::to_value(&install.granted_capabilities)
         .map_err(|e| DbError::Conflict(format!("grants do not serialize: {e}")))?;
-    sqlx::query!(
-        r#"INSERT INTO plugin_installs (id, org_id, catalog_id, version, status,
+    sqlx::query(
+        r#"INSERT INTO plugin_installs (id, org_id, catalog_id, version, module_digest, status,
                                         granted_capabilities, installed_by)
-           VALUES ($1, $2, $3, $4, $5::text::plugin_install_status, $6::jsonb, $7)"#,
-        install.id,
-        install.org_id,
-        install.catalog_id,
-        install.version,
-        install.status.as_str(),
-        granted,
-        install.installed_by,
+           VALUES ($1, $2, $3, $4, $5, $6::text::plugin_install_status, $7::jsonb, $8)"#,
     )
+    .bind(install.id)
+    .bind(install.org_id)
+    .bind(install.catalog_id)
+    .bind(&install.version)
+    .bind(&install.module_digest)
+    .bind(install.status.as_str())
+    .bind(granted)
+    .bind(install.installed_by)
     .execute(&mut *executor)
     .await?;
     Ok(())
@@ -429,6 +456,127 @@ pub async fn delete_install(
     if result.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
+    Ok(())
+}
+
+// --- lifecycle: the digest pin, rollback and revoke --------------------------
+
+/// Rolls the pin back to the target an update parked: version, digest and grant
+/// set move together, and the target is cleared so a rollback is one step rather
+/// than a toggle. A second rollback requires re-consenting the update, which is
+/// the honest answer — the operator has to say which bytes they want, not
+/// ping-pong between two.
+///
+/// No bytes move. The store keys modules by digest, so the old module is still
+/// where the update left it.
+pub async fn rollback_pin(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    install_id: Uuid,
+) -> DbResult<(String, String)> {
+    let row = sqlx::query(
+        r#"UPDATE plugin_installs SET
+             version = previous_version,
+             module_digest = previous_module_digest,
+             granted_capabilities = COALESCE(previous_capabilities, granted_capabilities),
+             previous_version = NULL,
+             previous_module_digest = NULL,
+             previous_capabilities = NULL,
+             updated_at = now()
+           WHERE org_id = $1 AND id = $2
+             AND status <> 'revoked'
+             AND previous_version IS NOT NULL
+           RETURNING version, module_digest"#,
+    )
+    .bind(org_id)
+    .bind(install_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(row) = row else {
+        let exists: Option<String> = sqlx::query_scalar(
+            "SELECT status::text FROM plugin_installs WHERE org_id = $1 AND id = $2",
+        )
+        .bind(org_id)
+        .bind(install_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        return match exists.as_deref() {
+            None => Err(DbError::NotFound),
+            Some("revoked") => Err(DbError::Conflict(
+                "a revoked install is terminal; a rollback cannot revive it".into(),
+            )),
+            Some(_) => Err(DbError::Conflict(
+                "this install has no previous pin to roll back to".into(),
+            )),
+        };
+    };
+    Ok((row.get("version"), row.get("module_digest")))
+}
+
+/// Revokes ONE install, the org's own kill switch (the catalog-wide switch is
+/// [`revoke_catalog_entry`]).
+///
+/// Revocation is terminal and it stops execution at the parent's gate: the
+/// status is what [`plugin_host::authorize_invocation`] refuses on, and the
+/// artifact load path refuses a non-enabled install before it reads a byte.
+/// Nothing is deleted — the pin stays for forensics, and the bytes stay in the
+/// content-addressed store, unreachable through this install.
+///
+/// The pending update columns clear in the same statement: a revoked install
+/// with an awaiting-consent update would offer an operator a screen whose
+/// commit is guaranteed to fail.
+///
+/// Outbound webhooks come down with it, for the reason
+/// [`revoke_catalog_entry`] documents: revocation is a status flip, so the FK
+/// cascade that covers uninstall never fires here.
+pub async fn revoke_install(
+    tx: &mut PgConnection,
+    org_id: Uuid,
+    install_id: Uuid,
+    revoked_by: Option<Uuid>,
+    reason: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> DbResult<()> {
+    if reason.trim().is_empty() {
+        return Err(DbError::Conflict("a revocation reason is required".into()));
+    }
+    let row = sqlx::query(
+        r#"UPDATE plugin_installs SET
+             status = 'revoked',
+             revoked_at = $3,
+             revoked_by = $4,
+             revoked_reason = $5,
+             pending_version = NULL,
+             pending_manifest = NULL,
+             pending_digest = NULL,
+             pending_capabilities = NULL,
+             pending_consent_at = NULL,
+             updated_at = now()
+           WHERE org_id = $1 AND id = $2 AND status <> 'revoked'
+           RETURNING id"#,
+    )
+    .bind(org_id)
+    .bind(install_id)
+    .bind(now)
+    .bind(revoked_by)
+    .bind(reason)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(row) = row else {
+        let exists: Option<String> = sqlx::query_scalar(
+            "SELECT status::text FROM plugin_installs WHERE org_id = $1 AND id = $2",
+        )
+        .bind(org_id)
+        .bind(install_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        return match exists.as_deref() {
+            None => Err(DbError::NotFound),
+            Some(_) => Err(DbError::Conflict("the install is already revoked".into())),
+        };
+    };
+    let revoked_id: Uuid = row.get("id");
+    crate::webhooks::remove_install_webhooks(&mut *tx, org_id, revoked_id).await?;
     Ok(())
 }
 

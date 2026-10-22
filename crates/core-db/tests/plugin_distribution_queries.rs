@@ -90,6 +90,7 @@ fn staged_item(n: u64, org: Uuid, uploader: Uuid, manifest: serde_json::Value) -
         source_url: "local://zip-import".into(),
         fetched_ref: None,
         artifact_digest: "a".repeat(64),
+        module_digest: "b".repeat(64),
         manifest,
         declared_capabilities: vec!["tickets.read".to_string()],
         status: PluginStagedStatus::Pending,
@@ -242,6 +243,7 @@ async fn provenance_chain_should_survive_terminal_uninstall() {
         catalog_id: entry.id,
         version: "1.0.0".into(),
         manifest,
+        module_digest: String::new(),
         created_at: chrono::Utc::now(),
     };
     plugins::create_catalog_entry(&mut tx, &entry, &version)
@@ -253,6 +255,7 @@ async fn provenance_chain_should_survive_terminal_uninstall() {
         catalog_id: entry.id,
         slug: slug.to_string(),
         version: "1.0.0".into(),
+        module_digest: String::new(),
         status: core_domain::entities::PluginInstallStatus::Disabled,
         granted_capabilities: vec!["tickets.read".to_string()],
         installed_by: Some(admin),
@@ -260,6 +263,10 @@ async fn provenance_chain_should_survive_terminal_uninstall() {
         updated_at: chrono::Utc::now(),
         revoked_at: None,
         revoked_by: None,
+        revoked_reason: None,
+        previous_version: None,
+        previous_module_digest: None,
+        previous_capabilities: Vec::new(),
     };
     plugins::create_install(&mut tx, &install)
         .await
@@ -371,6 +378,7 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
             catalog_id: entry.id,
             version: "1.0.0".into(),
             manifest: manifest_v1.clone(),
+            module_digest: String::new(),
             created_at: chrono::Utc::now(),
         },
     )
@@ -384,6 +392,7 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
             catalog_id: entry.id,
             version: "1.1.0".into(),
             manifest: manifest_v2.clone(),
+            module_digest: String::new(),
             created_at: chrono::Utc::now(),
         },
     )
@@ -395,6 +404,7 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
         catalog_id: entry.id,
         slug: slug.to_string(),
         version: "1.0.0".into(),
+        module_digest: String::new(),
         status: core_domain::entities::PluginInstallStatus::Disabled,
         granted_capabilities: vec!["tickets.read".to_string()],
         installed_by: Some(admin),
@@ -402,6 +412,10 @@ async fn update_proposal_should_pin_the_old_version_until_consented() {
         updated_at: chrono::Utc::now(),
         revoked_at: None,
         revoked_by: None,
+        revoked_reason: None,
+        previous_version: None,
+        previous_module_digest: None,
+        previous_capabilities: Vec::new(),
     };
     plugins::create_install(&mut tx, &install)
         .await
@@ -511,6 +525,7 @@ async fn install_settings_should_validate_against_the_manifest_schema() {
             catalog_id: entry.id,
             version: "1.0.0".into(),
             manifest,
+            module_digest: String::new(),
             created_at: chrono::Utc::now(),
         },
     )
@@ -522,6 +537,7 @@ async fn install_settings_should_validate_against_the_manifest_schema() {
         catalog_id: entry.id,
         slug: slug.to_string(),
         version: "1.0.0".into(),
+        module_digest: String::new(),
         status: core_domain::entities::PluginInstallStatus::Disabled,
         granted_capabilities: Vec::new(),
         installed_by: Some(admin),
@@ -529,6 +545,10 @@ async fn install_settings_should_validate_against_the_manifest_schema() {
         updated_at: chrono::Utc::now(),
         revoked_at: None,
         revoked_by: None,
+        revoked_reason: None,
+        previous_version: None,
+        previous_module_digest: None,
+        previous_capabilities: Vec::new(),
     };
     plugins::create_install(&mut tx, &install)
         .await

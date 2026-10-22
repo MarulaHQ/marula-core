@@ -7,6 +7,12 @@ license.workspace = true
 [dependencies]
 core-domain = { path = "../core-domain" }
 core-db = { path = "../core-db" }
+# The artifact store seam (`lifecycle`): module bytes are addressed through the
+# same ObjectStore trait attachments and quarantine already use, so a plugin
+# module is one more content-addressed object and not a second storage system.
+core-store = { path = "../core-store" }
+bytes = { workspace = true }
+futures-util = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 sha2 = { workspace = true }

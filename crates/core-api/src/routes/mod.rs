@@ -1907,6 +1907,17 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/plugins/installed/{id}/discard-update"),
             post(plugin_distribution::discard_update),
         )
+        // Wave 53 lane 4: the two verbs the pin model needs on the install
+        // itself. Rollback moves the pointer to the parked digest; revoke is the
+        // org's terminal kill switch for one install.
+        .route(
+            &rp("/plugins/installed/{id}/rollback"),
+            post(plugin_distribution::rollback_install),
+        )
+        .route(
+            &rp("/plugins/installed/{id}/revoke"),
+            post(plugin_distribution::revoke_install),
+        )
         .route(
             &rp("/plugins/installed/{id}/settings"),
             get(plugin_distribution::get_install_settings)

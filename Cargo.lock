@@ -5118,10 +5118,13 @@ dependencies = [
 name = "plugin-host"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "chrono",
  "core-db",
  "core-domain",
+ "core-store",
  "ed25519-dalek",
+ "futures-util",
  "hex",
  "serde",
  "serde_json",

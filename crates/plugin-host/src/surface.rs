@@ -271,6 +271,7 @@ mod tests {
             catalog_id: Uuid::now_v7(),
             slug: slug.into(),
             version: "1.0.0".into(),
+            module_digest: String::new(),
             status: core_domain::entities::plugins::PluginInstallStatus::Enabled,
             granted_capabilities: grants.iter().map(|s| s.to_string()).collect(),
             installed_by: None,
@@ -278,6 +279,10 @@ mod tests {
             updated_at: chrono::Utc::now(),
             revoked_at: None,
             revoked_by: None,
+            revoked_reason: None,
+            previous_version: None,
+            previous_module_digest: None,
+            previous_capabilities: Vec::new(),
         }
     }
 

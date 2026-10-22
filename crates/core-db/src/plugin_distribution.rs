@@ -34,7 +34,7 @@ fn parse_staged_status(value: String) -> DbResult<PluginStagedStatus> {
         .ok_or_else(|| DbError::Conflict(format!("unknown plugin staged status {value:?}")))
 }
 
-fn caps_from_json(value: &serde_json::Value) -> Vec<String> {
+pub(crate) fn caps_from_json(value: &serde_json::Value) -> Vec<String> {
     value
         .as_array()
         .map(|a| {
@@ -49,7 +49,7 @@ fn caps_from_json(value: &serde_json::Value) -> Vec<String> {
 
 const STAGED_COLS: &str =
     "id, org_id, artifact_kind::text AS artifact_kind, source_kind::text AS source_kind, \
-     source_url, fetched_ref, artifact_digest, manifest, declared_capabilities, \
+     source_url, fetched_ref, artifact_digest, module_digest, manifest, declared_capabilities, \
      status::text AS status, uploaded_by, uploaded_at, review_note, reviewed_by, \
      reviewed_at, adopted_install_id, adopted_skill_id, adopted_theme_pack_id, \
      adopted_identity_bundle_id";
@@ -63,6 +63,7 @@ fn row_to_staged(row: &sqlx::postgres::PgRow) -> DbResult<PluginStagedItem> {
         source_url: row.get("source_url"),
         fetched_ref: row.get("fetched_ref"),
         artifact_digest: row.get("artifact_digest"),
+        module_digest: row.get("module_digest"),
         manifest: row.get("manifest"),
         declared_capabilities: caps_from_json(
             &row.get::<serde_json::Value, _>("declared_capabilities"),
@@ -82,27 +83,33 @@ fn row_to_staged(row: &sqlx::postgres::PgRow) -> DbResult<PluginStagedItem> {
 
 /// Appends a staged import (PENDING state machine entry). Caller runs
 /// sandbox validation through the plugin-host adapters BEFORE this.
+///
+/// `sqlx::query()` rather than `query!`: the column list gained `module_digest`
+/// in migration 0156 and a changed `query!` text needs a refreshed offline
+/// cache, which this lane does not run (`cargo sqlx prepare` is a group-gate
+/// action).
 pub async fn create_staged_item(tx: &mut PgConnection, item: &PluginStagedItem) -> DbResult<()> {
     let manifest = item.manifest.clone();
     let declared = serde_json::to_value(&item.declared_capabilities)
         .map_err(|e| DbError::Conflict(format!("capabilities do not serialize: {e}")))?;
-    sqlx::query!(
+    sqlx::query(
         r#"INSERT INTO plugin_staged_items
              (id, org_id, artifact_kind, source_kind, source_url, fetched_ref,
-              artifact_digest, manifest, declared_capabilities, status, uploaded_by)
+              artifact_digest, module_digest, manifest, declared_capabilities, status, uploaded_by)
            VALUES ($1, $2, $3::text::plugin_artifact_kind, $4::text::plugin_source_kind,
-                   $5, $6, $7, $8::jsonb, $9::jsonb, 'pending', $10)"#,
-        item.id,
-        item.org_id,
-        item.artifact_kind.as_str(),
-        item.source_kind.as_str(),
-        item.source_url,
-        item.fetched_ref,
-        item.artifact_digest,
-        manifest,
-        declared,
-        item.uploaded_by,
+                   $5, $6, $7, $8, $9::jsonb, $10::jsonb, 'pending', $11)"#,
     )
+    .bind(item.id)
+    .bind(item.org_id)
+    .bind(item.artifact_kind.as_str())
+    .bind(item.source_kind.as_str())
+    .bind(&item.source_url)
+    .bind(&item.fetched_ref)
+    .bind(&item.artifact_digest)
+    .bind(&item.module_digest)
+    .bind(manifest)
+    .bind(declared)
+    .bind(item.uploaded_by)
     .execute(&mut *tx)
     .await?;
     Ok(())
@@ -318,17 +325,33 @@ pub async fn set_pending_version(
     Ok(())
 }
 
-/// Commits the consented swap: version/grants move to the pending
-/// candidate, then the pending columns clear. Caller validates the
-/// consent diff happened (routes own audit + events).
+/// Commits the consented swap: version, PIN and grants move to the pending
+/// candidate, then the pending columns clear. Caller validates the consent diff
+/// happened (routes own audit + events).
+///
+/// The pin moves with the version, and the outgoing (version, digest, grants)
+/// becomes the rollback target, parked in `previous_*` in the same statement —
+/// one write, so the pin and its rollback target cannot disagree.
+///
+/// A version with NO module cannot take over an install that has one: the
+/// `WHERE` refuses that row, so the update answers `Conflict` instead of
+/// silently clearing a pin. That is the difference between "the update failed"
+/// and "the plugin quietly stopped being the thing that was verified".
 pub async fn commit_pending_version(
     tx: &mut PgConnection,
     org_id: Uuid,
     install_id: Uuid,
 ) -> DbResult<()> {
-    let updated = sqlx::query!(
+    let updated = sqlx::query(
         r#"UPDATE plugin_installs SET
+             previous_version = CASE WHEN module_digest IS DISTINCT FROM COALESCE(pending_digest, '')
+                                     THEN version ELSE previous_version END,
+             previous_module_digest = CASE WHEN module_digest IS DISTINCT FROM COALESCE(pending_digest, '')
+                                           THEN module_digest ELSE previous_module_digest END,
+             previous_capabilities = CASE WHEN module_digest IS DISTINCT FROM COALESCE(pending_digest, '')
+                                          THEN granted_capabilities ELSE previous_capabilities END,
              version = pending_version,
+             module_digest = COALESCE(pending_digest, ''),
              granted_capabilities = COALESCE(pending_capabilities, granted_capabilities),
              pending_version = NULL,
              pending_manifest = NULL,
@@ -336,15 +359,21 @@ pub async fn commit_pending_version(
              pending_capabilities = NULL,
              pending_consent_at = NULL,
              updated_at = now()
-           WHERE org_id = $1 AND id = $2 AND pending_version IS NOT NULL
-           RETURNING version"#,
-        org_id,
-        install_id,
+           WHERE org_id = $1 AND id = $2
+             AND pending_version IS NOT NULL
+             AND status <> 'revoked'
+             AND (COALESCE(pending_digest, '') <> '' OR module_digest = '')"#,
     )
-    .fetch_optional(&mut *tx)
+    .bind(org_id)
+    .bind(install_id)
+    .execute(&mut *tx)
     .await?;
-    if updated.is_none() {
-        return Err(DbError::NotFound);
+    if updated.rows_affected() == 0 {
+        return Err(DbError::Conflict(
+            "the update cannot be committed: no pending version, the install is revoked, or the \
+             candidate ships no module to pin"
+                .into(),
+        ));
     }
     Ok(())
 }
