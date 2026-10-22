@@ -34,10 +34,10 @@
 pub mod abi;
 pub mod distribution;
 pub mod exec;
-pub mod http;
-pub mod kv;
 pub mod host_fns;
+pub mod http;
 pub mod isolation;
+pub mod kv;
 pub mod lifecycle;
 pub mod runtime;
 pub mod surface;
