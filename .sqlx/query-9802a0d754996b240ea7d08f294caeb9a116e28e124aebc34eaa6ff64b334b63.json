@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO search_embeddings\n             (id, org_id, entity_kind, entity_id, space, model, content_hash, embedding)\n           SELECT $1, $2, $3, $4, $5, $6,\n                  md5(s.title || E'\\x1f' || s.body),\n                  $7::text::vector\n           FROM search_index s\n           WHERE s.org_id = $2 AND s.entity_kind = $3 AND s.entity_id = $4\n           ON CONFLICT (org_id, entity_kind, entity_id, space) DO UPDATE SET\n             model = EXCLUDED.model,\n             content_hash = EXCLUDED.content_hash,\n             embedding = EXCLUDED.embedding,\n             embedded_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9802a0d754996b240ea7d08f294caeb9a116e28e124aebc34eaa6ff64b334b63"
+}

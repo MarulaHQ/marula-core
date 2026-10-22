@@ -6,6 +6,7 @@
 #   scripts/vector-ann-bench.sh --small 200 --large 2000 --fillers 2 --filler-rows 100
 #                                                   a smoke run that proves the harness
 #   scripts/vector-ann-bench.sh --iters 10 --out /tmp/ann
+#   scripts/vector-ann-bench.sh --cpus 4           emulates a 4-core box (single_box)
 #   scripts/vector-ann-bench.sh --corpus real --vectors /tmp/p52-corpus-real
 #                                                   real EmbeddingGemma 2 vectors
 #   scripts/vector-ann-bench.sh --keep              leave the containers up
@@ -48,6 +49,7 @@ KEEP=0
 OUT=""
 CORPUS="synthetic"
 VECTORS=""
+CPUS=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -57,6 +59,7 @@ while [ $# -gt 0 ]; do
     --large) LARGE="${2:-}"; shift 2 ;;
     --fillers) FILLERS="${2:-}"; shift 2 ;;
     --filler-rows) FILLER_ROWS="${2:-}"; shift 2 ;;
+    --cpus) CPUS="${2:-}"; shift 2 ;;
     --out) OUT="${2:-}"; shift 2 ;;
     --corpus) CORPUS="${2:-}"; shift 2 ;;
     --vectors) VECTORS="${2:-}"; shift 2 ;;
@@ -74,6 +77,12 @@ log() { printf '%s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 CURRENT=""
+# `--cpus N` offloads the profile to the container so one host can stand in for
+# a 4-core (single_box) or 8-core (durable) deployment. Empty means "use the
+# whole machine", which is the shape a laptop run has always had.
+CPU_ARGS=()
+if [ -n "$CPUS" ]; then CPU_ARGS=(--cpus "$CPUS"); fi
+
 cleanup() {
   if [ "$KEEP" -eq 0 ] && [ -n "$CURRENT" ]; then
     docker rm -f "$CURRENT" >/dev/null 2>&1
@@ -131,7 +140,7 @@ start_engine() {  # start_engine <a|b> -> sets CURRENT
   if [ "$e" = "b" ]; then
     # vchord refuses to load without the preload; timescaledb needs its own
     # preload or the image's init step fails.
-    docker run -d --name "$CURRENT" \
+    docker run -d --name "$CURRENT" "${CPU_ARGS[@]}" \
       --shm-size=4g \
       -e POSTGRES_PASSWORD=bench \
       "$image" -c shared_preload_libraries=timescaledb,vchord >/dev/null || return 1
@@ -139,7 +148,7 @@ start_engine() {  # start_engine <a|b> -> sets CURRENT
     # A parallel index build allocates its shared memory from /dev/shm, which
     # docker defaults to 64MB. Without this the HNSW build dies at 2GB of
     # maintenance_work_mem with "could not resize shared memory segment".
-    docker run -d --name "$CURRENT" --shm-size=4g -e POSTGRES_PASSWORD=bench "$image" >/dev/null || return 1
+    docker run -d --name "$CURRENT" "${CPU_ARGS[@]}" --shm-size=4g -e POSTGRES_PASSWORD=bench "$image" >/dev/null || return 1
   fi
 
   wait_ready "$CURRENT" || fail "engine $name never became ready"
@@ -182,8 +191,9 @@ esac
   printf 'run_id %s\n' "$RUN_ID"
   printf 'started %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'host %s %s\n' "$(uname -m)" "$(sw_vers -productVersion 2>/dev/null || uname -r)"
-  printf 'cpus %s\n' "$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo unknown)"
+  printf 'host_cpus %s\n' "$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo unknown)"
   printf 'memory_bytes %s\n' "$(sysctl -n hw.memsize 2>/dev/null || echo unknown)"
+  printf 'cpus %s\n' "${CPUS:-all (no --cpus limit)}"
   printf 'corpus %s\n' "$CORPUS"
   if [ "$CORPUS" = "real" ]; then
     printf 'vectors %s (%s docs, %s queries)\n' "$VECTORS" \

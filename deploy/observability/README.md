@@ -83,14 +83,20 @@ every run.
 | `marula.reconcile.report_retry_exhausted` | `marula_reconcile_report_retry_exhausted` | diagnostic only, see below |
 | `marula.consumer.gap_entries` | `marula_consumer_gap_entries` | diagnostic only, see below |
 | `marula.consumer.gap_lost` | `marula_consumer_gap_lost` | diagnostic only, see below |
+| `marula.embedding.reindex.remaining` | `marula_embedding_reindex_remaining` | diagnostic only, see below |
+| `marula.embedding.reindex.runs_pending` | `marula_embedding_reindex_runs_pending` | diagnostic only, see below |
+| `marula.embedding.reindex.embedded` | `marula_embedding_reindex_embedded_total` | diagnostic only, see below |
+| `marula.embedding.count` | `marula_embedding_count` | diagnostic only, see below |
 
-The reconciliation pass (`R4`) and the machine-ingest counter (`R12`) add nine
+The reconciliation pass (`R4`), the machine-ingest counter (`R12`), the
+embedding re-index (`R14`) and the retrieval distribution (`R15`) add thirteen
 series to the contract. None carries a rule yet, and none is an oversight: the
-thresholds they would fire on are the first thing a real deployment measures, and
-a rule invented from a laptop is a rule that pages for the wrong reason. They are
-in the contract and in this table so the gap is visible rather than silent.
+thresholds they would fire on are the first thing a real deployment measures,
+and a rule invented from a laptop is a rule that pages for the wrong reason.
+They are in the contract and in this table so the gap is visible rather than
+silent.
 
-Fourteen metrics carry no alert and that is deliberate. `marula.org.requests` is the
+Eighteen metrics carry no alert and that is deliberate. `marula.org.requests` is the
 per-org counter a premium pack bills or quotas from, and an alert on it would page
 someone about a customer's traffic volume. `marula.org.ingest_requests` is the same
 counter for machine traffic, and it carries the same objection — a connector's
@@ -106,7 +112,16 @@ rule for. `marula.sla.verdicts` counts SLA ladder verdicts, which are the produc
 working as designed, and the breach rate is a business metric rather than an
 availability one. `marula.workflow.parked_runs` is the count behind the
 parked-run age alert: the age carries the threshold, the count says how many
-runs are behind it, and neither is charted because the age already pages.
+runs are behind it, and neither is charted because the age already pages. The
+three embedding re-index series are a progress report: `remaining` and
+`runs_pending` fall while a switch drains, and an alert on a value that is
+supposed to fall would page every operator who changes the model. A stalled job
+is recognisable from the same series sitting flat for hours, which is a
+dashboard question, not a page. `marula.embedding.count` is the retrieval-mode
+decision rather than a health signal: a tenant crossing 20,000 embeddings is the
+moment the exact scan stops fitting the search leg, and the response is a
+deployment change somebody makes after reading it, not a page at three in the
+morning.
 
 ### Coverage gaps
 

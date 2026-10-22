@@ -1,4 +1,4 @@
-# Opt-in overlay: the Postgres image that carries pg_cron and hypopg.
+# Opt-in overlay: the Postgres image that carries pg_cron, hypopg and vchord.
 #
 #   docker compose -f docker-compose.yml \
 #                  -f postgres/compose.extensions.yml \
@@ -8,8 +8,12 @@
 # restated here and must be kept in step with it:
 #
 #   * `command:` — compose replaces a list rather than merging it, so the
-#     whole preload and async-I/O set appears again with `pg_cron` appended.
-#     Missing an entry here silently drops it from the server.
+#     whole preload and async-I/O set appears again with `pg_cron` and `vchord`
+#     appended. Missing an entry here silently drops it from the server.
+#     `vchord` is in the list because VectorChord's index cannot be maintained
+#     unless the library is preloaded: `MARULA_RETRIEVAL_MODE=index` refuses at
+#     boot when it is absent (Wave 52 lane R15), and this is the image that
+#     makes the mode satisfiable.
 #   * `build:` with `image:` — compose builds the Dockerfile and tags it under
 #     the same name, so `docker compose build` works without a separate step.
 #
@@ -26,7 +30,7 @@ services:
     command:
       - postgres
       - -c
-      - shared_preload_libraries=pg_stat_statements,auto_explain,pg_cron
+      - shared_preload_libraries=pg_stat_statements,auto_explain,pg_cron,vchord
       - -c
       - cron.database_name=marula
       - -c

@@ -56,7 +56,12 @@
 /// consumer group's distance from the stream's bounds, including the case
 /// Redis's own `lag` cannot express. Additive: no v2 name changed.
 /// `contract/metrics.v2.json` stays in the tree for the same reason v1 did.
-pub const CONTRACT_VERSION: u32 = 3;
+///
+/// v4 (Wave 52 lane R15): `marula.embedding.count`, the per-org embedding count
+/// that decides whether the exact vector scan still fits the search leg. Also
+/// additive: no v3 name changed, so a v3 dashboard keeps working.
+/// `contract/metrics.v3.json` stays in the tree.
+pub const CONTRACT_VERSION: u32 = 4;
 
 /// The OTel instrument kind a metric is recorded with. This is part of the
 /// contract: a counter read as a gauge produces nonsense, so a kind change is
@@ -383,6 +388,42 @@ pub const METRICS: &[MetricDescriptor] = &[
         summary: "Entries after a consumer group's position that are still in the stream",
     },
     MetricDescriptor {
+        name: "marula.embedding.reindex.remaining",
+        kind: MetricKind::Gauge,
+        unit: "{row}",
+        attributes: &["org"],
+        stability: Stability::Stable,
+        producer: "core-api ai::backfill_org_embeddings (driven by worker embedding_reindex)",
+        summary: "Rows still lacking a vector in the instance's target embedding space, per org; zero means that org's re-index is complete",
+    },
+    MetricDescriptor {
+        name: "marula.embedding.reindex.runs_pending",
+        kind: MetricKind::Gauge,
+        unit: "{run}",
+        attributes: &[],
+        stability: Stability::Stable,
+        producer: "worker embedding_reindex::sweep_once",
+        summary: "Per-org embedding re-index runs that have not completed",
+    },
+    MetricDescriptor {
+        name: "marula.embedding.reindex.embedded",
+        kind: MetricKind::Counter,
+        unit: "{row}",
+        attributes: &["org"],
+        stability: Stability::Stable,
+        producer: "core-api ai::backfill_org_embeddings",
+        summary: "Rows the embedding re-index embedded, by org",
+    },
+    MetricDescriptor {
+        name: "marula.embedding.count",
+        kind: MetricKind::Gauge,
+        unit: "{embedding}",
+        attributes: &["org"],
+        stability: Stability::Stable,
+        producer: "worker retrieval_watch::sweep_once",
+        summary: "Embeddings stored per org; past the retrieval-mode threshold of 20,000 in one tenant the exact vector scan no longer fits the search leg budget",
+    },
+    MetricDescriptor {
         name: "marula.consumer.gap_lost",
         kind: MetricKind::Gauge,
         unit: "1",
@@ -615,6 +656,7 @@ mod tests {
                         | "{run}"
                         | "{verdict}"
                         | "{slot}"
+                        | "{embedding}"
                 ),
                 "{} declares unit {:?}, which is outside the agreed vocabulary",
                 m.name,

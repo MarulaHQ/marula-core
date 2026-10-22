@@ -296,6 +296,10 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             trusted_proxies: crate::client_ip::TrustedProxies::default(),
             // No env reads here either: the shipped retry preset.
             retry: core_domain::retry::RetryMatrix::from_lookup(|_| None),
+            embedding: crate::config::shipped_embedding().0,
+            embedding_host: crate::config::shipped_embedding().1,
+            embedding_api_key: None,
+            retrieval: core_domain::retrieval::RetrievalMode::Exact,
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: crate::state::DEFAULT_REPORTING_POOL_MAX,
             statement_cache_capacity: core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,

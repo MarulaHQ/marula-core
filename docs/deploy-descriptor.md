@@ -66,6 +66,20 @@ refuses to boot without it (`required`), its default when it has one, and
 whether a consumer must mask it (`secret`). Flatten the active profile's `sets`
 over these defaults and the result is the environment to run.
 
+Three sections carry decisions that are more than a default value:
+
+- `retries` — the preset matrix, with each subsystem's budget and the levers
+  that override it.
+- `embedding` — the model this instance runs, its capacity floor, and how a
+  re-index is paced.
+- `retrieval` — the vector leg's mode (`exact`, `iterative`, `index`), the
+  requirement each mode adds, the measured consequence of each, and the
+  per-tenant embedding distribution. `resolved.mode` is what this environment
+  selects and `resolved.refusal` is the sentence the boot would print when that
+  mode cannot run. When a database is reachable the section carries a live probe;
+  when it is not, `resolved.probe` says `not_run` rather than claiming the mode
+  can run.
+
 ## Regenerating the profiles
 
 `deploy/profiles/*.yaml` is generated from the same code and kept in step by a

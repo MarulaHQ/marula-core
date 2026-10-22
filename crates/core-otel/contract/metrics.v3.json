@@ -330,6 +330,37 @@
     },
     {
       "attributes": [
+        "org"
+      ],
+      "kind": "gauge",
+      "name": "marula.embedding.reindex.remaining",
+      "producer": "core-api ai::backfill_org_embeddings (driven by worker embedding_reindex)",
+      "stability": "stable",
+      "summary": "Rows still lacking a vector in the instance's target embedding space, per org; zero means that org's re-index is complete",
+      "unit": "{row}"
+    },
+    {
+      "attributes": [],
+      "kind": "gauge",
+      "name": "marula.embedding.reindex.runs_pending",
+      "producer": "worker embedding_reindex::sweep_once",
+      "stability": "stable",
+      "summary": "Per-org embedding re-index runs that have not completed",
+      "unit": "{run}"
+    },
+    {
+      "attributes": [
+        "org"
+      ],
+      "kind": "counter",
+      "name": "marula.embedding.reindex.embedded",
+      "producer": "core-api ai::backfill_org_embeddings",
+      "stability": "stable",
+      "summary": "Rows the embedding re-index embedded, by org",
+      "unit": "{row}"
+    },
+    {
+      "attributes": [
         "group"
       ],
       "kind": "gauge",

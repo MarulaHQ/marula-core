@@ -24,6 +24,7 @@
 use crate::search::embedding_to_pg;
 use crate::DbResult;
 use chrono::{DateTime, Utc};
+use core_domain::embedding::{space_for_model, Catalogue};
 use core_domain::rag::{
     fuse_rag_candidates, validate_embedding_vector, PreparedRagChunk, RagChunkKey,
     RagDeletionReceipt, RagLexicalCandidate, RagModality, RagQueryHit, RagVectorCandidate,
@@ -80,14 +81,15 @@ pub async fn upsert_chunks(
         let row = sqlx::query(
             r#"INSERT INTO rag_embeddings (
                  org_id, namespace, source_kind, source_id, chunk_index, modality,
-                 content_text, metadata, model, content_hash, embedding, embedded_at
+                 content_text, metadata, model, space, content_hash, embedding, embedded_at
                )
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text::vector, now())
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text::vector, now())
                ON CONFLICT (org_id, namespace, source_kind, source_id, chunk_index, modality)
                DO UPDATE SET
                  content_text = EXCLUDED.content_text,
                  metadata     = EXCLUDED.metadata,
                  model        = EXCLUDED.model,
+                 space        = EXCLUDED.space,
                  content_hash = EXCLUDED.content_hash,
                  embedding    = EXCLUDED.embedding,
                  embedded_at  = now()
@@ -104,6 +106,7 @@ pub async fn upsert_chunks(
         .bind(&chunk.content_text)
         .bind(&chunk.metadata)
         .bind(&chunk.model)
+        .bind(space_for_model(&Catalogue::builtin(), &chunk.model).id())
         .bind(&chunk.content_hash)
         .bind(&vec_literal)
         .fetch_optional(&mut *conn)
@@ -145,6 +148,10 @@ pub struct RagQueryParams<'a> {
     /// from `query_text` by the org's provider or supplied directly by the
     /// caller for media->text / media->media / pre-embedded queries).
     pub query_vector: Option<&'a [f32]>,
+    /// Embedding spaces the vector leg may rank in (migration 0152). Empty
+    /// leaves the vector leg dark, which is the correct answer for a query
+    /// vector whose space nothing in the namespace carries.
+    pub spaces: &'a [String],
     pub limit: i64,
 }
 
@@ -162,6 +169,10 @@ pub struct RagFilter<'a> {
     pub source_kinds: &'a [String],
     /// `source_id` values admitted.
     pub source_ids: &'a [String],
+    /// Embedding spaces the vector leg may rank in. Empty means no vector leg:
+    /// a chunk under another model's space is a miss, never a ranking made of
+    /// two incomparable spaces.
+    pub spaces: &'a [String],
 }
 
 /// Runs the lexical (BM25 / `ts_rank_cd`) candidate leg within `(org_id, namespace)`.
@@ -258,6 +269,7 @@ where
               AND (cardinality($3::text[]) = 0 OR modality = ANY($3))
               AND (cardinality($4::text[]) = 0 OR source_kind = ANY($4))
               AND (cardinality($5::text[]) = 0 OR source_id = ANY($5))
+              AND space = ANY($8)
             ORDER BY embedding <=> $6::text::vector ASC,
                      source_kind ASC,
                      source_id ASC,
@@ -272,6 +284,7 @@ where
     .bind(filter.source_ids)
     .bind(&vec_literal)
     .bind(depth)
+    .bind(filter.spaces)
     .fetch_all(executor)
     .await?;
 
@@ -314,6 +327,7 @@ pub async fn query_hybrid(
         modalities: &modalities,
         source_kinds: params.source_kinds,
         source_ids: params.source_ids,
+        spaces: params.spaces,
     };
 
     let lexical = match params.query_text {

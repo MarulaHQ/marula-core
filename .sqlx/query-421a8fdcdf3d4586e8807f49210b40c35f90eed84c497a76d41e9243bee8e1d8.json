@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE embedding_reindex_runs\n              SET last_error = $2,\n                  leased_until = NULL,\n                  updated_at = now()\n            WHERE id = $1\n              AND status IN ('queued', 'running')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "421a8fdcdf3d4586e8807f49210b40c35f90eed84c497a76d41e9243bee8e1d8"
+}

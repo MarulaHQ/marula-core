@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, switch_id, org_id, from_space, to_space, status,\n                  total_rows, done_rows, last_error, created_at\n           FROM embedding_reindex_runs\n          WHERE status IN ('queued', 'running')\n            AND (leased_until IS NULL OR leased_until < now())\n          ORDER BY created_at, org_id\n          LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "switch_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "from_space",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "to_space",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "total_rows",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "done_rows",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "1e6b38e22002b8f2b578de1447aa502d2ec1a804145d35b4fe7c9d9ac839613f"
+}

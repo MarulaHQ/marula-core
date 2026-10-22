@@ -165,15 +165,12 @@ pub async fn get_ai_status(
         core_domain::settings::AI_COMPLETION_PROVIDER,
     )
     .await?;
-    let model_setting =
-        active_org_value(&mut *tx, org_id, core_domain::settings::AI_COMPLETION_MODEL).await?;
-    // Report what would actually serve the vector leg. An install that
-    // configured nothing runs the bundled local embedder, and a card that
-    // said "none (none)" while that model was running would be wrong.
-    let (active_provider, active_model) = crate::ai::effective_embedding_labels(
-        provider_setting.as_deref(),
-        model_setting.as_deref(),
-    );
+    // Report what would actually serve the vector leg: the instance's model,
+    // and whether this org switched its own vector leg off. An org no longer
+    // selects a model — a card that reported one would describe a model that is
+    // not the one embedding its rows.
+    let (active_provider, active_model) =
+        crate::ai::effective_embedding_labels(&state.config.embedding, provider_setting.as_deref());
 
     let secrets = core_db::byok::list_secret_summaries(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -505,7 +502,7 @@ pub async fn test_ai_connection(
                 core_domain::settings::AI_COMPLETION_PROVIDER,
             )
             .await?;
-            crate::ai::effective_embedding_labels(setting.as_deref(), None).0
+            crate::ai::effective_embedding_labels(&state.config.embedding, setting.as_deref()).0
         }
     };
 
