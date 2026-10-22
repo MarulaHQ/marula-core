@@ -23,7 +23,8 @@
 
 use core_db::plugin_surface;
 use core_domain::entities::plugins::{
-    PluginCapability, PluginInstall, PluginManifestV2, PluginSurfaceProfile,
+    PluginCapability, PluginInstall, PluginManifestV2, PluginSurfaceProfile, SettingsSchema,
+    SurfaceActionEffect,
 };
 use serde_json::{json, Value};
 use sqlx::PgConnection;
@@ -256,6 +257,147 @@ pub async fn sync_derived(
     Ok(())
 }
 
+/// The six surface sections a manifest can declare, as the INVOCATION path
+/// names them (W53-5).
+///
+/// [`derive_profile`] writes these six into `plugin_surface_entries` and
+/// [`SurfaceKind::as_str`] is the `surface` column value it uses, so the
+/// derivation and the invocation read one vocabulary. The capability is the
+/// same one the section gate above already applied — an invocation cannot ask
+/// for a capability its section did not register under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SurfaceKind {
+    Widget,
+    Action,
+    ReportRender,
+    FieldValidator,
+    Trigger,
+    Read,
+}
+
+impl SurfaceKind {
+    /// Every kind, in the order the derivation writes them.
+    pub const ALL: [SurfaceKind; 6] = [
+        SurfaceKind::Widget,
+        SurfaceKind::Action,
+        SurfaceKind::ReportRender,
+        SurfaceKind::FieldValidator,
+        SurfaceKind::Trigger,
+        SurfaceKind::Read,
+    ];
+
+    /// The `plugin_surface_entries.surface` value (and the `surface` a caller
+    /// passes to [`core_db::plugin_surface::get_entry_by_key`]).
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            SurfaceKind::Widget => "widget",
+            SurfaceKind::Action => "automation_action",
+            SurfaceKind::ReportRender => "report_render",
+            SurfaceKind::FieldValidator => "field_validator",
+            SurfaceKind::Trigger => "automation_trigger",
+            SurfaceKind::Read => "read",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "widget" => Some(SurfaceKind::Widget),
+            "automation_action" => Some(SurfaceKind::Action),
+            "report_render" => Some(SurfaceKind::ReportRender),
+            "field_validator" => Some(SurfaceKind::FieldValidator),
+            "automation_trigger" => Some(SurfaceKind::Trigger),
+            "read" => Some(SurfaceKind::Read),
+            _ => None,
+        }
+    }
+
+    /// The ONE capability this section registers under. A closed mapping: the
+    /// caller cannot ask for a different one, and the invocation path checks
+    /// the install holds exactly this.
+    pub const fn capability(self) -> PluginCapability {
+        match self {
+            SurfaceKind::Widget => PluginCapability::UiWidgets,
+            SurfaceKind::Action => PluginCapability::AutomationActions,
+            SurfaceKind::ReportRender => PluginCapability::ReportsRender,
+            SurfaceKind::FieldValidator => PluginCapability::FieldsValidate,
+            SurfaceKind::Trigger => PluginCapability::AutomationTriggers,
+            SurfaceKind::Read => PluginCapability::AutomationReads,
+        }
+    }
+
+    /// Only an automation action applies a domain effect. The other five
+    /// return data (a widget's rows, a read's payload) or declare a shape (a
+    /// render kind, a validator, a trigger) and write nothing, so the parent
+    /// applies no effect for them.
+    pub const fn applies_effect(self) -> bool {
+        matches!(self, SurfaceKind::Action)
+    }
+}
+
+/// What an entry's declared `params_schema` turned out to be.
+///
+/// Three states rather than `Option<Result<…>>` because each one is a
+/// different decision at the call site: nothing to check, check it, or refuse
+/// the entry.
+#[derive(Debug, Clone)]
+pub enum DeclaredSchema {
+    /// The entry declares no params schema.
+    Absent,
+    /// A schema the manifest subset accepted.
+    Valid(SettingsSchema),
+    /// A schema the subset refuses. The entry is unusable, so a caller refuses
+    /// the invocation instead of running it unvalidated.
+    Invalid,
+}
+
+/// Parses the `params_schema` an action or read entry carries. Widgets carry
+/// `props_schema`, validators carry `schema` and triggers carry
+/// `payload_schema`; none of those is a `params_schema`, so they answer
+/// [`DeclaredSchema::Absent`] here and keep their own consumer.
+pub fn params_schema(definition: &Value) -> DeclaredSchema {
+    let Some(raw) = definition.get("params_schema").filter(|v| !v.is_null()) else {
+        return DeclaredSchema::Absent;
+    };
+    match SettingsSchema::new(raw.clone()) {
+        Ok(schema) => DeclaredSchema::Valid(schema),
+        Err(_) => DeclaredSchema::Invalid,
+    }
+}
+
+/// The event types one entry declares in its `node_contract.emits`.
+///
+/// The entry's OWN declaration, not the whole profile's: an action that emits
+/// nothing gets an empty list, so `emit_event` is refused for it even when a
+/// sibling entry in the same manifest declares a type. Least authority per
+/// entry, and the manifest is still the upper bound.
+pub fn declared_events(definition: &Value) -> Vec<String> {
+    definition
+        .get("node_contract")
+        .and_then(|contract| contract.get("emits"))
+        .and_then(Value::as_array)
+        .map(|emits| {
+            emits
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The consented effect an action entry declares, in the closed
+/// [`SurfaceActionEffect`] vocabulary.
+///
+/// `None` covers both "declares no effect" and "declares one the vocabulary
+/// does not know". Both refuse: an effect nobody consented to is not an effect
+/// the engine may apply.
+pub fn consented_effect(definition: &Value) -> Option<SurfaceActionEffect> {
+    definition
+        .get("effect")
+        .and_then(Value::as_str)
+        .and_then(SurfaceActionEffect::parse)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,5 +613,107 @@ mod tests {
         let full = derive_surface(&install("csat", &["ui.widgets"]), &m);
         assert_eq!(full.widgets.len(), 1);
         assert!(full.actions.is_empty());
+    }
+
+    #[test]
+    fn every_surface_kind_reads_and_writes_the_sections_own_string() {
+        // The six kinds are the six sections `sync_derived` persists; a drift
+        // here would make an invocation look up a surface the sync never wrote.
+        let persisted = [
+            "widget",
+            "automation_action",
+            "report_render",
+            "field_validator",
+            "automation_trigger",
+            "read",
+        ];
+        for (kind, surface) in SurfaceKind::ALL.into_iter().zip(persisted) {
+            assert_eq!(kind.as_str(), surface);
+            assert_eq!(SurfaceKind::parse(surface), Some(kind));
+        }
+        assert_eq!(SurfaceKind::parse("widgets"), None);
+        assert_eq!(SurfaceKind::parse(""), None);
+    }
+
+    #[test]
+    fn each_surface_kind_resolves_onto_the_capability_its_section_gates_on() {
+        for kind in SurfaceKind::ALL {
+            // The derivation registers a section only under this capability,
+            // so the invocation path must require the same one.
+            let derived = derive_profile("p", &profile(), |cap| cap == kind.capability());
+            let section = match kind {
+                SurfaceKind::Widget => derived.widgets,
+                SurfaceKind::Action => derived.actions,
+                SurfaceKind::ReportRender => derived.render_kinds,
+                SurfaceKind::FieldValidator => derived.field_validators,
+                SurfaceKind::Trigger => derived.triggers,
+                SurfaceKind::Read => derived.reads,
+            };
+            assert_eq!(section.len(), 1, "{:?} registered nothing", kind);
+        }
+        assert!(SurfaceKind::Action.applies_effect());
+        for kind in SurfaceKind::ALL {
+            if kind != SurfaceKind::Action {
+                assert!(!kind.applies_effect(), "{kind:?} must apply no effect");
+            }
+        }
+    }
+
+    #[test]
+    fn a_params_schema_is_valid_absent_or_refused() {
+        assert!(matches!(
+            params_schema(&json!({"effect": "add_internal_comment"})),
+            DeclaredSchema::Absent
+        ));
+        assert!(matches!(
+            params_schema(&json!({"params_schema": null})),
+            DeclaredSchema::Absent
+        ));
+        assert!(matches!(
+            params_schema(&json!({
+                "params_schema": {
+                    "type": "object",
+                    "properties": {"body": {"type": "string"}}
+                }
+            })),
+            DeclaredSchema::Valid(_)
+        ));
+        // A construct the manifest subset does not support is a refusal, not a
+        // silently weaker check.
+        assert!(matches!(
+            params_schema(&json!({
+                "params_schema": {
+                    "type": "object",
+                    "properties": {"body": {"type": "object"}}
+                }
+            })),
+            DeclaredSchema::Invalid
+        ));
+    }
+
+    #[test]
+    fn only_the_entrys_own_emits_are_declared() {
+        assert_eq!(
+            declared_events(&json!({
+                "node_contract": {"emits": ["ticket.updated", "rmm.device_offline"]}
+            })),
+            vec![
+                "ticket.updated".to_string(),
+                "rmm.device_offline".to_string()
+            ]
+        );
+        assert!(declared_events(&json!({"effect": "add_internal_comment"})).is_empty());
+        assert!(declared_events(&json!({"node_contract": {"emits": "not-a-list"}})).is_empty());
+    }
+
+    #[test]
+    fn an_effect_outside_the_closed_vocabulary_is_not_consented() {
+        assert_eq!(
+            consented_effect(&json!({"effect": "add_internal_comment"})),
+            Some(SurfaceActionEffect::AddInternalComment)
+        );
+        assert_eq!(consented_effect(&json!({"effect": "drop_database"})), None);
+        assert_eq!(consented_effect(&json!({"effect": 7})), None);
+        assert_eq!(consented_effect(&json!({})), None);
     }
 }

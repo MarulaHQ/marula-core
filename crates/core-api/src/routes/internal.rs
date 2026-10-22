@@ -25,6 +25,8 @@ use core_mail::internal::{
     NotificationEmailRequest, ResultsRequest,
 };
 use core_mail::outbound::backoff_delay;
+use plugin_host::exec as plugin_exec;
+use plugin_host::surface::SurfaceKind;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -871,6 +873,11 @@ pub async fn effects(
         })?;
     core_domain::automations::validate_actions(&actions)?;
 
+    // The plugin action arm needs the artifact store and the plugin pool; both
+    // are process-wide, so cloning them before the transaction costs nothing.
+    let db = state.pool.clone();
+    let store = state.store.clone();
+
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         // Ticket subject: the ticket row the effects write through. Board
         // subject: no ticket, and the board must resolve in this org or the
@@ -1063,64 +1070,27 @@ pub async fn effects(
                         skip_ticket_effect(req.rule_id, action);
                         continue;
                     };
-                    // The registry row is the WHOLE authorization: it
-                    // exists only while the install is enabled, the grant
-                    // stands, and the entry is enabled. A missing entry
-                    // skips, never fails the batch.
-                    let entry = core_db::plugin_surface::get_entry_by_key(
-                        &mut *ctx.tx,
-                        req.org_id,
-                        "automation_action",
-                        entry_key,
-                    )
-                    .await
-                    .ok()
-                    .flatten();
-                    let Some(entry) = entry else {
-                        continue;
-                    };
-                    // The consented effect vocabulary — currently ONE
-                    // effect; unknown effects skip (deny-by-default).
-                    if entry.definition.get("effect").and_then(|v| v.as_str())
-                        != Some("add_internal_comment")
-                    {
-                        continue;
-                    }
-                    // Typed params: validated against the entry's own
-                    // declared JSON-Schema subset at execution time.
-                    if let Some(schema_value) = entry
-                        .definition
-                        .get("params_schema")
-                        .filter(|v| !v.is_null())
-                    {
-                        let Ok(schema) = core_domain::entities::plugins::SettingsSchema::new(
-                            schema_value.clone(),
-                        ) else {
-                            continue;
-                        };
-                        if schema.validate_config(params).is_err() {
-                            continue;
-                        }
-                    }
-                    let Some(body) = params.get("body").and_then(|v| v.as_str()) else {
-                        continue;
-                    };
-                    if body.trim().is_empty() || body.len() > 4000 {
-                        continue;
-                    }
-                    let comment = core_db::tickets::insert_comment(
-                        &mut *ctx.tx,
-                        core_db::tickets::NewTicketComment {
-                            id: Uuid::now_v7(),
+                    // The invocation path owns every gate: the registry row, the
+                    // install, the pinned manifest, `authorize_invocation`, the
+                    // module and the audit row (ADR 0023 Decisions 3 and 7).
+                    // A refused attempt is a skip for this batch, exactly as the
+                    // hardcoded effect skipped — and now it is audited.
+                    let outcome = plugin_exec::invoke_surface(
+                        &mut ctx.tx,
+                        &db,
+                        &*store,
+                        &plugin_exec::SurfaceCall {
                             org_id: req.org_id,
-                            ticket_id: ticket.id,
-                            author_id: None,
-                            kind: core_domain::status::NoteKind::Internal,
-                            body: body.trim(),
-                            workflow_meta: None,
+                            entry_key,
+                            surface: SurfaceKind::Action,
+                            params,
+                            ticket_id: Some(ticket.id),
                         },
                     )
                     .await?;
+                    let Some(comment) = outcome.comment else {
+                        continue;
+                    };
                     let mut payload =
                         serde_json::to_value(core_domain::events::TicketCommentAdded {
                             comment: comment.clone(),
@@ -2129,9 +2099,14 @@ pub async fn workflow_node(
     // A clone of the pool so the `ticket.transition` arm can call the shared
     // service (item E), which opens its own transaction.
     let pool = state.pool.clone();
+    // The artifact store and the plugin pool are what the `plugin.action` arm
+    // needs: the module is read from the store and run in the pool (ADR 0023).
+    let store = state.store.clone();
     let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
-        let output =
-            execute_workflow_node(&mut ctx, &pool, org_id, &node_id, &params, &context).await?;
+        let output = execute_workflow_node(
+            &mut ctx, &pool, &*store, org_id, &node_id, &params, &context,
+        )
+        .await?;
         Ok((ctx, output))
     })
     .await?;
@@ -2146,6 +2121,7 @@ pub async fn workflow_node(
 async fn execute_workflow_node(
     ctx: &mut org_tx::OrgTx<'_>,
     pool: &sqlx::PgPool,
+    store: &dyn core_store::ObjectStore,
     org_id: Uuid,
     node_id: &str,
     params: &Value,
@@ -2455,60 +2431,35 @@ async fn execute_workflow_node(
                 .get("entryKey")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ApiError::Validation("plugin.action: entryKey is required".into()))?;
-            // The registry row is the WHOLE authorization: it exists only
-            // while the install is enabled, the grant stands and the entry
-            // is enabled. A missing entry is a typed skip, never a crash.
-            let entry = core_db::plugin_surface::get_entry_by_key(
-                &mut *ctx.tx,
-                org_id,
-                "automation_action",
-                entry_key,
-            )
-            .await
-            .ok()
-            .flatten();
-            let Some(entry) = entry else {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "entry unavailable" }));
-            };
             let node_params = params.get("params").cloned().unwrap_or(json!({}));
-            if entry.definition.get("effect").and_then(Value::as_str)
-                != Some("add_internal_comment")
-            {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "effect not consented" }));
-            }
-            if let Some(schema_value) = entry
-                .definition
-                .get("params_schema")
-                .filter(|v| !v.is_null())
-            {
-                let Ok(schema) = core_domain::entities::plugins::SettingsSchema::new(
-                    schema_value.clone(),
-                ) else {
-                    return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "schema invalid" }));
-                };
-                if schema.validate_config(&node_params).is_err() {
-                    return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "params refused" }));
-                }
-            }
-            let Some(body) = node_params.get("body").and_then(Value::as_str) else {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "no body" }));
-            };
-            if body.trim().is_empty() || body.len() > 4000 {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "body out of bounds" }));
-            }
-            let comment = core_db::tickets::insert_comment(
-                &mut *ctx.tx,
-                core_db::tickets::NewTicketComment {
-                    id: Uuid::now_v7(),
+            // The invocation path owns every gate: the registry row, the
+            // install, the pinned manifest, `authorize_invocation`, the module
+            // and the audit row (ADR 0023 Decisions 3 and 7). This arm names
+            // the entry and the ticket; it decides no authority.
+            let outcome = plugin_exec::invoke_surface(
+                &mut ctx.tx,
+                pool,
+                store,
+                &plugin_exec::SurfaceCall {
                     org_id,
-                    ticket_id: ticket.id,
-                    author_id: None,
-                    kind: core_domain::status::NoteKind::Internal,
-                    body: body.trim(),
-                    workflow_meta: None,
+                    entry_key,
+                    surface: SurfaceKind::Action,
+                    params: &node_params,
+                    ticket_id: Some(ticket.id),
                 },
             )
             .await?;
+            // A refused attempt is a typed skip, exactly as this arm behaved
+            // before the executor existed — and now it is audited rather than
+            // silently dropped. The reason is the static code the audit row
+            // carries.
+            let Some(comment) = outcome.comment else {
+                return Ok(json!({
+                    "entryKey": entry_key,
+                    "skipped": true,
+                    "reason": outcome.skip_reason(),
+                }));
+            };
             let mut payload = serde_json::to_value(core_domain::events::TicketCommentAdded {
                 comment: comment.clone(),
                 mentioned_user_ids: vec![],
