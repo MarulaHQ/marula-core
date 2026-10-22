@@ -46,7 +46,9 @@
 //! 5-7 are process-local. See [`PluginPool`] for what that costs in `split`.
 
 use std::collections::{HashMap, HashSet};
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -59,7 +61,7 @@ use uuid::Uuid;
 use crate::abi::{self, InvocationOutcome, InvocationReply, InvocationRequest, Refusal};
 use crate::host_fns::{register_all, LogLine};
 use crate::isolation::{ModuleArtifact, Sandbox, SandboxLimits};
-use crate::wire::{self, InvokeFrame, ReplyFrame};
+use crate::wire::{self, HostCallOp, HostCallOutcome, HostReplyFrame, InvokeFrame, ReplyFrame};
 use crate::{InvocationResult, PluginRuntime};
 
 /// The row W53-8's operator surface renders, re-exported so a caller does not
@@ -125,6 +127,31 @@ const GATE_TABLE_SOFT_LIMIT: usize = 4096;
 /// How often the worker measures its own resident set. Amortised so the
 /// measurement is not on the per-invocation path (5-10 µs per read).
 pub const RESIDENT_CHECK_EVERY: u64 = 32;
+
+/// How many host calls one invocation may make through the parent bridge.
+///
+/// The arithmetic, against the ADR's own numbers:
+///
+/// - A host call is one pipe write, one parent store round trip on a connection
+///   the invocation already holds, and one pipe read. On a local pipe the two
+///   frames are tens of microseconds; the store round trip is the cost, and it
+///   is one statement on an open connection.
+/// - The guest's own wall clock is 250 ms (`abi::WALL_CLOCK_MS`) and the parent
+///   kills a worker that has not answered in 500 ms
+///   ([`INVOCATION_TIMEOUT`]). Sixty-four calls at a generous 1 ms each is
+///   64 ms, a quarter of the guest's budget and an eighth of the parent's —
+///   the cap refuses before the timeout, which matters because a timeout kills
+///   the worker (`worker_failed`, and a strike towards quarantine) while this
+///   refusal is a clean answer the guest can read and stop on.
+/// - It covers the real shapes: a widget or a cache warm loading 64 keys, and a
+///   `kv_list` walk of 64 pages is 32,000 keys (`abi::KV_LIST_PAGE`), which no
+///   250 ms invocation can consume anyway.
+///
+/// A guest that keeps going past the cap is answered `BudgetExhausted` on every
+/// later call, with no store work behind it. It cannot extend the invocation:
+/// the same [`INVOCATION_TIMEOUT`] bounds the whole exchange, and the worker's
+/// own fuel and epoch still bound the guest between calls.
+pub const MAX_HOST_CALLS_PER_INVOCATION: u64 = 64;
 
 /// The transport one deployment chose. `in_process` exists for a box that
 /// cannot spare a worker's resident set; it is one knob, not a tier, and it
@@ -250,6 +277,53 @@ impl std::fmt::Display for PoolError {
 }
 
 impl std::error::Error for PoolError {}
+
+/// The invocation a host call belongs to, as the PARENT knows it.
+///
+/// This is the answer to "which tenant is this call for", and it comes from the
+/// [`InvocationRequest`] the parent dispatched — never from the frame the worker
+/// sent. The frame cannot disagree with it because the frame has no field to
+/// disagree in (`wire`'s header), and a service that is handed a context its own
+/// record contradicts must refuse (`exec`'s implementation does).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostCallContext {
+    pub invocation_id: Uuid,
+    pub org_id: Uuid,
+    pub install_id: Uuid,
+}
+
+/// The parent's side of the bridge: it answers a worker's host call.
+///
+/// One method, one call, one answer: the pool owns the framing, the correlators,
+/// the cap and the timeout, so an implementation is only "do this verb for this
+/// invocation". `plugin-host` cannot implement it against a database — the pool
+/// has no connection — so the executor does (`crate::exec`), on the transaction
+/// the invocation already holds.
+pub trait HostCallService: Send {
+    fn serve<'a>(
+        &'a mut self,
+        context: HostCallContext,
+        op: HostCallOp,
+    ) -> Pin<Box<dyn Future<Output = HostCallOutcome> + Send + 'a>>;
+}
+
+/// The service a pool with no store is handed.
+///
+/// It answers every host call `Unavailable`, which the worker turns into
+/// `plugin_not_implemented`: the honest answer for a path that genuinely cannot
+/// serve plugin state. `in_process` and the bare [`PluginRuntime::invoke`] entry
+/// point use it today.
+pub struct NoHostCalls;
+
+impl HostCallService for NoHostCalls {
+    fn serve<'a>(
+        &'a mut self,
+        _context: HostCallContext,
+        _op: HostCallOp,
+    ) -> Pin<Box<dyn Future<Output = HostCallOutcome> + Send + 'a>> {
+        Box::pin(async move { HostCallOutcome::Refused(wire::HostCallRefusal::Unavailable) })
+    }
+}
 
 /// The plugin runtime: a pool of worker processes plus the `in_process`
 /// transport.
@@ -392,12 +466,33 @@ impl PluginPool {
     /// * the artifact's bytes and the digest they were admitted under;
     /// * that the caller writes the audit row (Decision 7) — including the
     ///   refusal rows this method returns before any worker was reached.
+    ///
+    /// This form serves no host calls: a `kv_get` from the guest is answered
+    /// `plugin_not_implemented`. A caller that can serve them — anything with a
+    /// transaction, which in this deployment is [`crate::exec`] — calls
+    /// [`PluginPool::invoke_with`].
     pub async fn invoke(
         &self,
         request: &InvocationRequest,
         artifact: &ModuleArtifact,
     ) -> InvocationResult {
-        self.run_invocation(request, artifact).await
+        self.run_invocation(request, artifact, &mut NoHostCalls)
+            .await
+    }
+
+    /// [`PluginPool::invoke`] with a service for the guest's host calls.
+    ///
+    /// The service is the parent's half of the bridge: `kv_get` and its three
+    /// siblings are one frame out of the worker and one call into this trait,
+    /// and the trait answers from the invocation's own transaction. See
+    /// [`HostCallService`] and [`MAX_HOST_CALLS_PER_INVOCATION`].
+    pub async fn invoke_with(
+        &self,
+        request: &InvocationRequest,
+        artifact: &ModuleArtifact,
+        service: &mut dyn HostCallService,
+    ) -> InvocationResult {
+        self.run_invocation(request, artifact, service).await
     }
 
     /// Clears an install's quarantine. The admin route owns the transaction's
@@ -453,6 +548,7 @@ impl PluginPool {
         &self,
         request: &InvocationRequest,
         artifact: &ModuleArtifact,
+        service: &mut dyn HostCallService,
     ) -> InvocationResult {
         let started = Instant::now();
         let invocation_id = request.invocation_id;
@@ -517,7 +613,7 @@ impl PluginPool {
                     .await
             }
             _ => {
-                self.invoke_in_pool(request, artifact, invocation_id, started)
+                self.invoke_in_pool(request, artifact, invocation_id, started, service)
                     .await
             }
         };
@@ -540,6 +636,7 @@ impl PluginPool {
         artifact: &ModuleArtifact,
         invocation_id: Uuid,
         started: Instant,
+        service: &mut dyn HostCallService,
     ) -> InvocationResult {
         let permit = match tokio::time::timeout(
             CONCURRENCY_WAIT,
@@ -565,7 +662,7 @@ impl PluginPool {
             }
         };
         let worker = member.label();
-        let outcome = member.invoke(request, artifact).await;
+        let outcome = member.invoke(request, artifact, service).await;
         drop(permit);
 
         match outcome {
@@ -696,7 +793,8 @@ impl PluginRuntime for PluginPool {
         request: &InvocationRequest,
         artifact: &ModuleArtifact,
     ) -> InvocationResult {
-        self.run_invocation(request, artifact).await
+        self.run_invocation(request, artifact, &mut NoHostCalls)
+            .await
     }
 }
 
@@ -750,13 +848,24 @@ impl Member {
         format!("{WORKER_BIN_NAME}:{}", self.pid)
     }
 
-    /// One request, one reply. Any I/O error, protocol error, echo mismatch or
-    /// reply that fails [`InvocationReply::validate`] is `Err`: the caller kills
-    /// this member and answers the invocation with `worker_failed`.
+    /// One request, one reply — alternating with the guest's host calls.
+    ///
+    /// The parent writes the invocation frame, then reads: a host-call frame is
+    /// served and answered, and the loop continues until the invocation's reply
+    /// arrives. Any I/O error, protocol error, echo mismatch or reply that fails
+    /// [`InvocationReply::validate`] is `Err`: the caller kills this member and
+    /// answers the invocation with `worker_failed`.
+    ///
+    /// Both host-call correlators are checked against this invocation before a
+    /// byte of store work happens: the invocation id must be the one just
+    /// dispatched, and the call number must be the next one owed. A duplicate,
+    /// a replay or a frame from another invocation therefore fails the
+    /// invocation instead of being answered.
     async fn invoke(
         &mut self,
         request: &InvocationRequest,
         artifact: &ModuleArtifact,
+        service: &mut dyn HostCallService,
     ) -> Result<ReplyFrame, String> {
         let send_module = !self.loaded.contains(&artifact.digest);
         let frame = InvokeFrame {
@@ -772,6 +881,13 @@ impl Member {
         } else {
             INVOCATION_TIMEOUT
         };
+        let context = HostCallContext {
+            invocation_id: request.invocation_id,
+            // The tenant comes from the frame the PARENT built, never from the
+            // host-call frames the worker sends back.
+            org_id: request.org_id,
+            install_id: request.install_id,
+        };
 
         let exchange = async {
             self.stdin
@@ -782,11 +898,56 @@ impl Member {
                 .flush()
                 .await
                 .map_err(|error| format!("flush: {error}"))?;
-            let body = read_body(&mut self.stdout)
-                .await
-                .map_err(|error| format!("read: {error}"))?
-                .ok_or_else(|| "worker closed its stdout".to_string())?;
-            wire::decode_reply(&body).map_err(|error| format!("decode: {error}"))
+
+            let mut served: u64 = 0;
+            loop {
+                let body = read_body(&mut self.stdout)
+                    .await
+                    .map_err(|error| format!("read: {error}"))?
+                    .ok_or_else(|| "worker closed its stdout".to_string())?;
+                match wire::frame_kind(&body).map_err(|error| format!("frame: {error}"))? {
+                    wire::KIND_REPLY => {
+                        return wire::decode_reply(&body)
+                            .map_err(|error| format!("decode: {error}"))
+                    }
+                    wire::KIND_HOST_CALL => {
+                        let call = wire::decode_host_call(&body)
+                            .map_err(|error| format!("host call: {error}"))?;
+                        if call.invocation_id != context.invocation_id {
+                            return Err("host call names another invocation".to_string());
+                        }
+                        if call.call_id != served {
+                            return Err(format!(
+                                "host call {served} expected, {} arrived",
+                                call.call_id
+                            ));
+                        }
+                        let outcome = if served >= MAX_HOST_CALLS_PER_INVOCATION {
+                            HostCallOutcome::Refused(wire::HostCallRefusal::BudgetExhausted)
+                        } else {
+                            service.serve(context, call.op).await
+                        };
+                        served += 1;
+                        let reply = wire::encode_host_reply(&HostReplyFrame {
+                            invocation_id: context.invocation_id,
+                            call_id: call.call_id,
+                            outcome,
+                        })
+                        .map_err(|error| format!("host reply: {error}"))?;
+                        self.stdin
+                            .write_all(&reply)
+                            .await
+                            .map_err(|error| format!("host reply write: {error}"))?;
+                        self.stdin
+                            .flush()
+                            .await
+                            .map_err(|error| format!("host reply flush: {error}"))?;
+                    }
+                    other => {
+                        return Err(format!("frame kind {other} mid-invocation"));
+                    }
+                }
+            }
         };
 
         let reply = match tokio::time::timeout(deadline, exchange).await {

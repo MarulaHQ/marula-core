@@ -54,11 +54,22 @@
 //! is what a deployment without the worker binary gets; nothing falls back to
 //! running the effect without the module.
 //!
+//! ## The guest's own host calls
+//!
+//! A guest's `kv_get` reaches this module as a host-call frame on the worker's
+//! pipe, and [`TransactionHostCalls`] answers it on the transaction this
+//! function already holds. That is the only place the two identities a KV row
+//! needs can come from: the install row this invocation was authorized against,
+//! never the frame (which has no field for them). See
+//! [`TransactionHostCalls`] for the connection choice and its price.
+//!
 //! An install with no module pin is a declarative install: `enable` allows it
 //! (a surface/connector/settings plugin has no module to run), and the
 //! consented effect is applied by the parent exactly as core did before this
 //! lane. That path is the old behaviour, kept reachable and now audited.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -74,8 +85,9 @@ use uuid::Uuid;
 
 use crate::abi::{self, InvocationOutcome, InvocationRequest};
 use crate::lifecycle::{self, ArtifactError};
-use crate::runtime::{PluginPool, PoolConfig, PoolError};
+use crate::runtime::{HostCallContext, HostCallService, PluginPool, PoolConfig, PoolError};
 use crate::surface::{self, SurfaceKind};
+use crate::wire::{HostCallOp, HostCallOutcome, HostCallRefusal, HostCallValue};
 
 /// The `audit_events.action` every invocation writes.
 pub const AUDIT_ACTION: &str = "plugin.invoke";
@@ -376,7 +388,14 @@ pub async fn invoke_surface(
         }
     };
 
-    let result = plugins.invoke(&request, &artifact).await;
+    let mut host_calls = TransactionHostCalls {
+        tx: &mut *tx,
+        org_id: install.org_id,
+        install_id: install.id,
+    };
+    let result = plugins
+        .invoke_with(&request, &artifact, &mut host_calls)
+        .await;
     let mut outcome = result.reply.outcome;
     let mut reason = result.reply.reason.map(|refusal| refusal.as_str());
     let mut comment = None;
@@ -534,6 +553,213 @@ async fn refuse(
         comment: None,
         output: None,
     })
+}
+
+// ---------------------------------------------------------------------------
+// The host-call service
+// ---------------------------------------------------------------------------
+
+/// The ABI's limits, in the shape `core_db::plugin_kv` takes them.
+///
+/// Constructed from `abi` and `kv` rather than restated, the way
+/// `core_db::plugin_health` takes its quarantine threshold as an argument. A
+/// copy here would be a second place for a limit to live, and the first one to
+/// drift would be the value cap the host and the store both enforce.
+const KV_LIMITS: core_db::plugin_kv::KvLimits = core_db::plugin_kv::KvLimits::new(
+    abi::KV_VALUE_MAX_BYTES,
+    crate::kv::KV_KEYS_PER_INSTALL,
+    crate::kv::KV_BYTES_PER_INSTALL,
+    crate::kv::KV_LIST_PAGE,
+);
+
+/// Answers a worker's host calls from the invocation's own transaction.
+///
+/// ## Where the tenant comes from
+///
+/// `org_id` and `install_id` are set from the install row this invocation was
+/// authorized against, and they are what every query below binds. The frame
+/// cannot name a tenant because it has no field for one (`wire`'s header), and
+/// [`TransactionHostCalls::serve`] additionally refuses a [`HostCallContext`]
+/// that disagrees with its own record rather than resolving the disagreement in
+/// the frame's favour.
+///
+/// ## Why the invocation's transaction, not a new connection
+///
+/// The caller already holds one, opened for the request that caused the
+/// invocation, with `app.org_id` bound. Using it costs no connection and no
+/// `BEGIN` per host call, which is what keeps a `kv_get` to one statement
+/// (`plugin_kv::get` is a primary-key read). It also puts a KV write in the same
+/// transaction as the audit row and the surface's effect: a rolled-back request
+/// rolls back its plugin's writes with it. The price is stated rather than
+/// hidden — a genuine SQL failure inside that transaction (a deadlock, a
+/// statement timeout) aborts it, exactly as a failed core query would, and the
+/// invocation's audit row is lost with it. A `SAVEPOINT` per host call would
+/// keep the row and cost two more round trips on every call, which a 250 ms
+/// guest budget cannot pay for a case the store only reaches when the database
+/// is already unwell. The quota refusal — the one a guest can actually cause —
+/// is decided in Rust beside the counter and leaves the transaction usable.
+struct TransactionHostCalls<'a> {
+    tx: &'a mut PgConnection,
+    org_id: Uuid,
+    install_id: Uuid,
+}
+
+impl HostCallService for TransactionHostCalls<'_> {
+    fn serve<'a>(
+        &'a mut self,
+        context: HostCallContext,
+        op: HostCallOp,
+    ) -> Pin<Box<dyn Future<Output = HostCallOutcome> + Send + 'a>> {
+        Box::pin(async move {
+            if !context_is_our_own(&context, self.org_id, self.install_id) {
+                tracing::warn!(
+                    invocation_id = %context.invocation_id,
+                    "plugin host call arrived outside the invocation it was dispatched for"
+                );
+                return HostCallOutcome::Refused(HostCallRefusal::Failed);
+            }
+            match op {
+                HostCallOp::KvGet { namespace, key } => {
+                    if !labels_are_legal(&namespace, &key) {
+                        return refused_illegal_label("kv_get");
+                    }
+                    match core_db::plugin_kv::get(
+                        &mut *self.tx,
+                        self.org_id,
+                        self.install_id,
+                        &namespace,
+                        &key,
+                    )
+                    .await
+                    {
+                        Ok(Some(value)) => HostCallOutcome::Ok(HostCallValue::Value(value)),
+                        Ok(None) => HostCallOutcome::Ok(HostCallValue::Absent),
+                        Err(error) => store_failure("kv_get", error),
+                    }
+                }
+                HostCallOp::KvPut {
+                    namespace,
+                    key,
+                    value,
+                    expires_at,
+                } => {
+                    if !labels_are_legal(&namespace, &key) {
+                        return refused_illegal_label("kv_put");
+                    }
+                    match core_db::plugin_kv::put(
+                        &mut *self.tx,
+                        self.org_id,
+                        self.install_id,
+                        &namespace,
+                        &key,
+                        &value,
+                        expires_at,
+                        &KV_LIMITS,
+                    )
+                    .await
+                    {
+                        Ok(()) => HostCallOutcome::Ok(HostCallValue::Unit),
+                        Err(error) => store_failure("kv_put", error),
+                    }
+                }
+                HostCallOp::KvDelete { namespace, key } => {
+                    if !labels_are_legal(&namespace, &key) {
+                        return refused_illegal_label("kv_delete");
+                    }
+                    match core_db::plugin_kv::delete(
+                        &mut *self.tx,
+                        self.org_id,
+                        self.install_id,
+                        &namespace,
+                        &key,
+                    )
+                    .await
+                    {
+                        Ok(existed) => HostCallOutcome::Ok(HostCallValue::Existed(existed)),
+                        Err(error) => store_failure("kv_delete", error),
+                    }
+                }
+                HostCallOp::KvList {
+                    namespace,
+                    prefix,
+                    cursor,
+                } => {
+                    // A prefix and a cursor are keys, so they answer to the same
+                    // rule; a page is bounded by `KV_LIMITS.page` either way.
+                    if !labels_are_legal(&namespace, &prefix)
+                        || !cursor.as_deref().is_none_or(key_slot_is_legal)
+                    {
+                        return refused_illegal_label("kv_list");
+                    }
+                    match core_db::plugin_kv::list_keys(
+                        &mut *self.tx,
+                        self.org_id,
+                        self.install_id,
+                        &namespace,
+                        &prefix,
+                        cursor.as_deref(),
+                        &KV_LIMITS,
+                    )
+                    .await
+                    {
+                        Ok(page) => HostCallOutcome::Ok(HostCallValue::Page {
+                            keys: page.keys,
+                            cursor: page.next_cursor,
+                        }),
+                        Err(error) => store_failure("kv_list", error),
+                    }
+                }
+            }
+        })
+    }
+}
+
+/// Whether the context the pool passed is the invocation this executor
+/// dispatched. Both values are the parent's own; the check exists so that the
+/// day one of them is wired wrong, the store refuses instead of serving.
+fn context_is_our_own(context: &HostCallContext, org_id: Uuid, install_id: Uuid) -> bool {
+    context.org_id == org_id && context.install_id == install_id
+}
+
+/// The ABI's label rules, applied to what a frame carried.
+///
+/// A namespace is never allowed to be empty; a key, a prefix and a cursor are
+/// (the ABI's empty prefix and empty cursor mean "everything under here" and
+/// "the first page"). A non-empty one answers to the same rule `kv_get`'s key
+/// does.
+fn labels_are_legal(namespace: &str, key: &str) -> bool {
+    crate::host_fns::kv::namespace_is_legal(namespace) && key_slot_is_legal(key)
+}
+
+/// A key, a prefix or a cursor from a frame: empty is legal, non-empty answers
+/// to the ABI's key rule.
+fn key_slot_is_legal(value: &str) -> bool {
+    value.is_empty() || crate::host_fns::kv::key_is_legal(value)
+}
+
+/// A label the host would have refused at the ABI edge, arriving in a frame
+/// anyway: a worker bug, not a guest refusal.
+fn refused_illegal_label(verb: &str) -> HostCallOutcome {
+    tracing::warn!(verb, "plugin host call carried a label the ABI forbids");
+    HostCallOutcome::Refused(HostCallRefusal::Failed)
+}
+
+/// Maps a store error onto the closed host-call refusal set.
+///
+/// The quota refusal is the store's own typed token and the one a guest can
+/// cause; everything else is an infrastructure failure that the pool reports as
+/// `plugin_worker_failed` after logging it here with the detail the guest must
+/// never see.
+fn store_failure(verb: &str, error: core_db::DbError) -> HostCallOutcome {
+    match error {
+        core_db::DbError::Conflict(token) if token == core_db::plugin_kv::QUOTA_EXCEEDED => {
+            HostCallOutcome::Refused(HostCallRefusal::QuotaExceeded)
+        }
+        other => {
+            tracing::warn!(verb, error = %other, "plugin store call failed");
+            HostCallOutcome::Refused(HostCallRefusal::Failed)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,5 +1235,79 @@ mod tests {
     fn the_declarative_label_is_not_a_worker_name() {
         assert_eq!(WORKER_DECLARATIVE, "declarative");
         assert!(!WORKER_DECLARATIVE.starts_with("marula-plugin-worker:"));
+    }
+
+    // -----------------------------------------------------------------------
+    // The host-call service (W53-11)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn a_host_call_served_for_another_invocation_is_refused() {
+        let org = Uuid::now_v7();
+        let install = Uuid::now_v7();
+        let own = HostCallContext {
+            invocation_id: Uuid::now_v7(),
+            org_id: org,
+            install_id: install,
+        };
+        assert!(context_is_our_own(&own, org, install));
+        // The frame cannot name a tenant, so the only way this is reached is a
+        // pool wiring bug — and a bug must refuse, not serve whichever tenant
+        // the frame happened to carry.
+        let mut other_org = own;
+        other_org.org_id = Uuid::now_v7();
+        assert!(!context_is_our_own(&other_org, org, install));
+        let mut other_install = own;
+        other_install.install_id = Uuid::now_v7();
+        assert!(!context_is_our_own(&other_install, org, install));
+    }
+
+    #[test]
+    fn the_service_applies_the_abi_label_rules_to_what_a_frame_carried() {
+        for good in ["cache", "a-z_0.9"] {
+            assert!(labels_are_legal(good, "k"), "{good:?} is a namespace");
+        }
+        for bad in ["", "Cache", "ca che", "cache/slash", &"a".repeat(65)] {
+            assert!(!labels_are_legal(bad, "k"), "{bad:?} must not be one");
+        }
+        // A key, a prefix and a cursor may be empty; a non-empty one answers to
+        // the ABI's key rule.
+        assert!(key_slot_is_legal(""));
+        assert!(key_slot_is_legal(&"k".repeat(512)));
+        assert!(!key_slot_is_legal(&"k".repeat(513)));
+        assert!(!key_slot_is_legal("a\0b"));
+        assert!(!labels_are_legal("cache", &"k".repeat(513)));
+    }
+
+    #[test]
+    fn only_the_stores_quota_token_becomes_a_quota_refusal() {
+        assert_eq!(
+            store_failure(
+                "kv_put",
+                core_db::DbError::Conflict(core_db::plugin_kv::QUOTA_EXCEEDED.to_string())
+            ),
+            HostCallOutcome::Refused(HostCallRefusal::QuotaExceeded)
+        );
+        // A conflict that is not the quota token, a missing install and a
+        // driver failure are all the same to the guest: the store failed.
+        for error in [
+            core_db::DbError::Conflict("plugin_something_else".to_string()),
+            core_db::DbError::NotFound,
+            core_db::DbError::Sql(sqlx::Error::PoolTimedOut),
+        ] {
+            assert_eq!(
+                store_failure("kv_put", error),
+                HostCallOutcome::Refused(HostCallRefusal::Failed)
+            );
+        }
+    }
+
+    #[test]
+    fn the_store_limits_are_the_abi_and_kv_numbers_and_not_a_second_copy() {
+        assert_eq!(KV_LIMITS.max_value_bytes, abi::KV_VALUE_MAX_BYTES);
+        assert_eq!(KV_LIMITS.max_keys, crate::kv::KV_KEYS_PER_INSTALL);
+        assert_eq!(KV_LIMITS.max_bytes, crate::kv::KV_BYTES_PER_INSTALL);
+        assert_eq!(KV_LIMITS.page, crate::kv::KV_LIST_PAGE);
+        assert_eq!(KV_LIMITS.page, i64::from(abi::KV_LIST_PAGE));
     }
 }
