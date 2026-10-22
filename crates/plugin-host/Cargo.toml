@@ -17,6 +17,7 @@ serde = { workspace = true }
 ed25519-dalek = { workspace = true }
 sqlx = { workspace = true }
 wasmtime = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]

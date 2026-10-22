@@ -35,6 +35,7 @@ pub mod abi;
 pub mod distribution;
 pub mod host_fns;
 pub mod isolation;
+pub mod runtime;
 pub mod surface;
 pub mod wire;
 
@@ -75,8 +76,53 @@ pub trait PluginRuntime: Send + Sync {
     fn id(&self) -> uuid::Uuid;
     fn name(&self) -> &str;
     /// Admin-enabled gate. `false` = the runtime never executes
-    /// anything, whatever its protocol state.
+    /// anything, whatever its protocol state. The implementation checks this
+    /// FIRST and refuses with [`abi::Refusal::RuntimeDisabled`]; a caller does
+    /// not have to remember to look.
     fn enabled(&self) -> bool;
+
+    /// Runs one invocation that the caller has ALREADY authorized.
+    ///
+    /// `request` is the frame [`authorize_invocation`]'s answer produced: the
+    /// install's resolved grants, the manifest's declared event types and the
+    /// install's consented egress profile. `artifact` is the signed module,
+    /// pinned by digest.
+    ///
+    /// This method NEVER authorizes. A capability the caller did not resolve is
+    /// not granted here, and the reply it returns is the audit row's input, not
+    /// the audit row: the call site that owns the transaction writes that
+    /// (ADR 0023 Decision 7). Every reply is validated before it leaves, so a
+    /// `WorkerFailed` outcome is always a well-formed reply rather than a
+    /// `Result` the caller has to unwrap.
+    fn invoke<'a>(
+        &'a self,
+        request: &'a abi::InvocationRequest,
+        artifact: &'a isolation::ModuleArtifact,
+    ) -> impl std::future::Future<Output = InvocationResult> + Send + 'a;
+}
+
+/// What one invocation attempt produced, and the only shape the audit write
+/// needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvocationResult {
+    /// The audit-ready reply. Validated by
+    /// [`abi::InvocationReply::validate`] before it is returned, so `fuel_used`
+    /// and `reason` obey the invariants the audit row depends on.
+    pub reply: abi::InvocationReply,
+    /// The worker that answered (`marula-plugin-worker:<pid>`), for the audit row's
+    /// `worker` detail. `None` when no worker was reached — a refusal before
+    /// dispatch, or the `in_process` transport.
+    pub worker: Option<String>,
+}
+
+impl InvocationResult {
+    /// A refusal decided before any worker was reached.
+    pub fn refused(invocation_id: uuid::Uuid, reason: abi::Refusal, duration_us: u64) -> Self {
+        InvocationResult {
+            reply: abi::InvocationReply::refused(invocation_id, reason, 0, duration_us),
+            worker: None,
+        }
+    }
 }
 
 /// The sandbox decision for one invocation: the resolved
