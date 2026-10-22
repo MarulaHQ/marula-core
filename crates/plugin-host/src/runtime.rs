@@ -153,6 +153,36 @@ pub const RESIDENT_CHECK_EVERY: u64 = 32;
 /// own fuel and epoch still bound the guest between calls.
 pub const MAX_HOST_CALLS_PER_INVOCATION: u64 = 64;
 
+/// The wall clock ONE invocation's transport may consume in total, added to the
+/// guest's own window (W53-12).
+///
+/// Why this exists: until phase 2, every host call was a database statement
+/// measured in microseconds, and [`INVOCATION_TIMEOUT`] could bound the whole
+/// exchange. `http_request` is performed out of process against a vendor's API,
+/// and `abi::HTTP_TIMEOUT_MS` is 5,000 ms — ten times the window that used to
+/// bound the invocation. Without this, every slow call would be killed as a dead
+/// worker, counted against the install's health, and answered
+/// `plugin_worker_failed`, which is a lie about whose fault it was.
+///
+/// So the guest's window stays exactly what Decision 4 fixed, and the transport
+/// gets its own: `INVOCATION_TIMEOUT + TRANSPORT_BUDGET` bounds an invocation
+/// whose manifest declares egress profiles, and an invocation that declares none
+/// keeps the old bound exactly. The per-call timeout is clamped to what is left
+/// of this budget (`exec::TransactionHostCalls`), so 64 calls cannot each spend
+/// it.
+pub const TRANSPORT_BUDGET: Duration = Duration::from_millis(abi::HTTP_TIMEOUT_MS);
+
+/// The window one invocation's exchange is allowed: the guest's own budget plus,
+/// only for an install whose manifest declares an egress profile, the transport
+/// budget. `load` adds the compile window on top when the frame carries a module.
+fn invocation_window(request: &InvocationRequest, base: Duration) -> Duration {
+    if request.egress.is_empty() {
+        base
+    } else {
+        base + TRANSPORT_BUDGET
+    }
+}
+
 /// The transport one deployment chose. `in_process` exists for a box that
 /// cannot spare a worker's resident set; it is one knob, not a tier, and it
 /// changes nothing about what a plugin may do (ADR 0023 Decision 2).
@@ -758,11 +788,20 @@ impl PluginPool {
         // transport differs (ADR 0023 Decision 2: the transport changes nothing
         // about what a plugin may do).
         let (calls, mut pending) = tokio::sync::mpsc::unbounded_channel();
-        let bridge = Arc::new(crate::kv::BridgeKvStore::new(Arc::new(InProcessChannel {
-            calls,
-        })));
+        // ONE client for both features: the parent expects each invocation's
+        // call numbers to be the sequence 0, 1, 2, … across every verb, so a
+        // KV store and an HTTP transport with counters of their own would
+        // repeat a number and the correlator check would refuse the call.
+        let client = crate::bridge::HostCallClient::new(Arc::new(InProcessChannel { calls }));
+        let bridge = Arc::new(crate::kv::BridgeKvStore::with_client(Arc::clone(&client)));
+        let http: Arc<dyn crate::egress::HttpTransport> =
+            Arc::new(crate::egress::BridgeHttp::with_client(Arc::clone(&client)));
         bridge.begin_invocation(invocation_id);
         let store_for_thread = Arc::clone(&bridge);
+        // The window is computed before the request moves into the blocking
+        // thread: only an install that declares egress profiles pays for the
+        // transport budget.
+        let window = invocation_window(&request, INVOCATION_TIMEOUT);
 
         // wasmtime execution is synchronous: running it on the reactor would
         // stop every other request for the duration of one guest. This thread
@@ -775,19 +814,23 @@ impl PluginPool {
             // two blocking threads at once, and a process-wide install would
             // let one guest's store answer the other's call.
             crate::kv::with_store(store_for_thread, || {
-                let module = sandbox
-                    .load(&artifact)
-                    .map_err(|error| (Refusal::FrameInvalid, 0, Some(error.to_string())))?;
-                sandbox
-                    .run(&module, &request)
-                    .map_err(|failure| (failure.refusal, failure.fuel_used, None))
+                // The transport, for the same thread and the same reason: two
+                // in-process invocations run on two blocking threads at once.
+                crate::egress::with_http(http, || {
+                    let module = sandbox
+                        .load(&artifact)
+                        .map_err(|error| (Refusal::FrameInvalid, 0, Some(error.to_string())))?;
+                    sandbox
+                        .run(&module, &request)
+                        .map_err(|failure| (failure.refusal, failure.fuel_used, None))
+                })
             })
         });
 
         // The same loop the pool runs, minus the framing: serve host calls
         // until the invocation answers, with the same correlator check and the
         // same cap. One `timeout` still bounds the whole exchange.
-        let joined = tokio::time::timeout(INVOCATION_TIMEOUT, async {
+        let joined = tokio::time::timeout(window, async {
             let mut served: u64 = 0;
             loop {
                 tokio::select! {
@@ -989,9 +1032,9 @@ impl Member {
         // A frame that carries a module also pays for a compile, which is host
         // work and is not charged against the invocation's own clock.
         let deadline = if send_module {
-            LOAD_TIMEOUT
+            invocation_window(request, LOAD_TIMEOUT)
         } else {
-            INVOCATION_TIMEOUT
+            invocation_window(request, INVOCATION_TIMEOUT)
         };
         let context = HostCallContext {
             invocation_id: request.invocation_id,

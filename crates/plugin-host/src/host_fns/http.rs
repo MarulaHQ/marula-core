@@ -2,31 +2,37 @@
 //! only way a guest reaches the network, gated by a capability and by a
 //! consented egress profile.
 //!
-//! The gate runs before this handler and is not this file's to add:
+//! ## What this file no longer does
+//!
+//! It used to build the request, resolve a name, pin the answer, apply the
+//! timeout, cap the body and read the response — in the process that runs
+//! untrusted wasm. Phase 2 moved all of that parent-side (W53-12, ADR 0023's
+//! `secret_get` deferral), because the process that runs a guest must not hold
+//! a credential, a key, or the code path that would ever receive one. This
+//! process no longer links a network client at all.
+//!
+//! What remains is the ABI edge: read the two guest buffers, reject what the ABI
+//! would never have accepted, and forward the call over the parent bridge
+//! ([`crate::egress::BridgeHttp`]). The answer is status, headers and body.
+//!
+//! ## The gate still runs here, and again there
+//!
 //! [`super::HostGate::Egress`] parses the request, resolves the capability
 //! (`automation.reads` for `GET`/`HEAD`/`OPTIONS`, `automation.actions` for
 //! everything else), checks that the named profile is in the install's consent,
-//! and runs [`core_domain::egress`] against the URL. A handler therefore cannot
-//! forget a gate, and an ungranted call never reaches the socket.
-//!
-//! What is left is the part that needs a socket, in [`crate::http`]: resolution
-//! (once, checked, pinned), the 5,000 ms budget, the 2 MiB cap, the refusal of
-//! every redirect, and the host-only credential injection point.
-//!
-//! The handler re-runs the allowlist check even though the gate just did. It
-//! needs the [`core_domain::egress::EgressTarget`] anyway — the transport
-//! fetches the screened URL, never the guest's string — and re-checking costs a
-//! few parses against a closed list. The alternative is a handler that is only
-//! safe because of who called it.
+//! and screens the URL with [`core_domain::egress`]. An unconsented profile
+//! therefore costs no round trip. The parent re-runs the same functions against
+//! its own copy of the install's scopes, because the worker is the process it
+//! isolates — and it re-derives the capability from the install's grant set for
+//! the same reason.
 
 use core_domain::egress;
 
 use super::{
-    AbiParam, AbiReturn, GuestMemory, HostEntry, HostGate, HostReturn, ImplStatus, InvocationState,
-    Registry,
+    AbiParam, AbiReturn, GuestMemory, HostEntry, HostGate, HostReturn, ImplStatus, Registry,
 };
 use crate::abi::{self, Refusal};
-use crate::http::refusal_for;
+use crate::egress::current as current_transport;
 
 const PARAMS: &[AbiParam] = &[AbiParam::I32, AbiParam::I32, AbiParam::I32, AbiParam::I32];
 
@@ -46,7 +52,7 @@ pub(super) fn register(registry: &mut Registry) {
 }
 
 fn call(
-    state: &mut InvocationState,
+    _state: &mut crate::host_fns::InvocationState,
     memory: &dyn GuestMemory,
     args: &[i32],
 ) -> Result<HostReturn, Refusal> {
@@ -62,20 +68,10 @@ fn call(
             return Err(Refusal::InputTooLarge);
         }
     }
-
-    // An absent or empty profile is the same answer to a request: there is no
-    // allowlist to match, so nothing is consented.
-    let allowlist = state
-        .egress()
-        .get(&profile)
-        .filter(|scopes| !scopes.is_empty())
-        .ok_or(Refusal::EgressProfileMissing)?;
-    let target = egress::authorize_strings(&request.url, allowlist).map_err(refusal_for)?;
-
-    // No credential today: the install-scoped vault handle this needs is not in
-    // the handler's signature. See `crate::http` for the gap and the built
-    // injection path.
-    let response = crate::http::send(&target, &request, None)?;
+    // A guest with no transport is a process with nowhere to send; that is
+    // `plugin_not_implemented`, not a refusal the guest caused.
+    let transport = current_transport().ok_or(Refusal::NotImplemented)?;
+    let response = transport.send(&profile, &request)?;
     let body = serde_json::to_vec(&response).map_err(|_| Refusal::FrameInvalid)?;
     Ok(HostReturn::Data(abi::ok_frame(&body)))
 }

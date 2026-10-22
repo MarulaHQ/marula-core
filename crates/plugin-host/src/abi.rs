@@ -171,11 +171,17 @@ pub enum Refusal {
     /// Plugin execution is admin-disabled on this deployment. `enabled()` on
     /// the runtime is the outermost gate and this is what it refuses with.
     RuntimeDisabled,
+    /// The profile needs a credential and the parent could not present one
+    /// (W53-12): the install has no binding for it, the consenting role's
+    /// category grant was withdrawn, or the record lost its material field.
+    /// One code for all three causes so a guest cannot probe the shape of an
+    /// org's vault; the cause belongs in a log line, not in the frame.
+    CredentialRefused,
 }
 
 impl Refusal {
     /// Every refusal, in code order.
-    pub const ALL: [Refusal; 24] = [
+    pub const ALL: [Refusal; 25] = [
         Refusal::CapabilityNotGranted,
         Refusal::LogBudgetExceeded,
         Refusal::KvNamespaceDenied,
@@ -200,6 +206,7 @@ impl Refusal {
         Refusal::RateLimited,
         Refusal::ConcurrencyLimited,
         Refusal::RuntimeDisabled,
+        Refusal::CredentialRefused,
     ];
 
     /// The static string an audit row and an API envelope carry. Never prose
@@ -230,6 +237,7 @@ impl Refusal {
             Refusal::RateLimited => "plugin_rate_limited",
             Refusal::ConcurrencyLimited => "plugin_concurrency_limited",
             Refusal::RuntimeDisabled => "plugin_runtime_disabled",
+            Refusal::CredentialRefused => "plugin_credential_refused",
         }
     }
 
@@ -261,6 +269,7 @@ impl Refusal {
             Refusal::RateLimited => 22,
             Refusal::ConcurrencyLimited => 23,
             Refusal::RuntimeDisabled => 24,
+            Refusal::CredentialRefused => 25,
         }
     }
 
@@ -573,20 +582,66 @@ pub struct HttpResponse {
 /// the plugin vocabulary (`plugin_egress_profile_missing` for a profile the
 /// install did not consent) and maps the domain verdict onto [`Refusal`]. The
 /// transport half — resolution, pinning, the response cap, the redirect
-/// refusal — runs after this returns `Ok`, in `crate::http`.
+/// refusal — runs after this returns `Ok`, parent-side, in core-api's
+/// `plugin_http` (W53-12).
 ///
 /// Refusals, in order: the profile is not consented, the scheme is not
 /// `https`, the URL carries userinfo or a non-default port, the host is not
 /// publicly routable, the authority is not in the allowlist, the path is not
 /// under the scope's prefix.
 pub fn authorize_egress(scopes: &EgressScopes, profile: &str, url: &str) -> Result<(), Refusal> {
+    authorize_egress_target(scopes, profile, url).map(|_| ())
+}
+
+/// The same decision, keeping the [`core_domain::egress::EgressTarget`] it
+/// produced.
+///
+/// The parent needs the target as well as the verdict: the transport fetches
+/// exactly the URL that was screened, never the guest's string again. The
+/// worker's gate calls this and drops the target, so the two share one
+/// implementation of "may this URL go out".
+pub fn authorize_egress_target(
+    scopes: &EgressScopes,
+    profile: &str,
+    url: &str,
+) -> Result<core_domain::egress::EgressTarget, Refusal> {
     let allowlist = scopes
         .get(profile)
         .filter(|list| !list.is_empty())
         .ok_or(Refusal::EgressProfileMissing)?;
-    core_domain::egress::authorize_strings(url, allowlist)
-        .map(|_| ())
-        .map_err(crate::http::refusal_for)
+    core_domain::egress::authorize_strings(url, allowlist).map_err(refusal_for)
+}
+
+/// Maps a domain verdict onto the plugin refusal vocabulary.
+///
+/// Here, in the module that owns the ABI strings, because three callers must
+/// answer the same code for the same fact: the worker's `Egress` gate, the
+/// parent's re-screen (W53-12 moved the transport there), and the transport's
+/// own resolution check.
+pub fn refusal_for(denial: core_domain::egress::EgressDenial) -> Refusal {
+    use core_domain::egress::EgressDenial;
+    match denial {
+        EgressDenial::EmptyAllowlist => Refusal::EgressProfileMissing,
+        EgressDenial::SchemeDenied => Refusal::EgressSchemeDenied,
+        // A URL the ABI could not even parse is a frame error, not a host
+        // verdict: the guest handed over something that is not a URL.
+        EgressDenial::MalformedUrl | EgressDenial::UrlTooLong => Refusal::FrameInvalid,
+        // The ABI's egress vocabulary is closed at four strings (ADR 0023
+        // Decision 3), so every host-shaped denial shares one. The domain
+        // verdict keeps them apart for the audit detail; the guest sees the
+        // coarse code.
+        EgressDenial::UserInfoDenied
+        | EgressDenial::PortDenied
+        | EgressDenial::HostDenied
+        | EgressDenial::PathDenied
+        | EgressDenial::PrivateAddress
+        | EgressDenial::RedirectDenied
+        | EgressDenial::Unresolved
+        | EgressDenial::ScopeMalformed => Refusal::EgressHostDenied,
+        // `EgressDenial` is `non_exhaustive`: a variant a later wave adds fails
+        // closed here rather than falling through to a success.
+        _ => Refusal::EgressHostDenied,
+    }
 }
 
 #[cfg(test)]
@@ -639,7 +694,7 @@ mod tests {
             assert_eq!(Refusal::parse(refusal.as_str()), Some(refusal));
             assert_eq!(Refusal::from_code(refusal.code()), Some(refusal));
         }
-        assert_eq!(Refusal::ALL.len(), 24);
+        assert_eq!(Refusal::ALL.len(), 25);
         assert_eq!(Refusal::from_code(0), None);
         assert_eq!(Refusal::from_code(99), None);
     }

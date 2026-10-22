@@ -77,10 +77,14 @@ pub enum Refusal {
     RateLimited,
     ConcurrencyLimited,
     RuntimeDisabled,
+    /// The profile needs a credential the host could not present: no binding,
+    /// a withdrawn category grant, or a record with no material field. One code
+    /// for all three, so a plugin cannot probe the shape of an org's vault.
+    CredentialRefused,
 }
 
 impl Refusal {
-    pub const ALL: [Refusal; 24] = [
+    pub const ALL: [Refusal; 25] = [
         Refusal::CapabilityNotGranted,
         Refusal::LogBudgetExceeded,
         Refusal::KvNamespaceDenied,
@@ -105,6 +109,7 @@ impl Refusal {
         Refusal::RateLimited,
         Refusal::ConcurrencyLimited,
         Refusal::RuntimeDisabled,
+        Refusal::CredentialRefused,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -133,6 +138,7 @@ impl Refusal {
             Refusal::RateLimited => "plugin_rate_limited",
             Refusal::ConcurrencyLimited => "plugin_concurrency_limited",
             Refusal::RuntimeDisabled => "plugin_runtime_disabled",
+            Refusal::CredentialRefused => "plugin_credential_refused",
         }
     }
 
@@ -162,6 +168,7 @@ impl Refusal {
             Refusal::RateLimited => 22,
             Refusal::ConcurrencyLimited => 23,
             Refusal::RuntimeDisabled => 24,
+            Refusal::CredentialRefused => 25,
         }
     }
 

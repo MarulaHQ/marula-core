@@ -91,7 +91,7 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use core_db::plugin_surface::{self, SurfaceEntryRow};
 use core_domain::entities::plugins::{PluginInstall, PluginManifestV2, SurfaceActionEffect};
@@ -295,6 +295,29 @@ pub async fn invoke_surface(
     plugins: &PoolSlot,
     call: &SurfaceCall<'_>,
 ) -> core_db::DbResult<SurfaceOutcome> {
+    // No transport: a caller that wants `http_request` to work passes one to
+    // `invoke_surface_with`. A guest that asks for the network here is answered
+    // `plugin_not_implemented`, which is what a process with nowhere to send
+    // owes it.
+    let mut none = crate::egress::NoHttpEgress;
+    invoke_surface_with(tx, db, store, plugins, &mut none, call).await
+}
+
+/// [`invoke_surface`], with the parent-side egress transport the caller owns.
+///
+/// `http` is what performs a guest's `http_request`: it holds the secret key, the
+/// client and the DNS pinning, and it lives in core-api rather than here so this
+/// crate — which the worker binary also links — stays free of a network client.
+/// The seam is a trait object because the executor cannot name the type that
+/// implements it without depending on it.
+pub async fn invoke_surface_with(
+    tx: &mut PgConnection,
+    db: &sqlx::PgPool,
+    store: &dyn ObjectStore,
+    plugins: &PoolSlot,
+    http: &mut dyn crate::egress::HttpEgress,
+    call: &SurfaceCall<'_>,
+) -> core_db::DbResult<SurfaceOutcome> {
     let started = Instant::now();
 
     let entry = match plugin_surface::get_entry_by_key(
@@ -466,6 +489,13 @@ pub async fn invoke_surface(
         tx: &mut *tx,
         org_id: install.org_id,
         install_id: install.id,
+        http,
+        scopes: request.egress.clone(),
+        // The install's own grant set, resolved onto the matrix. The worker
+        // already gated the call; the parent re-derives the same answer from
+        // its own record because the worker is what it isolates.
+        granted: install.granted_permissions(),
+        transport_budget: crate::runtime::TRANSPORT_BUDGET,
     };
     let result = plugins
         .invoke_with(&request, &artifact, &mut host_calls)
@@ -676,6 +706,20 @@ struct TransactionHostCalls<'a> {
     tx: &'a mut PgConnection,
     org_id: Uuid,
     install_id: Uuid,
+    /// The parent-side transport for `http_request` (W53-12). The executor
+    /// cannot name its type — core-api owns it — so it is a seam.
+    http: &'a mut dyn crate::egress::HttpEgress,
+    /// The install's consented egress profiles, from the PINNED manifest and
+    /// the parent's own copy. A frame cannot add to it: `HostCallOp` has no
+    /// field for an allowlist.
+    scopes: abi::EgressScopes,
+    /// The install's grants, resolved onto the existing permission matrix. Used
+    /// only to re-check the capability a call needs.
+    granted: Vec<core_domain::policy::Permission>,
+    /// How much wall clock this invocation's transport may still spend. Every
+    /// HTTP call is clamped to what is left, so 64 calls cannot each take the
+    /// full budget.
+    transport_budget: Duration,
 }
 
 impl HostCallService for TransactionHostCalls<'_> {
@@ -753,6 +797,9 @@ impl HostCallService for TransactionHostCalls<'_> {
                         Err(error) => store_failure("kv_delete", error),
                     }
                 }
+                HostCallOp::HttpRequest { profile, request } => {
+                    self.exchange_http(&profile, &request).await
+                }
                 HostCallOp::KvList {
                     namespace,
                     prefix,
@@ -785,6 +832,155 @@ impl HostCallService for TransactionHostCalls<'_> {
                 }
             }
         })
+    }
+}
+
+impl TransactionHostCalls<'_> {
+    /// One `http_request`, in the order that makes each refusal mean something.
+    ///
+    /// 1. **The capability**, re-derived here from the install's own grant set.
+    ///    The worker's gate already did this; a worker that skipped its gate
+    ///    must not be able to spend a capability the install does not hold.
+    /// 2. **The profile and the URL**, screened against the parent's own copy of
+    ///    the pinned manifest's `outbound_scopes` — the same
+    ///    `core_domain::egress` functions the worker used, called again because
+    ///    this is the process that actually sends.
+    /// 3. **The binding**, resolved on the invocation's transaction and
+    ///    re-authorised against the vault's category grant. This is the call
+    ///    that turns a name into sealed bytes, and the one that must refuse when
+    ///    an operator's read was withdrawn after consent. A profile with NO
+    ///    binding is not refused: it goes out uncredentialed, which is what an
+    ///    allowlisted `http_request` meant before this lane. A profile whose
+    ///    binding exists but cannot be used refuses, because sending it anyway
+    ///    would downgrade an authenticated connector to an anonymous one
+    ///    without anybody saying so.
+    /// 4. **The send**, clamped to the transport budget that is left.
+    ///
+    /// The credential never reaches this function in plaintext: `resolve`
+    /// returns ciphertext, and the transport decrypts it in core-api, in the
+    /// process that owns the key. Nothing about the credential is returned to
+    /// the caller — the guest sees status, headers and body.
+    async fn exchange_http(
+        &mut self,
+        profile: &str,
+        request: &abi::HttpRequest,
+    ) -> HostCallOutcome {
+        let needed = if request.is_write() {
+            core_domain::entities::PluginCapability::AutomationActions
+        } else {
+            core_domain::entities::PluginCapability::AutomationReads
+        };
+        if !core_domain::policy::check(&self.granted, needed.permission()).is_allowed() {
+            return refused_host(HostCallRefusal::CapabilityNotGranted);
+        }
+        let target = match abi::authorize_egress_target(&self.scopes, profile, &request.url) {
+            Ok(target) => target,
+            Err(refusal) => return refused_host(host_refusal(refusal)),
+        };
+
+        if self.transport_budget.is_zero() {
+            return refused_host(HostCallRefusal::BudgetExhausted);
+        }
+
+        let credential = match core_db::plugin_credentials::resolve(
+            &mut *self.tx,
+            self.org_id,
+            self.install_id,
+            profile,
+        )
+        .await
+        {
+            Ok(core_db::plugin_credentials::ResolveOutcome::Granted(credential)) => {
+                // Moved out of the box rather than copied: the sealed bytes are
+                // the largest thing this path carries and there is exactly one
+                // owner.
+                let core_db::plugin_credentials::ResolvedCredential {
+                    org_id,
+                    record_id,
+                    field_key,
+                    header_name,
+                    sealed,
+                    ..
+                } = *credential;
+                Some(crate::egress::SealedCredential {
+                    org_id,
+                    record_id,
+                    field_key,
+                    header_name,
+                    sealed,
+                })
+            }
+            // NO BINDING IS NOT A REFUSAL. The profile is consented (the gate
+            // checked it against the manifest), and an uncredentialed request
+            // to an allowlisted host is exactly what Wave 53 shipped. The
+            // binding's EXISTENCE is what makes a credential required: a
+            // profile nobody bound sends anonymously, and a profile whose
+            // binding cannot be used refuses below rather than silently
+            // downgrading an authenticated connector to an anonymous one.
+            Ok(core_db::plugin_credentials::ResolveOutcome::NotBound) => None,
+            Ok(core_db::plugin_credentials::ResolveOutcome::GrantRevoked) => {
+                tracing::info!(
+                    install_id = %self.install_id,
+                    profile,
+                    cause = "grant_revoked",
+                    "the vault category grant no longer covers this binding"
+                );
+                return refused_host(HostCallRefusal::CredentialRefused);
+            }
+            Ok(core_db::plugin_credentials::ResolveOutcome::FieldMissing) => {
+                tracing::info!(
+                    install_id = %self.install_id,
+                    profile,
+                    cause = "field_missing",
+                    "the bound record has no material field"
+                );
+                return refused_host(HostCallRefusal::CredentialRefused);
+            }
+            Err(error) => {
+                // The store is the parent's own, so a failure here is the
+                // mechanism breaking, not a decision about the plugin.
+                tracing::warn!(error = %error, "credential resolve failed");
+                return refused_host(HostCallRefusal::Failed);
+            }
+        };
+
+        let started = Instant::now();
+        let sent = self
+            .http
+            .send(&target, request, credential.as_ref(), self.transport_budget)
+            .await;
+        self.transport_budget = self.transport_budget.saturating_sub(started.elapsed());
+        match sent {
+            Ok(response) => HostCallOutcome::Ok(HostCallValue::Http(response)),
+            Err(refusal) => refused_host(host_refusal(refusal)),
+        }
+    }
+}
+
+/// A refusal the parent decided, in the shape the bridge carries.
+fn refused_host(refusal: HostCallRefusal) -> HostCallOutcome {
+    HostCallOutcome::Refused(refusal)
+}
+
+/// An ABI refusal from the transport or the screen, mapped onto the bridge's
+/// closed vocabulary.
+///
+/// The transport can only produce the codes below; anything else is the
+/// mechanism failing, and [`HostCallRefusal::Failed`] is what the guest's
+/// `plugin_worker_failed` means. `Refusal` is `non_exhaustive`, so the wildcard
+/// is the fail-closed arm rather than an oversight.
+fn host_refusal(refusal: abi::Refusal) -> HostCallRefusal {
+    use abi::Refusal;
+    match refusal {
+        Refusal::CapabilityNotGranted => HostCallRefusal::CapabilityNotGranted,
+        Refusal::EgressProfileMissing => HostCallRefusal::EgressProfileMissing,
+        Refusal::EgressHostDenied => HostCallRefusal::EgressHostDenied,
+        Refusal::EgressSchemeDenied => HostCallRefusal::EgressSchemeDenied,
+        Refusal::EgressResponseTooLarge => HostCallRefusal::EgressResponseTooLarge,
+        Refusal::FrameInvalid => HostCallRefusal::FrameInvalid,
+        Refusal::CredentialRefused => HostCallRefusal::CredentialRefused,
+        Refusal::NotImplemented => HostCallRefusal::Unavailable,
+        _ => HostCallRefusal::Failed,
     }
 }
 
@@ -1028,6 +1224,59 @@ fn elapsed_us(started: Instant) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every refusal the transport can produce keeps its identity across the
+    /// bridge, and the one the guest must never confuse with anything else —
+    /// code 25 — is unchanged in both directions.
+    ///
+    /// A mapping that collapsed two causes would be a guest-visible difference
+    /// between "no credential" and "the URL was refused", which is the
+    /// distinction an author debugs with.
+    #[test]
+    fn the_transport_refusals_survive_the_bridge() {
+        use abi::Refusal;
+        let pairs = [
+            (
+                Refusal::CapabilityNotGranted,
+                HostCallRefusal::CapabilityNotGranted,
+            ),
+            (
+                Refusal::EgressProfileMissing,
+                HostCallRefusal::EgressProfileMissing,
+            ),
+            (Refusal::EgressHostDenied, HostCallRefusal::EgressHostDenied),
+            (
+                Refusal::EgressSchemeDenied,
+                HostCallRefusal::EgressSchemeDenied,
+            ),
+            (
+                Refusal::EgressResponseTooLarge,
+                HostCallRefusal::EgressResponseTooLarge,
+            ),
+            (Refusal::FrameInvalid, HostCallRefusal::FrameInvalid),
+            (
+                Refusal::CredentialRefused,
+                HostCallRefusal::CredentialRefused,
+            ),
+        ];
+        for (refusal, host) in pairs {
+            assert_eq!(host_refusal(refusal), host, "{refusal:?}");
+            assert_eq!(
+                host.as_refusal(),
+                refusal,
+                "{refusal:?} must come back out unchanged"
+            );
+        }
+        // Anything else is the mechanism failing, which is `plugin_worker_failed`
+        // and counts against the install — the loud direction, not a silent ok.
+        assert_eq!(
+            host_refusal(Refusal::GuestTrap),
+            HostCallRefusal::Failed,
+            "an unmapped refusal fails closed"
+        );
+        assert_eq!(Refusal::CredentialRefused.code(), 25);
+    }
+
     use core_domain::entities::plugins::ConnectorProfile;
     use core_domain::entities::plugins::{
         PluginCapability, PluginInstallStatus, PluginSurfaceProfile, SurfaceAction,

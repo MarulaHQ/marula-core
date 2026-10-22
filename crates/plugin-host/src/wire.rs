@@ -126,6 +126,26 @@ pub const MAX_HOST_CALL_LABEL_BYTES: usize = abi::KV_KEY_MAX_BYTES;
 /// The most keys one `kv_list` reply carries: the ABI's page size.
 pub const MAX_HOST_CALL_PAGE: usize = abi::KV_LIST_PAGE as usize;
 
+/// The largest egress profile name an `http_request` frame carries. Mirrors the
+/// manifest rule (`PluginManifestV2::validate_outbound_scopes`:
+/// `[a-z][a-z0-9_-]{0,63}`), so a name the manifest could not declare is not a
+/// name the frame can carry.
+pub const MAX_HOST_CALL_PROFILE_BYTES: usize = 64;
+/// The largest URL an `http_request` frame carries. The same number the domain
+/// guard stops at (`core_domain::egress::MAX_URL_BYTES`), restated here because
+/// this module is the framing layer and does not link the guard.
+pub const MAX_HOST_CALL_URL_BYTES: usize = core_domain::egress::MAX_URL_BYTES;
+/// The most headers one `http_request` carries in either direction.
+pub const MAX_HOST_CALL_HEADERS: usize = 64;
+/// The largest single header name or value a frame carries. A header the ABI
+/// would have refused at the guest edge, arriving in a frame, is refused before
+/// it is allocated.
+pub const MAX_HOST_CALL_HEADER_BYTES: usize = 4096;
+/// The largest HTTP response body a host reply carries. The transport's own cap
+/// (`abi::HTTP_RESPONSE_MAX_BYTES`), restated so the decoder refuses before it
+/// allocates.
+pub const MAX_HOST_CALL_HTTP_BODY_BYTES: usize = abi::HTTP_RESPONSE_MAX_BYTES;
+
 /// A framing failure. Every variant is the parent's or a test's problem, never
 /// a guest's: the parent turns all of them into
 /// [`InvocationOutcome::WorkerFailed`].
@@ -197,20 +217,22 @@ pub struct ReplyFrame {
 /// One byte on the wire, and the numbers are the contract:
 ///
 /// ```text
-/// 1 kv_get   2 kv_put   3 kv_delete   4 kv_list
+/// 1 kv_get   2 kv_put   3 kv_delete   4 kv_list   5 http_request
 /// ```
 ///
-/// `5`, `6` and `7` are reserved for `emit_event`, `read_model_query` and the
-/// credentialed egress variant of `http_request`. None of them is on the wire
-/// yet: the decoder refuses an unknown code with [`WireError::Malformed`]
-/// instead of guessing a verb, which is what lets a later lane add one without
-/// changing what today's frames mean.
+/// `6` and `7` stay reserved for `emit_event` and `read_model_query`. A code no
+/// verb has is refused with [`WireError::Malformed`] instead of guessed, which
+/// is what lets a later lane add one without changing what today's frames mean.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostVerb {
     KvGet,
     KvPut,
     KvDelete,
     KvList,
+    /// The parent performs the request (Wave 53 lane 12, phase 2). The worker
+    /// has no client and no credential: it forwards the guest's request and
+    /// hands back the answer.
+    HttpRequest,
 }
 
 impl HostVerb {
@@ -220,6 +242,7 @@ impl HostVerb {
             HostVerb::KvPut => 2,
             HostVerb::KvDelete => 3,
             HostVerb::KvList => 4,
+            HostVerb::HttpRequest => 5,
         }
     }
 
@@ -229,6 +252,7 @@ impl HostVerb {
             HostVerb::KvPut => "kv_put",
             HostVerb::KvDelete => "kv_delete",
             HostVerb::KvList => "kv_list",
+            HostVerb::HttpRequest => "http_request",
         }
     }
 
@@ -240,6 +264,7 @@ impl HostVerb {
             2 => Some(HostVerb::KvPut),
             3 => Some(HostVerb::KvDelete),
             4 => Some(HostVerb::KvList),
+            5 => Some(HostVerb::HttpRequest),
             _ => None,
         }
     }
@@ -251,6 +276,11 @@ impl HostVerb {
 /// guest names a LABEL (a namespace and a key); the parent composes the identity
 /// from the invocation it dispatched, so the most a forged frame can do is ask
 /// about a key inside the install that is already running.
+///
+/// `HttpRequest` follows the same rule with a different noun: the frame carries
+/// the PROFILE the manifest declared and the guest's own request, and nothing
+/// that could name a tenant, a vault record or a credential. The parent looks
+/// the binding up from its own record of the invocation (W53-12).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostCallOp {
     KvGet {
@@ -276,6 +306,15 @@ pub enum HostCallOp {
         prefix: String,
         cursor: Option<String>,
     },
+    HttpRequest {
+        /// The profile the guest named, already checked against the install's
+        /// consented `outbound_scopes` by the worker's gate. The parent checks
+        /// it again against its own copy, because the worker is the process it
+        /// isolates.
+        profile: String,
+        /// The guest's request, parsed from the ABI frame.
+        request: abi::HttpRequest,
+    },
 }
 
 impl HostCallOp {
@@ -285,6 +324,7 @@ impl HostCallOp {
             HostCallOp::KvPut { .. } => HostVerb::KvPut,
             HostCallOp::KvDelete { .. } => HostVerb::KvDelete,
             HostCallOp::KvList { .. } => HostVerb::KvList,
+            HostCallOp::HttpRequest { .. } => HostVerb::HttpRequest,
         }
     }
 }
@@ -308,20 +348,27 @@ pub enum HostCallValue {
         keys: Vec<String>,
         cursor: Option<String>,
     },
+    /// One `http_request` answer: status, the response headers the guest may
+    /// see, and the body. The credential is not here and cannot be: the parent
+    /// added it to the request it sent, and nothing about the request comes
+    /// back (W53-12).
+    Http(abi::HttpResponse),
 }
 
 /// Why the parent refused a host call.
 ///
 /// A closed set, because it is the parent's half of the guest's vocabulary:
-/// [`crate::kv::KvError`] maps each one onto an existing ABI [`Refusal`].
+/// [`HostCallRefusal::as_refusal`] maps each one onto one ABI [`Refusal`], and
+/// that mapping is the only place the two vocabularies meet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HostCallRefusal {
     /// The store refused the write on quota (`plugin_kv_quota_exceeded`).
     QuotaExceeded,
     /// The invocation has spent its host-call allowance
-    /// (`runtime::MAX_HOST_CALLS_PER_INVOCATION`). The ABI has no code of its
-    /// own for this, so it is reported as `plugin_fuel_exhausted`: the
-    /// invocation's allowance for work is what ran out.
+    /// (`runtime::MAX_HOST_CALLS_PER_INVOCATION`) or its transport budget. The
+    /// ABI has no code of its own for this, so it is reported as
+    /// `plugin_fuel_exhausted`: the invocation's allowance for work is what ran
+    /// out.
     BudgetExhausted,
     /// Nothing on this path can serve the call (`plugin_not_implemented`):
     /// the pool was handed no service, which is the in-process transport and
@@ -331,6 +378,31 @@ pub enum HostCallRefusal {
     /// (`plugin_worker_failed`). The one refusal that counts against the
     /// install's health.
     Failed,
+    /// The install does not hold the capability the call needs
+    /// (`plugin_capability_not_granted`). The parent re-derives this from the
+    /// install's own grant set, so a worker that skipped its gate cannot spend
+    /// a capability the install does not have.
+    CapabilityNotGranted,
+    /// The profile is not in the install's consented egress scopes
+    /// (`plugin_egress_profile_missing`).
+    EgressProfileMissing,
+    /// The URL, or the address it resolved to, is outside the consented scope
+    /// (`plugin_egress_host_denied`).
+    EgressHostDenied,
+    /// The scheme is not https (`plugin_egress_scheme_denied`).
+    EgressSchemeDenied,
+    /// The response is above the ABI's cap
+    /// (`plugin_egress_response_too_large`).
+    EgressResponseTooLarge,
+    /// A header, a method or a URL shape the ABI would have refused
+    /// (`plugin_abi_frame_invalid`). A guest naming a host-owned header, or the
+    /// header its own credential is injected as, lands here.
+    FrameInvalid,
+    /// The profile needs a credential and the parent could not present one
+    /// (`plugin_credential_refused`): no binding, a withdrawn category grant,
+    /// or a record with no material field. One code for all three, so a guest
+    /// cannot probe the shape of an org's vault.
+    CredentialRefused,
 }
 
 impl HostCallRefusal {
@@ -340,6 +412,13 @@ impl HostCallRefusal {
             HostCallRefusal::BudgetExhausted => 2,
             HostCallRefusal::Unavailable => 3,
             HostCallRefusal::Failed => 4,
+            HostCallRefusal::CapabilityNotGranted => 5,
+            HostCallRefusal::EgressProfileMissing => 6,
+            HostCallRefusal::EgressHostDenied => 7,
+            HostCallRefusal::EgressSchemeDenied => 8,
+            HostCallRefusal::EgressResponseTooLarge => 9,
+            HostCallRefusal::FrameInvalid => 10,
+            HostCallRefusal::CredentialRefused => 11,
         }
     }
 
@@ -349,7 +428,32 @@ impl HostCallRefusal {
             2 => Some(HostCallRefusal::BudgetExhausted),
             3 => Some(HostCallRefusal::Unavailable),
             4 => Some(HostCallRefusal::Failed),
+            5 => Some(HostCallRefusal::CapabilityNotGranted),
+            6 => Some(HostCallRefusal::EgressProfileMissing),
+            7 => Some(HostCallRefusal::EgressHostDenied),
+            8 => Some(HostCallRefusal::EgressSchemeDenied),
+            9 => Some(HostCallRefusal::EgressResponseTooLarge),
+            10 => Some(HostCallRefusal::FrameInvalid),
+            11 => Some(HostCallRefusal::CredentialRefused),
             _ => None,
+        }
+    }
+
+    /// The ABI code the guest sees. Every variant has one, and this is the only
+    /// place the host-call vocabulary and the ABI's meet.
+    pub const fn as_refusal(self) -> abi::Refusal {
+        match self {
+            HostCallRefusal::QuotaExceeded => abi::Refusal::KvQuotaExceeded,
+            HostCallRefusal::BudgetExhausted => abi::Refusal::FuelExhausted,
+            HostCallRefusal::Unavailable => abi::Refusal::NotImplemented,
+            HostCallRefusal::Failed => abi::Refusal::WorkerFailed,
+            HostCallRefusal::CapabilityNotGranted => abi::Refusal::CapabilityNotGranted,
+            HostCallRefusal::EgressProfileMissing => abi::Refusal::EgressProfileMissing,
+            HostCallRefusal::EgressHostDenied => abi::Refusal::EgressHostDenied,
+            HostCallRefusal::EgressSchemeDenied => abi::Refusal::EgressSchemeDenied,
+            HostCallRefusal::EgressResponseTooLarge => abi::Refusal::EgressResponseTooLarge,
+            HostCallRefusal::FrameInvalid => abi::Refusal::FrameInvalid,
+            HostCallRefusal::CredentialRefused => abi::Refusal::CredentialRefused,
         }
     }
 }
@@ -840,8 +944,77 @@ pub fn encode_host_call(frame: &HostCallFrame) -> Result<Vec<u8>, WireError> {
                 None => writer.u8(0),
             }
         }
+        HostCallOp::HttpRequest { profile, request } => {
+            if profile.len() > MAX_HOST_CALL_PROFILE_BYTES {
+                return Err(WireError::TooLarge);
+            }
+            writer.str(profile)?;
+            encode_http_request(&mut writer, request)?;
+        }
     }
     writer.finish()
+}
+
+/// The request half of `http_request`: method, URL, guest headers, body.
+///
+/// Four caps and every one of them is checked before the bytes are written, so
+/// a frame that claims a giant URL or header count is refused rather than
+/// sized.
+fn encode_http_request(writer: &mut Writer, request: &abi::HttpRequest) -> Result<(), WireError> {
+    if request.method.len() > MAX_HOST_CALL_PROFILE_BYTES
+        || request.url.len() > MAX_HOST_CALL_URL_BYTES
+        || request.headers.len() > MAX_HOST_CALL_HEADERS
+    {
+        return Err(WireError::TooLarge);
+    }
+    if let Some(body) = &request.body {
+        if body.len() > abi::MAX_INPUT_BYTES {
+            return Err(WireError::TooLarge);
+        }
+    }
+    writer.str(&request.method)?;
+    writer.str(&request.url)?;
+    writer.u16(request.headers.len())?;
+    for (name, value) in &request.headers {
+        if name.len() > MAX_HOST_CALL_HEADER_BYTES || value.len() > MAX_HOST_CALL_HEADER_BYTES {
+            return Err(WireError::TooLarge);
+        }
+        writer.str(name)?;
+        writer.str(value)?;
+    }
+    match &request.body {
+        Some(body) => {
+            writer.u8(1);
+            writer.bytes(body.as_bytes())?;
+        }
+        None => writer.u8(0),
+    }
+    Ok(())
+}
+
+/// The response half: status, headers, body. Bounded by the transport's own cap
+/// so the bytes the guest's answer allocates cannot exceed what the transport
+/// already refused to buffer.
+fn encode_http_response(
+    writer: &mut Writer,
+    response: &abi::HttpResponse,
+) -> Result<(), WireError> {
+    if response.headers.len() > MAX_HOST_CALL_HEADERS
+        || response.body.len() > MAX_HOST_CALL_HTTP_BODY_BYTES
+    {
+        return Err(WireError::TooLarge);
+    }
+    writer.u16(usize::from(response.status))?;
+    writer.u16(response.headers.len())?;
+    for (name, value) in &response.headers {
+        if name.len() > MAX_HOST_CALL_HEADER_BYTES || value.len() > MAX_HOST_CALL_HEADER_BYTES {
+            return Err(WireError::TooLarge);
+        }
+        writer.str(name)?;
+        writer.str(value)?;
+    }
+    writer.bytes(response.body.as_bytes())?;
+    Ok(())
 }
 
 fn label(writer: &mut Writer, value: &str) -> Result<(), WireError> {
@@ -890,6 +1063,10 @@ pub fn encode_host_reply(frame: &HostReplyFrame) -> Result<Vec<u8>, WireError> {
                 HostCallValue::Existed(existed) => {
                     writer.u8(4);
                     writer.u8(u8::from(*existed));
+                }
+                HostCallValue::Http(response) => {
+                    writer.u8(5);
+                    encode_http_response(&mut writer, response)?;
                 }
             }
         }
@@ -947,6 +1124,16 @@ pub fn decode_host_call(body: &[u8]) -> Result<HostCallFrame, WireError> {
                 cursor,
             }
         }
+        HostVerb::HttpRequest => {
+            let profile = reader.str()?;
+            if profile.len() > MAX_HOST_CALL_PROFILE_BYTES {
+                return Err(WireError::TooLarge);
+            }
+            HostCallOp::HttpRequest {
+                profile,
+                request: decode_http_request(&mut reader)?,
+            }
+        }
     };
     reader.done()?;
     Ok(HostCallFrame {
@@ -988,6 +1175,7 @@ pub fn decode_host_reply(body: &[u8]) -> Result<HostReplyFrame, WireError> {
                 HostCallValue::Page { keys, cursor }
             }
             4 => HostCallValue::Existed(reader.bool()?),
+            5 => HostCallValue::Http(decode_http_response(&mut reader)?),
             _ => return Err(WireError::Malformed),
         };
         HostCallOutcome::Ok(value)
@@ -999,6 +1187,70 @@ pub fn decode_host_reply(body: &[u8]) -> Result<HostReplyFrame, WireError> {
         invocation_id,
         call_id,
         outcome,
+    })
+}
+
+/// The request half of an `http_request` frame, after the profile.
+fn decode_http_request(reader: &mut Reader<'_>) -> Result<abi::HttpRequest, WireError> {
+    let method = reader.str()?;
+    if method.len() > MAX_HOST_CALL_PROFILE_BYTES {
+        return Err(WireError::TooLarge);
+    }
+    let url = reader.str()?;
+    if url.len() > MAX_HOST_CALL_URL_BYTES {
+        return Err(WireError::TooLarge);
+    }
+    let count = reader.u16()?;
+    if count > MAX_HOST_CALL_HEADERS {
+        return Err(WireError::TooLarge);
+    }
+    let mut headers = std::collections::BTreeMap::new();
+    for _ in 0..count {
+        let name = reader.str()?;
+        let value = reader.str()?;
+        if name.len() > MAX_HOST_CALL_HEADER_BYTES || value.len() > MAX_HOST_CALL_HEADER_BYTES {
+            return Err(WireError::TooLarge);
+        }
+        headers.insert(name, value);
+    }
+    let body = if reader.bool()? {
+        Some(
+            String::from_utf8(reader.bytes(abi::MAX_INPUT_BYTES)?)
+                .map_err(|_| WireError::Malformed)?,
+        )
+    } else {
+        None
+    };
+    Ok(abi::HttpRequest {
+        method,
+        url,
+        headers,
+        body,
+    })
+}
+
+/// The response half of a host reply: status, headers, body.
+fn decode_http_response(reader: &mut Reader<'_>) -> Result<abi::HttpResponse, WireError> {
+    let status = reader.u16()?;
+    let count = reader.u16()?;
+    if count > MAX_HOST_CALL_HEADERS {
+        return Err(WireError::TooLarge);
+    }
+    let mut headers = std::collections::BTreeMap::new();
+    for _ in 0..count {
+        let name = reader.str()?;
+        let value = reader.str()?;
+        if name.len() > MAX_HOST_CALL_HEADER_BYTES || value.len() > MAX_HOST_CALL_HEADER_BYTES {
+            return Err(WireError::TooLarge);
+        }
+        headers.insert(name, value);
+    }
+    let body = String::from_utf8(reader.bytes(MAX_HOST_CALL_HTTP_BODY_BYTES)?)
+        .map_err(|_| WireError::Malformed)?;
+    Ok(abi::HttpResponse {
+        status: u16::try_from(status).map_err(|_| WireError::Malformed)?,
+        headers,
+        body,
     })
 }
 
@@ -1291,6 +1543,26 @@ mod tests {
                 prefix: String::new(),
                 cursor: Some("a1".into()),
             },
+            HostCallOp::HttpRequest {
+                profile: "acme".into(),
+                request: abi::HttpRequest {
+                    method: "POST".into(),
+                    url: "https://api.acme.test/v1/tickets?state=open".into(),
+                    headers: [("content-type".to_string(), "application/json".to_string())]
+                        .into_iter()
+                        .collect(),
+                    body: Some("{\"title\":\"x\"}".into()),
+                },
+            },
+            HostCallOp::HttpRequest {
+                profile: "acme".into(),
+                request: abi::HttpRequest {
+                    method: "GET".into(),
+                    url: "https://api.acme.test/v1".into(),
+                    headers: Default::default(),
+                    body: None,
+                },
+            },
         ]
     }
 
@@ -1313,6 +1585,25 @@ mod tests {
             HostCallOutcome::Refused(HostCallRefusal::BudgetExhausted),
             HostCallOutcome::Refused(HostCallRefusal::Unavailable),
             HostCallOutcome::Refused(HostCallRefusal::Failed),
+            HostCallOutcome::Refused(HostCallRefusal::CapabilityNotGranted),
+            HostCallOutcome::Refused(HostCallRefusal::EgressProfileMissing),
+            HostCallOutcome::Refused(HostCallRefusal::EgressHostDenied),
+            HostCallOutcome::Refused(HostCallRefusal::EgressSchemeDenied),
+            HostCallOutcome::Refused(HostCallRefusal::EgressResponseTooLarge),
+            HostCallOutcome::Refused(HostCallRefusal::FrameInvalid),
+            HostCallOutcome::Refused(HostCallRefusal::CredentialRefused),
+            HostCallOutcome::Ok(HostCallValue::Http(abi::HttpResponse {
+                status: 201,
+                headers: [("content-type".to_string(), "application/json".to_string())]
+                    .into_iter()
+                    .collect(),
+                body: "{\"ok\":true}".into(),
+            })),
+            HostCallOutcome::Ok(HostCallValue::Http(abi::HttpResponse {
+                status: 204,
+                headers: Default::default(),
+                body: String::new(),
+            })),
         ]
     }
 
@@ -1368,6 +1659,74 @@ mod tests {
         }
     }
 
+    /// The `http_request` frame carries the guest's request and a profile name,
+    /// and nothing that could name a tenant, a record or a credential.
+    ///
+    /// The credential is the point of the verb, so the absence is asserted on
+    /// the bytes: a frame that could carry `Authorization: Bearer …` would be a
+    /// credential channel from the process that runs untrusted wasm.
+    #[test]
+    fn an_http_frame_carries_no_credential_and_no_tenant() {
+        let op = HostCallOp::HttpRequest {
+            profile: "acme".into(),
+            request: abi::HttpRequest {
+                method: "GET".into(),
+                url: "https://api.acme.test/v1".into(),
+                headers: Default::default(),
+                body: None,
+            },
+        };
+        let framed = encode_host_call(&HostCallFrame {
+            invocation_id: Uuid::parse_str("018f0a5e-0000-7000-8000-00000000cccc").expect("uuid"),
+            call_id: 1,
+            op,
+        })
+        .expect("encode");
+        for forbidden in [
+            b"authorization".as_slice(),
+            b"x-api-key".as_slice(),
+            b"header_name".as_slice(),
+            b"sealed".as_slice(),
+            b"record".as_slice(),
+        ] {
+            assert!(
+                !framed
+                    .windows(forbidden.len())
+                    .any(|window| window == forbidden),
+                "the http frame must not carry {:?}",
+                String::from_utf8_lossy(forbidden)
+            );
+        }
+        for id in [
+            "018f0a5e-0000-7000-8000-00000000aaaa",
+            "018f0a5e-0000-7000-8000-00000000bbbb",
+        ] {
+            let bytes = Uuid::parse_str(id).expect("uuid").into_bytes();
+            assert!(
+                !framed.windows(16).any(|window| window == bytes),
+                "the http frame carries a tenant id"
+            );
+        }
+    }
+
+    #[test]
+    fn a_profile_over_the_cap_is_refused_at_encode_time() {
+        let op = HostCallOp::HttpRequest {
+            profile: "a".repeat(MAX_HOST_CALL_PROFILE_BYTES + 1),
+            request: abi::HttpRequest {
+                method: "GET".into(),
+                url: "https://api.acme.test/v1".into(),
+                headers: Default::default(),
+                body: None,
+            },
+        };
+        assert_eq!(
+            encode_host_call(&call(op)),
+            Err(WireError::TooLarge),
+            "a profile name the manifest could not declare is refused before it is written"
+        );
+    }
+
     #[test]
     fn a_verb_no_frame_defines_is_malformed_and_never_guessed() {
         let frame = call(HostCallOp::KvDelete {
@@ -1377,22 +1736,25 @@ mod tests {
         let framed = encode_host_call(&frame).expect("encode");
         let mut body = framed[4..].to_vec();
         // header(6) + invocation uuid(16) + call_id(8) -> the verb byte.
-        body[30] = 5;
+        // 5 is `http_request` since W53-12; 6 stays reserved for
+        // `emit_event`, so an unknown code still refuses rather than guesses.
+        body[30] = 6;
         assert_eq!(decode_host_call(&body), Err(WireError::Malformed));
         body[30] = 0;
         assert_eq!(decode_host_call(&body), Err(WireError::Malformed));
-        // And the codes the KV verbs do use are stable, because a later lane's
-        // verb must slot in beside them rather than renumber them.
+        // And the codes the verbs do use are stable, because a later lane's verb
+        // must slot in beside them rather than renumber them.
         for (code, verb) in [
             (1, HostVerb::KvGet),
             (2, HostVerb::KvPut),
             (3, HostVerb::KvDelete),
             (4, HostVerb::KvList),
+            (5, HostVerb::HttpRequest),
         ] {
             assert_eq!(HostVerb::parse(code), Some(verb));
             assert_eq!(verb.code(), code);
         }
-        for reserved in 5..=7 {
+        for reserved in 6..=7 {
             assert_eq!(
                 HostVerb::parse(reserved),
                 None,

@@ -145,19 +145,21 @@ test("the catalogue is the v1 ABI the ADR fixes", () => {
 });
 
 test("refusal codes are dense from 1 and every reason is unique", () => {
-  assert.equal(REFUSALS.length, 24);
+  assert.equal(REFUSALS.length, 25);
   const codes = REFUSALS.map((row) => row.code).toSorted((a, b) => a - b);
   assert.deepEqual(
     codes,
-    Array.from({ length: 24 }, (_, index) => index + 1),
+    Array.from({ length: 25 }, (_, index) => index + 1),
   );
-  assert.equal(new Set(REFUSALS.map((row) => row.reason)).size, 24);
+  assert.equal(new Set(REFUSALS.map((row) => row.reason)).size, 25);
 });
 
 test("refusalCode resolves the strings an author will actually see", () => {
   assert.equal(refusalCode("plugin_capability_not_granted"), 1);
   assert.equal(refusalCode("plugin_not_implemented"), 13);
   assert.equal(refusalCode("plugin_abi_frame_invalid"), 15);
+  // The one a credentialed egress call can return (W53-12).
+  assert.equal(refusalCode("plugin_credential_refused"), 25);
   assert.equal(refusalCode("plugin_something_that_does_not_exist"), undefined);
 });
 
