@@ -83,6 +83,7 @@ pub mod outbox;
 pub mod partitions;
 pub mod passwords;
 pub mod pipeline;
+pub mod plugin_credentials;
 pub mod plugin_distribution;
 pub mod plugin_health;
 pub mod plugin_kv;
