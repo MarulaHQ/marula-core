@@ -36,10 +36,13 @@ at a separate process. A PSA's latency budget wants no boundary at all, which
 points at a function call. The measurement decides how much boundary the budget
 affords, and it turns out to afford all of it.
 
-Numbers below come from one detached benchmark crate: a 4 KiB payload, an FNV-1a
-digest over every byte, a 64-byte output, both runtimes on wasmtime 43.0.2, three
-interleaved runs, 20,000 samples per call path, nearest-rank percentiles, median
-of the runs reported. Microseconds unless stated.
+Numbers below come from one detached benchmark crate: a 4 KiB payload, an FNV-1a digest
+over every byte, a 64-byte output, 20,000 samples per call path, nearest-rank percentiles,
+microseconds unless stated. The runtime comparison ran on wasmtime 43.0.2, three interleaved
+runs, because both harnesses needed one engine. The version that ships, 48.0.7, was
+benchmarked afterwards with two runs and a concurrency ladder at the anchor's own queue
+depth; those figures are marked where they appear, and the worst of two runs is what is
+quoted, since a median of two samples does not exist.
 
 ## Decision 1 — Runtime: raw wasmtime, exact-pinned, with the host's own ABI
 
@@ -49,7 +52,7 @@ amendment to this ADR rather than a `cargo update`.
 
 The choice was made against numbers, not preference:
 
-| Measurement | raw wasmtime 43 | Extism 1.30 |
+| Measurement | raw wasmtime 43.0.2 | Extism 1.30 |
 |---|---|---|
 | call p50 | 5.29 µs | 10.00 µs |
 | call p95 | 5.50 µs | 12.46 µs |
@@ -99,11 +102,17 @@ defensible.
 (`rust-toolchain.toml`), which is rustc 1.95.0 here. wasmtime 48.0.7 declares
 MSRV 1.95 and is the newest release that fits. wasmtime 49 needs 1.96, and Extism
 1.41 requires wasmtime 49, which is a second, independent reason not to adopt it
-today. **The measurements above ran on 43.0.2**, because the comparison needed
-one engine under both harnesses. The host lane re-runs the archived benchmark
-against the pinned version and records the result. That is a formality against
-the decision, which turns on two orders of magnitude, and it is the honest
-sequence: the version that ships is the version that is benchmarked.
+today. **48.0.7 has since been benchmarked**, so the pin is measured rather than
+asserted. The table above is the 43.0.2 comparison run, because both harnesses needed one
+engine, and the shipping version was re-run on its own afterwards.
+
+The re-run did not move what decides anything. Compile p50 came back at 656.8 µs in one rep
+and 401.7 in the other, against 410.8 on 43.0.2, which is this box's spread rather than a
+version difference. Instantiate was 7.63 and 4.54 µs against 4.38. The per-call figures are
+unchanged: 5.21 µs in process at one caller, 9.38 through the pool, and 38,909 fuel in every
+sample. So the 10× instantiate gap and the 2.3× compile gap against Extism hold at the worse
+end of the rep spread, and the decision rests on Extism's built-in host surface rather than
+on microseconds.
 
 ## Decision 2 — Isolation: a supervised pool on both profiles, and it clears the guardrail
 
@@ -112,25 +121,32 @@ sequence: the version that ships is the version that is benchmarked.
 the shipped image in another role, so there is no new container to deploy
 (`docs/deploy-descriptor.md`: one image, `role_arg` selects the binary).
 
-| Path, 4 KiB, one caller | p50 | p95 | p99 |
-|---|---|---|---|
-| in process, one instance | 5.29 | 5.50 | 5.88 |
-| pool, one worker | 9.33 | 13.12 | 25.25 |
-| **added by the process boundary** | **+4.04** | **+7.62** | **+19.37** |
+The guardrail has to be measured at the concurrency the anchor runs at. Little's law over
+695.3 requests/second and the anchor's three percentiles puts the queue depth at 18, 65 and
+205 callers. The earlier run used 8 callers, which was an arbitrary figure and is retired.
 
-Under 8 concurrent callers, 8,000 samples each:
+Measured on the shipping engine, 48.0.7, worse of two runs, one instance per resource:
 
-| Path | p50 | p95 | p99 |
-|---|---|---|---|
-| in process, 4 instances | 5.83 | 7.92 | 15.58 |
-| pool, 4 workers | 26.46 | 43.71 | 56.92 |
-| pool, 1 worker | 10.29 | 14.42 | 29.62 |
-| **added by the pool, 4 workers** | **+20.63** | **+35.79** | **+41.34** |
+| Path | c=18 | | | c=65 | | | c=205 | | |
+|---|---|---|---|---|---|---|---|---|---|
+| | p50 | p95 | p99 | p50 | p95 | p99 | p50 | p95 | p99 |
+| in process, 1 instance | 5.54 | 6.46 | 6.92 | 5.58 | 6.42 | 7.79 | 5.58 | 6.25 | 16.12 |
+| pool, 1 worker | 10.25 | 13.38 | 17.21 | 10.58 | 14.67 | 26.33 | 12.00 | 16.04 | 25.88 |
+| in process, 2 instances | 5.79 | 7.29 | 9.12 | 5.83 | 7.33 | 10.29 | 5.88 | 7.50 | 16.88 |
+| pool, 2 workers | 15.17 | 26.25 | 31.00 | 15.67 | 27.00 | 31.58 | 17.25 | 28.92 | 35.08 |
 
-A cold worker start (spawn, compile, first call answered) is 6.22 ms at the
-median over 30 starts. One warm worker answers 107,200 invocations per second,
-against an anchor of 695 requests per second in total, so the pool is not a
-throughput constraint in any configuration this ADR allows.
+The same rows differenced, so the boundary's own cost stands alone:
+
+| Added | c=18 | | | c=65 | | | c=205 | | |
+|---|---|---|---|---|---|---|---|---|---|
+| | p50 | p95 | p99 | p50 | p95 | p99 | p50 | p95 | p99 |
+| 1 worker against 1 instance | +4.71 | +6.92 | +10.29 | +5.00 | +8.25 | +18.54 | +6.42 | +9.79 | +9.75 |
+| 2 workers against 2 instances | +9.38 | +18.96 | +21.88 | +9.84 | +19.67 | +21.29 | +11.37 | +21.42 | +18.20 |
+
+A cold worker start (spawn, compile, first call answered) is 3.93 ms at the median over 30
+starts. One warm worker answers about 106,600 invocations per second (1 / 9.38 µs), against
+an anchor of 695 requests per second in total, so the pool is not a throughput constraint in
+any configuration this ADR allows.
 
 **The guardrail.** The recorded anchor is 695.3 requests/second, p50 25.9 ms, p95
 93.2 ms, p99 294.8 ms (`docs/perf.md:369`). The wave allows the pool only if it
@@ -143,10 +159,11 @@ invocation share:
 | 5% of p95 | 4,660 µs |
 | 10% of p99 | 29,480 µs |
 
-**The pool lands inside the guardrail.** Its worst measured increment, 35.79 µs
-at p95 with 8 callers on 4 workers, is 0.77% of the p95 budget, which leaves a
-factor of 130. The uncontended increment is 0.16% of the budget, a factor of 611.
-Read the other way, the pool's whole p95 is 0.047% of the anchor's p95.
+**The pool lands inside the guardrail.** Its worst measured increment anywhere in the ladder
+is 21.42 µs at p95 with 205 callers on 2 workers, which is 0.46% of the p95 budget and leaves
+a factor of 218. At p99 the worst is 21.88 µs, 0.074% of its budget, a factor of 1,347. The
+one-worker path at the same concurrency adds 9.79 µs at p95, 0.21% of the budget. Read the
+other way, the pool's whole p95 at 205 callers is 0.031% of the anchor's p95.
 
 What the guardrail buys is fault isolation, and that is the reason to spend it:
 
@@ -171,8 +188,8 @@ should not have; it cannot decide that a call is allowed.
 
 | Profile | Worker count | Where the worker runs | Why |
 |---|---|---|---|
-| `all-in-one` | 1 | child of core-api, same container | one box, one container, no second moving part to operate |
-| `split` | 2 | own process, own role, restart supervised | the profile already runs separate processes and expects to scale them |
+| `all-in-one` | 1 | child of core-api, same container | one box, one container, and 18 median callers fit inside one worker |
+| `split` | W53-3 measures it | own process, own role, restart supervised | the profile already runs separate processes and expects to scale them, and the ladder cannot settle the count |
 
 `all-in-one` and `split` are the deployment profiles (`docs/deploy-descriptor.md:58-61`).
 `single_box`, `balanced`, `durable` and `best_effort` are reliability presets instead: retry
@@ -182,15 +199,28 @@ a split deployment can run the `single_box` preset, and this ADR sizes the pool 
 and never by preset. The `durable` in Decision 4's timeout row is the preset, and there it is
 the right word.
 
-Two workers is a deliberate small number. On this box, 4 workers under 8 callers
-were slower than 1 worker under 8 callers (26.46 µs against 10.29 µs at p50),
-because the extra processes cost more in scheduling than the queue costs in
-waiting. Sizing the pool by core count is the reflex this measurement rejects.
-The pool is there on the fast path only if you never oversubscribe it, and one
-worker already covers the anchor's entire request rate as plugin calls.
+**The worker count, and what the ladder does not settle.** `all-in-one` gets one worker: the
+anchor's 18 median callers fit inside it, and one worker covers the anchor's whole request rate
+as plugin calls. `split`'s count is W53-3's to set, for the reason in the next paragraph.
+
+Two workers are 40 to 50% slower than one at p50 everywhere in the ladder, which reads like a
+sizing law and is not one. The in-process control shows the same ordering with no socket, no
+process and no frame: two instances are 4 to 5% slower at p50 and 13 to 20% slower at p95. The
+harness explains that. `run_concurrent` takes a global mutex to record each sample and another
+to take and return a resource, so more threads means more contention on the rig's own state on
+both paths, and the resource handoff sits inside the measured window. The claim this ADR used
+to make, that 4 workers under 8 callers lost to 1 and that pool sizing should follow it, was
+that artifact written down as a rule. It is withdrawn, and so is the 8-caller run behind it.
+
+One thing survives, and it is a hypothesis rather than a rule. The boundary's added cost
+roughly doubles between one worker and two, from +4.71 to +9.38 µs at p50 and from +6.92 to
++18.96 at p95. The control is subtracted on both sides, so the rig alone does not produce that
+gap. The likely cause is the prototype's parent dispatch, a single synchronous pipe read that
+would not scale to two. W53-3 tests that against a real executor and a real request path, and
+sets `split`'s count from the result.
 
 **`in_process` remains available and is not a tier.** It exists for one purpose:
-a box that cannot spare the 13.5 MiB resident cost of a worker, and the guardrail
+a box that cannot spare the 9.5 MiB resident cost of a worker, and the guardrail
 fallback this wave asked about. It is one knob, it is documented, it does not
 change what a plugin may do, and it selects the same authorization path, the same
 host functions and the same limits.
@@ -297,8 +327,8 @@ kind, in both the validator and the kit, which is where the egress allowlist
 
 Fuel is the interesting one, because it is the only limit that is exact. The same
 input costs the same fuel every time, so the cap is a quota rather than a proxy,
-and metering costs nothing measurable: 5.29 µs at the median with metering and
-5.29 µs without.
+and metering costs nothing measurable: 5.21 µs with metering and 5.21 µs without,
+at one caller on the shipping pin.
 
 ## Decision 5 — State: one namespaced KV table, quota'd, exportable, erasable
 
@@ -464,10 +494,9 @@ line under it and does not rewrite the verdict.
 
 ## What this does not decide, and what would reopen it
 
-- **The engine version's own numbers.** The measurements ran on wasmtime 43.0.2
-  and the pin lands on 48.0.7. Re-run the archived benchmark after the bump. If
-  p95 per call triples, the guardrail still passes, so this reopens the pin
-  choice only if a version stops building or a CVE forces a move.
+- **The engine version's own numbers.** Closed: 48.0.7 was benchmarked after the pin, and the
+  per-call figures did not move (Decision 1). It reopens only if a version stops building or a
+  CVE forces a move, and the archived crate in `spike-src/` re-runs the same set when it does.
 - **Whether the pool should carry more than one plugin per worker.** v1 loads
   artifacts by digest into a worker on demand and keeps them, so a busy worker
   holds several compiled modules. Memory for that is not measured.
