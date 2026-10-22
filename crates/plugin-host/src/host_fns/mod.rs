@@ -56,6 +56,13 @@ pub trait GuestMemory {
     /// Current size in bytes.
     fn len(&self) -> usize;
 
+    /// No bytes addressable at all. Provided rather than required: every
+    /// implementation answers it the same way, and the executor should not
+    /// have to write it out to satisfy a lint.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Copies `len` bytes at `ptr`. Out-of-bounds reads are a typed refusal,
     /// never a panic and never a short read.
     ///
