@@ -26,19 +26,21 @@
 //! - [`MemoryKvStore`] — quota, TTL and ordering rules without a database. It is
 //!   what `cargo test -p plugin-host` drives the four host entries against, and
 //!   it must keep passing with no database and no parent process.
-//! - [`BridgeKvStore`] — what a POOL worker installs. The worker holds no
-//!   connection and no tenant identity; it writes a host-call frame to its own
-//!   stdout and blocks on the matching reply, and the parent answers from its
-//!   own record of the invocation (`crate::runtime::HostCallService`). This is
-//!   the shipped default profile since W53-11.
+//! - [`BridgeKvStore`] — what BOTH transports install. It holds no connection
+//!   and no tenant identity: it hands one call to a
+//!   [`HostCallChannel`] and returns the answer, and the parent answers from
+//!   its own record of the invocation (`crate::runtime::HostCallService`).
+//!   A pool worker's channel writes a frame to stdout and blocks on the reply;
+//!   `in_process`'s channel is a message to the task that owns the transaction.
+//!   The store is the same in both, which is what ADR 0023 Decision 2 means by
+//!   "the transport changes nothing about what a plugin may do".
 //! - `core_db::plugin_kv`'s SQL — the parent's side of that bridge
 //!   (`crate::exec`), inside the invocation's own transaction.
 //!
 //! **When no store is installed every verb refuses `plugin_not_implemented`.**
-//! That is still a real answer, not a leftover: `in_process` installs nothing
-//! yet (its host functions run on the API's own blocking thread and have no
-//! bridge), so a guest there is told the truth. The pool profile, which is the
-//! ADR's default, ships the bridge.
+//! That is still a real answer, not a leftover: a bare `PluginRuntime::invoke`
+//! passes [`crate::runtime::NoHostCalls`] and a unit test installs nothing, and
+//! both are processes with nowhere to put the bytes.
 //!
 //! ## The two quota numbers
 //!

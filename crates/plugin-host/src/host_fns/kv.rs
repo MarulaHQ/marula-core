@@ -27,11 +27,11 @@
 //!   parent over the worker's own pipe (W53-11). The worker holds no connection
 //!   and no tenant identity; the parent composes both from the invocation it
 //!   dispatched;
+//! - in `in_process` it is the same store over a different channel: a message
+//!   from the API's blocking thread to the task that owns the invocation's
+//!   transaction, so the two transports answer identically;
 //! - in `cargo test` it is [`crate::kv::MemoryKvStore`], which enforces the same
-//!   quota, TTL and ordering rules with no database at all;
-//! - in `in_process` nothing is installed yet, so the verbs refuse
-//!   `plugin_not_implemented`. That is a real answer for a transport with no
-//!   bridge, not a placeholder.
+//!   quota, TTL and ordering rules with no database at all.
 //!
 //! ## TTL
 //!
@@ -68,10 +68,11 @@ const LIST_PARAMS: &[AbiParam] = &[
 
 /// The store, plus the label/key/value rules the ABI fixes.
 pub(super) fn register(registry: &mut Registry) {
-    // Shipped since W53-11: a pool worker serves these through the parent
-    // bridge (`crate::kv::BridgeKvStore`), and the executor answers them on the
-    // invocation's own transaction (`crate::exec`). `in_process` still has no
-    // store to install, which is why the verbs keep their `Unavailable` arm.
+    // Shipped since W53-11: both transports serve these through the parent
+    // bridge (`crate::kv::BridgeKvStore` over a pipe or over a channel), and
+    // the executor answers them on the invocation's own transaction
+    // (`crate::exec`). The `Unavailable` arm is what a bare
+    // `PluginRuntime::invoke` gets, which is a caller with no service.
     let owner = ImplStatus::Shipped;
     registry.register(HostEntry::new(
         "kv_get",

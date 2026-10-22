@@ -311,8 +311,8 @@ pub trait HostCallService: Send {
 ///
 /// It answers every host call `Unavailable`, which the worker turns into
 /// `plugin_not_implemented`: the honest answer for a path that genuinely cannot
-/// serve plugin state. `in_process` and the bare [`PluginRuntime::invoke`] entry
-/// point use it today.
+/// serve plugin state. Only the bare [`PluginRuntime::invoke`] entry point uses
+/// it — `in_process` serves calls through its own channel like the pool does.
 pub struct NoHostCalls;
 
 impl HostCallService for NoHostCalls {
@@ -322,6 +322,45 @@ impl HostCallService for NoHostCalls {
         _op: HostCallOp,
     ) -> Pin<Box<dyn Future<Output = HostCallOutcome> + Send + 'a>> {
         Box::pin(async move { HostCallOutcome::Refused(wire::HostCallRefusal::Unavailable) })
+    }
+}
+
+/// One host call on its way from an `in_process` guest's blocking thread to the
+/// async task that owns the invocation's transaction.
+struct InProcessCall {
+    frame: wire::HostCallFrame,
+    /// The answer goes back on a one-shot channel, so two concurrent
+    /// invocations can never swap answers.
+    reply: std::sync::mpsc::SyncSender<HostReplyFrame>,
+}
+
+/// The blocking thread's end of the in-process bridge.
+///
+/// It does not use `Handle::block_on`: the service is a `&mut` the async caller
+/// owns, so it cannot be moved into a `'static` closure, and the answer has to
+/// come from the task that holds the transaction anyway. So the call is a
+/// message and the answer is a channel. Blocking on that channel is legal here
+/// for one reason: this code runs on a thread from Tokio's BLOCKING pool
+/// (`spawn_blocking`), which is allowed to block, while the reactor keeps
+/// polling the task that serves it.
+struct InProcessChannel {
+    calls: tokio::sync::mpsc::UnboundedSender<InProcessCall>,
+}
+
+impl crate::kv::HostCallChannel for InProcessChannel {
+    fn exchange(&self, frame: &wire::HostCallFrame) -> Result<HostReplyFrame, String> {
+        let (reply, answered) = std::sync::mpsc::sync_channel(1);
+        self.calls
+            .send(InProcessCall {
+                frame: frame.clone(),
+                reply,
+            })
+            .map_err(|_| "the invocation stopped serving host calls".to_string())?;
+        // Returns when the answer is sent, or when the serving task is dropped
+        // (a timeout, a shutdown): never blocks forever on a parent that left.
+        answered
+            .recv()
+            .map_err(|_| "the invocation dropped this host call".to_string())
     }
 }
 
@@ -609,7 +648,7 @@ impl PluginPool {
 
         let result = match self.inner.config.mode {
             IsolationMode::InProcess => {
-                self.invoke_in_process(request, artifact, invocation_id, started)
+                self.invoke_in_process(request, artifact, invocation_id, started, service)
                     .await
             }
             _ => {
@@ -698,28 +737,93 @@ impl PluginPool {
         artifact: &ModuleArtifact,
         invocation_id: Uuid,
         started: Instant,
+        service: &mut dyn HostCallService,
     ) -> InvocationResult {
         let Some(sandbox) = self.inner.sandbox.clone() else {
             return worker_failed(invocation_id, None, started);
         };
         let log_context = (request.org_id, request.install_id, request.invocation_id);
+        let context = HostCallContext {
+            invocation_id,
+            org_id: request.org_id,
+            install_id: request.install_id,
+        };
         let request = request.clone();
         let artifact = artifact.clone();
         let worker = "in-process".to_string();
 
+        // The bridge, with no pipe: the guest's host call is a message to the
+        // task that owns the transaction, and the answer comes back on a
+        // one-shot channel. `BridgeKvStore` is reused unchanged — only its
+        // transport differs (ADR 0023 Decision 2: the transport changes nothing
+        // about what a plugin may do).
+        let (calls, mut pending) = tokio::sync::mpsc::unbounded_channel();
+        let bridge = Arc::new(crate::kv::BridgeKvStore::new(Arc::new(InProcessChannel {
+            calls,
+        })));
+        bridge.begin_invocation(invocation_id);
+        let store_for_thread = Arc::clone(&bridge);
+
         // wasmtime execution is synchronous: running it on the reactor would
-        // stop every other request for the duration of one guest.
-        let join = tokio::task::spawn_blocking(move || {
-            let module = sandbox
-                .load(&artifact)
-                .map_err(|error| (Refusal::FrameInvalid, 0, Some(error.to_string())))?;
-            sandbox
-                .run(&module, &request)
-                .map_err(|failure| (failure.refusal, failure.fuel_used, None))
+        // stop every other request for the duration of one guest. This thread
+        // comes from Tokio's BLOCKING pool, not from a runtime worker, which is
+        // what makes it legal for the store to block on the answer below: the
+        // thread is already allowed to block by contract, and the reactor keeps
+        // serving everything else.
+        let mut join = tokio::task::spawn_blocking(move || {
+            // Installed for this THREAD only: two in-process invocations run on
+            // two blocking threads at once, and a process-wide install would
+            // let one guest's store answer the other's call.
+            crate::kv::with_store(store_for_thread, || {
+                let module = sandbox
+                    .load(&artifact)
+                    .map_err(|error| (Refusal::FrameInvalid, 0, Some(error.to_string())))?;
+                sandbox
+                    .run(&module, &request)
+                    .map_err(|failure| (failure.refusal, failure.fuel_used, None))
+            })
         });
 
-        match tokio::time::timeout(INVOCATION_TIMEOUT, join).await {
-            Ok(Ok(Ok(output))) => {
+        // The same loop the pool runs, minus the framing: serve host calls
+        // until the invocation answers, with the same correlator check and the
+        // same cap. One `timeout` still bounds the whole exchange.
+        let joined = tokio::time::timeout(INVOCATION_TIMEOUT, async {
+            let mut served: u64 = 0;
+            loop {
+                tokio::select! {
+                    joined = &mut join => return Some(joined),
+                    Some(call) = pending.recv() => {
+                        if call.frame.invocation_id != context.invocation_id
+                            || call.frame.call_id != served
+                        {
+                            // A host call that does not answer THIS invocation
+                            // is a broken bridge, not a refusal. Dropping the
+                            // answer channel makes the store's call fail, which
+                            // is a fault, so the invocation cannot quietly
+                            // succeed with the wrong tenant's data.
+                            return None;
+                        }
+                        let outcome = if served >= MAX_HOST_CALLS_PER_INVOCATION {
+                            HostCallOutcome::Refused(wire::HostCallRefusal::BudgetExhausted)
+                        } else {
+                            service.serve(context, call.frame.op).await
+                        };
+                        served += 1;
+                        let reply = HostReplyFrame {
+                            invocation_id: context.invocation_id,
+                            call_id: call.frame.call_id,
+                            outcome,
+                        };
+                        // The guest thread has gone: nobody left to answer.
+                        let _ = call.reply.send(reply);
+                    }
+                }
+            }
+        })
+        .await;
+
+        match joined {
+            Ok(Some(Ok(Ok(output)))) => {
                 forward_logs(log_context, &output.logs);
                 InvocationResult {
                     reply: InvocationReply::ok(
@@ -731,7 +835,7 @@ impl PluginPool {
                     worker: Some(worker),
                 }
             }
-            Ok(Ok(Err((refusal, fuel_used, detail)))) => {
+            Ok(Some(Ok(Err((refusal, fuel_used, detail))))) => {
                 if let Some(detail) = detail {
                     tracing::warn!(detail, "in-process plugin module rejected");
                 }
@@ -745,14 +849,22 @@ impl PluginPool {
                     worker: Some(worker),
                 }
             }
-            Ok(Err(join_error)) => {
+            Ok(Some(Err(join_error))) => {
                 tracing::warn!(error = %join_error, "in-process plugin task panicked");
+                worker_failed(invocation_id, Some(worker), started)
+            }
+            Ok(None) => {
+                // The guest's bridge answered a call for an invocation that is
+                // not the one running: a fault, never a quiet success.
+                tracing::warn!("in-process plugin bridge answered another invocation");
                 worker_failed(invocation_id, Some(worker), started)
             }
             Err(_) => {
                 // The blocking thread cannot be cancelled. It is still bounded
                 // by the sandbox's own epoch deadline; this is the backstop for
                 // a sandbox bug, and it leaks a thread until the guest returns.
+                // Its next host call finds the channel closed and fails, so it
+                // cannot block forever on the parent either.
                 tracing::warn!("in-process plugin invocation exceeded the restart threshold");
                 worker_failed(invocation_id, Some(worker), started)
             }

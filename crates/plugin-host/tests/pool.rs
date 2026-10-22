@@ -388,6 +388,87 @@ async fn a_pool_slot_does_not_cache_a_failed_start_and_never_shares_another_slot
     assert!(!other.is_initialized(), "the other slot was never touched");
 }
 
+#[tokio::test]
+async fn the_two_transports_answer_kv_identically() {
+    // The ADR's claim, which nothing had proved: `in_process` "changes nothing
+    // about what a plugin may do". Same guest, same service, same store rules —
+    // and the bytes the guest gets back must be the same bytes.
+    let guest = kv_round_trip_guest();
+
+    let pooled = pool().await;
+    let mut pool_service = memory_service();
+    let in_pool = pooled
+        .invoke_with(&request(install()), &guest, &mut pool_service)
+        .await;
+    pooled.shutdown().await;
+
+    let in_process = PluginPool::start(pool_config(IsolationMode::InProcess))
+        .await
+        .expect("in-process sandbox builds");
+    let mut process_service = memory_service();
+    let in_own_process = in_process
+        .invoke_with(&request(install()), &guest, &mut process_service)
+        .await;
+
+    assert_eq!(
+        in_pool.reply.outcome,
+        InvocationOutcome::Ok,
+        "pool: {:?}",
+        in_pool.reply
+    );
+    assert_eq!(
+        in_own_process.reply.outcome,
+        InvocationOutcome::Ok,
+        "in_process: {:?}",
+        in_own_process.reply
+    );
+    assert_eq!(
+        in_pool.reply.output, in_own_process.reply.output,
+        "the two transports must hand the guest the same answer"
+    );
+    let output = in_own_process.reply.output.clone().expect("a data frame");
+    assert_eq!(
+        plugin_host::abi::parse_frame(&output).expect("an ok frame"),
+        b"bridged"
+    );
+    assert_eq!(
+        in_pool
+            .worker
+            .as_deref()
+            .map(|w| w.starts_with("marula-plugin-worker:")),
+        Some(true)
+    );
+    assert_eq!(in_own_process.worker.as_deref(), Some("in-process"));
+}
+
+#[tokio::test]
+async fn the_host_call_cap_is_the_same_in_both_transports() {
+    let calls = u32::try_from(plugin_host::runtime::MAX_HOST_CALLS_PER_INVOCATION + 6).unwrap();
+    let guest = kv_loop_guest(calls);
+
+    let pooled = pool().await;
+    let mut pool_service = memory_service();
+    let in_pool = pooled
+        .invoke_with(&request(install()), &guest, &mut pool_service)
+        .await;
+    pooled.shutdown().await;
+
+    let in_process = PluginPool::start(pool_config(IsolationMode::InProcess))
+        .await
+        .expect("in-process sandbox builds");
+    let mut process_service = memory_service();
+    let in_own_process = in_process
+        .invoke_with(&request(install()), &guest, &mut process_service)
+        .await;
+
+    let refused = |result: &InvocationResult| {
+        let output = result.reply.output.clone().expect("a 4-byte count");
+        u32::from_le_bytes([output[0], output[1], output[2], output[3]])
+    };
+    assert_eq!(refused(&in_pool), 6, "pool cap");
+    assert_eq!(refused(&in_own_process), 6, "in_process cap");
+}
+
 const _: () = assert!(
     wire::MAX_FRAME_BYTES > wire::MAX_MODULE_BYTES + MAX_INPUT_BYTES,
     "a full module plus a full payload must fit"
