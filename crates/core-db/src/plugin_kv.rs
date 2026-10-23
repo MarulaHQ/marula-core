@@ -266,6 +266,10 @@ pub async fn get(
 /// `install_id` writes nothing and answers [`DbError::NotFound`] — the same
 /// guarantee [`crate::plugin_health::record_failure`] gives, for the same
 /// reason.
+// The middle five are one write (tenant, install, namespace, key, value) and
+// the last two are its terms. A struct would add a type whose fields are
+// spelled out at every call site and shorten nothing.
+#[allow(clippy::too_many_arguments)]
 pub async fn put(
     conn: &mut PgConnection,
     org_id: Uuid,

@@ -89,6 +89,12 @@ const MAX_RESPONSE_HEADERS: usize = 64;
 /// of SaaS hosts; the cap bounds a plugin that rotates names.
 const MAX_CACHED_CLIENTS: usize = 32;
 
+/// What `prepare` answers: the guest's judged headers, and the host's own when a
+/// credential was bound. Kept a pair rather than a struct because the two halves
+/// have different laws — one may be logged, the other prints names only — and the
+/// call site consumes them in that order.
+type PreparedHeaders = (Vec<(String, String)>, Option<HostCredentials>);
+
 /// The headers the HOST adds after the guest's have been judged.
 ///
 /// Deliberately not `Debug`: a derived output would put the token in a log line
@@ -191,7 +197,7 @@ impl ParentEgress {
         &self,
         request: &HttpRequest,
         credential: Option<&SealedCredential>,
-    ) -> Result<(Vec<(String, String)>, Option<HostCredentials>), Refusal> {
+    ) -> Result<PreparedHeaders, Refusal> {
         let headers = guest_headers(request, credential)?;
         let credentials = match credential {
             Some(credential) => {
