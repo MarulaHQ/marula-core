@@ -79,6 +79,7 @@ async fn rls_state() -> (AppState, Router, PgPool, String) {
     let reporting_url = config.database_url.clone();
     config.database_url = admin_url.clone();
     let state = AppState {
+        plugin_pool: Default::default(),
         pool: app,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

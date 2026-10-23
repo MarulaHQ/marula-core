@@ -23,7 +23,7 @@ use common::TestDb;
 use common::{fixed_uuid, org_tx, test_db, FUTURE, PAST};
 use core_db::{
     attachment_scans, audit, automations, notifications as notif, orgs, outbox, plugin_health,
-    portal, queue, search, sign_offs, sla, tickets, timers, users, DbError, DbResult,
+    plugin_kv, portal, queue, search, sign_offs, sla, tickets, timers, users, DbError, DbResult,
 };
 use core_domain::entities::{
     Actor, Attachment, AttachmentKind, AuditEvent, BusinessCalendar, NotificationPreference,
@@ -9941,9 +9941,9 @@ async fn plugin_health_row_cascades_with_the_install() {
 
     let db = test_db().await;
     let app = db.app.clone();
-    let s = seed_org(&app, 9120).await;
-    let admin = seed_user(&app, &s, 91_050).await;
-    let install = seed_plugin_install(&app, s.org, 91_060, "health-cascade", admin).await;
+    let s = seed_org(&app, 9130).await;
+    let admin = seed_user(&app, &s, 91_150).await;
+    let install = seed_plugin_install(&app, s.org, 91_160, "health-cascade", admin).await;
 
     let mut tx = org_tx(&app, s.org).await;
     for _ in 0..3 {
@@ -9977,4 +9977,592 @@ async fn plugin_health_row_cascades_with_the_install() {
             .await
             .expect("count");
     assert_eq!(rows, 0, "nothing is left behind for a reinstall to inherit");
+}
+
+/// Wave 53 lane 6, migration 0155: the store is install-scoped and the quota
+/// counter refuses the write that would cross the limit.
+///
+/// Three things this proves that a unit test cannot. First, the tenant scope is
+/// real on both sides: the `marula_app` pool hides another org's install, and
+/// the OWNER pool — which bypasses RLS — shows that the rows the tenant read
+/// could not see do exist, so the emptiness above is the policy and not a
+/// missing fixture. Second, a (org, install) pair that disagrees writes
+/// nothing: `plugin_kv::put` derives the org from `plugin_installs`, so org B's
+/// scope cannot create a row for org A's install even by naming it. Third, the
+/// counter is the enforcement point — the write that fits lands, the one that
+/// would cross is refused with the ABI's own quota token, and what was already
+/// stored is untouched.
+///
+/// The limits are passed as arguments (a `KvLimits`), exactly as
+/// `plugin_health::record_failure` takes its threshold, so this test does not
+/// have to write 256 MiB to find the boundary.
+#[tokio::test]
+async fn plugin_kv_scopes_to_the_install_and_refuses_the_crossing_write() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let a = seed_org(&app, 9200).await;
+    let admin_a = seed_user(&app, &a, 92_001).await;
+    let install_a = seed_plugin_install(&app, a.org, 92_100, "kv-scope-a", admin_a).await;
+
+    let b = seed_org(&app, 9201).await;
+    let admin_b = seed_user(&app, &b, 92_002).await;
+    let install_b = seed_plugin_install(&app, b.org, 92_110, "kv-scope-b", admin_b).await;
+
+    // 1 KiB per value, 3 keys, 24 bytes of total room, 500 per page.
+    let limits = plugin_kv::KvLimits::new(1024, 3, 24, 500);
+
+    // --- tenant pool: the write that fits, then the one that would cross -----
+    {
+        let mut tx = org_tx(&app, a.org).await;
+        plugin_kv::put(
+            &mut tx, a.org, install_a, "cache", "a", &[1u8; 20], None, &limits,
+        )
+        .await
+        .expect("20 of 24 bytes fits");
+        let usage = plugin_kv::reconcile(&mut tx, a.org, install_a)
+            .await
+            .expect("reconcile");
+        assert_eq!(
+            usage.recorded,
+            plugin_kv::KvUsage { bytes: 20, keys: 1 },
+            "the counter moved with the write"
+        );
+        assert!(
+            usage.matched(),
+            "the counter agrees with the rows it counts"
+        );
+
+        match plugin_kv::put(
+            &mut tx, a.org, install_a, "cache", "b", &[2u8; 5], None, &limits,
+        )
+        .await
+        {
+            Err(DbError::Conflict(token)) => assert_eq!(token, plugin_kv::QUOTA_EXCEEDED),
+            other => panic!("5 more bytes past 24 must be refused, got {other:?}"),
+        }
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, a.org, install_a)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 20, keys: 1 },
+            "a refused put leaves the counter where it was"
+        );
+
+        // The refusal is about the quota, not about the store being closed: an
+        // overwrite that shrinks is still admitted, and a delete gives the bytes
+        // back.
+        plugin_kv::put(
+            &mut tx, a.org, install_a, "cache", "a", &[3u8; 4], None, &limits,
+        )
+        .await
+        .expect("a shrinking overwrite is admitted");
+        assert_eq!(
+            plugin_kv::get(&mut tx, a.org, install_a, "cache", "a")
+                .await
+                .expect("get"),
+            Some(vec![3u8; 4])
+        );
+        assert!(plugin_kv::delete(&mut tx, a.org, install_a, "cache", "a")
+            .await
+            .expect("delete"));
+        assert!(
+            !plugin_kv::delete(&mut tx, a.org, install_a, "cache", "a")
+                .await
+                .expect("second delete"),
+            "deleting an absent key is success and changes nothing"
+        );
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, a.org, install_a)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 0, keys: 0 }
+        );
+        tx.commit().await.expect("commit org A's writes");
+    }
+
+    // --- the owner pool: the rows are really there --------------------------
+    //
+    // `db.admin` is the privileged role, so RLS does not apply to it. A count of
+    // one here is the table's own answer, and it is what makes the cross-tenant
+    // zeros below a policy result rather than an empty fixture.
+    let stored: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM plugin_kv_entries WHERE install_id = $1")
+            .bind(install_a)
+            .fetch_one(&db.admin)
+            .await
+            .expect("owner count");
+    assert_eq!(
+        stored, 0,
+        "every entry was deleted above, and the delete landed"
+    );
+
+    {
+        let mut tx = org_tx(&app, a.org).await;
+        plugin_kv::put(
+            &mut tx, a.org, install_a, "cache", "k", b"secret", None, &limits,
+        )
+        .await
+        .expect("put");
+        tx.commit().await.expect("commit");
+    }
+    let stored: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM plugin_kv_entries WHERE install_id = $1")
+            .bind(install_a)
+            .fetch_one(&db.admin)
+            .await
+            .expect("owner count");
+    assert_eq!(stored, 1, "the row exists even when a tenant cannot see it");
+
+    // --- tenant pool: another org sees nothing and writes nothing -----------
+    {
+        let mut tx = org_tx(&app, b.org).await;
+        assert_eq!(
+            plugin_kv::get(&mut tx, b.org, install_a, "cache", "k")
+                .await
+                .expect("foreign get"),
+            None,
+            "org B's scope hides org A's rows even when it names the install"
+        );
+        assert!(
+            plugin_kv::list_keys(&mut tx, b.org, install_a, "cache", "", None, &limits)
+                .await
+                .expect("foreign list")
+                .keys
+                .is_empty()
+        );
+        assert!(
+            !plugin_kv::delete(&mut tx, b.org, install_a, "cache", "k")
+                .await
+                .expect("foreign delete"),
+            "a foreign delete removes nothing"
+        );
+        // The write path is the one that could create a row that belongs to one
+        // tenant and names another, and the derived org is what stops it.
+        assert!(
+            matches!(
+                plugin_kv::put(&mut tx, b.org, install_a, "cache", "planted", b"x", None, &limits)
+                    .await,
+                Err(DbError::NotFound)
+            ),
+            "a pair whose org and install disagree is refused, not written"
+        );
+        tx.commit().await.expect("commit org B's refusals");
+    }
+
+    // Nothing was planted, and the owner pool is what says so.
+    let planted: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM plugin_kv_entries WHERE install_id = $1 AND key = 'planted'",
+    )
+    .bind(install_a)
+    .fetch_one(&db.admin)
+    .await
+    .expect("owner count");
+    assert_eq!(planted, 0, "the foreign put wrote no row");
+
+    // Org B's own install still works, so the refusals above are about the
+    // scope and not about a broken fixture.
+    {
+        let mut tx = org_tx(&app, b.org).await;
+        plugin_kv::put(
+            &mut tx, b.org, install_b, "cache", "k", b"own", None, &limits,
+        )
+        .await
+        .expect("org B writes its own install");
+        assert_eq!(
+            plugin_kv::get(&mut tx, b.org, install_b, "cache", "k")
+                .await
+                .expect("get"),
+            Some(b"own".to_vec())
+        );
+        tx.commit().await.expect("commit");
+    }
+}
+
+/// Export is what a restore consumes, erase leaves a receipt that outlives the
+/// install it erased, and the counter is reconcilable.
+///
+/// The receipt's survival is the point of its missing foreign key: an uninstall
+/// cascades `plugin_kv_entries` and `plugin_kv_usage`, so a receipt that also
+/// cascaded would be deleted by the erasure it is evidence for. This test
+/// uninstalls and then asks the owner pool — which no policy can filter —
+/// whether the proof is still there.
+#[tokio::test]
+async fn plugin_kv_export_restores_and_erase_outlives_the_uninstall() {
+    use core_db::plugins;
+
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 9210).await;
+    let admin = seed_user(&app, &s, 92_210).await;
+    let source = seed_plugin_install(&app, s.org, 92_220, "kv-export", admin).await;
+    let target = seed_plugin_install(&app, s.org, 92_230, "kv-export-target", admin).await;
+
+    // `plugin_host::abi::KV_VALUE_MAX_BYTES`, passed as an argument because
+    // core-db does not depend on the host crate and the limit is the store's
+    // caller's to state.
+    const VALUE_CAP: usize = 1024 * 1024;
+    let limits = plugin_kv::KvLimits::new(VALUE_CAP, 100, 1 << 20, 2);
+    // A future expiry, not an expired one: `sweep_expired` runs on the owner
+    // pool and removes EVERY expired row in the database, so a fixture that is
+    // already expired can be deleted by a sibling test between two statements
+    // here. What this test needs from the expiry is that the export and the
+    // restore carry it, which a future one proves.
+    let carried_expiry = chrono::Utc::now() + chrono::Duration::hours(1);
+
+    // Two namespaces, three keys, one of them expiring later.
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        plugin_kv::put(&mut tx, s.org, source, "alpha", "k1", b"one", None, &limits)
+            .await
+            .expect("k1");
+        plugin_kv::put(&mut tx, s.org, source, "alpha", "k2", b"two", None, &limits)
+            .await
+            .expect("k2");
+        plugin_kv::put(
+            &mut tx,
+            s.org,
+            source,
+            "beta",
+            "k3",
+            b"three",
+            Some(carried_expiry),
+            &limits,
+        )
+        .await
+        .expect("k3");
+
+        // The visible-key rules live in the sweep test, which owns the timing:
+        // an expired row is invisible to `get` and `list_keys` and stays charged
+        // until the sweep runs. Here the row is live, so it is listed.
+        assert_eq!(
+            plugin_kv::get(&mut tx, s.org, source, "beta", "k3")
+                .await
+                .expect("get"),
+            Some(b"three".to_vec())
+        );
+        let page = plugin_kv::list_keys(&mut tx, s.org, source, "beta", "", None, &limits)
+            .await
+            .expect("list");
+        assert_eq!(page.keys, vec!["k3".to_string()]);
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, s.org, source)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 11, keys: 3 }
+        );
+        tx.commit().await.expect("commit source writes");
+    }
+
+    // --- export: keyset pages, ordered, expiry carried ----------------------
+    let mut exported = Vec::new();
+    let mut cursor = (String::new(), String::new());
+    loop {
+        let mut tx = org_tx(&app, s.org).await;
+        let page = plugin_kv::export_page(
+            &mut tx,
+            s.org,
+            source,
+            (cursor.0.as_str(), cursor.1.as_str()),
+            2,
+        )
+        .await
+        .expect("export page");
+        tx.commit().await.expect("commit export read");
+        if page.is_empty() {
+            break;
+        }
+        cursor = (
+            page.last().expect("non-empty").namespace.clone(),
+            page.last().expect("non-empty").key.clone(),
+        );
+        exported.extend(page);
+    }
+    assert_eq!(
+        exported
+            .iter()
+            .map(|entry| (entry.namespace.as_str(), entry.key.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("alpha", "k1"), ("alpha", "k2"), ("beta", "k3")],
+        "the export is ordered by (namespace, key) across pages"
+    );
+    assert!(
+        exported.last().expect("last").expires_at.is_some(),
+        "the export carries the expiry a restore needs"
+    );
+
+    // --- restore: the same shape, the same limits ---------------------------
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        assert_eq!(
+            plugin_kv::restore(&mut tx, s.org, target, &exported, &limits)
+                .await
+                .expect("restore"),
+            3
+        );
+        // Replaying the export is idempotent: `put` is an upsert.
+        assert_eq!(
+            plugin_kv::restore(&mut tx, s.org, target, &exported, &limits)
+                .await
+                .expect("replay"),
+            3
+        );
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, s.org, target)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 11, keys: 3 },
+            "a restore moved the counter exactly as the write path does"
+        );
+        tx.commit().await.expect("commit restore");
+    }
+
+    // --- the counter is reconcilable, and drift is repaired -----------------
+    sqlx::query("UPDATE plugin_kv_usage SET bytes = 999, keys = 99 WHERE install_id = $1")
+        .bind(source)
+        .execute(&db.admin)
+        .await
+        .expect("force a drift on the owner pool");
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        let drifted = plugin_kv::reconcile_org(&mut tx, s.org)
+            .await
+            .expect("reconcile the org");
+        assert_eq!(drifted.len(), 1, "exactly one install drifted");
+        assert_eq!(drifted[0].install_id, source);
+        assert_eq!(
+            drifted[0].recorded,
+            plugin_kv::KvUsage {
+                bytes: 999,
+                keys: 99
+            }
+        );
+        assert_eq!(drifted[0].actual, plugin_kv::KvUsage { bytes: 11, keys: 3 });
+        assert_eq!(
+            plugin_kv::repair(&mut tx, s.org, source)
+                .await
+                .expect("repair"),
+            plugin_kv::KvUsage { bytes: 11, keys: 3 }
+        );
+        assert!(
+            plugin_kv::reconcile_org(&mut tx, s.org)
+                .await
+                .expect("re-reconcile")
+                .is_empty(),
+            "after a repair there is nothing left to report"
+        );
+        tx.commit().await.expect("commit repair");
+    }
+
+    // --- erase: delete, counter reset, receipt ------------------------------
+    let receipt = {
+        let mut tx = org_tx(&app, s.org).await;
+        let receipt = plugin_kv::erase(&mut tx, s.org, source, Some(admin))
+            .await
+            .expect("erase");
+        assert_eq!(receipt.namespace, "*");
+        assert_eq!(receipt.source_kind, "plugin_kv");
+        assert_eq!(receipt.source_id, source.to_string());
+        assert_eq!(receipt.deleted_entries, 3);
+        assert_eq!(receipt.deleted_bytes, 11);
+        assert_eq!(
+            receipt.content_hashes.len(),
+            3,
+            "one hash per removed value, so the proof names what went"
+        );
+        assert!(receipt.content_hashes.iter().all(|hash| hash.len() == 64));
+        assert_eq!(receipt.deleted_by, Some(admin));
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, s.org, source)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 0, keys: 0 },
+            "the counter is reset, not left standing"
+        );
+        // A second erase mints a zero receipt rather than failing: an
+        // uninstall retry must be safe.
+        let second = plugin_kv::erase(&mut tx, s.org, source, Some(admin))
+            .await
+            .expect("second erase");
+        assert_eq!(second.deleted_entries, 0);
+        assert_eq!(second.deleted_bytes, 0);
+        tx.commit().await.expect("commit erase");
+        receipt
+    };
+
+    // The erasure really happened, on both tables, per the owner pool.
+    let left: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM plugin_kv_entries WHERE install_id = $1)
+              + (SELECT count(*) FROM plugin_kv_usage WHERE install_id = $1 AND bytes <> 0)",
+    )
+    .bind(source)
+    .fetch_one(&db.admin)
+    .await
+    .expect("owner count");
+    assert_eq!(left, 0, "no entries and no standing counter");
+
+    // --- uninstall: the cascade takes state, and not the proof --------------
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        plugins::delete_install(&mut tx, s.org, source)
+            .await
+            .expect("uninstall");
+        tx.commit().await.expect("commit uninstall");
+    }
+
+    let mut tx = org_tx(&app, s.org).await;
+    let kept = plugin_kv::get_erase_receipt(&mut tx, s.org, receipt.receipt_id)
+        .await
+        .expect("read the receipt");
+    assert_eq!(
+        kept.as_ref().map(|receipt| receipt.deleted_entries),
+        Some(3),
+        "the receipt outlives the install it erased"
+    );
+    tx.commit().await.expect("commit receipt read");
+
+    let orphans: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM plugin_kv_entries WHERE install_id = $1")
+            .bind(source)
+            .fetch_one(&db.admin)
+            .await
+            .expect("owner count");
+    assert_eq!(orphans, 0, "the uninstall cascades the store");
+
+    let counter: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM plugin_kv_usage WHERE install_id = $1")
+            .bind(source)
+            .fetch_one(&db.admin)
+            .await
+            .expect("owner count");
+    assert_eq!(counter, 0, "the uninstall cascades the counter too");
+}
+
+/// The TTL statement gives bytes back to the installs it reclaimed them from,
+/// and it is the only thing that does: a read hides an expired row, but the
+/// quota keeps charging for it until something sweeps it.
+#[tokio::test]
+async fn plugin_kv_sweep_reclaims_expired_bytes_from_the_right_counters() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 9220).await;
+    let admin = seed_user(&app, &s, 92_310).await;
+    let first = seed_plugin_install(&app, s.org, 92_320, "kv-sweep-one", admin).await;
+    let second = seed_plugin_install(&app, s.org, 92_330, "kv-sweep-two", admin).await;
+
+    const VALUE_CAP: usize = 1024 * 1024;
+    let limits = plugin_kv::KvLimits::new(VALUE_CAP, 100, 1 << 20, 500);
+    let past = chrono::Utc::now() - chrono::Duration::minutes(5);
+    let future = chrono::Utc::now() + chrono::Duration::days(1);
+
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        plugin_kv::put(
+            &mut tx,
+            s.org,
+            first,
+            "cache",
+            "gone",
+            &[1u8; 10],
+            Some(past),
+            &limits,
+        )
+        .await
+        .expect("expired");
+        plugin_kv::put(
+            &mut tx, s.org, first, "cache", "stays", &[2u8; 4], None, &limits,
+        )
+        .await
+        .expect("kept");
+        plugin_kv::put(
+            &mut tx,
+            s.org,
+            second,
+            "cache",
+            "gone",
+            &[3u8; 6],
+            Some(past),
+            &limits,
+        )
+        .await
+        .expect("expired");
+        plugin_kv::put(
+            &mut tx,
+            s.org,
+            second,
+            "cache",
+            "later",
+            &[4u8; 2],
+            Some(future),
+            &limits,
+        )
+        .await
+        .expect("not yet expired");
+        tx.commit().await.expect("commit");
+    }
+
+    // Before the sweep: an expired key is invisible to a reader and to a
+    // listing, and still charged to the counter. Asserted here, in the test that
+    // owns the timing, because the sweep is global and would delete the same
+    // fixture out from under any other test in this database.
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        assert_eq!(
+            plugin_kv::get(&mut tx, s.org, first, "cache", "gone")
+                .await
+                .expect("get"),
+            None,
+            "an expired key is already unreadable"
+        );
+        let page = plugin_kv::list_keys(&mut tx, s.org, first, "cache", "", None, &limits)
+            .await
+            .expect("list");
+        assert_eq!(page.keys, vec!["stays".to_string()]);
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, s.org, first)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 14, keys: 2 },
+            "the expired row is still charged until the sweep removes it"
+        );
+        tx.commit().await.expect("commit the pre-sweep read");
+    }
+
+    // The sweep runs on the owner pool, like every other housekeeping pass.
+    let mut tx = db.admin.begin().await.expect("begin sweep");
+    plugin_kv::sweep_expired(&mut tx, 100).await.expect("sweep");
+    tx.commit().await.expect("commit sweep");
+
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, s.org, first)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 4, keys: 1 },
+            "only the expired entry's 10 bytes came back"
+        );
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, s.org, second)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 2, keys: 1 },
+            "the future expiry is untouched"
+        );
+        assert!(
+            plugin_kv::reconcile_org(&mut tx, s.org)
+                .await
+                .expect("reconcile the org")
+                .is_empty(),
+            "the sweep left both counters agreeing with their rows"
+        );
+        tx.commit().await.expect("commit checks");
+    }
 }

@@ -32,9 +32,13 @@
 //!   append-only `audit_events` table.
 
 pub mod abi;
+pub mod bridge;
 pub mod distribution;
+pub mod egress;
+pub mod exec;
 pub mod host_fns;
 pub mod isolation;
+pub mod kv;
 pub mod lifecycle;
 pub mod runtime;
 pub mod surface;

@@ -1780,6 +1780,9 @@ use utoipa::OpenApi;
         crate::routes::plugins::RevokeCatalogEntryRequest,
         crate::routes::plugins::InstallPluginRequest,
         crate::routes::plugins::UpdateInstallRequest,
+        // Wave 53 lane 12: the credential-binding consent surface
+        crate::routes::plugin_credentials::CredentialBindingInput,
+        crate::routes::plugin_credentials::CredentialBindingView,
         // §4.6 plugin surface registry (Wave 34 lane 4)
         crate::routes::plugin_surface::SurfaceEntryView,
         crate::routes::plugin_surface::SurfaceEntryList,

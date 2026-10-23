@@ -642,13 +642,19 @@ mod tests {
         let registry = register_all();
         assert_eq!(registry.get("log").unwrap().status, ImplStatus::Shipped);
         assert_eq!(registry.get("now").unwrap().status, ImplStatus::Shipped);
-        assert_eq!(
-            registry.get("kv_get").unwrap().status,
-            ImplStatus::Deferred { owner: "W53-6" }
-        );
+        // W53-11 shipped the parent bridge; the four verbs work in the default
+        // (pool) profile, so the catalogue stops calling them deferred.
+        for name in ["kv_get", "kv_put", "kv_delete", "kv_list"] {
+            assert_eq!(
+                registry.get(name).unwrap().status,
+                ImplStatus::Shipped,
+                "{name} works in the pool profile"
+            );
+        }
+        // W53-7 shipped the transport; the entry no longer defers.
         assert_eq!(
             registry.get("http_request").unwrap().status,
-            ImplStatus::Deferred { owner: "W53-7" }
+            ImplStatus::Shipped
         );
         for entry in registry.catalogue() {
             assert!(
@@ -779,13 +785,26 @@ mod tests {
             harness.call("http_request", &args),
             Err(Refusal::EgressProfileMissing)
         );
+        // W53-7: the consent names a host that never resolves, so the gate
+        // passes and the transport refuses at resolution. No network, and the
+        // refusal proves the handler ran rather than the stub.
         harness
             .state_mut()
-            .consent_egress("telemetry", vec!["https://api.example.com/v1".into()]);
+            .consent_egress("telemetry", vec!["https://no-such-host.invalid/v1".into()]);
+        let (unresolvable, unresolvable_len) =
+            harness.put_str(r#"{"method":"GET","url":"https://no-such-host.invalid/v1/tickets"}"#);
         assert_eq!(
-            harness.call("http_request", &args),
-            Err(Refusal::NotImplemented),
-            "a consented read passes the gate and reaches the deferred transport"
+            harness.call(
+                "http_request",
+                &[
+                    profile as i32,
+                    profile_len as i32,
+                    unresolvable as i32,
+                    unresolvable_len as i32
+                ]
+            ),
+            Err(Refusal::EgressHostDenied),
+            "a consented read passes the gate and reaches the transport"
         );
 
         // A write under only the read grant is refused by the capability, not
@@ -808,7 +827,7 @@ mod tests {
             .state_mut()
             .grant(PluginCapability::AutomationActions);
         let (write, write_len) =
-            harness.put_str(r#"{"method":"POST","url":"https://api.example.com/v1/tickets"}"#);
+            harness.put_str(r#"{"method":"POST","url":"https://no-such-host.invalid/v1/tickets"}"#);
         assert_eq!(
             harness.call(
                 "http_request",
@@ -819,7 +838,7 @@ mod tests {
                     write_len as i32
                 ]
             ),
-            Err(Refusal::NotImplemented)
+            Err(Refusal::EgressHostDenied)
         );
     }
 

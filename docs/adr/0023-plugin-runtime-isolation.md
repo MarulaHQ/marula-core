@@ -239,10 +239,22 @@ socket calls `http_request`, because a WASI instance would hand out `fd_*`,
 | `kv_put` | `(ns, key, value_ptr, value_len) -> u32` | same | `plugin_kv_namespace_denied`, `plugin_kv_quota_exceeded`, `plugin_kv_value_too_large` |
 | `kv_delete` | `(ns, key) -> u32` | same | `plugin_kv_namespace_denied` |
 | `kv_list` | `(ns, prefix, cursor) -> i64` | same, capped at 500 keys per page | `plugin_kv_namespace_denied` |
-| `http_request` | `(profile_ptr, profile_len, req_ptr, req_len) -> i64` | `automation.reads` for a read, `automation.actions` for a write, plus the install's consented egress profile | `plugin_egress_profile_missing`, `plugin_egress_host_denied`, `plugin_egress_scheme_denied`, `plugin_egress_response_too_large` |
+| `http_request` | `(profile_ptr, profile_len, req_ptr, req_len) -> i64` | `automation.reads` for a read, `automation.actions` for a write, plus the install's consented egress profile | `plugin_egress_profile_missing`, `plugin_egress_host_denied`, `plugin_egress_scheme_denied`, `plugin_egress_response_too_large`, `plugin_credential_refused` |
 | `emit_event` | `(type_ptr, type_len, payload_ptr, payload_len) -> u32` | `events.emit`, and the type must be in the manifest's declared `emits` and the `event_types` registry | `plugin_event_type_not_declared` |
 | `read_model_query` | `(query_id: u32, params_ptr, params_len) -> i64` | per query id: `ticket.by_id` and `board.list` need `tickets.read`, `client.by_id` needs `clients.read`, `contact.by_client` needs `clients.read` | `plugin_query_unknown`, `plugin_capability_not_granted` |
 | `now` | `() -> i64` | none | — |
+
+**`http_request` is executed by the core, not by the worker.** The worker holds no
+HTTP client, no TLS stack and no key: it hands the request to the parent, which
+re-derives the capability, screens the URL against its own copy of the pinned
+`outbound_scopes`, resolves a credential if the install has one bound, and sends.
+Two things follow, and both are the point: the allowlist is enforced in a process
+the guest cannot influence, and a credential is decrypted in the only process
+that may hold plaintext. It costs one pipe round trip per call against a
+5,000 ms budget. `plugin-host` still sees `reqwest` transitively through
+`core-store`, so the guarantee is a property of the built worker binary, not of
+the dependency graph — `crates/plugin-host/README.md` carries the `nm` check that
+must be re-run when a dependency is added.
 
 Nine ABI entries, six functions once the four `kv_*` verbs are read as one store,
 and five capability gates across them: `automation.reads`, `automation.actions`,
@@ -315,6 +327,7 @@ kind, in both the validator and the kit, which is where the egress allowlist
 | Input per invocation | 1 MiB | invocation params today are a JSON object measured in kilobytes, so the cap is headroom rather than a target |
 | Output per invocation | 1 MiB | symmetric with input, and the pool frame carries it in one write |
 | HTTP connect and read timeout | 5,000 ms total | below every consumer retry cap in `docs/reference/reliability-levers.md` (10 s, or 30 s on `durable`), so the plugin fails before the queue does |
+| Transport allowance per invocation | 5,000 ms added to the 500 ms worker threshold, only for an install whose manifest declares egress profiles | an invocation that makes an HTTP call cannot answer inside 500 ms, and killing the worker at that point records a dead worker and charges the install's health for a slow vendor. It is one call's worth, not one per call: later calls in the same invocation are clamped to what the allowance has left, so 64 allowed host calls cannot each take 5,000 ms |
 | HTTP response cap | 2 MiB | the connector path's existing output ceiling shape |
 | HTTP redirects | 0 | a redirect is an unconsented host |
 | Concurrent invocations per worker | 1 | a worker is single-threaded, so pool capacity equals worker count, which is the number Decision 2 sized |

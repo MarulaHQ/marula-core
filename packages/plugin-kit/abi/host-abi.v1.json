@@ -21,10 +21,9 @@
       "params": ["i32", "i32", "i32", "i32"],
       "returns": "data",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
@@ -33,12 +32,11 @@
       "params": ["i32", "i32", "i32", "i32", "i32", "i32"],
       "returns": "status",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
         "plugin_kv_quota_exceeded",
         "plugin_kv_value_too_large",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
@@ -47,10 +45,9 @@
       "params": ["i32", "i32", "i32", "i32"],
       "returns": "status",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
@@ -59,10 +56,9 @@
       "params": ["i32", "i32", "i32", "i32", "i32", "i32"],
       "returns": "data",
       "gate": "install_scope",
-      "status": "deferred:W53-6",
+      "status": "shipped",
       "refusals": [
         "plugin_kv_namespace_denied",
-        "plugin_not_implemented",
         "plugin_abi_frame_invalid"
       ]
     },
@@ -71,15 +67,15 @@
       "params": ["i32", "i32", "i32", "i32"],
       "returns": "data",
       "gate": "egress",
-      "status": "deferred:W53-7",
+      "status": "shipped",
       "refusals": [
         "plugin_capability_not_granted",
         "plugin_egress_profile_missing",
         "plugin_egress_host_denied",
         "plugin_egress_scheme_denied",
         "plugin_egress_response_too_large",
-        "plugin_not_implemented",
-        "plugin_abi_frame_invalid"
+        "plugin_abi_frame_invalid",
+        "plugin_credential_refused"
       ]
     },
     {
@@ -165,6 +161,7 @@
     { "code": 21, "reason": "plugin_install_quarantined", "scope": "executor" },
     { "code": 22, "reason": "plugin_rate_limited", "scope": "executor" },
     { "code": 23, "reason": "plugin_concurrency_limited", "scope": "executor" },
-    { "code": 24, "reason": "plugin_runtime_disabled", "scope": "executor" }
+    { "code": 24, "reason": "plugin_runtime_disabled", "scope": "executor" },
+    { "code": 25, "reason": "plugin_credential_refused" }
   ]
 }

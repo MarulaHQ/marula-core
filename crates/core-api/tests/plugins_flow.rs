@@ -36,6 +36,7 @@ async fn test_state() -> (AppState, Router) {
     let reporting_url = config.database_url.clone();
     config.database_url = admin_url;
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
@@ -390,6 +391,9 @@ async fn plugin_marketplace_lifecycle_flow() {
         "plugin_version_taken"
     );
 
+    // A version change is a PIN change: the new artifact's digest has to be
+    // verified and the outgoing one parked for rollback, so this route refuses
+    // to write `version` alone and names the surface that does it properly.
     let response = send(
         &app,
         axum::http::Method::PATCH,
@@ -398,8 +402,38 @@ async fn plugin_marketplace_lifecycle_flow() {
         Some(json!({ "version": "1.1.0" })),
     )
     .await;
-    assert_eq!(response.status(), 200);
-    assert_eq!(body_json(response).await["version"], "1.1.0");
+    assert_eq!(response.status(), 409, "a pin move is not a metadata edit");
+
+    // The pin moves the way the contract says it does: propose, then consent.
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/plugins/installed/{install_id}/update"),
+        Some(&owner),
+        Some(json!({ "version": "1.1.0" })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "the update proposal must be accepted"
+    );
+    let proposal = body_json(response).await;
+    assert_eq!(proposal["current_version"], "1.0.0");
+    assert_eq!(proposal["pending_version"], "1.1.0");
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/plugins/installed/{install_id}/consent"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "consent commits the pin move");
+    let consented = body_json(response).await;
+    assert_eq!(consented["current_version"], "1.1.0");
+    assert!(consented["pending_version"].is_null());
 
     // --- registry revocation: the terminal kill switch ----------------------
     let response = send(

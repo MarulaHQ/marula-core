@@ -18228,6 +18228,46 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             token: string;
         };
+        /**
+         * @description One binding an operator asks for, in the replace-set body of
+         *     `PATCH /api/plugins/installed/{id}`.
+         */
+        CredentialBindingInput: {
+            /**
+             * @description The header the value is injected as, e.g. `x-api-key`. Lowercased
+             *     before it is stored.
+             */
+            header_name: string;
+            /** @description A key of the pinned manifest's `connector_profile.outbound_scopes`. */
+            profile: string;
+            /**
+             * Format: uuid
+             * @description The vault record whose `secret` field is injected. The record is named
+             *     by id here because that is the only handle a screen has; the id is
+             *     resolved through the caller's org, so an id from another tenant is a
+             *     `404` rather than a binding.
+             */
+            secret_record_id: string;
+        };
+        /**
+         * @description What the consent screen shows for one binding: the profile, the header, and
+         *     the vault record's NAME. Never a field, a value, ciphertext or a key.
+         */
+        CredentialBindingView: {
+            /** Format: date-time */
+            bound_at: string;
+            /** Format: uuid */
+            bound_by?: string | null;
+            header_name: string;
+            profile: string;
+            /**
+             * @description The vault record's title. This is the whole of what the screen may say
+             *     about the record's contents.
+             */
+            record_title: string;
+            /** Format: uuid */
+            secret_record_id: string;
+        };
         CredentialView: {
             configured: boolean;
             updated_at?: string | null;
@@ -20902,11 +20942,28 @@ export interface components {
              */
             artifact_kind: string;
             /**
+             * @description The credential bindings this install holds (Wave 53 lane 12): which
+             *     profile wears which vault record, as which header. The record is named
+             *     by title only — [`CredentialBindingView`] has no member that could
+             *     carry a field or a value.
+             */
+            credential_bindings: components["schemas"]["CredentialBindingView"][];
+            /**
              * @description The effective permission keys the grants resolve onto (the
              *     EXISTING matrix vocabulary — `tickets:read`, `financial:read`,
              *     …). Informational; enforcement re-derives from the same matrix.
              */
             effective_permissions: string[];
+            /**
+             * @description The egress profiles the PINNED manifest declares, as
+             *     `profile -> allowlisted https scopes`. Shown beside the bindings
+             *     because a profile name on its own is not consent: the operator has to
+             *     see which hosts that name reaches. Empty for an install whose manifest
+             *     declares none.
+             */
+            egress_profiles: {
+                [key: string]: string[];
+            };
             granted_capabilities: string[];
             /** Format: uuid */
             id: string;
@@ -30916,6 +30973,19 @@ export interface components {
             name?: string | null;
         };
         UpdateInstallRequest: {
+            /**
+             * @description The install's credential bindings, as a REPLACE-SET: what this list
+             *     names is what the install holds afterwards, so an omitted profile is a
+             *     withdrawn consent. `None` leaves the set untouched — the same
+             *     distinction `granted_capabilities` uses, so a PATCH that only flips
+             *     `status` cannot silently drop a credential.
+             *
+             *     Each entry names a profile from the pinned manifest's `outbound_scopes`
+             *     and a vault record in this org. The vault's category grant decides
+             *     whether the acting operator may bind it; the value never travels
+             *     through this API and never leaves the server.
+             */
+            credential_bindings?: components["schemas"]["CredentialBindingInput"][] | null;
             granted_capabilities?: string[] | null;
             /**
              * @description `enabled` | `disabled` (the admin-enabled gate). `revoked` is
@@ -31014,6 +31084,19 @@ export interface components {
         };
         UpdateProposalView: {
             consent_diff: components["schemas"]["ConsentDiffView"];
+            /**
+             * @description The credential bindings this consent would CLEAR, by profile name
+             *     (Wave 53 lane 12).
+             *
+             *     `outbound_scopes` is manifest-declared, so the same profile name in the
+             *     next version can allowlist a different host. A binding that outlived
+             *     the pin move would be consent to a name, quietly extended to whatever
+             *     the new publisher pointed it at, with the org's credential attached —
+             *     so a pin move clears them. This field is how the screen says so before
+             *     the operator clicks, rather than leaving them to notice afterwards.
+             *     Empty when nothing is bound or nothing is pending.
+             */
+            credential_bindings_cleared: string[];
             current_granted_capabilities: string[];
             /** @description Still running — the OLD version is pinned until consented. */
             current_version: string;

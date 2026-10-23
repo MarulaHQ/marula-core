@@ -36,6 +36,7 @@ async fn test_state() -> AppState {
     config.secret_key = core_api::config::SecretKey([23; 32]);
     config.internal_token = Some("kb-rich-flow-internal-token".to_string());
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

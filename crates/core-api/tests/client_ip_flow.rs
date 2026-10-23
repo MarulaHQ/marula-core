@@ -47,6 +47,7 @@ async fn test_state(admin_url: &str) -> AppState {
     // An operator's ambient TRUSTED_PROXIES must not shape the assertions.
     config.trusted_proxies = TrustedProxies::default();
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config),
         oidc: core_api::auth::oidc_client::OidcHttpClient::new(),

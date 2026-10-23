@@ -557,6 +557,14 @@ run_stage "build core-api (release — E2E latency needs the optimized build)" \
   'cargo build -p core-api --release'
 BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
   'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/core-api"
+# The plugin runtime's worker is a bin target inside `plugin-host`, and
+# `PluginPool` resolves it as a sibling of the core-api binary (`ENV_WORKER_BIN`
+# overrides that). A stack that builds only core-api and worker therefore makes
+# every module-bearing plugin invocation refuse with `plugin_worker_failed` —
+# correct behaviour for a missing binary, and indistinguishable in a run from a
+# plugin that is genuinely broken. Built here for the same reason `worker` is.
+run_stage "build marula-plugin-worker (release)" \
+  'cargo build -p plugin-host --bin marula-plugin-worker --release'
 echo "[e2e-stack] boot core-api on ${BIND_ADDR}"
 "$BIN" >"$LOG_DIR/core-api.log" 2>&1 </dev/null &
 API_PID=$!

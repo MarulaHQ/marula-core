@@ -352,7 +352,447 @@ async fn a_binary_that_does_not_speak_the_protocol_fails_to_start() {
     );
 }
 
+#[tokio::test]
+async fn a_pool_slot_does_not_cache_a_failed_start_and_never_shares_another_slot() {
+    let slot = plugin_host::exec::PoolSlot::new();
+    let other = plugin_host::exec::PoolSlot::new();
+    assert!(!slot.is_same_slot(&other));
+    assert!(!slot.is_initialized());
+
+    // A start that fails (a missing worker binary) is not cached: the next
+    // call tries again, which is what lets a deployment recover without a
+    // restart.
+    let failed = slot
+        .get_with(|| async {
+            PluginPool::start(
+                PoolConfig::default().with_worker_bin("/nonexistent/marula-plugin-worker"),
+            )
+            .await
+        })
+        .await;
+    assert!(failed.is_err());
+    assert!(!slot.is_initialized(), "a failed start must not be cached");
+
+    let started = slot
+        .get_with(|| async { PluginPool::start(pool_config(IsolationMode::Disabled)).await })
+        .await
+        .expect("the retry starts");
+    assert!(slot.is_initialized());
+
+    // Once started, the slot answers the same pool and starts nothing again.
+    let again = slot
+        .get_with(|| async { panic!("a started slot must not start twice") })
+        .await
+        .expect("the started pool");
+    assert!(std::sync::Arc::ptr_eq(&started, &again));
+    assert!(!other.is_initialized(), "the other slot was never touched");
+}
+
+#[tokio::test]
+async fn the_two_transports_answer_kv_identically() {
+    // The ADR's claim, which nothing had proved: `in_process` "changes nothing
+    // about what a plugin may do". Same guest, same service, same store rules —
+    // and the bytes the guest gets back must be the same bytes.
+    let guest = kv_round_trip_guest();
+
+    let pooled = pool().await;
+    let mut pool_service = memory_service();
+    let in_pool = pooled
+        .invoke_with(&request(install()), &guest, &mut pool_service)
+        .await;
+    pooled.shutdown().await;
+
+    let in_process = PluginPool::start(pool_config(IsolationMode::InProcess))
+        .await
+        .expect("in-process sandbox builds");
+    let mut process_service = memory_service();
+    let in_own_process = in_process
+        .invoke_with(&request(install()), &guest, &mut process_service)
+        .await;
+
+    assert_eq!(
+        in_pool.reply.outcome,
+        InvocationOutcome::Ok,
+        "pool: {:?}",
+        in_pool.reply
+    );
+    assert_eq!(
+        in_own_process.reply.outcome,
+        InvocationOutcome::Ok,
+        "in_process: {:?}",
+        in_own_process.reply
+    );
+    assert_eq!(
+        in_pool.reply.output, in_own_process.reply.output,
+        "the two transports must hand the guest the same answer"
+    );
+    let output = in_own_process.reply.output.clone().expect("a data frame");
+    assert_eq!(
+        plugin_host::abi::parse_frame(&output).expect("an ok frame"),
+        b"bridged"
+    );
+    assert_eq!(
+        in_pool
+            .worker
+            .as_deref()
+            .map(|w| w.starts_with("marula-plugin-worker:")),
+        Some(true)
+    );
+    assert_eq!(in_own_process.worker.as_deref(), Some("in-process"));
+}
+
+#[tokio::test]
+async fn the_host_call_cap_is_the_same_in_both_transports() {
+    let calls = u32::try_from(plugin_host::runtime::MAX_HOST_CALLS_PER_INVOCATION + 6).unwrap();
+    let guest = kv_loop_guest(calls);
+
+    let pooled = pool().await;
+    let mut pool_service = memory_service();
+    let in_pool = pooled
+        .invoke_with(&request(install()), &guest, &mut pool_service)
+        .await;
+    pooled.shutdown().await;
+
+    let in_process = PluginPool::start(pool_config(IsolationMode::InProcess))
+        .await
+        .expect("in-process sandbox builds");
+    let mut process_service = memory_service();
+    let in_own_process = in_process
+        .invoke_with(&request(install()), &guest, &mut process_service)
+        .await;
+
+    let refused = |result: &InvocationResult| {
+        let output = result.reply.output.clone().expect("a 4-byte count");
+        u32::from_le_bytes([output[0], output[1], output[2], output[3]])
+    };
+    assert_eq!(refused(&in_pool), 6, "pool cap");
+    assert_eq!(refused(&in_own_process), 6, "in_process cap");
+}
+
 const _: () = assert!(
     wire::MAX_FRAME_BYTES > wire::MAX_MODULE_BYTES + MAX_INPUT_BYTES,
     "a full module plus a full payload must fit"
 );
+
+// ---------------------------------------------------------------------------
+// The host-call bridge (W53-11): a guest's KV verbs, served by the parent
+// ---------------------------------------------------------------------------
+
+/// A `HostCallService` backed by `MemoryKvStore` — the parent's half of the
+/// bridge, with the quota rules and without a database. The shipped service is
+/// `exec::TransactionHostCalls` on the invocation's transaction; this one exists
+/// so the transport (two frames, two correlators, the cap) is provable in a test
+/// that needs no stack.
+struct MemoryKvService {
+    store: plugin_host::kv::MemoryKvStore,
+}
+
+impl plugin_host::runtime::HostCallService for MemoryKvService {
+    fn serve<'a>(
+        &'a mut self,
+        context: plugin_host::runtime::HostCallContext,
+        op: wire::HostCallOp,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = wire::HostCallOutcome> + Send + 'a>>
+    {
+        use plugin_host::kv::KvStore;
+        Box::pin(async move {
+            let org = context.org_id;
+            let install = context.install_id;
+            let result = match op {
+                wire::HostCallOp::KvGet { namespace, key } => self
+                    .store
+                    .get(org, install, &namespace, &key)
+                    .map(|value| match value {
+                        Some(value) => wire::HostCallValue::Value(value),
+                        None => wire::HostCallValue::Absent,
+                    }),
+                wire::HostCallOp::KvPut {
+                    namespace,
+                    key,
+                    value,
+                    expires_at,
+                } => self
+                    .store
+                    .put(org, install, &namespace, &key, &value, expires_at)
+                    .map(|()| wire::HostCallValue::Unit),
+                wire::HostCallOp::KvDelete { namespace, key } => self
+                    .store
+                    .delete(org, install, &namespace, &key)
+                    .map(wire::HostCallValue::Existed),
+                // This service is a KV store, so the network is not something
+                // it can answer. The composed HTTP path lives in
+                // `tests/http_egress.rs`.
+                wire::HostCallOp::HttpRequest { .. } => {
+                    return wire::HostCallOutcome::Refused(wire::HostCallRefusal::Unavailable)
+                }
+                wire::HostCallOp::KvList {
+                    namespace,
+                    prefix,
+                    cursor,
+                } => self
+                    .store
+                    .list(org, install, &namespace, &prefix, cursor.as_deref())
+                    .map(|page| wire::HostCallValue::Page {
+                        keys: page.keys,
+                        cursor: page.next_cursor,
+                    }),
+            };
+            match result {
+                Ok(value) => wire::HostCallOutcome::Ok(value),
+                Err(plugin_host::kv::KvError::QuotaExceeded) => {
+                    wire::HostCallOutcome::Refused(wire::HostCallRefusal::QuotaExceeded)
+                }
+                Err(_) => wire::HostCallOutcome::Refused(wire::HostCallRefusal::Failed),
+            }
+        })
+    }
+}
+
+fn memory_service() -> MemoryKvService {
+    MemoryKvService {
+        store: plugin_host::kv::MemoryKvStore::new(),
+    }
+}
+
+/// A guest that stores a value with `kv_put` and then reads it back with
+/// `kv_get`, returning the `kv_get` reply frame as its own output.
+///
+/// Layout in linear memory: namespace "cache" at 0, key "k" at 16, value
+/// "bridged" at 32. `marula_alloc` hands out fixed space from 1024, which is
+/// where the host writes the data frame the guest returns.
+fn kv_round_trip_guest() -> ModuleArtifact {
+    artifact_from_wat(
+        r#"
+        (module
+          (import "marula" "kv_put" (func $put (param i32 i32 i32 i32 i32 i32) (result i32)))
+          (import "marula" "kv_get" (func $get (param i32 i32 i32 i32) (result i64)))
+          (memory (export "memory") 1)
+          (data (i32.const 0) "cache")
+          (data (i32.const 16) "k")
+          (data (i32.const 32) "bridged")
+          (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
+          (func (export "marula_free") (param i32) (param i32))
+          (func (export "marula_entry") (param i32) (param i32) (result i64)
+            ;; A refused put is a failed test, not a quiet zero.
+            (if (i32.ne
+                  (call $put (i32.const 0) (i32.const 5)
+                             (i32.const 16) (i32.const 1)
+                             (i32.const 32) (i32.const 7))
+                  (i32.const 0))
+                (then (unreachable)))
+            (call $get (i32.const 0) (i32.const 5) (i32.const 16) (i32.const 1))))
+        "#,
+    )
+}
+
+#[tokio::test]
+async fn a_guest_reads_through_the_parent_bridge_in_the_pool_profile() {
+    let pool = pool().await;
+    let mut service = memory_service();
+    let request = request(install());
+    let result = pool
+        .invoke_with(&request, &kv_round_trip_guest(), &mut service)
+        .await;
+
+    assert_eq!(
+        result.reply.outcome,
+        InvocationOutcome::Ok,
+        "{:?}",
+        result.reply
+    );
+    let output = result.reply.output.clone().expect("a data frame");
+    // The host's in-band frame: `svc::ok_frame` wraps the value, so the bytes
+    // the guest got back are the value it stored, not an empty answer and not a
+    // refusal.
+    let value = plugin_host::abi::parse_frame(&output).expect("an ok frame");
+    assert_eq!(value, b"bridged");
+    let worker = result.worker.expect("a pool result names its worker");
+    assert!(worker.starts_with("marula-plugin-worker:"));
+    pool.shutdown().await;
+}
+
+/// A guest that calls `kv_put` 70 times and returns a 4-byte output: the number
+/// of calls the parent refused. 64 are served, the rest are past
+/// `MAX_HOST_CALLS_PER_INVOCATION`.
+fn kv_loop_guest(calls: u32) -> ModuleArtifact {
+    artifact_from_wat(&format!(
+        r#"
+        (module
+          (import "marula" "kv_put" (func $put (param i32 i32 i32 i32 i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 0) "cache")
+          (data (i32.const 16) "k")
+          (data (i32.const 32) "v")
+          (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
+          (func (export "marula_free") (param i32) (param i32))
+          (func (export "marula_entry") (param i32) (param i32) (result i64)
+            (local $left i32)
+            (local $refused i32)
+            (local.set $left (i32.const {calls}))
+            (block $done
+              (loop $again
+                (br_if $done (i32.eqz (local.get $left)))
+                (if (i32.ne
+                      (call $put (i32.const 0) (i32.const 5)
+                                 (i32.const 16) (i32.const 1)
+                                 (i32.const 32) (i32.const 1))
+                      (i32.const 0))
+                    (then (local.set $refused (i32.add (local.get $refused) (i32.const 1)))))
+                (local.set $left (i32.sub (local.get $left) (i32.const 1)))
+                (br $again)))
+            ;; 4 raw bytes at 1024 = the refusal count, little-endian.
+            (i32.store (i32.const 1024) (local.get $refused))
+            ;; `abi::pack`: the pointer is the high half, the length the low one.
+            (i64.or
+              (i64.shl (i64.const 1024) (i64.const 32))
+              (i64.const 4))))
+        "#
+    ))
+}
+
+#[tokio::test]
+async fn a_guest_that_ignores_the_host_call_cap_is_refused_and_cannot_extend_its_budget() {
+    let pool = pool().await;
+    let mut service = memory_service();
+    let calls = u32::try_from(plugin_host::runtime::MAX_HOST_CALLS_PER_INVOCATION + 6).unwrap();
+    let result = pool
+        .invoke_with(&request(install()), &kv_loop_guest(calls), &mut service)
+        .await;
+
+    assert_eq!(
+        result.reply.outcome,
+        InvocationOutcome::Ok,
+        "{:?}",
+        result.reply
+    );
+    let output = result.reply.output.clone().expect("a 4-byte count");
+    assert_eq!(output.len(), 4);
+    let refused = u32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+    assert_eq!(
+        refused,
+        6,
+        "{calls} calls against a cap of {} must serve exactly the cap",
+        plugin_host::runtime::MAX_HOST_CALLS_PER_INVOCATION
+    );
+    pool.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_guest_deletes_and_lists_through_the_same_bridge() {
+    let pool = pool().await;
+    let mut service = memory_service();
+
+    // put → delete → get: the get must be the empty ok frame, which is how the
+    // ABI says "absent".
+    let deleted = pool
+        .invoke_with(&request(install()), &kv_delete_guest(), &mut service)
+        .await;
+    assert_eq!(
+        deleted.reply.outcome,
+        InvocationOutcome::Ok,
+        "{:?}",
+        deleted.reply
+    );
+    let output = deleted.reply.output.expect("a frame");
+    let value = plugin_host::abi::parse_frame(&output).expect("an ok frame");
+    assert!(
+        value.is_empty(),
+        "the key was deleted, so kv_get answers the empty value"
+    );
+
+    // put → list: the page is the PDK's JSON and carries the key.
+    let listed = pool
+        .invoke_with(&request(install()), &kv_list_guest(), &mut service)
+        .await;
+    assert_eq!(
+        listed.reply.outcome,
+        InvocationOutcome::Ok,
+        "{:?}",
+        listed.reply
+    );
+    let output = listed.reply.output.expect("a frame");
+    let page = plugin_host::abi::parse_frame(&output).expect("an ok frame");
+    let page: serde_json::Value = serde_json::from_slice(page).expect("the documented JSON page");
+    assert_eq!(page["keys"], serde_json::json!(["a1", "a2"]));
+    assert_eq!(page["cursor"], "");
+    pool.shutdown().await;
+}
+
+/// put, then delete, then get the same key.
+fn kv_delete_guest() -> ModuleArtifact {
+    artifact_from_wat(
+        r#"
+        (module
+          (import "marula" "kv_put" (func $put (param i32 i32 i32 i32 i32 i32) (result i32)))
+          (import "marula" "kv_delete" (func $del (param i32 i32 i32 i32) (result i32)))
+          (import "marula" "kv_get" (func $get (param i32 i32 i32 i32) (result i64)))
+          (memory (export "memory") 1)
+          (data (i32.const 0) "cache")
+          (data (i32.const 16) "k")
+          (data (i32.const 32) "v")
+          (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
+          (func (export "marula_free") (param i32) (param i32))
+          (func (export "marula_entry") (param i32) (param i32) (result i64)
+            (if (i32.ne
+                  (call $put (i32.const 0) (i32.const 5)
+                             (i32.const 16) (i32.const 1)
+                             (i32.const 32) (i32.const 1))
+                  (i32.const 0))
+                (then (unreachable)))
+            (if (i32.ne (call $del (i32.const 0) (i32.const 5) (i32.const 16) (i32.const 1))
+                        (i32.const 0))
+                (then (unreachable)))
+            (call $get (i32.const 0) (i32.const 5) (i32.const 16) (i32.const 1))))
+        "#,
+    )
+}
+
+/// put two keys, then list the namespace under the empty prefix.
+fn kv_list_guest() -> ModuleArtifact {
+    artifact_from_wat(
+        r#"
+        (module
+          (import "marula" "kv_put" (func $put (param i32 i32 i32 i32 i32 i32) (result i32)))
+          (import "marula" "kv_list" (func $list (param i32 i32 i32 i32 i32 i32) (result i64)))
+          (memory (export "memory") 1)
+          (data (i32.const 0) "cache")
+          (data (i32.const 16) "a1")
+          (data (i32.const 32) "a2")
+          (data (i32.const 48) "v")
+          (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
+          (func (export "marula_free") (param i32) (param i32))
+          (func (export "marula_entry") (param i32) (param i32) (result i64)
+            (if (i32.ne
+                  (call $put (i32.const 0) (i32.const 5)
+                             (i32.const 16) (i32.const 2)
+                             (i32.const 48) (i32.const 1))
+                  (i32.const 0))
+                (then (unreachable)))
+            (if (i32.ne
+                  (call $put (i32.const 0) (i32.const 5)
+                             (i32.const 32) (i32.const 2)
+                             (i32.const 48) (i32.const 1))
+                  (i32.const 0))
+                (then (unreachable)))
+            ;; Empty prefix and empty cursor: a legal empty label each.
+            (call $list (i32.const 0) (i32.const 5) (i32.const 0) (i32.const 0)
+                        (i32.const 0) (i32.const 0))))
+        "#,
+    )
+}
+
+#[tokio::test]
+async fn a_pool_with_no_service_answers_kv_as_unavailable_rather_than_guessing() {
+    // The plain `invoke` entry point serves no host calls. A guest that asks is
+    // told `plugin_not_implemented` — the honest answer — and its invocation
+    // still succeeds if it ignores the refusal needed to. This guest traps on a
+    // refused put, so the outcome is a guest trap, which is exactly the point:
+    // the refusal reached the guest.
+    let pool = pool().await;
+    let result = pool
+        .invoke(&request(install()), &kv_round_trip_guest())
+        .await;
+    assert_eq!(result.reply.outcome, InvocationOutcome::Refused);
+    assert_eq!(result.reply.reason, Some(Refusal::GuestTrap));
+    pool.shutdown().await;
+}

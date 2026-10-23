@@ -58,6 +58,7 @@ async fn test_state_with_mail(
         mail.transport = transport;
     }
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

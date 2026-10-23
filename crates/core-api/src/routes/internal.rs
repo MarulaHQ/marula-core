@@ -25,6 +25,8 @@ use core_mail::internal::{
     NotificationEmailRequest, ResultsRequest,
 };
 use core_mail::outbound::backoff_delay;
+use plugin_host::exec as plugin_exec;
+use plugin_host::surface::SurfaceKind;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -829,6 +831,18 @@ pub async fn sla_verdict(
     Ok(Json(applied))
 }
 
+/// A plugin invocation FAULT as the HTTP answer the caller classifies on.
+///
+/// `503 service_unavailable` is not a new code: `core_domain::retry` already
+/// reads 5xx as `ErrorClass::Transient`, so the workflow executor records the
+/// step as `node_unreachable` and stops the run `Failed` (the retryable state),
+/// and the automation runner retries its batch under the queue's backoff. A 4xx
+/// would be classified permanent and kill the job instead. The reason is the
+/// audit row's own word, so the two records agree.
+fn plugin_fault(outcome: &plugin_exec::SurfaceOutcome) -> ApiError {
+    ApiError::Unavailable(format!("plugin runtime fault: {}", outcome.skip_reason()))
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct EffectsRequest {
     pub org_id: Uuid,
@@ -870,6 +884,16 @@ pub async fn effects(
             ApiError::Validation("actions document is malformed or has the wrong shape".into())
         })?;
     core_domain::automations::validate_actions(&actions)?;
+
+    // The plugin action arm needs the artifact store and the plugin pool; both
+    // are cheap clones, and taking them before the transaction means the
+    // closure does not have to borrow the state it is running inside.
+    let db = state.pool.clone();
+    let store = state.store.clone();
+    let plugin_pool = state.plugin_pool.clone();
+    // The at-rest key the parent-side egress transport needs (W53-12): it is
+    // `Copy`, so it rides into the closure beside the handles.
+    let secret_key = state.config.secret_key;
 
     let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
         // Ticket subject: the ticket row the effects write through. Board
@@ -1063,64 +1087,40 @@ pub async fn effects(
                         skip_ticket_effect(req.rule_id, action);
                         continue;
                     };
-                    // The registry row is the WHOLE authorization: it
-                    // exists only while the install is enabled, the grant
-                    // stands, and the entry is enabled. A missing entry
-                    // skips, never fails the batch.
-                    let entry = core_db::plugin_surface::get_entry_by_key(
-                        &mut *ctx.tx,
-                        req.org_id,
-                        "automation_action",
-                        entry_key,
-                    )
-                    .await
-                    .ok()
-                    .flatten();
-                    let Some(entry) = entry else {
-                        continue;
-                    };
-                    // The consented effect vocabulary — currently ONE
-                    // effect; unknown effects skip (deny-by-default).
-                    if entry.definition.get("effect").and_then(|v| v.as_str())
-                        != Some("add_internal_comment")
-                    {
-                        continue;
-                    }
-                    // Typed params: validated against the entry's own
-                    // declared JSON-Schema subset at execution time.
-                    if let Some(schema_value) = entry
-                        .definition
-                        .get("params_schema")
-                        .filter(|v| !v.is_null())
-                    {
-                        let Ok(schema) = core_domain::entities::plugins::SettingsSchema::new(
-                            schema_value.clone(),
-                        ) else {
-                            continue;
-                        };
-                        if schema.validate_config(params).is_err() {
-                            continue;
-                        }
-                    }
-                    let Some(body) = params.get("body").and_then(|v| v.as_str()) else {
-                        continue;
-                    };
-                    if body.trim().is_empty() || body.len() > 4000 {
-                        continue;
-                    }
-                    let comment = core_db::tickets::insert_comment(
-                        &mut *ctx.tx,
-                        core_db::tickets::NewTicketComment {
-                            id: Uuid::now_v7(),
+                    // The invocation path owns every gate: the registry row, the
+                    // install, the pinned manifest, `authorize_invocation`, the
+                    // module and the audit row (ADR 0023 Decisions 3 and 7).
+                    // A refused attempt is a skip for this batch, exactly as the
+                    // hardcoded effect skipped — and now it is audited.
+                    // `secret_key` is a copy taken before the transaction, so
+                    // this closure does not borrow the state it runs inside.
+                    let mut egress = crate::plugin_http::ParentEgress::new(secret_key);
+                    let outcome = plugin_exec::invoke_surface_with(
+                        &mut ctx.tx,
+                        &db,
+                        &*store,
+                        &plugin_pool,
+                        &mut egress,
+                        &plugin_exec::SurfaceCall {
                             org_id: req.org_id,
-                            ticket_id: ticket.id,
-                            author_id: None,
-                            kind: core_domain::status::NoteKind::Internal,
-                            body: body.trim(),
-                            workflow_meta: None,
+                            entry_key,
+                            surface: SurfaceKind::Action,
+                            params,
+                            ticket_id: Some(ticket.id),
                         },
                     )
                     .await?;
+                    // A FAULT is not a skip. The worker died or the transport
+                    // broke, so the comment did not happen because something is
+                    // broken; a 5xx makes the automation job retry the batch
+                    // (`worker::effects` classifies 5xx as transient), where a
+                    // skip would record the outage as the plugin's decision.
+                    if outcome.is_fault() {
+                        return Err(plugin_fault(&outcome));
+                    }
+                    let Some(comment) = outcome.comment else {
+                        continue;
+                    };
                     let mut payload =
                         serde_json::to_value(core_domain::events::TicketCommentAdded {
                             comment: comment.clone(),
@@ -2129,9 +2129,26 @@ pub async fn workflow_node(
     // A clone of the pool so the `ticket.transition` arm can call the shared
     // service (item E), which opens its own transaction.
     let pool = state.pool.clone();
+    // The artifact store and the plugin pool are what the `plugin.action` arm
+    // needs: the module is read from the store and run in the pool (ADR 0023).
+    let store = state.store.clone();
+    let plugin_pool = state.plugin_pool.clone();
+    // The at-rest key the parent-side egress transport needs (W53-12): it is
+    // `Copy`, so it rides into the closure beside the handles.
+    let secret_key = state.config.secret_key;
     let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
-        let output =
-            execute_workflow_node(&mut ctx, &pool, org_id, &node_id, &params, &context).await?;
+        let output = execute_workflow_node(
+            &mut ctx,
+            &pool,
+            &*store,
+            &plugin_pool,
+            secret_key,
+            org_id,
+            &node_id,
+            &params,
+            &context,
+        )
+        .await?;
         Ok((ctx, output))
     })
     .await?;
@@ -2143,9 +2160,13 @@ pub async fn workflow_node(
 
 /// Applies one workflow node's operation inside the org-scoped transaction.
 /// A node this build cannot apply is refused, never skipped.
+#[allow(clippy::too_many_arguments)]
 async fn execute_workflow_node(
     ctx: &mut org_tx::OrgTx<'_>,
     pool: &sqlx::PgPool,
+    store: &dyn core_store::ObjectStore,
+    plugins: &plugin_exec::PoolSlot,
+    secret_key: crate::config::SecretKey,
     org_id: Uuid,
     node_id: &str,
     params: &Value,
@@ -2455,60 +2476,47 @@ async fn execute_workflow_node(
                 .get("entryKey")
                 .and_then(Value::as_str)
                 .ok_or_else(|| ApiError::Validation("plugin.action: entryKey is required".into()))?;
-            // The registry row is the WHOLE authorization: it exists only
-            // while the install is enabled, the grant stands and the entry
-            // is enabled. A missing entry is a typed skip, never a crash.
-            let entry = core_db::plugin_surface::get_entry_by_key(
-                &mut *ctx.tx,
-                org_id,
-                "automation_action",
-                entry_key,
-            )
-            .await
-            .ok()
-            .flatten();
-            let Some(entry) = entry else {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "entry unavailable" }));
-            };
             let node_params = params.get("params").cloned().unwrap_or(json!({}));
-            if entry.definition.get("effect").and_then(Value::as_str)
-                != Some("add_internal_comment")
-            {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "effect not consented" }));
-            }
-            if let Some(schema_value) = entry
-                .definition
-                .get("params_schema")
-                .filter(|v| !v.is_null())
-            {
-                let Ok(schema) = core_domain::entities::plugins::SettingsSchema::new(
-                    schema_value.clone(),
-                ) else {
-                    return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "schema invalid" }));
-                };
-                if schema.validate_config(&node_params).is_err() {
-                    return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "params refused" }));
-                }
-            }
-            let Some(body) = node_params.get("body").and_then(Value::as_str) else {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "no body" }));
-            };
-            if body.trim().is_empty() || body.len() > 4000 {
-                return Ok(json!({ "entryKey": entry_key, "skipped": true, "reason": "body out of bounds" }));
-            }
-            let comment = core_db::tickets::insert_comment(
-                &mut *ctx.tx,
-                core_db::tickets::NewTicketComment {
-                    id: Uuid::now_v7(),
+            // The invocation path owns every gate: the registry row, the
+            // install, the pinned manifest, `authorize_invocation`, the module
+            // and the audit row (ADR 0023 Decisions 3 and 7). This arm names
+            // the entry and the ticket; it decides no authority.
+            let mut egress = crate::plugin_http::ParentEgress::new(secret_key);
+            let outcome = plugin_exec::invoke_surface_with(
+                &mut ctx.tx,
+                pool,
+                store,
+                plugins,
+                &mut egress,
+                &plugin_exec::SurfaceCall {
                     org_id,
-                    ticket_id: ticket.id,
-                    author_id: None,
-                    kind: core_domain::status::NoteKind::Internal,
-                    body: body.trim(),
-                    workflow_meta: None,
+                    entry_key,
+                    surface: SurfaceKind::Action,
+                    params: &node_params,
+                    ticket_id: Some(ticket.id),
                 },
             )
             .await?;
+            // A FAULT fails the node; a refusal is a typed skip. The engine's
+            // own classification does the rest: 5xx is transient
+            // (`core_domain::retry::classify_http`), so the step fails with
+            // `node_unreachable` and the run stops `Failed`, which is the
+            // retryable state `retry_run` accepts. A skip here would let the
+            // run continue past a node whose effect never happened.
+            if outcome.is_fault() {
+                return Err(plugin_fault(&outcome));
+            }
+            // A refused attempt is a typed skip, exactly as this arm behaved
+            // before the executor existed — and now it is audited rather than
+            // silently dropped. The reason is the static code the audit row
+            // carries.
+            let Some(comment) = outcome.comment else {
+                return Ok(json!({
+                    "entryKey": entry_key,
+                    "skipped": true,
+                    "reason": outcome.skip_reason(),
+                }));
+            };
             let mut payload = serde_json::to_value(core_domain::events::TicketCommentAdded {
                 comment: comment.clone(),
                 mentioned_user_ids: vec![],
@@ -2629,5 +2637,53 @@ mod workflow_ticket_tests {
         assert!(trigger_ticket_id(&json!({})).is_none());
         // A malformed id is not silently accepted.
         assert!(trigger_ticket_id(&json!({ "event": { "ticket_id": "not-a-uuid" } })).is_none());
+    }
+}
+
+#[cfg(test)]
+mod plugin_fault_tests {
+    use super::*;
+    use plugin_host::abi::InvocationOutcome;
+
+    fn outcome(
+        outcome: InvocationOutcome,
+        reason: Option<&'static str>,
+    ) -> plugin_exec::SurfaceOutcome {
+        plugin_exec::SurfaceOutcome {
+            entry_key: "plugin.triage-note-action.triage_note".into(),
+            outcome,
+            reason,
+            comment: None,
+            output: None,
+        }
+    }
+
+    #[test]
+    fn a_fault_is_a_503_and_a_refusal_is_not() {
+        // The classification the callers act on: a fault answers 503, which
+        // `core_domain::retry` reads as transient, so a workflow step fails as
+        // `node_unreachable` and an automation batch is retried. A refusal must
+        // never reach this helper, but if it did it would be a 503 too — so the
+        // predicate is what guards it, and the test pins both halves.
+        let fault = outcome(
+            InvocationOutcome::WorkerFailed,
+            Some("plugin_worker_failed"),
+        );
+        assert!(fault.is_fault());
+        let response = plugin_fault(&fault).into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            core_domain::retry::classify_http(503),
+            core_domain::retry::ErrorClass::Transient,
+            "the engine's own classification is what makes this retryable"
+        );
+
+        let refusal = outcome(InvocationOutcome::Refused, Some("plugin_entry_unavailable"));
+        assert!(!refusal.is_fault(), "a refusal is an answer, not a fault");
+        let ok = outcome(InvocationOutcome::Ok, None);
+        assert!(!ok.is_fault());
     }
 }

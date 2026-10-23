@@ -78,6 +78,7 @@ async fn test_state(trusted_proxies: core_api::client_ip::TrustedProxies) -> App
     config.secret_key = core_api::config::SecretKey([29; 32]);
     config.trusted_proxies = trusted_proxies;
     AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),

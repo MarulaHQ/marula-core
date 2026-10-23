@@ -23,6 +23,10 @@ serde = { workspace = true }
 ed25519-dalek = { workspace = true }
 sqlx = { workspace = true }
 wasmtime = { workspace = true }
+# NO `reqwest` here, and that is a security property rather than an oversight:
+# this crate is linked into BOTH the parent and the worker binary, so a client
+# here would be a client in the process that runs untrusted wasm. The transport
+# lives in core-api (`plugin_http`), behind `egress::HttpEgress`.
 tokio = { workspace = true }
 tracing = { workspace = true }
 

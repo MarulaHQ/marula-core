@@ -36,6 +36,7 @@ async fn test_state() -> (AppState, Router) {
     let mut config = Config::from_env_allow_dev_fallback().expect("test config");
     config.database_url = admin_url.clone();
     let state = AppState {
+        plugin_pool: Default::default(),
         pool,
         config: Arc::new(config.clone()),
         oidc: OidcHttpClient::new(),
