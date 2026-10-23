@@ -17,9 +17,11 @@
 # 2025-12): Debian-13-based node, digest-pinned (exact tag + registry
 # digest on every FROM — the digest enforces, the tag is readable).
 # `-dev` build stage carries the shell + package tooling; the runtime
-# image is stripped (no shell — exec-form CMD only). Node 22.23.3 begged
-# for corepack enable pnpm at build.
-FROM dhi.io/node:22-dev@sha256:946a6c0fbfaf0298b52cdff378ca8864c2fa12e3b2a16abbdb95232b2508adad AS build
+# image is stripped (no shell — exec-form CMD only). Node 22.23.4 still
+# begs for corepack enable pnpm at build. The digest moved on 2026-10-20
+# for the 22.23.4 security release; both stages move together so build and
+# run never disagree about the runtime.
+FROM dhi.io/node:22-dev@sha256:76403e2f1692d94caaf2bc2fafdac8ec97fd0133cc3c77477e97974de22cc778 AS build
 WORKDIR /repo
 RUN corepack enable pnpm
 # Workspace manifests first so dependency install caches independently of source.
@@ -38,7 +40,7 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY deploy/web-standalone-remap.cjs /remap.cjs
 RUN pnpm --filter @marula/web build && node /remap.cjs
 
-FROM dhi.io/node:22@sha256:399d261fd41851aa1ff39458de69f2fec26304f499a6ee6a17bdcad8290e014a AS run
+FROM dhi.io/node:22@sha256:7390ab11306fa78b4e3f47acaa08bddcaaabac850a01996d153a2e805360a741 AS run
 WORKDIR /repo/apps/web/.next/standalone
 # Tighten the runtime: dedicated non-root uid/gid and no privilege
 # escalation. The image USER is 1000:1000; compose/k8s restate it so the
