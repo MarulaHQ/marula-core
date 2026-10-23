@@ -104,7 +104,7 @@ repository = "https://github.com/MarulaHQ/marula-core"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 axum = { version = "0.8" }
 sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
 serde = { version = "1", features = ["derive"] }
@@ -130,7 +130,7 @@ uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 argon2 = "0.5"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 rand = "0.8"
