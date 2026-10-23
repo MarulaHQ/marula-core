@@ -9941,9 +9941,9 @@ async fn plugin_health_row_cascades_with_the_install() {
 
     let db = test_db().await;
     let app = db.app.clone();
-    let s = seed_org(&app, 9120).await;
-    let admin = seed_user(&app, &s, 91_050).await;
-    let install = seed_plugin_install(&app, s.org, 91_060, "health-cascade", admin).await;
+    let s = seed_org(&app, 9130).await;
+    let admin = seed_user(&app, &s, 91_150).await;
+    let install = seed_plugin_install(&app, s.org, 91_160, "health-cascade", admin).await;
 
     let mut tx = org_tx(&app, s.org).await;
     for _ in 0..3 {
@@ -10204,9 +10204,14 @@ async fn plugin_kv_export_restores_and_erase_outlives_the_uninstall() {
     // caller's to state.
     const VALUE_CAP: usize = 1024 * 1024;
     let limits = plugin_kv::KvLimits::new(VALUE_CAP, 100, 1 << 20, 2);
-    let expired_at = chrono::Utc::now() - chrono::Duration::hours(1);
+    // A future expiry, not an expired one: `sweep_expired` runs on the owner
+    // pool and removes EVERY expired row in the database, so a fixture that is
+    // already expired can be deleted by a sibling test between two statements
+    // here. What this test needs from the expiry is that the export and the
+    // restore carry it, which a future one proves.
+    let carried_expiry = chrono::Utc::now() + chrono::Duration::hours(1);
 
-    // Two namespaces, three keys, one of them already expired.
+    // Two namespaces, three keys, one of them expiring later.
     {
         let mut tx = org_tx(&app, s.org).await;
         plugin_kv::put(&mut tx, s.org, source, "alpha", "k1", b"one", None, &limits)
@@ -10222,24 +10227,25 @@ async fn plugin_kv_export_restores_and_erase_outlives_the_uninstall() {
             "beta",
             "k3",
             b"three",
-            Some(expired_at),
+            Some(carried_expiry),
             &limits,
         )
         .await
         .expect("k3");
 
-        // An expired key is invisible to a reader and to a listing, and still
-        // charged to the counter until something sweeps it.
+        // The visible-key rules live in the sweep test, which owns the timing:
+        // an expired row is invisible to `get` and `list_keys` and stays charged
+        // until the sweep runs. Here the row is live, so it is listed.
         assert_eq!(
             plugin_kv::get(&mut tx, s.org, source, "beta", "k3")
                 .await
                 .expect("get"),
-            None
+            Some(b"three".to_vec())
         );
         let page = plugin_kv::list_keys(&mut tx, s.org, source, "beta", "", None, &limits)
             .await
             .expect("list");
-        assert!(page.keys.is_empty());
+        assert_eq!(page.keys, vec!["k3".to_string()]);
         assert_eq!(
             plugin_kv::reconcile(&mut tx, s.org, source)
                 .await
@@ -10497,6 +10503,34 @@ async fn plugin_kv_sweep_reclaims_expired_bytes_from_the_right_counters() {
         .await
         .expect("not yet expired");
         tx.commit().await.expect("commit");
+    }
+
+    // Before the sweep: an expired key is invisible to a reader and to a
+    // listing, and still charged to the counter. Asserted here, in the test that
+    // owns the timing, because the sweep is global and would delete the same
+    // fixture out from under any other test in this database.
+    {
+        let mut tx = org_tx(&app, s.org).await;
+        assert_eq!(
+            plugin_kv::get(&mut tx, s.org, first, "cache", "gone")
+                .await
+                .expect("get"),
+            None,
+            "an expired key is already unreadable"
+        );
+        let page = plugin_kv::list_keys(&mut tx, s.org, first, "cache", "", None, &limits)
+            .await
+            .expect("list");
+        assert_eq!(page.keys, vec!["stays".to_string()]);
+        assert_eq!(
+            plugin_kv::reconcile(&mut tx, s.org, first)
+                .await
+                .expect("reconcile")
+                .recorded,
+            plugin_kv::KvUsage { bytes: 14, keys: 2 },
+            "the expired row is still charged until the sweep removes it"
+        );
+        tx.commit().await.expect("commit the pre-sweep read");
     }
 
     // The sweep runs on the owner pool, like every other housekeeping pass.

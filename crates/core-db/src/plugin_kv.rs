@@ -310,7 +310,7 @@ pub async fn put(
     let probe = sqlx::query_as::<_, UsageProbe>(
         r#"SELECT u.bytes AS used_bytes,
                   u.keys::bigint AS used_keys,
-                  (SELECT octet_length(e.value)
+                  (SELECT octet_length(e.value)::bigint
                      FROM plugin_kv_entries e
                     WHERE e.install_id = u.install_id
                       AND e.namespace  = $2
@@ -402,7 +402,7 @@ pub async fn delete(
               AND install_id = $2
               AND namespace = $3
               AND key = $4
-        RETURNING octet_length(value)"#,
+        RETURNING octet_length(value)::bigint"#,
     )
     .bind(org_id)
     .bind(install_id)
@@ -580,7 +580,7 @@ pub async fn erase(
             WHERE org_id = $1 AND install_id = $2
         RETURNING namespace,
                   key,
-                  octet_length(value) AS bytes,
+                  octet_length(value)::bigint AS bytes,
                   encode(sha256(value), 'hex') AS hash"#,
     )
     .bind(org_id)

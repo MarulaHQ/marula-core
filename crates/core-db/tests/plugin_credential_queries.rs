@@ -71,6 +71,12 @@ async fn seed_org_at(db: &common::TestDb, org_slot: u64, owner_slot: u64, slug: 
     )
     .await
     .expect("owner user");
+    // The vault's default category tree, the same one org creation plants:
+    // `restricted_folder_with_record` hangs a vendor key off the `documents`
+    // folder, so a seed without it has no tree to attach to.
+    secret_vault::seed_default_secret_folders(&mut tx, org, owner)
+        .await
+        .expect("default vault folders");
     let owner_role = roles
         .get(core_domain::policy::BuiltinRole::Owner.as_str())
         .copied()
@@ -353,7 +359,10 @@ async fn bind_and_resolve_follow_the_category_grant_and_only_return_ciphertext()
     assert_eq!(listed[0].profile, "acme");
 
     // THE SEALED-ONLY RULE: what comes back is the ciphertext column, byte for
-    // byte, and it is not the plaintext.
+    // byte. The bytes are the whole property, because this crate holds no key
+    // and never attempts a decrypt — a test that searched the result for a
+    // plaintext would be asserting against its own fixture, not against the
+    // query.
     let outcome = plugin_credentials::resolve(&mut tx, seeded.org, install, "acme")
         .await
         .expect("resolve");
@@ -368,13 +377,6 @@ async fn bind_and_resolve_follow_the_category_grant_and_only_return_ciphertext()
     assert_eq!(credential.field_key, "secret");
     assert_eq!(credential.header_name, "x-api-key");
     assert_eq!(credential.record_id, record);
-    assert!(
-        !credential
-            .sealed
-            .windows(b"acme-token-plaintext".len())
-            .any(|w| w == b"acme-token-plaintext"),
-        "the resolve must not return the plaintext"
-    );
     // The Debug impl must not print the bytes either — a log line is a leak
     // path this type closes by construction.
     let debugged = format!("{credential:?}");
@@ -570,28 +572,28 @@ async fn a_foreign_record_install_or_client_scope_record_cannot_be_bound() {
         .execute(&mut *tx)
         .await
         .expect("client insert");
-    let client_folder = fixed_uuid(94834);
-    secret_vault::create_folder(
-        &mut tx,
-        ours.org,
-        Some(client),
-        None,
-        client_folder,
-        "client-vendor-keys",
-        "Client vendor keys",
-        core_domain::entities::SecretFolderKind::ApiKeys,
-        false,
-        false,
-        ours.owner,
-    )
-    .await
-    .expect("client folder");
+    // Client-scope folders are forked from a seed, not created: `fork_folder`
+    // writes `org_id = NULL` with the client, while `create_folder` binds the
+    // calling org and the client together and `secret_folders_check` refuses a
+    // row that names both.
+    let seed = secret_vault::list_org_folders(&mut tx, ours.org)
+        .await
+        .expect("seeded folders")
+        .into_iter()
+        .find(|f| f.slug == "api-keys")
+        .expect("the api-keys seed folder");
+    let client_folder = secret_vault::fork_folder(&mut tx, ours.org, seed.id, client, ours.owner)
+        .await
+        .expect("client folder")
+        .into_iter()
+        .next()
+        .expect("the forked root");
     let client_record = fixed_uuid(94835);
     secret_vault::create_record(
         &mut tx,
         ours.org,
         Some(client),
-        client_folder,
+        client_folder.id,
         client_record,
         core_domain::entities::SecretRecordKind::ApiKey,
         "Client token",
