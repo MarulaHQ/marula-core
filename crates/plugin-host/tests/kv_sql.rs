@@ -308,7 +308,7 @@ async fn a_guest_writes_and_reads_one_key_through_the_real_frames_and_sql() {
 
     // The row landed, under the actor's org and the invoking install.
     let row: StoredEntry = sqlx::query_as(
-        r#"SELECT org_id, install_id, namespace, key, value, octet_length(value) AS bytes
+        r#"SELECT org_id, install_id, namespace, key, value, octet_length(value)::bigint AS bytes
              FROM plugin_kv_entries
             WHERE install_id = $1 AND namespace = 'cache' AND key = 'k'"#,
     )

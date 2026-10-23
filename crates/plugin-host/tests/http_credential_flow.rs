@@ -167,6 +167,7 @@ async fn admin_pool() -> PgPool {
 
 struct Seeded {
     org_id: Uuid,
+    owner: Uuid,
     install: PluginInstall,
     entry_key: String,
     folder_id: Uuid,
@@ -204,6 +205,25 @@ async fn seed(pool: &PgPool, store: &dyn ObjectStore, slug: &str) -> Seeded {
     let roles = core_db::orgs::seed_default_roles(&mut tx, org_id)
         .await
         .expect("default roles");
+    // The vault's default category tree, the same one org creation plants: the
+    // fixture hangs a restricted folder off the `documents` seed, so a seed
+    // without it has no tree to attach to. The tree records who planted it, so
+    // the org needs an owner row before the folders can name one.
+    let owner = Uuid::now_v7();
+    core_db::users::create_user(
+        &mut *tx,
+        owner,
+        org_id,
+        &format!("owner-{slug}@egress.test"),
+        "Owner",
+        "argon2hash",
+        "UTC",
+    )
+    .await
+    .expect("owner user");
+    core_db::secret_vault::seed_default_secret_folders(&mut tx, org_id, owner)
+        .await
+        .expect("default vault folders");
     let owner_role = roles
         .get(core_domain::policy::BuiltinRole::Owner.as_str())
         .copied()
@@ -293,26 +313,19 @@ async fn seed(pool: &PgPool, store: &dyn ObjectStore, slug: &str) -> Seeded {
         core_domain::entities::SecretFolderKind::ApiKeys,
         false,
         true,
-        Uuid::now_v7(),
+        owner,
     )
     .await
     .expect("restricted folder");
-    core_db::secret_vault::upsert_grant(
-        &mut tx,
-        org_id,
-        owner_role,
-        folder_id,
-        true,
-        false,
-        Uuid::now_v7(),
-    )
-    .await
-    .expect("read grant");
+    core_db::secret_vault::upsert_grant(&mut tx, org_id, owner_role, folder_id, true, false, owner)
+        .await
+        .expect("read grant");
     let record_id = Uuid::now_v7();
-    // The bytes are a marker, not a seal: this crate has no key. What the test
-    // needs is that the executor carries the RECORD'S BYTES through, and that
-    // they are not the plaintext it stands for.
-    let sealed = b"sealed::acme-tenant-token".to_vec();
+    // The bytes are a marker, not a seal: this crate has no key. They stand for
+    // the plaintext "acme-tenant-token" without containing it — a fixture that
+    // spelled the plaintext inside the ciphertext could not tell a carried
+    // column from a decrypted value.
+    let sealed = b"sealed::4f2c9d17a8b3".to_vec();
     core_db::secret_vault::create_record(
         &mut tx,
         org_id,
@@ -327,7 +340,7 @@ async fn seed(pool: &PgPool, store: &dyn ObjectStore, slug: &str) -> Seeded {
         None,
         None,
         &[("secret".to_string(), sealed.clone())],
-        Uuid::now_v7(),
+        owner,
     )
     .await
     .expect("record");
@@ -353,6 +366,7 @@ async fn seed(pool: &PgPool, store: &dyn ObjectStore, slug: &str) -> Seeded {
 
     Seeded {
         org_id,
+        owner,
         entry_key: format!("plugin.{}.egress_probe", install.slug),
         install,
         folder_id,
@@ -474,14 +488,17 @@ async fn a_bound_credential_reaches_the_transport_and_a_withdrawn_grant_stops_it
 
         let mut egress = Recorder::default();
         let outcome = ask(&pool, &*store, &slot, &seeded, &mut egress).await;
+        // The guest returns the host call's reply frame unchanged, so the
+        // refusal arrives as the guest's own output: the invocation ran and
+        // the CALL was refused. That is the shape the ABI promises — a refusal
+        // is data the guest can read, not a failed invocation.
+        let frame = outcome
+            .output
+            .as_deref()
+            .expect("the guest hands back the reply frame");
         assert_eq!(
-            outcome.outcome,
-            plugin_host::abi::InvocationOutcome::Refused,
-            "{mode:?}: a withdrawn grant is a refusal"
-        );
-        assert_eq!(
-            outcome.skip_reason(),
-            "plugin_credential_refused",
+            plugin_host::abi::parse_frame(frame),
+            Err(plugin_host::abi::Refusal::CredentialRefused),
             "{mode:?}: code 25, one code for every cause"
         );
         assert_eq!(
@@ -506,7 +523,7 @@ async fn a_bound_credential_reaches_the_transport_and_a_withdrawn_grant_stops_it
             seeded.folder_id,
             true,
             false,
-            Uuid::now_v7(),
+            seeded.owner,
         )
         .await
         .expect("grant restored");
