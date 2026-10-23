@@ -130,7 +130,7 @@ uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 argon2 = "0.5"
-jsonwebtoken = "10"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 rand = "0.8"
