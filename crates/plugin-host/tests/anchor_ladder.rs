@@ -83,9 +83,11 @@ const CONCURRENCY: [usize; 3] = [18, 65, 205];
 const SAMPLES_PER_CELL: usize = plugin_host::abi::INVOCATION_BURST_PER_INSTALL as usize;
 /// The p95 budget this is measured against (ADR 0023 Decision 2).
 const BUDGET_P95_US: f64 = 4_660.0;
-/// Calls the bench lets run at once, kept clear of the pool size so the health
-/// read's second connection always has one to take.
-const IN_FLIGHT: usize = 12;
+/// Calls the bench lets run at once: the whole pool, so every caller holds a
+/// connection while the invocation path asks for one more. That is the shape
+/// that used to stall for the 30-second acquire timeout, and the shape the
+/// bounded health read exists to survive.
+const IN_FLIGHT: usize = 24;
 
 fn artifact(source: &str) -> ModuleArtifact {
     let bytes = wat::parse_str(source).expect("valid WAT");
@@ -121,13 +123,14 @@ fn manifest() -> PluginManifestV2 {
 /// caller count: 205 callers queue on 24 connections in every mode, so the
 /// queueing is equal on both sides of the comparison.
 ///
-/// The bench admits at most `IN_FLIGHT` calls at once, and that number is well
-/// under the pool size on purpose. The invocation path reads the install's
-/// quarantine state on a SECOND connection while the caller still holds its
-/// transaction's, so a saturated pool stalls every caller on
-/// `acquire_timeout` — 30 seconds of it, measured, not theorised. Leaving the
-/// headroom keeps this ladder about the plugin path; the starvation itself is
-/// recorded as a finding for the load lane rather than hidden by a bigger pool.
+/// The bench admits exactly as many calls as the pool has connections. The
+/// invocation path reads the install's quarantine state on a SECOND connection
+/// while the caller still holds its transaction's, so this is the saturation
+/// case: every caller holds a connection and the health read has to wait. It is
+/// bounded (`HEALTH_READ_WAIT`) and single-flighted per install, so the wait
+/// shows up as one bounded pause per install per cell rather than a 30-second
+/// stall on every call — which is what this ladder measured before the bound
+/// existed.
 async fn bench_pool() -> PgPool {
     let url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))

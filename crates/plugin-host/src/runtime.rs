@@ -98,6 +98,18 @@ pub const QUARANTINE_AFTER_FAILURES: u32 = 3;
 /// window, not once per call).
 pub const HEALTH_CACHE_TTL: Duration = Duration::from_secs(30);
 
+/// How long one caller waits to run an install's health reload, and how long the
+/// read itself may take.
+///
+/// The read takes a SECOND connection from the same pool while the caller still
+/// holds its transaction's. At the pool's connection budget that turns into the
+/// acquire timeout — thirty seconds in which every caller of that install waits
+/// on a read that cannot start. Both waits are bounded by the invocation's own
+/// queue budget instead, and a reload that cannot run inside it leaves the
+/// cached answer in place: the same staleness window [`HEALTH_CACHE_TTL`] already
+/// allows, and the difference between a slow request and a stalled API.
+pub const HEALTH_READ_WAIT: Duration = Duration::from_millis(abi::WALL_CLOCK_MS);
+
 /// How long a caller waits for a slot before it is refused. One invocation's
 /// own wall-clock budget: a request that cannot start inside the time an
 /// invocation is allowed to take is refused rather than queued behind an
@@ -1338,6 +1350,7 @@ fn install_entry(gates: &mut Gates, install_id: Uuid) -> &mut InstallGate {
             failures: 0,
             quarantined: false,
             health_loaded_at: None,
+            reload: Arc::new(tokio::sync::Mutex::new(())),
         })
 }
 
@@ -1349,6 +1362,10 @@ struct InstallGate {
     failures: u32,
     quarantined: bool,
     health_loaded_at: Option<Instant>,
+    /// One reload per install at a time. A cold install with sixty calls in
+    /// flight otherwise sends sixty identical reads at the pool, and every one
+    /// of them needs a connection the callers are holding.
+    reload: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// A token bucket: 300 per minute means a refill of 5 per second, and a burst of
@@ -1439,21 +1456,8 @@ impl Inner {
     /// from this process's own counter, which a restart clears — stated in
     /// [`PluginPool`]'s documentation rather than hidden.
     async fn quarantined(&self, org_id: Uuid, install_id: Uuid) -> bool {
-        let stale = {
-            let gates = self
-                .gates
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            match gates.installs.get(&install_id) {
-                Some(gate) => match gate.health_loaded_at {
-                    Some(at) => at.elapsed() >= HEALTH_CACHE_TTL,
-                    None => true,
-                },
-                None => true,
-            }
-        };
-        if stale {
-            self.reload_health(org_id, install_id).await;
+        if self.health_is_stale(install_id) {
+            self.reload_health_once(org_id, install_id).await;
         }
         let gates = self
             .gates
@@ -1466,17 +1470,74 @@ impl Inner {
             .unwrap_or(false)
     }
 
+    /// Whether this process should re-read the install's health row.
+    fn health_is_stale(&self, install_id: Uuid) -> bool {
+        let gates = self
+            .gates
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match gates.installs.get(&install_id) {
+            Some(gate) => match gate.health_loaded_at {
+                Some(at) => at.elapsed() >= HEALTH_CACHE_TTL,
+                None => true,
+            },
+            None => true,
+        }
+    }
+
+    /// One reload per install at a time, and none that outlives
+    /// [`HEALTH_READ_WAIT`].
+    ///
+    /// The single flight matters because a cold install is the common case: the
+    /// first calls after an enable all find the cache empty, and without it each
+    /// one sends its own read at a pool the callers have already taken.
+    ///
+    /// The bound matters more. The holder of the lock is itself waiting for a
+    /// second connection, and the callers queueing behind the lock may be the
+    /// ones holding the pool's connections, so an unbounded wait behind that lock
+    /// is how a full pool stalls instead of refusing. A caller that cannot get
+    /// in keeps the cached answer, which is what it would have used a moment
+    /// earlier anyway.
+    async fn reload_health_once(&self, org_id: Uuid, install_id: Uuid) {
+        let lock = {
+            let mut gates = self
+                .gates
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            Arc::clone(&install_entry(&mut gates, install_id).reload)
+        };
+        let Ok(_guard) = tokio::time::timeout(HEALTH_READ_WAIT, lock.lock_owned()).await else {
+            return;
+        };
+        // The caller we queued behind may have refreshed it while we waited.
+        if !self.health_is_stale(install_id) {
+            return;
+        }
+        self.reload_health(org_id, install_id).await;
+    }
+
     async fn reload_health(&self, org_id: Uuid, install_id: Uuid) {
         let Some(pool) = self.config.health.clone() else {
             self.mark_health_loaded(install_id, None);
             return;
         };
-        let row = match load_health(&pool, org_id, install_id).await {
-            Ok(row) => row,
-            Err(error) => {
+        let read =
+            tokio::time::timeout(HEALTH_READ_WAIT, load_health(&pool, org_id, install_id)).await;
+        let row = match read {
+            Ok(Ok(row)) => row,
+            Ok(Err(error)) => {
                 // The database is unreachable; core-api is failing more than
                 // plugin calls. Keep the in-process view and say so.
                 tracing::warn!(error = %error, "plugin health read failed; using the in-process counter");
+                self.mark_health_loaded(install_id, None);
+                return;
+            }
+            Err(_) => {
+                tracing::warn!(
+                    %install_id,
+                    "plugin health read did not start inside the invocation budget; \
+                     using the in-process counter"
+                );
                 self.mark_health_loaded(install_id, None);
                 return;
             }
