@@ -56,22 +56,36 @@ use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-/// A guest that returns immediately. No host calls on purpose: this measures the
-/// transport and the gates, not a plugin's own work.
+/// A guest that returns immediately with an empty OK frame. No host calls on
+/// purpose: this measures the transport and the gates, not a plugin's own work.
+///
+/// The return value is `abi::pack(ptr, len)` — the frame is one byte, the OK
+/// tag at offset 64 — because a bare `0` is a null pointer and the host answers
+/// `plugin_frame_invalid` rather than running it.
 const NOOP: &str = r#"
     (module
       (memory (export "memory") 1)
+      (data (i32.const 64) "\00")
       (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
       (func (export "marula_free") (param i32) (param i32))
-      (func (export "marula_entry") (param i32) (param i32) (result i64) (i64.const 0)))
+      (func (export "marula_entry") (param i32) (param i32) (result i64)
+        (i64.or (i64.shl (i64.const 64) (i64.const 32)) (i64.const 1))))
 "#;
 
 /// The queues the ADR's ladder uses: the anchor's median, its p95 and its tail.
 const CONCURRENCY: [usize; 3] = [18, 65, 205];
-/// Calls per cell. Enough for a stable p99 without turning the gate into a soak.
-const SAMPLES_PER_CELL: usize = 1_200;
+/// Calls per cell. The design's own burst budget per install is
+/// [`plugin_host::abi::INVOCATION_BURST_PER_INSTALL`], and a cell that asks for
+/// more than that measures `plugin_rate_limited` rather than the request path.
+/// So a cell is one install's burst, spent by the concurrent callers, and a
+/// concurrency deeper than the burst is not a queue — it is a refusal the
+/// design intends.
+const SAMPLES_PER_CELL: usize = plugin_host::abi::INVOCATION_BURST_PER_INSTALL as usize;
 /// The p95 budget this is measured against (ADR 0023 Decision 2).
 const BUDGET_P95_US: f64 = 4_660.0;
+/// Calls the bench lets run at once, kept clear of the pool size so the health
+/// read's second connection always has one to take.
+const IN_FLIGHT: usize = 12;
 
 fn artifact(source: &str) -> ModuleArtifact {
     let bytes = wat::parse_str(source).expect("valid WAT");
@@ -106,6 +120,14 @@ fn manifest() -> PluginManifestV2 {
 /// A pool sized like a deployment's connection budget rather than like the
 /// caller count: 205 callers queue on 24 connections in every mode, so the
 /// queueing is equal on both sides of the comparison.
+///
+/// The bench admits at most `IN_FLIGHT` calls at once, and that number is well
+/// under the pool size on purpose. The invocation path reads the install's
+/// quarantine state on a SECOND connection while the caller still holds its
+/// transaction's, so a saturated pool stalls every caller on
+/// `acquire_timeout` — 30 seconds of it, measured, not theorised. Leaving the
+/// headroom keeps this ladder about the plugin path; the starvation itself is
+/// recorded as a finding for the load lane rather than hidden by a bigger pool.
 async fn bench_pool() -> PgPool {
     let url = std::env::var("MARULA_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
@@ -245,28 +267,35 @@ async fn cell(
     org_id: Uuid,
     entry_key: &str,
     callers: usize,
-) -> (Vec<u64>, usize) {
+) -> (Vec<u64>, std::collections::BTreeMap<String, usize>) {
     let per_caller = (SAMPLES_PER_CELL / callers).max(1);
+    let admitted = Arc::new(tokio::sync::Semaphore::new(IN_FLIGHT));
     let mut tasks = Vec::with_capacity(callers);
     for _ in 0..callers {
         let pool = pool.clone();
         let store = Arc::clone(store);
         let slot = slot.clone();
         let entry_key = entry_key.to_string();
+        let admitted = Arc::clone(&admitted);
         tasks.push(tokio::spawn(async move {
             let mut latencies = Vec::with_capacity(per_caller);
-            let mut refused = 0usize;
+            let mut refused: std::collections::BTreeMap<String, usize> =
+                std::collections::BTreeMap::new();
             for _ in 0..per_caller {
                 let started = Instant::now();
+                let _permit = match admitted.acquire().await {
+                    Ok(permit) => permit,
+                    Err(_) => break,
+                };
                 let mut tx = match pool.begin().await {
                     Ok(tx) => tx,
                     Err(_) => {
-                        refused += 1;
+                        *refused.entry("no_connection".to_string()).or_default() += 1;
                         continue;
                     }
                 };
                 if core_db::set_org(&mut tx, org_id).await.is_err() {
-                    refused += 1;
+                    *refused.entry("no_org_scope".to_string()).or_default() += 1;
                     continue;
                 }
                 let params = json!({});
@@ -286,7 +315,13 @@ async fn cell(
                     Ok(outcome) if outcome.outcome == InvocationOutcome::Ok => {
                         latencies.push(elapsed.as_micros() as u64)
                     }
-                    _ => refused += 1,
+                    Ok(outcome) => {
+                        let why = outcome.skip_reason().to_string();
+                        *refused.entry(why).or_default() += 1;
+                    }
+                    Err(error) => {
+                        *refused.entry(format!("db: {error}")).or_default() += 1;
+                    }
                 }
             }
             (latencies, refused)
@@ -294,11 +329,13 @@ async fn cell(
     }
 
     let mut all = Vec::with_capacity(SAMPLES_PER_CELL);
-    let mut refused = 0usize;
+    let mut refused: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     for task in tasks {
         let (latencies, refusals) = task.await.expect("a caller task");
         all.extend(latencies);
-        refused += refusals;
+        for (why, count) in refusals {
+            *refused.entry(why).or_default() += count;
+        }
     }
     (all, refused)
 }
@@ -316,10 +353,7 @@ fn percentile(sorted: &[u64], fraction: f64) -> f64 {
 async fn the_request_path_at_anchor_queue_depth() {
     let pool = bench_pool().await;
     let store = Arc::new(MemoryStore::new());
-    let slug = format!("ladder-{}", Uuid::now_v7().simple());
     let module = artifact(NOOP);
-    let (org_id, install) = seed_install(&pool, &*store, &slug, &module).await;
-    let entry_key = format!("plugin.{}.ladder_probe", install.slug);
 
     println!(
         "\nanchor ladder — invoke_surface end to end, audit insert included\n\
@@ -331,42 +365,67 @@ async fn the_request_path_at_anchor_queue_depth() {
     );
 
     let modes = [
-        ("disabled", IsolationMode::Disabled),
         ("in_process", IsolationMode::InProcess),
         ("pool", IsolationMode::Pool),
     ];
 
     let mut baseline_p95 = std::collections::HashMap::new();
+    let mut pool_p95_by_caller = std::collections::HashMap::new();
     for (label, mode) in modes {
-        let slot = slot_for(mode, &pool).await;
         for callers in CONCURRENCY {
-            let (mut latencies, refused) =
-                cell(&pool, &store, &slot, org_id, &entry_key, callers).await;
+            // One install per cell: the burst budget is per install, so a cell
+            // that reused one would spend most of its calls on
+            // `plugin_rate_limited` and measure the limiter instead of the path.
+            let slug = format!("ladder-{}-{callers}-{}", label, Uuid::now_v7().simple());
+            let (org_id, install) = seed_install(&pool, &*store, &slug, &module).await;
+            let entry_key = format!("plugin.{}.ladder_probe", install.slug);
+            let slot = slot_for(mode, &pool).await;
+            let (mut latencies, refused) = cell(
+                &pool,
+                &store,
+                &slot,
+                org_id,
+                &entry_key,
+                callers.min(SAMPLES_PER_CELL),
+            )
+            .await;
             latencies.sort_unstable();
             let p50 = percentile(&latencies, 0.50);
             let p95 = percentile(&latencies, 0.95);
             let p99 = percentile(&latencies, 0.99);
-            if mode == IsolationMode::Disabled {
+            if mode == IsolationMode::InProcess {
                 baseline_p95.insert(callers, p95);
             }
+            if mode == IsolationMode::Pool {
+                pool_p95_by_caller.insert(callers, p95);
+            }
             let delta = match baseline_p95.get(&callers) {
-                Some(base) if mode != IsolationMode::Disabled => {
-                    format!("{:+.1} µs", p95 - base)
-                }
+                Some(base) if mode == IsolationMode::Pool => format!("{:+.1} µs", p95 - base),
                 Some(_) => "—".to_string(),
                 None => "n/a".to_string(),
             };
+            let refused_total: usize = refused.values().sum();
             println!(
-                "{label:<10} {callers:>4} {:>7} {refused:>7} {p50:>8.1} {p95:>8.1} {p99:>8.1} {delta:>10}",
+                "{label:<10} {callers:>4} {:>7} {refused_total:>7} {p50:>8.1} {p95:>8.1} {p99:>8.1} {delta:>10}",
                 latencies.len()
             );
+            for (why, count) in &refused {
+                println!("             refused {count:>5}× {why}");
+            }
         }
     }
 
     // The guardrail line the ADR asks for, computed rather than eyeballed.
-    println!(
-        "\nRead the Δp95 column against the budget: an added p95 below {BUDGET_P95_US:.0} µs \
-         leaves a factor of {:.0} at the anchor.",
-        BUDGET_P95_US / 100.0
-    );
+    for callers in CONCURRENCY {
+        if let (Some(reference), Some(pool_p95)) =
+            (baseline_p95.get(&callers), pool_p95_by_caller.get(&callers))
+        {
+            let added = (pool_p95 - reference).max(0.0);
+            println!(
+                "C={callers:>3}: pool p95 {pool_p95:.1} µs, budget {BUDGET_P95_US:.0} µs, \
+                 headroom {:.1}×; isolation adds {added:.1} µs over in_process",
+                BUDGET_P95_US / pool_p95.max(1.0)
+            );
+        }
+    }
 }
