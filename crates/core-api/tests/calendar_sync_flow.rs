@@ -1,12 +1,18 @@
 //! Two-way calendar sync e2e (Wave 14 lane 2).
 //!
-//! Covers the provider seam end to end against a REAL in-process iCal
-//! fixture server: connection lifecycle (incl. the typed duplicate-name
-//! 409), inbound sync import → availability double-check (the public
-//! scheduling-link slot preview and the book-time gate must both honor
-//! external busy time, exactly like portal bookings), upsert/release on
-//! re-poll, the highest-sequence-wins duplicate rule, and the outbound
-//! token-scoped iCal feed.
+//! Covers the provider seam end to end: connection lifecycle (incl. the typed
+//! duplicate-name 409), inbound snapshot → availability double-check (the public
+//! scheduling-link slot preview and the book-time gate must both honor external
+//! busy time, exactly like portal bookings), upsert/release on re-poll, the
+//! highest-sequence-wins duplicate rule, the outbound token-scoped iCal feed,
+//! and — since Wave 54 lane S1a — the poll's refusal of a feed URL the outbound
+//! egress guard rejects.
+//!
+//! The poll's wire is guarded (https only, public host, judged resolution), so a
+//! test cannot point it at an in-process loopback fixture. The mirror half runs
+//! through `apply_sync`, the same call the route makes after a poll returns, and
+//! the wire half is covered by the refusal test here plus the module's own
+//! redirect test.
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
@@ -135,32 +141,56 @@ fn fixture_ics(day: &str, uid: &str, start_h: u32, end_h: u32, summary: &str) ->
     )
 }
 
-/// Serves a mutable ICS document at /calendar.ics — the test swaps the
-/// document between polls through the watch channel.
-async fn spawn_ics_server(
-    initial: String,
-) -> (std::net::SocketAddr, tokio::sync::watch::Sender<String>) {
-    let (tx, rx) = tokio::sync::watch::channel(initial);
-    let app = axum::Router::new().route(
-        "/calendar.ics",
-        axum::routing::get(move || {
-            let mut rx = rx.clone();
-            async move { rx.borrow_and_update().clone() }
-        }),
-    );
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
+/// A loopback listener the guard must never reach. It counts what it accepts,
+/// so "refused before the request" is a connection count rather than an
+/// inference from a status code.
+fn counting_listener() -> (
+    std::net::SocketAddr,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
+    let addr = listener.local_addr().expect("local addr");
+    let seen = std::sync::Arc::new(AtomicUsize::new(0));
+    let count = std::sync::Arc::clone(&seen);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            if stream.is_ok() {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
     });
-    (addr, tx)
+    (addr, seen)
+}
+
+/// Applies one provider snapshot through the mirror — the call the sync route
+/// makes after a poll returns.
+///
+/// The poll's wire is screened by the outbound guard, so a test cannot point it
+/// at a loopback fixture. The mirror rules this suite asserts (duplicate,
+/// move-in-place, highest-sequence-wins, release) run in the same place either
+/// way; the poll's refusal has its own test below.
+async fn apply_snapshot(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+    connection_id: Uuid,
+    events: &[core_domain::entities::ExternalCalendarEvent],
+) -> core_domain::entities::SyncOutcome {
+    let mut tx = core_api::org_tx::begin(state, org_id, user_id)
+        .await
+        .expect("org transaction");
+    let outcome =
+        core_db::calendar_sync::apply_sync(&mut tx.tx, org_id, connection_id, user_id, events)
+            .await
+            .expect("snapshot applies");
+    tx.commit().await.expect("commit");
+    outcome
 }
 
 #[tokio::test]
 async fn inbound_busy_time_gates_booking_like_portal_bookings() {
-    let (_state, app) = test_state().await;
+    let (state, app) = test_state().await;
     let tokens = register_org(&app, format!("csync1-{}", Uuid::now_v7().simple())).await;
     let bearer = tokens["access_token"].as_str().unwrap().to_string();
 
@@ -176,6 +206,8 @@ async fn inbound_busy_time_gates_booking_like_portal_bookings() {
     )
     .await;
     let my_id = me["user_id"].as_str().unwrap().to_string();
+    let org_id: Uuid = me["org_id"].as_str().unwrap().parse().unwrap();
+    let user_id: Uuid = my_id.parse().unwrap();
 
     // Publish Monday 09:00–17:00 UTC availability.
     let day = next_monday_date();
@@ -195,11 +227,19 @@ async fn inbound_busy_time_gates_booking_like_portal_bookings() {
     .await;
     assert_eq!(avail.status(), 201, "{}", body_json(avail).await);
 
-    // The fixture server's ICS: one busy event Monday 11:00–13:00 UTC.
+    // The external calendar's ICS: one busy event Monday 11:00–13:00 UTC.
     let uid = "evt-busy-1@external.test";
-    let (addr, _ics_tx) = spawn_ics_server(fixture_ics(&day, uid, 11, 13, "External busy")).await;
+    let snapshot = core_api::routes::calendar_sync::parse_ical(&fixture_ics(
+        &day,
+        uid,
+        11,
+        13,
+        "External busy",
+    ));
 
-    // Create a two-way connection pointing at the fixture.
+    // Create a two-way connection. The feed URL is a public name: a loopback one
+    // would be refused by the poll's egress guard, and that refusal has its own
+    // test below.
     let created: Value = body_json(
         send(
             &app,
@@ -210,7 +250,7 @@ async fn inbound_busy_time_gates_booking_like_portal_bookings() {
                 "name": "Work calendar",
                 "provider": "ical",
                 "direction": "two_way",
-                "feed_url": format!("http://{addr}/calendar.ics"),
+                "feed_url": "https://calendar.example.test/feed.ics",
             })),
         )
         .await,
@@ -224,20 +264,17 @@ async fn inbound_busy_time_gates_booking_like_portal_bookings() {
     let connection_id = created["connection"]["id"].as_str().unwrap().to_string();
     let feed_token = created["feed_token"].as_str().unwrap().to_string();
 
-    // Poll: the external event imports as busy time.
-    let synced: Value = body_json(
-        send(
-            &app,
-            axum::http::Method::POST,
-            &format!("/api/calendar-sync/{connection_id}/sync"),
-            Some(&bearer),
-            None,
-        )
-        .await,
+    // The snapshot imports as busy time through the same mirror the poll uses.
+    let outcome = apply_snapshot(
+        &state,
+        org_id,
+        user_id,
+        Uuid::parse_str(&connection_id).unwrap(),
+        &snapshot,
     )
     .await;
-    assert_eq!(synced["outcome"]["imported"], 1, "{synced}");
-    assert_eq!(synced["outcome"]["overlaps"], 0);
+    assert_eq!(outcome.imported, 1, "the external busy event imports");
+    assert_eq!(outcome.overlaps, 0);
 
     // The mirror + exclusion exist and feed availability.
     let events: Value = body_json(
@@ -387,13 +424,25 @@ async fn inbound_busy_time_gates_booking_like_portal_bookings() {
 
 #[tokio::test]
 async fn re_poll_upserts_moves_and_releases_and_enforces_sequence_wins() {
-    let (_state, app) = test_state().await;
+    let (state, app) = test_state().await;
     let tokens = register_org(&app, format!("csync2-{}", Uuid::now_v7().simple())).await;
     let bearer = tokens["access_token"].as_str().unwrap().to_string();
+    let me: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/me",
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let org_id: Uuid = me["org_id"].as_str().unwrap().parse().unwrap();
+    let user_id: Uuid = me["user_id"].as_str().unwrap().parse().unwrap();
 
     let day = next_monday_date();
     let uid = "evt-move@external.test";
-    let (addr, ics_tx) = spawn_ics_server(fixture_ics(&day, uid, 11, 12, "External busy")).await;
 
     let created: Value = body_json(
         send(
@@ -405,7 +454,7 @@ async fn re_poll_upserts_moves_and_releases_and_enforces_sequence_wins() {
                 "name": "Poll calendar",
                 "provider": "ical",
                 "direction": "inbound",
-                "feed_url": format!("http://{addr}/calendar.ics"),
+                "feed_url": "https://calendar.example.test/feed.ics",
             })),
         )
         .await,
@@ -416,52 +465,55 @@ async fn re_poll_upserts_moves_and_releases_and_enforces_sequence_wins() {
         "inbound connections mint no outbound token"
     );
     let connection_id = created["connection"]["id"].as_str().unwrap().to_string();
-    let sync_uri = format!("/api/calendar-sync/{connection_id}/sync");
+    let connection_uuid = Uuid::parse_str(&connection_id).unwrap();
 
-    let s1: Value = body_json(
-        send(
-            &app,
-            axum::http::Method::POST,
-            &sync_uri,
-            Some(&bearer),
-            None,
-        )
-        .await,
+    // First snapshot: the event imports as busy time.
+    let s1 = apply_snapshot(
+        &state,
+        org_id,
+        user_id,
+        connection_uuid,
+        &core_api::routes::calendar_sync::parse_ical(&fixture_ics(
+            &day,
+            uid,
+            11,
+            12,
+            "External busy",
+        )),
     )
     .await;
-    assert_eq!(s1["outcome"]["imported"], 1, "{s1}");
+    assert_eq!(s1.imported, 1);
 
     // Unchanged re-poll: the duplicate rule counts it, nothing re-applies.
-    let s2: Value = body_json(
-        send(
-            &app,
-            axum::http::Method::POST,
-            &sync_uri,
-            Some(&bearer),
-            None,
-        )
-        .await,
+    let s2 = apply_snapshot(
+        &state,
+        org_id,
+        user_id,
+        connection_uuid,
+        &core_api::routes::calendar_sync::parse_ical(&fixture_ics(
+            &day,
+            uid,
+            11,
+            12,
+            "External busy",
+        )),
     )
     .await;
-    assert_eq!(s2["outcome"]["imported"], 0, "{s2}");
-    assert_eq!(s2["outcome"]["duplicates"], 1, "{s2}");
+    assert_eq!(s2.imported, 0);
+    assert_eq!(s2.duplicates, 1);
 
     // Moved event with a higher sequence: the exclusion moves in place.
-    ics_tx.send_modify(|v| {
-        *v = fixture_ics(&day, uid, 14, 15, "External busy").replace("SEQUENCE:0", "SEQUENCE:1")
-    });
-    let s2b: Value = body_json(
-        send(
-            &app,
-            axum::http::Method::POST,
-            &sync_uri,
-            Some(&bearer),
-            None,
-        )
-        .await,
+    let s2b = apply_snapshot(
+        &state,
+        org_id,
+        user_id,
+        connection_uuid,
+        &core_api::routes::calendar_sync::parse_ical(
+            &fixture_ics(&day, uid, 14, 15, "External busy").replace("SEQUENCE:0", "SEQUENCE:1"),
+        ),
     )
     .await;
-    assert_eq!(s2b["outcome"]["updated"], 1, "{s2b}");
+    assert_eq!(s2b.updated, 1);
     let events: Value = body_json(
         send(
             &app,
@@ -476,22 +528,18 @@ async fn re_poll_upserts_moves_and_releases_and_enforces_sequence_wins() {
     assert_eq!(events["events"][0]["starts_at"], format!("{day}T14:00:00Z"));
 
     // LOWER sequence re-announcement: ignored (highest sequence wins).
-    ics_tx.send_modify(|v| {
-        *v = fixture_ics(&day, uid, 8, 9, "Stale").replace("SEQUENCE:1", "SEQUENCE:0")
-    });
-    let s3: Value = body_json(
-        send(
-            &app,
-            axum::http::Method::POST,
-            &sync_uri,
-            Some(&bearer),
-            None,
-        )
-        .await,
+    let s3 = apply_snapshot(
+        &state,
+        org_id,
+        user_id,
+        connection_uuid,
+        &core_api::routes::calendar_sync::parse_ical(
+            &fixture_ics(&day, uid, 8, 9, "Stale").replace("SEQUENCE:1", "SEQUENCE:0"),
+        ),
     )
     .await;
-    assert_eq!(s3["outcome"]["imported"], 0, "{s3}");
-    assert_eq!(s3["outcome"]["duplicates"], 1, "{s3}");
+    assert_eq!(s3.imported, 0);
+    assert_eq!(s3.duplicates, 1);
     let events: Value = body_json(
         send(
             &app,
@@ -510,19 +558,17 @@ async fn re_poll_upserts_moves_and_releases_and_enforces_sequence_wins() {
     );
 
     // Event disappears from the snapshot: released, slot freed.
-    ics_tx.send_modify(|v| *v = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n".to_string());
-    let s4: Value = body_json(
-        send(
-            &app,
-            axum::http::Method::POST,
-            &sync_uri,
-            Some(&bearer),
-            None,
-        )
-        .await,
+    let s4 = apply_snapshot(
+        &state,
+        org_id,
+        user_id,
+        connection_uuid,
+        &core_api::routes::calendar_sync::parse_ical(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n",
+        ),
     )
     .await;
-    assert_eq!(s4["outcome"]["released"], 1, "{s4}");
+    assert_eq!(s4.released, 1);
     let events: Value = body_json(
         send(
             &app,
@@ -535,6 +581,89 @@ async fn re_poll_upserts_moves_and_releases_and_enforces_sequence_wins() {
     )
     .await;
     assert_eq!(events["events"].as_array().unwrap().len(), 0);
+}
+
+/// A feed URL the outbound guard refuses is never requested.
+///
+/// The loopback listener is the probe: it counts what it accepts, so the
+/// assertion is that the poll refused before a socket existed rather than that
+/// it happened to fail. The metadata address is the second spelling of the same
+/// refusal — a literal the guard classifies without any lookup.
+#[tokio::test]
+async fn a_loopback_feed_is_refused_before_the_request() {
+    let (_state, app) = test_state().await;
+    let tokens = register_org(&app, format!("csync4-{}", Uuid::now_v7().simple())).await;
+    let bearer = tokens["access_token"].as_str().unwrap().to_string();
+    let (addr, connections) = counting_listener();
+
+    for (index, feed_url) in [
+        format!("http://{addr}/calendar.ics"),
+        "https://169.254.169.254/latest/meta-data/".to_string(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let created: Value = body_json(
+            send(
+                &app,
+                axum::http::Method::POST,
+                "/api/calendar-sync",
+                Some(&bearer),
+                Some(json!({
+                    "name": format!("Refused feed {index}"),
+                    "provider": "ical",
+                    "direction": "inbound",
+                    "feed_url": feed_url,
+                })),
+            )
+            .await,
+        )
+        .await;
+        let connection_id = created["connection"]["id"].as_str().unwrap().to_string();
+
+        let synced = send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/calendar-sync/{connection_id}/sync"),
+            Some(&bearer),
+            None,
+        )
+        .await;
+        assert_eq!(
+            synced.status(),
+            503,
+            "a refused feed is the typed unavailable answer, not a panic or a hop: {feed_url}"
+        );
+
+        let listed: Value = body_json(
+            send(
+                &app,
+                axum::http::Method::GET,
+                "/api/calendar-sync",
+                Some(&bearer),
+                None,
+            )
+            .await,
+        )
+        .await;
+        let row = listed
+            .as_array()
+            .expect("connections array")
+            .iter()
+            .find(|c| c["id"] == connection_id.as_str())
+            .expect("the connection stays listed");
+        assert!(
+            row["last_error"].as_str().is_some_and(|e| !e.is_empty()),
+            "the refusal is recorded on the connection: {row}"
+        );
+    }
+
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(
+        connections.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the refused target was never connected to"
+    );
 }
 
 #[tokio::test]

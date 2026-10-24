@@ -157,16 +157,17 @@ fn encode_cursor(at: chrono::DateTime<chrono::Utc>, id: Uuid) -> String {
 
 // --- validation ------------------------------------------------------------------
 
+/// Screens a destination before it is stored.
+///
+/// The guard's question, asked at write time: https only, a publicly routable
+/// host, userinfo and a non-default port refused. Screening here means a stored
+/// URL cannot become a request to loopback or a cloud metadata endpoint later;
+/// the send path screens again because the address a name resolves to today is
+/// not the address it resolved to when the row was written.
 fn validate_url(url: &str) -> ApiResult<()> {
-    let parsed = url::Url::parse(url)
-        .map_err(|_| ApiError::Validation("url is not a valid absolute URL".into()))?;
-    if parsed.scheme() != "https" && parsed.scheme() != "http" {
-        return Err(ApiError::Validation("url scheme must be http(s)".into()));
-    }
-    if parsed.host_str().is_none() {
-        return Err(ApiError::Validation("url needs a host".into()));
-    }
-    Ok(())
+    core_domain::egress::screen(url.trim())
+        .map(|_| ())
+        .map_err(|denial| ApiError::Validation(format!("url refused: {denial}")))
 }
 
 /// Validates that every event type in `event_types` is either a registered

@@ -123,43 +123,175 @@ pub trait DeliverySink: Send + Sync {
 }
 
 /// Production sink: one attempt per call, no redirects (a redirect must
-/// never silently re-post a signed body somewhere else).
-#[derive(Clone, Default)]
+/// never silently re-post a signed body somewhere else), and the destination
+/// screened before the request.
+///
+/// The guard is the same one the plugin transport and the API edges use:
+/// [`core_domain::egress::screen`] refuses a non-https URL, userinfo, a
+/// non-default port and a host that is not publicly routable; the host is
+/// resolved once per attempt and every answer is judged by
+/// [`core_domain::egress::check_resolved`]; the client is pinned to exactly the
+/// addresses that passed, so the address approved is the address dialled. The
+/// resolution is not cached across attempts — a destination that rebinds between
+/// attempts is a destination that gets checked twice.
+#[derive(Clone)]
 pub struct ReqwestSink {
-    http: reqwest::Client,
+    timeout: std::time::Duration,
+}
+
+impl Default for ReqwestSink {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ReqwestSink {
     pub fn new() -> Self {
         Self {
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(15))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .unwrap_or_default(),
+            timeout: std::time::Duration::from_secs(15),
         }
     }
 }
 
+/// The guard's static half for a webhook destination.
+fn screen(url: &str) -> Result<core_domain::egress::EgressTarget, SinkResult> {
+    core_domain::egress::screen(url).map_err(|denial| {
+        SinkResult::Transport(format!("destination refused before the request: {denial}"))
+    })
+}
+
+/// One pinned client and the address set it was built for.
+///
+/// The pin is per address set, so a client may be reused across attempts only
+/// while the fresh resolution returns the same set. That keeps connection reuse
+/// for a steady receiver without keeping a pin that a rebind has invalidated.
+struct Pinned {
+    addrs: Vec<std::net::SocketAddr>,
+    client: reqwest::Client,
+}
+
+/// Pinned clients kept per process, keyed by host. A webhook fleet points at a
+/// handful of receivers; the cap bounds an org that rotates names.
+const MAX_CACHED_CLIENTS: usize = 16;
+
+fn client_for(
+    host: &str,
+    addrs: &[std::net::SocketAddr],
+    timeout: std::time::Duration,
+) -> Result<reqwest::Client, SinkResult> {
+    static CLIENTS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Pinned>>,
+    > = std::sync::OnceLock::new();
+    let cache = CLIENTS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(pinned) = guard.get(host) {
+        if pinned.addrs == addrs {
+            return Ok(pinned.client.clone());
+        }
+    }
+    let client = build_client(host, addrs, timeout)?;
+    if guard.len() >= MAX_CACHED_CLIENTS {
+        guard.clear();
+    }
+    guard.insert(
+        host.to_string(),
+        Pinned {
+            addrs: addrs.to_vec(),
+            client: client.clone(),
+        },
+    );
+    Ok(client)
+}
+
+fn build_client(
+    host: &str,
+    addrs: &[std::net::SocketAddr],
+    timeout: std::time::Duration,
+) -> Result<reqwest::Client, SinkResult> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none());
+    if !addrs.is_empty() {
+        builder = builder.resolve_to_addrs(host, addrs);
+    }
+    builder
+        .build()
+        .map_err(|e| SinkResult::Transport(format!("destination client could not be built: {e}")))
+}
+
+/// Resolve once, judge every answer, and hand back a client pinned to the
+/// judged set. An IP-literal destination needs no lookup: the screen already
+/// classified the literal.
+async fn pinned_client(
+    target: &core_domain::egress::EgressTarget,
+    timeout: std::time::Duration,
+) -> Result<reqwest::Client, SinkResult> {
+    if target.is_ip_literal() {
+        return client_for(target.host(), &[], timeout);
+    }
+    let addrs: Vec<std::net::SocketAddr> = tokio::net::lookup_host((target.host(), target.port()))
+        .await
+        .map_err(|_| SinkResult::Transport("destination host did not resolve".to_string()))?
+        .collect();
+    let ips: Vec<std::net::IpAddr> = addrs.iter().map(std::net::SocketAddr::ip).collect();
+    core_domain::egress::check_resolved(&ips).map_err(|denial| {
+        SinkResult::Transport(format!("destination refused before the request: {denial}"))
+    })?;
+    client_for(target.host(), &addrs, timeout)
+}
+
 impl DeliverySink for ReqwestSink {
     async fn post(&self, url: &str, signature: &str, timestamp: i64, body: &[u8]) -> SinkResult {
-        let response = self
-            .http
-            .post(url)
-            .header("content-type", "application/json")
-            .header(core_domain::webhooks::SIGNATURE_HEADER, signature)
-            .header(
-                core_domain::webhooks::TIMESTAMP_HEADER,
-                timestamp.to_string(),
-            )
-            .body(body.to_vec())
-            .send()
-            .await;
-        match response {
-            Ok(resp) if resp.status().is_success() => SinkResult::Delivered(resp.status().as_u16()),
-            Ok(resp) => SinkResult::Rejected(resp.status().as_u16()),
-            Err(e) => SinkResult::Transport(e.to_string()),
+        let target = match screen(url) {
+            Ok(target) => target,
+            Err(refused) => return refused,
+        };
+        let client = match pinned_client(&target, self.timeout).await {
+            Ok(client) => client,
+            Err(refused) => return refused,
+        };
+        // The guard's canonical URL, never the row's string: a parser
+        // differential must not authorize one URL and post to another.
+        send_signed(&client, target.as_str(), signature, timestamp, body).await
+    }
+}
+
+/// The mechanical half: one signed POST against an already-screened, pinned URL.
+async fn send_signed(
+    client: &reqwest::Client,
+    url: &str,
+    signature: &str,
+    timestamp: i64,
+    body: &[u8],
+) -> SinkResult {
+    let response = client
+        .post(url)
+        .header("content-type", "application/json")
+        .header(core_domain::webhooks::SIGNATURE_HEADER, signature)
+        .header(
+            core_domain::webhooks::TIMESTAMP_HEADER,
+            timestamp.to_string(),
+        )
+        .body(body.to_vec())
+        .send()
+        .await;
+    match response {
+        // Stated, not inferred from `Policy::none`: a redirect arrives here as a
+        // response, and it is a refusal with the receiver's own status rather
+        // than a hop to a host nothing screened. The webhook retry policy treats
+        // a 3xx as permanent, so the attempt is recorded and not retried.
+        Ok(resp) if core_domain::egress::is_redirect(resp.status().as_u16()) => {
+            tracing::warn!(
+                status = resp.status().as_u16(),
+                "webhook destination answered a redirect, which is never followed"
+            );
+            SinkResult::Rejected(resp.status().as_u16())
         }
+        Ok(resp) if resp.status().is_success() => SinkResult::Delivered(resp.status().as_u16()),
+        Ok(resp) => SinkResult::Rejected(resp.status().as_u16()),
+        Err(e) => SinkResult::Transport(e.to_string()),
     }
 }
 
@@ -778,5 +910,176 @@ mod tests {
             .expect("parse")
             .expect("valid");
         assert_eq!(parsed.event_type(), "ticket.created");
+    }
+
+    // --- the sink's guard (Wave 54 lane S1a) -------------------------------
+
+    /// One loopback listener, answering every request with `status`, counting
+    /// the connections it accepts and recording the bytes of the first request.
+    ///
+    /// The guard refuses a loopback destination before a socket exists, so the
+    /// transport half is driven directly here — the same split `plugin_http`
+    /// uses. An integration test cannot reach it, and that is deliberate: the
+    /// only production path into this function runs the guard first.
+    fn serve_once(
+        status: &'static str,
+        extra: &'static str,
+    ) -> (
+        std::net::SocketAddr,
+        std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        std::sync::mpsc::Receiver<String>,
+    ) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&count);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                seen.fetch_add(1, Ordering::SeqCst);
+                // Read headers, then exactly the declared body, so the bytes
+                // asserted are the whole request rather than one TCP segment.
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 1024];
+                let header_end = loop {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break buf.len(),
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                    if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break pos;
+                    }
+                };
+                let head = String::from_utf8_lossy(&buf[..header_end]).to_ascii_lowercase();
+                let length = head
+                    .lines()
+                    .find_map(|l| {
+                        let (k, v) = l.split_once(':')?;
+                        k.trim()
+                            .eq("content-length")
+                            .then(|| v.trim().parse::<usize>().ok())?
+                    })
+                    .unwrap_or(0);
+                while buf.len() < header_end + 4 + length {
+                    match stream.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let _ = tx.send(String::from_utf8_lossy(&buf).into_owned());
+                let _ = stream.write_all(
+                    format!("HTTP/1.1 {status}\r\n{extra}Content-Length: 0\r\nConnection: close\r\n\r\n")
+                        .as_bytes(),
+                );
+            }
+        });
+        (addr, count, rx)
+    }
+
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("client")
+    }
+
+    /// THE PROPERTY: the signed body and both headers reach the wire, and the
+    /// bytes the receiver verifies are the bytes that were sent.
+    #[tokio::test]
+    async fn the_signed_body_reaches_the_wire() {
+        let (addr, connections, received) = serve_once("200 OK", "");
+        let body = b"{\"id\":\"evt\"}".to_vec();
+        let now = chrono::Utc::now().timestamp();
+        let signature = signature_value(b"whsec_test", &body, now);
+        let result = send_signed(
+            &client(),
+            &format!("http://{addr}/marula/hook"),
+            &signature,
+            now,
+            &body,
+        )
+        .await;
+        assert_eq!(result, SinkResult::Delivered(200));
+
+        let request = received.recv().expect("one request reached the listener");
+        assert!(request.starts_with("POST /marula/hook "), "{request}");
+        assert!(request.contains(&signature), "signature header on the wire");
+        assert!(
+            request.contains(&now.to_string()),
+            "timestamp header on the wire"
+        );
+        assert!(request.ends_with("{\"id\":\"evt\"}"), "body on the wire");
+        assert_eq!(connections.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    /// A `3xx` is a refusal with the receiver's own status, never a hop. The
+    /// second connection would be the hop, so the count is the assertion.
+    #[tokio::test]
+    async fn a_redirect_is_refused_rather_than_followed() {
+        let (addr, connections, _received) =
+            serve_once("302 Found", "Location: https://elsewhere.example/hook\r\n");
+        let result = send_signed(
+            &client(),
+            &format!("http://{addr}/marula/hook"),
+            "sig",
+            chrono::Utc::now().timestamp(),
+            b"{}",
+        )
+        .await;
+        assert_eq!(result, SinkResult::Rejected(302));
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert_eq!(
+            connections.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the Location was never dialled"
+        );
+    }
+
+    /// A destination the guard refuses never reaches the socket: the listener
+    /// behind the URL stays unconnected and the attempt is a transport failure,
+    /// which the delivery ledger records and the retry policy judges.
+    #[tokio::test]
+    async fn a_loopback_destination_is_refused_before_the_request() {
+        let (addr, connections, _received) = serve_once("200 OK", "");
+        let result = ReqwestSink::new()
+            .post(
+                &format!("https://127.0.0.1:{}/hook", addr.port()),
+                "sig",
+                chrono::Utc::now().timestamp(),
+                b"{}",
+            )
+            .await;
+        assert!(
+            matches!(result, SinkResult::Transport(ref reason) if reason.contains("refused before the request")),
+            "{result:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert_eq!(
+            connections.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "a loopback destination is never dialled"
+        );
+    }
+
+    /// The endpoint spelling that bypassed the old hand-rolled distribution
+    /// guard: userinfo in the authority, with the metadata address behind it.
+    #[tokio::test]
+    async fn a_userinfo_spelling_of_a_metadata_target_is_refused() {
+        let result = ReqwestSink::new()
+            .post(
+                "https://user:pw@169.254.169.254/latest/meta-data/",
+                "sig",
+                chrono::Utc::now().timestamp(),
+                b"{}",
+            )
+            .await;
+        assert!(
+            matches!(result, SinkResult::Transport(ref reason) if reason.contains("refused before the request")),
+            "{result:?}"
+        );
     }
 }
