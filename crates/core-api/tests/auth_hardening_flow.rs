@@ -34,6 +34,13 @@ async fn test_state(admin_url: &str) -> AppState {
         .await
         .expect("pool");
     core_db::run_migrations(&pool).await.expect("migrations");
+    state_on(pool, admin_url)
+}
+
+/// An `AppState` over a pool this call owns, so a test can pin the pool's
+/// shape (one connection, a probe-able `application_name`, or the
+/// RLS-constrained role) without disturbing the shared `test_state` pool.
+fn state_on(pool: PgPool, admin_url: &str) -> AppState {
     let mut config = Config::from_env_allow_dev_fallback().expect("config");
     config.database_url = admin_url.to_string();
     AppState {
@@ -49,6 +56,57 @@ async fn test_state(admin_url: &str) -> AppState {
         reporting: core_api::state::AppState::reporting_pool_lazy(admin_url)
             .expect("lazy reporting pool"),
     }
+}
+
+/// Rewrites owner credentials to the RLS-constrained application role — the
+/// role a deployed core-api connects as, and the only one where a policy can
+/// swallow a write.
+fn app_role_url(admin_url: &str) -> String {
+    let (scheme, rest) = admin_url
+        .split_once("://")
+        .unwrap_or(("postgres", admin_url));
+    match rest.split_once('@') {
+        Some((_, host)) => format!("{scheme}://marula_app:marula_app@{host}"),
+        None => format!("{scheme}://marula_app:marula_app@{rest}"),
+    }
+}
+
+/// `test_state`, but the API connects as `marula_app` so every handler
+/// statement runs under RLS exactly as it does in a deployed instance.
+/// Migrations run first as the owner: the app role owns nothing and cannot
+/// run DDL.
+async fn rls_state(admin_url: &str) -> AppState {
+    let owner: PgPool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(admin_url)
+        .await
+        .expect("owner pool");
+    core_db::run_migrations(&owner).await.expect("migrations");
+    let pool: PgPool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(&app_role_url(admin_url))
+        .await
+        .expect("app-role pool");
+    state_on(pool, admin_url)
+}
+
+/// `test_state`, but the pool holds ONE connection and carries `tag` as its
+/// `application_name`, so the race harness can name exactly this backend in
+/// `pg_stat_activity` and not a sibling test's.
+async fn racer_state(admin_url: &str, tag: &str) -> AppState {
+    let options = admin_url
+        .parse::<sqlx::postgres::PgConnectOptions>()
+        .expect("database url")
+        .application_name(tag);
+    let pool: PgPool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect_with(options)
+        .await
+        .expect("racer pool");
+    state_on(pool, admin_url)
 }
 
 async fn send(
@@ -859,4 +917,250 @@ async fn logout_with_an_ambient_session_cookie_and_no_csrf_header_succeeds() {
         axum::http::StatusCode::UNAUTHORIZED,
         "a logged-out session must not rotate"
     );
+}
+
+// ---------------------------------------------------------------------------
+// (7) two refreshes from one parent, and the logout that must land
+// ---------------------------------------------------------------------------
+
+/// Two refresh calls presenting the SAME parent is what two open windows
+/// produce when the access token expires. Rotation must fork no lineage:
+/// exactly one call mints the child, the other is refused with the typed
+/// answer a consumed token gets, and the winner's chain is the only live one.
+#[tokio::test]
+async fn concurrent_refresh_from_one_parent_mints_exactly_one_child() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let app = core_api::router(test_state(&admin_url).await);
+    let probe: PgPool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(&admin_url)
+        .await
+        .expect("probe pool");
+
+    let slug = format!("race-{}", Uuid::now_v7().simple());
+    let seeded = register_org(&app, &slug).await;
+    let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
+    let session = Uuid::parse_str(seeded["session_id"].as_str().unwrap()).unwrap();
+    let user = Uuid::parse_str(seeded["user_id"].as_str().unwrap()).unwrap();
+
+    // Pin the parent row so both rotations queue on its lock: the two calls
+    // then provably get past the `active` classification before either
+    // commits, which is the window the defect lived in. Without the pin the
+    // test would only be as reliable as wall-clock luck.
+    let tag_a = format!("s2b-race-a-{}", Uuid::now_v7().simple());
+    let tag_b = format!("s2b-race-b-{}", Uuid::now_v7().simple());
+    let mut locker = probe.begin().await.expect("locker tx");
+    sqlx::query("SELECT id FROM auth_sessions WHERE id = $1 FOR UPDATE")
+        .bind(session)
+        .execute(&mut *locker)
+        .await
+        .expect("pin the parent");
+
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let mut calls = Vec::new();
+    for (tag, ip) in [
+        (tag_a.clone(), format!("114.60.20.{}", Uuid::now_v7())),
+        (tag_b.clone(), format!("114.60.21.{}", Uuid::now_v7())),
+    ] {
+        let router = core_api::router(racer_state(&admin_url, &tag).await);
+        let barrier = Arc::clone(&barrier);
+        let refresh = refresh.clone();
+        let session = session.to_string();
+        calls.push(tokio::spawn(async move {
+            barrier.wait().await;
+            let response = send(
+                &router,
+                Method::POST,
+                "/api/auth/refresh",
+                None,
+                &[("x-forwarded-for", ip.as_str())],
+                Some(json!({ "refresh_token": refresh, "session_id": session })),
+            )
+            .await;
+            (response.status(), body_json(response).await)
+        }));
+    }
+
+    // Both backends must be waiting on the parent itself. Only this test's
+    // two backends carry these tags, so a sibling test's lock cannot make
+    // the count pass early.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE wait_event_type = 'Lock' \
+               AND (application_name = $1 OR application_name = $2)",
+        )
+        .bind(&tag_a)
+        .bind(&tag_b)
+        .fetch_one(&probe)
+        .await
+        .expect("lock probe");
+        if waiting == 2 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "both refresh calls must reach the parent row lock (waiting = {waiting})"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    locker.rollback().await.expect("release the parent");
+
+    let mut answers = Vec::new();
+    for call in calls {
+        answers.push(call.await.expect("refresh call"));
+    }
+    let ok = answers
+        .iter()
+        .filter(|(status, _)| *status == axum::http::StatusCode::OK)
+        .count();
+    let refused: Vec<&Value> = answers
+        .iter()
+        .filter(|(status, _)| *status == axum::http::StatusCode::UNAUTHORIZED)
+        .map(|(_, body)| body)
+        .collect();
+    assert_eq!(
+        (ok, refused.len()),
+        (1, 1),
+        "exactly one refresh may win: {answers:?}"
+    );
+
+    // The loser gets the envelope a reused token gets — not a 500, not a 429.
+    assert_eq!(refused[0]["error"]["reason"], "unauthorized");
+    assert_eq!(refused[0]["error"]["message"], "invalid refresh token");
+
+    // One parent, one child. The refused call wrote no row, so the lineage
+    // did not fork.
+    let children: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM auth_sessions WHERE rotated_from = $1")
+            .bind(session)
+            .fetch_all(&probe)
+            .await
+            .expect("children");
+    assert_eq!(
+        children.len(),
+        1,
+        "one parent may mint one child: {children:?}"
+    );
+    let winner_child = children[0];
+    let parent_revoked: bool =
+        sqlx::query_scalar("SELECT revoked_at IS NOT NULL FROM auth_sessions WHERE id = $1")
+            .bind(session)
+            .fetch_one(&probe)
+            .await
+            .expect("parent row");
+    assert!(parent_revoked, "the winning rotation retires the parent");
+    let live: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM auth_sessions WHERE user_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(user)
+    .fetch_all(&probe)
+    .await
+    .expect("live sessions");
+    assert_eq!(
+        live,
+        vec![winner_child],
+        "the winning chain is the only live one"
+    );
+
+    // And the winner's pair still works: the refusal did not cost the chain
+    // its successor.
+    let winner = answers
+        .iter()
+        .find(|(status, _)| *status == axum::http::StatusCode::OK)
+        .expect("a winner")
+        .1
+        .clone();
+    let follow = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[(
+            "x-forwarded-for",
+            format!("114.60.22.{}", Uuid::now_v7()).as_str(),
+        )],
+        Some(json!({
+            "refresh_token": winner["refresh_token"],
+            "session_id": winner["session_id"],
+        })),
+    )
+    .await;
+    assert_eq!(
+        follow.status(),
+        axum::http::StatusCode::OK,
+        "the winner's child must still rotate"
+    );
+}
+
+/// Sign-out must retire the row, not just the cookies. `auth_sessions` is
+/// RLS-guarded, so the bare-pool UPDATE the handler used to issue matched
+/// nothing (denied, or `22P02` on a connection still carrying an empty
+/// `app.org_id`) and was discarded: 204 to the client, live refresh token on
+/// the server. This drives the API as `marula_app`, where that swallow
+/// happens, and reads the row as the owner, which no policy filters.
+#[tokio::test]
+async fn logout_revokes_the_session_row_under_rls() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let app = core_api::router(rls_state(&admin_url).await);
+    let owner: PgPool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(10))
+        .connect(&admin_url)
+        .await
+        .expect("owner pool");
+
+    let slug = format!("logout-rls-{}", Uuid::now_v7().simple());
+    let seeded = register_org(&app, &slug).await;
+    let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
+    let session = Uuid::parse_str(seeded["session_id"].as_str().unwrap()).unwrap();
+
+    let live_before: bool =
+        sqlx::query_scalar("SELECT revoked_at IS NULL FROM auth_sessions WHERE id = $1")
+            .bind(session)
+            .fetch_one(&owner)
+            .await
+            .expect("session row");
+    assert!(live_before, "the seeded session starts live");
+
+    let ip = format!("114.71.11.{}", Uuid::now_v7());
+    let response = send(
+        &app,
+        Method::POST,
+        "/api/auth/logout",
+        None,
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({ "refresh_token": refresh, "session_id": session.to_string() })),
+    )
+    .await;
+    assert_eq!(response.status(), axum::http::StatusCode::NO_CONTENT);
+
+    let revoked: bool =
+        sqlx::query_scalar("SELECT revoked_at IS NOT NULL FROM auth_sessions WHERE id = $1")
+            .bind(session)
+            .fetch_one(&owner)
+            .await
+            .expect("session row after logout");
+    assert!(
+        revoked,
+        "logout must change the row inside the org scope; a 204 with the row still live is the defect"
+    );
+
+    // The same credential cannot rotate afterwards either.
+    let after = send(
+        &app,
+        Method::POST,
+        "/api/auth/refresh",
+        None,
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({ "refresh_token": refresh, "session_id": session.to_string() })),
+    )
+    .await;
+    assert_eq!(after.status(), axum::http::StatusCode::UNAUTHORIZED);
 }

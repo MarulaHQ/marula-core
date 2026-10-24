@@ -432,38 +432,50 @@ where
 }
 
 /// Rotates to a NEW chain node atomically: the parent is revoked (guarded:
-/// only when still active — concurrent replays lose the race and fall
-/// through to reuse handling) and the child carrying the fresh secret is
-/// inserted in the same statement.
+/// only when still active) and the child carrying the fresh secret is
+/// inserted in the same statement — but only when THIS call won the parent's
+/// row lock. Returns `false` when a concurrent rotation claimed the parent
+/// first, and in that case nothing is written.
+///
+/// The INSERT reads `retired`, so a lost claim inserts no row. Before that
+/// dependency existed the guard was decorative: two refreshes arriving
+/// together both saw an active parent, both ran the UPDATE (one of them a
+/// no-op) and both inserted a child, so one login lineage grew two live
+/// leaves and the request that should have been refused was handed a token
+/// pair.
 pub async fn rotate_session_chain<'e, E>(
     executor: E,
     parent: &RefreshSession,
     new_id: Uuid,
     new_hash: &str,
     new_expiry: chrono::DateTime<chrono::Utc>,
-) -> DbResult<()>
+) -> DbResult<bool>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    sqlx::query!(
+    // Runtime `query`, like the other statements in this file that build their
+    // SQL: the claim is answered by `rows_affected`, and no caller reads a
+    // column from the statement.
+    let result = sqlx::query(
         r#"WITH retired AS (
                UPDATE auth_sessions SET revoked_at = now()
                WHERE id = $1 AND revoked_at IS NULL
+               RETURNING id
            )
            INSERT INTO auth_sessions (id, user_id, refresh_token_hash, user_agent,
                                       chain_id, rotated_from, expires_at)
-           VALUES ($2, $3, $4, $5, $6, $1, $7)"#,
-        parent.id,
-        new_id,
-        parent.user_id,
-        new_hash,
-        parent.user_agent,
-        parent.chain_id,
-        new_expiry
+           SELECT $2, $3, $4, $5, $6, $1, $7 FROM retired"#,
     )
+    .bind(parent.id)
+    .bind(new_id)
+    .bind(parent.user_id)
+    .bind(new_hash)
+    .bind(parent.user_agent.as_deref())
+    .bind(parent.chain_id)
+    .bind(new_expiry)
     .execute(executor)
     .await?;
-    Ok(())
+    Ok(result.rows_affected() == 1)
 }
 
 /// Revokes every still-live session in a chain (reuse-detection response).
