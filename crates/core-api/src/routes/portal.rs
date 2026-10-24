@@ -130,6 +130,22 @@ pub async fn login(
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<PortalLoginRequest>,
 ) -> ApiResult<axum::response::Response> {
+    // Durable per-IP + per-actor deny-by-default gate BEFORE identity
+    // resolution (Wave 54 lane S2a). The kind is the PORTAL's own, so the
+    // rows this path reads are the rows it writes: a contact guessing a
+    // password cannot arm — or clear — a staff member's sign-in gate, and a
+    // locked caller pays no argon2 verify and mints no session. The answer is
+    // the uniform 401 for the same reason as `/api/auth/login`: a typed
+    // throttle would let an anonymous caller probe whether an address is
+    // locked (threat model §A1).
+    crate::auth::hardening::enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::PORTAL_PASSWORD_LOGIN,
+        &client_ip,
+        crate::auth::hardening::GateSubject::Email(&req.email),
+        true,
+    )
+    .await?;
     // Narrow SECURITY DEFINER bridge (migration 0021): identity only.
     let resolved: Option<(Uuid, Uuid, Uuid)> =
         sqlx::query_as("SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)")
@@ -164,7 +180,7 @@ pub async fn login(
         .await;
         let _ = crate::auth::hardening::record_failure(
             &state,
-            crate::auth::hardening::kinds::PASSWORD_LOGIN,
+            crate::auth::hardening::kinds::PORTAL_PASSWORD_LOGIN,
             &client_ip,
             crate::auth::hardening::GateSubject::Email(&req.email),
         )
@@ -188,7 +204,7 @@ pub async fn login(
     let response = issue_portal_tokens(&state, &identity, None).await?;
     let _ = crate::auth::hardening::record_success(
         &state,
-        crate::auth::hardening::kinds::PASSWORD_LOGIN,
+        crate::auth::hardening::kinds::PORTAL_PASSWORD_LOGIN,
         &client_ip,
         crate::auth::hardening::GateSubject::Email(&req.email),
     )

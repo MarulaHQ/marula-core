@@ -2,7 +2,10 @@
 //!
 //! Durable per-IP AND per-actor gates sit in front of every throttled
 //! auth surface: POST /api/auth/login, /api/auth/mfa/verify,
-//! /api/auth/mfa/webauthn/begin + /finish, and /api/auth/refresh.
+//! /api/auth/mfa/webauthn/begin + /finish, and /api/auth/refresh — plus the
+//! client portal's own sign-ins, `/api/portal/login` and the magic-link
+//! pair, which run on kinds of their own so the two populations never share
+//! a lock (see `core_db::hardening::gate_kind`).
 //! State lives in Postgres (migration 0088) — restarts never reset a
 //! lock, and the posture is deny-by-default: no key, no admission. What
 //! DOES reset a curve is a success on the same surface: every throttled
@@ -13,8 +16,10 @@
 //!
 //! Enumeration discipline: LOGIN keeps its uniform 401 "invalid
 //! credentials" answer for BOTH wrong-password and locked-out callers
-//! (threat model §A1); every other throttled surface surfaces the typed
-//! 429 envelope (`auth_rate_limited`, IF3) — their request shape already
+//! (threat model §A1), and `/api/portal/login` follows it for the same
+//! reason — an anonymous caller chooses the address on both. Every other
+//! throttled surface surfaces the typed 429 envelope
+//! (`auth_rate_limited`, IF3) — their request shape already
 //! proves possession of something (a valid mfa_pending bridge, a live
 //! session id), so the code cannot fingerprint lockout state of an
 //! account the caller does not already control.
