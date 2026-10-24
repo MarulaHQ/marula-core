@@ -28,6 +28,14 @@ pub mod gate_kind {
     /// `kind` in `auth_lockouts` carries no CHECK), so this needs no schema
     /// change.
     pub const PORTAL_MAGIC_LINK: &str = "portal_magic_link";
+    /// The client portal's password sign-in (Wave 54 lane S2a). A SEPARATE
+    /// kind from `PASSWORD_LOGIN` for the same reason as `PORTAL_MAGIC_LINK`:
+    /// the portal path must read the rows it wrote. Before this split the two
+    /// surfaces shared one kind, so a contact guessing a password armed a
+    /// gate on the staff sign-in key (per-IP, and the per-email key when the
+    /// addresses collide) and a contact's clean sign-in cleared a staff
+    /// member's engaged lock. Free text column, no CHECK — no schema change.
+    pub const PORTAL_PASSWORD_LOGIN: &str = "portal_password_login";
 }
 
 /// Seconds until the strictest lockout for these keys expires (0 = allow).
@@ -179,4 +187,34 @@ where
             .await?
             .flatten();
     Ok(verified.unwrap_or(false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::gate_kind;
+
+    /// Gate rows key on `kind` alone, so two constants holding the same string
+    /// quietly restore the shared-lock bug this lane fixed. The portal
+    /// password leg is the one to guard by name: it has to stay its own row
+    /// family from the staff sign-in, and its literal is what an operator's
+    /// triage query reads.
+    #[test]
+    fn every_gate_kind_is_a_distinct_string() {
+        let mut seen = std::collections::BTreeSet::new();
+        for kind in [
+            gate_kind::PASSWORD_LOGIN,
+            gate_kind::MFA_VERIFY,
+            gate_kind::WEBAUTHN_LOGIN,
+            gate_kind::WEBAUTHN_BEGIN,
+            gate_kind::REFRESH,
+            gate_kind::PASSWORD_RESET,
+            gate_kind::EMAIL_VERIFY,
+            gate_kind::MAGIC_LINK,
+            gate_kind::PORTAL_MAGIC_LINK,
+            gate_kind::PORTAL_PASSWORD_LOGIN,
+        ] {
+            assert!(seen.insert(kind), "duplicate gate kind: {kind}");
+        }
+        assert_eq!(gate_kind::PORTAL_PASSWORD_LOGIN, "portal_password_login");
+    }
 }

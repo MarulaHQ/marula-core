@@ -135,6 +135,9 @@ async fn body_json(response: axum::response::Response) -> Value {
 
 struct Org {
     token: String,
+    /// The staff owner's sign-in address (password `correct-horse-battery`),
+    /// so a test can drive the staff login against a REAL account in this org.
+    owner_email: String,
     board_id: String,
     client_a: String,
     client_b: String,
@@ -149,6 +152,7 @@ struct Org {
 /// ticket_a.
 async fn seed_org(app: &Router, tag: &str) -> Org {
     let slug = format!("portal-flow-{tag}-{}", Uuid::now_v7().simple());
+    let owner_email = format!("owner@{slug}.test");
     let response = send(
         app,
         axum::http::Method::POST,
@@ -157,7 +161,7 @@ async fn seed_org(app: &Router, tag: &str) -> Org {
         Some(json!({
             "org_name": "Portal Flow Co",
             "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
+            "email": owner_email.clone(),
             "password": "correct-horse-battery",
             "display_name": "Owner",
         })),
@@ -274,6 +278,7 @@ async fn seed_org(app: &Router, tag: &str) -> Org {
 
     Org {
         token,
+        owner_email,
         board_id,
         client_a,
         client_b,
@@ -737,12 +742,15 @@ async fn portal_refresh_rotates_and_replay_fails() {
         "replayed refresh tokens never resolve"
     );
 
-    // Wrong password is a uniform 401 (never reveals which half failed).
-    let bad_password = send(
+    // Wrong password is a uniform 401 (never reveals which half failed). It
+    // rides its own caller IP: a recorded failure is durable and per-IP, so a
+    // shared bucket would lock OTHER portal cases in this binary out of their
+    // first sign-in (Wave 54 lane S2a put the portal password path on a gate).
+    let bad_password = send_with_headers(
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        None,
+        &[("x-forwarded-for", test_caller_ip().as_str())],
         Some(json!({"email": email, "password": "definitely-wrong-password"})),
     )
     .await;
@@ -1337,4 +1345,345 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
     )
     .await;
     assert_eq!(forged.status(), axum::http::StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// Wave 54 lane S2a — the portal password path owns its own lockout kind
+//
+// Two records, one root cause: `/api/portal/login` never ran the
+// deny-by-default pre-check, and the rows it wrote named the STAFF sign-in
+// kind. So a contact guessing a password armed a gate on `/api/auth/login`
+// (per-IP always, per-address when the two addresses collide), and a
+// contact's clean sign-in DELETED a staff member's engaged lock. The four
+// cases below pin the split: each surface reads exactly the rows it wrote,
+// the pre-check answers before any password hash is computed, and a success
+// pays down only its own curve.
+// ---------------------------------------------------------------------------
+
+/// A caller IP private to ONE test. The gates are durable and per-IP, so a
+/// shared bucket — the `unknown` sentinel every headerless `oneshot` request
+/// collapses into — would let one test's failure deny another test's sign-in.
+/// RFC 2544 benchmarking space, never a real client.
+fn test_caller_ip() -> String {
+    // The random tail, not the leading bytes: a v7 UUID starts with a
+    // millisecond timestamp, so `bytes[0]`/`bytes[1]` barely move within a run
+    // and every test would share one caller bucket. That is exactly the
+    // collision the gate is keyed on, so it has to be genuinely fresh.
+    let bytes = Uuid::now_v7().into_bytes();
+    format!("198.18.{}.{}", bytes[9], bytes[10])
+}
+
+/// `attempts` on one gate row; 0 when no row exists. A success DELETEs the
+/// row (`app_auth_gate_clear`), so "no row" and "cleared" are one fact and
+/// both read as 0 here.
+async fn lockout_attempts(pool: &PgPool, kind: &str, lock_key: &str) -> i32 {
+    sqlx::query_scalar::<_, i32>(
+        "SELECT attempts FROM auth_lockouts WHERE kind = $1 AND lock_key = $2",
+    )
+    .bind(kind)
+    .bind(lock_key)
+    .fetch_optional(pool)
+    .await
+    .expect("read the gate row")
+    .unwrap_or(0)
+}
+
+/// The per-actor key shape `hardening::email_fingerprint` writes.
+fn email_key(email: &str) -> String {
+    format!("email:{}", email.trim().to_lowercase())
+}
+
+/// Record: a portal guess must not count toward the staff sign-in kind.
+///
+/// One wrong portal password writes one `portal_password_login` row and no
+/// `password_login` row at all — and the staff owner of the same org, signing
+/// in with the CORRECT password from the SAME caller IP, still gets in. That
+/// last step is the consequence itself: before the split, the per-IP key the
+/// portal failure armed was the key the staff gate read.
+#[tokio::test]
+async fn portal_password_failure_writes_a_portal_row_and_never_arms_the_staff_gate() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    let org = seed_org(&app, &tag).await;
+    let email = format!("s2a-a-{tag}@a.test");
+    invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
+    let ip = test_caller_ip();
+
+    let bad = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": email, "password": "not-the-passphrase"})),
+    )
+    .await;
+    assert_eq!(
+        bad.status(),
+        401,
+        "a wrong portal password is a uniform 401"
+    );
+
+    assert_eq!(
+        lockout_attempts(
+            &state.pool,
+            core_db::hardening::gate_kind::PORTAL_PASSWORD_LOGIN,
+            &email_key(&email),
+        )
+        .await,
+        1,
+        "the portal failure must land on the portal's own kind"
+    );
+    assert_eq!(
+        lockout_attempts(
+            &state.pool,
+            core_db::hardening::gate_kind::PASSWORD_LOGIN,
+            &email_key(&email),
+        )
+        .await,
+        0,
+        "a portal guess must never write a staff sign-in row"
+    );
+
+    // The same caller, a staff account, the right password: a portal failure
+    // on this IP must not be standing in the staff gate's way.
+    let staff = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": org.owner_email, "password": "correct-horse-battery"})),
+    )
+    .await;
+    assert_eq!(
+        staff.status(),
+        200,
+        "a portal failure must not arm the staff sign-in gate on the shared caller IP"
+    );
+}
+
+/// Record: a staff failure must not lock the portal.
+///
+/// The staff gate is engaged on this caller (its own next sign-in is refused,
+/// which proves the lock is real), and a contact signing in from the SAME IP
+/// still gets in — different kind, different rows, no shared lock.
+#[tokio::test]
+async fn a_staff_sign_in_failure_does_not_lock_the_portal() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    let org = seed_org(&app, &tag).await;
+    let email = format!("s2a-b-{tag}@a.test");
+    invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
+    let ip = test_caller_ip();
+
+    let staff_bad = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": org.owner_email, "password": "not-the-password"})),
+    )
+    .await;
+    assert_eq!(staff_bad.status(), 401);
+
+    // The lock is engaged: the very next staff sign-in is refused before any
+    // hash, even with the right password.
+    let staff_locked = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": org.owner_email, "password": "correct-horse-battery"})),
+    )
+    .await;
+    assert_eq!(
+        staff_locked.status(),
+        401,
+        "precondition: the staff gate is engaged on this caller"
+    );
+
+    let portal = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": email, "password": "portal-passphrase-1"})),
+    )
+    .await;
+    assert_eq!(
+        portal.status(),
+        200,
+        "a staff lock must not reach the client portal"
+    );
+    assert_eq!(
+        lockout_attempts(
+            &state.pool,
+            core_db::hardening::gate_kind::PORTAL_PASSWORD_LOGIN,
+            &email_key(&email),
+        )
+        .await,
+        0,
+        "the contact's clean sign-in must leave no portal row behind"
+    );
+}
+
+/// Record: a portal success must not clear a staff lock.
+///
+/// The staff row survives the contact's clean sign-in — `record_success`
+/// clears the keys of ITS OWN kind only — and the staff owner is still
+/// refused afterwards. A clear DELETEs the row, so the row still being here
+/// with `attempts = 1` is the mechanism, not just the status code.
+#[tokio::test]
+async fn a_portal_success_does_not_clear_a_staff_lock() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    let org = seed_org(&app, &tag).await;
+    let email = format!("s2a-c-{tag}@a.test");
+    invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
+    let ip = test_caller_ip();
+
+    let staff_bad = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": org.owner_email, "password": "not-the-password"})),
+    )
+    .await;
+    assert_eq!(staff_bad.status(), 401);
+    let staff_key = email_key(&org.owner_email);
+    assert_eq!(
+        lockout_attempts(
+            &state.pool,
+            core_db::hardening::gate_kind::PASSWORD_LOGIN,
+            &staff_key
+        )
+        .await,
+        1,
+        "precondition: the staff failure wrote its row"
+    );
+
+    // The contact signs in cleanly from the same caller IP. Before the split
+    // this call cleared the staff member's engaged lock.
+    let portal = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": email, "password": "portal-passphrase-1"})),
+    )
+    .await;
+    assert_eq!(portal.status(), 200, "the contact's own sign-in succeeds");
+
+    assert_eq!(
+        lockout_attempts(
+            &state.pool,
+            core_db::hardening::gate_kind::PASSWORD_LOGIN,
+            &staff_key
+        )
+        .await,
+        1,
+        "a portal success must not clear the staff row"
+    );
+    let staff_still_locked = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/auth/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": org.owner_email, "password": "correct-horse-battery"})),
+    )
+    .await;
+    assert_eq!(
+        staff_still_locked.status(),
+        401,
+        "the staff lock outlives the contact's sign-in, right password or not"
+    );
+}
+
+/// Record: the pre-check refuses a locked portal identity BEFORE hashing.
+///
+/// A locked caller gets the uniform 401 even with the CORRECT password, and
+/// three independent facts say the refusal happened ahead of the credential
+/// work: the gate row's counter does not move (no `record_failure` ran), no
+/// `portal_sessions` row was minted (no success), and the audit log holds
+/// exactly the one `portal.login_failed` from the real guess — the denied
+/// attempt wrote no audit row at all, because it never resolved an identity.
+#[tokio::test]
+async fn the_portal_pre_check_refuses_a_locked_identity_before_the_password_hash() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    let org = seed_org(&app, &tag).await;
+    let email = format!("s2a-d-{tag}@a.test");
+    let user = invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
+    let portal_user_id: Uuid = Uuid::parse_str(user["id"].as_str().unwrap()).unwrap();
+    let org_id: Uuid = sqlx::query_scalar("SELECT org_id FROM portal_users WHERE id = $1")
+        .bind(portal_user_id)
+        .fetch_one(&state.pool)
+        .await
+        .expect("read the invited identity's org");
+    let ip = test_caller_ip();
+
+    let bad = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": email, "password": "not-the-passphrase"})),
+    )
+    .await;
+    assert_eq!(bad.status(), 401);
+
+    let denied = send_with_headers(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        &[("x-forwarded-for", ip.as_str())],
+        Some(json!({"email": email, "password": "portal-passphrase-1"})),
+    )
+    .await;
+    assert_eq!(
+        denied.status(),
+        401,
+        "the engaged lock answers the right password with the same uniform 401"
+    );
+
+    assert_eq!(
+        lockout_attempts(
+            &state.pool,
+            core_db::hardening::gate_kind::PORTAL_PASSWORD_LOGIN,
+            &email_key(&email),
+        )
+        .await,
+        1,
+        "the denied attempt must not re-count: the pre-check answered before the failure path"
+    );
+    let sessions: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM portal_sessions WHERE portal_user_id = $1")
+            .bind(portal_user_id)
+            .fetch_one(&state.pool)
+            .await
+            .expect("count portal sessions");
+    assert_eq!(sessions, 0, "a denied attempt must mint no session");
+    let logins: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE org_id = $1 AND action = 'portal.login'",
+    )
+    .bind(org_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("count portal.login audits");
+    assert_eq!(logins, 0, "a denied attempt must write no success audit");
+    let failures: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE org_id = $1 AND action = 'portal.login_failed'",
+    )
+    .bind(org_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("count portal.login_failed audits");
+    assert_eq!(
+        failures, 1,
+        "exactly the one real guess is audited; the gate-denied attempt is not"
+    );
 }

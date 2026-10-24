@@ -130,6 +130,22 @@ pub async fn login(
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<PortalLoginRequest>,
 ) -> ApiResult<axum::response::Response> {
+    // Durable per-IP + per-actor deny-by-default gate BEFORE identity
+    // resolution (Wave 54 lane S2a). The kind is the PORTAL's own, so the
+    // rows this path reads are the rows it writes: a contact guessing a
+    // password cannot arm — or clear — a staff member's sign-in gate, and a
+    // locked caller pays no argon2 verify and mints no session. The answer is
+    // the uniform 401 for the same reason as `/api/auth/login`: a typed
+    // throttle would let an anonymous caller probe whether an address is
+    // locked (threat model §A1).
+    crate::auth::hardening::enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::PORTAL_PASSWORD_LOGIN,
+        &client_ip,
+        crate::auth::hardening::GateSubject::Email(&req.email),
+        true,
+    )
+    .await?;
     // Narrow SECURITY DEFINER bridge (migration 0021): identity only.
     let resolved: Option<(Uuid, Uuid, Uuid)> =
         sqlx::query_as("SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)")
@@ -137,8 +153,16 @@ pub async fn login(
             .fetch_optional(&state.pool)
             .await
             .map_err(|e| ApiError::Internal(e.into()))?;
-    let (user_id, org_id, _client_id) =
-        resolved.ok_or_else(|| ApiError::Unauthorized("invalid credentials".into()))?;
+    let (user_id, org_id, _client_id) = match resolved {
+        Some(triple) => triple,
+        None => {
+            // Same equalisation as `/api/auth/login` (Wave 54 lane S2c): an
+            // unresolved address pays one argon2 verify, so the uniform 401's
+            // duration cannot answer "does this portal account exist".
+            crate::auth::password::spend_dummy_verify(req.password.clone()).await;
+            return Err(ApiError::Unauthorized("invalid credentials".into()));
+        }
+    };
 
     let mut tx = state
         .pool
@@ -146,10 +170,22 @@ pub async fn login(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     core_db::set_org(&mut tx, org_id).await?;
-    let creds = core_db::portal::find_portal_credentials_by_email(&mut *tx, org_id, &req.email)
-        .await?
-        .filter(|c| c.id == user_id)
-        .ok_or_else(|| ApiError::Unauthorized("invalid credentials".into()))?;
+    let creds =
+        match core_db::portal::find_portal_credentials_by_email(&mut *tx, org_id, &req.email)
+            .await?
+        {
+            Some(creds) if creds.id == user_id => creds,
+            // The bridge and the RLS-scoped lookup disagree (an identity deleted
+            // or disabled between the two reads). Unreachable in the ordinary
+            // path, so it pays the verify too rather than becoming a second,
+            // quicker 401 anyone can aim at. The scope is released first: a
+            // 45 ms hash must not sit on a pooled connection.
+            _ => {
+                drop(tx);
+                crate::auth::password::spend_dummy_verify(req.password.clone()).await;
+                return Err(ApiError::Unauthorized("invalid credentials".into()));
+            }
+        };
     if !crate::auth::password::verify_async(req.password.clone(), creds.password_hash.clone()).await
     {
         audit_best_effort(
@@ -164,7 +200,7 @@ pub async fn login(
         .await;
         let _ = crate::auth::hardening::record_failure(
             &state,
-            crate::auth::hardening::kinds::PASSWORD_LOGIN,
+            crate::auth::hardening::kinds::PORTAL_PASSWORD_LOGIN,
             &client_ip,
             crate::auth::hardening::GateSubject::Email(&req.email),
         )
@@ -188,7 +224,7 @@ pub async fn login(
     let response = issue_portal_tokens(&state, &identity, None).await?;
     let _ = crate::auth::hardening::record_success(
         &state,
-        crate::auth::hardening::kinds::PASSWORD_LOGIN,
+        crate::auth::hardening::kinds::PORTAL_PASSWORD_LOGIN,
         &client_ip,
         crate::auth::hardening::GateSubject::Email(&req.email),
     )

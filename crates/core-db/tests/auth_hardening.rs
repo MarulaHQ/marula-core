@@ -13,6 +13,8 @@ mod common;
 
 use common::{fixed_uuid, org_tx, test_db};
 use core_db::{audit, mfa, oidc, users, DbError};
+use std::sync::Arc;
+use tokio::sync::Barrier;
 use uuid::Uuid;
 
 /// One org + one user with fixed ids derived from `n`.
@@ -632,4 +634,120 @@ async fn chain_revocation_kills_every_descendant() {
     }
     let root_lookup = users::find_active_session(&mut *tx, root, "root-hash").await;
     assert!(matches!(root_lookup, Err(DbError::NotFound)));
+}
+
+/// Two refreshes presenting the SAME parent — the shape two open windows
+/// produce when the access token expires — must not both rotate it. The row
+/// lock serialises them; the loser's conditional UPDATE then re-reads the
+/// guard and inserts nothing.
+#[tokio::test]
+async fn concurrent_rotation_claims_the_parent_once() {
+    let db = test_db().await;
+    let (org, user) = seed(&db.app, 780).await;
+
+    let root = fixed_uuid(781);
+    let mut tx = org_tx(&db.app, org).await;
+    users::create_session(&mut *tx, root, user, "root-hash", None, common::FUTURE)
+        .await
+        .expect("root session");
+    tx.commit().await.expect("commit root");
+
+    // Both racers read the parent while it is still active — the state
+    // `handlers::refresh` is in when two requests arrive together — and only
+    // then try to claim it.
+    let barrier = Arc::new(Barrier::new(2));
+    let mut racers = Vec::new();
+    for (n, child) in [(0_u64, fixed_uuid(782)), (1_u64, fixed_uuid(783))] {
+        let app = db.app.clone();
+        let barrier = Arc::clone(&barrier);
+        racers.push(tokio::spawn(async move {
+            let mut tx = org_tx(&app, org).await;
+            let parent = users::find_session_any(&mut *tx, root, "root-hash")
+                .await
+                .expect("parent row");
+            assert!(
+                parent.revoked_at.is_none(),
+                "both racers must read the parent before either claims it"
+            );
+            let hash = format!("child-{n}-hash");
+            barrier.wait().await;
+            let claimed =
+                users::rotate_session_chain(&mut *tx, &parent, child, &hash, common::FUTURE)
+                    .await
+                    .expect("rotation attempt");
+            tx.commit().await.expect("commit rotation");
+            (n, child, hash, claimed)
+        }));
+    }
+    let mut winners = Vec::new();
+    let mut losers = Vec::new();
+    for racer in racers {
+        let (n, child, hash, claimed) = racer.await.expect("racer task");
+        if claimed {
+            winners.push((n, child, hash));
+        } else {
+            losers.push((n, child, hash));
+        }
+    }
+    assert_eq!(
+        winners.len(),
+        1,
+        "exactly one racer may claim the parent, not zero or two: {winners:?}"
+    );
+    assert_eq!(losers.len(), 1);
+
+    let mut tx = org_tx(&db.app, org).await;
+    let (winner, winner_child, _) = &winners[0];
+    let (loser, _, loser_hash) = &losers[0];
+
+    // One child per parent, and it is the winner's: the loser's INSERT never
+    // ran, so the lineage did not fork.
+    let children: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM auth_sessions WHERE rotated_from = $1 ORDER BY created_at",
+    )
+    .bind(root)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("children");
+    assert_eq!(
+        children,
+        vec![*winner_child],
+        "parent {root} minted one child, from racer {winner}, not from racer {loser}"
+    );
+
+    // The parent stays recognisable for reuse detection: retired, still
+    // holding the secret that was presented.
+    let parent = users::find_session_any(&mut *tx, root, "root-hash")
+        .await
+        .expect("parent row");
+    assert!(
+        parent.revoked_at.is_some(),
+        "the winning claim must retire the parent"
+    );
+
+    // The winner's leaf is the only live session of the lineage.
+    let live: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM auth_sessions WHERE chain_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(parent.chain_id)
+    .fetch_all(&mut *tx)
+    .await
+    .expect("live sessions");
+    assert_eq!(
+        live,
+        vec![*winner_child],
+        "only the winner's leaf may stay live (winner {winner}, loser {loser})"
+    );
+
+    // The loser's fresh secret was never written, so it authenticates nothing.
+    let loser_rows: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM auth_sessions WHERE refresh_token_hash = $1")
+            .bind(loser_hash)
+            .fetch_all(&mut *tx)
+            .await
+            .expect("loser hash");
+    assert!(
+        loser_rows.is_empty(),
+        "the refused rotation must leave no session row behind"
+    );
 }
