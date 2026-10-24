@@ -182,10 +182,18 @@ async fn fetch_ical(client: &reqwest::Client, url: &str) -> Result<ProviderPull,
         .text()
         .await
         .map_err(|_| ProviderError::Unreadable)?;
-    Ok(ProviderPull {
-        events: parse_ical(&body),
+    Ok(pull_from_bytes(&body, sync_token))
+}
+
+/// The parse half of a poll: a fetched body becomes the seam's snapshot.
+///
+/// Separated from [`fetch_ical`] so the mirror path can be exercised without a
+/// socket, and so the only network in this provider stays the guarded GET.
+fn pull_from_bytes(body: &str, sync_token: Option<String>) -> ProviderPull {
+    ProviderPull {
+        events: parse_ical(body),
         sync_token,
-    })
+    }
 }
 
 // --- iCal parsing (inbound) -------------------------------------------------------
@@ -920,15 +928,36 @@ pub async fn run_sync(
         ));
     }
     let provider = provider_for(&connection)?;
+    let response =
+        sync_with_provider(&state, org_id, actor, &connection, provider.as_ref()).await?;
+    Ok(Json(response))
+}
+
+/// The half the route and a caller-supplied provider share: one pull, one org
+/// transaction, one recorded result.
+///
+/// Authentication, the permission check and the connection's eligibility stay
+/// with the caller. This owns the order that matters — the wire first, the
+/// transaction second, so no org transaction is ever held across a network
+/// call — and it answers a failed pull with the fixed 503 copy, never with
+/// provider internals.
+pub async fn sync_with_provider(
+    state: &AppState,
+    org_id: Uuid,
+    actor: Uuid,
+    connection: &CalendarSyncConnection,
+    provider: &dyn CalendarSyncProvider,
+) -> ApiResult<SyncOutcomeResponse> {
+    let id = connection.id;
 
     // Network first, transaction second: never hold the org transaction
     // across the wire.
-    let pull = provider.fetch_events(&connection).await;
+    let pull = provider.fetch_events(connection).await;
     let (events, sync_token) = match pull {
         Ok(pull) => (pull.events, pull.sync_token),
         Err(e) => {
             let copy = e.to_string();
-            org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+            org_tx::with_org_tx(state, org_id, actor, |mut tx| async move {
                 core_db::calendar_sync::record_sync_result(
                     &mut tx.tx,
                     org_id,
@@ -964,7 +993,7 @@ pub async fn run_sync(
 
     let connection_id = id;
     let user_id = connection.user_id;
-    let outcome = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+    let outcome = org_tx::with_org_tx(state, org_id, actor, |mut tx| async move {
         let outcome =
             core_db::calendar_sync::apply_sync(&mut tx.tx, org_id, connection_id, user_id, &events)
                 .await?;
@@ -1009,7 +1038,7 @@ pub async fn run_sync(
     })
     .await?;
 
-    Ok(Json(SyncOutcomeResponse {
+    Ok(SyncOutcomeResponse {
         connection_id: id,
         outcome: SyncOutcomeWire {
             imported: i64::from(outcome.imported),
@@ -1018,7 +1047,7 @@ pub async fn run_sync(
             overlaps: i64::from(outcome.overlaps),
             duplicates: i64::from(outcome.duplicates),
         },
-    }))
+    })
 }
 
 // --- public outbound feed --------------------------------------------------------------
