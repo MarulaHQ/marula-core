@@ -637,9 +637,13 @@ pub async fn refresh(
         .await
         .map_err(|_| ApiError::Unauthorized("invalid refresh token".into()))?;
     if parent.revoked_at.is_some() || parent.expires_at <= chrono::Utc::now() {
-        // Lost a race against a concurrent replay — same treatment.
-        core_db::users::revoke_chain(&mut *tx, resolution.chain_id).await?;
-        tx.commit()
+        // A rotation committed between the bridge's classification and this
+        // read. Same answer as a lost claim below, and for the same reason:
+        // the only event that can produce this state inside the window is a
+        // concurrent rotation from this very secret, not a stale replay —
+        // a replay that was already consumed when the request started has
+        // `active = false` and took the reuse branch above.
+        tx.rollback()
             .await
             .map_err(|e| ApiError::Internal(e.into()))?;
         return Err(ApiError::Unauthorized("invalid refresh token".into()));
@@ -649,8 +653,32 @@ pub async fn refresh(
     let new_hash = jwt::hash_refresh_token(&new_refresh);
     let new_session = Uuid::now_v7();
     let new_expiry = chrono::Utc::now() + chrono::Duration::seconds(state.config.refresh_ttl_secs);
-    core_db::users::rotate_session_chain(&mut *tx, &parent, new_session, &new_hash, new_expiry)
-        .await?;
+    let claimed =
+        core_db::users::rotate_session_chain(&mut *tx, &parent, new_session, &new_hash, new_expiry)
+            .await?;
+    if !claimed {
+        // A concurrent refresh from the same parent committed first: the
+        // conditional UPDATE serialised the two on the parent's row lock,
+        // re-read its guard after the winner committed, and left this call
+        // with nothing to insert. The winner's child is the only new leaf,
+        // so answer with the typed refusal a consumed token gets rather than
+        // a token pair (or a 500).
+        //
+        // The family is deliberately NOT revoked here, unlike the reuse
+        // branch above. This request presented a secret the winner rotated
+        // from microseconds ago — the shape two open windows produce when
+        // the access token expires. Killing the chain would sign out the
+        // window that just succeeded. A later, sequential presentation of
+        // this parent still reaches the reuse branch above, because the row
+        // stays recognisable: `revoked_at` is set and the child carries
+        // `rotated_from`. The refusal is not counted against the per-IP
+        // refresh gate either: a legitimate double-tap must not start that
+        // ladder.
+        tx.rollback()
+            .await
+            .map_err(|e| ApiError::Internal(e.into()))?;
+        return Err(ApiError::Unauthorized("invalid refresh token".into()));
+    }
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
@@ -693,6 +721,50 @@ pub async fn refresh(
     ))
 }
 
+/// Revokes one presented session and audits the event in a SINGLE
+/// org-scoped transaction. `auth_sessions` is RLS-guarded, so the UPDATE only
+/// reaches a row when the transaction carries the session's org: on the bare
+/// pool the policy denies it (or raises `22P02` on a connection that still
+/// holds an empty `app.org_id`), and sign-out answered 204 while the refresh
+/// token stayed live for the rest of its TTL.
+///
+/// Best effort, like the other auth side-writes: the caller clears cookies
+/// either way, because a database hiccup must not leave a browser holding the
+/// credentials to a session it believes is closed.
+async fn revoke_presented_session(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<(), ApiError> {
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org_id).await?;
+    core_db::users::revoke_session(&mut *tx, session_id).await?;
+    core_db::audit::insert(
+        &mut *tx,
+        &AuditEvent {
+            id: Uuid::now_v7(),
+            org_id,
+            actor: Actor::Human(user_id),
+            action: "auth.logout".into(),
+            entity_type: Some("auth_session".into()),
+            entity_id: Some(session_id.to_string()),
+            detail: serde_json::json!({}),
+            ip: None,
+            occurred_at: chrono::Utc::now(),
+        },
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(())
+}
+
 /// POST /api/auth/logout — revokes the refresh session and audits the event.
 #[utoipa::path(operation_id = "handlers_logout", post, path = "/api/auth/logout", tag = "auth",
     request_body = RefreshRequest, responses((status = 200)))]
@@ -718,22 +790,15 @@ pub async fn logout(
     }
     if let Some((sid, secret)) = body_pair.or(cookie_pair) {
         let presented_hash = jwt::hash_refresh_token(&secret);
+        // The secret must MATCH before anything is revoked. The bridge is the
+        // only lookup that answers without org scope, and it also supplies the
+        // org the revoke needs; revoking by session id alone would let a
+        // caller who cannot present the secret end someone else's session.
         if let Ok(Some(resolution)) =
             core_db::users::resolve_refresh(&state.pool, sid, &presented_hash).await
         {
-            let _ = core_db::users::revoke_session(&state.pool, sid).await;
-            audit_best_effort(
-                &state,
-                resolution.org_id,
-                Actor::Human(resolution.user_id),
-                "auth.logout",
-                Some("auth_session"),
-                Some(sid.to_string()),
-                serde_json::json!({}),
-            )
-            .await;
-        } else {
-            let _ = core_db::users::revoke_session(&state.pool, sid).await;
+            let _ =
+                revoke_presented_session(&state, resolution.org_id, resolution.user_id, sid).await;
         }
     }
     let secure = state.config.public_base_url.starts_with("https");
