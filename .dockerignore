@@ -2,6 +2,9 @@
 #
 # Purpose: keep `docker build` contexts small — the Rust builder only needs
 # Cargo manifests + crates/, the web builder only needs the pnpm workspace.
+# The two code-graph caches at the end are gitignored agent output that no
+# image reads; they were 103 MB (.trail) plus 88 MB (graphify-out) of context
+# sent to the daemon on every build before they were listed here.
 .git
 .kilo
 .github
@@ -10,8 +13,10 @@ target
 **/.next
 **/.turbo
 **/*.tsbuildinfo
+**/.DS_Store
 coverage
 design
 docs
 scripts
-the private build tracker
+.trail
+graphify-out
