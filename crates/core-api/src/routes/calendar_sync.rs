@@ -130,38 +130,62 @@ impl CalendarSyncProvider for ICalProvider {
         &self,
         connection: &CalendarSyncConnection,
     ) -> Result<ProviderPull, ProviderError> {
-        let url = connection
+        let raw = connection
             .feed_url
             .as_deref()
             .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
             .ok_or(ProviderError::Unreachable)?;
-        let response = reqwest::Client::new()
-            .get(url)
-            .timeout(std::time::Duration::from_secs(20))
-            .send()
-            .await
-            .map_err(|e| {
-                tracing::warn!(error = %e, "calendar-sync poll failed");
-                ProviderError::Unreachable
-            })?;
-        if !response.status().is_success() {
-            tracing::warn!(status = %response.status(), "calendar-sync poll non-200");
-            return Err(ProviderError::Unreachable);
-        }
-        let sync_token = response
-            .headers()
-            .get(reqwest::header::ETAG)
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
-        let body = response
-            .text()
-            .await
-            .map_err(|_| ProviderError::Unreadable)?;
-        Ok(ProviderPull {
-            events: parse_ical(&body),
-            sync_token,
-        })
+        // The feed URL is org data pointing at a third party, so it is screened
+        // by the shared egress guard before a socket exists: https only, a
+        // publicly routable host, and every address the host resolves to judged
+        // before the poll connects. The resolution is per poll — a cached answer
+        // is what a rebinding attacker needs.
+        let guarded = crate::outbound::guard(raw).await.map_err(|denial| {
+            tracing::warn!(
+                reason = denial.as_str(),
+                "calendar-sync feed refused before the request"
+            );
+            ProviderError::Unreachable
+        })?;
+        let client = guarded
+            .client(std::time::Duration::from_secs(20))
+            .map_err(|_| ProviderError::Unreachable)?;
+        fetch_ical(&client, guarded.url()).await
     }
+}
+
+/// The mechanical half: one `GET` against an already-screened, pinned URL.
+async fn fetch_ical(client: &reqwest::Client, url: &str) -> Result<ProviderPull, ProviderError> {
+    let response = client.get(url).send().await.map_err(|e| {
+        tracing::warn!(error = %e, "calendar-sync poll failed");
+        ProviderError::Unreachable
+    })?;
+    if crate::outbound::is_redirect(response.status().as_u16()) {
+        // A 3xx is a target the poll never screened. Following it would make
+        // the second host part of the sync without passing the guard.
+        tracing::warn!(
+            status = response.status().as_u16(),
+            "calendar-sync feed answered a redirect, which is never followed"
+        );
+        return Err(ProviderError::Unreachable);
+    }
+    if !response.status().is_success() {
+        tracing::warn!(status = %response.status(), "calendar-sync poll non-200");
+        return Err(ProviderError::Unreachable);
+    }
+    let sync_token = response
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let body = response
+        .text()
+        .await
+        .map_err(|_| ProviderError::Unreadable)?;
+    Ok(ProviderPull {
+        events: parse_ical(&body),
+        sync_token,
+    })
 }
 
 // --- iCal parsing (inbound) -------------------------------------------------------
@@ -1142,6 +1166,36 @@ mod tests {
         assert!(feed.contains("DESCRIPTION:has\\; comma\\, and\\nnewline"));
         assert!(!feed.contains("Cancelled"));
         assert!(feed.ends_with("END:VCALENDAR\r\n"));
+    }
+
+    /// A `3xx` from the feed host is a target the poll never screened. The
+    /// mechanics half is driven directly with a loopback listener because the
+    /// guard refuses a loopback URL before a socket exists — the same split
+    /// `plugin_http` uses.
+    #[tokio::test]
+    async fn a_redirect_is_refused_rather_than_followed() {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(
+                b"HTTP/1.1 302 Found\r\nLocation: https://elsewhere.example/feed.ics\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        });
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("client");
+        let pull = fetch_ical(&client, &format!("http://{addr}/calendar.ics")).await;
+        assert!(
+            matches!(pull, Err(ProviderError::Unreachable)),
+            "a redirect is refused, not followed"
+        );
+        handle.join().expect("listener");
     }
 }
 

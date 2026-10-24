@@ -15,6 +15,7 @@ pub mod http_version;
 pub mod instant;
 pub mod org_tx;
 pub mod otel_http;
+pub mod outbound;
 pub mod plugin_http;
 pub mod realtime;
 pub mod routes;

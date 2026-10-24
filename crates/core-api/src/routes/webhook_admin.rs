@@ -157,16 +157,36 @@ fn encode_cursor(at: chrono::DateTime<chrono::Utc>, id: Uuid) -> String {
 
 // --- validation ------------------------------------------------------------------
 
+/// Screens a destination before it is stored.
+///
+/// The guard's address question, asked at write time: no userinfo, no
+/// loopback, link-local or metadata destination. The shape is the one this
+/// surface already accepted — `http` or `https`, any port — because an operator
+/// running a receiver on a private-network name is not an SSRF, while a
+/// destination that resolves into a private address is. Screening here means a
+/// stored URL cannot become a request to loopback or a cloud metadata endpoint
+/// later; the send path screens again because the address a name resolves to
+/// today is not the address it resolved to when the row was written.
 fn validate_url(url: &str) -> ApiResult<()> {
-    let parsed = url::Url::parse(url)
-        .map_err(|_| ApiError::Validation("url is not a valid absolute URL".into()))?;
-    if parsed.scheme() != "https" && parsed.scheme() != "http" {
-        return Err(ApiError::Validation("url scheme must be http(s)".into()));
+    core_domain::egress::screen_fetch(url.trim())
+        .map(|_| ())
+        .map_err(|denial| ApiError::Validation(format!("url refused: {denial}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_public_http_receiver_is_accepted_and_a_loopback_one_is_refused() {
+        validate_url("http://example.com/hook").expect("a public http receiver is storable");
+        validate_url("https://example.com:8443/hook").expect("a custom port is storable");
+
+        assert!(validate_url("http://127.0.0.1:9099/hook").is_err());
+        assert!(validate_url("https://169.254.169.254/latest/meta-data/").is_err());
+        assert!(validate_url("ftp://example.com/hook").is_err());
+        assert!(validate_url("not a url").is_err());
     }
-    if parsed.host_str().is_none() {
-        return Err(ApiError::Validation("url needs a host".into()));
-    }
-    Ok(())
 }
 
 /// Validates that every event type in `event_types` is either a registered

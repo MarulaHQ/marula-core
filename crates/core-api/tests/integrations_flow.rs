@@ -446,3 +446,70 @@ async fn api_key_creation_scope_matrix_and_revocation() {
     .await;
     assert_eq!(response.status(), 422);
 }
+
+/// A destination the outbound guard refuses is refused at WRITE time, so it
+/// never becomes a stored subscription that the worker would later POST to.
+///
+/// The three spellings are the ones a hand-rolled check misses: a loopback
+/// literal with a plaintext scheme and a non-default port, a cloud metadata
+/// address, and a scheme that is not http at all. A public https destination
+/// still passes, so the refusal is the target and not the surface.
+#[tokio::test]
+async fn a_loopback_or_metadata_webhook_url_is_refused_at_write_time() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state);
+    let slug = format!("hook-egress-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+
+    for url in [
+        "http://127.0.0.1:9099/marula/hook",
+        "https://169.254.169.254/latest/meta-data/",
+        "http://[::1]:8080/hook",
+        "ftp://hooks.example.test/marula",
+    ] {
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            "/api/webhooks",
+            &[auth(&token)],
+            Some(json!({ "url": url })),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            422,
+            "{url} must be refused at write time, not stored"
+        );
+    }
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/webhooks",
+        &[auth(&token)],
+        Some(json!({ "url": "https://hooks.example.test/marula" })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        201,
+        "a public https destination is still storable"
+    );
+
+    let listed = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/webhooks",
+            &[auth(&token)],
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        listed["webhooks"].as_array().expect("list").len(),
+        1,
+        "only the public destination was stored"
+    );
+}

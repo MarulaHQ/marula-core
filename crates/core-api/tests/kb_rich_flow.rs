@@ -343,3 +343,158 @@ async fn kb_rich_owner_flow_allowlist_gates_and_reason_codes() {
     assert_eq!(embed_del.status(), 200);
     let _ = embed_del;
 }
+
+/// A loopback listener the guard must never reach. It counts what it accepts,
+/// so "refused before the request" is a connection count rather than an
+/// inference from the status the route returned.
+fn counting_listener() -> (
+    std::net::SocketAddr,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
+    let addr = listener.local_addr().expect("local addr");
+    let seen = std::sync::Arc::new(AtomicUsize::new(0));
+    let count = std::sync::Arc::clone(&seen);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            if stream.is_ok() {
+                count.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+    (addr, seen)
+}
+
+/// A stored link target the egress guard refuses is never requested.
+///
+/// Both URLs are written straight to the table: the create route already refuses
+/// a non-https URL, and what this test pins is the check-time behaviour of a row
+/// whose host is loopback or a cloud metadata endpoint — the record is the
+/// result, so the answer is `unreachable` and the listener behind the URL stays
+/// unconnected.
+#[tokio::test]
+async fn a_loopback_and_a_metadata_document_target_are_refused_before_the_request() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("kb-rich-egress-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+    let me = body_json(send(&app, axum::http::Method::GET, "/api/me", &bearer, None).await).await;
+    let org_id: Uuid = me["org_id"].as_str().unwrap().parse().unwrap();
+    let user_id: Uuid = me["user_id"].as_str().unwrap().parse().unwrap();
+
+    let (addr, connections) = counting_listener();
+    let targets = [
+        format!("http://{addr}/runbook"),
+        "https://169.254.169.254/latest/meta-data/".to_string(),
+    ];
+
+    for (index, url) in targets.iter().enumerate() {
+        let mut tx = core_api::org_tx::begin(&state, org_id, user_id)
+            .await
+            .expect("org transaction");
+        let doc = core_db::kb_rich::create_external_document(
+            &mut *tx.tx,
+            org_id,
+            Uuid::now_v7(),
+            None,
+            &format!("Refused target {index}"),
+            url,
+            core_domain::entities::ExternalDocUrlKind::Other,
+            "none",
+            user_id,
+        )
+        .await
+        .expect("external document insert");
+        tx.commit().await.expect("commit");
+
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/v1/kb/external-documents/{}/link-check", doc.id),
+            &bearer,
+            None,
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            200,
+            "the record is the result: a refused target is data, not a failed request"
+        );
+        let body = body_json(response).await;
+        assert_eq!(
+            body["last_verified_status"], "unreachable",
+            "a refused target records as unreachable: {body}"
+        );
+    }
+
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(
+        connections.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "no refused target was connected to"
+    );
+}
+
+/// A registry row whose oEmbed endpoint is loopback is refused at fetch time.
+///
+/// The registry write path checks that the endpoint is an absolute https URL and
+/// nothing more, so a row can name `https://127.0.0.1:…`: the guard judges the
+/// address when the fetch would happen, and the request never leaves.
+#[tokio::test]
+async fn a_loopback_oembed_endpoint_is_refused_before_the_request() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("kb-egress-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+    let (addr, connections) = counting_listener();
+
+    let provider = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/kb/embed-providers",
+        &bearer,
+        Some(json!({
+            "name": "Loopback oEmbed",
+            "host_patterns": ["media.example.test"],
+            "url_regex": "^https://media\\.example\\.test/",
+            "oembed_endpoint": format!("https://127.0.0.1:{}/oembed?url={{url}}", addr.port()),
+            "enabled": true,
+        })),
+    )
+    .await;
+    assert_eq!(
+        provider.status(),
+        200,
+        "the registry write path accepts the row: {}",
+        body_json(provider).await
+    );
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/kb/embeds/resolve",
+        &bearer,
+        Some(json!({
+            "url": "https://media.example.test/watch/1",
+            "fetch": true,
+        })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "a refused provider endpoint is a typed validation error"
+    );
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], "validation_failed");
+
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(
+        connections.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "the refused endpoint was never connected to"
+    );
+}
