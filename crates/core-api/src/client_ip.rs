@@ -371,7 +371,9 @@ impl TrustedProxies {
     /// Right-to-left walk past trusted hops. `None` when every hop is
     /// trusted (the peer is then the client) or no hop parses.
     fn walk_forwarded_for(&self, headers: &HeaderMap) -> Option<IpAddr> {
-        for hop in forwarded_for_hops(headers).iter().rev() {
+        // `forwarded_for_hops` yields the trustworthy end first: the entry
+        // the most recent proxy appended, then leftwards.
+        for hop in forwarded_for_hops(headers) {
             // A proxy we trust appended this entry; what it forwarded sits
             // further left, so keep walking past it.
             let Some(ip) = parse_ip_field(hop) else {
@@ -410,14 +412,40 @@ fn parse_ranges(spec: &str) -> (Vec<Cidr>, Vec<String>) {
     (parsed, dropped)
 }
 
-/// The `X-Forwarded-For` chain, left to right, in the order proxies wrote
-/// it. Capped so a pathological header cannot burn CPU per request.
+/// How many `X-Forwarded-For` entries any one request may make us parse.
+///
+/// A cap is required — a pathological header must not burn CPU per request —
+/// but it is counted from the TRUSTED end, never the attacker-controlled
+/// left end. See [`forwarded_for_hops`] for why.
+const MAX_HOPS: usize = 64;
+
+/// The `X-Forwarded-For` chain read from the trustworthy end: the rightmost
+/// entry first, then leftwards, across every header line in reverse order.
+///
+/// Ordering is the whole point. A caller writes the left of this header
+/// itself, so the left is evidence it chose; each proxy appends the address
+/// it received from on the right. The right end is the only part a client
+/// cannot forge, so the cap trims the LEFT. Trimming the left with `take`
+/// used to discard the proxy-appended entries once the chain passed
+/// [`MAX_HOPS`] — a caller could then choose its own attribution simply by
+/// padding the chain.
+///
+/// Multiple `X-Forwarded-For` lines are one list per HTTP semantics: line
+/// order is chain order, so the last line holds the most recent append.
 fn forwarded_for_hops(headers: &HeaderMap) -> Vec<&str> {
-    const MAX_HOPS: usize = 64;
-    let Some(raw) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) else {
-        return Vec::new();
-    };
-    raw.split(',').take(MAX_HOPS).collect()
+    let mut hops = Vec::new();
+    for raw in headers.get_all("x-forwarded-for").iter().rev() {
+        let Ok(raw) = raw.to_str() else {
+            continue;
+        };
+        for hop in raw.split(',').rev() {
+            hops.push(hop);
+            if hops.len() == MAX_HOPS {
+                return hops;
+            }
+        }
+    }
+    hops
 }
 
 /// The rightmost hop — the harness posture (`oneshot`, no socket peer)
@@ -426,12 +454,12 @@ fn forwarded_for_hops(headers: &HeaderMap) -> Vec<&str> {
 /// (e.g. `114.9.10.<uuid>` in `auth_hardening_flow`) verbatim so existing
 /// `oneshot` suites stay isolated without a socket.
 fn rightmost_hop(headers: &HeaderMap) -> Option<String> {
+    // Already rightmost-first, so `find` is the rightmost match.
     let hops = forwarded_for_hops(headers);
-    if let Some(ip) = hops.iter().rev().find_map(|hop| parse_ip_field(hop)) {
+    if let Some(ip) = hops.iter().find_map(|hop| parse_ip_field(hop)) {
         return Some(ip.to_string());
     }
     hops.iter()
-        .rev()
         .map(|hop| hop.trim())
         .find(|hop| !hop.is_empty())
         .map(str::to_owned)
@@ -731,6 +759,105 @@ mod tests {
     fn an_unparseable_hop_is_skipped_not_fatal() {
         let set = set();
         let headers = headers(&[("x-forwarded-for", "garbage, 198.51.100.7")]);
+        assert_eq!(set.resolve(Some(ip("10.0.0.5")), &headers), "198.51.100.7");
+    }
+
+    /// A chain longer than `MAX_HOPS` must derive the same client as a short
+    /// one. A caller writes the left of `X-Forwarded-For` and the trusted
+    /// proxy appends the real address on the right, so the cap has to trim
+    /// the caller's side. Trimming the left at 64 entries discarded the
+    /// proxy-appended entry, and padding the chain then chose the answer.
+    #[test]
+    fn a_chain_longer_than_the_cap_derives_the_same_client() {
+        const REAL_CLIENT: &str = "203.0.113.5";
+        let set = set();
+        let peer = ip("10.0.0.5");
+
+        // `198.18.0.0/15` is the benchmarking range: public enough that the
+        // default trust set never covers it, so these read as attacker hops.
+        let forged = |count: usize| -> String {
+            (0..count)
+                .map(|i| format!("198.18.0.{}", (i % 250) + 1))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let padded = |fake_hops: usize| -> String {
+            if fake_hops == 0 {
+                REAL_CLIENT.to_owned()
+            } else {
+                format!("{}, {REAL_CLIENT}", forged(fake_hops))
+            }
+        };
+
+        let cases: Vec<(&str, String, &str)> = vec![
+            ("one hop", padded(0), REAL_CLIENT),
+            ("exactly the cap", padded(MAX_HOPS - 1), REAL_CLIENT),
+            ("cap plus one", padded(MAX_HOPS), REAL_CLIENT),
+            ("cap plus five", padded(MAX_HOPS + 4), REAL_CLIENT),
+            (
+                "untrusted first hop",
+                "198.51.100.7, 10.0.0.9".to_owned(),
+                "198.51.100.7",
+            ),
+            (
+                "all hops trusted",
+                "10.0.0.9, 127.0.0.1".to_owned(),
+                "10.0.0.5",
+            ),
+            (
+                "malformed entry in the middle",
+                "198.18.0.9, garbage, 198.51.100.7, 10.0.0.9".to_owned(),
+                "198.51.100.7",
+            ),
+            (
+                "ipv6 without brackets",
+                "2001:db8::5, 10.0.0.9".to_owned(),
+                "2001:db8::5",
+            ),
+            (
+                "ipv6 with brackets",
+                "[2001:db8::5]:443, 10.0.0.9".to_owned(),
+                "2001:db8::5",
+            ),
+            (
+                "entry with a port",
+                "198.51.100.7:8080, 10.0.0.9".to_owned(),
+                "198.51.100.7",
+            ),
+        ];
+
+        let mut wrong = Vec::new();
+        for (name, chain, expected) in cases {
+            let hops = chain.split(',').count();
+            let got = set.resolve(Some(peer), &headers(&[("x-forwarded-for", &chain)]));
+            if got != expected {
+                wrong.push(format!(
+                    "{name} ({hops} hops): expected {expected}, got {got}"
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "mis-derived client:\n{}",
+            wrong.join("\n")
+        );
+    }
+
+    /// Two `X-Forwarded-For` field lines are one list in line order, so the
+    /// last line carries the most recent append. Reading only the first line
+    /// hands back an entry the caller wrote.
+    #[test]
+    fn duplicate_header_lines_are_one_chain_in_order() {
+        let set = set();
+        let mut headers = HeaderMap::new();
+        headers.append(
+            "x-forwarded-for",
+            axum::http::HeaderValue::from_static("1.2.3.4"),
+        );
+        headers.append(
+            "x-forwarded-for",
+            axum::http::HeaderValue::from_static("198.51.100.7, 10.0.0.9"),
+        );
         assert_eq!(set.resolve(Some(ip("10.0.0.5")), &headers), "198.51.100.7");
     }
 
