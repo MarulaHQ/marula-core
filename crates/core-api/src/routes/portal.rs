@@ -153,8 +153,16 @@ pub async fn login(
             .fetch_optional(&state.pool)
             .await
             .map_err(|e| ApiError::Internal(e.into()))?;
-    let (user_id, org_id, _client_id) =
-        resolved.ok_or_else(|| ApiError::Unauthorized("invalid credentials".into()))?;
+    let (user_id, org_id, _client_id) = match resolved {
+        Some(triple) => triple,
+        None => {
+            // Same equalisation as `/api/auth/login` (Wave 54 lane S2c): an
+            // unresolved address pays one argon2 verify, so the uniform 401's
+            // duration cannot answer "does this portal account exist".
+            crate::auth::password::spend_dummy_verify(req.password.clone()).await;
+            return Err(ApiError::Unauthorized("invalid credentials".into()));
+        }
+    };
 
     let mut tx = state
         .pool
@@ -162,10 +170,22 @@ pub async fn login(
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     core_db::set_org(&mut tx, org_id).await?;
-    let creds = core_db::portal::find_portal_credentials_by_email(&mut *tx, org_id, &req.email)
-        .await?
-        .filter(|c| c.id == user_id)
-        .ok_or_else(|| ApiError::Unauthorized("invalid credentials".into()))?;
+    let creds =
+        match core_db::portal::find_portal_credentials_by_email(&mut *tx, org_id, &req.email)
+            .await?
+        {
+            Some(creds) if creds.id == user_id => creds,
+            // The bridge and the RLS-scoped lookup disagree (an identity deleted
+            // or disabled between the two reads). Unreachable in the ordinary
+            // path, so it pays the verify too rather than becoming a second,
+            // quicker 401 anyone can aim at. The scope is released first: a
+            // 45 ms hash must not sit on a pooled connection.
+            _ => {
+                drop(tx);
+                crate::auth::password::spend_dummy_verify(req.password.clone()).await;
+                return Err(ApiError::Unauthorized("invalid credentials".into()));
+            }
+        };
     if !crate::auth::password::verify_async(req.password.clone(), creds.password_hash.clone()).await
     {
         audit_best_effort(

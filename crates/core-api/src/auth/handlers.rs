@@ -326,7 +326,13 @@ pub async fn login(
     let (user_id, org_id) = match resolved {
         Some(pair) => pair,
         None => {
-            // Uniform error: never reveal whether the email exists.
+            // An address that resolves to nothing still pays a full argon2
+            // verify (Wave 54 lane S2c): the resolved arm below spends one
+            // before its 401, so skipping it here made the reply's DURATION
+            // answer the question the uniform body refuses to — does this
+            // address exist. The verdict is discarded; the answer stays the
+            // same 401 with the same envelope.
+            password::spend_dummy_verify(req.password.clone()).await;
             return Err(ApiError::Unauthorized("invalid credentials".into()));
         }
     };
