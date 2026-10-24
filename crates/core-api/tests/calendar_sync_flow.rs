@@ -15,7 +15,9 @@
 //! redirect test.
 
 use axum::Router;
+use core_api::routes::calendar_sync::{CalendarSyncProvider, ProviderError, ProviderPull};
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_domain::entities::CalendarSyncConnection;
 use core_store::memory::MemoryStore;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -697,4 +699,163 @@ async fn connection_duplicate_name_is_a_typed_409() {
         return;
     }
     panic!("the duplicate create should have 409ed on the second attempt");
+}
+
+/// A provider that answers with a parsed fixture and never touches a socket.
+///
+/// The parsing is the real one (`parse_ical`), so the snapshot this returns is
+/// byte-for-byte what a guarded poll would return; only the wire is absent.
+struct FixtureProvider {
+    body: String,
+    token: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl CalendarSyncProvider for FixtureProvider {
+    fn kind(&self) -> &'static str {
+        "ical"
+    }
+
+    async fn fetch_events(
+        &self,
+        _connection: &CalendarSyncConnection,
+    ) -> Result<ProviderPull, ProviderError> {
+        Ok(ProviderPull {
+            events: core_api::routes::calendar_sync::parse_ical(&self.body),
+            sync_token: self.token.clone(),
+        })
+    }
+}
+
+/// The success branch of a poll, through the same seam the route calls.
+///
+/// The refusal path is covered above; this covers what happens when a pull
+/// returns: the mirror, the recorded result and the emitted event. The
+/// connection is read with the same org-scoped query the route uses, so the
+/// only thing this test replaces is the network.
+#[tokio::test]
+async fn a_successful_pull_mirrors_events_through_the_seam() {
+    let (state, app) = test_state().await;
+    let tokens = register_org(&app, format!("csync5-{}", Uuid::now_v7().simple())).await;
+    let bearer = tokens["access_token"].as_str().unwrap().to_string();
+
+    let me: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/me",
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let org_id: Uuid = me["org_id"].as_str().unwrap().parse().unwrap();
+    let user_id: Uuid = me["user_id"].as_str().unwrap().parse().unwrap();
+
+    let created: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/calendar-sync",
+            Some(&bearer),
+            Some(json!({
+                "name": "Seam calendar",
+                "provider": "ical",
+                "direction": "inbound",
+                "feed_url": "https://calendar.example.test/seam.ics",
+            })),
+        )
+        .await,
+    )
+    .await;
+    let connection_id: Uuid = created["connection"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    let connection = {
+        let mut tx = state.pool.begin().await.unwrap();
+        core_db::set_org_and_user(&mut tx, org_id, user_id)
+            .await
+            .unwrap();
+        let connection = core_db::calendar_sync::get_connection(&mut tx, org_id, connection_id)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        connection
+    };
+
+    let day = next_monday_date();
+    let provider = FixtureProvider {
+        body: fixture_ics(&day, "seam-evt@external.test", 10, 11, "Seam busy"),
+        token: Some("fixture-etag".to_string()),
+    };
+
+    let outcome = core_api::routes::calendar_sync::sync_with_provider(
+        &state,
+        org_id,
+        user_id,
+        &connection,
+        &provider,
+    )
+    .await
+    .expect("a successful pull");
+    assert_eq!(outcome.connection_id, connection_id);
+    assert_eq!(outcome.outcome.imported, 1);
+    assert_eq!(outcome.outcome.updated, 0);
+
+    let listed: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/calendar-sync",
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let row = listed
+        .as_array()
+        .expect("connections array")
+        .iter()
+        .find(|c| c["id"] == connection_id.to_string().as_str())
+        .expect("the connection is listed");
+    assert!(
+        row["last_synced_at"].is_string(),
+        "the poll recorded its success: {row}"
+    );
+    assert!(
+        row["last_error"].is_null(),
+        "a good pull leaves no error copy: {row}"
+    );
+
+    let events: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/calendar-sync/{connection_id}/events"),
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(events["events"].as_array().unwrap().len(), 1);
+    assert_eq!(events["events"][0]["title"], "Seam busy");
+
+    // The same snapshot again is the update path, not a second import.
+    let again = core_api::routes::calendar_sync::sync_with_provider(
+        &state,
+        org_id,
+        user_id,
+        &connection,
+        &provider,
+    )
+    .await
+    .expect("a second pull");
+    assert_eq!(again.outcome.imported, 0);
+    assert_eq!(again.outcome.duplicates, 1);
 }
