@@ -73,6 +73,7 @@ pub struct DecisionSuggestionsResponse {
 #[utoipa::path(operation_id = "tickets_decision_suggestions", get, path = "/api/tickets/{id}/decision-suggestions", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), responses(
         (status = 200, body = DecisionSuggestionsResponse),
+        (status = 403, description = "missing tickets:view, or a board denial"),
         (status = 404, description = "ticket not visible in scope (rls_sparse)")))]
 pub async fn list(
     State(state): State<AppState>,
