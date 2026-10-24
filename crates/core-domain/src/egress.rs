@@ -249,13 +249,59 @@ impl EgressTarget {
     }
 }
 
+/// Which transport shapes a caller may reach, and nothing about where.
+///
+/// The address rules are the SSRF decision and are identical for both entry
+/// points. The scheme and the port are a *consent* decision: a plugin's
+/// allowlist entry names one https URL with the default port, while a product
+/// fetch (a KB link a technician stored, a customer's calendar feed, an
+/// operator's webhook receiver) may legitimately be plain http or on a custom
+/// port. Conflating the two made `http://example.com/page` look like SSRF.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shapes {
+    /// `https` only, default port. The plugin and distribution seam.
+    ConsentedHttps,
+    /// `http` or `https`, explicit port allowed. A product fetch.
+    ProductFetch,
+}
+
+impl Shapes {
+    fn scheme_allowed(self, scheme: &str) -> bool {
+        match self {
+            Self::ConsentedHttps => scheme == "https",
+            Self::ProductFetch => scheme == "https" || scheme == "http",
+        }
+    }
+
+    fn explicit_port_allowed(self) -> bool {
+        matches!(self, Self::ProductFetch)
+    }
+}
+
 /// Screens one URL with no allowlist: the distribution seam's question, and the
-/// static half of every egress decision.
+/// static half of every plugin egress decision.
 ///
 /// Refuses, in order: an over-long or unparseable URL, a scheme that is not
 /// `https`, userinfo, a non-default port, and a host that is not publicly
 /// routable.
 pub fn screen(raw: &str) -> Result<EgressTarget, EgressDenial> {
+    screen_with(raw, Shapes::ConsentedHttps)
+}
+
+/// Screens one URL a product fetches on a user's or an operator's behalf: a KB
+/// link check, an oEmbed endpoint, a calendar feed, a webhook destination.
+///
+/// The same address rules as [`screen`] — no userinfo, no private or link-local
+/// literal, no denied suffix, one canonical host spelling — with the consent
+/// shape relaxed to the shape those surfaces actually accept: `http` or
+/// `https`, and an explicit port. Plain http on a public host is not SSRF, and
+/// neither is a calendar feed on `:8443`; refusing them would be the wrong
+/// answer to the wrong question.
+pub fn screen_fetch(raw: &str) -> Result<EgressTarget, EgressDenial> {
+    screen_with(raw, Shapes::ProductFetch)
+}
+
+fn screen_with(raw: &str, shapes: Shapes) -> Result<EgressTarget, EgressDenial> {
     if raw.is_empty() {
         return Err(EgressDenial::MalformedUrl);
     }
@@ -263,13 +309,13 @@ pub fn screen(raw: &str) -> Result<EgressTarget, EgressDenial> {
         return Err(EgressDenial::UrlTooLong);
     }
     let mut parsed = Url::parse(raw).map_err(|_| EgressDenial::MalformedUrl)?;
-    if parsed.scheme() != "https" {
+    if !shapes.scheme_allowed(parsed.scheme()) {
         return Err(EgressDenial::SchemeDenied);
     }
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(EgressDenial::UserInfoDenied);
     }
-    if parsed.port().is_some() {
+    if parsed.port().is_some() && !shapes.explicit_port_allowed() {
         return Err(EgressDenial::PortDenied);
     }
     let host = parsed.host().ok_or(EgressDenial::MalformedUrl)?;
@@ -544,6 +590,51 @@ mod tests {
             "ws://api.example.com/v1",
         ] {
             assert_eq!(screen(url), Err(EgressDenial::SchemeDenied), "{url}");
+        }
+    }
+
+    /// The product fetch screen relaxes the CONSENT shape only. A public http
+    /// link and a feed on a custom port are ordinary fetches, not SSRF, and the
+    /// plugin screen keeps refusing both.
+    #[test]
+    fn the_product_fetch_screen_allows_plain_http_and_an_explicit_port() {
+        let plain = screen_fetch("http://example.com/x").expect("a public http link");
+        assert_eq!(plain.host(), "example.com");
+        assert_eq!(plain.port(), 80);
+        assert_eq!(plain.as_str(), "http://example.com/x");
+
+        let custom =
+            screen_fetch("https://example.com:8443/x").expect("a public feed on a custom port");
+        assert_eq!(custom.port(), 8443);
+        assert_eq!(custom.as_str(), "https://example.com:8443/x");
+
+        assert_eq!(
+            screen("http://example.com/x"),
+            Err(EgressDenial::SchemeDenied)
+        );
+        assert_eq!(
+            screen("https://example.com:8443/x"),
+            Err(EgressDenial::PortDenied)
+        );
+    }
+
+    /// Every address rule still applies: the relaxation is the scheme and the
+    /// port, never the destination.
+    #[test]
+    fn the_product_fetch_screen_still_refuses_every_private_destination() {
+        for (url, expected) in [
+            ("http://127.0.0.1:9099/x", EgressDenial::PrivateAddress),
+            ("http://169.254.169.254/", EgressDenial::PrivateAddress),
+            ("http://[::1]/", EgressDenial::PrivateAddress),
+            ("http://svc.local/", EgressDenial::PrivateAddress),
+            (
+                "http://user:pass@example.com/",
+                EgressDenial::UserInfoDenied,
+            ),
+            ("ftp://example.com/", EgressDenial::SchemeDenied),
+            ("file:///etc/passwd", EgressDenial::SchemeDenied),
+        ] {
+            assert_eq!(screen_fetch(url), Err(expected), "{url}");
         }
     }
 

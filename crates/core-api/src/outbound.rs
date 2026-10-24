@@ -12,10 +12,13 @@
 //!
 //! ## Order, and what each step stops
 //!
-//! 1. **`screen`** refuses a URL that is not https, carries userinfo, names a
-//!    non-default port, or has a host that is not publicly routable. A private
-//!    or metadata address spelled as a literal, as `2130706433`, or as a name
-//!    on the denied-suffix list never reaches a socket.
+//! 1. **`screen_fetch`** refuses a URL that carries userinfo or names a host
+//!    that is not publicly routable. A private or metadata address spelled as a
+//!    literal, as `2130706433`, or as a name on the denied-suffix list never
+//!    reaches a socket. The scheme and the port are left to the product surface
+//!    on purpose: a public `http` link and a calendar feed on `:8443` are not
+//!    SSRF, and the plugin seam's https-only/no-port rule is the consent shape
+//!    of an allowlist entry, not the address rule.
 //! 2. **Resolve once** and judge every answer with [`egress::check_resolved`].
 //!    A name that resolves to one public and one private address is refused:
 //!    the private one is still reachable. An empty answer is a refusal.
@@ -37,7 +40,7 @@ use reqwest::redirect::Policy;
 
 /// A URL the guard accepted, with the addresses its host resolved to.
 ///
-/// The address set is empty for an IP-literal target: [`egress::screen`] already
+/// The address set is empty for an IP-literal target: `screen_fetch` already
 /// classified the literal, so there is nothing to look up and nothing to pin.
 pub struct Guarded {
     target: EgressTarget,
@@ -79,7 +82,7 @@ impl Guarded {
 /// Every failure is a typed [`EgressDenial`]; the caller maps it onto the
 /// vocabulary its own surface already returns.
 pub async fn guard(raw: &str) -> Result<Guarded, EgressDenial> {
-    let target = egress::screen(raw)?;
+    let target = egress::screen_fetch(raw)?;
     if target.is_ip_literal() {
         return Ok(Guarded {
             target,
@@ -139,9 +142,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_url_outside_the_https_default_port_is_refused() {
-        assert!(guard("https://example.com:8443/hook").await.is_err());
-        assert!(guard("http://example.com/hook").await.is_err());
+    async fn a_scheme_outside_http_and_https_is_refused_before_a_lookup() {
+        for url in [
+            "ftp://example.com/hook",
+            "file:///etc/passwd",
+            "ws://example.com/hook",
+        ] {
+            assert!(guard(url).await.is_err(), "{url} must be refused");
+        }
         assert!(guard("https://user:pw@example.com/hook").await.is_err());
+    }
+
+    /// A public plain-http target is a product fetch, not SSRF: the product
+    /// screen allows it and the guard only judges the address. A literal needs
+    /// no lookup, so this asserts the relaxed shape without touching the
+    /// network.
+    #[tokio::test]
+    async fn a_public_plain_http_literal_is_accepted() {
+        let guarded = guard("http://8.8.8.8/hook")
+            .await
+            .expect("a public http literal is a product fetch");
+        assert_eq!(guarded.url(), "http://8.8.8.8/hook");
+        assert!(guarded.client(Duration::from_millis(100)).is_ok());
     }
 }

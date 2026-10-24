@@ -154,8 +154,13 @@ impl ReqwestSink {
 }
 
 /// The guard's static half for a webhook destination.
+///
+/// `screen_fetch` is the product shape: `http` or `https` and any port, with
+/// every address rule intact. A receiver on a public plain-http host is a real
+/// deployment, while a loopback or metadata destination is the SSRF this
+/// refuses.
 fn screen(url: &str) -> Result<core_domain::egress::EgressTarget, SinkResult> {
-    core_domain::egress::screen(url).map_err(|denial| {
+    core_domain::egress::screen_fetch(url).map_err(|denial| {
         SinkResult::Transport(format!("destination refused before the request: {denial}"))
     })
 }

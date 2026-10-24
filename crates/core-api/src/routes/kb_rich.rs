@@ -1147,13 +1147,12 @@ pub async fn link_check_external_document(
 ///
 /// The stored URL is screened by the shared egress guard before a socket
 /// exists, its host is resolved once and every answer judged, and the
-/// connection is pinned to the judged addresses. A redirect is `unreachable`
-/// rather than a hop: the document's URL is the only target this check may
-/// touch, and following a `3xx` would let the link point the server somewhere
-/// else. Everything the guard refuses — a non-https scheme, a loopback,
-/// link-local or metadata address, a name that resolves into one — records as
-/// `unreachable`, the same as a DNS or TLS failure, because the record is the
-/// result.
+/// connection is pinned to the judged addresses. A redirect is not followed: the
+/// document's URL is the only target this check may touch, so a `3xx` is
+/// recorded as reachable without a hop. Everything the guard refuses — a
+/// loopback, link-local or metadata address, a name that resolves into one —
+/// records as `unreachable`, the same as a DNS or TLS failure, because the
+/// record is the result.
 async fn probe_link(raw_url: &str) -> ApiResult<LinkCheckStatus> {
     let guarded = match crate::outbound::guard(raw_url.trim()).await {
         Ok(guarded) => guarded,
@@ -1174,15 +1173,20 @@ async fn probe_link(raw_url: &str) -> ApiResult<LinkCheckStatus> {
 }
 
 /// The mechanical half: one `HEAD` against an already-screened, pinned URL.
+///
+/// A `3xx` counts as reachable and is never followed: the link works, and a hop
+/// would be a second host the guard never judged. The status enum has no third
+/// value, and adding one would change the record's vocabulary for a case the
+/// check can answer today.
 async fn probe_target(client: &reqwest::Client, url: &str) -> LinkCheckStatus {
     match client.head(url).send().await {
         Ok(response) if response.status().is_success() => LinkCheckStatus::Ok,
         Ok(response) if crate::outbound::is_redirect(response.status().as_u16()) => {
             tracing::warn!(
                 status = response.status().as_u16(),
-                "link-check target answered a redirect, which is never followed"
+                "link-check target answered a redirect: reachable, and not followed"
             );
-            LinkCheckStatus::Unreachable
+            LinkCheckStatus::Ok
         }
         _ => LinkCheckStatus::Unreachable,
     }
@@ -1229,11 +1233,20 @@ mod tests {
             .expect("client")
     }
 
+    /// A `3xx` is a working link and the check never follows it. The mechanics
+    /// half is driven directly with a loopback listener because the guard
+    /// refuses a loopback URL before a socket exists — the same split
+    /// `plugin_http` uses. The listener counts connections, so "not followed"
+    /// is a measurement rather than an inference.
     #[tokio::test]
-    async fn a_link_check_redirect_is_refused_rather_than_followed() {
+    async fn a_link_check_reports_a_redirect_as_reachable_without_following_it() {
         let (addr, connections) = redirector("https://elsewhere.example/runbook");
         let status = probe_target(&test_client(), &format!("http://{addr}/runbook")).await;
-        assert_eq!(status, LinkCheckStatus::Unreachable);
+        assert_eq!(
+            status,
+            LinkCheckStatus::Ok,
+            "a redirecting link is reachable, not broken"
+        );
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         assert_eq!(
             connections.load(Ordering::SeqCst),
