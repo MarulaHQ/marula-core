@@ -1365,8 +1365,12 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
 /// collapses into — would let one test's failure deny another test's sign-in.
 /// RFC 2544 benchmarking space, never a real client.
 fn test_caller_ip() -> String {
+    // The random tail, not the leading bytes: a v7 UUID starts with a
+    // millisecond timestamp, so `bytes[0]`/`bytes[1]` barely move within a run
+    // and every test would share one caller bucket. That is exactly the
+    // collision the gate is keyed on, so it has to be genuinely fresh.
     let bytes = Uuid::now_v7().into_bytes();
-    format!("198.18.{}.{}", bytes[0], bytes[1])
+    format!("198.18.{}.{}", bytes[9], bytes[10])
 }
 
 /// `attempts` on one gate row; 0 when no row exists. A success DELETEs the

@@ -352,16 +352,28 @@ impl Leg {
 /// exists (wrong password) and one for an address that does not (the same
 /// wrong password). Returns the resolved and unresolved durations in
 /// milliseconds.
-async fn measure_arm(
-    app: &axum::Router,
-    pool: &PgPool,
-    kind: &str,
-    path: &str,
-    resolved_email: &str,
-    unresolved_email: &str,
+struct Arm<'a> {
+    app: &'a axum::Router,
+    pool: &'a PgPool,
+    kind: &'a str,
+    path: &'a str,
+    resolved_email: &'a str,
+    unresolved_email: &'a str,
     samples: usize,
     warmup: usize,
-) -> (Vec<f64>, Vec<f64>) {
+}
+
+async fn measure_arm(arm: Arm<'_>) -> (Vec<f64>, Vec<f64>) {
+    let Arm {
+        app,
+        pool,
+        kind,
+        path,
+        resolved_email,
+        unresolved_email,
+        samples,
+        warmup,
+    } = arm;
     let keys = vec![email_key(resolved_email), email_key(unresolved_email)];
     let block = run_block();
     let mut resolved_ms = Vec::with_capacity(samples);
@@ -456,27 +468,27 @@ async fn password_login_timing_pairs_both_arms() {
     let staff_absent = format!("absent-{}@timing.invalid", Uuid::now_v7().simple());
     let portal_absent = format!("absent-portal-{}@timing.invalid", Uuid::now_v7().simple());
 
-    let (staff_resolved, staff_unresolved) = measure_arm(
-        &app,
-        &pool,
-        core_db::hardening::gate_kind::PASSWORD_LOGIN,
-        "/api/auth/login",
-        &seeded.owner_email,
-        &staff_absent,
+    let (staff_resolved, staff_unresolved) = measure_arm(Arm {
+        app: &app,
+        pool: &pool,
+        kind: core_db::hardening::gate_kind::PASSWORD_LOGIN,
+        path: "/api/auth/login",
+        resolved_email: &seeded.owner_email,
+        unresolved_email: &staff_absent,
         samples,
         warmup,
-    )
+    })
     .await;
-    let (portal_resolved, portal_unresolved) = measure_arm(
-        &app,
-        &pool,
-        core_db::hardening::gate_kind::PORTAL_PASSWORD_LOGIN,
-        "/api/portal/login",
-        &seeded.portal_email,
-        &portal_absent,
+    let (portal_resolved, portal_unresolved) = measure_arm(Arm {
+        app: &app,
+        pool: &pool,
+        kind: core_db::hardening::gate_kind::PORTAL_PASSWORD_LOGIN,
+        path: "/api/portal/login",
+        resolved_email: &seeded.portal_email,
+        unresolved_email: &portal_absent,
         samples,
         warmup,
-    )
+    })
     .await;
 
     let rows = [
