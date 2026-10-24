@@ -536,3 +536,240 @@ async fn alert_decision_ack_is_idempotent_above_thresholds() {
         .unwrap();
     assert_eq!(status, "acknowledged");
 }
+
+// ---------------------------------------------------------------------------
+// The suggestions read carries the ticket gate (Wave 54 lane S3a)
+// ---------------------------------------------------------------------------
+
+/// Inserts a same-org user with NO role (hence no permissions) through the
+/// admin pool — there is no invite API in these flows — and logs them in.
+async fn add_roleless_user(
+    app: &Router,
+    pool: &PgPool,
+    org_id: Uuid,
+    label: &str,
+) -> (Uuid, String) {
+    let email = format!("{label}@decision.test");
+    let user_id = Uuid::now_v7();
+    core_db::users::create_user(
+        pool,
+        user_id,
+        org_id,
+        &email,
+        label,
+        &core_api::auth::password::hash("correct-horse-battery").unwrap(),
+        "UTC",
+    )
+    .await
+    .expect("seed roleless user");
+    let login = body_json(
+        send(
+            app,
+            axum::http::Method::POST,
+            "/api/auth/login",
+            None,
+            Some(json!({"email": email, "password": "correct-horse-battery"})),
+        )
+        .await,
+    )
+    .await;
+    let token = login["access_token"]
+        .as_str()
+        .expect("roleless login")
+        .to_string();
+    (user_id, token)
+}
+
+async fn default_board_id(app: &Router, bearer: &str) -> Uuid {
+    let nav = body_json(
+        send(
+            app,
+            axum::http::Method::GET,
+            "/api/boards/nav",
+            Some(bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    nav[0]["id"].as_str().unwrap().parse().unwrap()
+}
+
+async fn ticket_on(app: &Router, bearer: &str, board_id: Uuid, title: &str) -> Uuid {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        "/api/tickets",
+        Some(bearer),
+        Some(json!({
+            "board_id": board_id,
+            "title": title,
+            "body": "seeded by the read-gate lane",
+            "priority": "p2"
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "ticket create");
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+/// A caller without the ticket permission gets the same typed refusal the
+/// sibling ticket reads give, and learns nothing about the suggestions.
+#[tokio::test(flavor = "multi_thread")]
+async fn suggestions_read_refuses_a_caller_without_the_ticket_permission() {
+    let (state, pool) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("decision-gate-noperm-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, &slug).await;
+    let (_, org_id) = me_ids(&app, &owner).await;
+    let board_id = default_board_id(&app, &owner).await;
+    let ticket_id = ticket_on(&app, &owner, board_id, "Gate me").await;
+    let (_, roleless) = add_roleless_user(&app, &pool, org_id, "no-perm").await;
+
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/tickets/{ticket_id}/decision-suggestions"),
+        Some(&roleless),
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "a caller without tickets:view is refused"
+    );
+    let refused = body_json(response).await;
+    assert_eq!(refused["error"]["code"], 403, "typed refusal: {refused}");
+
+    // The sibling ticket read refuses the SAME caller the same way — the
+    // two reads are twins, not near-twins.
+    let sibling = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/tickets/{ticket_id}/links"),
+        Some(&roleless),
+        None,
+    )
+    .await;
+    assert_eq!(sibling.status(), 403, "sibling link read refuses too");
+    assert_eq!(body_json(sibling).await["error"]["code"], 403);
+
+    // The owner still reads it: the gate narrows, it does not close.
+    let allowed = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/tickets/{ticket_id}/decision-suggestions"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(allowed.status(), 200);
+    let view = body_json(allowed).await;
+    assert_eq!(view["ticket_id"], json!(ticket_id));
+    assert!(view["suggestions"].as_array().unwrap().is_empty());
+}
+
+/// A caller whose only board scope is a DIFFERENT board cannot read this
+/// board's suggestions — board membership elsewhere is not a key.
+#[tokio::test(flavor = "multi_thread")]
+async fn suggestions_read_refuses_a_caller_scoped_to_another_board() {
+    let (state, pool) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("decision-gate-board-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, &slug).await;
+    let (_, org_id) = me_ids(&app, &owner).await;
+    let board_a = default_board_id(&app, &owner).await;
+    let ticket_a = ticket_on(&app, &owner, board_a, "Board A ticket").await;
+    let (other_user, other_board_token) =
+        add_roleless_user(&app, &pool, org_id, "other-board").await;
+
+    // A second board, and the caller's ONLY membership on it.
+    let created = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/boards",
+        Some(&owner),
+        Some(json!({
+            "name": format!("Other {}", Uuid::now_v7().simple()),
+            "description": "the caller's board",
+            "is_default": false
+        })),
+    )
+    .await;
+    assert_eq!(created.status(), 200, "board create");
+    let board_b: Uuid = body_json(created).await["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut conn = pool.acquire().await.unwrap();
+    core_db::boards::upsert_member(
+        &mut conn,
+        org_id,
+        board_b,
+        other_user,
+        core_domain::policy::BoardRole::Viewer,
+    )
+    .await
+    .expect("viewer membership on the other board");
+    drop(conn);
+
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/tickets/{ticket_a}/decision-suggestions"),
+        Some(&other_board_token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "a viewer on another board reads nothing here"
+    );
+    assert_eq!(body_json(response).await["error"]["code"], 403);
+
+    // The membership row really is on B and the ticket really is on A, so
+    // the refusal above is about scope rather than a missing row.
+    let row: Option<(Uuid,)> =
+        sqlx::query_as("SELECT board_id FROM board_members WHERE org_id = $1 AND user_id = $2")
+            .bind(org_id)
+            .bind(other_user)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.map(|(b,)| b), Some(board_b));
+    assert_ne!(board_a, board_b);
+}
+
+/// A ticket outside this org is not a quiet empty list — the gate resolves
+/// the ticket first and answers 404, exactly as the sibling reads do.
+#[tokio::test(flavor = "multi_thread")]
+async fn suggestions_read_answers_404_for_a_ticket_outside_the_org() {
+    let (state, _pool) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("decision-gate-404-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, &slug).await;
+    let _ = me_ids(&app, &owner).await;
+
+    let unknown = Uuid::now_v7();
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/tickets/{unknown}/decision-suggestions"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        404,
+        "invisible ticket is not an empty read"
+    );
+    assert_eq!(body_json(response).await["error"]["code"], 404);
+}
