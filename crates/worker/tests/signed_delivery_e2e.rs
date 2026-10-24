@@ -1,95 +1,19 @@
-//! End-to-end signed webhook delivery against a LOCAL HTTP SINK.
+//! Signed webhook delivery: the receiver-side verification a connector ships,
+//! plus the production sink's refusal of a destination it must not dial.
 //!
-//! Purpose: prove the OUTBOUND half of plugin runtime v1 without any
-//! Marula internals — the production `ReqwestSink` delivers to a real
-//! TCP listener, and the receiver-side verification (the same primitive
-//! first-party connectors ship) validates signature, timestamp binding,
-//! and replay rejection over actual wire bytes.
+//! Purpose: prove the OUTBOUND contract without any Marula internals — the same
+//! signature, timestamp binding and replay rejection over actual wire bytes —
+//! and prove the public sink end does not deliver to a loopback or metadata
+//! target. The wire half of the sink (headers and body as they arrive) is driven
+//! from `webhook_out::tests`, where the private transport function lives: the
+//! guard refuses a loopback URL before a socket exists, so an integration test
+//! cannot point the guarded sink at a local listener and must not be able to
+//! skip the guard to do it.
 //!
-//! Non-purpose: no database, no queue, no core-api — those layers are
-//! covered by db_suite (ledger) and unit tests (settle matrix).
+//! Non-purpose: no database, no queue, no core-api — those layers are covered
+//! by db_suite (ledger) and unit tests (settle matrix).
 
-use worker::webhook_out::{DeliverySink, ReqwestSink};
-
-/// Minimal HTTP server: reads one POST, records method/path/headers/body,
-/// answers 200 OK. Returns (local_addr, join handle → ReceivedRequest).
-async fn spawn_sink() -> (std::net::SocketAddr, tokio::task::JoinHandle<Received>) {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind ephemeral");
-    let addr = listener.local_addr().expect("addr");
-
-    let handle = tokio::spawn(async move {
-        let (mut sock, _) = listener.accept().await.expect("one connection");
-        let mut buf = Vec::new();
-        // Read until end of headers.
-        let header_end = loop {
-            let mut chunk = [0_u8; 1024];
-            let n = sock.read(&mut chunk).await.expect("read headers");
-            assert!(n > 0, "peer closed before headers finished");
-            buf.extend_from_slice(&chunk[..n]);
-            if let Some(pos) = find_subsequence(&buf, b"\r\n\r\n") {
-                break pos;
-            }
-        };
-        let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-        // Content-Length decides how much body to expect.
-        let content_length = head
-            .lines()
-            .find_map(|l| {
-                let (k, v) = l.split_once(':')?;
-                k.trim()
-                    .eq_ignore_ascii_case("content-length")
-                    .then(|| v.trim().parse::<usize>().ok())?
-            })
-            .unwrap_or(0);
-        let mut body = buf[header_end + 4..].to_vec();
-        while body.len() < content_length {
-            let mut chunk = [0_u8; 1024];
-            let n = sock.read(&mut chunk).await.expect("read body");
-            assert!(n > 0, "peer closed mid-body");
-            body.extend_from_slice(&chunk[..n]);
-        }
-        sock.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
-            .await
-            .expect("respond");
-        let mut lines = head.lines();
-        let request_line = lines.next().unwrap_or_default().to_string();
-        let headers: Vec<(String, String)> = lines
-            .filter_map(|l| {
-                let (k, v) = l.split_once(':')?;
-                Some((k.trim().to_lowercase(), v.trim().to_string()))
-            })
-            .collect();
-        Received {
-            request_line,
-            headers,
-            body,
-        }
-    });
-    (addr, handle)
-}
-
-pub struct Received {
-    pub request_line: String,
-    pub headers: Vec<(String, String)>,
-    pub body: Vec<u8>,
-}
-
-impl Received {
-    fn header(&self, name: &str) -> Option<&str> {
-        let name = name.to_ascii_lowercase();
-        self.headers
-            .iter()
-            .find(|(k, _)| k == &name)
-            .map(|(_, v)| v.as_str())
-    }
-}
-
-fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
+use worker::webhook_out::{DeliverySink, ReqwestSink, SinkResult};
 
 fn envelope_body() -> Vec<u8> {
     serde_json::json!({
@@ -108,50 +32,30 @@ fn envelope_body() -> Vec<u8> {
 
 const SECRET: &[u8] = b"whsec_e2e_lane_secret";
 
+/// THE PROPERTY for the public edge: a destination the egress guard refuses is
+/// never dialled. The sink reports a transport failure, which the delivery
+/// ledger records and the retry policy judges like any other unreachable
+/// receiver.
 #[tokio::test]
-async fn sink_receives_signed_delivery_and_verifies_it() {
-    let (addr, handle) = spawn_sink().await;
-    let url = format!("http://{addr}/marula/hook");
+async fn the_production_sink_refuses_a_loopback_destination() {
     let body = envelope_body();
+    let now = chrono::Utc::now().timestamp();
+    let signature = core_domain::webhooks::signature_value(SECRET, &body, now);
 
-    // Sign exactly what we send — the production contract.
-    let now_unix = chrono::Utc::now().timestamp();
-    let signature = core_domain::webhooks::signature_value(SECRET, &body, now_unix);
-
-    let sink = ReqwestSink::new();
-    let result = sink.post(&url, &signature, now_unix, &body).await;
-    assert_eq!(
-        result,
-        worker::webhook_out::SinkResult::Delivered(200),
-        "sink must accept the signed delivery"
-    );
-
-    let received = handle.await.expect("sink task");
-    assert!(
-        received.request_line.starts_with("POST /marula/hook "),
-        "must hit the configured path: {}",
-        received.request_line
-    );
-    assert_eq!(received.body, body, "wire bytes must match signed bytes");
-    assert_eq!(
-        received.header(core_domain::webhooks::TIMESTAMP_HEADER),
-        Some(now_unix.to_string()).as_deref(),
-        "timestamp header mirrors the t= component"
-    );
-
-    // Receiver side: the exact check a connector performs.
-    let sig_header = received
-        .header(core_domain::webhooks::SIGNATURE_HEADER)
-        .expect("signature header present on the wire");
-    assert_eq!(sig_header, signature);
-    core_domain::webhooks::verify(
-        SECRET,
-        &received.body,
-        sig_header,
-        chrono::Utc::now().timestamp(),
-        core_domain::webhooks::REPLAY_TOLERANCE_SECS,
-    )
-    .expect("fresh authentic delivery must verify");
+    for url in [
+        // A loopback literal, but also a plaintext scheme and a port: every
+        // one of the three is a refusal on its own.
+        "http://127.0.0.1:9099/marula/hook".to_string(),
+        // The spelling that defeated the old hand-rolled guard: userinfo in the
+        // authority, metadata address behind it.
+        "https://user:pw@169.254.169.254/latest/meta-data/".to_string(),
+    ] {
+        let result = ReqwestSink::new().post(&url, &signature, now, &body).await;
+        assert!(
+            matches!(result, SinkResult::Transport(ref reason) if reason.contains("refused before the request")),
+            "{url} must be refused before any request: {result:?}"
+        );
+    }
 }
 
 #[tokio::test]

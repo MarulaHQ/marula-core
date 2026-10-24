@@ -467,27 +467,43 @@ pub async fn resolve_embed(
     }))
 }
 
-/// Server-side oEmbed fetch: https only (the endpoint is registry data,
-/// re-validated here), short timeout, JSON response extracted. Any
-/// transport or payload failure surfaces as typed `unavailable` — never
-/// a 5xx prose leak, and never a client-controlled fallback.
+/// Server-side oEmbed fetch: screened by the shared egress guard (https only,
+/// public host, judged resolution, pinned connection), short timeout, JSON
+/// response extracted. A redirect is a refusal, not a hop. Any transport or
+/// payload failure surfaces as typed `unavailable` — never a 5xx prose leak,
+/// and never a client-controlled fallback.
 async fn fetch_oembed_json(oembed_url: &str) -> ApiResult<serde_json::Value> {
-    let url = reqwest::Url::parse(oembed_url)
-        .map_err(|_| ApiError::Internal(anyhow::anyhow!("registry endpoint failed to parse")))?;
-    if url.scheme() != "https" {
-        return Err(ApiError::Unavailable(
-            "embed provider endpoint must be https".into(),
-        ));
-    }
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!(e)))?;
+    let guarded = crate::outbound::guard(oembed_url)
+        .await
+        .map_err(|denial| match denial {
+            // The endpoint is registry data; a row that is not https is a bad
+            // row rather than an unreachable provider.
+            core_domain::egress::EgressDenial::SchemeDenied => {
+                ApiError::Unavailable("embed provider endpoint must be https".into())
+            }
+            other => ApiError::Validation(format!("embed provider endpoint refused: {other}")),
+        })?;
+    let client = guarded
+        .client(std::time::Duration::from_secs(10))
+        .map_err(|denial| {
+            ApiError::Internal(anyhow::anyhow!("embed provider client refused: {denial}"))
+        })?;
+    get_json(&client, guarded.url()).await
+}
+
+/// The mechanical half: one `GET` against an already-screened, pinned URL.
+async fn get_json(client: &reqwest::Client, url: &str) -> ApiResult<serde_json::Value> {
     let response = client
         .get(url)
         .send()
         .await
         .map_err(|_| ApiError::Unavailable("embed provider endpoint unreachable".into()))?;
+    if crate::outbound::is_redirect(response.status().as_u16()) {
+        return Err(ApiError::Unavailable(format!(
+            "embed provider endpoint answered {} (redirects are never followed)",
+            response.status().as_u16()
+        )));
+    }
     if !response.status().is_success() {
         return Err(ApiError::Unavailable(format!(
             "embed provider endpoint answered {}",
@@ -1127,26 +1143,131 @@ pub async fn link_check_external_document(
     Ok(Json(outcome.into_response()?))
 }
 
-/// One server-side HTTPS probe. 2xx/3xx reads as reachable; everything
-/// else (4xx, 5xx, DNS, TLS, timeout) is `unreachable`. The checker is
-/// intentionally dumb about redirects — reqwest follows them, and any
-/// final status outside 2xx/3xx is honest about a broken link.
+/// One server-side HTTPS probe.
+///
+/// The stored URL is screened by the shared egress guard before a socket
+/// exists, its host is resolved once and every answer judged, and the
+/// connection is pinned to the judged addresses. A redirect is not followed: the
+/// document's URL is the only target this check may touch, so a `3xx` is
+/// recorded as reachable without a hop. Everything the guard refuses — a
+/// loopback, link-local or metadata address, a name that resolves into one —
+/// records as `unreachable`, the same as a DNS or TLS failure, because the
+/// record is the result.
 async fn probe_link(raw_url: &str) -> ApiResult<LinkCheckStatus> {
-    let url = reqwest::Url::parse(raw_url.trim())
-        .map_err(|_| ApiError::Validation("external document url does not parse".into()))?;
-    if url.scheme() != "https" {
-        return Ok(LinkCheckStatus::Unreachable);
-    }
-    let client = reqwest::Client::new();
-    let outcome = client
-        .head(url)
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await;
-    Ok(match outcome {
-        Ok(response) if response.status().is_success() || response.status().is_redirection() => {
+    let guarded = match crate::outbound::guard(raw_url.trim()).await {
+        Ok(guarded) => guarded,
+        Err(denial) => {
+            tracing::warn!(
+                reason = denial.as_str(),
+                "link-check target refused before the request"
+            );
+            return Ok(LinkCheckStatus::Unreachable);
+        }
+    };
+    let client = guarded
+        .client(std::time::Duration::from_secs(10))
+        .map_err(|denial| {
+            ApiError::Internal(anyhow::anyhow!("link-check client refused: {denial}"))
+        })?;
+    Ok(probe_target(&client, guarded.url()).await)
+}
+
+/// The mechanical half: one `HEAD` against an already-screened, pinned URL.
+///
+/// A `3xx` counts as reachable and is never followed: the link works, and a hop
+/// would be a second host the guard never judged. The status enum has no third
+/// value, and adding one would change the record's vocabulary for a case the
+/// check can answer today.
+async fn probe_target(client: &reqwest::Client, url: &str) -> LinkCheckStatus {
+    match client.head(url).send().await {
+        Ok(response) if response.status().is_success() => LinkCheckStatus::Ok,
+        Ok(response) if crate::outbound::is_redirect(response.status().as_u16()) => {
+            tracing::warn!(
+                status = response.status().as_u16(),
+                "link-check target answered a redirect: reachable, and not followed"
+            );
             LinkCheckStatus::Ok
         }
         _ => LinkCheckStatus::Unreachable,
-    })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// A loopback listener that answers every request with a `302` and counts
+    /// the connections it accepts, so "refused, not followed" is a count rather
+    /// than an inference. The guard would refuse this URL before a socket
+    /// existed, which is why the mechanics half is driven directly here — the
+    /// same split `plugin_http` uses.
+    fn redirector(location: &'static str) -> (std::net::SocketAddr, Arc<AtomicUsize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&count);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                seen.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    )
+                    .as_bytes(),
+                );
+            }
+        });
+        (addr, count)
+    }
+
+    fn test_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("client")
+    }
+
+    /// A `3xx` is a working link and the check never follows it. The mechanics
+    /// half is driven directly with a loopback listener because the guard
+    /// refuses a loopback URL before a socket exists — the same split
+    /// `plugin_http` uses. The listener counts connections, so "not followed"
+    /// is a measurement rather than an inference.
+    #[tokio::test]
+    async fn a_link_check_reports_a_redirect_as_reachable_without_following_it() {
+        let (addr, connections) = redirector("https://elsewhere.example/runbook");
+        let status = probe_target(&test_client(), &format!("http://{addr}/runbook")).await;
+        assert_eq!(
+            status,
+            LinkCheckStatus::Ok,
+            "a redirecting link is reachable, not broken"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            1,
+            "the 302 was answered once and its Location never dialled"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_oembed_redirect_is_refused_rather_than_followed() {
+        let (addr, connections) = redirector("https://elsewhere.example/oembed");
+        let result = get_json(&test_client(), &format!("http://{addr}/oembed")).await;
+        assert!(
+            matches!(result, Err(ApiError::Unavailable(_))),
+            "a redirect is a typed unavailable, never a followed hop"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            1,
+            "the 302 was answered once and its Location never dialled"
+        );
+    }
 }
