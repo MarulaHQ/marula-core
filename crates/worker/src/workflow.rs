@@ -421,14 +421,13 @@ async fn process_resume<E: EffectApi>(
     // stays parked: no continuation row exists for a decision that did not
     // release it.
     let event_type = job.payload.get("event_type").and_then(Value::as_str);
+    // The decision's own fields (proposal id, entity, deciding principal) ride
+    // the wake EVENT; the job payload only carries the op, the run and the
+    // event's type beside it. Reading the payload here asked every decision for
+    // a `proposal_id` it never carries, so every gate wake refused itself as
+    // `approval_unbound` and no gate could be released.
     match gate_verdict(
-        &mut tx,
-        job.org_id,
-        parent_id,
-        &cursor,
-        &doc,
-        &job.payload,
-        event_type,
+        &mut tx, job.org_id, parent_id, &cursor, &doc, &event, event_type,
     )
     .await
     {
@@ -532,6 +531,10 @@ struct GateRefusal {
 /// is a decision that does not release the gate; the caller records it and
 /// leaves the run parked.
 ///
+/// `event` is the wake's event VALUE (the `event` field of the job payload,
+/// what a publisher emitted), not the payload around it: the proposal id, the
+/// entity and the deciding principal are fields of the event.
+///
 /// The event is not trusted for the decision itself. It names the row; the row
 /// is the record, so the status, the decider and the gate binding are read from
 /// it, and the decider is checked against the approvers the row carries — the
@@ -542,7 +545,7 @@ async fn gate_verdict(
     run_id: uuid::Uuid,
     cursor: &WorkflowCursor,
     doc: &WorkflowDocument,
-    payload: &Value,
+    event: &Value,
     event_type: Option<&str>,
 ) -> core_db::DbResult<Option<GateRefusal>> {
     let Some(gate_id) = cursor.parked_node.as_deref() else {
@@ -561,11 +564,11 @@ async fn gate_verdict(
         return Ok(None);
     };
 
-    let proposal_id = payload
+    let proposal_id = event
         .get("proposal_id")
         .and_then(Value::as_str)
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
-    let actor = payload
+    let actor = event
         .get(
             if event_type == core_domain::events::types::AGENT_PROPOSAL_DECLINED {
                 "declined_by"
@@ -576,7 +579,7 @@ async fn gate_verdict(
         .and_then(Value::as_str)
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let about_a_gate = !matches!(
-        payload.get("entity").and_then(Value::as_str),
+        event.get("entity").and_then(Value::as_str),
         Some(entity) if entity != workflow_approvals::GATE_ENTITY
     );
     let refuse = |code: &'static str, detail: String, record: bool| {
