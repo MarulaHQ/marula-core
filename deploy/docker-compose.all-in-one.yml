@@ -19,12 +19,12 @@ services:
       # application services and no pooler, and one instance's 54 connections
       # fit inside Postgres's default 100. Overriding the base file's pooled
       # URLs keeps the documented all-in-one boot working without it.
-      DATABASE_URL: postgres://marula_app:marula_app@postgres:5432/marula
-      MARULA_LISTEN_DATABASE_URL: postgres://marula_app:marula_app@postgres:5432/marula
+      DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula
+      MARULA_LISTEN_DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula
       # OWNER role on purpose: the worker loops read across orgs and must
       # bypass row-level security. The API's own DATABASE_URL stays the
       # RLS-scoped app role.
-      MARULA_WORKER_DATABASE_URL: postgres://marula:marula@postgres:5432/marula
+      MARULA_WORKER_DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula
       # The Settings -> Self-host pane probes the embedded worker on
       # loopback; the compose service name (worker:8082) does not exist in
       # this topology.
