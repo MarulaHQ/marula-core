@@ -1332,3 +1332,436 @@ async fn a_finished_run_carries_no_park_coordinates() {
     assert!(finished.wake_on.is_none());
     assert!(finished.finished_at.is_some());
 }
+
+// ---------------------------------------------------------------------------
+// 6. the purge never aborts on the ledger's declared references (0169)
+// ---------------------------------------------------------------------------
+
+/// Ages one run's finish time, which is a lifecycle column and stays
+/// writable: only the provenance is immutable.
+async fn age_finished_at(conn: &mut PgConnection, run: Uuid, days: i64) {
+    sqlx::query(
+        "UPDATE workflow_runs
+            SET finished_at = now() - make_interval(days => $2::int)
+          WHERE id = $1",
+    )
+    .bind(run)
+    .bind(days as i32)
+    .execute(&mut *conn)
+    .await
+    .expect("age the finish time");
+}
+
+/// One failed run with a succeeded first step and a failed second one, so an
+/// operator retry of it is allowed by the double-apply gate.
+async fn a_failed_run(conn: &mut PgConnection, org: Uuid, rule: Uuid) -> Uuid {
+    let run = core_db::workflow_runs::insert_run(
+        conn,
+        org,
+        &new_run(Some(rule), RunTrigger::Event),
+        RunStatus::Running,
+    )
+    .await
+    .expect("run");
+    let first = add_step(
+        conn,
+        org,
+        run.id,
+        0,
+        "ticket.update",
+        json!({"ticketId": "11111111-1111-1111-1111-111111111111", "fields": {"title": "Escalate"}}),
+    )
+    .await;
+    core_db::workflow_runs::finish_step(
+        conn,
+        org,
+        first,
+        StepStatus::Succeeded,
+        Some(json!({"changed": ["title"]})),
+        None,
+        None,
+    )
+    .await
+    .expect("finish first");
+    let second = add_step(
+        conn,
+        org,
+        run.id,
+        1,
+        "ticket.update",
+        json!({"ticketId": "11111111-1111-1111-1111-111111111111", "fields": {"title": "Escalate"}}),
+    )
+    .await;
+    core_db::workflow_runs::finish_step(
+        conn,
+        org,
+        second,
+        StepStatus::Failed,
+        None,
+        Some("validation_failed"),
+        Some("field 'due_at' rejected"),
+    )
+    .await
+    .expect("finish second");
+    core_db::workflow_runs::finish_run(
+        conn,
+        org,
+        run.id,
+        RunStatus::Failed,
+        Some("step_failed"),
+        None,
+    )
+    .await
+    .expect("finish run");
+    run.id
+}
+
+#[tokio::test]
+async fn purging_a_retried_run_releases_the_retry_instead_of_aborting() {
+    // Slots 91082 (org), 91083 (rule), 91084 (actor).
+    //
+    // The record this test closes: the parent is past the window and the
+    // retry is inside it, so the delete fires the FK's own
+    // `UPDATE ... SET retry_of = NULL` on the SURVIVING row. The guard used
+    // to refuse that write, and the sweep aborted with
+    // `workflow_runs is an audit ledger: identity and provenance columns are
+    // immutable` — retrying a workflow poisoned the purge for its org.
+    //
+    // The sweep here is the WORKER's function (`purge_expired_everywhere`,
+    // cross-org on the admin pool), so the assertions are about the rows this
+    // test owns rather than about a global count other suites share.
+    let db = test_db().await;
+    let org = seed_org(&db, 91082, "ledger-91082").await;
+    let rule = seed_rule(&db, org, 91083, "Escalate overdue tickets").await;
+    let actor = seed_user(&db, org, 91084, "op@ledger82.test").await;
+
+    let (parent, retry) = {
+        let mut tx = org_tx(&db.app, org).await;
+        let parent = a_failed_run(&mut tx, org, rule).await;
+        let retry =
+            core_db::workflow_runs::retry_run(&mut tx, org, parent, actor, None, RetryMode::Resume)
+                .await
+                .expect("a retry of the failed run");
+        core_db::workflow_runs::finish_run(
+            &mut tx,
+            org,
+            retry.id,
+            RunStatus::Succeeded,
+            None,
+            None,
+        )
+        .await
+        .expect("the retry finished inside the window");
+        // The parent finished 40 days ago, its retry 10 days ago: the parent
+        // is past the 30-day default and the retry is not.
+        age_finished_at(&mut tx, parent, 40).await;
+        age_finished_at(&mut tx, retry.id, 10).await;
+        tx.commit().await.expect("commit the chain");
+        (parent, retry.id)
+    };
+
+    core_db::workflow_runs::purge_expired_everywhere(&db.admin)
+        .await
+        .expect("the purge must not abort on the chain's own reference");
+
+    let mut tx = org_tx(&db.app, org).await;
+    assert!(
+        core_db::workflow_runs::get_run(&mut tx, org, parent)
+            .await
+            .is_err(),
+        "the parent is past the window and gone"
+    );
+    let survivor = core_db::workflow_runs::get_run(&mut tx, org, retry)
+        .await
+        .expect("the retry is inside its window and stays");
+    assert!(
+        survivor.retry_of.is_none(),
+        "the reference is released rather than left dangling"
+    );
+    assert_eq!(survivor.status, RunStatus::Succeeded);
+    assert_eq!(
+        survivor.rule_definition,
+        document(),
+        "the surviving run keeps the document it ran"
+    );
+    assert_eq!(survivor.rule_name, "Escalate overdue tickets");
+    assert_eq!(survivor.trigger, RunTrigger::OperatorRetry);
+    assert_eq!(survivor.trigger_user_id, Some(actor));
+}
+
+#[tokio::test]
+async fn the_purge_is_idempotent_and_keeps_every_row_inside_a_window() {
+    // Slots 91085 (org), 91086 (rule), 91087 (actor).
+    //
+    // Two claims in one pass, on one transaction so the counts are the rows
+    // this test wrote: a second sweep removes nothing and does not abort, and
+    // the rows the windows keep are untouched — a parked run is owed a wake,
+    // a recent run is inside its window, and neither has its provenance
+    // rewritten.
+    let db = test_db().await;
+    let org = seed_org(&db, 91085, "ledger-91085").await;
+    let rule = seed_rule(&db, org, 91086, "Escalate overdue tickets").await;
+    let actor = seed_user(&db, org, 91087, "op@ledger85.test").await;
+    let mut tx = org_tx(&db.app, org).await;
+
+    let parent = a_failed_run(&mut tx, org, rule).await;
+    let retry =
+        core_db::workflow_runs::retry_run(&mut tx, org, parent, actor, None, RetryMode::Resume)
+            .await
+            .expect("retry");
+    core_db::workflow_runs::finish_run(&mut tx, org, retry.id, RunStatus::Succeeded, None, None)
+        .await
+        .expect("finish retry");
+    age_finished_at(&mut tx, parent, 40).await;
+    age_finished_at(&mut tx, retry.id, 10).await;
+
+    // A parked run whose wake-at is long past: owed a wake, never swept.
+    let parked = core_db::workflow_runs::insert_run(
+        &mut tx,
+        org,
+        &new_run(Some(rule), RunTrigger::Event),
+        RunStatus::Running,
+    )
+    .await
+    .expect("parked");
+    core_db::workflow_runs::park_run(
+        &mut tx,
+        org,
+        parked.id,
+        json!({"node": "flow.delay"}),
+        Some(chrono::Utc::now() - Duration::from_secs(86_400)),
+        Some("flow.delay"),
+    )
+    .await
+    .expect("park in the past");
+
+    // A terminal run inside the window.
+    let recent = core_db::workflow_runs::insert_run(
+        &mut tx,
+        org,
+        &new_run(Some(rule), RunTrigger::Event),
+        RunStatus::Running,
+    )
+    .await
+    .expect("recent");
+    core_db::workflow_runs::finish_run(&mut tx, org, recent.id, RunStatus::Failed, None, None)
+        .await
+        .expect("finish recent");
+
+    let first =
+        core_db::workflow_runs::purge_expired(&mut tx, org, workflow_runs::RETENTION_DEFAULT_DAYS)
+            .await
+            .expect("the first sweep must not abort on the chain");
+    assert_eq!(first, 1, "only the parent is past the window");
+
+    let second =
+        core_db::workflow_runs::purge_expired(&mut tx, org, workflow_runs::RETENTION_DEFAULT_DAYS)
+            .await
+            .expect("the second sweep must not abort and must not re-delete");
+    assert_eq!(second, 0, "the purge is idempotent");
+
+    assert!(
+        core_db::workflow_runs::get_run(&mut tx, org, parent)
+            .await
+            .is_err(),
+        "the parent stays gone"
+    );
+    let kept_retry = core_db::workflow_runs::get_run(&mut tx, org, retry.id)
+        .await
+        .expect("the retry is kept");
+    assert!(kept_retry.retry_of.is_none(), "released on the first sweep");
+    assert_eq!(kept_retry.status, RunStatus::Succeeded);
+
+    let kept_parked = core_db::workflow_runs::get_run(&mut tx, org, parked.id)
+        .await
+        .expect("a parked run is never swept");
+    assert_eq!(kept_parked.status, RunStatus::Waiting);
+    assert!(
+        kept_parked.resume_cursor.is_some(),
+        "its cursor is still where it parked"
+    );
+
+    let kept_recent = core_db::workflow_runs::get_run(&mut tx, org, recent.id)
+        .await
+        .expect("a run inside the window stays");
+    assert_eq!(kept_recent.status, RunStatus::Failed);
+}
+
+#[tokio::test]
+async fn the_guard_still_refuses_a_hand_written_provenance_edit() {
+    // Slots 91088 (org), 91089 (rule), 91090 (actor).
+    //
+    // 0169 lets the referential action RELEASE a pointer; it does not let a
+    // statement do it. Each refusal is its own transaction because a failed
+    // statement aborts the one after it, and the next refusal would then
+    // read as "transaction aborted" instead of naming the guard.
+    let db = test_db().await;
+    let org = seed_org(&db, 91088, "ledger-91088").await;
+    let rule = seed_rule(&db, org, 91089, "Escalate overdue tickets").await;
+    let actor = seed_user(&db, org, 91090, "op@ledger88.test").await;
+
+    let (parent, retry) = {
+        let mut tx = org_tx(&db.app, org).await;
+        let parent = a_failed_run(&mut tx, org, rule).await;
+        let retry =
+            core_db::workflow_runs::retry_run(&mut tx, org, parent, actor, None, RetryMode::Resume)
+                .await
+                .expect("retry");
+        core_db::workflow_runs::finish_run(
+            &mut tx,
+            org,
+            retry.id,
+            RunStatus::Succeeded,
+            None,
+            None,
+        )
+        .await
+        .expect("finish retry");
+        tx.commit().await.expect("commit");
+        (parent, retry.id)
+    };
+
+    // (a) a release written by hand is still a provenance edit.
+    let mut tx = org_tx(&db.app, org).await;
+    let release = sqlx::query("UPDATE workflow_runs SET retry_of = NULL WHERE id = $1")
+        .bind(retry)
+        .execute(&mut *tx)
+        .await
+        .expect_err("a hand-written release is refused");
+    assert!(
+        release.to_string().contains("audit ledger"),
+        "the guard names itself: {release}"
+    );
+    drop(tx);
+
+    // (b) so is a rewrite to a different run.
+    let mut tx = org_tx(&db.app, org).await;
+    let rewrite = sqlx::query("UPDATE workflow_runs SET retry_of = $2 WHERE id = $1")
+        .bind(retry)
+        .bind(Uuid::now_v7())
+        .execute(&mut *tx)
+        .await
+        .expect_err("a hand-written rewrite is refused");
+    assert!(
+        rewrite.to_string().contains("audit ledger"),
+        "the guard names itself: {rewrite}"
+    );
+    drop(tx);
+
+    // (c) and so is the identity a run must never change.
+    let mut tx = org_tx(&db.app, org).await;
+    let renamed = sqlx::query("UPDATE workflow_runs SET rule_name = 'Rewritten' WHERE id = $1")
+        .bind(retry)
+        .execute(&mut *tx)
+        .await
+        .expect_err("the run's name is immutable");
+    assert!(
+        renamed.to_string().contains("audit ledger"),
+        "the guard names itself: {renamed}"
+    );
+    drop(tx);
+
+    // Nothing above landed: the chain still reads as it did.
+    let mut tx = org_tx(&db.app, org).await;
+    let intact = core_db::workflow_runs::get_run(&mut tx, org, retry)
+        .await
+        .expect("the retry still exists");
+    assert_eq!(intact.retry_of, Some(parent), "the chain pointer is intact");
+    assert_eq!(intact.rule_name, "Escalate overdue tickets");
+}
+
+#[tokio::test]
+async fn deleting_a_rule_releases_its_runs_instead_of_aborting() {
+    // Slots 91091 (org), 91092 (rule).
+    //
+    // The same collision, on the record's sibling path: `workflow_runs.rule_id`
+    // is declared `ON DELETE SET NULL`, so deleting a rule that has ever run
+    // fired the same guard. The rule goes, the run keeps its story and only
+    // loses the pointer to a workspace row that no longer exists.
+    let db = test_db().await;
+    let org = seed_org(&db, 91091, "ledger-91091").await;
+    let rule = seed_rule(&db, org, 91092, "Escalate overdue tickets").await;
+
+    let mut tx = org_tx(&db.app, org).await;
+    let run = core_db::workflow_runs::insert_run(
+        &mut tx,
+        org,
+        &new_run(Some(rule), RunTrigger::Event),
+        RunStatus::Running,
+    )
+    .await
+    .expect("run");
+    assert_eq!(run.rule_id, Some(rule));
+
+    core_db::automations::delete(&mut *tx, org, rule)
+        .await
+        .expect("deleting a rule that has run is not blocked by the ledger guard");
+
+    let survivor = core_db::workflow_runs::get_run(&mut tx, org, run.id)
+        .await
+        .expect("the run keeps its row");
+    assert!(
+        survivor.rule_id.is_none(),
+        "the pointer to the deleted rule is released"
+    );
+    assert_eq!(
+        survivor.rule_name, "Escalate overdue tickets",
+        "the run still says what it ran"
+    );
+    assert_eq!(survivor.rule_definition, document());
+    tx.commit().await.expect("commit");
+}
+
+#[tokio::test]
+async fn purging_an_outbox_event_releases_the_run_that_came_from_it() {
+    // Slots 91093 (org), 91094 (rule).
+    //
+    // The third leg of the same collision. `trigger_event_id` is declared
+    // `ON DELETE SET NULL`, so the outbox retention pass
+    // (`outbox::prune_published`) releasing a purged event hit the same
+    // guard and aborted. The statement below is the delete that pass issues,
+    // without its global blast radius: one event, this test's.
+    let db = test_db().await;
+    let org = seed_org(&db, 91093, "ledger-91093").await;
+    let rule = seed_rule(&db, org, 91094, "Escalate overdue tickets").await;
+    let event = Uuid::now_v7();
+
+    let run = {
+        let mut tx = db.admin.begin().await.expect("begin admin");
+        core_db::outbox::insert(
+            &mut tx,
+            event,
+            org,
+            "ticket.created",
+            "ticket",
+            None,
+            &json!({"id": "11111111-1111-1111-1111-111111111111"}),
+        )
+        .await
+        .expect("the event a run is started from");
+        let mut new = new_run(Some(rule), RunTrigger::Event);
+        new.trigger_event_id = Some(event);
+        let run = core_db::workflow_runs::insert_run(&mut *tx, org, &new, RunStatus::Running)
+            .await
+            .expect("run");
+        tx.commit().await.expect("commit");
+        run.id
+    };
+
+    sqlx::query("DELETE FROM outbox_events WHERE id = $1")
+        .bind(event)
+        .execute(&db.admin)
+        .await
+        .expect("purging an event a run came from is not blocked by the ledger guard");
+
+    let mut tx = org_tx(&db.app, org).await;
+    let survivor = core_db::workflow_runs::get_run(&mut tx, org, run)
+        .await
+        .expect("the run keeps its row");
+    assert!(
+        survivor.trigger_event_id.is_none(),
+        "the pointer to the purged event is released"
+    );
+    assert_eq!(survivor.rule_name, "Escalate overdue tickets");
+    assert_eq!(survivor.status, RunStatus::Running);
+}

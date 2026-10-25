@@ -724,7 +724,10 @@ pub async fn retention_days(conn: &mut sqlx::PgConnection, org_id: Uuid) -> DbRe
 
 /// Purges one org's runs older than its window. Only TERMINAL runs are
 /// eligible: a parked run is owed a wake, not a delete. Steps cascade with
-/// their run. Returns the number of runs removed.
+/// their run. A retry that is still inside the window survives, and the
+/// ledger's own `ON DELETE SET NULL` clears its pointer to the purged parent
+/// (0169) — the guard permits that release and nothing else. Returns the
+/// number of runs removed.
 pub async fn purge_expired(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -758,6 +761,13 @@ pub fn retention_default_days() -> i64 {
 /// what the worker's sweep calls: it runs on the process-wide pool (like
 /// `queue::reclaim_stale`), which is why the window resolves per org from
 /// the settings table instead of taking one global number.
+///
+/// One statement on purpose. A chain link (a retry, or a resume) can outlive
+/// the run it points at, and the ledger's `ON DELETE SET NULL` releases that
+/// pointer as part of THIS delete; nulling the column first, from here, is the
+/// write the ledger guard refuses (0169). Splitting the purge into a
+/// pre-release would therefore either abort or quietly stop protecting the
+/// surviving row.
 pub async fn purge_expired_everywhere(
     executor: impl sqlx::Executor<'_, Database = Postgres>,
 ) -> DbResult<u64> {
