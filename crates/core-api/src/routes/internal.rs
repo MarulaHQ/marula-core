@@ -925,6 +925,12 @@ fn plugin_fault(outcome: &plugin_exec::SurfaceOutcome) -> ApiError {
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct EffectsRequest {
     pub org_id: Uuid,
+    /// The rule whose effects these are. Required in practice: the rule's
+    /// recorded author is the principal the batch runs as (Wave 58 lane
+    /// `p58-effects-seam`), so a call that names no rule is refused. Optional
+    /// in the wire shape so "no rule" is expressible and refusable rather than
+    /// a sentinel the seam guesses at.
+    #[serde(default)]
     pub rule_id: Option<Uuid>,
     /// The ticket the subject resolved to. `None` on a board-subject match
     /// (Wave 43 lane 3) — there is no ticket to act on.
@@ -947,6 +953,22 @@ pub struct EffectsRequest {
 /// and only subject-agnostic effects (notifications) run — every
 /// ticket-writing effect skips with a warn, never fails the batch, so one
 /// bad rule can never wedge the queue.
+///
+/// # The batch runs as the rule's author (Wave 58 lane `p58-effects-seam`)
+///
+/// The token is one deployment-wide bearer, so before this lane the request's
+/// `org_id` was both the RLS scope and the actor: the holder of the token could
+/// name any org and write there with no permission check. The principal is now
+/// the author recorded on `automation_rules.created_by`, resolved into a full
+/// [`Principal`] exactly as a session builds one, and the grant a manual write
+/// would need is applied before dispatch ([`effects_authority`]). A rule with
+/// no author is refused rather than attributed: the remedy is an admin
+/// re-saving it, which records the editor as the author. The batch's action
+/// list must be the rule's own, so a rule id authorises that rule's effects and
+/// not the author's whole authority. Every refusal is a
+/// typed 4xx with an `automation.effects_denied` audit row, and nothing the
+/// batch asked to write survives: the identity and matrix gates refuse before
+/// the write transaction opens, and a board denial rolls it back.
 #[utoipa::path(operation_id = "internal_effects", post, path = "/api/internal/effects", tag = "automations",
     request_body = EffectsRequest,
     responses((status = 200, body = Object)))]
@@ -963,6 +985,58 @@ pub async fn effects(
             ApiError::Validation("actions document is malformed or has the wrong shape".into())
         })?;
     core_domain::automations::validate_actions(&actions)?;
+    let org_id = req.org_id;
+    // The subject survives the write closure, which takes `req` by move, so a
+    // refusal raised by the board gate can still name what was being written.
+    let ticket_id = req.ticket_id;
+    // Which grants this batch needs is decided by the actions it carries, not
+    // by the route it arrived on.
+    let authority = effects_authority(&actions);
+
+    // A call that names no rule names no principal: the rule's author is what
+    // this seam runs as, so there is nothing to resolve and nothing to check.
+    let Some(rule_id) = req.rule_id else {
+        let error = ApiError::Forbidden(
+            "the effects call names no rule, and a rule's author is the principal its effects run as"
+                .into(),
+        );
+        audit_effects_refusal(
+            &state,
+            EffectsRefusal {
+                org_id,
+                rule_id: None,
+                ticket_id,
+                author: None,
+                reason_code: "no_rule",
+                required: None,
+                board_scoped: false,
+                error: &error,
+            },
+        )
+        .await;
+        return Err(error);
+    };
+    let (author, principal) =
+        match effects_principal(&state, org_id, rule_id, authority, &actions).await? {
+            EffectsPreflight::Resolved { author, principal } => (author, principal),
+            EffectsPreflight::Refused(gate) => {
+                audit_effects_refusal(
+                    &state,
+                    EffectsRefusal {
+                        org_id,
+                        rule_id: Some(rule_id),
+                        ticket_id,
+                        author: gate.author,
+                        reason_code: gate.reason_code,
+                        required: gate.required,
+                        board_scoped: false,
+                        error: &gate.error,
+                    },
+                )
+                .await;
+                return Err(gate.error);
+            }
+        };
 
     // The plugin action arm needs the artifact store and the plugin pool; both
     // are cheap clones, and taking them before the transaction means the
@@ -974,7 +1048,13 @@ pub async fn effects(
     // `Copy`, so it rides into the closure beside the handles.
     let secret_key = state.config.secret_key;
 
-    let applied = org_tx::with_org_tx(&state, req.org_id, req.org_id, |mut ctx| async move {
+    let applied = org_tx::with_org_tx(&state, org_id, author, move |mut ctx| async move {
+        // The grant check a manual write needs is the matrix one, and the org
+        // half of it already passed before this transaction opened. The board
+        // half needs the ticket, so it runs here, inside the same transaction
+        // that writes: a role revoked a moment ago refuses the batch instead of
+        // letting it through on a stale read.
+        //
         // Ticket subject: the ticket row the effects write through. Board
         // subject: no ticket, and the board must resolve in this org or the
         // whole request is refused — a board that is not ours is not a scope.
@@ -993,6 +1073,17 @@ pub async fn effects(
                 None
             }
         };
+        if authority.ticket_write {
+            if let Some(ticket) = ticket.as_ref() {
+                authorize_board_op(
+                    &mut ctx.tx,
+                    &principal,
+                    ticket.board_id,
+                    BoardOp::WorkTicket,
+                )
+                .await?;
+            }
+        }
         // `ticket.board_id` rides every emitted payload so the realtime
         // layer can fan these automation writes out to the board channel.
 
@@ -1003,7 +1094,7 @@ pub async fn effects(
             match action {
                 core_domain::automations::AutomationAction::AssignUser { user_id } => {
                     let Some(ticket) = ticket.as_ref() else {
-                        skip_ticket_effect(req.rule_id, action);
+                        skip_ticket_effect(rule_id, action);
                         continue;
                     };
                     let user =
@@ -1034,7 +1125,8 @@ pub async fn effects(
                         ticket_id: ticket.id,
                         board_id: ticket.board_id,
                         assignee_id: Some(*user_id),
-                        assigned_by: None,
+                        // The rule's author is the one doing the assigning.
+                        assigned_by: Some(author),
                     })
                     .unwrap_or_default();
                     payload["via_automation"] = marker["via_automation"].clone();
@@ -1049,7 +1141,7 @@ pub async fn effects(
                 }
                 core_domain::automations::AutomationAction::SetPriority { priority } => {
                     let Some(ticket) = ticket.as_ref() else {
-                        skip_ticket_effect(req.rule_id, action);
+                        skip_ticket_effect(rule_id, action);
                         continue;
                     };
                     core_db::tickets::update_ticket(
@@ -1082,7 +1174,7 @@ pub async fn effects(
                 }
                 core_domain::automations::AutomationAction::AddInternalComment { body } => {
                     let Some(ticket) = ticket.as_ref() else {
-                        skip_ticket_effect(req.rule_id, action);
+                        skip_ticket_effect(rule_id, action);
                         continue;
                     };
                     let comment = core_db::tickets::insert_comment(
@@ -1091,7 +1183,9 @@ pub async fn effects(
                             id: Uuid::now_v7(),
                             org_id: req.org_id,
                             ticket_id: ticket.id,
-                            author_id: None,
+                            // The batch runs as the rule's author, so the note
+                            // is theirs rather than an unattributed row.
+                            author_id: Some(author),
                             kind: core_domain::status::NoteKind::Internal,
                             body: body.trim(),
                             workflow_meta: None,
@@ -1163,7 +1257,7 @@ pub async fn effects(
                 }
                 core_domain::automations::AutomationAction::PluginAction { entry_key, params } => {
                     let Some(ticket) = ticket.as_ref() else {
-                        skip_ticket_effect(req.rule_id, action);
+                        skip_ticket_effect(rule_id, action);
                         continue;
                     };
                     // The invocation path owns every gate: the registry row, the
@@ -1222,11 +1316,12 @@ pub async fn effects(
         ctx.emit(
             types::AUTOMATION_TRIGGERED,
             "automation_rule",
-            req.rule_id.map(|r| r.to_string()).as_deref(),
+            Some(rule_id.to_string().as_str()),
             &serde_json::json!({
-                "rule_id": req.rule_id,
+                "rule_id": rule_id,
                 "ticket_id": req.ticket_id,
                 "actions_applied": actions.len(),
+                "actor_user_id": author,
                 "via_automation": true,
             }),
         )
@@ -1237,7 +1332,10 @@ pub async fn effects(
             &AuditEvent {
                 id: Uuid::now_v7(),
                 org_id: req.org_id,
-                actor: Actor::System,
+                // The rule's author is the principal the batch ran as, so the
+                // row names them rather than the anonymous system actor it
+                // used to carry.
+                actor: Actor::Human(author),
                 action: "automation.applied".into(),
                 // A ticket-less subject audits against the rule that fired;
                 // the ticket variant keeps its per-ticket row.
@@ -1246,15 +1344,15 @@ pub async fn effects(
                 } else {
                     "automation_rule".into()
                 }),
-                entity_id: match (req.ticket_id, req.rule_id) {
-                    (Some(ticket_id), _) => Some(ticket_id.to_string()),
-                    (None, Some(rule_id)) => Some(rule_id.to_string()),
-                    (None, None) => None,
+                entity_id: match req.ticket_id {
+                    Some(ticket_id) => Some(ticket_id.to_string()),
+                    None => Some(rule_id.to_string()),
                 },
                 detail: serde_json::json!({
-                    "rule_id": req.rule_id,
+                    "rule_id": rule_id,
                     "board_id": req.board_id,
-                    "actions": actions.len()
+                    "actions": actions.len(),
+                    "actor_user_id": author,
                 }),
                 ip: None,
                 occurred_at: chrono::Utc::now(),
@@ -1264,19 +1362,304 @@ pub async fn effects(
 
         Ok((ctx, serde_json::json!({ "applied": actions.len() })))
     })
-    .await?;
+    .await;
+
+    let applied = match applied {
+        Ok(applied) => applied,
+        Err(error @ (ApiError::Forbidden(_) | ApiError::Unauthorized(_))) => {
+            // The only refusal this transaction can raise is the board gate:
+            // the matrix half, the identity and the author were checked before
+            // it opened. The transaction rolled back with the error, so the
+            // record is written on its own connection.
+            audit_effects_refusal(
+                &state,
+                EffectsRefusal {
+                    org_id,
+                    rule_id: Some(rule_id),
+                    ticket_id,
+                    author: Some(author),
+                    reason_code: "missing_grant",
+                    required: Some("tickets:edit"),
+                    board_scoped: authority.ticket_write,
+                    error: &error,
+                },
+            )
+            .await;
+            return Err(error);
+        }
+        Err(error) => return Err(error),
+    };
 
     Ok(Json(applied))
 }
 
 /// One warn line for a ticket-writing effect a board-subject rule cannot
 /// apply. Kept out of the match arms so each arm stays a `continue`.
-fn skip_ticket_effect(rule_id: Option<Uuid>, action: &core_domain::automations::AutomationAction) {
+fn skip_ticket_effect(rule_id: Uuid, action: &core_domain::automations::AutomationAction) {
     tracing::warn!(
         rule = ?rule_id,
         effect = action.as_str(),
         "board-subject rule: effect needs a ticket, skipped"
     );
+}
+
+/// Which grants one effects batch needs, derived from the actions it carries.
+///
+/// This is a mapping onto the one matrix in `core_domain::policy`, not a second
+/// matrix: every field below resolves to a `Permission` the direct route checks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct EffectsAuthority {
+    /// The batch writes to a ticket. The manual route needs the matrix grant
+    /// `tickets:edit` and then `BoardOp::WorkTicket` on the ticket's board
+    /// (`routes/tickets.rs`), which is what this seam now applies.
+    ticket_write: bool,
+    /// The batch puts text in org members' inboxes. No user route sends an
+    /// in-app notification on someone else's behalf; the org surface that
+    /// governs fan-out is the admin matrix, so the grant is `admin:edit` —
+    /// the same answer the workflow seam gives `notification.send`.
+    notify: bool,
+}
+
+/// The authority one action list requires. An action set that asks for both is
+/// checked for both; an empty set needs neither, and writes nothing either.
+fn effects_authority(actions: &[core_domain::automations::AutomationAction]) -> EffectsAuthority {
+    let mut authority = EffectsAuthority::default();
+    for action in actions {
+        match action {
+            core_domain::automations::AutomationAction::AssignUser { .. }
+            | core_domain::automations::AutomationAction::SetPriority { .. }
+            | core_domain::automations::AutomationAction::AddInternalComment { .. } => {
+                authority.ticket_write = true;
+            }
+            core_domain::automations::AutomationAction::NotifyUsers { .. } => {
+                authority.notify = true;
+            }
+            // The plugin arm is gated by the install's granted capabilities,
+            // re-checked against the live install at execution time by
+            // `authorize_invocation` (ADR 0023, Decisions 3 and 7). That is the
+            // workflow seam's `plugin.action` posture, and this seam keeps it:
+            // the author still has to be a real, active member.
+            core_domain::automations::AutomationAction::PluginAction { .. } => {}
+        }
+    }
+    authority
+}
+
+/// What resolving a batch's principal produced.
+enum EffectsPreflight {
+    Resolved { author: Uuid, principal: Principal },
+    Refused(EffectsGate),
+}
+
+/// A refusal the effects gate produced, in the terms the audit row needs.
+struct EffectsGate {
+    error: ApiError,
+    /// Stable machine word: `rule_not_found`, `no_author`, `author_not_member`,
+    /// `author_inactive`, `missing_grant`.
+    reason_code: &'static str,
+    /// The permission key when the refusal was a grant, not an identity.
+    required: Option<&'static str>,
+    author: Option<Uuid>,
+}
+
+impl EffectsGate {
+    fn new(error: ApiError, reason_code: &'static str) -> Self {
+        Self {
+            error,
+            reason_code,
+            required: None,
+            author: None,
+        }
+    }
+}
+
+/// Resolves the principal an effects batch runs as: the author on the rule.
+///
+/// The read happens on a short transaction because the write transaction has to
+/// be seeded with that user id before it opens. Each refusal carries the audit
+/// detail with it, so the caller can record it on its own connection once this
+/// read transaction is gone. Infrastructure failures stay `Err` and are not
+/// recorded as denials.
+///
+/// The batch's action list must be the rule's own. Without that, naming any
+/// authored rule would authorise any action under that author, which is the
+/// "caller names the principal" contract this lane rejected, wearing a rule id.
+async fn effects_principal(
+    state: &AppState,
+    org_id: Uuid,
+    rule_id: Uuid,
+    authority: EffectsAuthority,
+    actions: &[core_domain::automations::AutomationAction],
+) -> ApiResult<EffectsPreflight> {
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org(&mut tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    let rule = match core_db::automations::get(&mut *tx, org_id, rule_id).await {
+        Ok(rule) => rule,
+        Err(core_db::DbError::NotFound) => {
+            let _ = tx.rollback().await;
+            return Ok(EffectsPreflight::Refused(EffectsGate::new(
+                ApiError::NotFound,
+                "rule_not_found",
+            )));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(ApiError::from(error));
+        }
+    };
+    // A rule with no author is refused, never attributed: attributing it to an
+    // owner would hand the rule more authority than it was created with, which
+    // is the trade the executor already refuses for an unauthored document
+    // (migration 0133). The remedy is an admin re-saving the rule.
+    let Some(author) = rule.created_by else {
+        let _ = tx.rollback().await;
+        return Ok(EffectsPreflight::Refused(EffectsGate::new(
+            ApiError::Forbidden(
+                "the rule has no author, and a rule that acts for nobody is refused".into(),
+            ),
+            "no_author",
+        )));
+    };
+    // The rule id is a handle to THIS rule's effects, not a stand-in for the
+    // author's whole authority: a batch whose actions are not the stored ones
+    // is refused rather than run. The worker sends the actions it matched, so
+    // the only ways here are tampering or a rule edited after the job was
+    // enqueued, and both should stop instead of writing something nobody
+    // authored.
+    let stored: Option<Vec<core_domain::automations::AutomationAction>> =
+        serde_json::from_value(rule.actions.clone()).ok();
+    if stored.as_deref() != Some(actions) {
+        let _ = tx.rollback().await;
+        let mut gate = EffectsGate::new(
+            ApiError::Forbidden(
+                "the batch's actions are not the rule's actions, and a rule id authorises only that rule's effects"
+                    .into(),
+            ),
+            "actions_mismatch",
+        );
+        gate.author = Some(author);
+        return Ok(EffectsPreflight::Refused(gate));
+    }
+    let principal = match seam_principal(&mut tx, org_id, author).await {
+        Ok(principal) => principal,
+        // `seam_principal` answers Unauthorized for "not a user of this org"
+        // and Forbidden for "a user, but inactive". Both are refusals, and the
+        // row says which.
+        Err(ApiError::Unauthorized(reason)) => {
+            let _ = tx.rollback().await;
+            let mut gate = EffectsGate::new(ApiError::Forbidden(reason), "author_not_member");
+            gate.author = Some(author);
+            return Ok(EffectsPreflight::Refused(gate));
+        }
+        Err(ApiError::Forbidden(reason)) => {
+            let _ = tx.rollback().await;
+            let mut gate = EffectsGate::new(ApiError::Forbidden(reason), "author_inactive");
+            gate.author = Some(author);
+            return Ok(EffectsPreflight::Refused(gate));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    let checks = [
+        (
+            authority.ticket_write,
+            Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Edit,
+            },
+            "tickets:edit",
+        ),
+        (
+            authority.notify,
+            Permission::Matrix {
+                module: Module::Admin,
+                action: Action::Edit,
+            },
+            "admin:edit",
+        ),
+    ];
+    for (needed, permission, key) in checks {
+        if !needed {
+            continue;
+        }
+        if let Err(error) = require_permission(&principal, permission) {
+            let _ = tx.rollback().await;
+            let mut gate = EffectsGate::new(error, "missing_grant");
+            gate.required = Some(key);
+            gate.author = Some(author);
+            return Ok(EffectsPreflight::Refused(gate));
+        }
+    }
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(EffectsPreflight::Resolved { author, principal })
+}
+
+/// The facts an effects refusal row carries.
+struct EffectsRefusal<'a> {
+    org_id: Uuid,
+    rule_id: Option<Uuid>,
+    ticket_id: Option<Uuid>,
+    author: Option<Uuid>,
+    reason_code: &'static str,
+    required: Option<&'static str>,
+    board_scoped: bool,
+    error: &'a ApiError,
+}
+
+/// Records a refusal on its own connection.
+///
+/// The write transaction has already rolled back when this runs, so the row
+/// cannot ride it — and a denial that left no trace would be an invisible stop.
+/// The reason word is the audit row's own, so the response and the record agree.
+async fn audit_effects_refusal(state: &AppState, refusal: EffectsRefusal<'_>) {
+    let reason = match refusal.error {
+        ApiError::Forbidden(reason) | ApiError::Unauthorized(reason) => reason.clone(),
+        ApiError::NotFound => "the rule is not visible in this org".to_string(),
+        _ => return,
+    };
+    let event = AuditEvent {
+        id: Uuid::now_v7(),
+        org_id: refusal.org_id,
+        // A call that names nobody has no human to attribute the refusal to, so
+        // it is the machine seam's own row.
+        actor: refusal.author.map_or(Actor::System, Actor::Human),
+        action: "automation.effects_denied".into(),
+        entity_type: Some("automation_rule".into()),
+        entity_id: refusal.rule_id.map(|rule_id| rule_id.to_string()),
+        detail: json!({
+            "rule_id": refusal.rule_id,
+            "ticket_id": refusal.ticket_id,
+            "author_user_id": refusal.author,
+            "reason_code": refusal.reason_code,
+            "required": refusal.required,
+            "board_scoped": refusal.board_scoped,
+            "reason": reason,
+        }),
+        ip: None,
+        occurred_at: chrono::Utc::now(),
+    };
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(error) => {
+            tracing::error!(%error, "effects refusal audit failed");
+            return;
+        }
+    };
+    if let Err(error) = core_db::set_org(&mut tx, refusal.org_id).await {
+        tracing::error!(%error, "effects refusal audit failed");
+        return;
+    }
+    if let Err(error) = core_db::audit::insert(&mut *tx, &event).await {
+        tracing::error!(%error, "effects refusal audit failed");
+        return;
+    }
+    if let Err(error) = tx.commit().await {
+        tracing::error!(%error, "effects refusal audit failed");
+    }
 }
 
 // --- webhook delivery ledger (stage2-webhooks lane) ---
@@ -2476,7 +2859,7 @@ async fn execute_workflow_node(
     // The run acts as its author. Resolving the principal first means every
     // arm below shares ONE answer, and an author who has left the org, been
     // deactivated, or holds no grants is refused before any arm can write.
-    let principal = workflow_principal(&mut ctx.tx, org_id, ctx.user_id).await?;
+    let principal = seam_principal(&mut ctx.tx, org_id, ctx.user_id).await?;
     let Some(authority) = node_authority(node_id) else {
         return Err(ApiError::Validation(format!(
             "unsupported workflow operation {node_id:?}: the executor has no org-scoped path for this node yet"
@@ -2877,27 +3260,30 @@ async fn workflow_ticket(
         .map_err(|_| ApiError::NotFound)
 }
 
-/// Materialises the run author's principal. The workflow node endpoint runs
-/// inside `with_org_tx(actor)`, but the permission matrix and board RBAC need
-/// a full `Principal` (user + roles + permissions) — the same shape a session
-/// builds. Reusing it means a node authored by a technician refuses on the
-/// matrix exactly as their own session would.
+/// Materialises a machine seam's acting principal.
+///
+/// Both seams that run as a named user — the workflow node endpoint and the
+/// automation effects endpoint — open their write transaction with that user id,
+/// but the permission matrix and board RBAC need a full `Principal` (user, roles
+/// and permissions), the same shape a session builds. Reusing it means a batch
+/// authored by a technician refuses on the matrix exactly as their own session
+/// would.
 ///
 /// The roles come from the same union read the session uses
-/// (`users::effective_roles_for_user`), so a run authored by someone whose
-/// authority comes from a directory group is evaluated identically to that
-/// person clicking the same button.
-async fn workflow_principal(
+/// (`users::effective_roles_for_user`), so a principal whose authority comes
+/// from a directory group is evaluated identically to that person clicking the
+/// same button.
+async fn seam_principal(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     actor: Uuid,
 ) -> ApiResult<core_domain::entities::Principal> {
     let user = core_db::users::get_user(&mut *conn, org_id, actor)
         .await
-        .map_err(|_| ApiError::Unauthorized("the run's author is not a valid user".into()))?;
+        .map_err(|_| ApiError::Unauthorized("the acting principal is not a valid user".into()))?;
     if !user.is_active {
         return Err(ApiError::Forbidden(
-            "the run's author is no longer active".into(),
+            "the acting principal is no longer active".into(),
         ));
     }
     let roles = core_db::users::effective_roles_for_user(&mut *conn, actor, org_id).await?;
@@ -3024,6 +3410,97 @@ mod seam_authority_tests {
             .filter(|id| node_authority(id) == Some(NodeAuthority::InstallGrant))
             .collect();
         assert_eq!(install_granted, vec!["plugin.action"]);
+    }
+}
+
+#[cfg(test)]
+mod effects_authority_tests {
+    use super::{effects_authority, EffectsAuthority};
+    use core_domain::automations::AutomationAction;
+    use core_domain::entities::NotificationKind;
+    use core_domain::status::Priority;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    fn authority(actions: Vec<AutomationAction>) -> EffectsAuthority {
+        effects_authority(&actions)
+    }
+
+    /// Every action that writes to a ticket maps onto the matrix grant the
+    /// manual routes demand, and onto the board op the caller applies with it.
+    #[test]
+    fn ticket_writing_actions_need_the_ticket_grant() {
+        let expected = EffectsAuthority {
+            ticket_write: true,
+            notify: false,
+        };
+        for action in [
+            AutomationAction::AssignUser {
+                user_id: Uuid::now_v7(),
+            },
+            AutomationAction::SetPriority {
+                priority: Priority::P1,
+            },
+            AutomationAction::AddInternalComment {
+                body: "queued for triage".into(),
+            },
+        ] {
+            assert_eq!(authority(vec![action]), expected);
+        }
+    }
+
+    /// A notification is org-wide text in a member's inbox: the admin matrix,
+    /// never the ticket one.
+    #[test]
+    fn a_notification_needs_the_admin_grant_not_the_ticket_one() {
+        assert_eq!(
+            authority(vec![AutomationAction::NotifyUsers {
+                user_ids: vec![Uuid::now_v7()],
+                kind: NotificationKind::TicketUpdate,
+                title: "Rule fired".into(),
+            }]),
+            EffectsAuthority {
+                ticket_write: false,
+                notify: true,
+            }
+        );
+    }
+
+    /// The one posture this mapping does not put on the author's matrix: a
+    /// plugin action runs under the install's granted capabilities, which
+    /// `authorize_invocation` re-checks at execution (ADR 0023). Same answer
+    /// the workflow seam gives `plugin.action`.
+    #[test]
+    fn a_plugin_action_is_left_to_the_install_grant() {
+        assert_eq!(
+            authority(vec![AutomationAction::PluginAction {
+                entry_key: "plugin.triage-note-action.triage_note".into(),
+                params: json!({}),
+            }]),
+            EffectsAuthority::default()
+        );
+    }
+
+    /// A batch asking for both is checked for both: the weaker grant cannot
+    /// carry the stronger action.
+    #[test]
+    fn a_mixed_batch_needs_both_grants() {
+        assert_eq!(
+            authority(vec![
+                AutomationAction::SetPriority {
+                    priority: Priority::P2,
+                },
+                AutomationAction::NotifyUsers {
+                    user_ids: vec![Uuid::now_v7()],
+                    kind: NotificationKind::TicketUpdate,
+                    title: "Rule fired".into(),
+                },
+            ]),
+            EffectsAuthority {
+                ticket_write: true,
+                notify: true,
+            }
+        );
     }
 }
 

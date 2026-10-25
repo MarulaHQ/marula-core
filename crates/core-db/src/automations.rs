@@ -31,6 +31,7 @@ type RuleRowTuple = (
     Value,
     Value,
     bool,
+    Option<Uuid>,
 );
 
 /// Raw storage row — documents unparsed by design (see module note).
@@ -46,14 +47,29 @@ pub struct AutomationRuleRecord {
     pub conditions: Value,
     pub actions: Value,
     pub enabled: bool,
+    /// Who authored the rule, and therefore who its effects run as (Wave 58
+    /// lane `p58-effects-seam`). Null for a rule saved before the column was
+    /// populated, or by a path that does not name a user; the effects seam
+    /// refuses such a rule rather than guessing an owner.
+    pub created_by: Option<Uuid>,
 }
 
 const SELECT_COLUMNS: &str = "id, org_id, board_id, subject_kind, name, trigger_event, \
-                              conditions, actions, enabled";
+                              conditions, actions, enabled, created_by";
 
 fn record_from(row: RuleRowTuple) -> AutomationRuleRecord {
-    let (id, org_id, board_id, subject_kind, name, trigger_event, conditions, actions, enabled) =
-        row;
+    let (
+        id,
+        org_id,
+        board_id,
+        subject_kind,
+        name,
+        trigger_event,
+        conditions,
+        actions,
+        enabled,
+        created_by,
+    ) = row;
     AutomationRuleRecord {
         id,
         org_id,
@@ -64,6 +80,7 @@ fn record_from(row: RuleRowTuple) -> AutomationRuleRecord {
         conditions,
         actions,
         enabled,
+        created_by,
     }
 }
 
@@ -460,6 +477,34 @@ where
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(record_from(row))
+}
+
+/// Records the user a rule's effects run as.
+///
+/// The author is the principal the effects seam checks and writes as, so it is
+/// written by the two paths that save a rule: create names the caller, and
+/// update lets the last editor take ownership — which is how a rule saved
+/// before the column was populated becomes runnable again. It is a separate
+/// statement rather than a field on [`RulePatch`] because every caller
+/// constructs that struct literally, and the patch means "fields the client
+/// may change", which the author is not.
+pub async fn set_author<'e, E>(executor: E, org_id: Uuid, id: Uuid, author: Uuid) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let res = sqlx::query(
+        "UPDATE automation_rules SET created_by = $3, updated_at = now()
+          WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(id)
+    .bind(author)
+    .execute(executor)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
 }
 
 pub async fn delete<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
