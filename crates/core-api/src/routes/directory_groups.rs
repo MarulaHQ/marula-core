@@ -19,6 +19,17 @@
 //! is the smallest grant that lets an external identity service perform it,
 //! and it reaches nothing else (`/api/roles` still demands the special).
 //!
+//! Ceiling (Wave 55, `p55-directory-grant-ceiling`): a grant may confer only
+//! authority the caller already holds. Mapping a role onto a group is checked
+//! against the caller's own resolved permission set, and adding a person to a
+//! group is checked against every role that group currently carries, because
+//! the membership is what turns those mappings into that person's grants. A
+//! role the caller could not grant directly is a typed 403 naming it, and no
+//! row is written. Without this the write scope was an escalation path: a
+//! machine credential holding only `directory_groups:write` could map the
+//! seeded Admin preset onto a group, add any user, and hand that user the
+//! admin matrix through the ordinary union at their next sign-in.
+//!
 //! Envelope: group create/update/delete ride IF1–IF3 (idempotency-keyed claim,
 //! version-gated seq, read-your-write `mutation` metadata). Membership and role
 //! writes are addressed per element (`PUT`/`DELETE …/{userId}`,
@@ -42,7 +53,7 @@ use axum::{
 };
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
-use core_domain::policy::{check_any, Permission};
+use core_domain::policy::{check, check_any, Permission};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -79,7 +90,8 @@ const GROUP_READERS: [Permission; 4] = [
 /// `directory_groups:write` is the machine grant: it opens group, membership
 /// and role-mapping writes and nothing else — role CRUD stays behind the
 /// special, which is what keeps a connector a mirror rather than a roles
-/// administrator.
+/// administrator. Neither grant confers authority on its own: every write that
+/// would grant a role also passes the ceiling below.
 const GROUP_WRITERS: [Permission; 2] = [Permission::ManageRoles, Permission::ManageDirectoryGroups];
 
 /// Manager+ read (the org-users surface reads this for its pickers too).
@@ -94,6 +106,87 @@ fn require_writer(principal: &core_domain::entities::Principal) -> ApiResult<()>
     check_any(&principal.permissions, &GROUP_WRITERS)
         .expect()
         .map_err(ApiError::Forbidden)
+}
+
+// --- the grant ceiling -------------------------------------------------------
+
+/// The resolved permission set a role row carries.
+///
+/// The row is the authority, not the preset's canonical definition: this is
+/// the same JSON `core_db::users::role_from_row` parses when a principal is
+/// built, so the set compared here is the set a member will actually hold. A
+/// row that does not decode fails closed — treating it as a role that grants
+/// nothing is precisely the bug the roles surface fixed in Wave 54 (a stored
+/// role that could not be read defaulted to empty), and here that default
+/// would also decide an authorization question.
+fn role_permissions(role: &core_db::roles::RoleEntry) -> ApiResult<Vec<Permission>> {
+    serde_json::from_value::<Vec<Permission>>(role.permissions.clone()).map_err(|error| {
+        ApiError::Internal(anyhow::anyhow!(
+            "role {} ({}) carries permissions that do not decode: {error}",
+            role.id,
+            role.name
+        ))
+    })
+}
+
+/// The first grant the caller does not hold, in the order the role lists them.
+///
+/// One comparison, not a second authority model: `core_domain::policy::check`
+/// is the same primitive `service_accounts::require_grantable` uses for the
+/// API-key grant ceiling, and `check_any` above uses it for the gates. A set is
+/// inside another set exactly when every member passes `check`.
+fn first_unheld(caller: &[Permission], conferring: &[Permission]) -> Option<Permission> {
+    conferring
+        .iter()
+        .copied()
+        .find(|perm| !check(caller, *perm).is_allowed())
+}
+
+/// Refuse a role that carries authority the caller does not hold.
+///
+/// The refusal names the role and the first grant it carries beyond the
+/// caller's reach, so an operator reading a connector's log knows which mapping
+/// to drop rather than which request failed. `Forbidden` is the typed 403 this
+/// surface already uses (reason code `forbidden` in the error envelope).
+fn refuse_unheld_role(
+    caller: &[Permission],
+    role_name: &str,
+    conferring: &[Permission],
+) -> ApiResult<()> {
+    match first_unheld(caller, conferring) {
+        None => Ok(()),
+        Some(missing) => Err(ApiError::Forbidden(format!(
+            "cannot grant role {role_name:?}: it carries {}, which the caller does not hold",
+            missing.key()
+        ))),
+    }
+}
+
+/// Every role currently mapped onto a group, resolved.
+///
+/// Two org-pinned reads rather than one per mapping: this runs on the member
+/// add path, and a group carrying several roles must not turn one membership
+/// write into a query per role. The role directory is small (eight presets plus
+/// whatever the org forked), and `list_roles` is the same read the roles
+/// surface performs.
+async fn roles_conferred_by_group(
+    ctx: &mut OrgTx<'_>,
+    org_id: Uuid,
+    group_id: Uuid,
+) -> ApiResult<Vec<(String, Vec<Permission>)>> {
+    let mapped =
+        core_db::directory_groups::list_group_roles(&mut *ctx.tx, org_id, group_id).await?;
+    if mapped.is_empty() {
+        return Ok(Vec::new());
+    }
+    let wanted: std::collections::HashSet<Uuid> = mapped.iter().map(|r| r.role_id).collect();
+    let mut out = Vec::with_capacity(mapped.len());
+    for role in core_db::roles::list_roles(&mut *ctx.tx, org_id).await? {
+        if wanted.contains(&role.id) {
+            out.push((role.name.clone(), role_permissions(&role)?));
+        }
+    }
+    Ok(out)
 }
 
 pub fn routes(gen: crate::routes::ApiGeneration) -> Router<AppState> {
@@ -742,6 +835,18 @@ pub async fn remove(
 
 /// PUT /api/directory-groups/{id}/members/{userId} — put a user in the group.
 /// Idempotent; a repeated call reports the same membership and emits nothing.
+///
+/// The ceiling applies to the insert and not to the no-op: adding a person is
+/// what turns the roles this group already carries into that person's grants,
+/// so every mapped role must be inside the caller's own set. A repeat of a
+/// membership that already exists confers nothing new, which is why it stays a
+/// 200 — refusing it would break the documented idempotency a sync depends on
+/// while closing no hole.
+///
+/// The 403 the ceiling raises is not added to the `utoipa` response list here:
+/// the OpenAPI pins are a reviewed artifact, and this lane changes behaviour
+/// rather than the documented contract. The next sanctioned re-pin should add
+/// it to this operation and to `map_role`.
 #[utoipa::path(operation_id = "directory_groups_add_member", put, path = "/api/directory-groups/{id}/members/{userId}", tag = "org-users", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("userId" = Uuid, Path)),
     responses((status = 200, body = DirectoryGroupDetailResponse),
@@ -755,6 +860,7 @@ pub async fn add_member(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let caller_permissions = authed.principal.permissions.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
         // Both sides must exist in THIS org; each lookup is org-pinned, so a
@@ -767,6 +873,11 @@ pub async fn add_member(
         let already =
             core_db::directory_groups::is_member(&mut *ctx.tx, org_id, id, user_id).await?;
         if !already {
+            // The ceiling: this membership would confer every role the group
+            // carries, so the caller must already hold every one of them.
+            for (role_name, conferring) in roles_conferred_by_group(&mut ctx, org_id, id).await? {
+                refuse_unheld_role(&caller_permissions, &role_name, &conferring)?;
+            }
             core_db::directory_groups::add_member(&mut ctx.tx, org_id, id, user_id, Some(actor_id))
                 .await?;
             audit_action(
@@ -854,6 +965,16 @@ pub async fn remove_member(
 /// PUT /api/directory-groups/{id}/roles/{roleId} — map a role onto the group.
 /// Every current and future member holds it from now on (additive union with
 /// their directly assigned roles). Idempotent.
+///
+/// The ceiling applies to the mapping write itself: the role's resolved
+/// permission set must be inside the caller's own, or the mapping is a typed
+/// 403 and no row is written. A no-op repeat of an existing mapping confers
+/// nothing new, so it stays a 200 for the same reason a repeated member add
+/// does.
+///
+/// The 403 stays out of the `utoipa` response list for the reason given on
+/// `add_member`: the pins are a reviewed artifact and this lane does not
+/// re-pin them.
 #[utoipa::path(operation_id = "directory_groups_map_role", put, path = "/api/directory-groups/{id}/roles/{roleId}", tag = "org-users", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("roleId" = Uuid, Path)),
     responses((status = 200, body = DirectoryGroupDetailResponse),
@@ -867,6 +988,7 @@ pub async fn map_role(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let caller_permissions = authed.principal.permissions.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
         core_db::directory_groups::get_group(&mut *ctx.tx, org_id, id).await?;
@@ -877,6 +999,8 @@ pub async fn map_role(
         let already =
             core_db::directory_groups::has_role(&mut *ctx.tx, org_id, id, role_id).await?;
         if !already {
+            let conferring = role_permissions(&role)?;
+            refuse_unheld_role(&caller_permissions, &role.name, &conferring)?;
             core_db::directory_groups::add_role(&mut ctx.tx, org_id, id, role_id, Some(actor_id))
                 .await?;
             audit_action(
@@ -962,9 +1086,10 @@ pub async fn unmap_role(
 
 #[cfg(test)]
 mod tests {
-    use super::{GROUP_READERS, GROUP_WRITERS};
+    use super::{first_unheld, refuse_unheld_role, GROUP_READERS, GROUP_WRITERS};
+    use crate::error::ApiError;
     use crate::routes::service_accounts::permission_from_key;
-    use core_domain::policy::{check_any, Module, Permission, PolicyDecision};
+    use core_domain::policy::{check_any, Action, BuiltinRole, Module, Permission, PolicyDecision};
 
     /// The permissions a service account's grant keys resolve to. The API-key
     /// path in `auth::middleware` keeps its own parser, so the two new keys are
@@ -1138,5 +1263,89 @@ mod tests {
             "only {scanned} route files were scanned — the directory moved and this \
              test is now checking nothing"
         );
+    }
+
+    // --- the grant ceiling ---------------------------------------------------
+
+    /// The finding, stated as a policy fact: the directory write scope is not
+    /// authority to confer any shipped preset. Every preset carries at least a
+    /// view matrix, and the directory grants are the only thing a connector
+    /// holds, so none of the eight is inside its set. A preset that gained a
+    /// directory grant would fail this assertion, and the positive case below
+    /// is what would then need the decision.
+    ///
+    /// `policy::directory_group_grants_are_machine_grants_that_no_preset_carries`
+    /// already pins the input to this test; this one pins the consequence
+    /// through the ceiling function.
+    #[test]
+    fn a_directory_writer_holds_no_preset_inside_its_own_set() {
+        let writer = scopes(&["directory_groups:write"]);
+        for preset in BuiltinRole::PRESETS {
+            assert!(
+                first_unheld(&writer, &preset.permissions()).is_some(),
+                "{} must not be grantable from directory_groups:write alone",
+                preset.as_str()
+            );
+        }
+    }
+
+    /// The refusal is typed and names the role. The case the audit record
+    /// reproduced is the Admin preset, so it is asserted by name and by the
+    /// first grant it carries beyond the caller.
+    #[test]
+    fn refusing_a_wider_role_names_the_role_and_the_grant() {
+        let writer = scopes(&["directory_groups:write"]);
+        let error = refuse_unheld_role(&writer, "Admin", &BuiltinRole::Admin.permissions())
+            .expect_err("Admin is wider than a directory write");
+        let ApiError::Forbidden(message) = error else {
+            panic!("the ceiling refuses with the typed 403, not another variant");
+        };
+        assert!(message.contains("Admin"), "the role is named: {message}");
+        assert!(
+            message.contains("does not hold"),
+            "the refusal states the direction of the comparison: {message}"
+        );
+        assert!(
+            message.contains("tickets:view"),
+            "the first grant beyond the caller is named: {message}"
+        );
+    }
+
+    /// One held grant is not a held role: the comparison is containment of the
+    /// whole set, never "any of". A caller holding the first cell of the Admin
+    /// matrix still cannot map it, and the refusal moves to the next cell.
+    #[test]
+    fn holding_one_grant_of_a_role_does_not_admit_it() {
+        let caller = [Permission::Matrix {
+            module: Module::Tickets,
+            action: Action::View,
+        }];
+        assert_eq!(
+            first_unheld(&caller, &BuiltinRole::Admin.permissions()),
+            Some(Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Create,
+            })
+        );
+    }
+
+    /// The ceiling admits what the caller already holds, in both directions:
+    /// the role it holds itself, a narrower preset, and (the case the ruling
+    /// names) an owner mapping Admin, because the owner's resolved set is the
+    /// Admin set. The second half matters — a ceiling that refused everyone
+    /// would pass the refusals above.
+    #[test]
+    fn the_ceiling_admits_roles_inside_the_callers_own_set() {
+        let admin = BuiltinRole::Admin.permissions();
+        assert!(refuse_unheld_role(&admin, "Admin", &admin).is_ok());
+        assert!(
+            refuse_unheld_role(&admin, "Technician", &BuiltinRole::Technician.permissions())
+                .is_ok()
+        );
+        let owner = BuiltinRole::Owner.permissions();
+        assert!(refuse_unheld_role(&owner, "Admin", &BuiltinRole::Admin.permissions()).is_ok());
+        // A role that grants nothing is inside every set, including a writer's.
+        let writer = scopes(&["directory_groups:write"]);
+        assert!(refuse_unheld_role(&writer, "Empty", &[]).is_ok());
     }
 }
