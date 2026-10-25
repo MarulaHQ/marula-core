@@ -33,7 +33,7 @@ set -eu
 
 PGHOST="${PGHOST:-postgres}"
 PGPORT="${PGPORT:-5432}"
-PG_USER="${PG_USER:-marula}"
+PGUSER="${PGUSER:-marula}"
 BACKUP_DB="${PGDATABASE:-marula}"
 PGDUMPS_DIR="${PGDUMPS_DIR:-/pgdumps}"
 # Same scratch database restore.sh creates; the two constants have to agree for
@@ -49,11 +49,11 @@ fail() {
 }
 
 psql_live() {
-  psql -h "$PGHOST" -p "$PGPORT" -U "$PG_USER" -d "$BACKUP_DB" -tA -v ON_ERROR_STOP=1 "$@"
+  psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$BACKUP_DB" -tA -v ON_ERROR_STOP=1 "$@"
 }
 
 psql_scratch() {
-  psql -h "$PGHOST" -p "$PGPORT" -U "$PG_USER" -d "$SCRATCH_DB" -tA -v ON_ERROR_STOP=1 "$@"
+  psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$SCRATCH_DB" -tA -v ON_ERROR_STOP=1 "$@"
 }
 
 # Writes one ledger row. Never fatal: a drill that restored correctly has done
@@ -135,7 +135,7 @@ if [ -n "$DUMP" ]; then
   duration_ms=$(( ($(date +%s) - started_epoch) * 1000 ))
   rows="{\"orgs\": ${orgs:-0}, \"users\": ${users:-0}, \"tickets\": ${tickets:-0}, \"audit_events\": ${audit:-0}}"
   record passed "$DRILL_SOURCE" "$DRILL_ARTIFACT" "$duration_ms" "$rows" ""
-  psql -h "$PGHOST" -p "$PGPORT" -U "$PG_USER" -d postgres \
+  psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d postgres \
     -c "DROP DATABASE IF EXISTS $SCRATCH_DB;" >/dev/null
   log "PASS: $DRILL_ARTIFACT restores into a queryable database with data in it (${duration_ms} ms)"
   exit 0

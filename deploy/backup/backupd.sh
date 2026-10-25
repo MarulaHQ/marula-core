@@ -6,6 +6,14 @@
 #   BACKUP_VERIFY=0 -> skip the archive-integrity reads (default: verify)
 #   BACKUP_RUN_ONCE=1 -> run a single pass and exit, instead of scheduling
 #   DRILL_EVERY_DAYS=N -> rehearse the restore every N days (default 7; 0 = off)
+#   WALG_RETENTION_DRY_RUN=1 -> list what retention would delete, delete nothing
+#
+# The connection is libpq's: PGHOST, PGPORT, PGUSER, PGDATABASE, PGPASSWORD (or
+# PGPASSFILE). Every tool below — pg_dump, psql, wal-g — reads those names, so
+# this script exports the defaults once rather than keeping a private copy that
+# can drift. That is exactly how the old PG_USER spelling failed: wal-g read
+# PGUSER, this runner set PG_USER, and the two halves of one pass could address
+# different roles.
 #
 # Every layer records its own outcome instead of continuing quietly, and a pass
 # with any failed layer does not advance the stamp the worker's backup-age gauge
@@ -29,10 +37,12 @@
 #     signal here — see verify_wal_archive().
 set -ue
 BACKUP_AT="${BACKUP_AT:-03:00}"
-BACKUP_HOST="${PGHOST:-postgres}"
-BACKUP_PORT="${PGPORT:-5432}"
-BACKUP_USER="${PG_USER:-marula}"
-BACKUP_DB="${PGDATABASE:-marula}"
+# One connection, shared by every tool. Exporting matters as much as
+# defaulting: wal-g is a separate binary and sees only the environment.
+PGHOST="${PGHOST:-postgres}"; export PGHOST
+PGPORT="${PGPORT:-5432}"; export PGPORT
+PGUSER="${PGUSER:-marula}"; export PGUSER
+PGDATABASE="${PGDATABASE:-marula}"; export PGDATABASE
 PGDUMPS_DIR="${PGDUMPS_DIR:-/pgdumps}"
 
 until_next_run() {
@@ -64,6 +74,22 @@ require_vars() {
     return 1
   fi
   return 0
+}
+
+# One cheap query before a pass begins. Without it, a missing PGPASSWORD shows
+# up as `pg_dump: error: connection ... password authentication failed` buried
+# in a nightly log, or (worse) as pg_dump writing nothing while the pass still
+# looks like it ran. The message names the variable that fixes it, and the
+# check costs one round trip per pass.
+database_connection_ok() {
+  if _err=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
+    -tAc "select 1" 2>&1); then
+    return 0
+  fi
+  log "ERROR: cannot connect to $PGUSER@$PGHOST:$PGPORT/$PGDATABASE: $(printf '%s\n' "$_err" | head -3)"
+  log "       Set PGPASSWORD or PGPASSFILE (or a passwordless pg_hba rule)."
+  log "       The compose backup slot takes them from deploy/backup/wal-g.env."
+  return 1
 }
 
 # WAL-G needs something to authenticate to the destination with. Static keys
@@ -143,7 +169,7 @@ verify_checksum() {
 # wal-g turns the check off rather than pretend. Say so once per pass, because
 # a silent no-op is the failure mode worth avoiding.
 warn_if_page_checksums_off() {
-  _dc=$(psql -h "$BACKUP_HOST" -p "$BACKUP_PORT" -U "$BACKUP_USER" -d "$BACKUP_DB" \
+  _dc=$(psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" \
     -tAc "SHOW data_checksums" 2>/dev/null || echo unknown)
   case "$_dc" in
     on) log "data_checksums=on: wal-g --verify can detect corrupt pages" ;;
@@ -266,9 +292,54 @@ write_stamp() {
   fi
 }
 
+# Retention, and why this runs with --confirm.
+#
+# `wal-g delete` is a DRY RUN unless --confirm is passed. The runner used to
+# call it bare, so every nightly pass listed the same backups and deleted
+# none: on a long-lived deployment the destination fills and the first
+# backup-push that cannot write is the outage. Retention now culls, and the
+# rehearsal is a switch an operator sets on purpose (WALG_RETENTION_DRY_RUN=1)
+# rather than the shape of the command.
+#
+# --use-sentinel-time sorts by backup start time instead of by timeline and
+# segment name. After a major-version upgrade the cluster timeline resets, and
+# name ordering can then keep old backups and delete the newest ones (wal-g
+# issue #636). Where a backup carries no sentinel, wal-g falls back to the name
+# ordering this command used to have.
+retention_cull() {
+  case "$WALG_RETAIN_FULL" in
+    ''|*[!0-9]*)
+      log "ERROR: WALG_RETAIN_FULL=$WALG_RETAIN_FULL is not a number; retention skipped"
+      return 1
+      ;;
+  esac
+  if [ "${WALG_RETENTION_DRY_RUN:-0}" = "1" ]; then
+    log "retention DRY RUN: wal-g delete retain FULL $WALG_RETAIN_FULL (no --confirm; nothing is deleted)"
+    if ! wal-g delete retain FULL "$WALG_RETAIN_FULL" --use-sentinel-time; then
+      log "ERROR: retention dry run failed (list of deletable backups unavailable)"
+      return 1
+    fi
+    log "retention dry run complete; unset WALG_RETENTION_DRY_RUN to cull"
+    return 0
+  fi
+  log "retention: wal-g delete retain FULL $WALG_RETAIN_FULL --confirm"
+  if ! wal-g delete retain FULL "$WALG_RETAIN_FULL" --use-sentinel-time --confirm; then
+    log "ERROR: wal-g delete retain FULL $WALG_RETAIN_FULL --confirm failed"
+    return 1
+  fi
+}
+
 run_once() {
   log "backup pass starting"
   failed=0
+  if ! database_connection_ok; then
+    # Return 0 so `set -e` cannot kill the schedule loop; `failed` is what
+    # BACKUP_RUN_ONCE=1 exits with and what keeps the stamp unwritten.
+    failed=1
+    log "backup pass finished with errors; stamp NOT advanced"
+    log "backup pass done"
+    return 0
+  fi
   # PG dump layer: WAL-G when PITR is configured, else a nightly logical dump.
   if [ -n "${WALG_S3_PREFIX:-}" ]; then
     if walg_credentials_ok; then
@@ -285,11 +356,11 @@ run_once() {
         fi
       fi
       # Retention: cull stale full backups when configured (env template ships 4).
+      # It runs even after a failed push: a destination that is full makes the
+      # next push fail too, so refusing to cull because this one failed keeps
+      # the deployment stuck.
       if [ -n "${WALG_RETAIN_FULL:-}" ]; then
-        if ! wal-g delete retain FULL "$WALG_RETAIN_FULL"; then
-          log "ERROR: wal-g delete retain FULL $WALG_RETAIN_FULL failed"
-          failed=1
-        fi
+        if ! retention_cull; then failed=1; fi
       fi
     else
       log "ERROR: wal-g layer skipped — the backup destination cannot be authenticated"
@@ -301,8 +372,8 @@ run_once() {
     _dump="${PGDUMPS_DIR:-/pgdumps}/marula_$(date -u +%Y%m%d).dump"
     # Dump to a staging name and rename on success: a half-written archive must
     # never sit at the name the drill picks as "the newest backup".
-    if pg_dump -h "$BACKUP_HOST" -p "$BACKUP_PORT" -U "$BACKUP_USER" \
-      -Fc "${BACKUP_DB:-marula}" -f "$_dump.partial"; then
+    if pg_dump -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" \
+      -Fc "$PGDATABASE" -f "$_dump.partial"; then
       # `set -e` would abort the whole runner on a failed rename, and the loop
       # is what keeps the schedule; a failed layer is recorded instead.
       if mv "$_dump.partial" "$_dump"; then
