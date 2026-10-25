@@ -294,15 +294,23 @@ pub async fn totp_enroll_begin(
     let confirmed = existing.as_ref().is_some_and(|row| row.confirmed);
     let reenrolling = core_db::mfa::user_mfa_reenroll_required(&mut *tx, user.id).await?;
 
-    // A confirmed factor can be replaced, but only by someone who just proved
-    // a DIFFERENT one on this sign-in lineage.
-    let authorized_by = if confirmed {
+    // The account's factor SET is the gate, not the method being moved: a
+    // confirmed PASSKEY is a working factor too, so a session on a
+    // passkey-protected account must prove one of the account's factors
+    // before it may enroll a new TOTP secret it controls (p57). The TOTP
+    // code itself cannot authorize anything here — replacing a confirmed
+    // row must be proved by a DIFFERENT method (a live code cannot vouch
+    // for the secret it belongs to). After an admin reset the enrolment IS
+    // the sanctioned way out and no proof exists to ask for.
+    let caps = core_db::mfa::mfa_capabilities(&mut *tx, user.id).await?;
+    let holds_confirmed_factor = caps.totp_confirmed || caps.webauthn_credentials > 0;
+    let authorized_by = if holds_confirmed_factor && (confirmed || !reenrolling) {
         Some(
             require_fresh_step_up(
                 &mut tx,
                 &authed,
                 &["recovery_code", "webauthn"],
-                "replacing a confirmed TOTP factor",
+                "replacing a confirmed factor under a new TOTP enrollment",
             )
             .await?,
         )
@@ -1087,6 +1095,23 @@ pub async fn webauthn_register_begin(
     let mut tx = org_tx(&state, user.org_id).await?;
     let existing = core_db::mfa::list_webauthn_credentials(&mut *tx, user.id).await?;
     let exclude: Vec<String> = existing.iter().map(|c| c.cred_id.clone()).collect();
+
+    // Registering a passkey is an ADD to the account's factor set, and a
+    // passkey the caller controls is a future login credential: an account
+    // that already holds a confirmed factor must prove one on this sign-in
+    // lineage first (p57), exactly as replacing its TOTP does. After an
+    // admin reset enrolment is the sanctioned exit and needs no proof.
+    let caps = core_db::mfa::mfa_capabilities(&mut *tx, user.id).await?;
+    let reenrolling = core_db::mfa::user_mfa_reenroll_required(&mut *tx, user.id).await?;
+    if (caps.totp_confirmed || caps.webauthn_credentials > 0) && !reenrolling {
+        require_fresh_step_up(
+            &mut tx,
+            &authed,
+            &["totp", "recovery_code", "webauthn"],
+            "registering a passkey",
+        )
+        .await?;
+    }
 
     let (challenge, reg_state) = ctx
         .start_registration(user.id, &user.email, &user.display_name, exclude)
