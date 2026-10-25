@@ -222,7 +222,9 @@ pub struct IngestAlertRequest {
 ///
 /// Responses: 200 with a terminal `status` (incident_created / collapsed /
 /// duplicate); 401 missing/bad signature; 403 disabled source; 404 unknown
-/// source_ref; 422 malformed payload.
+/// source_ref; 409 source is a generic M2M receiver (its profile emits
+/// envelopes, so the answer names `/api/webhooks/ingest/{source_ref}`);
+/// 422 malformed payload.
 #[utoipa::path(
     operation_id = "alerts_ingest",
     post,
@@ -274,6 +276,29 @@ pub async fn ingest(
     // unauthenticated request proves no org, so it is not counted.
     core_otel::metrics::org_ingest(&source.r_org_id.to_string(), "alert");
 
+    // Wave 55 lane `p55-alert-source-profile` (decision 8): the profile is a
+    // property of the SOURCE, not of the URL the caller happened to hit. A
+    // source promoted to a generic M2M receiver emits envelopes through
+    // `/api/webhooks/ingest` and must not open incident tickets here — the
+    // mirror of that endpoint refusing an alert-source ref
+    // (`webhook_receiver.rs:109`). Checked AFTER the signature proved the
+    // caller holds this source's secret, so nobody can read a source's
+    // profile by probing the public ref.
+    if let Some(refusal) =
+        alert_profile_refusal(source.r_event_type.as_deref(), &source.r_source_ref)
+    {
+        if let Err(e) = record_profile_refusal(&state, &source).await {
+            // The refusal is the act; a failed audit write must not turn it
+            // into a 5xx and hide the reason from the operator.
+            tracing::warn!(
+                error = %e,
+                source_ref = %source.r_source_ref,
+                "alert profile refusal was not audited"
+            );
+        }
+        return Err(refusal);
+    }
+
     let req: IngestAlertRequest = serde_json::from_slice(&body).map_err(|e| {
         // Raw serde text stays server-side (Wave 13 lane 1).
         tracing::debug!(error = %e, "alert payload failed to parse");
@@ -292,6 +317,61 @@ pub async fn ingest(
     let response =
         ingest_correlated(&state, &source, &req, &correlation_key, occurred_at, now).await?;
     Ok(Json(response))
+}
+
+/// The typed answer a generic M2M receiver gets when it posts an alert
+/// document to the alert door.
+///
+/// `None` (no profile recorded) is the classic alert profile: the create doc
+/// (`CreateAlertSourceRequest::event_type`) says "Leave NULL for the classic
+/// alert path", the entity comment says "NULL = alert source", and
+/// `webhook_receiver.rs:109` already refuses a NULL profile on the generic
+/// endpoint. Absence is an ANSWER that selects this endpoint, not a missing
+/// rule, and it is the narrower of the two profiles — promotion to the generic
+/// profile takes the incident-ticket surface away.
+fn alert_profile_refusal(event_type: Option<&str>, source_ref: &str) -> Option<ApiError> {
+    event_type.map(|profile| {
+        ApiError::Conflict(format!(
+            "alert source `{source_ref}` is a generic M2M receiver (event_type `{profile}`); \
+             POST this delivery to /api/webhooks/ingest/{source_ref} instead"
+        ))
+    })
+}
+
+/// Records a refused delivery on the audit stream, so an operator can tell a
+/// dropped alert from a broken ingest: the row names the source, the profile
+/// that refused it, and the endpoint that would have served it.
+///
+/// The caller logs a failure instead of failing the request: the refusal is
+/// the security-relevant act, and turning it into a 5xx would hide the reason
+/// from the integration owner.
+async fn record_profile_refusal(state: &AppState, source: &AlertSourceAuth) -> ApiResult<()> {
+    let org_id = source.r_org_id;
+    org_tx::with_org_tx(state, org_id, org_id, |mut ctx| async move {
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: ingest_actor(source),
+                action: "alert.refused".into(),
+                entity_type: Some("alert_source".into()),
+                entity_id: Some(source.r_id.to_string()),
+                detail: serde_json::json!({
+                    "reason": "source_profile",
+                    "source_ref": source.r_source_ref,
+                    "event_type": source.r_event_type,
+                    "endpoint": "/api/alerts/ingest",
+                    "served_by": "/api/webhooks/ingest",
+                }),
+                ip: None,
+                occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+        Ok((ctx, ()))
+    })
+    .await
 }
 
 fn validate_ingest(req: &IngestAlertRequest) -> ApiResult<()> {
@@ -1542,6 +1622,33 @@ mod tests {
         assert_eq!(doc.correlation_key, None);
         assert_eq!(doc.severity, AlertSeverity::Critical);
         assert!(doc.attributes.is_object());
+    }
+
+    #[test]
+    fn absent_profile_serves_the_alert_door_and_a_generic_profile_is_refused() {
+        // NULL is the documented alert profile — the create request says
+        // "Leave NULL for the classic alert path" and the generic receiver
+        // refuses a NULL profile (webhook_receiver.rs:109) — so the alert
+        // door accepts it. This is the absent-profile decision, pinned
+        // without a database.
+        assert!(
+            alert_profile_refusal(None, "alsrc-abc").is_none(),
+            "no recorded profile is the alert profile"
+        );
+
+        let err = alert_profile_refusal(Some("acme_event.received"), "alsrc-abc")
+            .expect("a generic M2M profile is refused at the alert door");
+        let ApiError::Conflict(message) = &err else {
+            panic!("refusal must be this module's typed 409, not a generic 400: {err:?}");
+        };
+        assert!(
+            message.contains("/api/webhooks/ingest/alsrc-abc"),
+            "the refusal names the endpoint that serves the profile: {message}"
+        );
+        assert!(
+            message.contains("acme_event.received"),
+            "the refusal names the profile the source recorded: {message}"
+        );
     }
 
     #[test]
