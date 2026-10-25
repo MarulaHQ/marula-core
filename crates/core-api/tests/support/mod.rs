@@ -289,7 +289,11 @@ impl MailHarness {
         // Single-org world: default board + SLA + catch-all route + staff.
         let org = Uuid::now_v7();
         let mut tx = admin.begin().await.expect("tx");
-        core_db::orgs::insert_org(&mut *tx, org, "Acme MSP", "acme-harness", "MER")
+        // A slug per boot: the harness boots once per test, and the tests in a
+        // binary run in parallel, so a fixed slug collided on `orgs_slug_key`
+        // the moment a file held more than one case.
+        let slug = format!("acme-{}", &org.simple().to_string()[..12]);
+        core_db::orgs::insert_org(&mut *tx, org, "Acme MSP", &slug, "MER")
             .await
             .expect("org");
         core_db::orgs::seed_default_roles(&mut tx, org)

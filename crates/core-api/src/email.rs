@@ -440,7 +440,8 @@ pub async fn process_inbound(
 
     // --- attachment preparation (the private build tracker 2.14): decode + size-cap +
     // hash BEFORE the scan gate so nothing undecoded/oversized ever
-    // reaches storage, and so the scanner sees attachment bytes too.
+    // reaches storage. What the gate then sees is these decoded octets, one
+    // part at a time.
     // Email attachments skip the API's magic-byte allowlist ON PURPOSE:
     // after the malware gate this is a trusted channel and rejecting,
     // say, .eml forwards would silently drop ticket content.
@@ -480,38 +481,70 @@ pub async fn process_inbound(
             },
             sha256_hex,
             bytes,
+            verdict: None,
         });
     }
 
-    // --- scan (network IO deliberately outside the DB transaction); the
-    // scanner receives body text PLUS attachment contents so a payload
-    // hidden in an attachment still trips the verdict ---
+    // --- scan (network IO deliberately outside the DB transaction) ---
+    // The message TEXT is what decides whether this message may create a
+    // ticket or a comment. Attachment bytes are NOT appended to it: a lossy
+    // UTF-8 view of a `.docx` is not the file a scanner has to see, and the
+    // concatenation could never say WHICH part tripped it. Each part takes
+    // the same byte gate an upload takes, further down.
     let body_text = msg.effective_text();
-    let mut scan_text = body_text.clone().unwrap_or_default();
-    for part in &prepared_attachments {
-        scan_text.push('\n');
-        scan_text.push_str(&String::from_utf8_lossy(&part.bytes));
-    }
-    let (scan_status, proceed, scan_detail) = match state.mail.scanner.scan(&scan_text).await {
-        Ok(v) if v.infected => (ScanStatus::Infected, false, v.detail),
-        Ok(_) => (
-            if state.mail.scanner.name() == "none" {
-                ScanStatus::Skipped
-            } else {
-                ScanStatus::Clean
-            },
-            true,
-            None,
-        ),
-        Err(e) => {
-            tracing::warn!(error = %e, "scanner unavailable; quarantining message");
-            (
-                ScanStatus::Infected,
-                false,
-                Some(format!("scanner unavailable: {e}")),
-            )
+    let message_text = body_text.clone().unwrap_or_default();
+    let (mut scan_status, mut proceed, mut scan_detail) =
+        match state.mail.scanner.scan(&message_text).await {
+            Ok(v) if v.infected => (ScanStatus::Infected, false, v.detail),
+            Ok(_) => (
+                if state.mail.scanner.name() == "none" {
+                    ScanStatus::Skipped
+                } else {
+                    ScanStatus::Clean
+                },
+                true,
+                None,
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, "scanner unavailable; quarantining message");
+                (
+                    ScanStatus::Infected,
+                    false,
+                    Some(format!("scanner unavailable: {e}")),
+                )
+            }
+        };
+
+    // --- the per-attachment byte gate (Wave 54 lane S7) ---
+    // Same function the upload doors call, on the DECODED octets, before the
+    // transaction opens and long before any PUT: one verdict per part, and a
+    // part a scanner names infected is held under the quarantine namespace
+    // instead of admitted (the write happens below, in the transaction that
+    // already has the org). A scanner that answers the message text but not
+    // its bytes is an outage under the same rule as the text leg: the message
+    // is quarantined and nothing is stored.
+    if proceed {
+        for part in &mut prepared_attachments {
+            match crate::scan_gate::gate(state, &part.bytes).await {
+                Ok(verdict) => part.verdict = Some(verdict),
+                Err(crate::error::ApiError::Unavailable(reason)) => {
+                    tracing::warn!(
+                        filename = %part.filename,
+                        reason = %reason,
+                        "scanner unavailable on an attachment; quarantining message"
+                    );
+                    scan_status = ScanStatus::Infected;
+                    scan_detail = Some(format!(
+                        "scanner unavailable on attachment {:?}: {reason}",
+                        part.filename
+                    ));
+                    proceed = false;
+                    break;
+                }
+                Err(other) => return Err(other),
+            }
         }
-    };
+    }
 
     let rfc_id = normalize_message_key(&msg.rfc_message_id);
     let refs: Vec<String> = msg.thread_keys();
@@ -576,6 +609,68 @@ pub async fn process_inbound(
             if !proceed {
                 break;
             }
+            let Some(verdict) = part.verdict.as_ref() else {
+                // `proceed` and "every part carries a verdict" are set
+                // together. An admitted message with an ungated part would be
+                // the exact hole this stage closes, so it stops here rather
+                // than storing bytes nobody looked at.
+                return Err(ApiError::Internal(anyhow::anyhow!(
+                    "attachment {:?} reached storage with no scan verdict",
+                    part.filename
+                )));
+            };
+            if verdict.is_rejected() {
+                // The upload door's answer, on a channel with no 422 to give:
+                // the bytes go to the quarantine namespace, the verdict row
+                // records what was found, the operators are notified, and NO
+                // `attachments` row is written. The rest of the message still
+                // threads — one bad part is not a reason to lose the client's
+                // words, and the senders cannot be told in-band.
+                crate::scan_gate::quarantine_in_tx(
+                    &mut tx,
+                    state.store.as_ref(),
+                    crate::scan_gate::Rejection {
+                        org_id,
+                        sha256: &part.sha256_hex,
+                        filename: &part.filename,
+                        content_type: &part.content_type,
+                        size_bytes: part.bytes.len() as i64,
+                        bytes: bytes::Bytes::from(part.bytes.clone()),
+                        // Routing has not decided the ticket yet (the ledger
+                        // row above is claimed before it does), so the record
+                        // names the object and the org, exactly as an email
+                        // attachment row does.
+                        ticket_id: None,
+                        uploaded_by_user_id: None,
+                        verdict,
+                    },
+                )
+                .await?;
+                // Written directly rather than through `emit_event`: the
+                // quarantine's identity is the DIGEST, not an `attachments`
+                // row that deliberately does not exist.
+                core_db::outbox::insert(
+                    &mut tx,
+                    Uuid::now_v7(),
+                    org_id,
+                    types::ATTACHMENT_QUARANTINED,
+                    "attachment",
+                    Some(part.sha256_hex.as_str()),
+                    &serde_json::to_value(core_domain::events::AttachmentQuarantined {
+                        sha256: part.sha256_hex.clone(),
+                        filename: part.filename.clone(),
+                        content_type: part.content_type.clone(),
+                        size_bytes: part.bytes.len() as i64,
+                        scanner: verdict.scanner.to_string(),
+                        detail: verdict.detail.clone(),
+                        ticket_id: None,
+                        uploaded_by_user_id: None,
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+                continue;
+            }
             let key = core_store::attachment_key(org_id, &part.sha256_hex);
             let existing =
                 core_db::attachments::find_existing_object_key(&mut tx, org_id, &part.sha256_hex)
@@ -595,6 +690,26 @@ pub async fn process_inbound(
                     })?;
                 stored_keys.push(key.clone());
             }
+            // The verdict belongs to the object, so a second part with the
+            // same digest keeps the first record rather than rewriting it.
+            core_db::attachment_scans::record_admitted(
+                &mut tx,
+                core_db::attachment_scans::NewScan {
+                    org_id,
+                    sha256: &part.sha256_hex,
+                    status: verdict.status,
+                    detail: verdict.detail.as_deref(),
+                    scanner: verdict.scanner,
+                    size_bytes: part.bytes.len() as i64,
+                    content_type: &part.content_type,
+                    filename: &part.filename,
+                    storage_key: &key,
+                    ticket_id: None,
+                    uploaded_by_user_id: None,
+                    uploaded_by_portal_user_id: None,
+                },
+            )
+            .await?;
             let kind = core_domain::entities::AttachmentKind::EmailMessage;
             match core_db::attachments::insert(
                 &mut tx,
@@ -754,12 +869,16 @@ pub async fn process_inbound(
     Ok(status)
 }
 
-/// One decoded, size-capped, hashed inbound attachment ready to persist.
+/// One decoded, size-capped, hashed inbound attachment ready to persist, with
+/// the verdict the byte gate reached on its octets.
 struct PreparedAttachment {
     filename: String,
     content_type: String,
     sha256_hex: String,
     bytes: Vec<u8>,
+    /// `None` only when the message was quarantined before this part was
+    /// gated (nothing is stored then); an admitted message always carries one.
+    verdict: Option<crate::scan_gate::GateVerdict>,
 }
 
 /// Best-effort object reclamation after a failed pipeline stage. Delete

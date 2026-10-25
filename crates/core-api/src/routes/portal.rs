@@ -1008,7 +1008,8 @@ pub async fn list_attachments(
     path = "/api/portal/tickets/{id}/attachments/{attachment_id}/download", tag = "portal",
     security(("bearer" = [])),
     params(("id" = Uuid, Path), ("attachment_id" = Uuid, Path)),
-    responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream"), (status = 404)))]
+    responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream"), (status = 404),
+        (status = 409, description = "the attachment has no admission verdict, so it is not served")))]
 pub async fn download_attachment(
     State(state): State<AppState>,
     extensions: Extensions,
@@ -1038,7 +1039,21 @@ pub async fn download_attachment(
     else {
         return Err(ApiError::NotFound);
     };
+    // The verdict is read in the same snapshot as the row, exactly as the
+    // staff door does: an escalation between the two reads cannot slip
+    // through. Wave 54 lane S7 — the portal used to stream whatever the
+    // visibility JOIN returned, held or never scanned.
+    let admission =
+        crate::routes::attachments::verdict_for(&mut tx, org_id, &attachment.sha256).await?;
     tx.commit().await.map_err(ApiError::from)?;
+
+    // A client gets the same answer a staff downloader gets — the door's
+    // typed 409 — because an unscanned or held object is not a client's
+    // problem to work around, and 404 would claim the file does not exist.
+    crate::routes::attachments::check_admission(
+        admission,
+        crate::routes::attachments::scanner_installed(&state),
+    )?;
 
     let obj = state
         .store
