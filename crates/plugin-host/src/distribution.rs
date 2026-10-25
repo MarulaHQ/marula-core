@@ -200,9 +200,18 @@ pub enum IngestReason {
     NoTrustedKeys,
     /// The manifest is unreadable/unknown/malformed.
     BadManifest,
-    /// The zip import breaches a sandbox cap.
+    /// The compressed archive itself is larger than `MAX_ARCHIVE_BYTES`.
     ArchiveCap,
-    /// Not a zipper we accept (bad magic / traversal paths / dupes).
+    /// The archive carries more members than `MAX_ARCHIVE_ENTRIES`.
+    EntryCap,
+    /// One member's bytes — declared or produced — crossed `MAX_MEMBER_BYTES`.
+    MemberCap,
+    /// The archive's total decompressed size crossed `MAX_ARCHIVE_UNCOMPRESSED`.
+    ExpansionCap,
+    /// A member's header declared a size its stream does not produce.
+    DeclaredSizeMismatch,
+    /// Not a zipper we accept (bad magic / traversal paths / dupes, or a
+    /// member whose stream does not hold what its header describes).
     BadArchive,
     /// An identity-bundle artifact tried to arrive at Marula authority —
     /// a `capabilities`/`permissions` key, or a scope spelling a plugin
@@ -226,6 +235,10 @@ impl IngestReason {
             IngestReason::NoTrustedKeys => "distribution_signing_key_unconfigured",
             IngestReason::BadManifest => "distribution_manifest_invalid",
             IngestReason::ArchiveCap => "distribution_archive_cap",
+            IngestReason::EntryCap => "distribution_archive_entry_cap",
+            IngestReason::MemberCap => "distribution_archive_member_cap",
+            IngestReason::ExpansionCap => "distribution_archive_expansion_cap",
+            IngestReason::DeclaredSizeMismatch => "distribution_archive_declared_size_mismatch",
             IngestReason::BadArchive => "distribution_archive_invalid",
             IngestReason::CapabilityRefused => "distribution_identity_bundle_capability_refused",
         }
@@ -267,15 +280,119 @@ impl DistributionBundle {
 }
 
 // --- sandbox caps (zip import) ------------------------------------------------
+//
+// Every cap below is checked against what the archive DECLARES in its
+// central directory before a member is decompressed, and the read helpers
+// re-check what the stream PRODUCES. A declaration is evidence, never the
+// bound: the buffer is sized by these constants, and a header that disagrees
+// with its own stream is refused instead of believed.
 
-/// Maximum accepted zip import size (bytes).
+/// Maximum accepted zip import size (bytes) — the compressed archive itself.
 pub const MAX_ARCHIVE_BYTES: i64 = 8 * 1024 * 1024;
-/// Maximum members inside one archive.
+/// Maximum members inside one archive. Deflate is allowed to expand a member
+/// roughly a thousandfold, so a cheap archive of many small members is one
+/// more way to ask for CPU; the ceiling keeps the directory walk flat.
 pub const MAX_ARCHIVE_ENTRIES: usize = 256;
 /// Maximum per-member uncompressed size (bytes).
 pub const MAX_MEMBER_BYTES: usize = 4 * 1024 * 1024;
-/// Maximum total uncompressed size across members (zip-bomb guard).
+/// Maximum total decompressed size across members (zip-bomb guard). Checked
+/// from the directory's declared sizes before any member is read, then again
+/// against the bytes actually produced.
 pub const MAX_ARCHIVE_UNCOMPRESSED: usize = 8 * 1024 * 1024;
+
+// --- zip sandbox helpers ------------------------------------------------------
+
+/// Rejects an archive whose declared shape breaches a cap.
+///
+/// Reads central-directory metadata only — `by_index_data` hands back the
+/// entry record without a decompressor — so an archive declaring more than
+/// `MAX_ARCHIVE_UNCOMPRESSED` in total, or a member past `MAX_MEMBER_BYTES`,
+/// is refused before a single byte is expanded. `MAX_ARCHIVE_ENTRIES` is
+/// checked first because it is the cheapest refusal of all.
+fn check_archive_caps<R: std::io::Read + std::io::Seek>(
+    archive: &zip::ZipArchive<R>,
+) -> Result<(), IngestReason> {
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        return Err(IngestReason::EntryCap);
+    }
+    let mut total = 0usize;
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index_data(i)
+            .map_err(|_| IngestReason::BadArchive)?;
+        // Traversal-safety: no "/" or ".." — a zip import never aims at
+        // any filesystem path.
+        let Ok(name) = std::str::from_utf8(entry.name_raw()) else {
+            return Err(IngestReason::BadArchive);
+        };
+        if name.contains('/') || name.contains('\\') || name.starts_with('.') {
+            return Err(IngestReason::BadArchive);
+        }
+        let declared = usize::try_from(entry.size()).map_err(|_| IngestReason::MemberCap)?;
+        if declared > MAX_MEMBER_BYTES {
+            return Err(IngestReason::MemberCap);
+        }
+        total = total
+            .checked_add(declared)
+            .ok_or(IngestReason::ExpansionCap)?;
+        if total > MAX_ARCHIVE_UNCOMPRESSED {
+            return Err(IngestReason::ExpansionCap);
+        }
+    }
+    Ok(())
+}
+
+/// Reads one member under a hard ceiling, and refuses a header that lies.
+///
+/// The buffer grows only while the produced length stays within `declared`,
+/// within `budget` (what remains of `MAX_ARCHIVE_UNCOMPRESSED`) and within
+/// `MAX_MEMBER_BYTES`. A member that produces more than it declared is refused
+/// before the excess is copied in, and a member that ends short of its
+/// declared size is refused too: either direction means the header is not a
+/// description of the bytes.
+///
+/// The `zip` reader independently stops at the declared size, so the
+/// under-declaring direction usually surfaces as a read error before this
+/// function sees the excess; that refusal is `BadArchive`, and the checks here
+/// are what hold if the reader's own enforcement ever goes away.
+fn read_member<R: std::io::Read>(
+    entry: &mut R,
+    declared: usize,
+    budget: usize,
+) -> Result<Vec<u8>, IngestReason> {
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 8 * 1024];
+    loop {
+        let n = entry
+            .read(&mut chunk)
+            .map_err(|_| IngestReason::BadArchive)?;
+        if n == 0 {
+            break;
+        }
+        let produced = buf.len() + n;
+        if produced > declared {
+            return Err(IngestReason::DeclaredSizeMismatch);
+        }
+        if produced > MAX_MEMBER_BYTES {
+            return Err(IngestReason::MemberCap);
+        }
+        if produced > budget {
+            return Err(IngestReason::ExpansionCap);
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+    if buf.len() != declared {
+        return Err(IngestReason::DeclaredSizeMismatch);
+    }
+    Ok(buf)
+}
+
+/// The declared size of one entry, refused when it cannot even be a size.
+fn declared_size(
+    entry: &zip::read::ZipFile<'_, impl std::io::Read>,
+) -> Result<usize, IngestReason> {
+    usize::try_from(entry.size()).map_err(|_| IngestReason::MemberCap)
+}
 
 // --- adapters -------------------------------------------------------------------
 
@@ -443,36 +560,25 @@ pub fn ingest_local_zip(bytes: &[u8]) -> Result<DistributionBundle, IngestReason
     let Ok(mut archive) = zip::ZipArchive::new(reader) else {
         return Err(IngestReason::BadArchive);
     };
-    if archive.len() > MAX_ARCHIVE_ENTRIES {
-        return Err(IngestReason::ArchiveCap);
-    }
+    check_archive_caps(&archive)?;
     let mut manifest_bytes: Option<Vec<u8>> = None;
-    let mut total_uncompressed: usize = 0;
+    let mut budget = MAX_ARCHIVE_UNCOMPRESSED;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|_| IngestReason::BadArchive)?;
+        let Ok(mut entry) = archive.by_index(i) else {
+            return Err(IngestReason::BadArchive);
+        };
         let Some(name) = std::str::from_utf8(entry.name_raw()).ok().map(String::from) else {
             return Err(IngestReason::BadArchive);
         };
-        // Traversal-safety: no "/" or ".." — a zip import never aims at
-        // any filesystem path.
-        if name.contains('/') || name.contains('\\') || name.starts_with('.') {
-            return Err(IngestReason::BadArchive);
-        }
         if name.as_str() != "manifest.json" {
             continue;
-        }
-        if (entry.size() as usize) > MAX_MEMBER_BYTES {
-            return Err(IngestReason::ArchiveCap);
-        }
-        total_uncompressed += entry.size() as usize;
-        if total_uncompressed > MAX_ARCHIVE_UNCOMPRESSED {
-            return Err(IngestReason::ArchiveCap);
         }
         if manifest_bytes.is_some() {
             return Err(IngestReason::BadArchive);
         }
-        let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut entry, &mut buf).map_err(|_| IngestReason::BadArchive)?;
+        let declared = declared_size(&entry)?;
+        let buf = read_member(&mut entry, declared, budget)?;
+        budget -= buf.len();
         manifest_bytes = Some(buf);
     }
     let Some(manifest_bytes) = manifest_bytes else {
@@ -530,8 +636,9 @@ pub fn ingest_local_zip(bytes: &[u8]) -> Result<DistributionBundle, IngestReason
 /// guessed at, because "which of these runs" is not a question a distribution
 /// layer gets to answer by file order.
 ///
-/// The caps match `ingest_local_zip`'s: same archive limit, same per-member
-/// limit, same traversal refusal. Extraction re-opens the archive the caller
+/// The caps match `ingest_local_zip`'s: same archive limit, same member count,
+/// same per-member and total decompressed limits, same traversal refusal.
+/// Extraction re-opens the archive the caller
 /// already ingested, which costs one extra pass at import time and keeps
 /// `ingest_local_zip`'s tested contract untouched.
 pub fn extract_module_from_zip(bytes: &[u8]) -> Result<Option<Vec<u8>>, IngestReason> {
@@ -542,30 +649,26 @@ pub fn extract_module_from_zip(bytes: &[u8]) -> Result<Option<Vec<u8>>, IngestRe
     let Ok(mut archive) = zip::ZipArchive::new(reader) else {
         return Err(IngestReason::BadArchive);
     };
-    if archive.len() > MAX_ARCHIVE_ENTRIES {
-        return Err(IngestReason::ArchiveCap);
-    }
+    check_archive_caps(&archive)?;
     let mut module: Option<Vec<u8>> = None;
+    let mut budget = MAX_ARCHIVE_UNCOMPRESSED;
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|_| IngestReason::BadArchive)?;
+        let Ok(mut entry) = archive.by_index(i) else {
+            return Err(IngestReason::BadArchive);
+        };
         let Some(name) = std::str::from_utf8(entry.name_raw()).ok().map(String::from) else {
             return Err(IngestReason::BadArchive);
         };
-        if name.contains('/') || name.contains('\\') || name.starts_with('.') {
-            return Err(IngestReason::BadArchive);
-        }
         if !name.to_ascii_lowercase().ends_with(".wasm") {
             continue;
-        }
-        if (entry.size() as usize) > MAX_MEMBER_BYTES {
-            return Err(IngestReason::ArchiveCap);
         }
         if module.is_some() {
             // Two candidate modules: refuse rather than pick one.
             return Err(IngestReason::BadArchive);
         }
-        let mut buf = Vec::new();
-        std::io::Read::read_to_end(&mut entry, &mut buf).map_err(|_| IngestReason::BadArchive)?;
+        let declared = declared_size(&entry)?;
+        let buf = read_member(&mut entry, declared, budget)?;
+        budget -= buf.len();
         module = Some(buf);
     }
     Ok(module)
@@ -946,6 +1049,36 @@ mod tests {
         cursor.into_inner()
     }
 
+    /// Rewrites the uncompressed-size field of ONE member in both the local file
+    /// header and the central directory, leaving its bytes alone. The result is
+    /// an archive whose header lies about what its stream holds — the shape a
+    /// size cap that trusts the header cannot see.
+    fn lie_about_member_size(bytes: &mut [u8], member: &str, declared: u32) {
+        let mut at = 0usize;
+        while bytes.get(at..at + 4) == Some(b"PK\x03\x04") {
+            let name_len = usize::from(u16::from_le_bytes([bytes[at + 26], bytes[at + 27]]));
+            let extra_len = usize::from(u16::from_le_bytes([bytes[at + 28], bytes[at + 29]]));
+            let name = std::str::from_utf8(&bytes[at + 30..at + 30 + name_len]).unwrap();
+            let compressed =
+                u32::from_le_bytes(bytes[at + 18..at + 22].try_into().unwrap()) as usize;
+            if name == member {
+                bytes[at + 22..at + 26].copy_from_slice(&declared.to_le_bytes());
+            }
+            at += 30 + name_len + extra_len + compressed;
+        }
+        let mut cd = at;
+        while bytes.get(cd..cd + 4) == Some(b"PK\x01\x02") {
+            let name_len = usize::from(u16::from_le_bytes([bytes[cd + 28], bytes[cd + 29]]));
+            let name = std::str::from_utf8(&bytes[cd + 46..cd + 46 + name_len]).unwrap();
+            if name == member {
+                bytes[cd + 24..cd + 28].copy_from_slice(&declared.to_le_bytes());
+            }
+            let extra_len = usize::from(u16::from_le_bytes([bytes[cd + 30], bytes[cd + 31]]));
+            let comment_len = usize::from(u16::from_le_bytes([bytes[cd + 32], bytes[cd + 33]]));
+            cd += 46 + name_len + extra_len + comment_len;
+        }
+    }
+
     #[test]
     fn registry_entry_should_ingest_with_tag_signature_digest() {
         let payload = json!({
@@ -1107,6 +1240,149 @@ mod tests {
         assert_eq!(
             ingest_local_zip(&big).unwrap_err(),
             IngestReason::ArchiveCap
+        );
+    }
+
+    #[test]
+    fn zip_cap_refusals_name_the_bound_they_hit() {
+        let codes = [
+            IngestReason::ArchiveCap.as_str(),
+            IngestReason::EntryCap.as_str(),
+            IngestReason::MemberCap.as_str(),
+            IngestReason::ExpansionCap.as_str(),
+            IngestReason::DeclaredSizeMismatch.as_str(),
+        ];
+        let distinct: std::collections::HashSet<&str> = codes.into_iter().collect();
+        assert_eq!(
+            distinct.len(),
+            codes.len(),
+            "each sandbox bound reports its own code: {codes:?}"
+        );
+    }
+
+    #[test]
+    fn zip_bomb_total_expansion_is_refused_before_any_member_is_read() {
+        // Three members of 3 MiB of zeros: 9 MiB of expansion out of a few
+        // kilobytes on the wire, and every member sits inside the per-member
+        // cap, so only the total bound can refuse it.
+        let payload = vec![0u8; 3 * 1024 * 1024];
+        let mut bytes = build_zip(&[
+            ("manifest.json", &payload),
+            ("b.bin", &payload),
+            ("c.bin", &payload),
+        ]);
+        assert!(
+            bytes.len() < 64 * 1024,
+            "the bomb is small on the wire: {} bytes",
+            bytes.len()
+        );
+        // The refusal must come from the directory alone. If the import
+        // decompressed any member first, this corruption of the first member's
+        // deflate payload would surface as BadArchive instead.
+        let payload_at = 30 + "manifest.json".len();
+        bytes[payload_at + 3] ^= 0xff;
+        assert_eq!(
+            ingest_local_zip(&bytes).unwrap_err(),
+            IngestReason::ExpansionCap
+        );
+        assert_eq!(
+            extract_module_from_zip(&bytes).unwrap_err(),
+            IngestReason::ExpansionCap
+        );
+    }
+
+    #[test]
+    fn zip_member_past_the_member_cap_is_refused_before_it_is_read() {
+        let payload = vec![0u8; MAX_MEMBER_BYTES + 1];
+        let bytes = build_zip(&[("manifest.json", &payload)]);
+        assert_eq!(
+            ingest_local_zip(&bytes).unwrap_err(),
+            IngestReason::MemberCap
+        );
+        // The module member answers to the same ceiling.
+        let bytes = build_zip(&[
+            ("manifest.json", GOOD_MANIFEST.as_bytes()),
+            ("plugin.wasm", &payload),
+        ]);
+        assert_eq!(
+            extract_module_from_zip(&bytes).unwrap_err(),
+            IngestReason::MemberCap
+        );
+    }
+
+    #[test]
+    fn zip_member_declared_smaller_than_its_output_is_refused() {
+        // A header promising 64 bytes over a stream that holds 1 MiB.
+        let payload = vec![0u8; 1024 * 1024];
+        let mut bytes = build_zip(&[("manifest.json", &payload)]);
+        lie_about_member_size(&mut bytes, "manifest.json", 64);
+        // The zip reader stops the stream at the declared size, so the excess
+        // never reaches a buffer and the refusal reads as a bad archive rather
+        // than a named size: our own produced-vs-declared check in `read_member`
+        // is the backstop that would name it if a reader stopped enforcing.
+        assert_eq!(
+            ingest_local_zip(&bytes).unwrap_err(),
+            IngestReason::BadArchive
+        );
+
+        let mut bytes = build_zip(&[
+            ("manifest.json", GOOD_MANIFEST.as_bytes()),
+            ("plugin.wasm", &payload),
+        ]);
+        lie_about_member_size(&mut bytes, "plugin.wasm", 64);
+        assert_eq!(
+            extract_module_from_zip(&bytes).unwrap_err(),
+            IngestReason::BadArchive
+        );
+    }
+
+    #[test]
+    fn zip_member_declared_larger_than_its_output_is_refused() {
+        // A header promising 64 KiB over a stream that ends at 4 KiB. Nothing
+        // expands too far, but the header is not a description of the bytes, so
+        // the member is refused instead of the claim being believed.
+        let payload = vec![b'a'; 4096];
+        let mut bytes = build_zip(&[("manifest.json", &payload)]);
+        lie_about_member_size(&mut bytes, "manifest.json", 64 * 1024);
+        assert_eq!(
+            ingest_local_zip(&bytes).unwrap_err(),
+            IngestReason::DeclaredSizeMismatch
+        );
+    }
+
+    #[test]
+    fn zip_many_members_past_the_entry_cap_is_refused() {
+        let names: Vec<String> = (0..=MAX_ARCHIVE_ENTRIES)
+            .map(|i| format!("f{i}.bin"))
+            .collect();
+        let entries: Vec<(&str, &[u8])> = names
+            .iter()
+            .map(|name| (name.as_str(), b"x".as_slice()))
+            .collect();
+        let bytes = build_zip(&entries);
+        assert_eq!(
+            ingest_local_zip(&bytes).unwrap_err(),
+            IngestReason::EntryCap
+        );
+        assert_eq!(
+            extract_module_from_zip(&bytes).unwrap_err(),
+            IngestReason::EntryCap
+        );
+    }
+
+    #[test]
+    fn zip_legit_plugin_archive_still_imports() {
+        let wasm: &[u8] = b"\0asm\x01\0\0\0";
+        let bytes = build_zip(&[
+            ("manifest.json", GOOD_MANIFEST.as_bytes()),
+            ("plugin.wasm", wasm),
+            ("README.txt", b"the docs".as_slice()),
+        ]);
+        let bundle = ingest_local_zip(&bytes).unwrap();
+        assert_eq!(bundle.manifest_name().unwrap(), "Ticket Summarizer");
+        assert_eq!(
+            extract_module_from_zip(&bytes).unwrap(),
+            Some(wasm.to_vec())
         );
     }
 
