@@ -35,7 +35,7 @@ EDGE=deploy/edge/compose.edge.yml
 # off still renders, which is what makes the check complete rather than
 # "complete for the profiles I happened to try".
 PROFILES="--profile edge --profile stage2 --profile observability --profile ai --profile backup"
-# deploy/dev.env carries the four required secrets, and none of them is used
+# deploy/dev.env carries every required secret, and none of them is used
 # for anything but interpolating the file. A real operator's values would do
 # the same; these are the ones in the repository, so the check needs no
 # environment of its own.

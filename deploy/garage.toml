@@ -7,8 +7,10 @@ db_engine = "lmdb"
 replication_factor = 1
 rpc_bind_addr = "[::]:3901"
 rpc_public_addr = "garage:3901"
-# Dev secret must be 32-byte hex or Garage refuses to boot.
-rpc_secret = "5ee1876f31b4a9ce1d2f6087c4e91ba9f0d8c3a25764b1e6892c40ada37f3102"
+# No rpc_secret here on purpose. Garage reads GARAGE_RPC_SECRET from the
+# environment, and compose requires that variable (32-byte hex, no default):
+# a secret in this file is a secret in every deployment's container, because
+# the file is bind-mounted read-only into it. See deploy/README.md.
 
 [s3_api]
 s3_region = "garage"
