@@ -92,7 +92,7 @@ pub async fn list(
 
     let mut tx = crate::routes::ai_policy::org_bound_tx(&state, org_id, user_id).await?;
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
-    authorize_board_op(&mut *tx, &authed.principal, ticket.board_id, BoardOp::View).await?;
+    authorize_board_op(&mut tx, &authed.principal, ticket.board_id, BoardOp::View).await?;
     // RLS proves visibility: an invisible ticket reads as no answers at
     // all (never a 404 leak about entities the caller cannot see).
     let rows = core_db::decision::latest_answers_for_ticket(&mut *tx, org_id, id).await?;
