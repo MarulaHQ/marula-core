@@ -155,9 +155,35 @@ async fn slug_conflict_with_suggestion(
     ApiError::SlugTaken { suggestion }
 }
 
+/// The answer for a hash slot that could not be taken in time (Wave 56 lane
+/// `p56-auth-bounds`): the API's standard `service_unavailable` envelope plus
+/// `Retry-After`. This is backpressure, not a fault — never a 500, and never
+/// a caller parked on an unbounded wait. The body deliberately names no
+/// capacity: how many slots this process has is our business.
+fn hash_slots_exhausted(refused: crate::auth::hash_gate::Refused) -> axum::response::Response {
+    let mut response = ApiError::Unavailable(format!(
+        "password hashing is at capacity; retry in {}s",
+        refused.retry_after_secs
+    ))
+    .into_response();
+    add_header(
+        &mut response,
+        (header::RETRY_AFTER, refused.retry_after_secs.to_string()),
+    );
+    response
+}
+
 /// POST /api/auth/register — creates the org, its default roles/board/SLA
 /// policy, and the first user as Owner. One transaction: a half-created org
 /// can never exist.
+///
+/// Answers 503 with `Retry-After` when the process's password-hash slots are
+/// saturated (Wave 56 lane `p56-auth-bounds`). The 503 is deliberately NOT in
+/// the `utoipa` response list: every route can answer it from the middleware
+/// layer (draining, database unreachable), the pinned OpenAPI document is
+/// regenerated only by `scripts/regen-openapi-pins.sh` against a live API, and
+/// adding one description here would leave both committed pins stale for a
+/// status the whole surface already shares.
 #[utoipa::path(operation_id = "handlers_register", post, path = "/api/auth/register", tag = "auth",
     request_body = RegisterRequest, responses(
         (status = 200, body = TokenPair),
@@ -168,7 +194,7 @@ pub async fn register(
     State(state): State<AppState>,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     Json(req): Json<RegisterRequest>,
-) -> ApiResult<Json<TokenPair>> {
+) -> ApiResult<axum::response::Response> {
     validate_email(&req.email)?;
     validate_password(&req.password)?;
     let slug_ok = !req.org_slug.is_empty()
@@ -184,9 +210,22 @@ pub async fn register(
 
     let org_id = Uuid::now_v7();
     let user_id = Uuid::now_v7();
+    // Bound the unauthenticated hash work (Wave 56 lane `p56-auth-bounds`):
+    // the slot is taken BEFORE argon2id runs and released the instant it
+    // returns. Registration has no throttle of any kind, so this bound is the
+    // only thing standing between an anonymous flood and the CPU: a caller
+    // that cannot get a slot inside the wait is answered with the 503 instead
+    // of spending ~19 MiB it never pays for.
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(hash_slots_exhausted(refused)),
+    };
     let password_hash = password::hash_async(req.password.clone())
         .await
         .map_err(ApiError::Internal)?;
+    // The hash was the whole bounded section. Org bootstrap is ordinary DB
+    // work that must not hold a hash slot.
+    drop(permit);
 
     // The registration transaction runs as the app role with RLS. We bind
     // the tx to the NEW org id first, so the org row insert satisfies its
@@ -287,13 +326,18 @@ pub async fn register(
     }
 
     let tokens = issue_tokens(&state, user_id, org_id, None).await?;
-    Ok(Json(tokens))
+    Ok(Json(tokens).into_response())
 }
 
 /// POST /api/auth/login — resolves the org by email (SECURITY DEFINER
 /// bridge), verifies the argon2 hash under RLS scope. When any second
 /// factor is enrolled, returns a short-lived `mfa_pending` bridge instead
 /// of tokens; POST /api/auth/mfa/verify completes it.
+///
+/// Answers 503 with `Retry-After` when the process's password-hash slots are
+/// saturated (Wave 56 lane `p56-auth-bounds`) — backpressure under a burst,
+/// never a 500. Left out of the `utoipa` response list for the reason given
+/// on [`register`].
 #[utoipa::path(operation_id = "handlers_login", post, path = "/api/auth/login", tag = "auth",
     request_body = LoginRequest, responses(
         (status = 200, body = LoginResponse),
@@ -315,6 +359,16 @@ pub async fn login(
         true,
     )
     .await?;
+    // Take the hash slot BEFORE any password work (Wave 56 lane
+    // `p56-auth-bounds`). Both arms below — the resolved verify and the
+    // unresolved dummy verify — run argon2id, and both hold this permit for
+    // exactly that long. Acquiring before the credential read means a
+    // saturated process does no DB work at all for the refused request, and
+    // the pool never waits behind a hash.
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(hash_slots_exhausted(refused)),
+    };
     // Narrow RLS bridge: (user_id, org_id) only — no hashes cross this line.
     let resolved: Option<(Uuid, Uuid)> =
         sqlx::query_as("SELECT user_id, org_id FROM app_resolve_login($1)")
@@ -337,20 +391,37 @@ pub async fn login(
         }
     };
 
-    let mut tx = state
-        .pool
-        .begin()
-        .await
-        .map_err(|e| ApiError::Internal(e.into()))?;
-    core_db::set_org(&mut tx, org_id).await?;
-    let creds = core_db::users::find_credentials_by_email(&mut *tx, &req.email)
-        .await
-        .map_err(|_| {
-            audit_failed_login(&state, org_id);
-            ApiError::Unauthorized("invalid credentials".into())
-        })?;
+    // The credential read gets its own short transaction, committed BEFORE
+    // the hash (Wave 56 lane `p56-auth-bounds`). The old shape held this
+    // connection across the verify, so every in-flight login pinned one of
+    // the app pool's connections for the whole argon2 window; with the
+    // transaction closed first, a hash never holds a connection and the pool
+    // is only ever rented for a read.
+    let creds = {
+        let mut tx = state
+            .pool
+            .begin()
+            .await
+            .map_err(|e| ApiError::Internal(e.into()))?;
+        core_db::set_org(&mut tx, org_id).await?;
+        let creds = core_db::users::find_credentials_by_email(&mut *tx, &req.email)
+            .await
+            .map_err(|_| {
+                audit_failed_login(&state, org_id);
+                ApiError::Unauthorized("invalid credentials".into())
+            })?;
+        tx.commit()
+            .await
+            .map_err(|e| ApiError::Internal(e.into()))?;
+        creds
+    };
 
-    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
+    let verified = password::verify_async(req.password.clone(), creds.password_hash.clone()).await;
+    // The hash slot is released the moment the hash returns, before any
+    // further work. Everything below is ordinary request handling.
+    drop(permit);
+
+    if !verified {
         audit_failed_login(&state, org_id);
         let _ = record_failure(
             &state,
@@ -361,6 +432,16 @@ pub async fn login(
         .await;
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
+
+    // Post-verification policy reads, in their own org-scoped transaction:
+    // the credential transaction is already closed, so nothing above this
+    // line keeps a connection while the hash runs.
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org_id).await?;
 
     // Org policy: email verification required (Wave 19 lane 5; deny-by-
     // default — off until an admin opts in, and then UNVERIFIED accounts
