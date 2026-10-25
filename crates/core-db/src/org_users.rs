@@ -202,7 +202,31 @@ pub async fn complete_invite(
     entry_from_row(row)
 }
 
+/// Serializes one org's owner-count decision for the rest of the caller's
+/// transaction.
+///
+/// Every path that can take an org's last active owner away (`set_active`
+/// off, or `set_builtin_role` away from `owner`) takes this lock BEFORE it
+/// reads the state it decides on, and holds it until commit. Without it two
+/// overlapping removals both count two owners, both pass the guard, and the
+/// org commits with none — the count and the write are one decision, so
+/// they run under one lock. A second caller queues here and then sees the
+/// first caller's committed removal, which is exactly what makes its
+/// refusal true. Released automatically at commit or rollback.
+pub async fn lock_owner_guard(conn: &mut sqlx::PgConnection, org_id: Uuid) -> DbResult<()> {
+    let key = format!("org.owner_guard:{org_id}");
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))")
+        .bind(key)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
 /// Activate / deactivate. Never deletes: `is_active = false` is terminal.
+///
+/// Deactivating an owner must be preceded by `lock_owner_guard` in this
+/// transaction — the count that decides "last active owner" is only true
+/// while nothing else can take the other owners away.
 pub async fn set_active(
     executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
     org_id: Uuid,

@@ -319,7 +319,10 @@ where
 }
 
 /// The `invoices` row shape as `query_as!` sees it; mapped to the domain
-/// entity once, in one place.
+/// entity once, in one place. `FromRow` is what the runtime `query_as`
+/// queries in this module read into (the CAS paths whose SQL is built at
+/// runtime, e.g. `apply_payment_total_expecting`).
+#[derive(sqlx::FromRow)]
 struct InvoiceRow {
     id: Uuid,
     org_id: Uuid,
@@ -348,6 +351,16 @@ struct InvoiceRow {
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
 }
+
+/// Every column `InvoiceRow` reads, spelled for the runtime `query_as`
+/// paths (a `query_as!` macro spells them inline). Kept beside the struct
+/// so a new column is added in one place, not two.
+const INVOICE_COLUMNS: &str =
+    "id, org_id, run_id, client_id, contract_id, number, status, currency, \
+     period_from, period_to, issued_at, due_on, total_minor, total_paid_minor, dunning_state, \
+     dunning_updated_at, dunning_note, po_number, notes, \
+     fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_total_minor, \
+     created_by, created_at, updated_at";
 
 fn invoice_row(row: InvoiceRow) -> Invoice {
     Invoice {
@@ -739,6 +752,12 @@ where
 /// Applies a recorded payment to the invoice's paid total, flipping the
 /// status to `paid` on settlement. Returns `None` when the invoice is
 /// not in an issued state (payments only land on issued invoices).
+///
+/// This is the no-expectation form: the caller has no earlier read to
+/// compare the invoice against, so it applies whatever the row holds now.
+/// Callers that already priced the receipt on a total they read —
+/// every API payment path — use `apply_payment_total_expecting` instead,
+/// which makes that read part of the predicate.
 pub async fn apply_payment_total<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -768,6 +787,82 @@ where
     .fetch_optional(executor)
     .await?;
     Ok(row.map(invoice_row))
+}
+
+/// Applies a recorded payment against the basis the caller priced it on,
+/// with every part of that basis in the UPDATE's predicate:
+///
+/// * `status = 'issued'` — a paid or void invoice takes no more receipts;
+/// * `total_minor = $4` — the invoice still totals what the caller read
+///   before it validated the amount, so a receipt cannot settle against a
+///   total that moved underneath it;
+/// * `total_paid_minor + $3 <= total_minor` — the receipt still fits the
+///   outstanding balance, so two receipts each inside the balance cannot
+///   both land and push the paid total past the total.
+///
+/// Postgres re-evaluates the whole predicate against the latest committed
+/// row once it holds the row lock, which is what makes this atomic under
+/// READ COMMITTED. The loser gets a typed `DbError::Conflict` (409 at the
+/// API) naming which part of the basis moved, and its caller's transaction
+/// rolls the payment row back with it — no 500, no silent write.
+pub async fn apply_payment_total_expecting(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    amount_minor: i64,
+    expected_total_minor: i64,
+) -> DbResult<Invoice> {
+    let sql = format!(
+        "UPDATE invoices SET total_paid_minor = total_paid_minor + $3,
+                status = CASE
+                    WHEN total_paid_minor + $3 >= total_minor THEN 'paid'
+                    ELSE status END,
+                updated_at = now()
+          WHERE org_id = $1 AND id = $2 AND status = 'issued'
+            AND total_minor = $4
+            AND total_paid_minor + $3 <= total_minor
+          RETURNING {INVOICE_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, InvoiceRow>(&sql)
+        .bind(org_id)
+        .bind(id)
+        .bind(amount_minor)
+        .bind(expected_total_minor)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(row) = row else {
+        // Lost the predicate. Read the row back (same transaction) to say
+        // WHICH part refused, so the refusal is actionable rather than a
+        // generic "retry".
+        let current: Option<(String, i64, i64)> = sqlx::query_as(
+            "SELECT status, total_minor, total_paid_minor FROM invoices \
+             WHERE org_id = $1 AND id = $2",
+        )
+        .bind(org_id)
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some((status, total_minor, total_paid_minor)) = current else {
+            return Err(DbError::NotFound);
+        };
+        if status != "issued" {
+            return Err(DbError::Conflict(format!(
+                "invoice left its payable state ({status}); the payment was not applied"
+            )));
+        }
+        if total_minor != expected_total_minor {
+            return Err(DbError::Conflict(format!(
+                "invoice total changed from {expected_total_minor} to {total_minor} \
+                 while the payment was recorded; the payment was not applied"
+            )));
+        }
+        return Err(DbError::Conflict(format!(
+            "payment exceeds the outstanding balance ({} minor units); \
+             the payment was not applied",
+            total_minor.saturating_sub(total_paid_minor)
+        )));
+    };
+    Ok(invoice_row(row))
 }
 
 pub async fn list_payments<'e, E>(

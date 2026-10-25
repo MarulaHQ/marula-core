@@ -399,3 +399,118 @@ async fn org_users_full_lifecycle_flow() {
     assert_eq!(dana_row["org_role"], "dispatcher");
     assert_eq!(dana_row["is_active"], true);
 }
+
+/// Two owners, two removals at the same moment, one survivor (Wave 54 lane
+/// S4a).
+///
+/// The guard is a read (how many active owners?) followed by a write, so two
+/// requests that both read "two owners" would both deactivate and leave the org
+/// with no owner at all. The fix holds one lock across the read, the count and
+/// the write. This test takes that lock first, so both requests are provably
+/// queued before either can decide — a plain race would only be as reliable as
+/// wall-clock luck, and on the unfixed tree both requests would sail straight
+/// through the lock the probe holds.
+#[tokio::test]
+async fn concurrent_last_owner_removals_leave_exactly_one_owner() {
+    let state = test_state().await;
+    let app = core_api::router(state.clone());
+    let slug = format!("owner-race-{}", Uuid::now_v7().simple());
+    let first = register_org(&app, &slug).await;
+    let me =
+        body_json(send(&app, axum::http::Method::GET, "/api/me", Some(&first), None).await).await;
+    let org_id = me["org_id"].as_str().expect("org id").to_string();
+    let first_id = me["user_id"].as_str().expect("owner id").to_string();
+
+    // A second OWNER: invited as one, redeemed, able to authenticate.
+    let email = format!("second-{}@acme.test", Uuid::now_v7().simple());
+    let (second_id, setup_token, _) =
+        invite_user(&app, &first, &email, "Second Owner", "owner", None).await;
+    let accepted = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/org/users/accept-invite",
+        None,
+        Some(json!({ "token": setup_token, "password": "another-correct-horse" })),
+    )
+    .await;
+    assert_eq!(
+        accepted.status(),
+        200,
+        "the second owner redeems the invite"
+    );
+    let second = body_json(accepted).await["access_token"]
+        .as_str()
+        .expect("second owner token")
+        .to_string();
+
+    // Hold the org's owner-guard key so both requests must queue on it.
+    let mut probe = state.pool.begin().await.expect("probe transaction");
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 42))")
+        .bind(format!("org.owner_guard:{org_id}"))
+        .execute(&mut *probe)
+        .await
+        .expect("hold the owner guard");
+
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let mut calls = Vec::new();
+    for (actor, target) in [
+        (first.clone(), second_id.clone()),
+        (second, first_id.clone()),
+    ] {
+        let router = app.clone();
+        let barrier = Arc::clone(&barrier);
+        calls.push(tokio::spawn(async move {
+            barrier.wait().await;
+            let response = send(
+                &router,
+                axum::http::Method::PATCH,
+                &format!("/api/org/users/{target}/status"),
+                Some(&actor),
+                Some(json!({ "active": false })),
+            )
+            .await;
+            (response.status(), body_json(response).await)
+        }));
+    }
+
+    // Release once both are blocked on it. Bounded on purpose: a tree
+    // without the lock never blocks, and the assertions below catch that
+    // rather than the wait hanging.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(0);
+        if waiting >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    probe.rollback().await.expect("release the owner guard");
+
+    let mut outcomes = Vec::new();
+    for call in calls {
+        outcomes.push(call.await.expect("joined the removal"));
+    }
+    outcomes.sort_by_key(|(status, _)| status.as_u16());
+    assert_eq!(outcomes[0].0, 200, "exactly one removal wins: {outcomes:?}");
+    assert_eq!(
+        outcomes[1].0, 409,
+        "the other is a typed refusal, not a 500 and not a second success: {outcomes:?}"
+    );
+
+    let owners: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM users u \
+           JOIN user_roles ur ON ur.user_id = u.id \
+           JOIN roles r ON r.id = ur.role_id \
+          WHERE u.org_id = $1 AND u.is_active AND r.builtin = 'owner'",
+    )
+    .bind(Uuid::parse_str(&org_id).expect("org uuid"))
+    .fetch_one(&state.pool)
+    .await
+    .expect("owner count");
+    assert_eq!(owners, 1, "the org keeps exactly one active owner");
+}

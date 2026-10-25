@@ -730,12 +730,17 @@ pub async fn create_run(
                 .map(|o| o.id)
                 .collect();
             for order_id in billed_order_ids {
+                // Only an APPROVED order gets billed; naming that status in
+                // the predicate means an order cancelled between the
+                // evaluation read and here refuses instead of being billed
+                // and cancelled at once.
                 core_db::contracts::update_change_order_status(
                     &mut *ctx.tx,
                     org_id,
                     contract.id,
                     order_id,
                     "billed",
+                    &["approved"],
                     None,
                     None,
                     Some(invoice.id),
@@ -1336,12 +1341,18 @@ pub async fn record_payment(
             created_by: Some(user_id),
         };
         core_db::invoices::insert_payment(&mut *ctx.tx, &payment).await?;
-        let after =
-            core_db::invoices::apply_payment_total(&mut *ctx.tx, org_id, id, req.amount_minor)
-                .await?
-                .ok_or_else(|| {
-                    ApiError::Conflict("invoice left its payable state; retry".into())
-                })?;
+        // The total this receipt was validated against rides into the
+        // predicate: if a concurrent edit or settlement moved it, the write
+        // loses with a typed 409 and this transaction rolls the payment
+        // row back with it.
+        let after = core_db::invoices::apply_payment_total_expecting(
+            &mut *ctx.tx,
+            org_id,
+            id,
+            req.amount_minor,
+            invoice.total_minor,
+        )
+        .await?;
 
         ctx.emit(
             types::INVOICE_PAYMENT_RECORDED,

@@ -410,14 +410,20 @@ pub async fn set_status(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
+        // Last-active-owner guard: deactivating must never orphan the org
+        // without an owner. The lock comes FIRST — before the entry read
+        // and the count — so two overlapping removals cannot both count two
+        // owners and both pass: the second queues here, then reads the
+        // first's committed deactivation and refuses. Read and count are
+        // then one decision with the write below. A replay returns above
+        // and never takes it.
+        core_db::org_users::lock_owner_guard(&mut *ctx.tx, org_id).await?;
         let before = load_entry(&mut ctx, org_id, id).await?;
         if before.id == actor_id && !req.active {
             return Err(ApiError::Validation(
                 "you cannot deactivate your own account".into(),
             ));
         }
-        // Last-active-owner guard: deactivating (or already-deactivated
-        // owner shenanigans) must never orphan the org without an owner.
         if !req.active && before.org_role.as_deref() == Some(BuiltinRole::Owner.as_str()) {
             let owners = core_db::org_users::count_active_with_builtin_role(
                 &mut *ctx.tx,
@@ -552,6 +558,10 @@ pub async fn set_role(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
+        // Same last-active-owner decision as `set_status`, and the same
+        // lock before the read: a demotion and a deactivation racing on an
+        // org with two owners must not both see "two" and both proceed.
+        core_db::org_users::lock_owner_guard(&mut *ctx.tx, org_id).await?;
         let before = load_entry(&mut ctx, org_id, id).await?;
         let role_id =
             core_db::org_users::find_builtin_role_id(&mut *ctx.tx, org_id, role.as_str()).await?;

@@ -13,13 +13,23 @@
 //! this route is never polled by surfaces that never saw answers.
 //! Master-switch/OFF posture does NOT 5xx here: the read is honest over
 //! whatever exists.
+//!
+//! Access: the same two-step gate every ticket-scoped read in this
+//! router uses — the `tickets:view` matrix entry, then the board gate on
+//! the ticket's own board (a board denial always wins; a membership row
+//! never expands access). Both run before a single answer row is read,
+//! so an unauthorized caller learns nothing about suggestions.
 
+use crate::auth::middleware::require_permission;
 use crate::error::ApiResult;
+use crate::routes::board_access::authorize_board_op;
 use crate::routes::decision_edge;
+use crate::routes::tickets::tickets;
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::http::Extensions;
 use axum::Json;
+use core_domain::policy::{Action, BoardOp};
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -57,10 +67,13 @@ pub struct DecisionSuggestionsResponse {
 
 /// GET /api/tickets/{id}/decision-suggestions — the workbench card's
 /// read. Optimistic UI rides the instant-first envelope upstream; this
-/// endpoint is a plain RLS'd read (nothing to undo, nothing to gate).
+/// endpoint is a plain RLS'd read scoped by the ticket gate: the
+/// `tickets:view` permission, then the board gate on the ticket's own
+/// board (403), then the ticket itself (404 outside the org).
 #[utoipa::path(operation_id = "tickets_decision_suggestions", get, path = "/api/tickets/{id}/decision-suggestions", tag = "tickets", security(("bearer" = [])),
     params(("id" = Uuid, Path)), responses(
         (status = 200, body = DecisionSuggestionsResponse),
+        (status = 403, description = "missing tickets:view, or a board denial"),
         (status = 404, description = "ticket not visible in scope (rls_sparse)")))]
 pub async fn list(
     State(state): State<AppState>,
@@ -68,10 +81,18 @@ pub async fn list(
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<DecisionSuggestionsResponse>> {
     let authed = crate::auth::middleware::authed::<crate::auth::AuthedUser>(&extensions)?;
+    // The twin of `GET /tickets/{id}/links`: the org-level ticket
+    // permission first, then the board gate on the ticket's OWN board.
+    // Order matters — the permission refusal costs no query, and the
+    // ticket is resolved (404 outside the org) before any answer row is
+    // touched.
+    require_permission(&authed.principal, tickets(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
     let mut tx = crate::routes::ai_policy::org_bound_tx(&state, org_id, user_id).await?;
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    authorize_board_op(&mut *tx, &authed.principal, ticket.board_id, BoardOp::View).await?;
     // RLS proves visibility: an invisible ticket reads as no answers at
     // all (never a 404 leak about entities the caller cannot see).
     let rows = core_db::decision::latest_answers_for_ticket(&mut *tx, org_id, id).await?;

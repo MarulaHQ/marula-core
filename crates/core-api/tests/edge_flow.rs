@@ -537,3 +537,95 @@ async fn edge_login_respects_the_org_mfa_gate() {
         "no tokens while a second factor is enrolled"
     );
 }
+
+// ---------------------------------------------------------------------------
+// pre-auth name scope (Wave 54 lane S3e, migration 0159)
+// ---------------------------------------------------------------------------
+
+/// `POST /api/auth/edge/{name}/exchange` resolves the source before any
+/// tenant is known, so an edge source name is claimed deployment-wide. The
+/// schema used to allow `UNIQUE (org_id, name)` and the bridge took
+/// `ORDER BY created_at LIMIT 1`: with two orgs holding `okta`, every
+/// exchange resolved the older row, so the second org's assertions were
+/// verified against the FIRST org's pinned JWKS and issuer — an SSO outage
+/// for that org, and its own source was unreachable.
+///
+/// This test is the two-org shape of that fixture: alpha names a source,
+/// bravo is refused the same name with a typed conflict, and the name still
+/// resolves to alpha's source id.
+#[tokio::test(flavor = "multi_thread")]
+async fn edge_source_name_is_claimed_by_one_workspace_and_resolves_to_it() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let suffix = Uuid::now_v7().simple().to_string()[16..].to_string();
+    let name = format!("shared-{suffix}");
+
+    let alpha = register_org(&app, &format!("edge-alpha-{suffix}")).await;
+    let alpha_owner = alpha["access_token"].as_str().unwrap();
+    let alpha_org = alpha["org_id"].as_str().unwrap().to_string();
+    let (jwks_url, _signing_pem, _jwks) = spawn_jwks().await;
+    let alpha_source = configure_edge_source(&app, alpha_owner, &name, &jwks_url, true).await;
+    let alpha_source_id = alpha_source["id"].as_str().unwrap().to_string();
+
+    assert_eq!(
+        resolved_source(&state.pool, &name).await,
+        Some((alpha_source_id.clone(), alpha_org.clone())),
+        "the enabled source resolves to its own org"
+    );
+
+    // A second workspace claiming the same exchange path is refused, typed.
+    let bravo = register_org(&app, &format!("edge-bravo-{suffix}")).await;
+    let bravo_owner = bravo["access_token"].as_str().unwrap();
+    let (bravo_jwks, _bravo_pem, _bravo) = spawn_jwks().await;
+    let conflict = send(
+        &app,
+        axum::http::Method::PUT,
+        &format!("/api/auth/edge/sources/{name}"),
+        Some(bravo_owner),
+        Some(json!({
+            "display_name": "Bravo Access",
+            "issuer": "https://bravo.cloudflareaccess.com",
+            "audience": "bravo.aud.tag",
+            "jwks_url": bravo_jwks,
+            "enabled": true,
+        })),
+    )
+    .await;
+    assert_eq!(
+        conflict.status(),
+        axum::http::StatusCode::CONFLICT,
+        "a name another workspace holds is a typed conflict, not a second row"
+    );
+    let body = body_json(conflict).await;
+    assert_eq!(body["error"]["reason"], "edge_source_name_taken");
+
+    // The refusal left alpha's pins in place: the name still resolves to
+    // alpha's source, so a bravo-signed assertion cannot be verified
+    // against bravo's JWKS.
+    assert_eq!(
+        resolved_source(&state.pool, &name).await,
+        Some((alpha_source_id.clone(), alpha_org.clone()))
+    );
+
+    // Re-upserting inside the owning org still updates in place: the global
+    // index must not break the single-org replace path.
+    let replaced = configure_edge_source(&app, alpha_owner, &name, &jwks_url, true).await;
+    assert_eq!(replaced["id"].as_str().unwrap(), alpha_source_id);
+    let rows: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM edge_assertion_configs WHERE name = $1")
+            .bind(&name)
+            .fetch_one(&state.pool)
+            .await
+            .expect("count sources by name");
+    assert_eq!(rows.0, 1, "one row per name, deployment-wide");
+}
+
+async fn resolved_source(pool: &sqlx::PgPool, name: &str) -> Option<(String, String)> {
+    let row: Option<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT source_id, org_id FROM app_resolve_edge_source($1)")
+            .bind(name)
+            .fetch_optional(pool)
+            .await
+            .expect("pre-auth source bridge");
+    row.map(|(source_id, org_id)| (source_id.to_string(), org_id.to_string()))
+}

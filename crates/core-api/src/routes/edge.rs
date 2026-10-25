@@ -140,7 +140,8 @@ pub async fn sources_list(
 #[utoipa::path(operation_id = "edge_source_upsert", put, path = "/api/auth/edge/sources/{name}",
     tag = "auth", security(("bearer" = [])), params(("name" = String, Path)),
     request_body = UpsertEdgeSourceRequest,
-    responses((status = 200, body = EdgeSourceInfo), (status = 403)))]
+    responses((status = 200, body = EdgeSourceInfo), (status = 403),
+        (status = 409, description = "this name is already claimed by another workspace")))]
 pub async fn sources_upsert(
     State(state): State<AppState>,
     extensions: Extensions,
