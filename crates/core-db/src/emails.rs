@@ -12,7 +12,9 @@
 //! stores and retrieves.
 
 use crate::{DbError, DbResult};
-use core_domain::entities::{EmailDirection, EmailMessage, ScanStatus};
+use core_domain::entities::{
+    EmailDirection, EmailMessage, ScanStatus, SenderBindingDecisionSource, SenderBindingState,
+};
 use core_domain::settings::{board_identity_key, board_identity_parts, BoardIdentityField};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -83,18 +85,40 @@ pub struct NewMessage {
     pub scan_status: ScanStatus,
     /// Transport label recorded for observability (`postmark`, `smtp`, …).
     pub transport: String,
+    /// Whether the sender was already a participant on the ticket this
+    /// message names (Wave 55, decision 4). Outbound rows and the new-ticket
+    /// path carry `NotRequired`.
+    pub sender_binding: SenderBindingState,
+    /// The typed reason a message is held, or the reason recorded with a
+    /// decision. `None` when the sender bound (or no ticket was in play).
+    pub sender_binding_reason: Option<String>,
+    /// The ticket routing resolved from the thread or subject token. Kept
+    /// apart from `ticket_id` so a held message is not attached by routing
+    /// alone, and so a person can accept it in one act.
+    pub sender_binding_candidate_ticket_id: Option<Uuid>,
+    /// The decision engine's proposal when the org runs `shadow` or
+    /// `autonomous`. `None` under `human_only`, where no engine is asked.
+    pub sender_binding_proposal: Option<serde_json::Value>,
 }
 
 /// Idempotent insert: returns `Some(id)` when THIS call persisted the row,
 /// `None` when a message with the same (org, rfc_message_id) already
 /// exists — the replay-detection primitive for inbound processing.
+///
+/// The sender-binding columns are written in the SAME statement as the rest
+/// of the row, so a replayed delivery cannot arrive at a state the first
+/// delivery never wrote. The hold is claimed with the message or not at all.
 pub async fn insert_message(conn: &mut PgConnection, m: &NewMessage) -> DbResult<Option<Uuid>> {
     let row = sqlx::query!(
         r#"INSERT INTO email_messages (id, org_id, direction, rfc_message_id, in_reply_to,
                                        email_refs, subject, from_address, from_name,
                                        to_addresses, body_text, ticket_id, comment_id,
-                                       scan_status, transport)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                                       scan_status, transport, sender_binding,
+                                       sender_binding_reason,
+                                       sender_binding_candidate_ticket_id,
+                                       sender_binding_proposal)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                   $17, $18, $19)
            ON CONFLICT (org_id, rfc_message_id) DO NOTHING
            RETURNING id"#,
         m.id,
@@ -112,6 +136,10 @@ pub async fn insert_message(conn: &mut PgConnection, m: &NewMessage) -> DbResult
         m.comment_id,
         m.scan_status.as_str(),
         m.transport,
+        m.sender_binding.as_str(),
+        m.sender_binding_reason,
+        m.sender_binding_candidate_ticket_id,
+        m.sender_binding_proposal,
     )
     .fetch_optional(&mut *conn)
     .await?;
@@ -341,6 +369,211 @@ where
     .fetch_optional(executor)
     .await?;
     Ok(id)
+}
+
+// --- Wave 55: inbound sender binding ----------------------------------------
+//
+// Record 4 of the Wave 54 security decisions. A reply may only join an
+// existing ticket when its `From` is already a participant on that ticket.
+// Everything below answers "is this address a participant" and records what
+// was decided when the answer is no.
+
+/// How a sender relates to the ticket their message names. One row of three
+/// booleans: the requester, the ticket's contact, or an address the ticket
+/// has already corresponded with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SenderStanding {
+    pub requester: bool,
+    pub contact: bool,
+    pub corresponded: bool,
+}
+
+impl SenderStanding {
+    /// True when the sender is already part of this ticket.
+    #[must_use]
+    pub const fn is_participant(self) -> bool {
+        self.requester || self.contact || self.corresponded
+    }
+
+    /// What made the sender a participant, for the ledger's reason column.
+    /// `None` when they are not one.
+    #[must_use]
+    pub const fn matched_on(self) -> Option<&'static str> {
+        if self.requester {
+            Some("ticket_requester")
+        } else if self.contact {
+            Some("ticket_contact")
+        } else if self.corresponded {
+            Some("ticket_correspondence")
+        } else {
+            None
+        }
+    }
+}
+
+/// Resolves the sender's standing against one ticket, inside the caller's
+/// transaction and org scope. `from_address` is compared case-insensitively.
+///
+/// "Corresponded with" means the direction matters: on an inbound row the
+/// participant is `from_address`, on an outbound row it is one of the
+/// recipients, because a row's `from_address` on outbound mail is Marula's
+/// own address rather than the correspondent's.
+pub async fn resolve_sender_standing<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    ticket_id: Uuid,
+    from_address: &str,
+) -> DbResult<SenderStanding>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sender = from_address.trim().to_ascii_lowercase();
+    let row = sqlx::query!(
+        r#"SELECT
+             EXISTS (
+               SELECT 1 FROM tickets t
+                 JOIN users u ON u.id = t.requester_id
+               WHERE t.org_id = $1 AND t.id = $2 AND lower(u.email) = $3
+             ) AS "requester!",
+             EXISTS (
+               SELECT 1 FROM tickets t
+                 JOIN contacts c ON c.id = t.contact_id
+               WHERE t.org_id = $1 AND t.id = $2 AND lower(c.email) = $3
+             ) AS "contact!",
+             EXISTS (
+               SELECT 1 FROM email_messages m
+               WHERE m.org_id = $1 AND m.ticket_id = $2
+                 AND (
+                   (m.direction = 'inbound' AND lower(m.from_address) = $3)
+                   OR (m.direction = 'outbound' AND EXISTS (
+                         SELECT 1 FROM unnest(m.to_addresses) AS addr
+                         WHERE lower(addr) = $3))
+                 )
+             ) AS "corresponded!""#,
+        org_id,
+        ticket_id,
+        sender,
+    )
+    .fetch_one(executor)
+    .await?;
+    Ok(SenderStanding {
+        requester: row.requester,
+        contact: row.contact,
+        corresponded: row.corresponded,
+    })
+}
+
+/// One inbound message waiting for a decision, as the triage queue renders
+/// it. The body and the routing candidate travel with it so a person can
+/// accept without opening the raw payload.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct HeldMessage {
+    pub id: Uuid,
+    pub rfc_message_id: String,
+    pub from_address: String,
+    pub from_name: Option<String>,
+    pub subject: Option<String>,
+    pub body_text: Option<String>,
+    pub sender_binding: String,
+    pub sender_binding_reason: Option<String>,
+    pub sender_binding_candidate_ticket_id: Option<Uuid>,
+    pub sender_binding_proposal: Option<serde_json::Value>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Reviewed rows, newest first. Callers run this on an org-scoped connection
+/// so RLS applies; `limit` is caller-bounded.
+pub async fn list_held<'e, E>(executor: E, org_id: Uuid, limit: i64) -> DbResult<Vec<HeldMessage>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let rows = sqlx::query_as!(
+        HeldMessage,
+        r#"SELECT id, rfc_message_id, from_address, from_name, subject, body_text,
+                  sender_binding, sender_binding_reason,
+                  sender_binding_candidate_ticket_id, sender_binding_proposal, created_at
+           FROM email_messages
+           WHERE org_id = $1 AND direction = 'inbound' AND sender_binding = 'held'
+           ORDER BY created_at DESC
+           LIMIT $2"#,
+        org_id,
+        limit,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}
+
+/// One held message by id, in any state — the read a decision takes before
+/// it acts, so "already decided" is distinguishable from "not here".
+pub async fn get_binding_message<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    message_id: Uuid,
+) -> DbResult<HeldMessage>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let row = sqlx::query_as!(
+        HeldMessage,
+        r#"SELECT id, rfc_message_id, from_address, from_name, subject, body_text,
+                  sender_binding, sender_binding_reason,
+                  sender_binding_candidate_ticket_id, sender_binding_proposal, created_at
+           FROM email_messages
+           WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        message_id,
+    )
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(row)
+}
+
+/// The decision applied to one held message. `ticket_id` and `comment_id`
+/// are set together on acceptance and stay null on refusal — that pairing is
+/// what keeps a refused message off every ticket.
+#[derive(Debug, Clone)]
+pub struct HeldDecision {
+    pub org_id: Uuid,
+    pub message_id: Uuid,
+    pub state: SenderBindingState,
+    pub ticket_id: Option<Uuid>,
+    pub comment_id: Option<Uuid>,
+    pub reason: Option<String>,
+    pub source: SenderBindingDecisionSource,
+    /// The person who decided; `None` for an engine decision.
+    pub decided_by: Option<Uuid>,
+}
+
+/// Applies a decision to a message that is STILL held. Returns `false` when
+/// the message is no longer held (a second decision, or one racing the
+/// engine), which callers surface as a typed conflict rather than retrying.
+/// The guarded update is the whole idempotency story: one row, one state
+/// transition, no second comment.
+pub async fn decide_held(conn: &mut PgConnection, d: &HeldDecision) -> DbResult<bool> {
+    let applied = sqlx::query!(
+        r#"UPDATE email_messages
+           SET sender_binding = $3,
+               sender_binding_decided_at = now(),
+               sender_binding_decided_by = $4,
+               sender_binding_decided_source = $5,
+               sender_binding_reason = COALESCE($6, sender_binding_reason),
+               ticket_id = $7,
+               comment_id = $8
+           WHERE org_id = $1 AND id = $2 AND sender_binding = 'held'"#,
+        d.org_id,
+        d.message_id,
+        d.state.as_str(),
+        d.decided_by,
+        d.source.as_str(),
+        d.reason,
+        d.ticket_id,
+        d.comment_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(applied.rows_affected() > 0)
 }
 
 /// Where an inbound recipient address routes: org + target board.

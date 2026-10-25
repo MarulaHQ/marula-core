@@ -4,9 +4,16 @@
 //! (constant-time), canonical payload parsing, and handoff to the email
 //! pipeline. Machine-to-machine surface — deliberately NOT in OpenAPI/SDK.
 //!
+//! The shared secret authenticates the CHANNEL, not the author. It proves a
+//! message came through the mail provider and says nothing about who wrote
+//! it, so the author is established later, against the ticket the message
+//! names: `crate::email::process_inbound` holds a message from anyone who is
+//! not already a participant on that ticket (Wave 55, decision 4) and the
+//! org's `email.inbound_sender_binding` level decides whether a person, the
+//! engine with a recorded proposal, or the engine alone settles it.
+//!
 //! Non-purpose: no provider-specific payload dialects (providers are
-//! adapted at the edge into the canonical shape) and no JWT auth — the
-//! shared secret IS the authentication.
+//! adapted at the edge into the canonical shape) and no JWT auth.
 
 use crate::email;
 use crate::error::{ApiError, ApiResult};
@@ -24,8 +31,11 @@ pub const SIGNATURE_HEADER: &str = "X-Marula-Signature";
 /// POST /api/webhooks/email-inbound — accepts one normalized message.
 ///
 /// Responses: 202 with a terminal `status` (comment / ticket_created /
-/// quarantined / duplicate / unrouted); 401 bad signature; 422 malformed
-/// payload; 503 when no inbound secret is configured (disabled none mode).
+/// quarantined / duplicate / held / unrouted); 401 bad signature; 422
+/// malformed payload; 503 when no inbound secret is configured (disabled
+/// none mode). `held` means the sender is not a participant on the ticket
+/// the message names: it is recorded, with its reason, and waits for a
+/// decision — a retry would only be answered `duplicate`.
 pub async fn email_inbound(
     State(state): State<AppState>,
     headers: HeaderMap,

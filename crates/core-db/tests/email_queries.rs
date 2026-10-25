@@ -81,6 +81,10 @@ fn inbound_msg(
         comment_id: None,
         scan_status: ScanStatus::Clean,
         transport: "webhook/test".into(),
+        sender_binding: core_domain::entities::SenderBindingState::NotRequired,
+        sender_binding_reason: None,
+        sender_binding_candidate_ticket_id: None,
+        sender_binding_proposal: None,
     }
 }
 

@@ -258,6 +258,10 @@ async fn ticket_emails_list_inbound_outbound_reply_chains_and_scope() {
             comment_id: None,
             scan_status: core_domain::entities::ScanStatus::Clean,
             transport: "webhook/scripted".into(),
+            sender_binding: core_domain::entities::SenderBindingState::NotRequired,
+            sender_binding_reason: None,
+            sender_binding_candidate_ticket_id: None,
+            sender_binding_proposal: None,
         },
     )
     .await

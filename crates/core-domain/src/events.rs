@@ -145,6 +145,10 @@ pub mod types {
     /// Emitted when a user overrides one preference row.
     pub const NOTIFICATION_PREFS_UPDATED: &str = "notification_prefs.updated";
     pub const EMAIL_MESSAGE_RECORDED: &str = "email.message_recorded";
+    /// A held inbound message was accepted onto a ticket or refused
+    /// (Wave 55, decision 4). `source` distinguishes a person's act from
+    /// the engine's, so an autonomous org can still audit which happened.
+    pub const EMAIL_SENDER_BINDING_DECIDED: &str = "email.sender_binding_decided";
     /// CSAT surveys on resolution (Wave 34 lane 2): the worker sent (or
     /// honestly skipped) the tokenized survey email for a resolved ticket.
     pub const CSAT_SURVEY_SENT: &str = "csat.survey_sent";
@@ -1260,6 +1264,28 @@ pub struct EmailMessageRecorded {
     /// consumers to the enum across versions.
     pub direction: String,
     pub outcome: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub ticket_id: Option<TicketId>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub comment_id: Option<uuid::Uuid>,
+}
+
+/// A held inbound message was decided (Wave 55, decision 4). Emitted from
+/// the same transaction as the decision, for a person and for the engine,
+/// so a consumer sees one shape either way and `source` says which act it
+/// was.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct EmailSenderBindingDecided {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub message_id: uuid::Uuid,
+    pub rfc_message_id: String,
+    /// "accepted" | "refused".
+    pub decision: String,
+    /// "human" | "engine".
+    pub source: String,
+    /// The org's triage level when the decision was applied.
+    pub level: String,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub ticket_id: Option<TicketId>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
