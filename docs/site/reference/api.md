@@ -3,7 +3,7 @@
 
 **Marula Core API 0.1.0** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**651 paths · 872 operations · 1368 schemas.**
+**657 paths · 878 operations · 1379 schemas.**
 
 ## admin
 
@@ -141,13 +141,14 @@
 | `POST` | `/api/v1/auth/magic-link/confirm` <a id="auth_magic_link_confirm"></a> | POST /api/auth/magic-link/confirm — consumes the link and issues a full session through the SAME machinery as password login. STAFF family only (the portal is NOT included — see the threat model). | [MagicLinkConfirm](#schema-magiclinkconfirm) |
 | `POST` | `/api/v1/auth/magic-link/request` <a id="auth_magic_link_request"></a> | POST /api/auth/magic-link/request — deny-by-default per org (`orgs.magic_link_sign_in`, 0088): unknown emails AND disabled orgs collapse into the SAME uniform answer. | [EmailVerifyRequest](#schema-emailverifyrequest) |
 | `POST` | `/api/v1/auth/mfa/recovery-codes/regenerate` <a id="mfa_recovery_regenerate"></a> | POST /api/auth/mfa/recovery-codes/regenerate — invalidates all previous codes, issues a new batch (revealed once). | [RegenerateRecoveryRequest](#schema-regeneraterecoveryrequest) |
+| `POST` | `/api/v1/auth/mfa/step-up` <a id="mfa_step_up"></a> | POST /api/auth/mfa/step-up — proves password plus a live factor and records it against this sign-in lineage. | [MfaStepUpRequest](#schema-mfastepuprequest) |
 | `POST` | `/api/v1/auth/mfa/totp/disable` <a id="mfa_totp_disable"></a> | POST /api/auth/mfa/totp/disable — requires password AND a live factor; wipes TOTP enrollment and all recovery codes. | [TotpDisableRequest](#schema-totpdisablerequest) |
-| `POST` | `/api/v1/auth/mfa/totp/enroll-begin` <a id="mfa_totp_enroll_begin"></a> | POST /api/auth/mfa/totp/enroll-begin — generates a secret (returned ONCE) and stores it sealed+unconfirmed. Re-calling restarts enrollment safely. | — |
+| `POST` | `/api/v1/auth/mfa/totp/enroll-begin` <a id="mfa_totp_enroll_begin"></a> | POST /api/auth/mfa/totp/enroll-begin — generates a secret (returned ONCE) and stores it sealed+unconfirmed. | — |
 | `POST` | `/api/v1/auth/mfa/totp/enroll-verify` <a id="mfa_totp_enroll_verify"></a> | POST /api/auth/mfa/totp/enroll-verify — confirms the enrollment with the first valid code and issues the one-time recovery-code batch. | [TotpEnrollVerifyRequest](#schema-totpenrollverifyrequest) |
 | `POST` | `/api/v1/auth/mfa/verify` <a id="mfa_verify"></a> | POST /api/auth/mfa/verify — completes an MFA-gated login with a TOTP or recovery code. Tries TOTP first (advancing the replay watermark), then falls back to single-use recovery codes. | [MfaVerifyRequest](#schema-mfaverifyrequest) |
 | `POST` | `/api/v1/auth/mfa/webauthn/begin` <a id="mfa_webauthn_login_begin"></a> | POST /api/auth/mfa/webauthn/begin — assertion request for the pending MFA login. Requires a valid mfa_pending token. | [MfaTokenRequest](#schema-mfatokenrequest) |
 | `GET` | `/api/v1/auth/mfa/webauthn/credentials` <a id="mfa_webauthn_list"></a> | GET /api/auth/mfa/webauthn/credentials — list registered passkeys. | — |
-| `POST` | `/api/v1/auth/mfa/webauthn/credentials/{id}/remove` <a id="mfa_webauthn_remove"></a> | POST /api/auth/mfa/webauthn/credentials/{id}/remove — password-gated removal of one passkey. | [WebauthnRemoveRequest](#schema-webauthnremoverequest) |
+| `POST` | `/api/v1/auth/mfa/webauthn/credentials/{id}/remove` <a id="mfa_webauthn_remove"></a> | POST /api/auth/mfa/webauthn/credentials/{id}/remove — removes one passkey. | [WebauthnRemoveRequest](#schema-webauthnremoverequest) |
 | `POST` | `/api/v1/auth/mfa/webauthn/finish` <a id="mfa_webauthn_login_finish"></a> | POST /api/auth/mfa/webauthn/finish — verifies the assertion and issues full tokens. Ceremony state is single-use; replay of a finish call fails. | [WebauthnLoginFinishRequest](#schema-webauthnloginfinishrequest) |
 | `POST` | `/api/v1/auth/mfa/webauthn/register/begin` <a id="mfa_webauthn_register_begin"></a> | POST /api/auth/mfa/webauthn/register/begin — starts a passkey registration for the authenticated user. | — |
 | `POST` | `/api/v1/auth/mfa/webauthn/register/finish` <a id="mfa_webauthn_register_finish"></a> | POST /api/auth/mfa/webauthn/register/finish — verifies the attestation and stores the passkey. The public key is stored; no secret exists. | [WebauthnRegisterFinishRequest](#schema-webauthnregisterfinishrequest) |
@@ -165,6 +166,7 @@
 | `POST` | `/api/v1/auth/register` <a id="handlers_register"></a> | POST /api/auth/register — creates the org, its default roles/board/SLA policy, and the first user as Owner. One transaction: a half-created org can never exist. | [RegisterRequest](#schema-registerrequest) |
 | `GET` | `/api/v1/auth/sessions` <a id="auth_sessions_list"></a> | GET /api/auth/sessions — the caller's live refresh sessions (security settings page). | — |
 | `POST` | `/api/v1/auth/sessions/{id}/revoke` <a id="auth_session_revoke"></a> | POST /api/auth/sessions/{id}/revoke — kills one of the caller's own sessions (sign-out-everywhere-else primitive). | — |
+| `POST` | `/api/v1/auth/users/{id}/mfa-reset` <a id="mfa_admin_factor_reset"></a> | POST /api/auth/users/{id}/mfa-reset — clears another user's factors. | — |
 
 ## automation-rules
 
@@ -492,6 +494,8 @@
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/email/delivery-ledger` <a id="email_delivery_ledger_get"></a> | GET /api/email/delivery-ledger — the outbound message ledger (queued/sending/sent/dead) with attempts, last error, and counts. | — |
+| `GET` | `/api/v1/email/inbound-holds` <a id="email_inbound_holds_list"></a> | GET /api/email/inbound-holds — messages waiting for a decision, newest first, with the reason each is held and the engine's proposal when the org runs shadow or autonomous. | — |
+| `POST` | `/api/v1/email/inbound-holds/{id}/decide` <a id="email_inbound_hold_decide"></a> | POST /api/email/inbound-holds/{id}/decide — the person's decision on one held message. `accept` threads it onto the ticket and leaves a client-visible comment; `refuse` records the refusal. Both write the decision columns, an audit row naming the person, and `email.sender_binding_decided`. A message that is no longer held answers a typed 409, so a decision cannot thread twice. | [DecideHeldRequest](#schema-decideheldrequest) |
 | `GET` | `/api/v1/email/inbound-settings` <a id="email_inbound_settings_get"></a> | GET /api/email/inbound-settings — current org catch-all, if configured. | — |
 | `PUT` | `/api/v1/email/inbound-settings` <a id="email_inbound_settings_put"></a> | PUT /api/email/inbound-settings — upsert the org catch-all route. | [PutInboundSettingsRequest](#schema-putinboundsettingsrequest) |
 | `PUT` | `/api/v1/email/outbound-settings` <a id="email_outbound_settings_put"></a> | PUT /api/email/outbound-settings — partial update of the org outbound identity, transport selection, and digest policy. Values are validated against their registry declarations before any write. | [PutOutboundSettingsRequest](#schema-putoutboundsettingsrequest) |
@@ -804,6 +808,8 @@
 | `POST` | `/api/v1/plugins/installed/{id}/consent` <a id="plugin_install_update_consent"></a> | POST /api/plugins/installed/{id}/consent — commit the CONSENTED update: the swap IS the consent action (deny-by-default — until the owner/admin consents, the OLD version is what runs). Consent appends the provenance chain and rides the existing update event. | — |
 | `POST` | `/api/v1/plugins/installed/{id}/discard-update` <a id="plugin_install_update_discard"></a> | POST /api/plugins/installed/{id}/discard-update — abandon the pending re-consent (the OLD version keeps running; the pending columns clear). | — |
 | `GET` | `/api/v1/plugins/installed/{id}/provenance` <a id="plugin_distribution_provenance_list"></a> | GET /api/plugins/installed/{id}/provenance — the append-only `{source_kind, source_url, fetched_ref, artifact_digest, uploader}` for one install. The chain SURVIVES terminal uninstalls (no cascade). | — |
+| `POST` | `/api/v1/plugins/installed/{id}/revoke` <a id="plugin_install_revoke"></a> | POST /api/plugins/installed/{id}/revoke — the org's own kill switch for ONE install. | [RevokeInstallRequest](#schema-revokeinstallrequest) |
+| `POST` | `/api/v1/plugins/installed/{id}/rollback` <a id="plugin_install_rollback"></a> | POST /api/plugins/installed/{id}/rollback — move the pin back to the previous digest. | — |
 | `GET` | `/api/v1/plugins/installed/{id}/settings` <a id="plugin_install_settings_get"></a> | GET /api/plugins/installed/{id}/settings — the render source: the pinned manifest's declared JSON-Schema + the validated config. | — |
 | `PATCH` | `/api/v1/plugins/installed/{id}/settings` <a id="plugin_install_settings_put"></a> | PATCH /api/plugins/installed/{id}/settings — the config is validated against the pinned manifest's schema AT THE WRITE BOUNDARY (the typed-registry doctrine: no hand-authored per-plugin pages, and a plugin with no declared schema gets consent/enable/disable only — this endpoint refuses its config writes). Every write is audited. | [PutInstallSettingsRequest](#schema-putinstallsettingsrequest) |
 | `GET` | `/api/v1/plugins/installed/{id}/update` <a id="plugin_install_update_get"></a> | GET /api/plugins/installed/{id}/update — the pending-state read (the consent screen shows exactly what consent would do). | — |
@@ -1255,7 +1261,7 @@
 | `POST` | `/api/v1/tickets` <a id="tickets_create"></a> | POST /api/tickets — allocates the human ticket number, initializes SLA clocks, validates + stores any initial custom-field values (REQUIRED definitions enforced), and emits `ticket.created` — all in one transaction. Instant-first (IF1/IF2): routed through the shared idempotency gate and returns the read-your-write `mutation` metadata. | [CreateTicketRequest](#schema-createticketrequest) |
 | `GET` | `/api/v1/tickets/{id}` <a id="tickets_get_one"></a> | GET /api/tickets/{id} — a conditional read. | — |
 | `PATCH` | `/api/v1/tickets/{id}` <a id="tickets_patch"></a> | PATCH /api/tickets/{id} — partial update; validates + upserts any provided custom-field values; emits `ticket.updated`, `ticket.field_set` (per changed field), and `ticket.assigned` when the assignee changes. Instant-first (IF1/IF2): idempotency-keyed, version- gated, and returns prior + new values for undo. | [PatchTicketRequest](#schema-patchticketrequest) |
-| `GET` | `/api/v1/tickets/{id}/attachments` <a id="attachments_list_for_ticket"></a> | GET /api/tickets/{id}/attachments — every attachment on one ticket. | — |
+| `GET` | `/api/v1/tickets/{id}/attachments` <a id="attachments_list_for_ticket"></a> | GET /api/tickets/{id}/attachments — every attachment on one ticket that the download door would also hand out. | — |
 | `POST` | `/api/v1/tickets/{id}/attachments` <a id="attachments_upload"></a> | POST /api/tickets/{id}/attachments — stores one file against a ticket (linked to a comment later by the composer submit). | — |
 | `GET` | `/api/v1/tickets/{id}/checklist` <a id="tickets_get_checklist"></a> | GET /api/tickets/{id}/checklist — lazily instantiates any template items the ticket has not picked up yet, then returns the full view. | — |
 | `POST` | `/api/v1/tickets/{id}/checklist` <a id="tickets_add_checklist_item"></a> | POST /api/tickets/{id}/checklist — appends an ad-hoc checklist item. Ad-hoc items never block closure; emits `ticket.checklist_updated`. Instant-first (IF1/IF2): idempotency-keyed and returns the read-your-write mutation metadata for the created item. | [AddChecklistItemRequest](#schema-addchecklistitemrequest) |
@@ -1263,12 +1269,12 @@
 | `POST` | `/api/v1/tickets/{id}/checklist/complete-all` <a id="tickets_complete_all_checklist"></a> | POST /api/tickets/{id}/checklist/complete-all — the close gate's Option A batch (docs/notes-tasks-workbar.md §4.2/§5.3): every listed task flips to `checked` AND lands its server-composed auto-append note, ALL in one transaction with per-item idempotency keys (`complete-all:{ticket}:{item}`- derived under the caller's envelope key). Items already terminal (checked/N-A) are skipped idempotently; an unknown id 404s the whole batch (atomicity). Every appended note carries `workflow_meta { kind: "task_closeall", auto: true, item_ids: [..] }` — the REPORTED auto-close provenance the close-gate dialog displays. Also usable pre-close, not only at the gate. | [CompleteAllRequest](#schema-completeallrequest) |
 | `GET` | `/api/v1/tickets/{id}/comments` <a id="tickets_list_comments"></a> | GET /api/tickets/{id}/comments — internal notes require ticket view; the portal surface filters kinds separately (portal v1). | — |
 | `POST` | `/api/v1/tickets/{id}/comments` <a id="tickets_add_comment"></a> | POST /api/tickets/{id}/comments — adds a structured note; @mentions fan out into the notification center. Instant-first (IF1/IF2): idempotency-keyed and returns the read-your-write mutation metadata. | [AddCommentRequest](#schema-addcommentrequest) |
-| `GET` | `/api/v1/tickets/{id}/comments/{comment_id}/attachments` <a id="attachments_list_for_comment"></a> | GET /api/tickets/{id}/comments/{comment_id}/attachments — one comment's attachments. | — |
+| `GET` | `/api/v1/tickets/{id}/comments/{comment_id}/attachments` <a id="attachments_list_for_comment"></a> | GET /api/tickets/{id}/comments/{comment_id}/attachments — one comment's attachments that the download door would also hand out. | — |
 | `GET` | `/api/v1/tickets/{id}/cost-lines` <a id="tickets_list_cost_lines"></a> | GET /api/tickets/{id}/cost-lines | — |
 | `POST` | `/api/v1/tickets/{id}/cost-lines` <a id="tickets_create_cost_line"></a> | POST /api/tickets/{id}/cost-lines — add a money line (parts/flat/other). | [CreateCostLineRequest](#schema-createcostlinerequest) |
 | `DELETE` | `/api/v1/tickets/{id}/cost-lines/{line_id}` <a id="tickets_remove_cost_line"></a> | DELETE /api/tickets/{id}/cost-lines/{line_id} — remove an unbilled line. | — |
 | `PATCH` | `/api/v1/tickets/{id}/cost-lines/{line_id}` <a id="tickets_update_cost_line"></a> | PATCH /api/tickets/{id}/cost-lines/{line_id} — edit an unbilled line. | [UpdateCostLineRequest](#schema-updatecostlinerequest) |
-| `GET` | `/api/v1/tickets/{id}/decision-suggestions` <a id="tickets_decision_suggestions"></a> | GET /api/tickets/{id}/decision-suggestions — the workbench card's read. Optimistic UI rides the instant-first envelope upstream; this endpoint is a plain RLS'd read (nothing to undo, nothing to gate). | — |
+| `GET` | `/api/v1/tickets/{id}/decision-suggestions` <a id="tickets_decision_suggestions"></a> | GET /api/tickets/{id}/decision-suggestions — the workbench card's read. Optimistic UI rides the instant-first envelope upstream; this endpoint is a plain RLS'd read scoped by the ticket gate: the `tickets:view` permission, then the board gate on the ticket's own board (403), then the ticket itself (404 outside the org). | — |
 | `GET` | `/api/v1/tickets/{id}/emails` <a id="tickets_list_emails"></a> | GET /api/tickets/{id}/emails — every ledger row routed to this ticket (inbound + outbound), newest first, with reply-chain parents resolved and outbound delivery state projected from the retry ledger. | — |
 | `GET` | `/api/v1/tickets/{id}/expenses` <a id="tickets_list_expenses"></a> | GET /api/tickets/{id}/expenses — the ticket's expense entries. | — |
 | `POST` | `/api/v1/tickets/{id}/expenses` <a id="tickets_create_expense"></a> | POST /api/tickets/{id}/expenses — record an expense entry. | [CreateExpenseRequest](#schema-createexpenserequest) |
@@ -1563,7 +1569,7 @@
 | <a id="schema-boardtransitionsresponse"></a>`BoardTransitionsResponse` | object | GET response for a board's workflow: either its explicit matrix or the marker that the semantic-category floor governs. |
 | <a id="schema-bookrequest"></a>`BookRequest` | composite |  |
 | <a id="schema-bookresponse"></a>`BookResponse` | object |  |
-| <a id="schema-bulkdecisionitem"></a>`BulkDecisionItem` | object | Per-item outcome of a bulk decision: applied entries carry the new snapshot; refused entries name exactly why (not-in-queue, locked, or not visible in scope), so the client flags rows instead of guess |
+| <a id="schema-bulkdecisionitem"></a>`BulkDecisionItem` | object | Per-item outcome of a bulk decision: applied entries carry the new snapshot; refused entries name exactly why (`own_entry`, not-in-queue, locked, or not visible in scope), so the client flags rows ins |
 | <a id="schema-bulkdecisionrequest"></a>`BulkDecisionRequest` | object |  |
 | <a id="schema-bulkdecisionresponse"></a>`BulkDecisionResponse` | object |  |
 | <a id="schema-bulkentrysuggestionsresponse"></a>`BulkEntrySuggestionsResponse` | object |  |
@@ -1584,7 +1590,7 @@
 | <a id="schema-calendardeadlinesresponse"></a>`CalendarDeadlinesResponse` | object |  |
 | <a id="schema-calendarexclusion"></a>`CalendarExclusion` | object | Absolute UTC time-off punching holes in availability. |
 | <a id="schema-calendaritem"></a>`CalendarItem` | object | Flat merged entry so calendars render one ordered list without caring which table produced it. |
-| <a id="schema-calendarsyncconnection"></a>`CalendarSyncConnection` | object | One external-calendar connection for one user's calendar. |
+| <a id="schema-calendarsyncconnectionview"></a>`CalendarSyncConnectionView` | object | One connection as the API returns it: the stored row minus the cached provider credential. A credential is written and never read back through a view (Wave 55 decision 9). The row's `access_token` is  |
 | <a id="schema-calendarsyncdirection"></a>`CalendarSyncDirection` | string | What a connection does: `outbound` serves the org's appointments to the external calendar (private token-scoped iCal feed), `inbound` polls the external feed for busy time, `two_way` does both. |
 | <a id="schema-calendarsyncevent"></a>`CalendarSyncEvent` | object | The inbound mirror of one external event. `exclusion_id` names the `calendar_exclusions` row the event currently feeds into the 2.12 availability foundation (NULL while not busy — cancelled or transpa |
 | <a id="schema-calendarsyncstatus"></a>`CalendarSyncStatus` | string | Connection health: `error` records the last poll failure while the connection stays configured; writes resume when a poll succeeds. |
@@ -1686,6 +1692,7 @@
 | <a id="schema-contractlistquery"></a>`ContractListQuery` | object |  |
 | <a id="schema-contractmutationresponse"></a>`ContractMutationResponse` | composite | Instant-first mutation response (IF2): contract aggregate at the top level plus the additive `mutation` metadata. |
 | <a id="schema-contractrate"></a>`ContractRate` | object | T&M rate card row: the hourly rate for time entries whose `work_type` matches `work_type`. Entries with no matching row bill at the contract's default `hourly_rate_minor`. |
+| <a id="schema-contractremovedack"></a>`ContractRemovedAck` | object | Acknowledgement for `DELETE /api/contracts/{id}`. Deliberately carries no rate, fee, cap, escalator or commitment: the delete is a commercial action, not a rate read (RB2), so the caller never receive |
 | <a id="schema-contractslacredit"></a>`ContractSlaCredit` | object | An SLA service credit the admin or verification flow applies for a missed SLA (E): becomes a NEGATIVE `sla_credit` line at the next run window covering `applies_on`. Never silent — the record names th |
 | <a id="schema-contractstatus"></a>`ContractStatus` | string | Lifecycle. `draft` contracts evaluate in previews (plan before activation) but Wave 9's invoice runs will refuse them; `cancelled` contracts never evaluate. `ended` keeps evaluating candidates whose d |
 | <a id="schema-contracttype"></a>`ContractType` | string | The supported commercial agreement shapes. Wave 39 adds the MSP relationship types beyond the original four: per-unit recurring (per-seat / per-device) and per-incident (per closed ticket) pricing. Pr |
@@ -1776,6 +1783,8 @@
 | <a id="schema-createviewrequest"></a>`CreateViewRequest` | object |  |
 | <a id="schema-createwebhookrequest"></a>`CreateWebhookRequest` | object |  |
 | <a id="schema-createworkflowdocumentrequest"></a>`CreateWorkflowDocumentRequest` | object |  |
+| <a id="schema-credentialbindinginput"></a>`CredentialBindingInput` | object | One binding an operator asks for, in the replace-set body of `PATCH /api/plugins/installed/{id}`. |
+| <a id="schema-credentialbindingview"></a>`CredentialBindingView` | object | What the consent screen shows for one binding: the profile, the header, and the vault record's NAME. Never a field, a value, ciphertext or a key. |
 | <a id="schema-credentialsview"></a>`CredentialsView` | object |  |
 | <a id="schema-credentialview"></a>`CredentialView` | object |  |
 | <a id="schema-creditnote"></a>`CreditNote` | object | The credit document. `issued_against_invoice_id` is the issuing context (may be `None` for a free-standing client credit); applications may target any issued invoice of the same client and currency. |
@@ -1812,6 +1821,8 @@
 | <a id="schema-dealmutationresponse"></a>`DealMutationResponse` | composite |  |
 | <a id="schema-dealstatus"></a>`DealStatus` | string | A deal's posture, mirroring its stage's kind. Kept as a distinct enum so consumers filter deals without resolving the stage row. |
 | <a id="schema-decideappointmentrequest"></a>`DecideAppointmentRequest` | composite | A staff decision body. `decision_note` is the (optional) reason shown to the client on decline and a confirmation note on approve. |
+| <a id="schema-decideheldrequest"></a>`DecideHeldRequest` | object |  |
+| <a id="schema-decideheldresponse"></a>`DecideHeldResponse` | object |  |
 | <a id="schema-decideproposalrequest"></a>`DecideProposalRequest` | object |  |
 | <a id="schema-decideresponse"></a>`DecideResponse` | object | Instant-first mutation response (IF2) for a decision. `appointment` is present ONLY on approve: the calendar booking this decision made. |
 | <a id="schema-decisionconfigmutationresponse"></a>`DecisionConfigMutationResponse` | object |  |
@@ -1965,6 +1976,8 @@
 | <a id="schema-groupmutation"></a>`GroupMutation` | object |  |
 | <a id="schema-healthresponse"></a>`HealthResponse` | object |  |
 | <a id="schema-heartbeatrequest"></a>`HeartbeatRequest` | object | POST /api/presence/heartbeat body. One heartbeat per viewer per entity instance every ~30s; entries expire after 90s without one (TTL is server-side, see `realtime::presence`). |
+| <a id="schema-heldmessagesview"></a>`HeldMessagesView` | object |  |
+| <a id="schema-heldmessageview"></a>`HeldMessageView` | object | One held message as the triage queue renders it. |
 | <a id="schema-inboundsettingsresponse"></a>`InboundSettingsResponse` | object |  |
 | <a id="schema-incidentview"></a>`IncidentView` | object | The storm group behind an incident ticket. |
 | <a id="schema-ingestalertrequest"></a>`IngestAlertRequest` | object |  |
@@ -2081,6 +2094,9 @@
 | <a id="schema-mergeresolutions"></a>`MergeResolutions` | object |  |
 | <a id="schema-mergeresponse"></a>`MergeResponse` | object |  |
 | <a id="schema-mergeworkbenchview"></a>`MergeWorkbenchView` | object |  |
+| <a id="schema-mfaresetresponse"></a>`MfaResetResponse` | object |  |
+| <a id="schema-mfastepuprequest"></a>`MfaStepUpRequest` | object |  |
+| <a id="schema-mfastepupresponse"></a>`MfaStepUpResponse` | object |  |
 | <a id="schema-mfatokenrequest"></a>`MfaTokenRequest` | object |  |
 | <a id="schema-mfaverifyrequest"></a>`MfaVerifyRequest` | object |  |
 | <a id="schema-moveappointmentrequest"></a>`MoveAppointmentRequest` | object |  |
@@ -2410,7 +2426,7 @@
 | <a id="schema-resolutionsource"></a>`ResolutionSource` | string | Which layer supplied the effective value. |
 | <a id="schema-resolveddetail"></a>`ResolvedDetail` | object | Render-ready details of a resolved reference value: names and the semantic category travel WITH the resolution so consumers never branch on labels and never need a second lookup. |
 | <a id="schema-resolvedlabel"></a>`ResolvedLabel` | object | The deterministic rendered label: absolute geometry in millimetres. |
-| <a id="schema-resolvedlink"></a>`ResolvedLink` | composite | A link with its target resolved to a display label for the UI (typed read model; the raw row never carries the label). |
+| <a id="schema-resolvedlink"></a>`ResolvedLink` | composite | A link with its target resolved to a display label for the UI (typed read model; the raw row never carries the label). A label is a READ OF THE TARGET, so it is present only when the caller's own gate |
 | <a id="schema-resolveembedrequest"></a>`ResolveEmbedRequest` | object |  |
 | <a id="schema-resolveratequery"></a>`ResolveRateQuery` | object |  |
 | <a id="schema-restoredocumentrequest"></a>`RestoreDocumentRequest` | composite |  |
@@ -2422,6 +2438,7 @@
 | <a id="schema-revertdetail"></a>`RevertDetail` | object | What the revert restored. |
 | <a id="schema-revertticketrequest"></a>`RevertTicketRequest` | composite | POST /api/tickets/{id}/revert body. |
 | <a id="schema-revokecatalogentryrequest"></a>`RevokeCatalogEntryRequest` | object |  |
+| <a id="schema-revokeinstallrequest"></a>`RevokeInstallRequest` | object |  |
 | <a id="schema-revokesignoffrequest"></a>`RevokeSignOffRequest` | object | POST /api/sign-offs/{id}/revoke |
 | <a id="schema-rolemutationresponse"></a>`RoleMutationResponse` | composite | Instant-first mutation response (IF2): the role at the top level plus the additive `mutation` metadata. |
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
@@ -2810,4 +2827,4 @@
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1368 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1379 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
