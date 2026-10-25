@@ -48,9 +48,11 @@ use uuid::Uuid;
 //
 // The noisy-neighbor floor: every secret-record/folder/grant mutation on
 // `/api/secrets/*` (plus the chunked bulk-ingestion worker path) consumes
-// one seat of its ORG'S fixed 60-second budget, so a runaway bulk
-// importer degrades only its own org and interactive vault users keep a
-// guaranteed share.
+// seats of its ORG'S fixed 60-second budget, so a runaway bulk importer
+// degrades only its own org and interactive vault users keep a guaranteed
+// share. A single-row mutation pays one seat; the bulk path pays one seat
+// per row it writes (a 100-row chunk is 100 seats), decided as one
+// all-or-nothing verdict before the first row is sealed.
 //
 // Wave 19 lane 1 made the budget cross-replica: the Wave 16 in-memory
 // fixed-window counters remain the SINGLE-REPLICA fast path (per
@@ -74,8 +76,17 @@ static VAULT_BUDGETS: OnceLock<std::sync::Mutex<HashMap<Uuid, BudgetWindow>>> = 
 /// One seat of the org's write budget; `limit == 0` disables (documented
 /// escape hatch). A breach is the typed 429 with `Retry-After`.
 pub fn check_vault_budget(state: &AppState, org_id: Uuid) -> ApiResult<()> {
+    check_vault_budget_seats(state, org_id, 1)
+}
+
+/// The multi-row form of [`check_vault_budget`]: `seats` is the number of
+/// rows the request will write, charged against the same fixed window.
+/// A request that does not fit is refused WITHOUT consuming its seats, so
+/// a refused 100-row chunk cannot empty the window for the interactive
+/// writes that follow it (the durable layer refuses the same way).
+pub fn check_vault_budget_seats(state: &AppState, org_id: Uuid, seats: u32) -> ApiResult<()> {
     let limit_per_min = state.config.vault_write_budget_per_min;
-    if limit_per_min == 0 {
+    if limit_per_min == 0 || seats == 0 {
         return Ok(());
     }
     let buckets = VAULT_BUDGETS.get_or_init(Default::default);
@@ -89,14 +100,14 @@ pub fn check_vault_budget(state: &AppState, org_id: Uuid) -> ApiResult<()> {
         window.started = now;
         window.count = 0;
     }
-    window.count += 1;
-    if window.count > limit_per_min {
+    if window.count.saturating_add(seats) > limit_per_min {
         let elapsed = now.duration_since(window.started).as_secs();
         let retry_after = VAULT_BUDGET_WINDOW_SECS.saturating_sub(elapsed).max(1);
         return Err(ApiError::RateLimited {
             retry_after_secs: i64::try_from(retry_after).unwrap_or(i64::MAX),
         });
     }
+    window.count += seats;
     Ok(())
 }
 
@@ -1630,7 +1641,6 @@ pub async fn bulk_ingest(
 ) -> ApiResult<Json<BulkSecretIngestResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, secrets(Action::Edit))?;
-    crate::vault_scale::ensure_vault_budget(&state, authed.principal.user.org_id).await?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     if req.records.is_empty() {
@@ -1641,6 +1651,15 @@ pub async fn bulk_ingest(
             "chunk exceeds the {BULK_CHUNK_CAP}-row cap; send more chunks"
         )));
     }
+    // Budget: ONE seat per row in this request, decided as a single
+    // all-or-nothing verdict — a full chunk costs a full chunk's worth of
+    // the org's write budget, so the budget bounds ROWS and not requests.
+    crate::vault_scale::ensure_vault_budget_seats(
+        &state,
+        org_id,
+        u32::try_from(req.records.len()).unwrap_or(u32::MAX),
+    )
+    .await?;
     for row in &req.records {
         if row.title.trim().is_empty() {
             return Err(ApiError::Validation("every row needs a title".into()));
