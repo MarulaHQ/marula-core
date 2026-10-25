@@ -1008,7 +1008,8 @@ pub async fn list_attachments(
     path = "/api/portal/tickets/{id}/attachments/{attachment_id}/download", tag = "portal",
     security(("bearer" = [])),
     params(("id" = Uuid, Path), ("attachment_id" = Uuid, Path)),
-    responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream"), (status = 404)))]
+    responses((status = 200, body = Vec<u8>, content_type = "application/octet-stream"), (status = 404),
+        (status = 409, description = "the attachment has no admission verdict, so it is not served")))]
 pub async fn download_attachment(
     State(state): State<AppState>,
     extensions: Extensions,
