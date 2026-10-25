@@ -45,12 +45,14 @@ use core_db::workflow_runs as runs_db;
 use core_db::workflow_runs::NewStep;
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::node_registry::{self, ExecutorPath};
+use core_domain::policy::Permission;
 use core_domain::workflow_approvals::{self, GateRequest};
 use core_domain::workflow_document::{
-    self, EdgeOutcome, WorkflowCursor, WorkflowDocument, WorkflowNode, DEFAULT_FALSE_LABEL,
-    DEFAULT_TRUE_LABEL, ERROR_LABEL, FLOW_ABANDON, FLOW_AWAIT_APPROVAL, FLOW_BRANCH, FLOW_DEADLINE,
-    FLOW_DELAY, FLOW_FAIL, FLOW_FOREACH, FLOW_JOIN, FLOW_PARALLEL, FLOW_STOP, FLOW_SWITCH,
-    FLOW_WAIT_FOR, FLOW_WAIT_FOR_ALL, FLOW_WAIT_UNTIL,
+    self, EdgeOutcome, OrgNodePolicy, WorkflowCursor, WorkflowDocError, WorkflowDocument,
+    WorkflowNode, DEFAULT_FALSE_LABEL, DEFAULT_TRUE_LABEL, ERROR_LABEL, FLOW_ABANDON,
+    FLOW_AWAIT_APPROVAL, FLOW_BRANCH, FLOW_DEADLINE, FLOW_DELAY, FLOW_FAIL, FLOW_FOREACH,
+    FLOW_JOIN, FLOW_PARALLEL, FLOW_STOP, FLOW_SWITCH, FLOW_WAIT_FOR, FLOW_WAIT_FOR_ALL,
+    FLOW_WAIT_UNTIL,
 };
 use core_domain::workflow_runs::{RunStatus, RunTrigger, StepStatus, WORKFLOW_RESUME_JOB};
 use core_events::Envelope;
@@ -369,7 +371,24 @@ async fn process_start<E: EffectApi>(
             .map(str::to_string),
         resumed: false,
     };
-    execute_run(pool, effects, &ctx, &doc, WorkflowCursor::start()).await
+    // Wave 56: the graph is re-checked as it stands now, before a single step
+    // runs. A published document whose author has since lost the authority it
+    // exercises is refused here, with the refusal on the audit trail.
+    match authority_gate(&mut conn, job.org_id, author, &doc).await {
+        Ok(None) => execute_run(pool, effects, &ctx, &doc, WorkflowCursor::start()).await,
+        Ok(Some(refusal)) => {
+            refuse_run(
+                &mut conn,
+                job.org_id,
+                run.id,
+                Some(rule.id),
+                author,
+                &refusal,
+            )
+            .await
+        }
+        Err(error) => JobResult::retry(format!("authority re-check failed: {error}")),
+    }
 }
 
 async fn process_resume<E: EffectApi>(
@@ -421,6 +440,31 @@ async fn process_resume<E: EffectApi>(
     // stays parked: no continuation row exists for a decision that did not
     // release it.
     let event_type = job.payload.get("event_type").and_then(Value::as_str);
+    // Wave 56: the authority re-check runs on every RESUME too, before a
+    // continuation exists. A permission change while the run was parked must
+    // not let the rest of the graph run on authority nobody holds now.
+    match authority_gate(&mut tx, job.org_id, author, &doc).await {
+        Ok(None) => {}
+        Ok(Some(refusal)) => {
+            let result = refuse_run(
+                &mut tx,
+                job.org_id,
+                parent_id,
+                parent.rule_id,
+                author,
+                &refusal,
+            )
+            .await;
+            if matches!(result.outcome, JobOutcome::Retry) {
+                return result;
+            }
+            if let Err(error) = tx.commit().await {
+                return JobResult::retry(format!("authority refusal commit failed: {error}"));
+            }
+            return result;
+        }
+        Err(error) => return JobResult::retry(format!("authority re-check failed: {error}")),
+    }
     // The decision's own fields (proposal id, entity, deciding principal) ride
     // the wake EVENT; the job payload only carries the op, the run and the
     // event's type beside it. Reading the payload here asked every decision for
@@ -739,6 +783,174 @@ async fn record_gate_refusal(
         },
     )
     .await
+}
+
+// ---------------------------------------------------------------------------
+// The run-time authority re-check (Wave 56, `p56-node-authority`)
+// ---------------------------------------------------------------------------
+//
+// A published graph is re-checked when it RUNS. The author's permissions are
+// re-read from the org's roles and the org's node-kind switch is re-read from
+// its setting, so a permission change after publish cannot leave a graph
+// exercising authority nobody holds now. The pure rule is
+// `WorkflowDocument::validate_authority` — the same call the publish boundary
+// makes, which is what keeps the two from drifting.
+
+/// The run a refused graph ends with, so an operator's ledger filter finds it.
+const AUTHORITY_REFUSED_CODE: &str = "node_authority";
+
+/// The audit action a refused run files.
+const AUTHORITY_REFUSED_ACTION: &str = "workflow.node_authority_refused";
+
+/// The union of the grants a set of roles carries — the same union the auth
+/// layer builds a `Principal` from, so the executor asks exactly the question
+/// core-api asked at publish.
+fn permissions_of_roles(roles: &[core_domain::entities::Role]) -> Vec<Permission> {
+    let mut out: Vec<Permission> = Vec::new();
+    for role in roles {
+        for permission in &role.permissions {
+            if !out.contains(permission) {
+                out.push(*permission);
+            }
+        }
+    }
+    out
+}
+
+/// The org's node-kind switch, read from its stored setting (defaults-first:
+/// no stored value enables every executable kind).
+async fn org_node_policy(
+    conn: &mut sqlx::PgConnection,
+    org_id: uuid::Uuid,
+) -> core_db::DbResult<OrgNodePolicy> {
+    let raw = core_db::settings::get_org_value(
+        &mut *conn,
+        org_id,
+        core_domain::settings::WORKFLOW_DISABLED_NODE_KINDS,
+    )
+    .await?;
+    Ok(OrgNodePolicy::from_setting(raw.as_ref()))
+}
+
+/// Applies the authority rule to one document as it stands NOW: the author's
+/// current permissions and the org's current switch. `Ok(None)` means the graph
+/// may run; `Ok(Some(..))` is the refusal to record. A read failure is an
+/// `Err` so the caller retries rather than trusting a stale answer.
+async fn authority_gate(
+    conn: &mut sqlx::PgConnection,
+    org_id: uuid::Uuid,
+    author: uuid::Uuid,
+    doc: &WorkflowDocument,
+) -> core_db::DbResult<Option<WorkflowDocError>> {
+    let roles = core_db::users::effective_roles_for_user(&mut *conn, author, org_id).await?;
+    let permissions = permissions_of_roles(&roles);
+    let policy = org_node_policy(conn, org_id).await?;
+    Ok(doc.validate_authority(&permissions, &policy).err())
+}
+
+/// The audit row a refused run files: which node, which authority, which
+/// author no longer holds it. The actor is the engine — the refusal is not one
+/// principal's decision — and the author rides the detail so the trail answers
+/// "who published this" and "whose grant changed" in one row.
+fn authority_audit_event(
+    org_id: uuid::Uuid,
+    run_id: uuid::Uuid,
+    rule_id: Option<uuid::Uuid>,
+    author: uuid::Uuid,
+    refusal: &WorkflowDocError,
+) -> AuditEvent {
+    let (node, node_type, authority, code) = match refusal {
+        WorkflowDocError::NodeKindDisabled { id, node_type } => (
+            id.clone(),
+            node_type.clone(),
+            Value::Null,
+            "node_kind_disabled",
+        ),
+        WorkflowDocError::NodeAuthority {
+            id,
+            node_type,
+            permission,
+        } => (
+            id.clone(),
+            node_type.clone(),
+            Value::String(permission.clone()),
+            "node_authority",
+        ),
+        WorkflowDocError::AuthorityUnderivable {
+            id,
+            node_type,
+            detail,
+        } => (
+            id.clone(),
+            node_type.clone(),
+            Value::String(detail.clone()),
+            "authority_underivable",
+        ),
+        _ => (
+            String::new(),
+            String::new(),
+            Value::Null,
+            "workflow_document",
+        ),
+    };
+    AuditEvent {
+        id: uuid::Uuid::now_v7(),
+        org_id,
+        actor: Actor::System,
+        action: AUTHORITY_REFUSED_ACTION.into(),
+        entity_type: Some("workflow_run".into()),
+        entity_id: Some(run_id.to_string()),
+        detail: json!({
+            "rule_id": rule_id,
+            "author_id": author,
+            "node": node,
+            "node_type": node_type,
+            "authority": authority,
+            "code": code,
+            "detail": refusal.to_string(),
+        }),
+        ip: None,
+        occurred_at: chrono::Utc::now(),
+    }
+}
+
+/// Records the refusal and ends the run as Failed with a stable code, so the
+/// operator sees a run row and an audit row rather than a silent no-op.
+async fn refuse_run(
+    conn: &mut sqlx::PgConnection,
+    org_id: uuid::Uuid,
+    run_id: uuid::Uuid,
+    rule_id: Option<uuid::Uuid>,
+    author: uuid::Uuid,
+    refusal: &WorkflowDocError,
+) -> JobResult {
+    if let Err(error) = core_db::audit::insert(
+        &mut *conn,
+        &authority_audit_event(org_id, run_id, rule_id, author, refusal),
+    )
+    .await
+    {
+        return JobResult::retry(format!("authority refusal audit write failed: {error}"));
+    }
+    tracing::warn!(
+        run_id = %run_id,
+        author_id = %author,
+        refusal = %refusal,
+        "workflow graph refused at run: its author no longer holds the authority it exercises"
+    );
+    match runs_db::finish_run(
+        conn,
+        org_id,
+        run_id,
+        RunStatus::Failed,
+        Some(AUTHORITY_REFUSED_CODE),
+        Some(&refusal.to_string()),
+    )
+    .await
+    {
+        Ok(()) => JobResult::done(),
+        Err(error) => JobResult::retry(format!("finish_run failed: {error}")),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2629,5 +2841,175 @@ mod tests {
         // A ref to a node that has not run is a typed error, not a null.
         let missing = resolve_params(&cursor, &json!({ "$ref": { "node": "nope", "path": "" } }));
         assert!(missing.is_err());
+    }
+
+    // --- Wave 56: the run-time authority re-check (p56-node-authority) -----
+
+    fn matrix(
+        module: core_domain::policy::Module,
+        action: core_domain::policy::Action,
+    ) -> Permission {
+        Permission::Matrix { module, action }
+    }
+
+    fn role_with(permissions: Vec<Permission>) -> core_domain::entities::Role {
+        let org_id = uuid::Uuid::now_v7();
+        core_domain::entities::Role {
+            id: uuid::Uuid::now_v7(),
+            org_id,
+            name: "workflow author".to_string(),
+            builtin: None,
+            permissions,
+            is_system: false,
+        }
+    }
+
+    /// A published graph that writes a ticket, which is the shape the audit
+    /// record is about: the author picked a node kind that carries a module's
+    /// write authority.
+    fn published_ticket_graph() -> WorkflowDocument {
+        WorkflowDocument::parse(&json!({
+            "version": core_domain::workflow_document::DOCUMENT_VERSION,
+            "nodes": [
+                { "id": "a", "node_type": "ticket.update", "params": { "fields": { "priority": "p2" } } },
+                { "id": "z", "node_type": "flow.stop", "params": {} }
+            ],
+            "edges": [{ "from": "a", "to": "z" }]
+        }))
+        .expect("the document is legal")
+    }
+
+    #[test]
+    fn a_run_refuses_a_graph_whose_author_lost_the_authority() {
+        let doc = published_ticket_graph();
+        let author = uuid::Uuid::now_v7();
+        let org = OrgNodePolicy::defaults();
+
+        // Publish day: the author held the ticket write grant.
+        let at_publish = permissions_of_roles(&[role_with(vec![
+            matrix(
+                core_domain::policy::Module::Admin,
+                core_domain::policy::Action::Edit,
+            ),
+            matrix(
+                core_domain::policy::Module::Tickets,
+                core_domain::policy::Action::Edit,
+            ),
+        ])]);
+        doc.validate_authority(&at_publish, &org)
+            .expect("publish held tickets:edit");
+
+        // Later: the grant is gone (a custom role edit, a preset restore, a
+        // role removed). The SAME stored document is re-checked when it runs.
+        let at_run = permissions_of_roles(&[role_with(vec![matrix(
+            core_domain::policy::Module::Admin,
+            core_domain::policy::Action::Edit,
+        )])]);
+        let refusal = doc
+            .validate_authority(&at_run, &org)
+            .expect_err("the run must refuse authority nobody holds now");
+        match &refusal {
+            WorkflowDocError::NodeAuthority {
+                id,
+                node_type,
+                permission,
+            } => {
+                assert_eq!(id, "a");
+                assert_eq!(node_type, "ticket.update");
+                assert_eq!(permission, "tickets:edit");
+            }
+            other => panic!("expected a node-authority refusal, got {other:?}"),
+        }
+
+        // The refusal is recorded against the run, naming the node, the
+        // authority and the author whose grant changed.
+        let run_id = uuid::Uuid::now_v7();
+        let rule_id = uuid::Uuid::now_v7();
+        let event = authority_audit_event(
+            uuid::Uuid::now_v7(),
+            run_id,
+            Some(rule_id),
+            author,
+            &refusal,
+        );
+        assert_eq!(event.action, AUTHORITY_REFUSED_ACTION);
+        assert_eq!(event.entity_type.as_deref(), Some("workflow_run"));
+        assert_eq!(
+            event.entity_id.as_deref(),
+            Some(run_id.to_string().as_str())
+        );
+        assert!(matches!(event.actor, Actor::System));
+        assert_eq!(event.detail["node"], json!("a"));
+        assert_eq!(event.detail["node_type"], json!("ticket.update"));
+        assert_eq!(event.detail["authority"], json!("tickets:edit"));
+        assert_eq!(event.detail["author_id"], json!(author.to_string()));
+        assert_eq!(event.detail["rule_id"], json!(rule_id.to_string()));
+        assert_eq!(event.detail["code"], json!("node_authority"));
+        assert!(event.detail["detail"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("tickets:edit"));
+    }
+
+    #[test]
+    fn a_run_refuses_a_kind_the_org_switched_off_after_publish() {
+        let doc = published_ticket_graph();
+        let author_roles = [role_with(vec![
+            matrix(
+                core_domain::policy::Module::Admin,
+                core_domain::policy::Action::Edit,
+            ),
+            matrix(
+                core_domain::policy::Module::Tickets,
+                core_domain::policy::Action::Edit,
+            ),
+        ])];
+        let permissions = permissions_of_roles(&author_roles);
+        // Enabled at publish: the author's grant is enough.
+        doc.validate_authority(&permissions, &OrgNodePolicy::defaults())
+            .expect("enabled at publish");
+
+        // The org switches the kind off afterwards; the run refuses it even
+        // though the author still holds the authority.
+        let org = OrgNodePolicy::from_setting(Some(&json!("ticket.update")));
+        let refusal = doc
+            .validate_authority(&permissions, &org)
+            .expect_err("a switched-off kind is refused at run");
+        assert!(matches!(refusal, WorkflowDocError::NodeKindDisabled { .. }));
+        let event = authority_audit_event(
+            uuid::Uuid::now_v7(),
+            uuid::Uuid::now_v7(),
+            None,
+            uuid::Uuid::now_v7(),
+            &refusal,
+        );
+        assert_eq!(event.detail["code"], json!("node_kind_disabled"));
+    }
+
+    #[test]
+    fn the_role_union_is_what_the_gate_asks() {
+        // Two roles, overlapping grants: the union is de-duplicated and holds
+        // both, exactly as the auth layer's principal does.
+        let roles = [
+            role_with(vec![matrix(
+                core_domain::policy::Module::Tickets,
+                core_domain::policy::Action::Edit,
+            )]),
+            role_with(vec![
+                matrix(
+                    core_domain::policy::Module::Tickets,
+                    core_domain::policy::Action::Edit,
+                ),
+                Permission::ManagePlugins,
+            ]),
+        ];
+        let permissions = permissions_of_roles(&roles);
+        assert_eq!(permissions.len(), 2, "no duplicate grants: {permissions:?}");
+        assert!(permissions.contains(&Permission::ManagePlugins));
+        assert!(permissions.contains(&matrix(
+            core_domain::policy::Module::Tickets,
+            core_domain::policy::Action::Edit
+        )));
+        assert!(permissions_of_roles(&[]).is_empty());
     }
 }

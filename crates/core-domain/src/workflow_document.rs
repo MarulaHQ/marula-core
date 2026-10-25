@@ -48,7 +48,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::node_registry::{self, ExecutorPath, NodeRegistryError};
+use crate::node_registry::{self, DomainOp, ExecutorPath, NodeRegistryError, PluginNodeKind};
+use crate::policy::{self, Action, Module, Permission};
+use crate::settings::WORKFLOW_DISABLED_NODE_KINDS;
 
 /// The document version this build understands. Bumped when the shape
 /// changes in a way an older reader could misread.
@@ -256,6 +258,26 @@ pub enum WorkflowDocError {
         id: String,
         target: String,
         path: String,
+    },
+    #[error(
+        "node {id:?} uses {node_type:?}, a node kind this org has switched off \
+         (org setting {WORKFLOW_DISABLED_NODE_KINDS})"
+    )]
+    NodeKindDisabled { id: String, node_type: String },
+    #[error(
+        "node {id:?} uses {node_type:?}, which requires the {permission} authority — \
+         the author of this graph does not hold it"
+    )]
+    NodeAuthority {
+        id: String,
+        node_type: String,
+        permission: String,
+    },
+    #[error("node {id:?} uses {node_type:?}, whose authority cannot be derived: {detail}")]
+    AuthorityUnderivable {
+        id: String,
+        node_type: String,
+        detail: String,
     },
 }
 
@@ -790,6 +812,268 @@ fn schema_declares_path(schema: &Value, path: &str) -> bool {
         }
     }
     true
+}
+
+// ---------------------------------------------------------------------------
+// Node authority: what a graph's author must hold to place a node kind
+// ---------------------------------------------------------------------------
+//
+// A document is a list of node kinds its author CHOSE, and a published graph
+// runs those kinds as its author. So the graph can only carry authority its
+// author holds. Two rules, both enforced in this module because the publish
+// boundary and the executor must not drift apart:
+//
+//   1. the org must have the kind ENABLED, and a privileged kind — one that
+//      writes a record or calls an effect — additionally requires its author
+//      to hold that kind's authority at publish time;
+//   2. the same rule is re-applied when a published graph RUNS, so a later
+//      permission change cannot leave a graph exercising authority nobody
+//      holds now (`crates/worker/src/workflow.rs` calls it on every start and
+//      every resume, and records the refusal on the org's audit trail).
+//
+// The authority is DERIVED from the registry's own vocabulary, never from a
+// hand-kept list of "dangerous nodes": `NodeType::executor` already says what
+// a kind does, and [`node_authority`] is the one function that reads it. A
+// new node kind therefore inherits its gate the day it is declared.
+
+/// What one node kind's own execution requires.
+///
+/// A read is deliberately unprivileged: `domain.query` asks a module a
+/// question and writes nothing, so the ruling's "writes across modules or
+/// calls an effect" does not reach it. Narrowing reads to their module's
+/// `view` grant is a separate question, recorded rather than assumed here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeAuthority {
+    /// Runs with no authority of its own: triggers, conditions, values,
+    /// control flow and record reads.
+    Unprivileged,
+    /// Writes a record or calls an effect (a model edge, a plugin action). The
+    /// permission is what its author must hold.
+    Privileged(Permission),
+    /// The kind is not in this build's registry, or a generic node's operation
+    /// selector does not resolve. Refused rather than assumed harmless.
+    Underivable(&'static str),
+}
+
+/// The org's node-kind policy: the one fact the authority gate needs that the
+/// registry cannot answer, because it is org data. Built by the caller from
+/// the org-scope [`WORKFLOW_DISABLED_NODE_KINDS`] setting.
+///
+/// Defaults-first: no stored setting means every executable kind is enabled,
+/// which is how the codebase treats every other org setting. An org switches a
+/// kind off by naming it, and the refusal names the same node back.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OrgNodePolicy {
+    /// Node type ids the org switched off org-wide.
+    pub disabled_kinds: Vec<String>,
+}
+
+impl OrgNodePolicy {
+    pub fn new(disabled_kinds: Vec<String>) -> Self {
+        Self { disabled_kinds }
+    }
+
+    /// The policy an org with no stored switch has: every kind enabled.
+    pub fn defaults() -> Self {
+        Self::default()
+    }
+
+    /// Reads the policy out of the org setting's stored value.
+    pub fn from_setting(raw: Option<&Value>) -> Self {
+        Self::new(disabled_node_kinds_from_setting(raw))
+    }
+
+    /// True when the org switched this kind off.
+    pub fn is_disabled(&self, node_type: &str) -> bool {
+        self.disabled_kinds.iter().any(|kind| kind == node_type)
+    }
+}
+
+/// Parses the stored `workflow.disabled_node_kinds` value.
+///
+/// The settings column holds a scalar, so the list arrives as a JSON array
+/// string (the `appearance.data_surfaces` precedent) or as a comma-separated
+/// string; both are accepted, a stored array value is accepted too, and an
+/// absent or empty value disables nothing.
+pub fn disabled_node_kinds_from_setting(raw: Option<&Value>) -> Vec<String> {
+    fn from_array(items: &[Value]) -> Vec<String> {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|kind| !kind.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    match raw {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => from_array(items),
+        Some(Value::String(text)) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return Vec::new();
+            }
+            // A JSON array carried as text is the documented shape; anything
+            // else is the comma-separated spelling.
+            if let Ok(Value::Array(items)) = serde_json::from_str::<Value>(trimmed) {
+                return from_array(&items);
+            }
+            trimmed
+                .split(',')
+                .map(str::trim)
+                .filter(|kind| !kind.is_empty())
+                .map(str::to_string)
+                .collect()
+        }
+        Some(_) => Vec::new(),
+    }
+}
+
+/// The module a closed domain operation answers to.
+///
+/// [`DomainOp::entity`] is the code's own vocabulary for "what this operation
+/// touches", so the mapping reads it rather than restating the 68 operations.
+/// Entities with no module of their own — communication, assets, purchasing,
+/// field ops — answer to the org operator grant (`Module::Admin`): those nodes
+/// touch no module's records, they act on the org.
+fn module_for_entity(entity: &str) -> Module {
+    match entity {
+        "ticket" => Module::Tickets,
+        "time_entry" | "timer" => Module::Time,
+        "client" | "contact" | "site" => Module::Clients,
+        "quote" | "contract" => Module::Commercial,
+        "invoice" | "credit_note" => Module::Invoicing,
+        "appointment" | "dispatch" | "appointment_request" | "travel_draft" => Module::Scheduling,
+        "document" | "attachment" => Module::Documents,
+        "kb_article" => Module::Kb,
+        "secret" => Module::Secrets,
+        "project" | "project_phase" | "project_task" => Module::Projects,
+        // email, notification, sms, csat, alert, sign_off, stock_item, tool,
+        // loan, purchase_order — no module of their own — and any entity a
+        // future operation introduces: the org's operator grant, never a
+        // silently weaker one. The test
+        // `every_domain_operation_answers_to_a_module_and_a_write_action`
+        // fails the day an operation resolves to something else.
+        _ => Module::Admin,
+    }
+}
+
+/// The authority one closed domain operation requires: the module of the
+/// entity it writes, and the action its own selector names.
+///
+/// The action rule is mechanical so it cannot drift: an operation whose
+/// selector ends in `.create` brings a new record into existence and needs the
+/// module's `create` grant; every other operation changes an existing record
+/// and needs `edit`.
+pub fn domain_op_authority(op: DomainOp) -> Permission {
+    let action = if op.as_str().ends_with(".create") {
+        Action::Create
+    } else {
+        Action::Edit
+    };
+    Permission::Matrix {
+        module: module_for_entity(op.entity()),
+        action,
+    }
+}
+
+/// The org operator grant: the authority of a kind that acts on the org as a
+/// whole rather than on one module's records (an AI edge that spends money, a
+/// domain operation on an entity with no module of its own).
+fn operator_grant() -> Permission {
+    Permission::Matrix {
+        module: Module::Admin,
+        action: Action::Edit,
+    }
+}
+
+/// What ONE node requires of the graph's author, derived from the registry's
+/// executor path — the single place this mapping lives.
+///
+/// * conditions, values, control flow, triggers and reads ask nothing;
+/// * a closed domain op requires its module's write grant, and the generic
+///   `domain.update` resolves that from its own `operation` param;
+/// * an AI edge calls a model (it spends money and leaves the org), and a
+///   plugin action writes to the external system it belongs to, so both need
+///   the operator/plugin grant. A plugin READ asks a question.
+pub fn node_authority(node: &WorkflowNode) -> NodeAuthority {
+    let Some(declared) = node_registry::get(&node.node_type) else {
+        return NodeAuthority::Underivable("the node kind is not in this build's registry");
+    };
+    match declared.executor {
+        ExecutorPath::Trigger
+        | ExecutorPath::Condition
+        | ExecutorPath::Value
+        | ExecutorPath::Control
+        | ExecutorPath::DomainQuery => NodeAuthority::Unprivileged,
+        ExecutorPath::DomainWrapper(op) => NodeAuthority::Privileged(domain_op_authority(op)),
+        ExecutorPath::DomainUpdate => match node
+            .params
+            .get("operation")
+            .and_then(Value::as_str)
+            .and_then(DomainOp::parse)
+        {
+            Some(op) => NodeAuthority::Privileged(domain_op_authority(op)),
+            None => NodeAuthority::Underivable(
+                "domain.update names no operation this build knows, so the entity it \
+                 writes — and therefore its authority — cannot be derived",
+            ),
+        },
+        ExecutorPath::Ai(_) => NodeAuthority::Privileged(operator_grant()),
+        ExecutorPath::Plugin(PluginNodeKind::Action) => {
+            NodeAuthority::Privileged(Permission::ManagePlugins)
+        }
+        ExecutorPath::Plugin(PluginNodeKind::Read | PluginNodeKind::Trigger) => {
+            NodeAuthority::Unprivileged
+        }
+    }
+}
+
+impl WorkflowDocument {
+    /// The authority gate (Wave 56, `p56-node-authority`): every node kind must
+    /// be one the org enables, and every PRIVILEGED kind must be one its author
+    /// holds. Called by the publish boundary (a document that fails is never
+    /// stored) and by the executor at start and resume (a graph that fails is
+    /// refused at run and recorded on the audit trail).
+    ///
+    /// Not part of [`WorkflowDocument::validate`], which is pure and
+    /// principal-free: authority is a fact about an author and an org, so it
+    /// takes its own inputs rather than smuggling them into the document shape.
+    pub fn validate_authority(
+        &self,
+        author: &[Permission],
+        org: &OrgNodePolicy,
+    ) -> Result<(), WorkflowDocError> {
+        for node in &self.nodes {
+            if org.is_disabled(&node.node_type) {
+                return Err(WorkflowDocError::NodeKindDisabled {
+                    id: node.id.clone(),
+                    node_type: node.node_type.clone(),
+                });
+            }
+            match node_authority(node) {
+                NodeAuthority::Unprivileged => {}
+                NodeAuthority::Privileged(permission) => {
+                    if !policy::check(author, permission).is_allowed() {
+                        return Err(WorkflowDocError::NodeAuthority {
+                            id: node.id.clone(),
+                            node_type: node.node_type.clone(),
+                            permission: permission.key(),
+                        });
+                    }
+                }
+                NodeAuthority::Underivable(detail) => {
+                    return Err(WorkflowDocError::AuthorityUnderivable {
+                        id: node.id.clone(),
+                        node_type: node.node_type.clone(),
+                        detail: detail.to_string(),
+                    })
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1568,5 +1852,287 @@ mod tests {
         let value = serde_json::to_value(&doc).unwrap();
         let parsed = WorkflowDocument::parse(&value).expect("parses");
         assert_eq!(parsed, doc);
+    }
+
+    // --- Wave 56: node authority (p56-node-authority) ----------------------
+
+    /// entry → step → stop, with one authored step of the given kind.
+    fn one_step(step_type: &str, step_params: Value) -> WorkflowDocument {
+        WorkflowDocument {
+            version: DOCUMENT_VERSION.to_string(),
+            nodes: vec![
+                node("a", step_type, step_params),
+                node("z", FLOW_STOP, json!({})),
+            ],
+            edges: vec![edge("a", "z", None)],
+            loop_max_depth: 1,
+        }
+    }
+
+    fn matrix(module: Module, action: Action) -> Permission {
+        Permission::Matrix { module, action }
+    }
+
+    /// The authority a workflow authoring role carries by itself: the operator
+    /// grant the publish route already requires, and nothing else. This is the
+    /// role the audit record is about — it can reach the canvas, so only the
+    /// node authority gate stops it from wiring another module's writes.
+    fn operator_only() -> Vec<Permission> {
+        vec![
+            matrix(Module::Admin, Action::View),
+            matrix(Module::Admin, Action::Create),
+            matrix(Module::Admin, Action::Edit),
+        ]
+    }
+
+    #[test]
+    fn an_author_without_the_nodes_authority_cannot_publish_a_privileged_node() {
+        let doc = one_step("ticket.update", json!({ "fields": {} }));
+        doc.validate().expect("the document itself is legal");
+
+        let refusal = doc
+            .validate_authority(&operator_only(), &OrgNodePolicy::defaults())
+            .expect_err("an admin-only author may not wire a ticket write");
+        match &refusal {
+            WorkflowDocError::NodeAuthority {
+                id,
+                node_type,
+                permission,
+            } => {
+                assert_eq!(id, "a", "the refusal names the authored node id");
+                assert_eq!(node_type, "ticket.update");
+                assert_eq!(permission, "tickets:edit", "the kind's own module grant");
+            }
+            other => panic!("expected a node-authority refusal, got {other:?}"),
+        }
+        // The typed refusal is also a readable one: node id, kind and the
+        // exact authority are all in the message an author sees.
+        let text = refusal.to_string();
+        assert!(text.contains("\"a\""), "{text}");
+        assert!(text.contains("ticket.update"), "{text}");
+        assert!(text.contains("tickets:edit"), "{text}");
+    }
+
+    #[test]
+    fn an_author_holding_the_nodes_authority_can_publish_it() {
+        let doc = one_step("ticket.update", json!({ "fields": {} }));
+        let mut author = operator_only();
+        author.push(matrix(Module::Tickets, Action::Edit));
+        doc.validate_authority(&author, &OrgNodePolicy::defaults())
+            .expect("tickets:edit is the authority ticket.update needs");
+    }
+
+    #[test]
+    fn an_org_that_disables_a_node_kind_refuses_it_even_for_the_authority_holder() {
+        let doc = one_step("ticket.update", json!({ "fields": {} }));
+        let mut author = operator_only();
+        author.push(matrix(Module::Tickets, Action::Edit));
+        let org = OrgNodePolicy::new(vec!["ticket.update".to_string()]);
+
+        match doc.validate_authority(&author, &org) {
+            Err(WorkflowDocError::NodeKindDisabled { id, node_type }) => {
+                assert_eq!(id, "a");
+                assert_eq!(node_type, "ticket.update");
+            }
+            other => panic!("expected a disabled-kind refusal, got {other:?}"),
+        }
+
+        // The org switch is a switch over KINDS, not only privileged ones: a
+        // control node the org switched off is refused the same way.
+        let plain = one_step("value.template", json!({ "template": "x" }));
+        let off = OrgNodePolicy::new(vec!["value.template".to_string()]);
+        assert!(matches!(
+            plain.validate_authority(&[], &off),
+            Err(WorkflowDocError::NodeKindDisabled { .. })
+        ));
+    }
+
+    #[test]
+    fn a_document_of_unprivileged_kinds_needs_no_authority_at_all() {
+        // A value node and a stop: nothing writes, nothing calls an effect, so
+        // an author holding no permission may publish it.
+        let doc = one_step(
+            "value.template",
+            json!({ "template": "Hi {name}", "fields": {} }),
+        );
+        doc.validate().expect("legal");
+        doc.validate_authority(&[], &OrgNodePolicy::defaults())
+            .expect("a graph of pure value/control nodes carries no authority");
+        assert_eq!(node_authority(&doc.nodes[0]), NodeAuthority::Unprivileged);
+        assert_eq!(node_authority(&doc.nodes[1]), NodeAuthority::Unprivileged);
+    }
+
+    #[test]
+    fn the_generic_update_node_resolves_its_authority_from_its_own_operation() {
+        let generic = |operation: &str| WorkflowNode {
+            id: "u".to_string(),
+            node_type: "domain.update".to_string(),
+            params: json!({ "operation": operation }),
+        };
+        assert_eq!(
+            node_authority(&generic("invoice.record_payment")),
+            NodeAuthority::Privileged(matrix(Module::Invoicing, Action::Edit))
+        );
+        // The create/read rule is the selector's own shape: `.create` brings a
+        // record into existence, everything else edits one.
+        assert_eq!(
+            node_authority(&generic("ticket.create")),
+            NodeAuthority::Privileged(matrix(Module::Tickets, Action::Create))
+        );
+        assert_eq!(
+            node_authority(&generic("secret.record")),
+            NodeAuthority::Privileged(matrix(Module::Secrets, Action::Edit))
+        );
+        // An operation this build does not know cannot be assumed harmless.
+        assert!(matches!(
+            node_authority(&generic("nonsense.op")),
+            NodeAuthority::Underivable(_)
+        ));
+    }
+
+    #[test]
+    fn a_generic_update_naming_no_known_operation_is_refused_rather_than_assumed_harmless() {
+        let doc = one_step("domain.update", json!({ "operation": "nonsense.op" }));
+        assert!(matches!(
+            doc.validate_authority(&[Permission::ManagePlugins], &OrgNodePolicy::defaults()),
+            Err(WorkflowDocError::AuthorityUnderivable { .. })
+        ));
+    }
+
+    #[test]
+    fn every_registered_kind_derives_its_authority_from_its_executor_path() {
+        // The drift guard for the mapping: a new node kind inherits its gate the
+        // day it is declared, because this test reads the registry, not a list.
+        for declared in node_registry::all() {
+            let candidate = WorkflowNode {
+                id: "n".to_string(),
+                node_type: declared.id.to_string(),
+                params: json!({ "operation": "ticket.update" }),
+            };
+            let authority = node_authority(&candidate);
+            match declared.executor {
+                ExecutorPath::Trigger
+                | ExecutorPath::Condition
+                | ExecutorPath::Value
+                | ExecutorPath::Control
+                | ExecutorPath::DomainQuery => assert_eq!(
+                    authority,
+                    NodeAuthority::Unprivileged,
+                    "{} touches no record and calls no effect",
+                    declared.id
+                ),
+                ExecutorPath::DomainWrapper(op) => assert_eq!(
+                    authority,
+                    NodeAuthority::Privileged(domain_op_authority(op)),
+                    "{} rides {}",
+                    declared.id,
+                    op.as_str()
+                ),
+                ExecutorPath::DomainUpdate => assert_eq!(
+                    authority,
+                    NodeAuthority::Privileged(domain_op_authority(DomainOp::TicketUpdate)),
+                    "{} resolves per selected operation",
+                    declared.id
+                ),
+                ExecutorPath::Ai(_) => assert_eq!(
+                    authority,
+                    NodeAuthority::Privileged(matrix(Module::Admin, Action::Edit)),
+                    "{} calls a model, which spends money",
+                    declared.id
+                ),
+                ExecutorPath::Plugin(PluginNodeKind::Action) => assert_eq!(
+                    authority,
+                    NodeAuthority::Privileged(Permission::ManagePlugins),
+                    "{} writes to an external system",
+                    declared.id
+                ),
+                ExecutorPath::Plugin(PluginNodeKind::Read | PluginNodeKind::Trigger) => {
+                    assert_eq!(authority, NodeAuthority::Unprivileged, "{}", declared.id)
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_domain_operation_answers_to_a_module_and_a_write_action() {
+        for op in DomainOp::ALL {
+            match domain_op_authority(op) {
+                Permission::Matrix { module, action } => {
+                    assert!(
+                        Module::ALL.contains(&module),
+                        "{} resolves to a real module",
+                        op.as_str()
+                    );
+                    // The action rule is mechanical: only a `.create` selector
+                    // brings a record into existence.
+                    assert_eq!(
+                        action == Action::Create,
+                        op.as_str().ends_with(".create"),
+                        "{} takes the action its own selector names",
+                        op.as_str()
+                    );
+                }
+                other => panic!("{} produced {other:?}, not a matrix grant", op.as_str()),
+            }
+        }
+    }
+
+    #[test]
+    fn the_operation_mapping_follows_the_operations_own_entity() {
+        // A visible pin on the module mapping, so a changed answer is a
+        // changed test rather than a silent widening.
+        let cases = [
+            (DomainOp::TicketUpdate, Module::Tickets),
+            (DomainOp::TimeEntryLog, Module::Time),
+            (DomainOp::ClientCreate, Module::Clients),
+            (DomainOp::QuoteSend, Module::Commercial),
+            (DomainOp::InvoiceRecordPayment, Module::Invoicing),
+            (DomainOp::AppointmentCancel, Module::Scheduling),
+            (DomainOp::DocumentAttach, Module::Documents),
+            (DomainOp::KbArticleCreate, Module::Kb),
+            (DomainOp::SecretRecord, Module::Secrets),
+            (DomainOp::ProjectTaskComplete, Module::Projects),
+            // No module of their own: the org operator grant.
+            (DomainOp::EmailSend, Module::Admin),
+            (DomainOp::StockItemMove, Module::Admin),
+            (DomainOp::PurchaseOrderCreate, Module::Admin),
+        ];
+        for (op, module) in cases {
+            assert_eq!(
+                domain_op_authority(op),
+                matrix(
+                    module,
+                    if op.as_str().ends_with(".create") {
+                        Action::Create
+                    } else {
+                        Action::Edit
+                    }
+                ),
+                "{}",
+                op.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn the_org_switch_reads_every_stored_shape() {
+        assert!(disabled_node_kinds_from_setting(None).is_empty());
+        assert!(disabled_node_kinds_from_setting(Some(&json!(""))).is_empty());
+        assert!(disabled_node_kinds_from_setting(Some(&json!("  "))).is_empty());
+        assert!(disabled_node_kinds_from_setting(Some(&json!(7))).is_empty());
+        assert_eq!(
+            disabled_node_kinds_from_setting(Some(&json!("[\"ticket.update\",\"flow.delay\"]"))),
+            vec!["ticket.update".to_string(), "flow.delay".to_string()]
+        );
+        assert_eq!(
+            disabled_node_kinds_from_setting(Some(&json!("ticket.update, flow.delay"))),
+            vec!["ticket.update".to_string(), "flow.delay".to_string()]
+        );
+        // A stored array (the settings column admits a scalar, so this shape is
+        // not what the write route produces — reading it is still correct).
+        assert_eq!(
+            disabled_node_kinds_from_setting(Some(&json!(["ticket.update"]))),
+            vec!["ticket.update".to_string()]
+        );
     }
 }

@@ -618,6 +618,14 @@ pub const TRAVEL_REIMBURSE_TECHS: &str = "travel.reimburse_techs";
 /// Unit options for [`TRAVEL_MILEAGE_RATE_UNIT`].
 pub const MILEAGE_RATE_UNIT_OPTIONS: &[&str] = &["mi", "km"];
 
+/// The org's workflow node-kind switch (Wave 56 lane `p56-node-authority`):
+/// a JSON array of node type ids the org has switched off (a comma-separated
+/// list is accepted too). Empty means every executable kind is enabled, which
+/// is defaults-first and keeps an existing org's documents runnable. Read by
+/// the workflow publish boundary and by the executor's authority re-check
+/// through `workflow_document::OrgNodePolicy`.
+pub const WORKFLOW_DISABLED_NODE_KINDS: &str = "workflow.disabled_node_kinds";
+
 /// The folded routing/travel policy an org operates under, read from its
 /// stored org-scope overrides. Defaults ARE the shipped table (see the
 /// constants above); an unknown or absent key falls back to the default,
@@ -1736,6 +1744,21 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                          rollup owed to the technician; when off, mileage is \
                          informational and only billable amounts matter.",
         });
+        decls.push(SettingDeclaration {
+            key: WORKFLOW_DISABLED_NODE_KINDS,
+            kind: SettingKind::Text { max_len: 4000 },
+            default: SettingValue::Text(String::new()),
+            scope: SettingScope::Org,
+            section: SettingSection::General,
+            visibility: SettingVisibility::Hidden,
+            label: "Disabled workflow node kinds",
+            description: "Workflow node kinds this org switched off, as a JSON array \
+                         of node type ids (a comma-separated list is accepted too). \
+                         Empty means every executable kind is available. Read by the \
+                         workflow publish boundary and by the executor on every start \
+                         and resume: a document that places a switched-off kind is \
+                         refused, naming the node.",
+        });
 
         decls
     },
@@ -1912,7 +1935,10 @@ mod tests {
         // 58 → 59. Wave 55 lane V7 added the inbound sender-binding level:
         // who may email a ticket, and how much authority the engine has over
         // a message from someone who is not on it.
-        assert_eq!(declarations_for(SettingScope::Org).len(), 59);
+        // 59 → 60. Wave 56 `p56-node-authority` added the workflow
+        // node-kind switch: the kinds an org has taken out of service, read by
+        // the publish boundary and by the executor's run-time re-check.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 60);
     }
 
     #[test]
