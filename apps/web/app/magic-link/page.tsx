@@ -111,7 +111,9 @@ function MagicLinkInner(): ReactNode {
           } | null;
           if (response.status === 401) {
             setError(
-              "This sign-in link is invalid, used, or expired. Ask for a fresh one and it will arrive in a moment.",
+              envelope?.error?.reason === "mfa_required"
+                ? "This account requires a second factor. Sign in with your password and your authenticator — the link only proves you hold the address."
+                : "This sign-in link is invalid, used, or expired. Ask for a fresh one and it will arrive in a moment.",
             );
             return;
           }
