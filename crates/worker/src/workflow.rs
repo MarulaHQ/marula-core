@@ -2072,6 +2072,17 @@ async fn call_node<E: EffectApi>(
     cursor: &WorkflowCursor,
     node: &WorkflowNode,
 ) -> NodeExec {
+    // A node acts for the run's author. `RunContext` cannot be built without
+    // one — start and resume refuse a document with no author — so a nil id
+    // here is an upstream bug. The worker refuses the node rather than send
+    // the seam a call that names nobody: the seam refuses that too, but the
+    // ledger then blames the request instead of the run it belongs to.
+    if ctx.actor_user_id == uuid::Uuid::nil() {
+        return NodeExec::Failed {
+            code: "no_principal".into(),
+            error: "the run names no author to act for; refusing the node".into(),
+        };
+    }
     // Any `$ref` in the params is resolved against the run's recorded
     // outputs BEFORE the call (item F): this is how one step's value
     // reaches the next step's input. A ref to a node that has not run is a
@@ -2087,6 +2098,9 @@ async fn call_node<E: EffectApi>(
     };
     let body = json!({
         "org_id": ctx.org_id,
+        // On whose behalf this node runs. The seam resolves it as a full
+        // principal and applies that principal's permissions before any arm
+        // can write (Wave 56 lane `p56-workflow-seam`).
         "actor_user_id": ctx.actor_user_id,
         "node_id": node.node_type,
         "params": params,
@@ -2107,16 +2121,11 @@ async fn call_node<E: EffectApi>(
         }
         EffectOutcome::Rejected => {
             // A 4xx is a typed, permanent node refusal (an unsupported
-            // operation, a missing entity, a schema violation). It is a
-            // step failure the ledger shows, never a transient retry.
-            let detail = response
-                .get("error")
-                .and_then(Value::as_str)
-                .unwrap_or("node refused by core-api")
-                .to_string();
+            // operation, a missing entity, a permission or board denial). It
+            // is a step failure the ledger shows, never a transient retry.
             NodeExec::Failed {
                 code: "node_refused".into(),
-                error: detail,
+                error: refusal_detail(&response),
             }
         }
         EffectOutcome::Transient => NodeExec::Failed {
@@ -2124,6 +2133,27 @@ async fn call_node<E: EffectApi>(
             error: "core-api unreachable while executing a node".into(),
         },
     }
+}
+
+/// The refusal's own words, out of the typed error envelope
+/// (`{"error": {"code": 403, "reason": "forbidden", "message": "…"}}`).
+///
+/// The message is where a permission or board denial names the gate it
+/// failed (`forbidden: the run's author is no longer active`, a board-role
+/// refusal, a missing grant). The step ledger records this string, so an
+/// operator reads why a node stopped instead of the placeholder that used to
+/// be recorded for every refusal.
+fn refusal_detail(response: &Value) -> String {
+    response
+        .get("error")
+        .and_then(|error| {
+            error
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| error.as_str())
+        })
+        .unwrap_or("node refused by core-api")
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -2629,5 +2659,108 @@ mod tests {
         // A ref to a node that has not run is a typed error, not a null.
         let missing = resolve_params(&cursor, &json!({ "$ref": { "node": "nope", "path": "" } }));
         assert!(missing.is_err());
+    }
+
+    // --- the seam call carries a principal (Wave 56 `p56-workflow-seam`) ---
+
+    /// Records each seam call and answers with a canned outcome, so a case
+    /// can prove what crossed the seam without a socket.
+    struct RecordingEffects {
+        calls: std::sync::Mutex<Vec<(&'static str, Value)>>,
+        outcome: EffectOutcome,
+        response: Value,
+    }
+
+    impl RecordingEffects {
+        fn answered(outcome: EffectOutcome, response: Value) -> Self {
+            Self {
+                calls: std::sync::Mutex::new(vec![]),
+                outcome,
+                response,
+            }
+        }
+    }
+
+    impl EffectApi for RecordingEffects {
+        async fn post(&self, path: &'static str, body: Value) -> EffectOutcome {
+            self.calls.lock().unwrap().push((path, body));
+            self.outcome
+        }
+
+        async fn post_json(&self, path: &'static str, body: Value) -> (EffectOutcome, Value) {
+            self.calls.lock().unwrap().push((path, body));
+            (self.outcome, self.response.clone())
+        }
+    }
+
+    fn effect_node() -> WorkflowNode {
+        WorkflowNode {
+            id: "n".into(),
+            node_type: "ticket.update".into(),
+            params: json!({ "fields": { "title": "Updated by workflow" } }),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_node_with_no_principal_is_refused_before_the_call() {
+        // `RunContext` refuses a document with no author, so this is the belt
+        // to that braces: even a nil author never reaches the seam.
+        let effects = RecordingEffects::answered(EffectOutcome::Applied, json!({ "output": {} }));
+        let ctx = test_ctx(json!({}), None);
+        match call_node(&effects, &ctx, &WorkflowCursor::start(), &effect_node()).await {
+            NodeExec::Failed { code, .. } => assert_eq!(code, "no_principal"),
+            _ => panic!("a node that acts for nobody fails"),
+        }
+        assert!(
+            effects.calls.lock().unwrap().is_empty(),
+            "no call crosses the seam without a principal"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_node_body_names_the_run_author() {
+        let author = uuid::Uuid::now_v7();
+        let effects = RecordingEffects::answered(
+            EffectOutcome::Applied,
+            json!({ "output": { "ticketId": "t" } }),
+        );
+        let mut ctx = test_ctx(json!({ "ticket_id": "t" }), Some("ticket"));
+        ctx.actor_user_id = author;
+        match call_node(&effects, &ctx, &WorkflowCursor::start(), &effect_node()).await {
+            NodeExec::Succeeded { .. } => {}
+            _ => panic!("an applied node succeeds"),
+        }
+        let calls = effects.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "one seam call per node");
+        assert_eq!(calls[0].0, NODE_ENDPOINT);
+        assert_eq!(
+            calls[0].1["actor_user_id"],
+            json!(author),
+            "the request says on whose behalf the node runs"
+        );
+        assert_eq!(calls[0].1["node_id"], json!("ticket.update"));
+    }
+
+    #[tokio::test]
+    async fn a_refusal_records_the_gate_that_refused_it() {
+        // The typed envelope's message is what names a permission or board
+        // denial; the step ledger keeps it, so the run is not a bare
+        // "node_refused" with no reason.
+        let detail = "forbidden: the run's author is no longer active";
+        let effects = RecordingEffects::answered(
+            EffectOutcome::Rejected,
+            json!({ "error": { "code": 403, "reason": "forbidden", "message": detail } }),
+        );
+        let mut ctx = test_ctx(json!({}), None);
+        ctx.actor_user_id = uuid::Uuid::now_v7();
+        match call_node(&effects, &ctx, &WorkflowCursor::start(), &effect_node()).await {
+            NodeExec::Failed { code, error } => {
+                assert_eq!(code, "node_refused");
+                assert_eq!(error, detail);
+            }
+            _ => panic!("a refusal is a failed step"),
+        }
+        // A body with no envelope still answers with a stable phrase.
+        assert_eq!(refusal_detail(&json!({})), "node refused by core-api");
     }
 }
