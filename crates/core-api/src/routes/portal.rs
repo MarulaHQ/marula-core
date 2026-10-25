@@ -1038,7 +1038,21 @@ pub async fn download_attachment(
     else {
         return Err(ApiError::NotFound);
     };
+    // The verdict is read in the same snapshot as the row, exactly as the
+    // staff door does: an escalation between the two reads cannot slip
+    // through. Wave 54 lane S7 — the portal used to stream whatever the
+    // visibility JOIN returned, held or never scanned.
+    let admission =
+        crate::routes::attachments::verdict_for(&mut tx, org_id, &attachment.sha256).await?;
     tx.commit().await.map_err(ApiError::from)?;
+
+    // A client gets the same answer a staff downloader gets — the door's
+    // typed 409 — because an unscanned or held object is not a client's
+    // problem to work around, and 404 would claim the file does not exist.
+    crate::routes::attachments::check_admission(
+        admission,
+        crate::routes::attachments::scanner_installed(&state),
+    )?;
 
     let obj = state
         .store

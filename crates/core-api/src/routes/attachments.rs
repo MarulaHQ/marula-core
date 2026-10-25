@@ -17,6 +17,13 @@
 //! gets a typed 422. None mode (no scanner configured) admits with a
 //! `skipped` verdict on record, never a silent `clean`.
 //!
+//! Every download door consults that record (Wave 54 lane S7). A held object
+//! and an object with no verdict at all are both refused with the same 409
+//! the door already answers a hold with, because both mean the bytes did not
+//! earn their way out. "No verdict" is only a refusal where a scanner exists
+//! to have written one — see [`scanner_installed`], which is what keeps a
+//! none-mode install downloading the files it stored before the gate.
+//!
 //! Non-purpose: no multipart parsing (single raw octet-stream bodies only,
 //! filename/content-type carried as headers), no image processing, no
 //! quota accounting, no quarantine administration (the P6c admin surface
@@ -376,9 +383,8 @@ pub async fn download(
     let admission = verdict_for(&mut tx, org_id, &attachment.sha256).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
-    if admission == DownloadAdmission::Held {
-        return Err(held_refusal());
-    }
+    // Held OR unscanned: neither a URL nor the bytes leave this door.
+    check_admission(admission, scanner_installed(&state))?;
 
     if query.presign {
         let ticket = download_ticket(
@@ -509,6 +515,45 @@ pub(crate) fn held_refusal() -> ApiError {
     )
 }
 
+/// The refusal for an object with NO verdict on record in a deployment that
+/// has a scanner. Same status as [`held_refusal`] — the door's typed answer
+/// for a refused object — with a message that names the actual condition: no
+/// operator release exists for a row that was never written.
+pub(crate) fn unscanned_refusal() -> ApiError {
+    ApiError::Conflict(
+        "this object has no malware-scan verdict on record, so it cannot be downloaded; \
+         re-upload it so the scanner sees its bytes"
+            .into(),
+    )
+}
+
+/// Whether this deployment has a scanner that could have recorded a verdict.
+///
+/// The documented none mode ([`core_mail::NoopScan`], `name() == "none"`) is
+/// the answer: it admits everything as `skipped`, so an absent verdict there
+/// is an object stored before the gate existed, not a hole — refusing it
+/// would lock every pre-gate file out of a deployment that cannot scan it
+/// again. With a scanner configured, an absent verdict means the bytes
+/// entered the store without passing the gate, which is exactly what a
+/// download must not hand out.
+pub(crate) fn scanner_installed(state: &AppState) -> bool {
+    state.mail.scanner.name() != "none"
+}
+
+/// The door's decision for one object, in one place so the ticket door,
+/// the document door and the portal door cannot drift.
+pub(crate) fn check_admission(
+    admission: DownloadAdmission,
+    scanner_installed: bool,
+) -> ApiResult<()> {
+    match admission {
+        DownloadAdmission::Admitted => Ok(()),
+        DownloadAdmission::Held => Err(held_refusal()),
+        DownloadAdmission::Unscanned if scanner_installed => Err(unscanned_refusal()),
+        DownloadAdmission::Unscanned => Ok(()),
+    }
+}
+
 /// The fields both download doors share, borrowed from whichever row owns
 /// them.
 pub(crate) struct DownloadSubject<'a> {
@@ -529,8 +574,10 @@ pub(crate) async fn download_ticket(
 ) -> ApiResult<AttachmentDownloadTicket> {
     let presigned = match admission {
         DownloadAdmission::Held => return Err(held_refusal()),
-        // Never a URL without a verdict: an unscanned object keeps the
-        // pre-existing streaming posture and gains nothing here.
+        // Never a URL without a verdict. A deployment with a scanner refuses
+        // an unscanned object before this runs; the arm that survives is the
+        // none-mode deployment, where the object keeps the pre-existing
+        // streaming posture and gains nothing here.
         DownloadAdmission::Unscanned => None,
         DownloadAdmission::Admitted => {
             match state
@@ -628,4 +675,48 @@ pub async fn remove(
     .await?;
 
     Ok(Json(result))
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    /// The no-scanner decision as a matrix (Wave 54 lane S7). An object with
+    /// no verdict refuses the download in a deployment that HAS a scanner —
+    /// those bytes entered the store without passing the gate — and stays
+    /// downloadable where there is no scanner that could have judged them.
+    /// The second row's third column is what keeps an upgrade from locking
+    /// every pre-gate file out of a none-mode install.
+    #[test]
+    fn unscanned_objects_refuse_only_where_a_scanner_could_have_judged_them() {
+        assert!(check_admission(DownloadAdmission::Admitted, true).is_ok());
+        assert!(check_admission(DownloadAdmission::Admitted, false).is_ok());
+        assert!(check_admission(DownloadAdmission::Held, true).is_err());
+        assert!(check_admission(DownloadAdmission::Held, false).is_err());
+        assert!(check_admission(DownloadAdmission::Unscanned, true).is_err());
+        assert!(
+            check_admission(DownloadAdmission::Unscanned, false).is_ok(),
+            "a no-scanner deployment must not lose its pre-gate files"
+        );
+    }
+
+    /// The answer is the door's existing typed refusal, with a message about
+    /// the real condition: an absent verdict is not a quarantine, so telling
+    /// the caller to ask an operator to release it would send them nowhere.
+    #[test]
+    fn the_unscanned_refusal_is_the_doors_typed_conflict_and_names_the_fix() {
+        let err = check_admission(DownloadAdmission::Unscanned, true).expect_err("refused");
+        let ApiError::Conflict(message) = &err else {
+            panic!("the door's refusal is a 409 conflict, got {err:?}");
+        };
+        assert!(message.contains("no malware-scan verdict"), "{message}");
+        assert!(
+            message.contains("re-upload"),
+            "the message names what the caller can do: {message}"
+        );
+        assert!(
+            !message.contains("held by the scan gate"),
+            "an absent verdict is not a hold: {message}"
+        );
+    }
 }

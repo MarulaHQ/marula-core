@@ -369,9 +369,12 @@ pub async fn download(
         crate::routes::attachments::verdict_for(&mut tx, org_id, &attachment.sha256).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
-    if admission == crate::routes::attachments::DownloadAdmission::Held {
-        return Err(crate::routes::attachments::held_refusal());
-    }
+    // The same decision the ticket door makes, from the same function: held
+    // and unscanned objects leave through neither a URL nor the stream.
+    crate::routes::attachments::check_admission(
+        admission,
+        crate::routes::attachments::scanner_installed(&state),
+    )?;
 
     if query.presign {
         let ticket = crate::routes::attachments::download_ticket(

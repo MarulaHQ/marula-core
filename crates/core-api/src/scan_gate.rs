@@ -31,11 +31,20 @@
 //! policy, no transaction of its own. The caller owns its rows, its
 //! `attachment.quarantined` event, and the point at which it returns the
 //! refusal.
+//!
+//! Two callers are not upload doors and still belong here (Wave 54 lane S7):
+//! the inbound-email pipeline scans each DECODED attachment through [`gate`]
+//! before it stores the part, and holds a rejected one through
+//! [`quarantine_in_tx`] — the same record, the same notification, the same
+//! namespace an uploader's file gets. Email used to be the one way bytes
+//! entered the store without a verdict row, which is what made an inbound
+//! attachment refuse to download later.
 
 use crate::error::{ApiError, ApiResult};
 use crate::org_tx::OrgTx;
 use crate::state::AppState;
 use core_domain::entities::ScanStatus;
+use sqlx::{Postgres, Transaction};
 
 /// What the scanner said, in the terms a caller records.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,8 +184,21 @@ pub async fn quarantine(
     store: &dyn core_store::ObjectStore,
     r: Rejection<'_>,
 ) -> ApiResult<QuarantinedUpload> {
+    quarantine_in_tx(&mut ctx.tx, store, r).await
+}
+
+/// The same write, for a caller that owns a plain org-scoped transaction
+/// rather than an [`OrgTx`]: the inbound-email pipeline routes a message to
+/// its org inside a transaction it opened itself, and a held attachment needs
+/// the identical record. One implementation, so the two doors cannot drift on
+/// what a quarantine means.
+pub async fn quarantine_in_tx(
+    tx: &mut Transaction<'static, Postgres>,
+    store: &dyn core_store::ObjectStore,
+    r: Rejection<'_>,
+) -> ApiResult<QuarantinedUpload> {
     let key = core_store::quarantine_key(r.org_id, r.sha256);
-    let already = core_db::attachment_scans::get(&mut ctx.tx, r.org_id, r.sha256)
+    let already = core_db::attachment_scans::get(&mut *tx, r.org_id, r.sha256)
         .await?
         .is_some_and(|scan| scan.is_quarantined());
     if !already {
@@ -195,7 +217,7 @@ pub async fn quarantine(
     // still describe the object that is already held, and the uploader of a
     // second attempt gets the same typed answer as the first.
     match core_db::attachment_scans::record_quarantine(
-        &mut ctx.tx,
+        &mut *tx,
         core_db::attachment_scans::NewScan {
             org_id: r.org_id,
             sha256: r.sha256,
@@ -224,7 +246,7 @@ pub async fn quarantine(
         Err(e) => return Err(e.into()),
     }
 
-    notify_quarantine(ctx, &r).await?;
+    notify_quarantine(tx, &r).await?;
 
     Ok(QuarantinedUpload {
         sha256: r.sha256.to_string(),
@@ -247,14 +269,16 @@ pub async fn quarantine(
 /// preference, because the typed 422 already told them in-band; the row is
 /// the durable copy, and honouring the switch is what keeps one preference
 /// meaning one thing.
-async fn notify_quarantine(ctx: &mut OrgTx<'_>, r: &Rejection<'_>) -> ApiResult<()> {
+async fn notify_quarantine(
+    tx: &mut Transaction<'static, Postgres>,
+    r: &Rejection<'_>,
+) -> ApiResult<()> {
     let kind = core_domain::entities::NotificationKind::ScanDetection;
     let mut recipients: Vec<uuid::Uuid> = Vec::new();
     if let Some(user_id) = r.uploaded_by_user_id {
         recipients.push(user_id);
     }
-    for user_id in core_db::notifications::scan_detection_recipients(&mut *ctx.tx, r.org_id).await?
-    {
+    for user_id in core_db::notifications::scan_detection_recipients(&mut **tx, r.org_id).await? {
         if !recipients.contains(&user_id) {
             recipients.push(user_id);
         }
@@ -281,7 +305,7 @@ async fn notify_quarantine(ctx: &mut OrgTx<'_>, r: &Rejection<'_>) -> ApiResult<
 
     for user_id in recipients {
         let pref = core_db::notifications::effective_preference(
-            &mut *ctx.tx,
+            &mut **tx,
             r.org_id,
             user_id,
             kind.as_str(),
@@ -291,7 +315,7 @@ async fn notify_quarantine(ctx: &mut OrgTx<'_>, r: &Rejection<'_>) -> ApiResult<
             continue;
         }
         let notification = core_db::notifications::insert(
-            &mut *ctx.tx,
+            &mut **tx,
             uuid::Uuid::now_v7(),
             r.org_id,
             user_id,
@@ -301,7 +325,10 @@ async fn notify_quarantine(ctx: &mut OrgTx<'_>, r: &Rejection<'_>) -> ApiResult<
             Some(&body),
         )
         .await?;
-        ctx.emit(
+        core_db::outbox::insert(
+            &mut *tx,
+            uuid::Uuid::now_v7(),
+            r.org_id,
             core_domain::events::types::NOTIFICATION_CREATED,
             "notification",
             Some(notification.id.to_string().as_str()),

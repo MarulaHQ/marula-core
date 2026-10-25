@@ -1606,26 +1606,24 @@ async fn a_held_object_issues_neither_a_url_nor_bytes() {
     }
 }
 
-/// No verdict on record means no URL. The bytes keep the pre-P6 posture —
-/// streaming was already authorized per request — but the ticket is refused,
-/// because a URL would outlive the answer nobody has.
+/// No verdict on record means no URL, and in a deployment with NO scanner the
+/// bytes keep the posture they had before the gate existed. Refusing here
+/// would lock every pre-gate file out of an install that has no scanner to
+/// re-scan it with — the no-scanner half of
+/// `an_unscanned_object_is_refused_at_the_staff_and_portal_doors` below.
 #[tokio::test]
-async fn an_unscanned_object_never_presigns() {
+async fn a_deployment_without_a_scanner_still_streams_an_unscanned_object() {
     let (mut state, store) = test_state().await;
+    assert_eq!(
+        state.mail.scanner.name(),
+        "none",
+        "this half of the rule is the none-mode deployment"
+    );
     let app = core_api::routes::build_router(state.clone());
     let org = seed_org(&app, "presign-unscanned").await;
     let uploaded = upload_png(&app, &org).await;
     let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
-
-    let mut tx = state.pool.begin().await.expect("tx");
-    core_db::set_org(&mut tx, org_id).await.expect("org scope");
-    sqlx::query("DELETE FROM attachment_scans WHERE org_id = $1 AND sha256 = $2")
-        .bind(org_id)
-        .bind(&uploaded.sha256)
-        .execute(&mut *tx)
-        .await
-        .expect("drop the verdict");
-    tx.commit().await.expect("commit");
+    delete_verdict(&state, org_id, &uploaded.sha256).await;
 
     let app = presigning_app(&mut state, &store);
     let ticket = body_json(
@@ -1659,4 +1657,220 @@ async fn an_unscanned_object_never_presigns() {
     .await;
     assert_eq!(response.status(), 200);
     assert_eq!(body_bytes(response).await, PNG_BYTES);
+}
+
+/// Drops the verdict row for one object, leaving bytes the store holds and no
+/// scan record of them: the pre-0139 shape, and the shape the inbound-email
+/// path used to produce.
+async fn delete_verdict(state: &AppState, org_id: Uuid, sha: &str) {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    sqlx::query("DELETE FROM attachment_scans WHERE org_id = $1 AND sha256 = $2")
+        .bind(org_id)
+        .bind(sha)
+        .execute(&mut *tx)
+        .await
+        .expect("drop the verdict");
+    tx.commit().await.expect("commit");
+}
+
+/// Writes an admitted verdict back for an object that already has bytes, so a
+/// test can then escalate it the way a scanner update would.
+async fn admit_object(state: &AppState, org_id: Uuid, sha: &str, storage_key: &str, size: i64) {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    sqlx::query(
+        "INSERT INTO attachment_scans (org_id, sha256, status, scanner, size_bytes, \
+         content_type, filename, storage_key) \
+         VALUES ($1, $2, 'clean', 'test', $3, 'image/png', 'screenshot.png', $4)",
+    )
+    .bind(org_id)
+    .bind(sha)
+    .bind(size)
+    .bind(storage_key)
+    .execute(&mut *tx)
+    .await
+    .expect("admitted verdict");
+    tx.commit().await.expect("commit");
+}
+
+/// Exposes the default board to client A and signs a fresh portal contact in.
+/// The tag becomes the contact's email, so two runs never collide on the
+/// login `LIMIT 1`.
+async fn portal_token_for(app: &Router, org: &Org, tag: &str) -> String {
+    let boards = body_json(
+        send_json(
+            app,
+            axum::http::Method::GET,
+            "/api/boards",
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let board_id = boards[0]["id"].as_str().unwrap().to_string();
+    let exposure = send_json(
+        app,
+        axum::http::Method::PUT,
+        &format!("/api/clients/{}/board-exposures", org.client_a),
+        Some(&org.token),
+        Some(json!({"board_id": board_id, "exposed": true, "visible_status_ids": []})),
+    )
+    .await;
+    assert_eq!(exposure.status(), 200);
+    let email = format!("contact-{tag}@portal.test");
+    let invite = send_json(
+        app,
+        axum::http::Method::POST,
+        &format!("/api/clients/{}/portal-users", org.client_a),
+        Some(&org.token),
+        Some(json!({
+            "email": email,
+            "display_name": "Contact",
+            "password": "portal-passphrase-1",
+            "role": "contact",
+        })),
+    )
+    .await;
+    assert_eq!(invite.status(), 200);
+    body_json(
+        send_json(
+            app,
+            axum::http::Method::POST,
+            "/api/portal/login",
+            None,
+            Some(json!({"email": email, "password": "portal-passphrase-1"})),
+        )
+        .await,
+    )
+    .await["access_token"]
+        .as_str()
+        .expect("portal token")
+        .to_string()
+}
+
+/// The record this lane closes (Wave 54 lane S7). In a deployment WITH a
+/// scanner, an object with no verdict on record is refused by every door that
+/// hands bytes out — the staff ticket door on both `Accept` shapes and the
+/// portal door — because the bytes got into the store without passing the
+/// gate, which is precisely what a download must not reward. The portal door
+/// also refuses a HELD object now; it used to stream whatever the visibility
+/// JOIN returned.
+#[tokio::test]
+async fn an_unscanned_object_is_refused_at_the_staff_and_portal_doors() {
+    let (mut state, store) = test_state_with(Some(Arc::new(GateScan))).await;
+    assert_eq!(
+        state.mail.scanner.name(),
+        "gate-scripted",
+        "a scanner is configured, so an absent verdict is a hole, not a none-mode skip"
+    );
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string();
+    let org = seed_org(&app, &tag).await;
+    let portal_token = portal_token_for(&app, &org, &tag).await;
+
+    // A file the gate ADMITTED, surfaced to the client through a
+    // client-visible note so the portal door has something to refuse.
+    let uploaded = upload_png(&app, &org).await;
+    let comment = send_json(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/tickets/{}/comments", org.ticket_a),
+        Some(&org.token),
+        Some(json!({
+            "body": "see attached",
+            "kind": "client_visible",
+            "attachment_ids": [uploaded.id],
+        })),
+    )
+    .await;
+    assert_eq!(comment.status(), 200, "linking the attachment to a note");
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+
+    let app = presigning_app(&mut state, &store);
+
+    // --- case 1: no verdict at all ---
+    delete_verdict(&state, org_id, &uploaded.sha256).await;
+
+    for suffix in ["?presign=true", ""] {
+        let response = send_raw(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/attachments/{}/download{suffix}", uploaded.id),
+            Some(&org.token),
+            &[],
+            None,
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            409,
+            "(staff{suffix}) an unscanned object must be refused"
+        );
+        let body = body_json(response).await;
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("no malware-scan verdict")),
+            "the refusal names the real condition: {body}"
+        );
+    }
+
+    let response = portal_download(&app, &org.ticket_a, &uploaded.id, &portal_token).await;
+    assert_eq!(
+        response.status(),
+        409,
+        "the portal door must refuse an unscanned object too"
+    );
+    let body = body_json(response).await;
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("no malware-scan verdict")),
+        "a client reads the same typed answer a staff downloader does: {body}"
+    );
+
+    // --- case 2: held for an operator ---
+    admit_object(
+        &state,
+        org_id,
+        &uploaded.sha256,
+        &uploaded.storage_key,
+        PNG_BYTES.len() as i64,
+    )
+    .await;
+    hold_object(&state, org_id, &uploaded.sha256).await;
+
+    let response = portal_download(&app, &org.ticket_a, &uploaded.id, &portal_token).await;
+    assert_eq!(
+        response.status(),
+        409,
+        "a held object must not reach a client, whatever the visibility JOIN says"
+    );
+    let body = body_json(response).await;
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("held by the scan gate")),
+        "the held refusal says why: {body}"
+    );
+}
+
+/// One portal download request, for the tests that need that door.
+async fn portal_download(
+    app: &Router,
+    ticket_id: &str,
+    attachment_id: &str,
+    portal_token: &str,
+) -> axum::response::Response {
+    send_raw(
+        app,
+        axum::http::Method::GET,
+        &format!("/api/portal/tickets/{ticket_id}/attachments/{attachment_id}/download"),
+        Some(portal_token),
+        &[],
+        None,
+    )
+    .await
 }
