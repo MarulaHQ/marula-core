@@ -124,8 +124,11 @@ pub(crate) async fn audit_best_effort(
 /// `orgs_slug_key` unique violation becomes reason `org_slug_taken` with
 /// a suggested available slug (first free `-2`, `-3`, … suffix, probed on
 /// the POOL — the write tx is aborted by the constraint error and cannot
-/// answer reads). Any other failure passes through the registry mapping
-/// unchanged (e.g. duplicate owner email → `user_email_taken`).
+/// answer reads). The probe goes through `app_org_slug_taken` because
+/// `orgs` is RLS-scoped and an unscoped pre-auth read saw no row, which is
+/// why the suggestion never fired (p57 finding 5). Any other failure passes
+/// through the registry mapping unchanged (e.g. duplicate owner email →
+/// `user_email_taken`).
 async fn slug_conflict_with_suggestion(
     e: core_db::DbError,
     slug: &str,
@@ -142,11 +145,11 @@ async fn slug_conflict_with_suggestion(
     let mut suggestion = None;
     for n in 2..10 {
         let candidate = format!("{slug}-{n}");
-        let free = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM orgs WHERE slug = $1")
+        let taken = sqlx::query_scalar::<_, bool>("SELECT app_org_slug_taken($1)")
             .bind(candidate.clone())
             .fetch_one(pool)
             .await;
-        if matches!(free, Ok(0)) {
+        if matches!(taken, Ok(false)) {
             suggestion = Some(candidate);
             break;
         }

@@ -456,9 +456,12 @@ where
     // Runtime `query`, like the other statements in this file that build their
     // SQL: the claim is answered by `rows_affected`, and no caller reads a
     // column from the statement.
+    // `rotated`, not `revoked`: the parent's access token is still in the
+    // client's hands until it expires, and `app_session_active` refuses every
+    // other reason (see 0170).
     let result = sqlx::query(
         r#"WITH retired AS (
-               UPDATE auth_sessions SET revoked_at = now()
+               UPDATE auth_sessions SET revoked_at = now(), revoked_reason = 'rotated'
                WHERE id = $1 AND revoked_at IS NULL
                RETURNING id
            )
@@ -478,15 +481,24 @@ where
     Ok(result.rows_affected() == 1)
 }
 
-/// Revokes every still-live session in a chain (reuse-detection response).
-/// Returns how many rows died.
+/// Revokes every session in a chain (reuse-detection response). Returns how
+/// many rows the statement touched.
+///
+/// A chain revocation is not a rotation, so rows retired as `rotated` are
+/// re-marked too: their access tokens are exactly what reuse detection is
+/// trying to cut off. Rows already marked `revoked` keep that reason — a
+/// logout is a fact about how that session ended, not something a later
+/// replay rewrites — and rows retired before the reason column existed keep
+/// their NULL.
 pub async fn revoke_chain<'e, E>(executor: E, chain_id: Uuid) -> DbResult<u64>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let result = sqlx::query!(
-        r#"UPDATE auth_sessions SET revoked_at = now()
-           WHERE chain_id = $1 AND revoked_at IS NULL"#,
+        r#"UPDATE auth_sessions
+              SET revoked_at = COALESCE(revoked_at, now()), revoked_reason = 'reuse'
+            WHERE chain_id = $1
+              AND (revoked_at IS NULL OR revoked_reason = 'rotated')"#,
         chain_id
     )
     .execute(executor)
@@ -544,12 +556,29 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     sqlx::query!(
-        r#"UPDATE auth_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL"#,
+        r#"UPDATE auth_sessions SET revoked_at = now(), revoked_reason = 'revoked'
+           WHERE id = $1 AND revoked_at IS NULL"#,
         session_id
     )
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// Whether the session behind an access token is still usable. The check that
+/// was missing: `require_auth` re-read the user and roles but never asked the
+/// session row, so a revoked session's token stayed good for its full TTL.
+///
+/// One primary-key probe through a SECURITY DEFINER bridge, because the pool
+/// carries no `app.org_id` and `auth_sessions` is RLS-scoped. `rotated` counts
+/// as active: a refresh retires the parent while the parent's access token is
+/// still in flight (migration 0170).
+pub async fn session_active(pool: &PgPool, session_id: Uuid) -> DbResult<bool> {
+    let active: bool = sqlx::query_scalar("SELECT app_session_active($1)")
+        .bind(session_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(active)
 }
 
 /// Resolves (user_id, org_id) by email via the SECURITY DEFINER bridge.
@@ -568,7 +597,7 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let result = sqlx::query(
-        "UPDATE auth_sessions SET revoked_at = now() \
+        "UPDATE auth_sessions SET revoked_at = now(), revoked_reason = 'revoked' \
          WHERE user_id = $1 AND revoked_at IS NULL",
     )
     .bind(user_id)

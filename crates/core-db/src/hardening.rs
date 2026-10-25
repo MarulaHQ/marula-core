@@ -114,6 +114,27 @@ pub struct TokenResolution {
     pub org_id: Uuid,
 }
 
+/// Reads (user, org) for an unredeemed single-use token WITHOUT redeeming it.
+///
+/// The magic-link confirm needs the pair to answer the MFA gate before it
+/// decides anything. Consuming first made an enrolled account spend a link to
+/// learn it must use a password; the peek cannot redeem, so the consume
+/// function stays the only writer and its `used_at` guard still picks exactly
+/// one winner among concurrent confirmations.
+pub async fn peek_one_use_token(
+    pool: &PgPool,
+    kind: &str,
+    token_hash: &str,
+) -> DbResult<Option<TokenResolution>> {
+    let row: Option<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT user_id, org_id FROM app_peek_one_use_token($1, $2)")
+            .bind(kind)
+            .bind(token_hash)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.map(|(user_id, org_id)| TokenResolution { user_id, org_id }))
+}
+
 /// Consumes (validates + marks) a one-use token atomically — the used_at
 /// guard makes two concurrent redemptions yield exactly one winner.
 /// Unknown/expired/already-used all collapse to None (no enumeration).

@@ -498,11 +498,17 @@ pub async fn magic_link_confirm(
     )
     .await?;
     let presented = jwt::hash_refresh_token(req.token.trim());
-    let resolution =
-        tokens::consume_one_use_token(&state.pool, tokens::gate_kind::MAGIC_LINK, &presented)
-            .await
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError::Unauthorized("invalid or expired sign-in link".into()))?;
+
+    // Peek before consuming (p57 finding 4). The gate below needs the (user,
+    // org) pair, and the previous order redeemed the link first — so an
+    // enrolled account spent a link to learn it must sign in with a password.
+    // The peek reads the same pair the consume will; it redeems nothing, and
+    // the consume's `used_at` guard still picks one winner among concurrent
+    // confirmations.
+    let peeked = tokens::peek_one_use_token(&state.pool, tokens::gate_kind::MAGIC_LINK, &presented)
+        .await
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::Unauthorized("invalid or expired sign-in link".into()))?;
 
     // Token issuance still runs the MFA gate every other identity source
     // runs (p57): password login refuses tokens while an enrolled factor is
@@ -514,18 +520,18 @@ pub async fn magic_link_confirm(
     // take; the audit row keeps the truth server-side.
     {
         let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-        core_db::set_org(&mut tx, resolution.org_id).await?;
-        let caps = core_db::mfa::mfa_capabilities(&mut *tx, resolution.user_id).await?;
+        core_db::set_org(&mut tx, peeked.org_id).await?;
+        let caps = core_db::mfa::mfa_capabilities(&mut *tx, peeked.user_id).await?;
         let any = caps.any();
         tx.commit().await.map_err(ApiError::from)?;
         if any {
             handlers::audit_best_effort(
                 &state,
-                resolution.org_id,
-                Actor::Human(resolution.user_id),
+                peeked.org_id,
+                Actor::Human(peeked.user_id),
                 "auth.magic_link_mfa_required",
                 Some("user"),
-                Some(resolution.user_id.to_string()),
+                Some(peeked.user_id.to_string()),
                 serde_json::json!({ "amr": "magic_link" }),
             )
             .await;
@@ -535,6 +541,13 @@ pub async fn magic_link_confirm(
             });
         }
     }
+
+    // Redeem only after the gate clears.
+    let resolution =
+        tokens::consume_one_use_token(&state.pool, tokens::gate_kind::MAGIC_LINK, &presented)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError::Unauthorized("invalid or expired sign-in link".into()))?;
 
     let (tokens, cookie_head) =
         handlers::issue_tokens_with_cookies(&state, resolution.user_id, resolution.org_id, None)
