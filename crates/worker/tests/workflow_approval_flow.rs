@@ -252,6 +252,10 @@ async fn decide(pool: &PgPool, org: Uuid, proposal: Uuid, decider: Uuid, status:
 }
 
 /// Delivers one wake for a parked run. `event: None` is the expiry wake.
+///
+/// The job is enqueued first, exactly as the dispatcher inserts the row it
+/// claims: a continuation records the wake job as its `trigger_job_id`, which
+/// is a foreign key, so a job the queue never held cannot write its run.
 async fn wake(
     pool: &PgPool,
     fx: &Fixture,
@@ -267,8 +271,10 @@ async fn wake(
         payload["event_type"] = json!(event_type);
         payload["event_entity"] = json!("agent_proposal");
     }
+    let wake_job = job(fx.org, payload);
+    enqueue(pool, &wake_job).await;
     let effects = RecordingEffectApi::new(EffectOutcome::Applied);
-    let result = process_resume_job(pool, &effects, &job(fx.org, payload)).await;
+    let result = process_resume_job(pool, &effects, &wake_job).await;
     assert!(
         matches!(result.outcome, JobOutcome::Done),
         "the wake must settle: {}",
