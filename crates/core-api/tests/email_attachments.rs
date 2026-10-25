@@ -130,10 +130,15 @@ fn msg_with_attachments(
 /// all attachment-pipeline stages run sequentially against one boot.
 #[tokio::test]
 async fn email_attachment_pipeline_stores_scans_and_dedupes() {
-    let harness = MailHarness::boot().await;
+    // One boot for the whole file: the harness seeds a globally unique
+    // catchall address, so a second boot in the same database collides. Every
+    // stage below therefore asserts on deltas, never on totals.
+    let mut harness = MailHarness::boot().await;
     clean_stage(&harness).await;
     quarantined_part_stage(&harness).await;
     empty_stage(&harness).await;
+    bytes_leg_stage(&mut harness).await;
+    none_mode_stage(&mut harness).await;
 }
 
 /// The verdict rows for one org, keyed by digest, as
@@ -337,11 +342,11 @@ async fn empty_stage(harness: &MailHarness) {
 /// proves the octets it received are the parts' own — a built string would
 /// have replaced `0xFF 0xFE` with U+FFFD — and that no call carried a
 /// body-plus-attachments concatenation.
-#[tokio::test]
-async fn inbound_parts_are_scanned_as_decoded_bytes_with_a_verdict_each() {
-    let mut harness = MailHarness::boot().await;
+async fn bytes_leg_stage(harness: &mut MailHarness) {
+    let puts_before = harness.store.put_count();
+    let rows_before = verdict_rows(harness).await.len();
     let scanner = Arc::new(RecordingScan::default());
-    install_scanner(&mut harness, Arc::clone(&scanner) as Arc<dyn ScanProvider>);
+    install_scanner(harness, Arc::clone(&scanner) as Arc<dyn ScanProvider>);
 
     let status = email::process_inbound(
         &harness.state,
@@ -373,10 +378,30 @@ async fn inbound_parts_are_scanned_as_decoded_bytes_with_a_verdict_each() {
     );
 
     // Two objects, two rows, both admitted under their content-addressed key.
-    assert_eq!(harness.store.put_count(), 2, "one PUT per part");
-    let rows = verdict_rows(&harness).await;
-    assert_eq!(rows.len(), 2, "one verdict row per part");
-    for row in &rows {
+    assert_eq!(
+        harness.store.put_count() - puts_before,
+        2,
+        "one PUT per part"
+    );
+    let rows = verdict_rows(harness).await;
+    assert_eq!(
+        rows.len() - rows_before,
+        2,
+        "one verdict row per part in this stage"
+    );
+    // Only this stage's own digests: earlier stages recorded their own rows.
+    let keys: Vec<String> = [TEXT_PART, BINARY_PART]
+        .iter()
+        .map(|p| core_store::attachment_key(harness.org.org_id, &sha_of(p)))
+        .collect();
+    let mut stage_rows: Vec<_> = rows.iter().filter(|(_, _, k)| keys.contains(k)).collect();
+    stage_rows.sort_by(|a, b| a.2.cmp(&b.2));
+    assert_eq!(
+        stage_rows.len(),
+        2,
+        "one verdict row per part in this stage"
+    );
+    for row in &stage_rows {
         assert_eq!(row.0, "clean");
         assert_eq!(row.1, "recording");
     }
@@ -391,26 +416,35 @@ async fn inbound_parts_are_scanned_as_decoded_bytes_with_a_verdict_each() {
 
 /// The no-scanner deployment writes `skipped`, not nothing: an object stored
 /// with no scanner present still has a verdict on record, so the download
-/// doors can tell "nobody looked" from "nobody recorded".
-#[tokio::test]
-async fn none_mode_records_a_skipped_verdict_per_inbound_part() {
-    let mut harness = MailHarness::boot().await;
-    install_scanner(&mut harness, Arc::new(core_api::email::NoopScan::new()));
+/// doors can tell "nobody looked" from "nobody recorded". The bytes are its
+/// own, since a digest already recorded by an earlier stage keeps its row.
+async fn none_mode_stage(harness: &mut MailHarness) {
+    install_scanner(harness, Arc::new(core_api::email::NoopScan::new()));
+    let none_part: &[u8] = b"none mode part, scanned by nobody\n";
+    let key = core_store::attachment_key(harness.org.org_id, &sha_of(none_part));
 
     let status = email::process_inbound(
         &harness.state,
         msg_with_attachments(
             "<att-none@example.test>",
             "No scanner here",
-            vec![("server-log.txt".into(), "text/plain".into(), b64(TEXT_PART))],
+            vec![(
+                "none-mode-log.txt".into(),
+                "text/plain".into(),
+                b64(none_part),
+            )],
         ),
     )
     .await
     .expect("pipeline ok");
     assert_eq!(status, InboundStatus::TicketCreated);
 
-    let rows = verdict_rows(&harness).await;
-    assert_eq!(rows.len(), 1);
+    let rows: Vec<_> = verdict_rows(harness)
+        .await
+        .into_iter()
+        .filter(|(_, _, k)| k == &key)
+        .collect();
+    assert_eq!(rows.len(), 1, "one verdict row for the none-mode object");
     assert_eq!(rows[0].0, "skipped", "none mode is a skip, never a clean");
     assert_eq!(rows[0].1, "none");
 }
