@@ -36,21 +36,40 @@ pub enum BudgetSeatVerdict {
 /// (`Admitted`, no table touch) when `limit_per_min == 0` (the documented
 /// escape hatch).
 ///
-/// Semantics mirror the Wave 16 in-memory bucket exactly, now durable:
-/// a tumbling 60-second window anchored where the window STARTED (a
-/// window older than `BUDGET_WINDOW_SECS` by the DB clock rolls: seats
-/// reset and the anchor moves to now). An increment that would exceed
-/// the limit is NOT applied — a refused write consumes nothing, so the
-/// window keeps yielding as many GOOD seats as the limit allows. The
-/// `FOR UPDATE` row lock serializes concurrent replicas, so the count is
-/// exact even when two replicas race the same window edge; no batch of
-/// concurrent seats overshoots the limit.
+/// Convenience wrapper over [`consume_write_budget_seats`] for the
+/// single-row mutation surfaces; the multi-row path (bulk vault ingest)
+/// charges one seat per row it writes.
 pub async fn consume_write_budget_seat(
     conn: &mut PgConnection,
     org_id: uuid::Uuid,
     limit_per_min: u32,
 ) -> DbResult<BudgetSeatVerdict> {
-    if limit_per_min == 0 {
+    consume_write_budget_seats(conn, org_id, limit_per_min, 1).await
+}
+
+/// Consumes `seats` of the org's durable write budget in ONE verdict: a
+/// multi-row request either fits entirely or consumes nothing. A
+/// short-circuit (`Admitted`, no table touch) when `limit_per_min == 0`
+/// (the documented escape hatch) or `seats == 0`.
+///
+/// Semantics mirror the Wave 16 in-memory bucket exactly, now durable:
+/// a tumbling 60-second window anchored where the window STARTED (a
+/// window older than `BUDGET_WINDOW_SECS` by the DB clock rolls: seats
+/// reset and the anchor moves to now). An increment that would exceed
+/// the limit is NOT applied — a refused write consumes nothing, so the
+/// window keeps yielding as many GOOD seats as the limit allows. A
+/// request asking for more seats than an ENTIRE window holds is refused
+/// against a freshly rolled window too, so it can never pass by waiting.
+/// The `FOR UPDATE` row lock serializes concurrent replicas, so the count
+/// is exact even when two replicas race the same window edge; no batch
+/// of concurrent seats overshoots the limit.
+pub async fn consume_write_budget_seats(
+    conn: &mut PgConnection,
+    org_id: uuid::Uuid,
+    limit_per_min: u32,
+    seats: u32,
+) -> DbResult<BudgetSeatVerdict> {
+    if limit_per_min == 0 || seats == 0 {
         return Ok(BudgetSeatVerdict::Admitted);
     }
     let mut tx = conn.begin().await?;
@@ -77,42 +96,53 @@ pub async fn consume_write_budget_seat(
     .bind(org_id)
     .fetch_one(&mut *tx)
     .await?;
-    let (window_started, seats, elapsed_secs) = row;
+    let (window_started, seats_used, elapsed_secs) = row;
     let limit = i64::from(limit_per_min);
+    let wanted = i64::from(seats);
     if elapsed_secs as i64 >= BUDGET_WINDOW_SECS as i64 || elapsed_secs < 0.0 {
         // Window rolled (the <0 arm guards the clock edge where a
-        // just-inserted anchor reads negative under rounding).
+        // just-inserted anchor reads negative under rounding). A request
+        // bigger than a whole window can never be admitted, fresh or not.
+        if wanted > limit {
+            tracing::debug!(wanted, limit, org = %org_id,
+                "vault budget: request exceeds a whole window");
+            return Ok(BudgetSeatVerdict::Exceeded {
+                retry_after_secs: i64::from(BUDGET_WINDOW_SECS),
+            });
+        }
         sqlx::query(
-            "UPDATE vault_write_budget_windows SET window_started = now(), seats = 1, \
+            "UPDATE vault_write_budget_windows SET window_started = now(), seats = $2, \
              updated_at = now() WHERE org_id = $1",
         )
         .bind(org_id)
+        .bind(wanted)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        tracing::debug!(?window_started, seats, elapsed_secs, org = %org_id,
-            "vault budget: durable window rolled, seat 1");
+        tracing::debug!(?window_started, seats_used, elapsed_secs, wanted, org = %org_id,
+            "vault budget: durable window rolled, {wanted} seat(s)");
         return Ok(BudgetSeatVerdict::Admitted);
     }
-    if seats + 1 > limit {
+    if seats_used + wanted > limit {
         // Exceeded: the tx commits NOTHING (the refused write consumes
         // no seat), so the window keeps yielding good seats up to the
         // limit — identical to the in-memory bucket's refusal semantics.
-        tracing::debug!(seats, elapsed_secs, org = %org_id,
+        tracing::debug!(seats_used, wanted, elapsed_secs, org = %org_id,
             "vault budget: durable seat refused (window full)");
         return Ok(BudgetSeatVerdict::Exceeded {
             retry_after_secs: ((BUDGET_WINDOW_SECS as f64 - elapsed_secs).ceil() as i64).max(1),
         });
     }
     sqlx::query(
-        "UPDATE vault_write_budget_windows SET seats = seats + 1, updated_at = now() \
+        "UPDATE vault_write_budget_windows SET seats = seats + $2, updated_at = now() \
          WHERE org_id = $1",
     )
     .bind(org_id)
+    .bind(wanted)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    tracing::debug!(seats = seats + 1, elapsed_secs, org = %org_id,
+    tracing::debug!(seats = seats_used + wanted, elapsed_secs, org = %org_id,
         "vault budget: durable seat admitted");
     Ok(BudgetSeatVerdict::Admitted)
 }

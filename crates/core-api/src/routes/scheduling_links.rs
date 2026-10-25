@@ -59,10 +59,68 @@ fn admin(action: Action) -> Permission {
 
 const RATE_WINDOW_SECS: u64 = 60;
 
+/// Ceiling on live limiter keys.
+///
+/// The public surface has no principal, so the limiter is keyed by a
+/// caller-supplied token: the key set is attacker-controlled. Without a
+/// cap the map gains one entry per distinct token ever presented and nothing
+/// ever leaves it — an entry's window expires, but the entry stays. At the
+/// cap a request first sweeps windows that already expired (safe: an
+/// expired window holds no state a live request depends on) and refuses
+/// with the typed 429 when nothing expired, so retained memory is bounded
+/// at a constant either way.
+const RATE_WINDOW_MAX_KEYS: usize = 10_000;
+
 #[derive(Debug)]
 struct RateWindow(Instant, u32);
 
-static RATE_WINDOWS: OnceLock<Mutex<HashMap<String, RateWindow>>> = OnceLock::new();
+#[derive(Debug, Default)]
+struct RateWindows {
+    buckets: HashMap<String, RateWindow>,
+    /// When the last capped-resize sweep ran. The sweep is O(keys) and this
+    /// surface is unauthenticated, so it runs at most once per window: the
+    /// cost of a request that arrives at the cap is a lookup and a length
+    /// read, never a full scan.
+    last_sweep: Option<Instant>,
+}
+
+impl RateWindows {
+    /// Records one hit for `key`. `Err(retry_after_secs)` is the refusal:
+    /// either this key's own window is full, or the map sits at its cap
+    /// with no expired window to reclaim.
+    fn hit(&mut self, now: Instant, key: &str, limit_per_min: u32) -> Result<(), i64> {
+        if !self.buckets.contains_key(key) && self.buckets.len() >= RATE_WINDOW_MAX_KEYS {
+            let sweep_due = self.last_sweep.is_none_or(|swept| {
+                now.saturating_duration_since(swept).as_secs() >= RATE_WINDOW_SECS
+            });
+            if sweep_due {
+                self.buckets.retain(|_, window| {
+                    now.saturating_duration_since(window.0).as_secs() < RATE_WINDOW_SECS
+                });
+                self.last_sweep = Some(now);
+            }
+            if self.buckets.len() >= RATE_WINDOW_MAX_KEYS {
+                return Err(i64::try_from(RATE_WINDOW_SECS).unwrap_or(i64::MAX));
+            }
+        }
+        let window = self
+            .buckets
+            .entry(key.to_string())
+            .or_insert(RateWindow(now, 0));
+        if now.saturating_duration_since(window.0).as_secs() >= RATE_WINDOW_SECS {
+            *window = RateWindow(now, 0);
+        }
+        window.1 += 1;
+        if window.1 > limit_per_min {
+            let elapsed = now.saturating_duration_since(window.0).as_secs();
+            let retry_after = RATE_WINDOW_SECS.saturating_sub(elapsed).max(1);
+            return Err(i64::try_from(retry_after).unwrap_or(i64::MAX));
+        }
+        Ok(())
+    }
+}
+
+static RATE_WINDOWS: OnceLock<Mutex<RateWindows>> = OnceLock::new();
 
 /// Fixed-window limiter keyed by token hash (the public surface has no
 /// principal to key on). `limit == 0` disables limiting (documented
@@ -71,24 +129,12 @@ fn check_rate_limit(limit_per_min: u32, key: &str) -> ApiResult<()> {
     if limit_per_min == 0 {
         return Ok(());
     }
-    let buckets = RATE_WINDOWS.get_or_init(Default::default);
-    let mut map = buckets
+    let windows = RATE_WINDOWS.get_or_init(Default::default);
+    let mut map = windows
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let now = Instant::now();
-    let window = map.entry(key.to_string()).or_insert(RateWindow(now, 0));
-    if now.duration_since(window.0).as_secs() >= RATE_WINDOW_SECS {
-        *window = RateWindow(now, 0);
-    }
-    window.1 += 1;
-    if window.1 > limit_per_min {
-        let elapsed = now.duration_since(window.0).as_secs();
-        let retry_after = RATE_WINDOW_SECS.saturating_sub(elapsed).max(1);
-        return Err(ApiError::RateLimited {
-            retry_after_secs: i64::try_from(retry_after).unwrap_or(i64::MAX),
-        });
-    }
-    Ok(())
+    map.hit(Instant::now(), key, limit_per_min)
+        .map_err(|retry_after_secs| ApiError::RateLimited { retry_after_secs })
 }
 
 // --- tokens ----------------------------------------------------------------------
@@ -1651,4 +1697,60 @@ pub fn public_routes(gen: crate::routes::ApiGeneration) -> axum::Router<AppState
             &format!("{base}/public/scheduling-links/{{token}}/book"),
             post(public_book),
         )
+}
+
+#[cfg(test)]
+mod rate_window_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn a_full_map_refuses_a_new_token_instead_of_growing() {
+        let mut windows = RateWindows::default();
+        let now = Instant::now();
+        for i in 0..RATE_WINDOW_MAX_KEYS {
+            windows
+                .hit(now, &format!("token-{i}"), 60)
+                .expect("a fresh key admits its first hit");
+        }
+        assert_eq!(windows.buckets.len(), RATE_WINDOW_MAX_KEYS);
+        let refused = windows.hit(now, "token-over-the-cap", 60);
+        assert!(refused.is_err(), "the cap refuses rather than growing");
+        assert_eq!(
+            windows.buckets.len(),
+            RATE_WINDOW_MAX_KEYS,
+            "a refused token is never inserted"
+        );
+    }
+
+    #[test]
+    fn expired_windows_are_reclaimed_before_the_cap_refuses() {
+        let mut windows = RateWindows::default();
+        let stale = Instant::now() - Duration::from_secs(RATE_WINDOW_SECS * 2);
+        for i in 0..RATE_WINDOW_MAX_KEYS {
+            windows
+                .hit(stale, &format!("token-{i}"), 60)
+                .expect("a fresh key admits its first hit");
+        }
+        // Every retained window has expired, so the sweep frees the space a
+        // new token needs instead of refusing it.
+        assert!(windows.hit(Instant::now(), "token-fresh", 60).is_ok());
+        assert_eq!(
+            windows.buckets.len(),
+            1,
+            "the sweep drops every expired entry"
+        );
+    }
+
+    #[test]
+    fn one_token_over_its_limit_still_carries_a_retry_hint() {
+        let mut windows = RateWindows::default();
+        let now = Instant::now();
+        assert!(windows.hit(now, "token-a", 2).is_ok());
+        assert!(windows.hit(now, "token-a", 2).is_ok());
+        let retry_after = windows
+            .hit(now, "token-a", 2)
+            .expect_err("the third hit is over a two-per-minute limit");
+        assert!(retry_after >= 1, "Retry-After is at least one second");
+    }
 }
