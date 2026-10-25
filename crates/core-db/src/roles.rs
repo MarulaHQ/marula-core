@@ -161,8 +161,7 @@ pub async fn update_custom_role(
     let result = sqlx::query(
         r#"UPDATE roles SET
               name = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE name END,
-              permissions = CASE WHEN $4::text IS NOT NULL THEN $4::text::jsonb ELSE permissions END,
-              updated_at = now()
+              permissions = CASE WHEN $4::text IS NOT NULL THEN $4::text::jsonb ELSE permissions END
            WHERE org_id = $1 AND id = $2
              AND (builtin IS NULL OR lower(builtin) = '')"#,
     )
