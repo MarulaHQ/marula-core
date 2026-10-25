@@ -363,6 +363,25 @@ impl RobustnessPreset {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Sweep failure backoff
+// ---------------------------------------------------------------------------
+//
+// A housekeeping sweep is not an attempt at a unit of work: it re-reads on a
+// clock, has nothing to dead-letter into, and gets no `Subsystem` row or
+// operator lever. What it does not get either is its own copy of "how long
+// after a failed read" — that duplication is what this module removed, and two
+// worker loops still carried it.
+
+/// Backoff after a failed embedding re-index tick. Short: a failed tick is not
+/// a reason to stop, and the next one may be the one that works.
+pub const EMBEDDING_REINDEX_RETRY: Duration = Duration::from_secs(2);
+
+/// Backoff after a failed retrieval-watch tick. Slower: the count moves with
+/// the re-index job, not with requests, so a stricter reading would only chart
+/// a stale number more often.
+pub const RETRIEVAL_WATCH_RETRY: Duration = Duration::from_secs(30);
+
 /// How many tries a unit of work gets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttemptBudget {
