@@ -76,7 +76,8 @@ where
 /// transaction-scoped surface: its `SET LOCAL` marker and the delete it
 /// permits must stay in one statement.
 pub async fn purge_batch(pool: &PgPool, days: i32, batch: i64) -> DbResult<u64> {
-    let removed: i64 = sqlx::query_scalar("SELECT public.purge_audit_events($1, $2)")
+    let removed: i64 = // The function is declared (integer, integer); sqlx binds an i64 batch.
+    sqlx::query_scalar("SELECT public.purge_audit_events($1::integer, $2::integer)")
         .bind(days)
         .bind(batch)
         .fetch_one(pool)

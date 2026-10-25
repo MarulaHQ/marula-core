@@ -1466,10 +1466,17 @@ async fn purging_a_retried_run_releases_the_retry_instead_of_aborting() {
     let (parent, retry) = {
         let mut tx = org_tx(&db.app, org).await;
         let parent = a_failed_run(&mut tx, org, rule).await;
-        let retry =
-            core_db::workflow_runs::retry_run(&mut tx, org, parent, actor, None, RetryMode::Resume)
-                .await
-                .expect("a retry of the failed run");
+        let retry = core_db::workflow_runs::retry_run(
+            &mut tx,
+            org,
+            Uuid::now_v7(),
+            parent,
+            actor,
+            None,
+            RetryMode::Resume,
+        )
+        .await
+        .expect("a retry of the failed run");
         core_db::workflow_runs::finish_run(
             &mut tx,
             org,
@@ -1533,10 +1540,17 @@ async fn the_purge_is_idempotent_and_keeps_every_row_inside_a_window() {
     let mut tx = org_tx(&db.app, org).await;
 
     let parent = a_failed_run(&mut tx, org, rule).await;
-    let retry =
-        core_db::workflow_runs::retry_run(&mut tx, org, parent, actor, None, RetryMode::Resume)
-            .await
-            .expect("retry");
+    let retry = core_db::workflow_runs::retry_run(
+        &mut tx,
+        org,
+        Uuid::now_v7(),
+        parent,
+        actor,
+        None,
+        RetryMode::Resume,
+    )
+    .await
+    .expect("retry");
     core_db::workflow_runs::finish_run(&mut tx, org, retry.id, RunStatus::Succeeded, None, None)
         .await
         .expect("finish retry");
@@ -1631,10 +1645,17 @@ async fn the_guard_still_refuses_a_hand_written_provenance_edit() {
     let (parent, retry) = {
         let mut tx = org_tx(&db.app, org).await;
         let parent = a_failed_run(&mut tx, org, rule).await;
-        let retry =
-            core_db::workflow_runs::retry_run(&mut tx, org, parent, actor, None, RetryMode::Resume)
-                .await
-                .expect("retry");
+        let retry = core_db::workflow_runs::retry_run(
+            &mut tx,
+            org,
+            Uuid::now_v7(),
+            parent,
+            actor,
+            None,
+            RetryMode::Resume,
+        )
+        .await
+        .expect("retry");
         core_db::workflow_runs::finish_run(
             &mut tx,
             org,
@@ -1769,7 +1790,7 @@ async fn purging_an_outbox_event_releases_the_run_that_came_from_it() {
         .expect("the event a run is started from");
         let mut new = new_run(Some(rule), RunTrigger::Event);
         new.trigger_event_id = Some(event);
-        let run = core_db::workflow_runs::insert_run(&mut *tx, org, &new, RunStatus::Running)
+        let run = core_db::workflow_runs::insert_run(&mut tx, org, &new, RunStatus::Running)
             .await
             .expect("run");
         tx.commit().await.expect("commit");

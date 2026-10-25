@@ -384,7 +384,19 @@ async fn an_object_referenced_nowhere_is_reclaimed_and_foreign_orgs_do_not_count
             other_user,
         )
         .await;
-        assert_eq!(foreign.storage_key, storage_key);
+        // The app never writes a foreign key here (the key embeds the org), so
+        // force the shape this test is about: the same key string in another
+        // org, which must not count as a reference.
+        assert_ne!(
+            foreign.storage_key, storage_key,
+            "the key embeds the org, so the app cannot produce this by itself"
+        );
+        sqlx::query("UPDATE documents_attachments SET storage_key = $1 WHERE id = $2")
+            .bind(&storage_key)
+            .bind(foreign.id)
+            .execute(&mut *other_tx)
+            .await
+            .expect("foreign key forced");
         other_tx.commit().await.expect("foreign org commit");
 
         let refs = attachments::count_other_refs(&mut tx, s.org, &storage_key, row.id)

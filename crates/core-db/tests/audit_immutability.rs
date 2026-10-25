@@ -242,7 +242,13 @@ async fn the_retention_function_removes_only_rows_past_the_window() {
         .fetch_one(&db.app)
         .await
         .expect("purge");
-    assert_eq!(removed, 1, "only the row past the window is eligible");
+    // The function is deployment-wide, so it can legitimately remove another
+    // case's past-window row as well. The row-level assertions below are what
+    // this case owns.
+    assert!(
+        removed >= 1,
+        "the function removes at least the row past the window, got {removed}"
+    );
 
     let gone: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE id = $1")
         .bind(old)
@@ -300,7 +306,14 @@ async fn the_retention_sweep_still_deletes_past_window_audit_rows() {
         .iter()
         .find(|t| t.table == "audit_events")
         .expect("audit_events in the report");
-    assert_eq!(audit.deleted, 1, "the sweep reports the row it removed");
+    // The function sweeps past-window rows for every org, so a row another
+    // case in this binary left behind is legitimately counted too. What this
+    // case owns is that the sweep reached the table and removed its row.
+    assert!(
+        audit.deleted >= 1,
+        "the sweep reports at least the row it removed, got {}",
+        audit.deleted
+    );
 
     let gone: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE id = $1")
         .bind(old)
