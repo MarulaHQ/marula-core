@@ -781,7 +781,7 @@ fn params() -> Vec<Param> {
             true,
             "64 hex chars. AES-256 at-rest key for sealed integration secrets.",
         ),
-        param(
+        requires(
             "MARULA_INTERNAL_TOKEN",
             "secrets",
             Secret,
@@ -789,7 +789,7 @@ fn params() -> Vec<Param> {
             true,
             "Bearer token for /api/internal/* (worker to API machine surface).",
         ),
-        param(
+        requires(
             "EMAIL_INTERNAL_TOKEN",
             "secrets",
             Secret,

@@ -30,6 +30,7 @@ secrets:
   appSecretKey: ""
   emailInboundHmacSecret: ""
   emailInternalToken: ""
+  internalToken: ""
   # EdDSA (Ed25519) access-token signing (optional, Wave 34 lane 6): PEM
   # contents. Set BOTH to switch core-api to EdDSA signing. Leave empty for
   # the HS256 posture.
