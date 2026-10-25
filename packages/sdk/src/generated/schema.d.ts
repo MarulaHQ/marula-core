@@ -3442,6 +3442,11 @@ export interface paths {
          *     404 (`rls_sparse`) means the target was never visible in scope.
          *     The Wave 9 invoicing lane's billing-lock guard refuses the delete
          *     once invoices reference the contract (typed 409).
+         * @description The response is an acknowledgement, not the aggregate: deleting is a
+         *     commercial action, not a rate read (RB2), so a commercial-delete holder
+         *     without `financial:read` can still remove a contract and never receives
+         *     its money. Every rate-bearing surface in this module keeps its
+         *     `financial:read` gate.
          */
         delete: operations["contracts_delete"];
         options?: never;
@@ -11947,7 +11952,9 @@ export interface paths {
         /**
          * GET /api/tickets/{id}/decision-suggestions — the workbench card's
          *     read. Optimistic UI rides the instant-first envelope upstream; this
-         *     endpoint is a plain RLS'd read (nothing to undo, nothing to gate).
+         *     endpoint is a plain RLS'd read scoped by the ticket gate: the
+         *     `tickets:view` permission, then the board gate on the ticket's own
+         *     board (403), then the ticket itself (404 outside the org).
          */
         get: operations["tickets_decision_suggestions"];
         put?: never;
@@ -12603,6 +12610,10 @@ export interface paths {
          *     (`special:approve_time`). Only entries currently in the queue apply;
          *     every other id comes back with a per-item outcome. Emits one
          *     `time_entry.approval_*` event per applied entry.
+         * @description Write-gate symmetry with `submit` and `reopen_entry`: an approver never
+         *     signs off their own time. A self-owned id comes back as `own_entry` and
+         *     is never transitioned; an owner or admin keeps the override, so a
+         *     one-person org can still decide.
          */
         post: operations["time_entries_decide"];
         delete?: never;
@@ -15171,8 +15182,9 @@ export interface components {
         };
         /**
          * @description Per-item outcome of a bulk decision: applied entries carry the new
-         *     snapshot; refused entries name exactly why (not-in-queue, locked, or
-         *     not visible in scope), so the client flags rows instead of guessing.
+         *     snapshot; refused entries name exactly why (`own_entry`, not-in-queue,
+         *     locked, or not visible in scope), so the client flags rows instead of
+         *     guessing.
          */
         BulkDecisionItem: {
             entry?: null | components["schemas"]["TimeEntry"];
@@ -16903,6 +16915,18 @@ export interface components {
              */
             rate_minor: number;
             work_type: string;
+        };
+        /**
+         * @description Acknowledgement for `DELETE /api/contracts/{id}`. Deliberately carries no
+         *     rate, fee, cap, escalator or commitment: the delete is a commercial
+         *     action, not a rate read (RB2), so the caller never receives money it did
+         *     not ask to see. `deleted` mirrors the vault/asset delete shape.
+         */
+        ContractRemovedAck: {
+            /** Format: uuid */
+            contract_id: string;
+            deleted: boolean;
+            number: string;
         };
         /**
          * @description An SLA service credit the admin or verification flow applies for a
@@ -33890,6 +33914,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description this name is already claimed by another workspace */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     edge_source_delete: {
@@ -34598,6 +34629,13 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description this name is already claimed by another workspace */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     oidc_provider_delete: {
@@ -35288,6 +35326,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EntryActionResponse"];
                 };
+            };
+            /** @description own_entry: an approver cannot decide their own entry */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description entry not visible in scope (rls_sparse) */
             404: {
@@ -38268,7 +38313,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ContractDetail"];
+                    "application/json": components["schemas"]["ContractRemovedAck"];
                 };
             };
             /** @description contract not visible in scope */
@@ -55963,6 +56008,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DecisionSuggestionsResponse"];
                 };
+            };
+            /** @description missing tickets:view, or a board denial */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description ticket not visible in scope (rls_sparse) */
             404: {
