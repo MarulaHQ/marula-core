@@ -985,18 +985,26 @@ pub async fn list_attachments(
     // Exposure + ownership gate (also 404s hidden tickets).
     core_db::portal::get_client_ticket(&mut *tx, org_id, client_id, id).await?;
     let kinds = portal_attachment_visible_kinds(authed.user.role);
-    let items = core_db::attachments::list_portal_visible(&mut *tx, org_id, id, &kinds)
-        .await?
-        .into_iter()
-        .map(|a| PortalAttachmentView {
-            id: a.id,
-            filename: a.filename,
-            content_type: a.content_type,
-            size_bytes: a.size_bytes,
-            sha256: a.sha256,
-            created_at: a.created_at,
-        })
-        .collect();
+    // The list applies the download door's admission rule too (Wave 55, F31):
+    // a client is never offered a file the portal download would refuse.
+    let items = core_db::attachments::list_portal_visible(
+        &mut *tx,
+        org_id,
+        id,
+        &kinds,
+        crate::routes::attachments::scanner_installed(&state),
+    )
+    .await?
+    .into_iter()
+    .map(|a| PortalAttachmentView {
+        id: a.id,
+        filename: a.filename,
+        content_type: a.content_type,
+        size_bytes: a.size_bytes,
+        sha256: a.sha256,
+        created_at: a.created_at,
+    })
+    .collect();
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(items))
 }

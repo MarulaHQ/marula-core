@@ -4078,6 +4078,7 @@ dependencies = [
  "core-api",
  "core-db",
  "core-domain",
+ "core-mail",
  "core-otel",
  "core-store",
  "hex",
