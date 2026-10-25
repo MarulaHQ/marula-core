@@ -42,17 +42,13 @@ pub struct ObjectReference {
 
 /// Every object key any row currently claims.
 ///
-/// The four sources are the four tables that hold a `storage_key`. Correctness
-/// of the orphan direction depends on this list being COMPLETE: a table missing
-/// here does not leak, it deletes the objects of a table it forgot, which is why
-/// the sweep refuses to run when a source reports an error rather than treating
-/// it as "no references".
-///
-/// `email_messages.raw_ref` is deliberately absent: it is a provider-side
-/// pointer to a raw MIME payload, not a key in this store.
+/// Correctness of the orphan direction depends on [`SOURCES`] being COMPLETE: a
+/// table missing there does not leak, it deletes the objects of a table it
+/// forgot, which is why the sweep refuses to run when a source reports an error
+/// rather than treating it as "no references".
 pub async fn referenced_keys(pool: &PgPool) -> DbResult<Vec<ObjectReference>> {
     let mut out = Vec::new();
-    for (table, label) in SOURCES {
+    for (table, label, _why) in SOURCES {
         let rows: Vec<(String, Option<Uuid>)> =
             sqlx::query_as(&format!("SELECT storage_key, org_id FROM {table}"))
                 .fetch_all(pool)
@@ -121,12 +117,62 @@ pub async fn clear_missing(pool: &PgPool, keys: &[String]) -> DbResult<u64> {
     Ok(updated)
 }
 
-/// The tables that hold object keys, with the label a finding records.
-const SOURCES: [(&str, &str); 4] = [
-    ("attachments", "attachments"),
-    ("documents_attachments", "documents_attachments"),
-    ("attachment_scans", "attachment_scans"),
-    ("org_exports", "org_exports"),
+/// The tables whose rows claim an object key, with the label a finding records
+/// and the reason the table is a source at all.
+///
+/// This is the second inventory over one storage-key space. The first is the
+/// attachment refcount ([`crate::attachments::ATTACHMENT_REF_TABLES`] and its
+/// exclusion list), and the two answer different questions:
+///
+/// * the refcount asks "does any row still OWN these bytes", to decide whether a
+///   row's delete may remove the object. It counts owners only.
+/// * this list asks "does any row CLAIM this key", to decide whether an object
+///   found in the store is an orphan. It must count owners and every other row
+///   that names a key in this bucket, including tables that merely record a fact
+///   about the bytes.
+///
+/// So the relation is one-way and mechanical: this list must be a SUPERSET of
+/// the refcount's owners, and every extra entry must belong to the refcount's
+/// exclusion list. `object_gc::tests` and `tests/object_inventory_parity.rs`
+/// enforce both halves, so a key-holding table that is added to one inventory
+/// and not the other fails a test instead of leaking or reclaiming silently.
+///
+/// `object_integrity_findings` holds a `storage_key` too, and is deliberately
+/// absent: a finding records that a key was seen in a past pass (0146), so
+/// counting it would keep a deleted object's key alive forever and protect any
+/// later upload at the same address from ever being reclaimed.
+///
+/// `email_messages.raw_ref` is absent for the same class of reason: it is a
+/// provider-side pointer to a raw MIME payload, not a key in this store.
+pub const SOURCES: &[(&str, &str, &str)] = &[
+    (
+        "attachments",
+        "attachments",
+        "0024 — ticket, ticket-comment and inbound-email files; counted by the \
+         attachment refcount as an owner",
+    ),
+    (
+        "documents_attachments",
+        "documents_attachments",
+        "0089 — document files, on the same content-addressed key; counted by the \
+         attachment refcount as an owner",
+    ),
+    (
+        "attachment_scans",
+        "attachment_scans",
+        "0139 — the scan verdict's `storage_key` is the admission key for \
+         clean/skipped bytes and the quarantine key for infected ones, so these \
+         rows name objects in this bucket. Not an owner (the refcount excludes \
+         it), which makes this entry the conservative half of the pair: a \
+         verdict row keeps the bytes it names from being reclaimed",
+    ),
+    (
+        "org_exports",
+        "org_exports",
+        "0089 — export bundles under a different key space; not an attachment, so \
+         the refcount excludes it, but the bundle is stored in this bucket and the \
+         sweep lists the whole bucket",
+    ),
 ];
 
 /// The tables whose rows can say their bytes are gone.
@@ -228,7 +274,7 @@ pub async fn reference_index(
     if keys.is_empty() {
         return Ok(index);
     }
-    for (table, label) in SOURCES {
+    for (table, label, _why) in SOURCES {
         let rows: Vec<(String, Option<Uuid>)> = sqlx::query_as(&format!(
             "SELECT storage_key, org_id FROM {table} WHERE storage_key = ANY($1)"
         ))
@@ -244,4 +290,73 @@ pub async fn reference_index(
         }
     }
     Ok(index)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::attachments::{ATTACHMENT_KEY_TABLES_NOT_REFERENCES, ATTACHMENT_REF_TABLES};
+
+    fn source_tables() -> Vec<&'static str> {
+        SOURCES.iter().map(|(table, _, _)| *table).collect()
+    }
+
+    /// The direction that loses bytes: a table the refcount counts as an owner
+    /// and this list does not name is a table whose objects the sweep calls
+    /// orphans and deletes while rows still advertise them.
+    #[test]
+    fn every_refcount_owner_is_a_gc_source() {
+        let sources = source_tables();
+        for (table, why) in ATTACHMENT_REF_TABLES {
+            assert!(
+                sources.contains(table),
+                "{table} is an attachment refcount owner ({why}) but the orphan \
+                 sweep does not ask it, so the sweep would delete its live objects. \
+                 Add it to object_gc::SOURCES."
+            );
+        }
+    }
+
+    /// The other direction: a source the refcount has never decided about means
+    /// one of the two inventories is missing a table, and the next reader cannot
+    /// tell which question it belongs to.
+    #[test]
+    fn every_gc_source_is_in_the_refcounts_universe() {
+        let mut decided: Vec<&str> = ATTACHMENT_REF_TABLES.iter().map(|(t, _)| *t).collect();
+        decided.extend(ATTACHMENT_KEY_TABLES_NOT_REFERENCES.iter().map(|(t, _)| *t));
+        for (table, _, why) in SOURCES {
+            assert!(
+                decided.contains(table),
+                "{table} is an orphan-sweep source ({why}) that the attachment \
+                 refcount neither counts nor excludes. Decide it there first: \
+                 ATTACHMENT_REF_TABLES if its rows own attachment bytes, \
+                 ATTACHMENT_KEY_TABLES_NOT_REFERENCES with the reason they do not."
+            );
+        }
+    }
+
+    /// The reason is what stops a later reader from "tidying" a source out of
+    /// the list because it looks redundant with the attachment owners.
+    #[test]
+    fn every_gc_source_states_why_it_claims_the_key() {
+        for (table, label, why) in SOURCES {
+            assert!(!why.trim().is_empty(), "{table} claims keys with no reason");
+            assert!(!label.trim().is_empty(), "{table} has no finding label");
+        }
+    }
+
+    /// Two entries for one table would query it twice and report two findings
+    /// for one object; one entry per table is what makes the list reviewable.
+    #[test]
+    fn no_table_is_a_source_twice() {
+        let sources = source_tables();
+        let mut seen = sources.clone();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(
+            seen.len(),
+            sources.len(),
+            "SOURCES names a table twice: {sources:?}"
+        );
+    }
 }

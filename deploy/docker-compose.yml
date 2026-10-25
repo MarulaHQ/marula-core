@@ -24,6 +24,10 @@
 #   export MARULA_SECRET_KEY=$(openssl rand -hex 32)       # AES-256 at-rest key
 #   export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)   # worker machine seam
 #   export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)    # email seam
+#   export POSTGRES_PASSWORD=$(openssl rand -hex 32)       # marula owner role (set at first boot)
+#   export MARULA_APP_PASSWORD=marula_app                  # marula_app role (see below)
+#   export GARAGE_RPC_SECRET=$(openssl rand -hex 32)       # stage2 Garage RPC secret
+#   export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)    # observability GlitchTip
 #   docker compose -f deploy/docker-compose.yml up --build
 #
 # Ports: 15432 pg · 16379 valkey · 8080 api · 8082 worker-health
@@ -33,13 +37,37 @@
 #        · 3002 uptime-kuma · 18899 metrics exposition
 #        · (ai profile) ollama — local model runtime, unpublished
 #
-# Secrets posture (Wave 56 p56-deploy-posture): this file ships NO secret
-# value. Four variables are required — JWT_SECRET, MARULA_SECRET_KEY,
-# MARULA_INTERNAL_TOKEN and EMAIL_INTERNAL_TOKEN — and compose refuses to
-# render the file without them (`:?` guards, the shape the preview overlay
-# already used). The defaults that used to sit here were the reason an
-# install that never set a key signed tokens with one published in this
-# repository: anyone who had read the source could mint an owner token.
+# Secrets posture (Wave 56 p56-deploy-posture, extended by Wave 58
+# p58-deploy): this file ships NO secret value for anything that can reach a
+# deployed instance. Eight variables are required — JWT_SECRET,
+# MARULA_SECRET_KEY, MARULA_INTERNAL_TOKEN, EMAIL_INTERNAL_TOKEN,
+# POSTGRES_PASSWORD, MARULA_APP_PASSWORD, GARAGE_RPC_SECRET and
+# GLITCHTIP_SECRET_KEY — and compose refuses to render the file without them
+# (`:?` guards, the shape the preview overlay already used). The defaults that
+# used to sit here were the reason an install that never set a key signed
+# tokens with one published in this repository: anyone who had read the source
+# could mint an owner token, connect to Postgres, or drive the object store.
+#
+# Two of the eight need a sentence each because they are not simply generated:
+#
+#   * POSTGRES_PASSWORD is applied by initdb on the FIRST boot of the pgdata
+#     volume. A fresh install can use `openssl rand -hex 32`; an install whose
+#     volume already exists keeps the password it was initialised with, so set
+#     this to that value (it used to be `marula`). To rotate it, ALTER ROLE on
+#     the live server and change this value together. Keep it hex: the value is
+#     interpolated into connection URLs, so `@`, `:` or `/` would need
+#     percent-encoding.
+#   * MARULA_APP_PASSWORD names the `marula_app` role's password. That password
+#     is minted by migration 0114 (the literal `marula_app`) and this file
+#     cannot change it, so a fresh install sets this to `marula_app` — a
+#     generated value here locks the API out. It is still required rather than
+#     defaulted: the value has to be stated, and rotating it is a migration
+#     follow-up, not a compose edit.
+#
+# Compose interpolates the whole file, so the profile-only credentials
+# (GARAGE_RPC_SECRET, GLITCHTIP_SECRET_KEY) must be set even when the stage2
+# and observability profiles stay off. Generated values are fine there: they
+# are not read until the profile starts.
 #
 # The dev marker is MARULA_DEV_TOOLS=1 and it is carried by a file, not by
 # a fallback value: deploy/dev.env holds the repository's published dev
@@ -48,6 +76,11 @@
 # values are in play (or when the marker is on), so a stack that is only
 # safe on a laptop says so in its own boot logs — exactly what the desktop
 # debug build does at launch.
+#
+# The pgbouncer password file (deploy/pooler/userlist.txt) is static, cannot be
+# interpolated, and holds the published dev values. If you change either
+# Postgres password, rewrite that file to match — the pooler is not a secret
+# store, and its comment-free format is why the note lives in its README.
 #
 # Teardown note: `down` interpolates this file too, so a stack whose
 # variables are no longer exported needs the same `--env-file` (or exports)
@@ -135,7 +168,10 @@ services:
     read_only: false
     environment:
       POSTGRES_USER: marula
-      POSTGRES_PASSWORD: marula
+      # Required, never defaulted: this is applied by initdb on first boot and
+      # is the owner credential every other service's URL interpolates.
+      # Existing pgdata volumes keep their original password — see the header.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - the marula owner role's password. Fresh volume: openssl rand -hex 32. Existing volume: the value it was initialised with (marula before Wave 58). Laptop stack: --env-file deploy/dev.env}"
       POSTGRES_DB: marula
     # Instrumentation, not tuning. `pg_stat_statements` records the query mix
     # the perf harness never sees (it measures one endpoint at a time), and
@@ -297,10 +333,18 @@ services:
       MARULA_SECRET_KEY: "${MARULA_SECRET_KEY:?MARULA_SECRET_KEY is required - 64 hex chars, the at-rest key (openssl rand -hex 32)}"
       MARULA_INTERNAL_TOKEN: "${MARULA_INTERNAL_TOKEN:?MARULA_INTERNAL_TOKEN is required - the worker seam bearer (openssl rand -hex 32)}"
       EMAIL_INTERNAL_TOKEN: "${EMAIL_INTERNAL_TOKEN:?EMAIL_INTERNAL_TOKEN is required - the email seam token (openssl rand -hex 32)}"
+      # The remaining required credentials are guarded where they are used
+      # (postgres, core-api's URL, garage, glitchtip); this service reads them
+      # only to say out loud when the published dev values are in play.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      MARULA_APP_PASSWORD: ${MARULA_APP_PASSWORD:-}
+      GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-}
+      GLITCHTIP_SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-}
       MARULA_DEV_TOOLS: ${MARULA_DEV_TOOLS:-}
     command:
       - |
         published=0
+        devcreds=0
         case "$$JWT_SECRET" in
           5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e) published=1 ;;
         esac
@@ -313,12 +357,30 @@ services:
         case "$$EMAIL_INTERNAL_TOKEN" in
           dev-email-internal) published=1 ;;
         esac
+        case "$$POSTGRES_PASSWORD" in
+          marula) devcreds=1 ;;
+        esac
+        case "$$MARULA_APP_PASSWORD" in
+          marula_app) devcreds=1 ;;
+        esac
+        case "$$GARAGE_RPC_SECRET" in
+          5ee1876f31b4a9ce1d2f6087c4e91ba9f0d8c3a25764b1e6892c40ada37f3102) devcreds=1 ;;
+        esac
+        case "$$GLITCHTIP_SECRET_KEY" in
+          glitchtip-dev-secret-change-me) devcreds=1 ;;
+        esac
         if [ "$$published" = 1 ]; then
           echo "DEV POSTURE: this stack signs with the repository's published dev JWT secret," >&2
           echo "decrypts sealed rows with its published at-rest key, and accepts its published" >&2
           echo "machine-seam tokens. Any process that has read the repository can mint an owner" >&2
           echo "token here. Generate real values (openssl rand -hex 32) before this stack reaches" >&2
           echo "a network you do not own." >&2
+        fi
+        if [ "$$devcreds" = 1 ]; then
+          echo "DEV POSTURE: this stack runs on the repository's published Postgres, Garage or" >&2
+          echo "GlitchTip credentials. The database password is the one anyone who read the" >&2
+          echo "source already has. Generate real values before this stack reaches a network" >&2
+          echo "you do not own; an existing pgdata volume keeps its original password." >&2
         fi
         if [ "$$MARULA_DEV_TOOLS" = 1 ]; then
           echo "DEV POSTURE: MARULA_DEV_TOOLS=1 mounts /api/dev/* (demo reset and dev routes)." >&2
@@ -341,7 +403,7 @@ services:
     entrypoint: ["/usr/local/bin/marula"]
     command: ["migrate"]
     environment:
-      DATABASE_URL: postgres://marula:marula@postgres:5432/marula
+      DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula
     depends_on:
       dev-posture:
         condition: service_completed_successfully
@@ -375,10 +437,10 @@ services:
       # transaction pooler, not Postgres. Override with
       # MARULA_APP_DATABASE_URL to go direct — and then raise
       # MARULA_DB_STATEMENT_CACHE and accept the connection ceiling back.
-      DATABASE_URL: ${MARULA_APP_DATABASE_URL:-postgres://marula_app:marula_app@pgbouncer:6432/marula}
+      DATABASE_URL: "${MARULA_APP_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password. Migration 0114 mints it as the literal marula_app, so a fresh install sets MARULA_APP_PASSWORD=marula_app; generating a random value here locks the API out. Laptop stack: --env-file deploy/dev.env}@pgbouncer:6432/marula}"
       # The ONE LISTEN connection goes straight to Postgres: a subscription
       # cannot ride a connection the pooler hands to the next client.
-      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula_app:marula_app@postgres:5432/marula}
+      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8080
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required - 64 hex chars (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}"
@@ -417,8 +479,11 @@ services:
       S3_ENDPOINT: ${S3_ENDPOINT:-http://garage:3900}
       S3_BUCKET: ${S3_BUCKET:-marula}
       S3_REGION: ${S3_REGION:-garage}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
+      # No default credential: the pair is minted by `garage key create` and
+      # pasted here. Empty is correct while OBJECT_STORE is local — core-store
+      # drops empty values, so the S3 branch never sees them.
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
       # Pool ceilings (Wave 49 lane R1, resized by Wave 52 lane P9). See
       # docs/perf.md §5 for the per-process table: 20 app + 8 reporting +
@@ -497,8 +562,8 @@ services:
     environment:
       # Pooled by default (Wave 52 lane P9); the relay's LISTEN connection
       # goes direct so the wakeup it subscribes to actually arrives.
-      DATABASE_URL: ${MARULA_WORKER_APP_DATABASE_URL:-postgres://marula:marula@pgbouncer:6432/marula}
-      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula:marula@postgres:5432/marula}
+      DATABASE_URL: ${MARULA_WORKER_APP_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@pgbouncer:6432/marula}
+      MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
       # Must match core-api's MARULA_SECRET_KEY or sealed webhook secrets
@@ -545,8 +610,11 @@ services:
       S3_ENDPOINT: ${S3_ENDPOINT:-http://garage:3900}
       S3_BUCKET: ${S3_BUCKET:-marula}
       S3_REGION: ${S3_REGION:-garage}
-      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-marula}
-      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-marula-dev-garage}
+      # No default credential: the pair is minted by `garage key create` and
+      # pasted here. Empty is correct while OBJECT_STORE is local — core-store
+      # drops empty values, so the S3 branch never sees them.
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       # Retention matrix (lane R6): `standard` ships; `compact` and `extended`
       # move all nine windows at once. Per-table overrides exist
       # (MARULA_RETENTION_<TABLE>_DAYS) and are clamped by a floor.
@@ -627,9 +695,11 @@ services:
       - /tmp
     environment:
       GARAGE_DOMAIN_NAME: .localhost
-      # 32-byte HEX per Garage's rpc_secret requirement (any other value is
-      # fatal at first boot); dev-only secret, override for real clusters.
-      GARAGE_RPC_SECRET: 5ee1876f31b4a9ce1d2f6087c4e91ba9f0d8c3a25764b1e6892c40ada37f3102
+      # Required: 32-byte HEX per Garage's rpc_secret requirement (any other
+      # value is fatal at first boot). The value that used to sit here was
+      # published in this repository and also lives in garage.toml, which is
+      # why that file no longer carries one — this variable is the only source.
+      GARAGE_RPC_SECRET: "${GARAGE_RPC_SECRET:?GARAGE_RPC_SECRET is required - 32-byte hex for Garage RPC (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}"
       GARAGE_RPC_PUBLIC_ADDR: garage:3901
     ports:
       - "3900:3900"   # S3 API
@@ -823,9 +893,11 @@ services:
       - postgres
       - redis
     environment:
-      DATABASE_URL: ${GLITCHTIP_DATABASE_URL:-postgres://marula:marula@postgres:5432/glitchtip}
+      DATABASE_URL: ${GLITCHTIP_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/glitchtip}
       REDIS_URL: ${GLITCHTIP_REDIS_URL:-redis://redis:6379/1}
-      SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-glitchtip-dev-secret-change-me}
+      # Required: Django's SECRET_KEY signs sessions and password-reset tokens.
+      # The value that used to sit here was published in this repository.
+      SECRET_KEY: "${GLITCHTIP_SECRET_KEY:?GLITCHTIP_SECRET_KEY is required - GlitchTip's Django signing key (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}"
       GLITCHTIP_DOMAIN: http://localhost:8010
       EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
     ports:
@@ -1026,6 +1098,9 @@ services:
     #   - ./backup/restic.env
     environment:
       PGHOST: postgres
+      # libpq names, matched by backupd.sh, restore.sh and wal-g alike. The
+      # password is NOT here: PGPASSWORD/PGPASSFILE arrive from wal-g.env,
+      # which the runner must be able to read or the pass fails by name.
       PGUSER: marula
       PGDATABASE: marula
       PGDUMPS_DIR: /pgdumps

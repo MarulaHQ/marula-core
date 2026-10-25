@@ -68,6 +68,10 @@ export JWT_SECRET=$(openssl rand -hex 32)
 export MARULA_SECRET_KEY=$(openssl rand -hex 32)
 export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
+export POSTGRES_PASSWORD=$(openssl rand -hex 32)   # fresh volume only
+export MARULA_APP_PASSWORD=marula_app               # migration 0114 mints this literal
+export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
+export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
 export MARULA_DOMAIN=pr-482.preview.example.com   # per-PR host
 export MARULA_TLS_MODE=direct                      # or cf-origin / cf-dns01
 export ACME_EMAIL=ops@example.com                  # direct and cf-dns01 only
@@ -119,6 +123,10 @@ export JWT_SECRET=$(openssl rand -hex 32)
 export MARULA_SECRET_KEY=$(openssl rand -hex 32)
 export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
+export POSTGRES_PASSWORD=$(openssl rand -hex 32)   # fresh volume only
+export MARULA_APP_PASSWORD=marula_app               # migration 0114 mints this literal
+export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
+export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
 export PREVIEW_PUBLIC_URL=http://localhost:3000
 export PREVIEW_API_URL=http://localhost:8080
 export PREVIEW_CORS_ORIGIN=http://localhost:3000
@@ -148,9 +156,10 @@ have quietly left the local stack's database port open to the network.
 The database is still reachable by service name inside the compose
 network, which is where every client of it lives.
 
-**Secrets.** `JWT_SECRET`, `MARULA_SECRET_KEY`, `MARULA_INTERNAL_TOKEN` and
-`EMAIL_INTERNAL_TOKEN` are required by the base file, with no default
-anywhere. On a network-visible interface a development key is not a
+**Secrets.** `JWT_SECRET`, `MARULA_SECRET_KEY`, `MARULA_INTERNAL_TOKEN`,
+`EMAIL_INTERNAL_TOKEN`, `POSTGRES_PASSWORD`, `MARULA_APP_PASSWORD`,
+`GARAGE_RPC_SECRET` and `GLITCHTIP_SECRET_KEY` are required by the base file,
+with no default anywhere. On a network-visible interface a development key is not a
 convenience, it is a published token that anyone who has read this
 repository can use to mint a session. Compose refuses to start without
 them, which is the behaviour you want: a preview that will not boot until

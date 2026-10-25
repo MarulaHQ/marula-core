@@ -198,13 +198,13 @@ fi
 # ---------------------------------------------------------------------------
 head "Compose"
 # The base file ships no secret value since Wave 56, so every render below
-# has to carry the four required variables. Dummy values are correct here:
+# has to carry the eight required variables. Dummy values are correct here:
 # this asserts interpolation and precedence, never a deployment. dev.env is
 # not used on purpose — a check that depends on the dev file cannot tell a
 # missing guard from a missing file.
 
 if have docker; then
-	# The four required values as an env file rather than a word-split
+	# The eight required values as an env file rather than a word-split
 	# assignment string: compose takes them through `--env-file`, and a file
 	# also gives the "one variable missing" case something to subtract from.
 	ENVDEV=$(mktemp)
@@ -213,6 +213,10 @@ JWT_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 MARULA_SECRET_KEY=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
 MARULA_INTERNAL_TOKEN=check-internal-token
 EMAIL_INTERNAL_TOKEN=check-email-internal-token
+POSTGRES_PASSWORD=check-owner-password
+MARULA_APP_PASSWORD=check-app-password
+GARAGE_RPC_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+GLITCHTIP_SECRET_KEY=check-glitchtip-secret
 EOF
 
 	run_cfg() {
@@ -244,7 +248,8 @@ EOF
 	# so a render without one fails and names it. This is the assertion the
 	# audit record asked for — an install cannot sign with the repository's
 	# key by doing nothing.
-	for v in JWT_SECRET MARULA_SECRET_KEY MARULA_INTERNAL_TOKEN EMAIL_INTERNAL_TOKEN; do
+	for v in JWT_SECRET MARULA_SECRET_KEY MARULA_INTERNAL_TOKEN EMAIL_INTERNAL_TOKEN \
+		POSTGRES_PASSWORD MARULA_APP_PASSWORD GARAGE_RPC_SECRET GLITCHTIP_SECRET_KEY; do
 		PARTIAL=$(mktemp)
 		grep -v "^$v=" "$ENVDEV" >"$PARTIAL"
 		if out=$(cd "$ROOT" && env -u "$v" docker compose --env-file "$PARTIAL" \

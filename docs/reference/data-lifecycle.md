@@ -204,10 +204,14 @@ bytes from nothing.
 
 Store keys are `org/<org uuid>/attachments/<sha256>`,
 `org/<org uuid>/quarantine/<sha256>` and one key per export. The pass compares
-the store's listing against the four tables that hold a `storage_key`
+the store's listing against the tables whose rows claim a `storage_key`
 (`attachments`, `documents_attachments`, `attachment_scans`, `org_exports`). A
 table missing from that list would have its objects deleted, so the list is a
-constant in one module with a test, not a query.
+constant in one module with a test, not a query. `object_integrity_findings`
+holds a `storage_key` as well and is deliberately not a source: it records what a
+past pass saw, so counting it would keep a deleted object's key alive. The list
+shares its key space with the attachment refcount, which counts owners only, and
+a parity test holds the sweep's list to a superset of it.
 
 ### The volume this used to be missing
 

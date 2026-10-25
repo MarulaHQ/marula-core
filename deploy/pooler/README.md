@@ -11,6 +11,16 @@ is the reasoning and the measurements; this file is how to run it.
 | `pgbouncer.ini` | The shipped config. Transaction pooling, `DISCARD ALL` after every transaction, no prepared-statement caching. Every line is load-bearing and carries its own note. |
 | `userlist.txt` | The auth file: one `"user" "password"` pair per role. Dev values only. PgBouncer refuses the whole file over a comment line, so this one carries no notes: they live here. |
 
+**`userlist.txt` is not a secret store.** It cannot read the environment, so
+it does not follow `POSTGRES_PASSWORD` / `MARULA_APP_PASSWORD`. Every other
+component in the stack takes its Postgres password from those variables; this
+file is the one copy an operator edits by hand. Change a role password with
+`ALTER ROLE`, then rewrite the matching line here (`"role" "password"`) and
+restart the pooler. The alternative is to let PgBouncer authenticate against
+an `auth_query`, which needs a `SECURITY DEFINER` function on the database.
+This lane did not add one, and the compose header says so where the required
+variables are listed.
+
 ## Compose
 
 The default stack starts it. Postgres keeps the published port (`15432`), the
@@ -111,7 +121,7 @@ it to ask.
 `default_pool_size` is per (database, user) pair. The worker connects as the
 owner role and core-api as `marula_app`, so two pairs, 15 each, 30 server
 connections at rest — the number that has to stay under Postgres's
-`max_connections`, not the 54 client connections per instance. Raise
+`max_connections`, not the 54 connections per instance. Raise
 `default_pool_size` only against a measured queue, and keep
 `max_db_connections` as the hard stop.
 

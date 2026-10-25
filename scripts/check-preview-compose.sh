@@ -34,13 +34,18 @@ for f in "$BASE" "$OVERLAY"; do
 done
 
 # The base file requires the signing key, the at-rest key and the two
-# machine-seam tokens since Wave 56; the overlay no longer renames them. The
-# values are dummies: this asserts the merge and the posture, never a real
-# deployment.
+# machine-seam tokens since Wave 56, and the two database passwords plus the
+# Garage and GlitchTip credentials since Wave 58; the overlay no longer
+# renames them. The values are dummies: this asserts the merge and the
+# posture, never a real deployment.
 export JWT_SECRET=check-preview-not-a-real-secret
 export MARULA_SECRET_KEY=check-preview-not-a-real-key
 export MARULA_INTERNAL_TOKEN=check-preview-seam
 export EMAIL_INTERNAL_TOKEN=check-preview-email-seam
+export POSTGRES_PASSWORD=check-preview-owner
+export MARULA_APP_PASSWORD=check-preview-app
+export GARAGE_RPC_SECRET=check-preview-garage-rpc
+export GLITCHTIP_SECRET_KEY=check-preview-glitchtip
 export PREVIEW_CORS_ORIGIN=http://preview.invalid
 export PREVIEW_PUBLIC_URL=http://preview.invalid
 export PREVIEW_API_URL=http://preview.invalid:8080

@@ -6186,7 +6186,12 @@ async fn attachments_dedup_link_and_refcounted_delete() {
     )
     .await
     .expect("document attachment insert");
-    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, doc_row.id)
+    // The exclusion argument is the id of the row the caller just deleted, and
+    // the SQL applies it in every table of the key space. Passing the surviving
+    // document row's id therefore asks "how many refs, not counting this one" —
+    // zero — which is what this case used to assert against itself. The row
+    // just deleted here is the ticket attachment, so that is the id to exclude.
+    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, a2.id)
         .await
         .expect("refs");
     assert_eq!(

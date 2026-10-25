@@ -4080,11 +4080,14 @@ you go, because the escalation record is what the SLA credit claim is read from 
 
     // --- automation rules (automations page) -----------------------------------
     sqlx::query(
-        "INSERT INTO automation_rules (id, org_id, board_id, name, trigger_event, conditions, actions, enabled)
+        // `created_by` is not decoration: an automation effect runs as the
+        // rule's author (p58, ruling A), so a seeded rule with no author is a
+        // rule that refuses every firing and dead-letters.
+        "INSERT INTO automation_rules (id, org_id, board_id, name, trigger_event, conditions, actions, enabled, created_by)
          VALUES ($1, $2, $3, 'Tag security alerts urgent', 'ticket.created',
-                 $4, $5, true),
+                 $4, $5, true, $9),
                 ($6, $2, $3, 'Notify dispatcher on P1', 'ticket.updated',
-                 $7, $8, true)",
+                 $7, $8, true, $9)",
     )
     .bind(demo_uuid(850))
     .bind(DEMO_ORG_ID)
@@ -4094,6 +4097,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
     .bind(demo_uuid(851))
     .bind(serde_json::json!([{ "field": "priority", "op": "eq", "value": "p1" }]))
     .bind(serde_json::json!([{ "type": "notify_users", "user_ids": [demo_uuid(11).to_string()], "kind": "ticket_update", "title": "P1 ticket created" }]))
+    .bind(owner)
     .execute(&mut *tx)
     .await?;
 

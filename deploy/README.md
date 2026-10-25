@@ -7,7 +7,7 @@
 
 | Directory | What it is |
 |---|---|
-| `docker-compose.yml` | The local stack: Postgres, Valkey, **PgBouncer**, migrations, core-api, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. It ships no secret value and requires four (`JWT_SECRET`, `MARULA_SECRET_KEY` and the two seam tokens). No TLS and no published-proxy boundary, because it targets development. |
+| `docker-compose.yml` | The local stack: Postgres, Valkey, **PgBouncer**, migrations, core-api, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. It ships no secret value and requires eight (`JWT_SECRET`, `MARULA_SECRET_KEY`, the two seam tokens, `POSTGRES_PASSWORD`, `MARULA_APP_PASSWORD`, `GARAGE_RPC_SECRET` and `GLITCHTIP_SECRET_KEY`). No TLS and no published-proxy boundary, because it targets development. |
 | `dev.env` | The dev marker as a file: the repository's published dev values plus `MARULA_DEV_TOOLS=1`, passed with `--env-file`. Never for a host you do not own. The stack warns at boot while it is in use. |
 | `pooler/` | The PgBouncer config every application pool dials: transaction mode, `DISCARD ALL` after every transaction, no prepared-statement cache. `docs/reference/connection-pooling.md` says why each setting is load-bearing. |
 | `Dockerfile.rust` / `Dockerfile.web` | The workspace images. `NEXT_PUBLIC_API_URL` is baked into the web bundle at build time. |
@@ -23,9 +23,11 @@
 ## Starting the stack
 
 The base file ships no secret value, and compose refuses to render it without
-`JWT_SECRET`, `MARULA_SECRET_KEY`, `MARULA_INTERNAL_TOKEN` and
-`EMAIL_INTERNAL_TOKEN`. A laptop stack takes the repository's published dev
-values, which live in `dev.env` and are marked by `MARULA_DEV_TOOLS=1`:
+`JWT_SECRET`, `MARULA_SECRET_KEY`, `MARULA_INTERNAL_TOKEN`,
+`EMAIL_INTERNAL_TOKEN`, `POSTGRES_PASSWORD`, `MARULA_APP_PASSWORD`,
+`GARAGE_RPC_SECRET` and `GLITCHTIP_SECRET_KEY`. A laptop stack takes the
+repository's published dev values, which live in `dev.env` and are marked by
+`MARULA_DEV_TOOLS=1`:
 
 ```sh
 docker compose -f docker-compose.yml --env-file dev.env up --build
@@ -33,8 +35,15 @@ docker compose -f docker-compose.yml --env-file dev.env up --build
 
 The `dev-posture` service prints a warning into the boot log every time those
 published values are in play, because anyone who has read this repository can
-mint an owner token against such a stack. For anything else, generate the four
+mint an owner token against such a stack. For anything else, generate the
 values yourself (`openssl rand -hex 32` each) and export them before `up`.
+Two exceptions to "generate each one": `POSTGRES_PASSWORD` must be the value
+the pgdata volume was initialised with (a fresh volume takes a generated
+value; an existing one had `marula`), and `MARULA_APP_PASSWORD` must be
+`marula_app` until a migration parameterises the role — migration 0114 mints
+that literal, and a generated value locks the API out. If you change either
+Postgres password, rewrite `pooler/userlist.txt` to match: PgBouncer's auth
+file cannot read the environment.
 
 ## Starting a public deployment
 
@@ -49,6 +58,10 @@ export JWT_SECRET=$(openssl rand -hex 32)
 export MARULA_SECRET_KEY=$(openssl rand -hex 32)
 export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
+export POSTGRES_PASSWORD=$(openssl rand -hex 32)   # fresh volume; else keep the existing value
+export MARULA_APP_PASSWORD=marula_app      # must match the marula_app role
+export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
+export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
 
 docker compose -f docker-compose.yml \
                -f edge/compose.edge.yml \
@@ -71,7 +84,7 @@ The operator runbook is
 The application pools dial PgBouncer (`pgbouncer:6432`), not Postgres, and the
 `migrate` job plus each process's one `LISTEN` connection dial Postgres
 directly. That split is what keeps the connection count flat as instances
-are added: 54 client connections per instance, 15 server connections per
+are added: 54 connections per instance, 15 server connections per
 (database, user) pair. `pooler/README.md` is how to run and inspect it;
 [`docs/reference/connection-pooling.md`](../docs/reference/connection-pooling.md)
 is the reasoning and the measurements. To go back to a direct connection, set

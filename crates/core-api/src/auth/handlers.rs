@@ -163,17 +163,31 @@ async fn slug_conflict_with_suggestion(
 /// `Retry-After`. This is backpressure, not a fault — never a 500, and never
 /// a caller parked on an unbounded wait. The body deliberately names no
 /// capacity: how many slots this process has is our business.
-fn hash_slots_exhausted(refused: crate::auth::hash_gate::Refused) -> axum::response::Response {
-    let mut response = ApiError::Unavailable(format!(
-        "password hashing is at capacity; retry in {}s",
-        refused.retry_after_secs
-    ))
-    .into_response();
+///
+/// Every door that bounds a password hash answers through this one function
+/// (staff login and register in this module, portal login in
+/// `routes::portal`, JIT provisioning in `routes::oidc`), so the shape cannot
+/// drift between them.
+pub(crate) fn hash_slots_exhausted(
+    refused: crate::auth::hash_gate::Refused,
+) -> axum::response::Response {
+    let mut response = hash_capacity_error(refused).into_response();
     add_header(
         &mut response,
         (header::RETRY_AFTER, refused.retry_after_secs.to_string()),
     );
     response
+}
+
+/// The same refusal as a typed error, for a caller whose return type cannot
+/// carry a header (the federated provider seam returns an outcome, not a
+/// response). It is the same envelope; only `Retry-After` is missing, and the
+/// two HTTP doors above send it.
+pub(crate) fn hash_capacity_error(refused: crate::auth::hash_gate::Refused) -> ApiError {
+    ApiError::Unavailable(format!(
+        "password hashing is at capacity; retry in {}s",
+        refused.retry_after_secs
+    ))
 }
 
 /// POST /api/auth/register — creates the org, its default roles/board/SLA
