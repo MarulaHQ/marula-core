@@ -1,0 +1,185 @@
+# Second user on one device: the read cache and the write queue belong to the
+# account that wrote them, and a sign-out deletes them.
+#
+# Purpose: run the claim Wave 54's S5b put in `native/src/data/storage.ts` and
+# `native/src/data/sync-context.tsx` — user-scoped namespaces keep one
+# account's cached reads and queued writes away from the next account, and the
+# sign-out sweep deletes them instead of holding them for a return visit. The
+# flow has two legs because those are two different claims:
+#   first user -> second user    the second account's board is empty and the
+#                                offline banner counts no queued changes;
+#   first user returns           their own cache and queue are gone as well,
+#                                which is the sweep and not just the prefix.
+#
+# Accounts come from the demo seed (`crates/core-db/src/demo.rs`), password
+# `demo-password-123` for every one of them:
+#   first user   owner@demo.local  (Fiona Owner)
+#   second user  tech@demo.local   (Tessa Technician)
+#
+# The dev airplane toggle is a signal to the sync engine, not a cut cable:
+# traffic still flows, so both sign-ins succeed while the queue stays offline
+# and the note is never sent to the server.
+appId: org.marula.app
+---
+- launchApp:
+    clearState: true
+# ---- first user: fill the cache online, then queue a write against it ----
+- runFlow:
+    when:
+      visible:
+        id: "login-email"
+    commands:
+      - tapOn:
+          id: "login-email"
+      - inputText: "owner@demo.local"
+      - tapOn:
+          id: "login-password"
+      - inputText: "demo-password-123"
+      - tapOn:
+          id: "login-submit"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 20000
+- runFlow:
+    when:
+      visible: "Save Password?"
+    commands:
+      - tapOn: "Not Now"
+# Online first: the board list and the ticket detail land in this account's
+# cache, so the offline read further down is a read of the device.
+- tapOn: "Board, tab.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-list"
+    timeout: 15000
+- tapOn:
+    id: "ticket-row-.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-action-bar"
+    timeout: 15000
+- tapOn:
+    id: "ticket-back"
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn: "More, tab.*"
+- tapOn:
+    id: "more-airplane-toggle"
+- extendedWaitUntil:
+    visible:
+      id: "banner-offline"
+    timeout: 15000
+# The cached rows still render, and the list says where they came from.
+- tapOn: "Board, tab.*"
+- assertVisible:
+    id: "ticket-list"
+- assertVisible: ".*showing the last sync from this device.*"
+- tapOn:
+    id: "ticket-row-.*"
+- extendedWaitUntil:
+    visible:
+      id: "ticket-action-bar"
+    timeout: 15000
+- tapOn:
+    id: "ticket-action-note"
+- extendedWaitUntil:
+    visible:
+      id: "note-composer-sheet"
+    timeout: 10000
+- tapOn:
+    id: "note-composer-input"
+- inputText: "Offline note from the first user"
+- tapOn:
+    id: "note-composer-send"
+- assertVisible: ".*Offline note from the first user.*"
+- tapOn:
+    id: "ticket-back"
+- waitForAnimationToEnd:
+    timeout: 3000
+# The queue holds that one op, and the shell banner counts it.
+- assertVisible: ".*1 change queued for sync.*"
+# ---- swap accounts on the same device ----
+- tapOn: "More, tab.*"
+- scrollUntilVisible:
+    element:
+      id: "more-signout"
+    direction: DOWN
+- tapOn:
+    id: "more-signout"
+- extendedWaitUntil:
+    visible:
+      id: "login-email"
+    timeout: 20000
+- tapOn:
+    id: "login-email"
+# The previous sign-in's fields can come back autofilled on a device that
+# saved the password; clear whatever is there before typing.
+- eraseText
+- inputText: "tech@demo.local"
+- tapOn:
+    id: "login-password"
+- eraseText
+- inputText: "demo-password-123"
+- tapOn:
+    id: "login-submit"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 25000
+- runFlow:
+    when:
+      visible: "Save Password?"
+    commands:
+      - tapOn: "Not Now"
+# ---- second user: the first user's queue and cache are not here ----
+- assertVisible: ".*reading from this device.*"
+- assertNotVisible: ".*queued for sync.*"
+- tapOn: "More, tab.*"
+- assertVisible: ".*Tessa Technician.*"
+- tapOn: "Board, tab.*"
+- assertVisible:
+    id: "board-screen"
+# Offline with an empty namespace: the scope note, never a row.
+- assertVisible: ".*Nothing assigned to you right now.*"
+- assertNotVisible:
+    id: "ticket-list"
+# ---- first user returns: the sweep, not just the key prefix ----
+- tapOn: "More, tab.*"
+- scrollUntilVisible:
+    element:
+      id: "more-signout"
+    direction: DOWN
+- tapOn:
+    id: "more-signout"
+- extendedWaitUntil:
+    visible:
+      id: "login-email"
+    timeout: 20000
+- tapOn:
+    id: "login-email"
+- eraseText
+- inputText: "owner@demo.local"
+- tapOn:
+    id: "login-password"
+- eraseText
+- inputText: "demo-password-123"
+- tapOn:
+    id: "login-submit"
+- extendedWaitUntil:
+    visible:
+      id: "today-screen"
+    timeout: 25000
+- runFlow:
+    when:
+      visible: "Save Password?"
+    commands:
+      - tapOn: "Not Now"
+# Still offline: a surviving op could not have reached the server, so an empty
+# queue and an empty board are this device's answer about its own storage.
+- assertVisible: ".*reading from this device.*"
+- assertNotVisible: ".*queued for sync.*"
+- tapOn: "Board, tab.*"
+- assertVisible: ".*Nothing assigned to you right now.*"
+- assertNotVisible:
+    id: "ticket-list"
