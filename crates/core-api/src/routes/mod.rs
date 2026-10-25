@@ -578,6 +578,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/auth/mfa/recovery-codes/regenerate"),
             post(mfa::regenerate_recovery_codes),
         )
+        // Wave 55: the step-up door the destructive factor changes point at,
+        // and the admin reset that answers a lost factor without one.
+        .route(&rp("/auth/mfa/step-up"), post(mfa::step_up))
+        .route(
+            &rp("/auth/users/{id}/mfa-reset"),
+            post(mfa::admin_reset_user_factors),
+        )
         // WebAuthn credential management
         .route(
             &rp("/auth/mfa/webauthn/register/begin"),

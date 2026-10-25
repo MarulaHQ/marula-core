@@ -245,6 +245,8 @@ use utoipa::OpenApi;
         crate::auth::mfa_handlers::totp_enroll_verify,
         crate::auth::mfa_handlers::totp_disable,
         crate::auth::mfa_handlers::regenerate_recovery_codes,
+        crate::auth::mfa_handlers::step_up,
+        crate::auth::mfa_handlers::admin_reset_user_factors,
         crate::auth::mfa_handlers::mfa_verify,
         crate::auth::mfa_handlers::webauthn_register_begin,
         crate::auth::mfa_handlers::webauthn_register_finish,
