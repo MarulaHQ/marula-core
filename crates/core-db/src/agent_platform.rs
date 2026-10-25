@@ -424,6 +424,37 @@ pub async fn decide_proposal(
     Ok(row)
 }
 
+/// Closes a workflow gate's approval when the run resolved without it.
+///
+/// An expired gate leaves a row that looks like a decision someone still owes,
+/// so the executor withdraws it instead. Only a still-`proposed` row for a
+/// workflow gate is touched: a gate that was already decided keeps that
+/// decision, and a proposal of any other kind is left alone. `decided_by`
+/// stays NULL because nobody decided — the caller records the expiry in the
+/// audit trail with the system as the actor.
+pub async fn withdraw_expired_gate(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    note: &str,
+) -> DbResult<Option<AgentProposalRow>> {
+    let sql = format!(
+        "UPDATE agent_proposals
+            SET status = 'withdrawn', decision_note = $3, decided_at = now(),
+                updated_at = now()
+          WHERE org_id = $1 AND id = $2 AND status = 'proposed' AND entity = $4
+          RETURNING {PROPOSAL_COLUMNS}"
+    );
+    let row = sqlx::query_as::<_, AgentProposalRow>(&sql)
+        .bind(org_id)
+        .bind(id)
+        .bind(note)
+        .bind(core_domain::workflow_approvals::GATE_ENTITY)
+        .fetch_optional(conn)
+        .await?;
+    Ok(row)
+}
+
 /// Marks an approved proposal `applied` after its write landed through the
 /// IF1 path. Guarded on `approved` so only a decided proposal can apply.
 pub async fn mark_proposal_applied(
