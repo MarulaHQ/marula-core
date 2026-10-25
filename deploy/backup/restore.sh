@@ -69,6 +69,7 @@ SCRATCH_CREATED=0
 RESTORE_OK=0
 RESTORE_TOC=""
 ADMIN_TOC=""
+RESTORE_VERIFY="${RESTORE_VERIFY:-strict}"
 
 log() { echo "[restore $(date -u +%FT%TZ)] $*"; }
 fail() { log "FAIL: $*"; exit 1; }
@@ -87,6 +88,33 @@ psql_admin() {
 psql_restore() {
   PGPASSWORD="$RESTORE_PW" psql -h "$PGHOST" -p "$PGPORT" -U "$RESTORE_ROLE" \
     -d "$SCRATCH_DB" -tA -v ON_ERROR_STOP=1 "$@"
+}
+
+verify_dump_checksum() {
+  _dump="$1"
+  case "$RESTORE_VERIFY" in
+    off)
+      log "verify: checksum skipped (RESTORE_VERIFY=off)"
+      return 0
+      ;;
+    strict|warn) ;;
+    *)
+      fail "RESTORE_VERIFY=$RESTORE_VERIFY is not one of strict|warn|off"
+      ;;
+  esac
+  if [ ! -f "$_dump.sha256" ]; then
+    if [ "$RESTORE_VERIFY" = "warn" ]; then
+      log "WARNING: no checksum sidecar next to $_dump — integrity unproven (RESTORE_VERIFY=warn)"
+      return 0
+    fi
+    fail "no checksum sidecar ($(basename "$_dump").sha256) — the archive's integrity is unproven. backupd.sh writes one with every dump. Re-run with RESTORE_VERIFY=warn to restore it anyway, or RESTORE_VERIFY=off to skip this check."
+  fi
+  _expected=$(cut -d' ' -f1 "$_dump.sha256" 2>/dev/null)
+  [ -n "$_expected" ] || fail "checksum sidecar $_dump.sha256 is empty or unreadable"
+  _actual=$(sha256sum "$_dump" | cut -d' ' -f1)
+  [ "$_actual" = "$_expected" ] ||
+    fail "checksum mismatch: sidecar says $_expected, archive is $_actual — the archive is truncated or corrupt"
+  log "verify: sha256 matches ($_actual)"
 }
 
 # Everything this script creates is torn down here: success, `fail`, a signal,
@@ -184,6 +212,11 @@ CREATE ROLE "$RESTORE_ROLE" LOGIN PASSWORD '$RESTORE_PW' BYPASSRLS NOINHERIT
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
 SQL
 ROLE_CREATED=1
+
+# Before any database work: an archive that does not match the sidecar backupd.sh
+# writes is not restored at all, so a truncated dump cannot become a scratch
+# database that looks healthy until someone misses rows.
+verify_dump_checksum "$DUMP"
 
 log "scratch DB create (owner $RESTORE_ROLE)"
 psql_admin postgres -c "DROP DATABASE IF EXISTS $SCRATCH_DB WITH (FORCE);" >/dev/null \

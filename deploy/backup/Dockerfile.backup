@@ -1,10 +1,11 @@
+# syntax=docker/dockerfile:1
 # Marula backup runner image.
 #
 # Purpose: nightly pg_dump (base image), restic snapshots (apk), optional
-# WAL-G (build-arg installs a pinned release from go-wal-g/wal-g releases).
+# WAL-G (build-arg installs the pinned release below).
 #
 # Non-purpose: not a general-purpose maintenance image; only what
-# backupd.sh consumes (sh, pg_dump, restic, optional wal-g).
+# backupd.sh consumes (sh, pg_dump, psql, restic, optional wal-g).
 #
 # Security posture (p38-container-hardening): exact base tag + digest; the
 # runner drops curl/tar after the optional WAL-G fetch so the final layer
@@ -15,24 +16,72 @@
 # (restic is not in the DHI catalog either — checked 2026-09-29). It runs
 # as user 10003:10003, cap_drop ALL and no-new-privileges in compose (see
 # docker-compose.yml backup service).
-# syntax=docker/dockerfile:1
 
 FROM postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
 
 # The backup runner: pg_dump (base image), restic (apk), optional WAL-G
-# (build-arg installs a pinned release from go-wal-g/wal-g releases).
+# (build-arg installs the pinned release below). pg_dump and restic need no
+# capabilities; psql is present in the base image and backupd.sh uses it to
+# read `data_checksums`, which decides whether wal-g can verify page checksums
+# at all.
+# hadolint ignore=DL3018
 RUN apk add --no-cache restic bash \
     && addgroup -g 10003 backup \
     && adduser -D -u 10003 -G backup -H -s /sbin/nologin backup
-ARG WALG_TAG=v1.1.2-DEB-dropdownlfs
+
+# The runner's own scripts, baked in rather than assumed. The compose service
+# runs `sh /opt/backup/backupd.sh` with mode 0555 here: read-execute, no write,
+# which is what a read_only rootfs expects.
+COPY --chmod=0555 deploy/backup/backupd.sh deploy/backup/restore.sh deploy/backup/drill.sh /opt/backup/
+
+# WAL-G pin. The version lives in ONE place — WALG_VERSION — and feeds both the
+# asset URL and the checksum's filename, so a bump is one line plus the digest.
+#
+# The archive is verified against WALG_SHA256 before anything is unpacked, and
+# a mismatch fails the build with both digests printed. Provenance of the value
+# below, checked 2026-10-25: the release publishes
+#   wal-g-pg-20.04-amd64.tar.gz.sha256 -> 51ec330530f98fc3eb4f008fa539d2...
+# and the GitHub release record carries the same digest; a local `sha256sum` of
+# the downloaded archive matched both. Re-derive the digest from the release's
+# .sha256 asset when bumping; never from the tarball you just downloaded from
+# the same host without comparing, which proves nothing.
+#
+# Two details that a bump breaks, both verified against the real asset:
+#   * the asset name lost its `ubuntu-` prefix at v3.0.x (v3.0.5 ships
+#     wal-g-pg-ubuntu-20.04-amd64.tar.gz, v3.0.9 ships wal-g-pg-20.04-amd64.tar.gz);
+#   * the binary is dynamically linked against glibc (interpreter
+#     /lib64/ld-linux-x86-64.so.2), so alpine needs libc6-compat to run it.
+#     `wal-g --version` therefore runs during the build: a future asset that
+#     cannot execute fails here instead of at 03:00 in the backup loop.
+#
+# The amd64 asset matches the amd64 base digest above.
+ARG WALG_VERSION=v3.0.9
+ARG WALG_SHA256=51ec330530f98fc3eb4f008fa539d291a2cac51e7076b256472862e45ceff0bd
 ARG INSTALL_WAL_G=0
+# hadolint ignore=DL3018
 RUN if [ "$INSTALL_WAL_G" = "1" ]; then \
-      apk add --no-cache curl tar && \
-      curl -fsSL "https://github.com/wal-g/wal-g/releases/download/${WALG_TAG}/wal-g-pg-ubuntu-20.04-amd64.tar.gz" \
-        | tar -xz -C /usr/local/bin wal-g-pg-ubuntu-20.04-amd64 && \
-      mv /usr/local/bin/wal-g-pg-ubuntu-20.04-amd64 /usr/local/bin/wal-g && \
+      set -eu; \
+      apk add --no-cache curl tar libc6-compat; \
+      tmp=$(mktemp -d); \
+      curl -fsSL --retry 3 -o "$tmp/wal-g.tar.gz" \
+        "https://github.com/wal-g/wal-g/releases/download/${WALG_VERSION}/wal-g-pg-20.04-amd64.tar.gz"; \
+      actual=$(sha256sum "$tmp/wal-g.tar.gz"); \
+      actual=${actual%% *}; \
+      if [ "$actual" != "$WALG_SHA256" ]; then \
+        echo "ERROR: wal-g archive checksum mismatch" >&2; \
+        echo "  asset:    wal-g-pg-20.04-amd64.tar.gz @ ${WALG_VERSION}" >&2; \
+        echo "  expected: ${WALG_SHA256}" >&2; \
+        echo "  actual:   ${actual}" >&2; \
+        echo "Refusing to install an archive this build cannot verify." >&2; \
+        exit 1; \
+      fi; \
+      tar -xzf "$tmp/wal-g.tar.gz" -C "$tmp" wal-g-pg-20.04-amd64; \
+      install -m 0755 "$tmp/wal-g-pg-20.04-amd64" /usr/local/bin/wal-g; \
+      wal-g --version; \
+      rm -rf "$tmp"; \
       apk del curl tar; \
     fi
+
 WORKDIR /opt/backup
 # Numeric dedicated uid/gid (k8s runAsNonRoot-verifiable); /pgdumps and any
 # mounted source dirs must be writable by this uid.

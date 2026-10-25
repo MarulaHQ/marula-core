@@ -18,10 +18,11 @@
 #     whole path from pg_dump to a queryable database works with the backups this
 #     host actually holds.
 #   * WAL-G base backup — that the base backup is RETRIEVABLE (`backup-fetch`
-#     succeeds and the payload carries a PG_VERSION). It does not start a server
-#     on it: that needs a dedicated Postgres instance, which is a different
-#     piece of infrastructure than this container. The gap is stated in the
-#     docs rather than papered over.
+#     succeeds and the payload is a complete data directory: PG_VERSION,
+#     global/pg_control, and a control file whose CRC pg_controldata accepts).
+#     It does not start a server on it: that needs a dedicated Postgres
+#     instance, which is a different piece of infrastructure than this
+#     container. The gap is stated in the docs rather than papered over.
 #
 # Non-purpose: no WAL replay to a point in time (a recovery-target restore is an
 # incident action, not a rehearsal), no object-store restore (restic needs the
@@ -92,6 +93,10 @@ DRILL_ARTIFACT=""
 
 # 1. Pick the artifact. An explicit path wins (so an operator can rehearse one
 #    specific dump); otherwise the newest local dump; otherwise the WAL-G base.
+#    `ls -1t` rather than find: the names come from backupd.sh
+#    (marula_YYYYMMDD.dump), so the non-alphanumeric case SC2012 warns about
+#    cannot occur, and busybox find has no -printf to sort by mtime with.
+# shellcheck disable=SC2012
 if [ -n "${DRILL_DUMP:-}" ]; then
   DUMP="$DRILL_DUMP"
 elif [ -e "$PGDUMPS_DIR" ] && [ -n "$(ls -1t "$PGDUMPS_DIR"/*.dump 2>/dev/null | head -1)" ]; then
@@ -146,16 +151,32 @@ if [ -n "${WALG_S3_PREFIX:-}" ] && command -v wal-g >/dev/null 2>&1; then
   DRILL_ARTIFACT="$latest"
   target="/tmp/wal-drill-restore"
   rm -rf "$target"
-  log "fetching WAL-G base backup $latest"
-  if ! wal-g backup-fetch "$latest" "$target"; then
+  # A corrupt or truncated archive does not make wal-g fail fast: it extracts
+  # what it can, logs the failure, and sleeps before each retry, which would
+  # wedge the backup loop that calls this drill. The bound turns that into a
+  # failed drill. Raise DRILL_FETCH_TIMEOUT for a large base backup.
+  fetch_timeout="${DRILL_FETCH_TIMEOUT:-3600}"
+  log "fetching WAL-G base backup $latest (timeout ${fetch_timeout}s)"
+  if ! timeout -s KILL "$fetch_timeout" wal-g backup-fetch "$latest" "$target"; then
     fail "wal-g could not fetch base backup $latest"
   fi
   [ -f "$target/PG_VERSION" ] || fail "fetched base backup has no PG_VERSION — payload is incomplete"
+  [ -f "$target/global/pg_control" ] || fail "fetched base backup has no global/pg_control — payload is incomplete"
+  # pg_controldata checks the control file's own CRC, which is the cheapest
+  # proof that the payload's most critical page is intact. It prints a warning
+  # and exits 0 when the checksum does not match, so the text is the signal.
+  command -v pg_controldata >/dev/null 2>&1 || fail "pg_controldata is missing from this image"
+  _controldata=$(pg_controldata "$target" 2>&1) || fail "pg_controldata could not read the fetched data directory"
+  case "$_controldata" in
+    *"does not match"*|*"untrustworthy"*)
+      fail "pg_controldata rejects the fetched control file (corrupt or truncated base backup)"
+      ;;
+  esac
   size=$(du -sk "$target" | awk '{print $1}')
   duration_ms=$(( ($(date +%s) - started_epoch) * 1000 ))
-  record passed "$DRILL_SOURCE" "$DRILL_ARTIFACT" "$duration_ms" "{}" "payload ${size} KiB"
+  record passed "$DRILL_SOURCE" "$DRILL_ARTIFACT" "$duration_ms" "{}" "payload ${size} KiB, control file verified"
   rm -rf "$target"
-  log "PASS: base backup $latest fetches and carries a Postgres data directory (${duration_ms} ms)"
+  log "PASS: base backup $latest fetches as a complete data directory with a valid control file (${duration_ms} ms)"
   exit 0
 fi
 
