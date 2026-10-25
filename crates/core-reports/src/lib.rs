@@ -8,6 +8,9 @@
 //! * identifiers are static catalog constants (`catalog`),
 //! * user values bind exclusively as `$N` parameters (`builder::Bind`),
 //! * validation is pure and property-tested (`params`, `kinds`).
+//! * every report CSV cell is encoded by one writer (`csv`), so the
+//!   interactive and scheduled lanes cannot disagree about which values a
+//!   spreadsheet would evaluate.
 //!
 //! Non-purpose (binding):
 //! * **Never reads physical tables.** Every statement this crate emits
@@ -22,6 +25,7 @@
 
 pub mod builder;
 pub mod catalog;
+pub mod csv;
 pub mod error;
 pub mod kinds;
 pub mod params;

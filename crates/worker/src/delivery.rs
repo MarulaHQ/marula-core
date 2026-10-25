@@ -36,7 +36,7 @@ use chrono::{DateTime, Duration, Utc};
 use core_domain::entities::{NotificationKind, User};
 use core_domain::notifications::{decide_channel, Decision, DeliveryChannel, QuietHours};
 use core_mail::{OutboundEmail, TransportKind};
-use core_reports::{Bind, ReportSpec, Scope};
+use core_reports::{csv, Bind, ReportSpec, Scope};
 use sqlx::{Column, PgPool, Row};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -99,28 +99,46 @@ async fn render_csv(
     // Compile carries the column layout; decode against the wrapper's
     // output (the subquery's aliases become the outer column names).
     let rows = q.fetch_all(&mut *tx).await?;
+    let names: Vec<String> = rows
+        .first()
+        .map(|row| row.columns().iter().map(|c| c.name().to_string()).collect())
+        .unwrap_or_default();
+    let decoded: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            row.columns()
+                .iter()
+                .map(|col| dynamic_cell(row, col.name(), &col.type_info().to_string()))
+                .collect()
+        })
+        .collect();
+    // Read-only request: rollback is both correct and free.
+    tx.rollback().await?;
+    Ok(encode_page(&names, &decoded))
+}
+
+/// Encodes one decoded page as CSV text: the header from the statement's
+/// column names, then a line per row, every value through the shared
+/// `core_reports::csv` cell writer.
+///
+/// Pure on purpose: the formula-prefix contract is testable here without a
+/// database, and the escaping rules are the shared function the interactive
+/// `?format=csv` lane calls rather than a second copy. A header is emitted
+/// only when there is a row, which is the shape this lane has always
+/// delivered.
+fn encode_page(columns: &[String], rows: &[Vec<String>]) -> String {
     let mut out = String::new();
-    if let Some(first) = rows.first() {
-        let header: Vec<String> = first.columns().iter().map(|c| csv_cell(c.name())).collect();
+    if !rows.is_empty() {
+        let header: Vec<String> = columns.iter().map(|c| csv::cell(c)).collect();
         out.push_str(&header.join(","));
         out.push('\n');
     }
-    for row in &rows {
-        let cells: Vec<String> = row
-            .columns()
-            .iter()
-            .map(|col| {
-                let name = col.name();
-                let ty = col.type_info().to_string();
-                csv_cell(&dynamic_cell(row, name, &ty))
-            })
-            .collect();
+    for row in rows {
+        let cells: Vec<String> = row.iter().map(|v| csv::cell(v)).collect();
         out.push_str(&cells.join(","));
         out.push('\n');
     }
-    // Read-only request: rollback is both correct and free.
-    tx.rollback().await?;
-    Ok(out)
+    out
 }
 
 /// Type-OID-driven cell rendering — the wrapper's output columns mirror
@@ -168,17 +186,6 @@ fn dynamic_cell(row: &sqlx::postgres::PgRow, name: &str, ty: &str) -> String {
         _ => Some(format!("undecodable:{ty}")),
     };
     v.unwrap_or_default()
-}
-
-/// CSV escaping with stable house semantics — identical quoting rules to
-/// the interactive `?format=csv` lane (comma/quote/newline → quoted with
-/// doubled inner quotes).
-fn csv_cell(s: &str) -> String {
-    if s.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
 }
 
 // --- recipient fan-out --------------------------------------------------------------
@@ -1048,5 +1055,32 @@ mod tests {
         assert!(failed_recipients(&serde_json::json!({ "delivered": 0 })).is_empty());
         assert!(failed_recipients(&serde_json::json!({ "failed": [] })).is_empty());
         assert!(failed_recipients(&serde_json::json!(null)).is_empty());
+    }
+
+    /// The scheduled CSV is the copy that leaves the building, so a client
+    /// name of `=cmd|...` has to be text before it arrives. Two rows pin the
+    /// rules this lane shares with the interactive one: the introducer takes
+    /// the apostrophe even behind a tab, and the prefix goes in front of the
+    /// whitespace; a negative metric and an exponent stay bare numbers.
+    #[test]
+    fn a_scheduled_report_with_a_formula_leading_value_gets_the_prefixed_cell() {
+        let columns = vec!["label".to_string(), "minutes".to_string()];
+        let rows = vec![
+            vec!["=1+1, and more".to_string(), "-120".to_string()],
+            vec!["\t=1+1".to_string(), "-1.5e-3".to_string()],
+        ];
+        assert_eq!(
+            encode_page(&columns, &rows),
+            "label,minutes\n\"'=1+1, and more\",-120\n'\t=1+1,-1.5e-3\n"
+        );
+    }
+
+    /// An empty page has always delivered an empty body rather than a bare
+    /// header line. Pinned because it is the one place this lane's document
+    /// shape differs from the interactive response.
+    #[test]
+    fn an_empty_page_delivers_an_empty_body() {
+        let columns = vec!["label".to_string()];
+        assert_eq!(encode_page(&columns, &[]), "");
     }
 }
