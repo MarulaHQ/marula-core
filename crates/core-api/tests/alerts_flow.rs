@@ -20,6 +20,11 @@
 //! 5. Audit trail: `alert.ingested` + `alert.storm_collapsed` rows, plus
 //!    `alert.ingested` outbox events on the wire.
 //! 6. Dual-mount parity for the ingest route (`/api/v1` + legacy `/api`).
+//! 7. Profile boundary (Wave 55, decision 8): a source promoted to the
+//!    generic M2M profile is refused at this door with a typed 409 that
+//!    names `/api/webhooks/ingest`, writes nothing, and records
+//!    `alert.refused`; an absent profile stays the classic alert source and
+//!    keeps ingesting. The generic door is the mirror (`webhook_receiver_flow`).
 //!
 //! Non-purpose: worker/queue paths (queue_runner is untouched —
 //! correlation is synchronous), SLA ladder math (core-db sla suite).
@@ -200,11 +205,28 @@ async fn create_source(
     source_ref: &str,
     idempotency_key: Option<&str>,
 ) -> CreatedSource {
+    create_source_with(app, token, board_id, source_ref, None, idempotency_key).await
+}
+
+/// Creates a source with an explicit profile. `None` is the classic alert
+/// source; a dot-path makes it a generic M2M receiver (the create request's
+/// documented switch, `alerts.rs:774-777`).
+async fn create_source_with(
+    app: &Router,
+    token: &str,
+    board_id: Uuid,
+    source_ref: &str,
+    event_type: Option<&str>,
+    idempotency_key: Option<&str>,
+) -> CreatedSource {
     let mut payload = json!({
         "name": "Acme RMM",
         "source_ref": source_ref,
         "board_id": board_id,
     });
+    if let Some(event_type) = event_type {
+        payload["event_type"] = json!(event_type);
+    }
     if let Some(key) = idempotency_key {
         payload["idempotency_key"] = json!(key);
     }
@@ -665,6 +687,213 @@ async fn storm_collapses_to_one_ticket_and_replays_are_inert() {
         "one alert.ingested per ACCEPTED alert (3 storm + 1 other)"
     );
     assert_eq!(created, 2, "one ticket.created per anchored incident");
+}
+
+/// Wave 55, decision 8. The profile is a property of the source: a source
+/// promoted to the generic M2M profile stops opening incident tickets here,
+/// the refusal is this module's typed 409 naming the endpoint that serves the
+/// profile, nothing is written, and the reason lands on the audit trail so an
+/// operator can tell a dropped alert from a broken ingest.
+#[tokio::test]
+async fn promotion_to_the_generic_profile_refuses_ingest_and_records_it() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("alerts-profile-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let board = create_board(&app, &token, "Profile Board").await;
+    // No profile recorded: the classic alert source, which the create request
+    // documents as "Leave NULL for the classic alert path".
+    let source = create_source(&app, &token, board, &unique_ref("profile-rmm"), None).await;
+    let ingest_uri = format!("/api/v1/alerts/ingest/{}", source.source_ref);
+
+    let first = alert_body("evt-1", "srv-01/disk-c", "Disk usage critical", "critical");
+    let accepted = send_raw(&app, &ingest_uri, &signed(&source, &first), &first).await;
+    assert_eq!(
+        accepted.status(),
+        200,
+        "an absent profile is the alert profile and lands as it always has"
+    );
+    assert_eq!(body_json(accepted).await["status"], "incident_created");
+
+    // Promote through the admin write. The profile switch stays the explicit,
+    // permissioned, audited act it already was.
+    let promoted = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/alert-sources/{}", source.id),
+        &[auth(&token)],
+        Some(json!({ "event_type": "acme_event.received" })),
+    )
+    .await;
+    assert_eq!(promoted.status(), 200);
+    assert_eq!(
+        body_json(promoted).await["event_type"],
+        "acme_event.received"
+    );
+
+    // The next signed delivery is refused, and the answer points the operator
+    // at the door that serves the profile the source now records.
+    let second = alert_body("evt-2", "srv-01/disk-c", "Disk usage critical", "warning");
+    let refused = send_raw(&app, &ingest_uri, &signed(&source, &second), &second).await;
+    assert_eq!(
+        refused.status(),
+        409,
+        "a generic M2M profile cannot open incident tickets"
+    );
+    let refusal = body_json(refused).await;
+    assert_eq!(
+        refusal["error"]["reason"], "conflict",
+        "the module's own typed 409, not a generic 400"
+    );
+    let message = refusal["error"]["message"].as_str().expect("message");
+    assert!(
+        message.contains(&format!("/api/webhooks/ingest/{}", source.source_ref)),
+        "the refusal names the endpoint that serves the profile: {message}"
+    );
+    assert!(
+        message.contains("acme_event.received"),
+        "the refusal names the recorded profile: {message}"
+    );
+
+    // Nothing was written by the refused delivery.
+    let alerts = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/alerts",
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(alerts.status(), 200);
+    let rows = body_json(alerts).await["alerts"]
+        .as_array()
+        .expect("alerts")
+        .clone();
+    assert_eq!(rows.len(), 1, "the refused delivery added no alert row");
+    assert_eq!(rows[0]["dedup_key"], "evt-1");
+
+    // The refusal is observable: the trail names the source, the profile and
+    // the endpoint it should have used.
+    let audit = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/audit-events?action=alert.refused",
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(audit.status(), 200);
+    let events = body_json(audit).await["events"]
+        .as_array()
+        .expect("events")
+        .clone();
+    let recorded = events
+        .iter()
+        .find(|e| e["entity_id"] == source.id.to_string())
+        .expect("the refusal is on the audit trail");
+    assert_eq!(recorded["action"], "alert.refused");
+    assert_eq!(recorded["detail"]["reason"], "source_profile");
+    assert_eq!(recorded["detail"]["event_type"], "acme_event.received");
+    assert_eq!(recorded["detail"]["served_by"], "/api/webhooks/ingest");
+    assert_eq!(
+        recorded["actor"]["id"],
+        format!("alert-source:{}", source.source_ref)
+    );
+}
+
+/// The refusal is about the source, not about the payload, and it does not
+/// brick the integration: the same source keeps emitting through its own door.
+#[tokio::test]
+async fn a_generic_source_is_refused_at_the_alert_door_and_still_serves_its_own() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("alerts-generic-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let board = create_board(&app, &token, "Generic Board").await;
+    let source = create_source_with(
+        &app,
+        &token,
+        board,
+        &unique_ref("generic-rmm"),
+        Some("acme_event.received"),
+        None,
+    )
+    .await;
+
+    // A real alert document, then a body that would fail validation as one:
+    // both get the same typed refusal, because the profile is decided from the
+    // source before the payload is read.
+    for body in [
+        alert_body("evt-generic-1", "host/generic", "Disk critical", "critical"),
+        "{}".to_string(),
+    ] {
+        let refused = send_raw(
+            &app,
+            &format!("/api/v1/alerts/ingest/{}", source.source_ref),
+            &signed(&source, &body),
+            &body,
+        )
+        .await;
+        assert_eq!(
+            refused.status(),
+            409,
+            "the profile decides before the payload: {body}"
+        );
+        assert_eq!(body_json(refused).await["error"]["reason"], "conflict");
+    }
+
+    // The integration is not broken — its own door still emits the envelope.
+    let envelope =
+        json!({ "dedup_key": "evt-generic-1", "payload": { "status": "ok" } }).to_string();
+    let emitted = send_raw(
+        &app,
+        &format!("/api/v1/webhooks/ingest/{}", source.source_ref),
+        &signed(&source, &envelope),
+        &envelope,
+    )
+    .await;
+    assert_eq!(
+        emitted.status(),
+        200,
+        "the generic profile still serves its own door"
+    );
+    assert_eq!(body_json(emitted).await["status"], "emitted");
+
+    // No incident tickets came out of the alert door.
+    let alerts = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/alerts",
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(alerts.status(), 200);
+    assert!(
+        body_json(alerts).await["alerts"]
+            .as_array()
+            .expect("alerts")
+            .is_empty(),
+        "a generic receiver opens no alerts"
+    );
+
+    // Both refusals are recorded, not just the first.
+    let audit = send(
+        &app,
+        axum::http::Method::GET,
+        "/api/audit-events?action=alert.refused&limit=50",
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(audit.status(), 200);
+    let refusals = body_json(audit).await["events"]
+        .as_array()
+        .expect("events")
+        .iter()
+        .filter(|e| e["entity_id"] == source.id.to_string())
+        .count();
+    assert_eq!(refusals, 2, "every refused delivery leaves a row");
 }
 
 #[tokio::test]
