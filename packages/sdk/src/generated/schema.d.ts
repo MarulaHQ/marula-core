@@ -523,7 +523,9 @@ export interface paths {
          * POST /api/alerts/ingest/{source_ref} — HMAC-verified alert ingest.
          * @description Responses: 200 with a terminal `status` (incident_created / collapsed /
          *     duplicate); 401 missing/bad signature; 403 disabled source; 404 unknown
-         *     source_ref; 422 malformed payload.
+         *     source_ref; 409 source is a generic M2M receiver (its profile emits
+         *     envelopes, so the answer names `/api/webhooks/ingest/{source_ref}`);
+         *     422 malformed payload.
          */
         post: operations["alerts_ingest"];
         delete?: never;
@@ -1199,6 +1201,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/mfa/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/mfa/step-up — proves password plus a live factor and records
+         *     it against this sign-in lineage.
+         * @description This is the door the destructive factor changes point at. It is deliberately
+         *     separate from `mfa/verify`: that one completes a login, this one raises what
+         *     an already-signed-in session may do, and the record it leaves expires.
+         *
+         *     A passkey user does not call this — their step-up is the passkey login,
+         *     which stamps the same record on the session it creates.
+         */
+        post: operations["mfa_step_up"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/mfa/totp/disable": {
         parameters: {
             query?: never;
@@ -1211,6 +1239,10 @@ export interface paths {
         /**
          * POST /api/auth/mfa/totp/disable — requires password AND a live factor;
          *     wipes TOTP enrollment and all recovery codes.
+         * @description This is the explicit "turn MFA off" action the last-factor rule points at.
+         *     A successful call also stamps a step-up, because the caller just proved a
+         *     factor on this session; the next change within the window does not
+         *     re-prompt.
          */
         post: operations["mfa_totp_disable"];
         delete?: never;
@@ -1230,7 +1262,18 @@ export interface paths {
         put?: never;
         /**
          * POST /api/auth/mfa/totp/enroll-begin — generates a secret (returned ONCE)
-         *     and stores it sealed+unconfirmed. Re-calling restarts enrollment safely.
+         *     and stores it sealed+unconfirmed.
+         * @description A FIRST enrolment (no confirmed factor) simply restarts the pending window.
+         *     Replacing a CONFIRMED factor is a destructive act and needs a fresh step-up
+         *     proved by a method OTHER than TOTP: a live code cannot authorize replacing
+         *     the secret it belongs to, so the caller uses a recovery code or a passkey.
+         *     The account keeps its recovery codes through the swap, which is what stops
+         *     it holding zero working factors while the new secret is pending.
+         *
+         *     After an admin reset (`users.mfa_reenroll_required`) enrolment is the
+         *     sanctioned way out and the audited reset is its authorization: there is no
+         *     factor left to step up with, which is exactly why the reset travels in this
+         *     lane.
          */
         post: operations["mfa_totp_enroll_begin"];
         delete?: never;
@@ -1327,8 +1370,13 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST /api/auth/mfa/webauthn/credentials/{id}/remove — password-gated
-         *     removal of one passkey.
+         * POST /api/auth/mfa/webauthn/credentials/{id}/remove — removes one passkey.
+         * @description The password is not the authorization. A phished password must not be able
+         *     to downgrade a passkey-only account to password-only sign-in (DECISIONS
+         *     record 2), so removal needs a FRESH step-up on this sign-in lineage, proved
+         *     by a factor that is not the credential being removed. The last factor of
+         *     any kind cannot leave this way: that is the explicit "turn MFA off" action
+         *     (`POST /api/auth/mfa/totp/disable`), and the refusal says so.
          */
         post: operations["mfa_webauthn_remove"];
         delete?: never;
@@ -1653,6 +1701,43 @@ export interface paths {
          *     sessions (sign-out-everywhere-else primitive).
          */
         post: operations["auth_session_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/users/{id}/mfa-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/auth/users/{id}/mfa-reset — clears another user's factors.
+         * @description This exists because the strict rule needs an exit: a user who lost their only
+         *     factor cannot step up, and without a reset path the step-up requirement
+         *     locks them out of their own account changes (the ruling of 2026-10-25 puts
+         *     the two in one lane for exactly that reason).
+         *
+         *     What makes it safe rather than a takeover tool:
+         *     - `manage_users` is required, and an administrator cannot reset their own
+         *       factors — a stolen admin session must not be able to turn its owner's MFA
+         *       off with one call.
+         *     - An Owner's or Admin's factors can only be reset by an Owner, so a lesser
+         *       administrator cannot strip a peer's second factor.
+         *     - The account is left owing a factor (`users.mfa_reenroll_required`), not
+         *       merely factor-free: enrolment is the only factor change it may make until
+         *       one is confirmed, and the flag is audited with the counts.
+         *     - Every live session is revoked, so the user re-authenticates with their
+         *       password and learns the factor is gone.
+         *     - The audit row names the administrator, the target, what was removed and
+         *       how many sessions died.
+         */
+        post: operations["mfa_admin_factor_reset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3871,6 +3956,17 @@ export interface paths {
         /**
          * PUT /api/directory-groups/{id}/members/{userId} — put a user in the group.
          *     Idempotent; a repeated call reports the same membership and emits nothing.
+         * @description The ceiling applies to the insert and not to the no-op: adding a person is
+         *     what turns the roles this group already carries into that person's grants,
+         *     so every mapped role must be inside the caller's own set. A repeat of a
+         *     membership that already exists confers nothing new, which is why it stays a
+         *     200 — refusing it would break the documented idempotency a sync depends on
+         *     while closing no hole.
+         *
+         *     The 403 the ceiling raises is not added to the `utoipa` response list here:
+         *     the OpenAPI pins are a reviewed artifact, and this lane changes behaviour
+         *     rather than the documented contract. The next sanctioned re-pin should add
+         *     it to this operation and to `map_role`.
          */
         put: operations["directory_groups_add_member"];
         post?: never;
@@ -3897,6 +3993,15 @@ export interface paths {
          * PUT /api/directory-groups/{id}/roles/{roleId} — map a role onto the group.
          *     Every current and future member holds it from now on (additive union with
          *     their directly assigned roles). Idempotent.
+         * @description The ceiling applies to the mapping write itself: the role's resolved
+         *     permission set must be inside the caller's own, or the mapping is a typed
+         *     403 and no row is written. A no-op repeat of an existing mapping confers
+         *     nothing new, so it stays a 200 for the same reason a repeated member add
+         *     does.
+         *
+         *     The 403 stays out of the `utoipa` response list for the reason given on
+         *     `add_member`: the pins are a reviewed artifact and this lane does not
+         *     re-pin them.
          */
         put: operations["directory_groups_map_role"];
         post?: never;
@@ -4723,6 +4828,51 @@ export interface paths {
         get: operations["email_delivery_ledger_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email/inbound-holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/email/inbound-holds — messages waiting for a decision, newest
+         *     first, with the reason each is held and the engine's proposal when the org
+         *     runs shadow or autonomous.
+         */
+        get: operations["email_inbound_holds_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/email/inbound-holds/{id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/email/inbound-holds/{id}/decide — the person's decision on one
+         *     held message. `accept` threads it onto the ticket and leaves a
+         *     client-visible comment; `refuse` records the refusal. Both write the
+         *     decision columns, an audit row naming the person, and
+         *     `email.sender_binding_decided`. A message that is no longer held answers a
+         *     typed 409, so a decision cannot thread twice.
+         */
+        post: operations["email_inbound_hold_decide"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11768,7 +11918,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/tickets/{id}/attachments — every attachment on one ticket. */
+        /**
+         * GET /api/tickets/{id}/attachments — every attachment on one ticket that
+         *     the download door would also hand out.
+         */
         get: operations["attachments_list_for_ticket"];
         put?: never;
         /**
@@ -11895,7 +12048,7 @@ export interface paths {
         };
         /**
          * GET /api/tickets/{id}/comments/{comment_id}/attachments — one comment's
-         *     attachments.
+         *     attachments that the download door would also hand out.
          */
         get: operations["attachments_list_for_comment"];
         put?: never;
@@ -15410,51 +15563,55 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
-        /** @description One external-calendar connection for one user's calendar. */
-        CalendarSyncConnection: {
-            /** @description Cached access token, valid until `token_expires_at`. */
-            access_token?: string | null;
+        /**
+         * @description One connection as the API returns it: the stored row minus the cached
+         *     provider credential.
+         *
+         *     A credential is written and never read back through a view (Wave 55
+         *     decision 9). The row's `access_token` is read by the poll and by nothing
+         *     else, so what a client gets is presence — a token is held or it is not —
+         *     and never the token itself. An access token a client can read leaves the
+         *     product through a screenshot, a copied log line or a support bundle, and
+         *     it reads the whole of that person's calendar until it expires.
+         *
+         *     No hint field: the tree exposes no last-four pattern for a credential
+         *     anywhere else, so this surface does not invent one. `token_expires_at`
+         *     stays, because an expiry is not a credential and Settings needs it to say
+         *     when the grant lapses.
+         *
+         *     This is a view, not a mirror: a field added to the entity does not appear
+         *     here until someone decides the API should carry it. That is the fail-closed
+         *     direction for a response shape.
+         */
+        CalendarSyncConnectionView: {
             /** Format: date-time */
             created_at: string;
             direction: components["schemas"]["CalendarSyncDirection"];
-            /**
-             * @description The provider's own account id (Google `sub`, Microsoft `oid`).
-             *     Recorded so an operator auditing a sync can tell WHICH account the
-             *     connection is bound to. Not an identity Marula authenticates with.
-             */
+            /** @description The provider's own account id (Google `sub`, Microsoft `oid`). */
             external_account?: string | null;
-            /**
-             * @description Outbound: relative feed path clients render against the API
-             *     origin; the raw token itself is never readable again.
-             */
+            /** @description Outbound: relative feed path clients render against the API origin. */
             feed_path?: string | null;
             /** @description Inbound: the external iCal URL the provider polls. */
             feed_url?: string | null;
+            /**
+             * @description Whether the row holds a usable cached provider token. Presence only;
+             *     the token itself never crosses the wire.
+             */
+            has_access_token: boolean;
             /** Format: uuid */
             id: string;
             /** @description Last poll failure message (fixed provider-side copy, no internals). */
             last_error?: string | null;
-            /**
-             * Format: date-time
-             * @description RFC 3339 timestamp of the last successful poll.
-             */
+            /** Format: date-time */
             last_synced_at?: string | null;
             name: string;
             /** Format: uuid */
             org_id: string;
-            /** @description The provider seam discriminator ('ical' is the first-party provider). */
             provider: string;
-            /**
-             * @description Scopes actually granted, recorded so the consent screen and the
-             *     stored grant can be compared. Never widened after consent.
-             */
+            /** @description Scopes actually granted at consent. */
             scopes?: string | null;
             status: components["schemas"]["CalendarSyncStatus"];
-            /**
-             * Format: date-time
-             * @description Expiry of `access_token`. CHECK-paired with the token so a token row
-             *     can never be read as valid-forever.
-             */
+            /** Format: date-time */
             token_expires_at?: string | null;
             /** Format: date-time */
             updated_at: string;
@@ -16359,8 +16516,7 @@ export interface components {
             title: string;
         };
         ConnectionView: {
-            /** Format: uuid */
-            connection: string;
+            connection: components["schemas"]["CalendarSyncConnectionView"];
             /**
              * @description The raw outbound feed token — returned ONLY here (creation) and
              *     by the rotate endpoint. Never readable again afterwards.
@@ -16514,14 +16670,6 @@ export interface components {
             connector_profile?: unknown;
             declared_capabilities: string[];
             fetched_ref?: string | null;
-            /**
-             * @description Whether the publisher's signature covers this manifest (the registry
-             *     v2 statement) or only the artifact bytes (legacy v1, or no signature at
-             *     all). The consent screen shows it so an approver can tell a
-             *     publisher-signed manifest from one that merely travelled beside a
-             *     signature.
-             */
-            manifest_authenticated: boolean;
             settings_schema?: unknown;
             source_kind: string;
             source_url: string;
@@ -18789,6 +18937,30 @@ export interface components {
         DecideAppointmentRequest: components["schemas"]["MutationParams"] & {
             decision_note?: string | null;
         };
+        DecideHeldRequest: {
+            /**
+             * @description `accept` threads a client-visible comment on the ticket; `refuse`
+             *     leaves the message off every ticket.
+             */
+            decision: string;
+            /** @description Recorded with the decision in place of the hold reason. */
+            reason?: string | null;
+            /**
+             * Format: uuid
+             * @description Required for `accept` unless routing already resolved a ticket.
+             */
+            ticket_id?: string | null;
+        };
+        DecideHeldResponse: {
+            /** Format: uuid */
+            comment_id?: string | null;
+            /** @description `accepted` | `refused`. */
+            decision: string;
+            /** Format: uuid */
+            message_id: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
         DecideProposalRequest: {
             note?: string | null;
         };
@@ -20899,6 +21071,33 @@ export interface components {
             /** @description The entity instance id. */
             entity_id: string;
         };
+        /** @description One held message as the triage queue renders it. */
+        HeldMessageView: {
+            /** @description The message body as it would appear in the ticket's comment. */
+            body_text?: string | null;
+            /**
+             * Format: uuid
+             * @description The ticket routing resolved. Accepting without naming a ticket uses it.
+             */
+            candidate_ticket_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            from_address: string;
+            from_name?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The engine's proposal, present under `shadow` and `autonomous`. */
+            proposal?: unknown;
+            /** @description Why it is held: `sender_not_participant` today. */
+            reason?: string | null;
+            rfc_message_id: string;
+            subject?: string | null;
+        };
+        HeldMessagesView: {
+            holds: components["schemas"]["HeldMessageView"][];
+            /** @description The org's level, so the queue can say why these messages are waiting. */
+            level: string;
+        };
         InboundSettingsResponse: {
             catchall_address?: string | null;
             /** Format: uuid */
@@ -22464,6 +22663,55 @@ export interface components {
              *     pending candidates sharing either side) so batch context is visible.
              */
             related_pending: components["schemas"]["CandidateView"][];
+        };
+        MfaResetResponse: {
+            /** Format: int64 */
+            passkeys_removed: number;
+            /** Format: int64 */
+            recovery_codes_removed: number;
+            /**
+             * @description Always true. The account owes a factor until one is enrolled, and the
+             *     MFA surface refuses every other factor change until then.
+             */
+            reenroll_required: boolean;
+            /**
+             * Format: int64
+             * @description Live sessions revoked, so a token minted before the reset cannot keep
+             *     acting on the account.
+             */
+            sessions_revoked: number;
+            /**
+             * Format: int64
+             * @description TOTP enrolments removed (0 or 1 — the schema holds one per user).
+             */
+            totp_removed: number;
+            /** Format: uuid */
+            user_id: string;
+        };
+        MfaStepUpRequest: {
+            /**
+             * @description Current TOTP code or a recovery code. A recovery code is CONSUMED,
+             *     mirroring login semantics.
+             */
+            code: string;
+            password: string;
+        };
+        MfaStepUpResponse: {
+            /** Format: date-time */
+            expires_at: string;
+            /**
+             * @description Which factor proved possession (`totp` or `recovery_code`). A passkey
+             *     step-up is the passkey login itself, recorded on the session it
+             *     establishes.
+             */
+            method: string;
+            /**
+             * Format: int64
+             * @description Seconds the proof stays usable, counted from `verified_at`.
+             */
+            ttl_secs: number;
+            /** Format: date-time */
+            verified_at: string;
         };
         MfaTokenRequest: {
             mfa_token: string;
@@ -26969,16 +27217,31 @@ export interface components {
         /**
          * @description A link with its target resolved to a display label for the UI
          *     (typed read model; the raw row never carries the label).
+         *
+         *     A label is a READ OF THE TARGET, so it is present only when the
+         *     caller's own gate for the target's module passed (Wave 55 decision 3:
+         *     `design/qa-p55-link-labels`). A denied target keeps the link row and
+         *     carries no title.
          */
         ResolvedLink: components["schemas"]["DocumentLink"] & {
             /** Format: uuid */
             target_client_id?: string | null;
             /**
-             * @description The target's own current link count — surfaced for document
-             *     targets so the panel can hint at hub records.
+             * @description The target row is gone; the link outlives it (a typed read model
+             *     surfaces the vanishing rather than dropping the row).
              */
             target_deleted?: boolean;
-            /** @description Present when the target row still exists. */
+            /**
+             * @description The caller's gate for the target's module denied, so this row
+             *     carries no label and no client id. Distinct from
+             *     `target_deleted`: the interface says "not yours", never "gone".
+             */
+            target_denied?: boolean;
+            /**
+             * @description Present when the target row still exists AND the caller may read
+             *     it. `None` with `target_denied` set means the row exists for
+             *     someone else.
+             */
             target_label?: string | null;
         };
         RestoreDocumentRequest: components["schemas"]["MutationParams"] & {
@@ -28812,13 +29075,6 @@ export interface components {
             /** Format: uuid */
             id: string;
             manifest: unknown;
-            /**
-             * @description Whether a signature the operator's trust set verified covers the
-             *     manifest on this row, not just the artifact bytes. `false` is the
-             *     weaker claim: a legacy digest-only registry entry, a zip, a skill, a
-             *     GitHub pull, or any ingest run with no trusted key configured.
-             */
-            manifest_authenticated: boolean;
             /**
              * @description The digest of the executable module this import carries, when it carries
              *     one. This is the value the install will pin and the executor will load;
@@ -34308,6 +34564,41 @@ export interface operations {
             };
         };
     };
+    mfa_step_up: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaStepUpRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaStepUpResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     mfa_totp_disable: {
         parameters: {
             query?: never;
@@ -34921,6 +35212,39 @@ export interface operations {
         requestBody?: never;
         responses: {
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    mfa_admin_factor_reset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MfaResetResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -36175,7 +36499,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CalendarSyncConnection"][];
+                    "application/json": components["schemas"]["CalendarSyncConnectionView"][];
                 };
             };
         };
@@ -36303,7 +36627,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CalendarSyncConnection"];
+                    "application/json": components["schemas"]["CalendarSyncConnectionView"];
                 };
             };
             404: {
@@ -41045,6 +41369,87 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DeliveryLedgerResponse"];
                 };
+            };
+        };
+    };
+    email_inbound_holds_list: {
+        parameters: {
+            query?: {
+                /** @description Defaults to 50, capped at 200. */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HeldMessagesView"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    email_inbound_hold_decide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ledger message id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideHeldRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideHeldResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such message in this org */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already decided */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown decision, no ticket to attach to, or a reason over the cap */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -47954,6 +48359,13 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the attachment has no admission verdict, so it is not served */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -58581,6 +58993,13 @@ export interface operations {
                 content?: never;
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the invoice refused the settlement: it left its payable state, its total moved since the event was priced, or the amount exceeds the balance */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
