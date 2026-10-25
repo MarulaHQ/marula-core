@@ -9,9 +9,18 @@
 //!   below it is rejected even inside the drift window.
 //! - Recovery codes are argon2id-hashed, single-use IN SQL, revealed once.
 //! - Disable/regenerate require password + a current second factor.
+//! - A destructive factor change (replacing a confirmed TOTP, removing a
+//!   passkey) requires a FRESH step-up on this sign-in lineage: a factor
+//!   verification recorded in `mfa_step_ups` within `STEP_UP_TTL_SECS`.
+//!   A live TOTP code cannot authorize replacing the TOTP secret it belongs
+//!   to, and a passkey cannot authorize removing itself.
+//! - An administrator can reset another user's factors (`manage_users`),
+//!   which clears them, revokes that user's sessions, and marks the account
+//!   as owing a factor (`users.mfa_reenroll_required`) until one is enrolled.
 
 use crate::auth::handlers::{audit_best_effort, issue_tokens, issue_tokens_with_refresh_ttl};
 use crate::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
+use crate::auth::middleware::require_permission;
 use crate::auth::{
     jwt, password, totp_service,
     webauthn_service::{self, CeremonyContext},
@@ -22,11 +31,12 @@ use crate::error::{ApiError, ApiResult};
 use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
 use axum::{
-    extract::{Extension, State},
+    extract::{Extension, Path, State},
     http::Extensions,
     Json,
 };
 use core_domain::entities::{Actor, AuditEvent};
+use core_domain::policy::{BuiltinRole, Permission};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -34,7 +44,187 @@ use uuid::Uuid;
 const RECOVERY_CODE_COUNT: usize = 8;
 const CHALLENGE_TTL_SECS: i64 = 300;
 
+/// How long a step-up stays usable.
+///
+/// Five minutes: long enough to walk from "prove it" to the change, short
+/// enough that a machine left signed in is not a standing authorization to
+/// swap the account's second factor. The window is written into each
+/// `mfa_step_ups` row at insert time, so the record explains itself later.
+const STEP_UP_TTL_SECS: i64 = 300;
+
+/// The call that establishes a step-up. Named in every typed refusal so a
+/// client never has to guess which door to knock on.
+const STEP_UP_ENDPOINT: &str = "/api/auth/mfa/step-up";
+
+const ENROLL_ENDPOINT: &str = "/api/auth/mfa/totp/enroll-begin";
+
 type Tx = sqlx::Transaction<'static, sqlx::Postgres>;
+
+/// Builds the typed 428 a destructive factor change answers with when it has
+/// no fresh step-up. `reason` is the machine code; `message` says what to do.
+fn step_up_refusal(
+    reason: &'static str,
+    message: impl Into<String>,
+    endpoint: &'static str,
+) -> ApiError {
+    ApiError::MfaStepUpRequired {
+        reason,
+        message: message.into(),
+        endpoint,
+        ttl_secs: STEP_UP_TTL_SECS,
+    }
+}
+
+fn allowed_factor_label(allowed: &[&str]) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(allowed.len());
+    for method in allowed {
+        parts.push(match *method {
+            "totp" => "a TOTP code",
+            "recovery_code" => "a recovery code",
+            "webauthn" => "a passkey sign-in",
+            other => other,
+        });
+    }
+    match parts.len() {
+        0 => "a live factor".to_string(),
+        1 => parts[0].to_string(),
+        _ => {
+            let last = parts.pop().unwrap_or("a live factor");
+            format!("{} or {last}", parts.join(", "))
+        }
+    }
+}
+
+/// What proved a factor, carried into the audit row that records the act it
+/// authorized (DECISIONS record 1 rule 3: name both halves).
+struct SecondFactor {
+    method: &'static str,
+    factor_ref: Option<String>,
+}
+
+/// Requires a step-up recorded for THIS caller's refresh chain that has not
+/// expired, proved by one of `allowed`.
+///
+/// The chain, not the session row, is the unit: a refresh rotation inserts a
+/// new session row on the same chain, and a proof taken two minutes ago must
+/// survive it. A new login starts a new chain, so no other session can lend
+/// its proof to this one.
+async fn require_fresh_step_up(
+    tx: &mut Tx,
+    authed: &AuthedUser,
+    allowed: &[&str],
+    purpose: &str,
+) -> ApiResult<core_db::mfa::StepUpRow> {
+    let user = &authed.principal.user;
+    let Some(session_id) = authed.session_id else {
+        return Err(step_up_refusal(
+            "step_up_required",
+            format!(
+                "{purpose} needs a signed-in browser session — a machine credential cannot \
+                 prove a human factor"
+            ),
+            STEP_UP_ENDPOINT,
+        ));
+    };
+    match core_db::mfa::latest_step_up(&mut **tx, session_id, user.id).await? {
+        None => Err(step_up_refusal(
+            "step_up_required",
+            format!("prove a live factor with POST {STEP_UP_ENDPOINT} before {purpose}"),
+            STEP_UP_ENDPOINT,
+        )),
+        Some(row) if !row.fresh => Err(step_up_refusal(
+            "step_up_stale",
+            format!(
+                "your last factor verification has expired; prove one again with \
+                 POST {STEP_UP_ENDPOINT} before {purpose}"
+            ),
+            STEP_UP_ENDPOINT,
+        )),
+        Some(row) if !allowed.contains(&row.method.as_str()) => Err(step_up_refusal(
+            "step_up_factor_not_allowed",
+            format!(
+                "{purpose} cannot be authorized by the factor you proved ({}); \
+                 prove {} with POST {STEP_UP_ENDPOINT}",
+                row.method,
+                allowed_factor_label(allowed)
+            ),
+            STEP_UP_ENDPOINT,
+        )),
+        Some(row) => Ok(row),
+    }
+}
+
+/// Refuses destructive factor changes while an admin reset has left the
+/// account owing a factor. Enrolment itself is the way out and does not call
+/// this.
+async fn refuse_when_reenrolling(tx: &mut Tx, user_id: Uuid, purpose: &str) -> ApiResult<()> {
+    if core_db::mfa::user_mfa_reenroll_required(&mut **tx, user_id).await? {
+        return Err(step_up_refusal(
+            "mfa_reenrollment_required",
+            format!(
+                "an administrator reset this account's factors; enrol a new one with \
+                 POST {ENROLL_ENDPOINT} before {purpose}"
+            ),
+            ENROLL_ENDPOINT,
+        ));
+    }
+    Ok(())
+}
+
+/// Stamps a step-up inside a transaction the caller already opened, for the
+/// session this request authenticated with. Used by the destructive handlers
+/// that just proved a factor, so the next change in the same visit does not
+/// re-prompt.
+async fn stamp_step_up(tx: &mut Tx, authed: &AuthedUser, factor: &SecondFactor) -> ApiResult<()> {
+    let Some(session_id) = authed.session_id else {
+        return Ok(());
+    };
+    let user = &authed.principal.user;
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(STEP_UP_TTL_SECS);
+    core_db::mfa::record_step_up(
+        &mut **tx,
+        Uuid::now_v7(),
+        user.org_id,
+        user.id,
+        session_id,
+        factor.method,
+        factor.factor_ref.as_deref(),
+        expires_at,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Records a step-up for a session this request just established (the MFA
+/// login paths), in its own transaction.
+///
+/// Best-effort by contract: a login must not fail because the proof could not
+/// be stamped — the caller falls back to proving a factor again.
+async fn record_step_up_for_session(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+    session_id: Uuid,
+    factor: &SecondFactor,
+) -> ApiResult<()> {
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(STEP_UP_TTL_SECS);
+    let mut tx = org_tx(state, org_id).await?;
+    core_db::mfa::record_step_up(
+        &mut *tx,
+        Uuid::now_v7(),
+        org_id,
+        user_id,
+        session_id,
+        factor.method,
+        factor.factor_ref.as_deref(),
+        expires_at,
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(())
+}
 
 /// Maps a webauthn_rs ceremony failure onto fixed human copy. The library
 /// error text (challenge/attestation internals) is logged server-side
@@ -72,7 +262,19 @@ async fn org_tx(state: &AppState, org_id: Uuid) -> ApiResult<Tx> {
 // ---------------------------------------------------------------------------
 
 /// POST /api/auth/mfa/totp/enroll-begin — generates a secret (returned ONCE)
-/// and stores it sealed+unconfirmed. Re-calling restarts enrollment safely.
+/// and stores it sealed+unconfirmed.
+///
+/// A FIRST enrolment (no confirmed factor) simply restarts the pending window.
+/// Replacing a CONFIRMED factor is a destructive act and needs a fresh step-up
+/// proved by a method OTHER than TOTP: a live code cannot authorize replacing
+/// the secret it belongs to, so the caller uses a recovery code or a passkey.
+/// The account keeps its recovery codes through the swap, which is what stops
+/// it holding zero working factors while the new secret is pending.
+///
+/// After an admin reset (`users.mfa_reenroll_required`) enrolment is the
+/// sanctioned way out and the audited reset is its authorization: there is no
+/// factor left to step up with, which is exactly why the reset travels in this
+/// lane.
 #[utoipa::path(operation_id = "mfa_totp_enroll_begin", post, path = "/api/auth/mfa/totp/enroll-begin",
     tag = "auth", security(("bearer" = [])),
     responses((status = 200, body = TotpEnrollBeginResponse)))]
@@ -83,6 +285,27 @@ pub async fn totp_enroll_begin(
     let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
     let user = &authed.principal.user;
 
+    let mut tx = org_tx(&state, user.org_id).await?;
+    let existing = core_db::mfa::find_totp(&mut *tx, user.id).await?;
+    let confirmed = existing.as_ref().is_some_and(|row| row.confirmed);
+    let reenrolling = core_db::mfa::user_mfa_reenroll_required(&mut *tx, user.id).await?;
+
+    // A confirmed factor can be replaced, but only by someone who just proved
+    // a DIFFERENT one on this sign-in lineage.
+    let authorized_by = if confirmed {
+        Some(
+            require_fresh_step_up(
+                &mut tx,
+                &authed,
+                &["recovery_code", "webauthn"],
+                "replacing a confirmed TOTP factor",
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+
     let enrollment =
         totp_service::new_enrollment(&user.email, "Marula").map_err(ApiError::Validation)?;
     let sealed = crate::crypto::seal(
@@ -91,9 +314,39 @@ pub async fn totp_enroll_begin(
     )
     .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?;
 
-    let mut tx = org_tx(&state, user.org_id).await?;
-    core_db::mfa::upsert_pending_totp(&mut *tx, Uuid::now_v7(), user.org_id, user.id, &sealed)
+    if confirmed {
+        core_db::mfa::replace_confirmed_totp_with_pending(
+            &mut *tx,
+            Uuid::now_v7(),
+            user.org_id,
+            user.id,
+            &sealed,
+        )
         .await?;
+    } else {
+        let written = core_db::mfa::upsert_pending_totp(
+            &mut *tx,
+            Uuid::now_v7(),
+            user.org_id,
+            user.id,
+            &sealed,
+        )
+        .await?;
+        if written == 0 {
+            // A concurrent request confirmed a factor between the read above
+            // and this write; the SQL refuses to downgrade it, and the honest
+            // answer is the gate the caller skipped.
+            return Err(step_up_refusal(
+                "step_up_required",
+                format!(
+                    "a TOTP factor was confirmed while this request started; prove a live \
+                     factor with POST {STEP_UP_ENDPOINT} before replacing it"
+                ),
+                STEP_UP_ENDPOINT,
+            ));
+        }
+    }
+
     core_db::audit::insert(
         &mut *tx,
         &AuditEvent {
@@ -103,7 +356,11 @@ pub async fn totp_enroll_begin(
             action: "auth.mfa_totp_enroll_started".into(),
             entity_type: Some("user".into()),
             entity_id: Some(user.id.to_string()),
-            detail: serde_json::json!({}),
+            detail: serde_json::json!({
+                "replaces_confirmed_factor": confirmed,
+                "authorized_by": authorized_by.as_ref().map(|row| row.method.clone()),
+                "reenrollment": reenrolling,
+            }),
             ip: None,
             occurred_at: chrono::Utc::now(),
         },
@@ -159,6 +416,7 @@ pub async fn totp_enroll_verify(
     if row.confirmed {
         return Err(ApiError::Conflict("totp already enabled".into()));
     }
+    let reenrolling = core_db::mfa::user_mfa_reenroll_required(&mut *tx, user.id).await?;
     let b32 = String::from_utf8(
         crate::crypto::open(&state.config.secret_key, &row.secret_enc)
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?,
@@ -179,13 +437,17 @@ pub async fn totp_enroll_verify(
         // Lost a race (another tab confirmed); treat idempotently.
         return Err(ApiError::Conflict("totp already enabled".into()));
     }
+    // A factor is live again, so the account no longer owes one.
+    if reenrolling {
+        core_db::mfa::clear_mfa_reenroll_required(&mut *tx, user.id).await?;
+    }
     let codes = generate_recovery_codes(&mut tx, user.org_id, user.id).await?;
     audit_in_tx(
         &mut tx,
         user.org_id,
         user.id,
         "auth.mfa_totp_enabled",
-        serde_json::json!({}),
+        serde_json::json!({ "reenrollment_completed": reenrolling }),
     )
     .await?;
     tx.commit()
@@ -258,6 +520,11 @@ pub struct TotpDisableRequest {
 
 /// POST /api/auth/mfa/totp/disable — requires password AND a live factor;
 /// wipes TOTP enrollment and all recovery codes.
+///
+/// This is the explicit "turn MFA off" action the last-factor rule points at.
+/// A successful call also stamps a step-up, because the caller just proved a
+/// factor on this session; the next change within the window does not
+/// re-prompt.
 #[utoipa::path(operation_id = "mfa_totp_disable", post, path = "/api/auth/mfa/totp/disable",
     tag = "auth", security(("bearer" = [])),
     request_body = TotpDisableRequest, responses((status = 204), (status = 401)))]
@@ -270,12 +537,13 @@ pub async fn totp_disable(
     let user = &authed.principal.user;
 
     let mut tx = org_tx(&state, user.org_id).await?;
+    refuse_when_reenrolling(&mut tx, user.id, "turning MFA off").await?;
     let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
     if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
 
-    verify_any_second_factor(
+    let proved = verify_any_second_factor(
         &state,
         &mut tx,
         user.org_id,
@@ -284,6 +552,7 @@ pub async fn totp_disable(
         &req.code,
     )
     .await?;
+    stamp_step_up(&mut tx, &authed, &proved).await?;
 
     core_db::mfa::delete_totp(&mut *tx, user.id).await?;
     core_db::mfa::replace_recovery_codes(&mut *tx, user.org_id, user.id, &[], &[]).await?;
@@ -292,7 +561,7 @@ pub async fn totp_disable(
         user.org_id,
         user.id,
         "auth.mfa_totp_disabled",
-        serde_json::json!({}),
+        serde_json::json!({ "authorized_by": proved.method }),
     )
     .await?;
     tx.commit()
@@ -322,11 +591,12 @@ pub async fn regenerate_recovery_codes(
     let user = &authed.principal.user;
 
     let mut tx = org_tx(&state, user.org_id).await?;
+    refuse_when_reenrolling(&mut tx, user.id, "regenerating recovery codes").await?;
     let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
     if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
-    verify_any_second_factor(
+    let proved = verify_any_second_factor(
         &state,
         &mut tx,
         user.org_id,
@@ -335,6 +605,7 @@ pub async fn regenerate_recovery_codes(
         &req.code,
     )
     .await?;
+    stamp_step_up(&mut tx, &authed, &proved).await?;
 
     let codes = generate_recovery_codes(&mut tx, user.org_id, user.id).await?;
     audit_in_tx(
@@ -342,7 +613,7 @@ pub async fn regenerate_recovery_codes(
         user.org_id,
         user.id,
         "auth.mfa_recovery_regenerated",
-        serde_json::json!({ "count": codes.len() }),
+        serde_json::json!({ "count": codes.len(), "authorized_by": proved.method }),
     )
     .await?;
     tx.commit()
@@ -350,6 +621,154 @@ pub async fn regenerate_recovery_codes(
         .map_err(|e| ApiError::Internal(e.into()))?;
     Ok(Json(RecoveryCodesResponse {
         recovery_codes: codes,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Step-up
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MfaStepUpRequest {
+    pub password: String,
+    /// Current TOTP code or a recovery code. A recovery code is CONSUMED,
+    /// mirroring login semantics.
+    pub code: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MfaStepUpResponse {
+    /// Which factor proved possession (`totp` or `recovery_code`). A passkey
+    /// step-up is the passkey login itself, recorded on the session it
+    /// establishes.
+    pub method: String,
+    /// Seconds the proof stays usable, counted from `verified_at`.
+    pub ttl_secs: i64,
+    pub verified_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// POST /api/auth/mfa/step-up — proves password plus a live factor and records
+/// it against this sign-in lineage.
+///
+/// This is the door the destructive factor changes point at. It is deliberately
+/// separate from `mfa/verify`: that one completes a login, this one raises what
+/// an already-signed-in session may do, and the record it leaves expires.
+///
+/// A passkey user does not call this — their step-up is the passkey login,
+/// which stamps the same record on the session it creates.
+#[utoipa::path(operation_id = "mfa_step_up", post, path = "/api/auth/mfa/step-up",
+    tag = "auth", security(("bearer" = [])),
+    request_body = MfaStepUpRequest,
+    responses((status = 200, body = MfaStepUpResponse), (status = 401), (status = 428)))]
+pub async fn step_up(
+    State(state): State<AppState>,
+    Extension(ClientIp(client_ip)): Extension<ClientIp>,
+    extensions: Extensions,
+    Json(req): Json<MfaStepUpRequest>,
+) -> ApiResult<Json<MfaStepUpResponse>> {
+    let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
+    let user = &authed.principal.user;
+    let Some(session_id) = authed.session_id else {
+        return Err(ApiError::Unauthorized(
+            "a step-up needs a signed-in browser session".into(),
+        ));
+    };
+
+    // Same durable throttle as the login bridge: being signed in must not turn
+    // the 6-digit keyspace into a free guessing game.
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::MFA_VERIFY,
+        &client_ip,
+        GateSubject::User(user.id),
+        false,
+    )
+    .await?;
+
+    let mut tx = org_tx(&state, user.org_id).await?;
+    // After an admin reset there is no factor to prove; the typed answer names
+    // enrolment instead of asking for a code that cannot exist.
+    refuse_when_reenrolling(&mut tx, user.id, "stepping up").await?;
+
+    let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
+    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
+        let _ = record_failure(
+            &state,
+            crate::auth::hardening::kinds::MFA_VERIFY,
+            &client_ip,
+            GateSubject::User(user.id),
+        )
+        .await;
+        return Err(ApiError::Unauthorized("invalid credentials".into()));
+    }
+
+    let proved = match verify_any_second_factor(
+        &state,
+        &mut tx,
+        user.org_id,
+        user.id,
+        user.email.clone(),
+        &req.code,
+    )
+    .await
+    {
+        Ok(proved) => proved,
+        Err(error) => {
+            let _ = record_failure(
+                &state,
+                crate::auth::hardening::kinds::MFA_VERIFY,
+                &client_ip,
+                GateSubject::User(user.id),
+            )
+            .await;
+            return Err(error);
+        }
+    };
+
+    let verified_at = chrono::Utc::now();
+    let expires_at = verified_at + chrono::Duration::seconds(STEP_UP_TTL_SECS);
+    let written = core_db::mfa::record_step_up(
+        &mut *tx,
+        Uuid::now_v7(),
+        user.org_id,
+        user.id,
+        session_id,
+        proved.method,
+        proved.factor_ref.as_deref(),
+        expires_at,
+    )
+    .await?;
+    if written == 0 {
+        return Err(ApiError::Unauthorized(
+            "this session is no longer active".into(),
+        ));
+    }
+    audit_in_tx(
+        &mut tx,
+        user.org_id,
+        user.id,
+        "auth.mfa_step_up",
+        serde_json::json!({ "method": proved.method, "ttl_secs": STEP_UP_TTL_SECS }),
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+
+    let _ = record_success(
+        &state,
+        crate::auth::hardening::kinds::MFA_VERIFY,
+        &client_ip,
+        GateSubject::User(user.id),
+    )
+    .await;
+
+    Ok(Json(MfaStepUpResponse {
+        method: proved.method.to_string(),
+        ttl_secs: STEP_UP_TTL_SECS,
+        verified_at,
+        expires_at,
     }))
 }
 
@@ -454,6 +873,16 @@ pub async fn mfa_verify(
                 let tokens =
                     issue_tokens_with_refresh_ttl(&state, user_id, org_id, None, refresh_ttl_secs)
                         .await?;
+                let factor = SecondFactor {
+                    method: "recovery_code",
+                    factor_ref: Some(code_id.to_string()),
+                };
+                if let Err(error) =
+                    record_step_up_for_session(&state, org_id, user_id, tokens.session_id, &factor)
+                        .await
+                {
+                    tracing::warn!(%error, "mfa login: step-up stamp failed; the session must prove a factor again to change one");
+                }
                 Ok(mfa_tokens_response(&state, tokens))
             }
             None => {
@@ -476,7 +905,7 @@ async fn finish_mfa_login(
     state: &AppState,
     org_id: Uuid,
     user_id: Uuid,
-    method: &str,
+    method: &'static str,
     matched_step: i64,
     refresh_ttl_secs: i64,
 ) -> ApiResult<axum::response::Response> {
@@ -494,6 +923,18 @@ async fn finish_mfa_login(
         .map_err(|e| ApiError::Internal(e.into()))?;
     let tokens =
         issue_tokens_with_refresh_ttl(state, user_id, org_id, None, refresh_ttl_secs).await?;
+    // The session that just proved a factor starts life with a fresh step-up:
+    // "this sign-in verified a factor moments ago" is exactly the fact the
+    // destructive factor changes ask for.
+    let factor = SecondFactor {
+        method,
+        factor_ref: None,
+    };
+    if let Err(error) =
+        record_step_up_for_session(state, org_id, user_id, tokens.session_id, &factor).await
+    {
+        tracing::warn!(%error, "mfa login: step-up stamp failed; the session must prove a factor again to change one");
+    }
     Ok(mfa_tokens_response(state, tokens))
 }
 
@@ -580,6 +1021,9 @@ async fn audit_mfa_failure(state: &AppState, org_id: Uuid, user_id: Uuid, reason
 
 /// Verifies EITHER factor for sensitive operations (disable/regenerate).
 /// A recovery code used here is CONSUMED, mirroring login semantics.
+///
+/// Returns which factor proved possession, so the audit row can name it and
+/// the caller can stamp a step-up.
 async fn verify_any_second_factor(
     state: &AppState,
     tx: &mut Tx,
@@ -587,15 +1031,23 @@ async fn verify_any_second_factor(
     user_id: Uuid,
     email: String,
     code: &str,
-) -> ApiResult<()> {
+) -> ApiResult<SecondFactor> {
     if try_totp(state, tx, org_id, user_id, email, code)
         .await?
         .is_some()
     {
-        return Ok(());
+        return Ok(SecondFactor {
+            method: "totp",
+            factor_ref: None,
+        });
     }
     match match_recovery_code(tx, user_id, code).await? {
-        Some(id) if core_db::mfa::consume_recovery_code(&mut **tx, id).await? > 0 => Ok(()),
+        Some(id) if core_db::mfa::consume_recovery_code(&mut **tx, id).await? > 0 => {
+            Ok(SecondFactor {
+                method: "recovery_code",
+                factor_ref: Some(id.to_string()),
+            })
+        }
         _ => Err(ApiError::Unauthorized("invalid code".into())),
     }
 }
@@ -720,12 +1172,18 @@ pub async fn webauthn_register_finish(
         &label,
     )
     .await?;
+    // A passkey is a working factor, so an account that owed one no longer
+    // does. This is the other half of the admin reset's exit path.
+    let reenrolling = core_db::mfa::user_mfa_reenroll_required(&mut *tx, user.id).await?;
+    if reenrolling {
+        core_db::mfa::clear_mfa_reenroll_required(&mut *tx, user.id).await?;
+    }
     audit_in_tx(
         &mut tx,
         user.org_id,
         user.id,
         "auth.mfa_webauthn_credential_added",
-        serde_json::json!({ "label": label }),
+        serde_json::json!({ "label": label, "reenrollment_completed": reenrolling }),
     )
     .await?;
     tx.commit()
@@ -775,8 +1233,14 @@ pub struct WebauthnRemoveRequest {
     pub password: String,
 }
 
-/// POST /api/auth/mfa/webauthn/credentials/{id}/remove — password-gated
-/// removal of one passkey.
+/// POST /api/auth/mfa/webauthn/credentials/{id}/remove — removes one passkey.
+///
+/// The password is not the authorization. A phished password must not be able
+/// to downgrade a passkey-only account to password-only sign-in (DECISIONS
+/// record 2), so removal needs a FRESH step-up on this sign-in lineage, proved
+/// by a factor that is not the credential being removed. The last factor of
+/// any kind cannot leave this way: that is the explicit "turn MFA off" action
+/// (`POST /api/auth/mfa/totp/disable`), and the refusal says so.
 #[utoipa::path(operation_id = "mfa_webauthn_remove", post,
     path = "/api/auth/mfa/webauthn/credentials/{id}/remove", tag = "auth",
     security(("bearer" = [])), params(("id" = uuid::Uuid, Path)),
@@ -790,10 +1254,56 @@ pub async fn webauthn_credential_remove(
     let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
     let user = &authed.principal.user;
     let mut tx = org_tx(&state, user.org_id).await?;
+    refuse_when_reenrolling(&mut tx, user.id, "removing a passkey").await?;
     let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
     if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
+
+    let step = require_fresh_step_up(
+        &mut tx,
+        &authed,
+        &["totp", "recovery_code", "webauthn"],
+        "removing a passkey",
+    )
+    .await?;
+
+    // The credential being removed must not be the one that authorized the
+    // removal — otherwise "prove a factor" proves the very thing about to
+    // disappear, and a stolen key could walk itself out while leaving the
+    // account on a password.
+    let registered = core_db::mfa::list_webauthn_credentials(&mut *tx, user.id).await?;
+    let target = registered
+        .iter()
+        .find(|cred| cred.id == cred_row_id)
+        .ok_or(ApiError::NotFound)?;
+    if step.method == "webauthn" && step.factor_ref.as_deref() == Some(target.cred_id.as_str()) {
+        return Err(step_up_refusal(
+            "step_up_factor_not_allowed",
+            format!(
+                "a passkey cannot authorize removing itself; prove a different factor with \
+                 POST {STEP_UP_ENDPOINT}"
+            ),
+            STEP_UP_ENDPOINT,
+        ));
+    }
+
+    // Removing the last working factor would hand the account back as a
+    // password-only login. That is a deliberate product action, not a
+    // side effect of tidying passkeys.
+    let remaining = {
+        let caps = core_db::mfa::mfa_capabilities(&mut *tx, user.id).await?;
+        (caps.totp_confirmed as i64) + (caps.webauthn_credentials - 1) + caps.unused_recovery_codes
+    };
+    if remaining <= 0 {
+        return Err(ApiError::Conflict(
+            "this is the account's last second factor; removing it would leave password-only \
+             sign-in — turn MFA off deliberately with POST /api/auth/mfa/totp/disable, or ask \
+             an administrator for a factor reset if you hold no other factor"
+                .into(),
+        ));
+    }
+
     let deleted = core_db::mfa::delete_webauthn_credential(&mut *tx, user.id, cred_row_id).await?;
     if deleted == 0 {
         return Err(ApiError::NotFound);
@@ -803,7 +1313,11 @@ pub async fn webauthn_credential_remove(
         user.org_id,
         user.id,
         "auth.mfa_webauthn_credential_removed",
-        serde_json::json!({}),
+        serde_json::json!({
+            "label": target.label,
+            "authorized_by": step.method,
+            "remaining_factors": remaining,
+        }),
     )
     .await?;
     tx.commit()
@@ -957,7 +1471,7 @@ pub async fn webauthn_login_finish(
         org_id,
         user_id,
         "auth.mfa_login_success",
-        serde_json::json!({ "method": "webauthn", "cred_id": used_cred_id }),
+        serde_json::json!({ "method": "webauthn", "cred_id": &used_cred_id }),
     )
     .await?;
     tx.commit()
@@ -971,5 +1485,185 @@ pub async fn webauthn_login_finish(
     )
     .await;
     let tokens = issue_tokens(&state, user_id, org_id, None).await?;
+    let factor = SecondFactor {
+        method: "webauthn",
+        factor_ref: Some(used_cred_id),
+    };
+    if let Err(error) =
+        record_step_up_for_session(&state, org_id, user_id, tokens.session_id, &factor).await
+    {
+        tracing::warn!(%error, "mfa login: step-up stamp failed; the session must prove a factor again to change one");
+    }
     Ok(mfa_tokens_response(&state, tokens))
+}
+
+// ---------------------------------------------------------------------------
+// Admin-initiated factor reset
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MfaResetResponse {
+    pub user_id: Uuid,
+    /// TOTP enrolments removed (0 or 1 — the schema holds one per user).
+    pub totp_removed: i64,
+    pub passkeys_removed: i64,
+    pub recovery_codes_removed: i64,
+    /// Live sessions revoked, so a token minted before the reset cannot keep
+    /// acting on the account.
+    pub sessions_revoked: i64,
+    /// Always true. The account owes a factor until one is enrolled, and the
+    /// MFA surface refuses every other factor change until then.
+    pub reenroll_required: bool,
+}
+
+/// POST /api/auth/users/{id}/mfa-reset — clears another user's factors.
+///
+/// This exists because the strict rule needs an exit: a user who lost their only
+/// factor cannot step up, and without a reset path the step-up requirement
+/// locks them out of their own account changes (the ruling of 2026-10-25 puts
+/// the two in one lane for exactly that reason).
+///
+/// What makes it safe rather than a takeover tool:
+/// - `manage_users` is required, and an administrator cannot reset their own
+///   factors — a stolen admin session must not be able to turn its owner's MFA
+///   off with one call.
+/// - An Owner's or Admin's factors can only be reset by an Owner, so a lesser
+///   administrator cannot strip a peer's second factor.
+/// - The account is left owing a factor (`users.mfa_reenroll_required`), not
+///   merely factor-free: enrolment is the only factor change it may make until
+///   one is confirmed, and the flag is audited with the counts.
+/// - Every live session is revoked, so the user re-authenticates with their
+///   password and learns the factor is gone.
+/// - The audit row names the administrator, the target, what was removed and
+///   how many sessions died.
+#[utoipa::path(operation_id = "mfa_admin_factor_reset", post,
+    path = "/api/auth/users/{id}/mfa-reset", tag = "auth",
+    security(("bearer" = [])), params(("id" = uuid::Uuid, Path)),
+    responses((status = 200, body = MfaResetResponse), (status = 403), (status = 404)))]
+pub async fn admin_reset_user_factors(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(target_user_id): Path<Uuid>,
+) -> ApiResult<Json<MfaResetResponse>> {
+    let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, Permission::ManageUsers)?;
+    let admin = &authed.principal.user;
+
+    if admin.id == target_user_id {
+        return Err(ApiError::Forbidden(
+            "an administrator cannot reset their own factors; use the self-service path, or \
+             ask another administrator"
+                .into(),
+        ));
+    }
+
+    let mut tx = org_tx(&state, admin.org_id).await?;
+    // RLS scopes this to the caller's org, so a foreign id is NotFound — the
+    // same answer as an id that never existed.
+    let target = core_db::users::get_user(&mut *tx, admin.org_id, target_user_id).await?;
+
+    let target_roles =
+        core_db::users::effective_roles_for_user(&mut *tx, target.id, admin.org_id).await?;
+    let target_is_privileged = target_roles.iter().any(|role| {
+        matches!(
+            role.builtin,
+            Some(BuiltinRole::Owner) | Some(BuiltinRole::Admin)
+        )
+    });
+    let caller_is_owner = authed
+        .principal
+        .roles
+        .iter()
+        .any(|role| matches!(role.builtin, Some(BuiltinRole::Owner)));
+    if target_is_privileged && !caller_is_owner {
+        return Err(ApiError::Forbidden(
+            "only an owner can reset an owner's or administrator's factors".into(),
+        ));
+    }
+
+    let counts = core_db::mfa::reset_user_factors(&mut *tx, target.id).await?;
+    let revoked = core_db::users::revoke_all_user_sessions(&mut *tx, target.id).await?;
+    // A count of live sessions cannot exceed i64 in any real deployment; the
+    // saturating conversion keeps the DTO type honest without a panic path.
+    let sessions_revoked = i64::try_from(revoked).unwrap_or(i64::MAX);
+
+    core_db::audit::insert(
+        &mut *tx,
+        &AuditEvent {
+            id: Uuid::now_v7(),
+            org_id: admin.org_id,
+            actor: Actor::Human(admin.id),
+            action: "auth.mfa_factors_reset".into(),
+            entity_type: Some("user".into()),
+            entity_id: Some(target.id.to_string()),
+            detail: serde_json::json!({
+                "totp_removed": counts.totp_removed,
+                "passkeys_removed": counts.passkeys_removed,
+                "recovery_codes_removed": counts.recovery_codes_removed,
+                "sessions_revoked": sessions_revoked,
+                "reenroll_required": true,
+            }),
+            ip: None,
+            occurred_at: chrono::Utc::now(),
+        },
+    )
+    .await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+
+    Ok(Json(MfaResetResponse {
+        user_id: target.id,
+        totp_removed: counts.totp_removed,
+        passkeys_removed: counts.passkeys_removed,
+        recovery_codes_removed: counts.recovery_codes_removed,
+        sessions_revoked,
+        reenroll_required: true,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    /// The refusal is the client's instruction manual, so it is part of the
+    /// contract: a 428, a machine reason, the endpoint that fixes it, and the
+    /// window it buys. Asserting the envelope here keeps a later refactor from
+    /// quietly demoting it to a generic 403.
+    #[tokio::test]
+    async fn a_missing_step_up_is_a_typed_428_that_says_what_to_do() {
+        let response = step_up_refusal(
+            "step_up_stale",
+            format!("prove a factor again with POST {STEP_UP_ENDPOINT}"),
+            STEP_UP_ENDPOINT,
+        )
+        .into_response();
+        assert_eq!(
+            response.status(),
+            axum::http::StatusCode::PRECONDITION_REQUIRED
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let envelope: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(envelope["error"]["reason"], "step_up_stale");
+        assert_eq!(envelope["error"]["endpoint"], STEP_UP_ENDPOINT);
+        assert_eq!(envelope["error"]["ttl_secs"], STEP_UP_TTL_SECS);
+        assert!(envelope["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("prove a factor again")));
+    }
+
+    /// The "factor not allowed" answer has to name an alternative the caller
+    /// can actually produce, in words, or it reads as a dead end.
+    #[test]
+    fn the_allowed_factors_read_as_a_sentence() {
+        assert_eq!(
+            allowed_factor_label(&["recovery_code", "webauthn"]),
+            "a recovery code or a passkey sign-in"
+        );
+        assert_eq!(allowed_factor_label(&["totp"]), "a TOTP code");
+        assert_eq!(allowed_factor_label(&[]), "a live factor");
+    }
 }

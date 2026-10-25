@@ -284,6 +284,29 @@ pub enum ApiError {
         /// Fixed human-readable message for the client.
         message: &'static str,
     },
+    /// Typed 428 (Precondition Required) for a destructive MFA change that
+    /// arrived without a fresh step-up (Wave 55, `p55-mfa-step-up`).
+    ///
+    /// `reason` is the machine code a client branches on: `step_up_required`
+    /// (this sign-in lineage has never proved a factor), `step_up_stale` (it
+    /// did, and the window has passed), `step_up_factor_not_allowed` (the
+    /// factor it proved cannot authorize THIS change — a live TOTP code
+    /// cannot replace the TOTP secret it belongs to, and a passkey cannot
+    /// remove itself), or `mfa_reenrollment_required` (an administrator reset
+    /// the factors, so the only permitted move is enrolment). `endpoint`
+    /// names the call that satisfies it and `ttl_secs` the window, so no
+    /// client has to parse the message to find out what to do.
+    #[error("{message}")]
+    MfaStepUpRequired {
+        /// Machine-readable reason code.
+        reason: &'static str,
+        /// Fixed human-readable copy naming the next step.
+        message: String,
+        /// The endpoint that establishes a fresh step-up.
+        endpoint: &'static str,
+        /// Seconds a fresh step-up stays usable.
+        ttl_secs: i64,
+    },
     /// Typed 409 for a dev-seed attempt against an already-seeded demo
     /// org (Wave 13 lane 1): the reason code (not the prose) is what the
     /// ops page branches on for the "force reseed" second click.
@@ -648,6 +671,17 @@ impl IntoResponse for ApiError {
             ApiError::AuthDenied { reason, message } => {
                 (StatusCode::UNAUTHORIZED, *reason, message.to_string(), None)
             }
+            ApiError::MfaStepUpRequired {
+                reason,
+                message,
+                endpoint,
+                ttl_secs,
+            } => (
+                StatusCode::PRECONDITION_REQUIRED,
+                *reason,
+                message.clone(),
+                Some(json!({ "endpoint": endpoint, "ttl_secs": ttl_secs })),
+            ),
             ApiError::Forbidden(m) => (StatusCode::FORBIDDEN, "forbidden", m.clone(), None),
             ApiError::Validation(m) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
