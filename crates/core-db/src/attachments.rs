@@ -309,7 +309,10 @@ pub async fn delete(
 /// The orphan sweep keeps a second list for the same key space
 /// (`core_db::object_gc::SOURCES`), and it must stay a SUPERSET of this one: a
 /// table it forgets does not leak, it lets the sweep delete that table's
-/// objects. A table added here belongs there in the same change.
+/// objects. A table added here belongs there in the same change — the parity is
+/// mechanical, not a review habit: `object_gc::tests` fails on a missing source
+/// and `tests/object_inventory_parity.rs` fails when the database's catalogue
+/// has a key-holding table that either inventory has not decided about.
 pub const ATTACHMENT_REF_TABLES: &[(&str, &str)] = &[
     (
         "attachments",
