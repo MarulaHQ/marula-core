@@ -32,6 +32,41 @@ otherwise hand-roll the same thing. Everything else is Tier B. This document
 records the rejected candidates and the reason, so the next lane does not
 re-litigate them.
 
+## Node authority: what an author must hold
+
+A document is a list of node kinds its author chose, and a published graph runs those
+kinds as its author. So a graph may only carry authority its author holds. Two rules
+apply, and both live in `crates/core-domain/src/workflow_document.rs`
+(`WorkflowDocument::validate_authority`):
+
+1. **At publish.** Every node kind must be one the org enables. A privileged kind,
+   meaning one that writes a record or calls an effect, also needs its author to hold
+   that kind's authority. The publish route refuses the document with a 403 that names
+   the node, the kind and the missing grant.
+2. **At run.** The same rule is re-applied on every start and every resume, against the
+   author's permissions as they stand now. A graph whose author lost the authority is
+   refused, and the refusal is written to the org's audit trail
+   (`workflow.node_authority_refused`).
+
+The authority is derived from the registry, never from a hand list of dangerous nodes.
+`NodeType::executor` already says what a kind does:
+
+| Executor path | Authority |
+|---|---|
+| `trigger`, `condition`, `value`, `control` | none — no record is touched |
+| `domain.query` | none — a read writes nothing |
+| `domain.*` wrapper, `domain.update` | the written entity's module, `edit` (or `create` for a `.create` selector) |
+| an AI edge | `admin:edit` — a model call spends money |
+| a plugin action | `special:manage_plugins` |
+| a plugin read | none |
+
+Entities with no module of their own (email, notification, SMS, CSAT, alerts,
+sign-off, stock, tools, loans, purchase orders) answer to `admin:edit`.
+
+An org switches a kind off with the `workflow.disabled_node_kinds` org setting (a JSON
+array of node type ids; empty means every executable kind is enabled). A document that
+places a switched-off kind is refused at publish and at run, naming the node.
+
 ## Triggers
 
 The trigger catalogue is the **event-type registry**, not a hand-written list
