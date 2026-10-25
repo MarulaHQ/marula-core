@@ -209,6 +209,40 @@ pub async fn decide(
     Ok(entries)
 }
 
+/// Which of these entries were written by `user_id`? The decision gate
+/// refuses self-approval for every role but owner/admin (write-gate symmetry
+/// with `submit`); this names the refused ids in one read so the API can
+/// answer `own_entry` instead of a bare not-in-queue.
+pub async fn owned_entry_ids<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    entry_ids: &[Uuid],
+    user_id: Uuid,
+) -> DbResult<Vec<Uuid>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if entry_ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let rows = sqlx::query(
+        "SELECT te.id FROM time_entries te WHERE te.org_id = $1 AND te.id = ANY($2) AND te.user_id = $3",
+    )
+    .bind(org_id)
+    .bind(entry_ids)
+    .bind(user_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            use sqlx::Row;
+            let id: Uuid = row.get("id");
+            id
+        })
+        .collect())
+}
+
 /// Per-entry classification for bulk outcomes: current approval status and
 /// whether the entry is invoice-locked. Absent from the result = not found
 /// in scope (RLS-sparse).

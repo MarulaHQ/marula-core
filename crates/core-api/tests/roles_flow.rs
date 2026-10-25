@@ -612,4 +612,58 @@ async fn rb2_financial_read_gates_costs_and_contract_rates() {
     )
     .await;
     assert_eq!(denied_costs.status(), 403, "billing previews carry rates");
+
+    // --- contract delete: an acknowledgement, never a rate read -------------
+    // Removal stays commercial-gated (deleting is not a rate read), so the
+    // response must not hand back the aggregate it just removed: a caller
+    // without `financial:read` that holds delete authority receives no money
+    // field. Authority itself is unchanged — the bookkeeper holds
+    // commercial:view and still gets a typed 403 on delete.
+    let bookkeeper_denied = send(
+        &app,
+        axum::http::Method::DELETE,
+        &format!("/api/contracts/{contract_id}"),
+        Some(&bookkeeper),
+        None,
+    )
+    .await;
+    assert_eq!(
+        bookkeeper_denied.status(),
+        403,
+        "delete needs commercial:delete, not commercial:view"
+    );
+    assert_eq!(
+        body_json(bookkeeper_denied).await["error"]["reason"],
+        json!("forbidden")
+    );
+
+    let removed = send(
+        &app,
+        axum::http::Method::DELETE,
+        &format!("/api/contracts/{contract_id}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(removed.status(), 200, "owner delete must succeed");
+    let ack = body_json(removed).await;
+    assert_eq!(ack["contract_id"], json!(contract_id));
+    assert_eq!(ack["number"], json!("C-001"));
+    assert_eq!(ack["deleted"], json!(true));
+    for rate_bearing in [
+        "rates",
+        "hourly_rate_minor",
+        "fees",
+        "blocks",
+        "caps",
+        "minimum_commitment_minor",
+        "escalator",
+        "change_orders",
+        "sla_credits",
+    ] {
+        assert!(
+            ack.get(rate_bearing).is_none(),
+            "the delete acknowledgement must carry no {rate_bearing}: {ack}"
+        );
+    }
 }
