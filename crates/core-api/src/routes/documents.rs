@@ -35,7 +35,7 @@ use core_domain::entities::{
     Document, DocumentLayout, DocumentVersion, LayoutField, LinkKind, ResolvedLink,
 };
 use core_domain::events::types;
-use core_domain::policy::{Action, Module, Permission};
+use core_domain::policy::{Action, LinkViewScope, Module, Permission};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
@@ -1064,7 +1064,13 @@ pub struct CreateLinkRequest {
 }
 
 /// Shared link read/create for both from-kinds (documents mount it at
-/// /documents/{id}/links, passwords at /passwords/{id}/links).
+/// /documents/{id}/links, passwords at /passwords/{id}/links, assets at
+/// /assets/{id}/links).
+///
+/// The read gate here is the SURFACE's (`documents:view`): it answers "may
+/// this caller see the list at all". Each label inside it is a read of the
+/// target, so the resolver additionally applies the target module's own
+/// view gate from the caller's scope — see `core_db::document_links`.
 pub(crate) async fn links_for(
     state: &AppState,
     extensions: &Extensions,
@@ -1074,11 +1080,13 @@ pub(crate) async fn links_for(
     let authed = authed::<crate::auth::AuthedUser>(extensions)?;
     require_permission(&authed.principal, documents(Action::View))?;
     let org_id = authed.principal.user.org_id;
+    let scope = LinkViewScope::for_principal(&authed.principal);
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let links = core_db::document_links::list_links(&mut *tx, org_id, from_kind, from_id).await?;
+    let links =
+        core_db::document_links::list_links(&mut tx, org_id, from_kind, from_id, &scope).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(links))
 }

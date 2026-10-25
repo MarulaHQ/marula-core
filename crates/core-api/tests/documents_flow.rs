@@ -178,6 +178,65 @@ async fn me_org_id(app: &Router, token: &str) -> Uuid {
         .unwrap()
 }
 
+/// Creates a custom role holding exactly `permissions` (the `Permission`
+/// enum's serde shape), puts a user on it, and logs that user in over HTTP.
+async fn provision_role_user(
+    state: &AppState,
+    app: &Router,
+    org_id: Uuid,
+    role_name: &str,
+    permissions: Value,
+    email: &str,
+    password: &str,
+) -> String {
+    let password_hash = core_api::auth::password::hash(password).expect("hash");
+    let role_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO roles (id, org_id, name, builtin, permissions, is_system) \
+         VALUES ($1, $2, $3, NULL, $4, false)",
+    )
+    .bind(role_id)
+    .bind(org_id)
+    .bind(role_name)
+    .bind(&permissions)
+    .execute(&state.pool)
+    .await
+    .expect("custom role insert");
+
+    let user_id = Uuid::now_v7();
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("set_org");
+    core_db::users::create_user(
+        &mut *tx,
+        user_id,
+        org_id,
+        email,
+        "Docs Viewer",
+        &password_hash,
+        "UTC",
+    )
+    .await
+    .expect("user insert");
+    core_db::users::assign_role(&mut *tx, user_id, role_id)
+        .await
+        .expect("role assign");
+    tx.commit().await.expect("commit");
+
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        "/api/auth/login",
+        &[],
+        Some(json!({ "email": email, "password": password })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "custom-role login must succeed");
+    body_json(response).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 #[tokio::test]
 async fn documents_flow_append_only_history_and_restore_creates_new_version() {
     let state = test_state().await;
@@ -442,5 +501,212 @@ async fn documents_authz_rejects_technician_and_anonymous() {
     assert_eq!(
         body_json(anonymous).await["error"]["reason"],
         "unauthorized"
+    );
+}
+
+/// Creates one document over HTTP and returns its id (the panel's owner
+/// needs two: a hub and a link target).
+async fn create_doc(
+    app: &Router,
+    bearer: &[(&'static str, String)],
+    title: &str,
+    key: &str,
+) -> String {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        "/api/v1/documents",
+        bearer,
+        Some(json!({ "title": title, "idempotency_key": key })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "document create");
+    body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Wave 55 decision 3: a resolved link label is a read of the target. The
+/// panel is gated by `documents:view`, but each label inside it must pass
+/// the target module's own view gate — so a documents-only caller gets the
+/// linked document's title and a typed restricted marker where the vault
+/// entry and the ticket title would have been.
+#[tokio::test]
+async fn link_labels_are_redacted_for_targets_outside_the_callers_gates() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("docs-links-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let org_id = me_org_id(&app, &token).await;
+    let bearer = [auth(&token)];
+
+    // Owner builds the panel: a document linked to another document, a
+    // vault entry, and a ticket.
+    let doc_id = create_doc(&app, &bearer, "Incident hub", "hub-1").await;
+    let target_doc_id = create_doc(&app, &bearer, "Escalation policy", "policy-1").await;
+
+    let password = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/passwords",
+        &bearer,
+        Some(json!({
+            "title": "Acme domain admin",
+            "username": "admin",
+            "secret": "vault-secret-1",
+            "idempotency_key": "pw-links-1"
+        })),
+    )
+    .await;
+    assert_eq!(password.status(), 200, "password create");
+    let password_id = body_json(password).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let boards = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/boards",
+            &bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    let board_id = boards
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["is_default"] == json!(true))
+        .expect("registration provisions a default board")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let ticket = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/tickets",
+        &bearer,
+        Some(json!({
+            "board_id": board_id,
+            "title": "Printer down",
+            "priority": "p3"
+        })),
+    )
+    .await;
+    assert_eq!(ticket.status(), 200, "ticket create");
+    let ticket_id = body_json(ticket).await["id"].as_str().unwrap().to_string();
+
+    for (kind, id) in [
+        ("document", target_doc_id.as_str()),
+        ("password", password_id.as_str()),
+        ("ticket", ticket_id.as_str()),
+    ] {
+        let linked = send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/v1/documents/{doc_id}/links"),
+            &bearer,
+            Some(json!({ "to_kind": kind, "to_id": id })),
+        )
+        .await;
+        assert_eq!(linked.status(), 200, "link {kind}");
+    }
+
+    // A caller holding documents:view and nothing else.
+    let viewer = provision_role_user(
+        &state,
+        &app,
+        org_id,
+        "Docs Viewer",
+        json!([{ "matrix": { "module": "documents", "action": "view" } }]),
+        &format!("viewer-{slug}@docs.test"),
+        "viewer-password-1234",
+    )
+    .await;
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/v1/documents/{doc_id}/links"),
+        &[auth(&viewer)],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "documents:view opens the panel");
+    let rows = body_json(response).await;
+    let rows = rows.as_array().expect("link array");
+    assert_eq!(rows.len(), 3, "every link row survives the gate");
+
+    let row = |kind: &str| {
+        rows.iter()
+            .find(|l| l["to_kind"] == json!(kind))
+            .unwrap_or_else(|| panic!("row for {kind}"))
+    };
+    assert_eq!(
+        row("document")["target_label"],
+        json!("Escalation policy"),
+        "a document target answers to documents:view"
+    );
+    assert_eq!(row("document")["target_denied"], json!(false));
+    for kind in ["password", "ticket"] {
+        assert_eq!(
+            row(kind)["target_label"],
+            Value::Null,
+            "{kind} title must not cross a module gate the caller lacks"
+        );
+        assert_eq!(
+            row(kind)["target_denied"],
+            json!(true),
+            "{kind} is restricted"
+        );
+        assert_eq!(
+            row(kind)["target_deleted"],
+            json!(false),
+            "{kind} is not gone, it is not theirs"
+        );
+    }
+    let raw = serde_json::to_string(rows).unwrap();
+    assert!(
+        !raw.contains("Acme domain admin") && !raw.contains("Printer down"),
+        "no hidden title may survive anywhere in the body"
+    );
+
+    // The owner holds both gates: the same rows resolve to labels.
+    let owner_rows = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/documents/{doc_id}/links"),
+            &bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    let owner_rows = owner_rows.as_array().unwrap();
+    let owner_row = |kind: &str| {
+        owner_rows
+            .iter()
+            .find(|l| l["to_kind"] == json!(kind))
+            .unwrap_or_else(|| panic!("owner row for {kind}"))
+    };
+    assert_eq!(
+        owner_row("document")["target_label"],
+        json!("Escalation policy")
+    );
+    let password_label = owner_row("password");
+    assert_eq!(password_label["target_denied"], json!(false));
+    assert_eq!(password_label["target_label"], json!("Acme domain admin"));
+    let ticket_label = owner_row("ticket");
+    assert_eq!(ticket_label["target_denied"], json!(false));
+    assert!(
+        ticket_label["target_label"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Printer down"),
+        "the ticket label (number + title) resolves for a caller holding tickets:view"
     );
 }
