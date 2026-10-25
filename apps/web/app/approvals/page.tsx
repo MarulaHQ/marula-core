@@ -4,9 +4,10 @@
 //
 // Purpose: approvers (`special:approve_time`) work the org queue — bulk
 // approve/reject with the typed reason vocabulary, per-item bulk outcomes
-// (applied / locked / not_in_queue / not_found) flagged on the row so refused
-// entries are named exactly why, the append-only decision trail per entry, and
-// lock states visible (entries consumed by an invoice are frozen forever).
+// (applied / own_entry / locked / not_in_queue / not_found) flagged on the row
+// so refused entries are named exactly why, the append-only decision trail per
+// entry, and lock states visible (entries consumed by an invoice are frozen
+// forever).
 // Non-approvers see their own submissions; rejected entries reopen back to
 // draft when not locked. Read-your-write: applied decisions remove rows
 // immediately using the returned entry snapshots.
@@ -127,6 +128,7 @@ type QueueItem = {
 
 /** The pack's exact refusal copy (pack §5): named, never a silent guess. */
 const OUTCOME_COPY: Readonly<Record<string, string>> = {
+  own_entry: "Another approver signs off your time",
   locked: "Already invoiced — locked, nothing to decide",
   not_in_queue: "No longer in the queue — refresh to see its current state",
   not_found: "No longer visible in your scope",

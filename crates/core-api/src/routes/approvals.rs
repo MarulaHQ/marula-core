@@ -56,8 +56,9 @@ pub struct BulkDecisionRequest {
 }
 
 /// Per-item outcome of a bulk decision: applied entries carry the new
-/// snapshot; refused entries name exactly why (not-in-queue, locked, or
-/// not visible in scope), so the client flags rows instead of guessing.
+/// snapshot; refused entries name exactly why (`own_entry`, not-in-queue,
+/// locked, or not visible in scope), so the client flags rows instead of
+/// guessing.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BulkDecisionItem {
     pub entry_id: Uuid,
@@ -226,6 +227,11 @@ pub async fn submit(
 /// (`special:approve_time`). Only entries currently in the queue apply;
 /// every other id comes back with a per-item outcome. Emits one
 /// `time_entry.approval_*` event per applied entry.
+///
+/// Write-gate symmetry with `submit` and `reopen_entry`: an approver never
+/// signs off their own time. A self-owned id comes back as `own_entry` and
+/// is never transitioned; an owner or admin keeps the override, so a
+/// one-person org can still decide.
 #[utoipa::path(operation_id = "time_entries_decide", post, path = "/api/time-entries/approvals/decide", tag = "timers", security(("bearer" = [])),
     request_body = BulkDecisionRequest,
     responses((status = 200, body = BulkDecisionResponse),
@@ -263,16 +269,33 @@ pub async fn decide(
         ));
     }
     let reason = parse_reason(req.reason_code.as_deref())?;
+    let may_decide_own = authed.principal.is_owner_or_admin();
 
     let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| {
         let entry_ids = req.entry_ids.clone();
         let note = req.note.clone();
         async move {
             let reason_code_str = reason.map(|r| r.as_str().to_string());
+            // The refusal happens before the UPDATE: a self-owned id never
+            // reaches the transition, so no event fires for it either. One
+            // read names them all; an owner/admin skips it entirely.
+            let own_entry_ids: std::collections::HashSet<Uuid> = if may_decide_own {
+                std::collections::HashSet::new()
+            } else {
+                core_db::approvals::owned_entry_ids(&mut *ctx.tx, org_id, &entry_ids, user_id)
+                    .await?
+                    .into_iter()
+                    .collect()
+            };
+            let decidable: Vec<Uuid> = entry_ids
+                .iter()
+                .copied()
+                .filter(|id| !own_entry_ids.contains(id))
+                .collect();
             let applied = core_db::approvals::decide(
                 &mut ctx.tx,
                 org_id,
-                &entry_ids,
+                &decidable,
                 approve,
                 user_id,
                 reason_code_str.as_deref(),
@@ -327,16 +350,25 @@ pub async fn decide(
                 .copied()
                 .filter(|id| !applied_ids.contains(id))
                 .collect();
-            for (id, _status, locked) in
+            for (id, status, locked) in
                 core_db::approvals::classify(&mut *ctx.tx, org_id, &rest).await?
             {
+                // `own_entry` claims a row only when self-ownership is the
+                // SOLE reason it did not apply: a locked or still-draft own
+                // entry keeps its more specific outcome.
+                let outcome = if own_entry_ids.contains(&id)
+                    && !locked
+                    && status == Some(ApprovalStatus::Submitted)
+                {
+                    "own_entry"
+                } else if locked {
+                    "locked"
+                } else {
+                    "not_in_queue"
+                };
                 results.push(BulkDecisionItem {
                     entry_id: id,
-                    outcome: if locked {
-                        "locked".into()
-                    } else {
-                        "not_in_queue".into()
-                    },
+                    outcome: outcome.into(),
                     entry: None,
                 });
             }

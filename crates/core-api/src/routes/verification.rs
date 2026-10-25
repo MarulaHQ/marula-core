@@ -793,6 +793,7 @@ pub async fn workspace(
     params(("id" = Uuid, Path, description = "Time entry id")),
     request_body = EntryActionRequest,
     responses((status = 200, body = EntryActionResponse),
+              (status = 403, description = "own_entry: an approver cannot decide their own entry"),
               (status = 404, description = "entry not visible in scope (rls_sparse)"),
               (status = 409, description = "entry already invoiced; verification is pre-run only"),
               (status = 422, description = "missing reason, unknown action, or invalid value")))]
@@ -871,6 +872,15 @@ pub async fn entry_action(
                 // re-implementing transitions, so the queue and the
                 // workspace can never disagree about what "approved"
                 // means. A rejection carries the typed reason code.
+                //
+                // Write-gate symmetry with submit/decide: an approver never
+                // signs off their own time, whichever surface they use. An
+                // owner or admin keeps the override.
+                if entry.user_id == actor && !authed.principal.is_owner_or_admin() {
+                    return Err(ApiError::Forbidden(
+                        "own_entry: an approver cannot decide their own time entry; an owner or admin must decide it".into(),
+                    ));
+                }
                 if action == "reject" {
                     let code = req
                         .reason_code

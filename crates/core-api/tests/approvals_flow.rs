@@ -214,6 +214,48 @@ async fn decide(app: &Router, bearer: &str, body: Value) -> (u16, Value) {
     (status, body_json(response).await)
 }
 
+/// Invites one member with a preset role and redeems the invite; returns
+/// their access token.
+async fn invite_with_role(app: &Router, owner: &str, role: &str) -> String {
+    let email = format!("{role}-{}@test.local", Uuid::now_v7().simple());
+    let invite = body_json(
+        send(
+            app,
+            axum::http::Method::POST,
+            "/api/org/users",
+            Some(owner),
+            Some(json!({
+                "email": email,
+                "display_name": role,
+                "role": role,
+            })),
+        )
+        .await,
+    )
+    .await;
+    let setup_token = invite["invite"]["setup_token"]
+        .as_str()
+        .expect("setup token")
+        .to_string();
+    let accept = send(
+        app,
+        axum::http::Method::POST,
+        "/api/org/users/accept-invite",
+        None,
+        Some(json!({ "token": setup_token, "password": "another-correct-horse" })),
+    )
+    .await;
+    assert_eq!(
+        accept.status().as_u16(),
+        200,
+        "redemption must succeed: {role}"
+    );
+    body_json(accept).await["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_string()
+}
+
 #[tokio::test]
 async fn submit_approve_lifecycle_with_queue_history_and_bulk() {
     let (_state, app) = test_state().await;
@@ -623,6 +665,109 @@ async fn decision_gating_and_per_approver_history() {
     )
     .await;
     assert_eq!(queue.as_array().unwrap().len(), 0, "{queue}");
+}
+
+/// Write-gate symmetry (Wave 54): `submit` refuses someone else's entry, so
+/// `decide` refuses your own. A senior tech holds `special:approve_time` and
+/// still cannot approve the entry they submitted; the same bulk call applies
+/// the peer's entry, and an owner keeps the override.
+#[tokio::test]
+async fn an_approver_cannot_decide_their_own_entry_but_an_owner_can() {
+    let (_state, app) = test_state().await;
+    let owner = register_org(&app, &format!("appr-own-{}", Uuid::now_v7().simple())).await;
+    let ticket = create_ticket(&app, &owner).await;
+    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+    let approver = invite_with_role(&app, &owner, "senior_tech").await;
+    let peer = invite_with_role(&app, &owner, "technician").await;
+
+    // Both log time against the same ticket and submit it for review.
+    let own = create_entry(&app, &approver, &ticket_id, 3).await;
+    let theirs = create_entry(&app, &peer, &ticket_id, 4).await;
+    let (status, body) = submit_entry(&app, &approver, &own).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = submit_entry(&app, &peer, &theirs).await;
+    assert_eq!(status, 200, "{body}");
+
+    // One bulk call mixes both: the peer's entry applies, the approver's own
+    // comes back as the typed own_entry outcome and is never transitioned.
+    let (status, body) = decide(
+        &app,
+        &approver,
+        json!({ "entry_ids": [own, theirs], "decision": "approve" }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let results = body["results"].as_array().expect("results");
+    let row = |id: &str| {
+        results
+            .iter()
+            .find(|r| r["entry_id"] == json!(id))
+            .unwrap_or_else(|| panic!("no row for {id}: {body}"))
+    };
+    assert_eq!(row(&theirs)["outcome"], json!("applied"), "{body}");
+    assert_eq!(row(&own)["outcome"], json!("own_entry"), "{body}");
+    assert!(
+        row(&own)["entry"].is_null(),
+        "a refused row carries no snapshot: {body}"
+    );
+
+    // The entry is untouched: still submitted, still undecided.
+    let queue = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/time-entries/approvals/queue",
+            Some(&approver),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let queued = queue
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["entry"]["id"] == json!(own))
+        .unwrap_or_else(|| panic!("own entry must stay in the queue: {queue}"));
+    assert_eq!(queued["entry"]["approval_status"], json!("submitted"));
+
+    // The owner keeps the override: the same entry decides fine.
+    let (status, body) = decide(
+        &app,
+        &owner,
+        json!({ "entry_ids": [own], "decision": "approve" }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["results"][0]["outcome"], json!("applied"), "{body}");
+    assert_eq!(
+        body["results"][0]["entry"]["approval_status"],
+        json!("approved")
+    );
+
+    // The verification workspace is the other decision write surface; it
+    // carries the same predicate. Only owner/admin can reach its approve
+    // branch through the shipped presets (it needs `manage_billing` too), so
+    // what this proves is the override: the owner decides their own entry
+    // there as well, and the disposition lands.
+    let own2 = create_entry(&app, &owner, &ticket_id, 8).await;
+    let (status, body) = submit_entry(&app, &owner, &own2).await;
+    assert_eq!(status, 200, "{body}");
+    let applied = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/billing/verification/entries/{own2}/action"),
+        Some(&owner),
+        Some(json!({
+            "action": "approve",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(applied.status().as_u16(), 200, "owner override applies");
+    let applied = body_json(applied).await;
+    assert_eq!(applied["entry_id"], json!(own2));
+    assert_eq!(applied["disposition"], json!("approved"), "{applied}");
 }
 
 /// The one-click verdict fix (Wave 41 lane 8): an approver applies a fix to a
