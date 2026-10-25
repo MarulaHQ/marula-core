@@ -178,8 +178,8 @@ async fn enqueue(pool: &PgPool, j: &ClaimedJob) {
     .bind(j.org_id)
     .bind(&j.kind)
     .bind(&j.payload)
-    .bind(i32::try_from(j.attempts).unwrap_or(1))
-    .bind(i32::try_from(j.max_attempts).unwrap_or(5))
+    .bind(j.attempts)
+    .bind(j.max_attempts)
     .execute(pool)
     .await
     .expect("queue row");
@@ -674,4 +674,101 @@ async fn the_expiry_honours_on_expiry_and_fires_no_guarded_edge() {
     .await
     .expect("expiry audit");
     assert_eq!(expiries.len(), 1, "the closure is recorded once");
+}
+
+/// F51. The retry route writes one `workflow.resume` job for the row it is
+/// inserting. This drives that payload through the executor and pins the two
+/// things a wrong payload does instead: no `op` dead-letters the job, and a
+/// `run_id` naming the FAILED run settles as "already finished" without ever
+/// resuming. The route's own test pins the same three keys, so a regression on
+/// either side fails a test rather than a run.
+#[tokio::test]
+async fn a_retried_run_resumes_instead_of_dying() {
+    let pool = test_pool().await;
+    let fx = seed(&pool, 7).await;
+
+    // A failed run with one node to reach: nothing whose repeat could apply
+    // twice, so the retry is allowed and the continuation has work to do.
+    let mut tx = pool.begin().await.expect("tx");
+    let failed = runs::insert_run(
+        &mut tx,
+        fx.org,
+        &runs::NewRun {
+            rule_id: None,
+            rule_name: "retried".to_string(),
+            rule_version: 1,
+            rule_definition: json!({
+                "version": DOCUMENT_VERSION,
+                "nodes": [{ "id": "stop", "node_type": "flow.stop", "params": {} }],
+            }),
+            catalogue_version: core_domain::node_registry::CATALOGUE_VERSION.to_string(),
+            trigger: core_domain::workflow_runs::RunTrigger::Event,
+            trigger_event_id: None,
+            trigger_job_id: None,
+            trigger_user_id: Some(fx.approver),
+            resumed_from: None,
+            resume_cursor: None,
+        },
+        core_domain::workflow_runs::RunStatus::Running,
+    )
+    .await
+    .expect("failed run");
+    runs::finish_run(
+        &mut tx,
+        fx.org,
+        failed.id,
+        core_domain::workflow_runs::RunStatus::Failed,
+        Some("step_failed"),
+        Some("the probe failed"),
+    )
+    .await
+    .expect("finish the failed run");
+    tx.commit().await.expect("commit");
+
+    // The retry, in the route's order: the job is enqueued first (the retry
+    // row's `trigger_job_id` is a foreign key), its payload names the row the
+    // caller is about to insert, and the insert uses that same id.
+    let retry_id = Uuid::now_v7();
+    let retry_job = job(
+        fx.org,
+        json!({ "op": "resume", "run_id": retry_id, "retry": true }),
+    );
+    enqueue(&pool, &retry_job).await;
+    let mut tx = pool.begin().await.expect("tx");
+    let retry = runs::retry_run(
+        &mut tx,
+        fx.org,
+        retry_id,
+        failed.id,
+        fx.approver,
+        Some(retry_job.id),
+        core_domain::workflow_runs::RetryMode::Resume,
+    )
+    .await
+    .expect("a stop-only run may be retried");
+    tx.commit().await.expect("commit");
+    assert_eq!(retry.id, retry_id, "the payload named this row");
+    assert_eq!(
+        retry.status.as_str(),
+        "waiting",
+        "the executor resumes a waiting row"
+    );
+
+    let effects = RecordingEffectApi::new(EffectOutcome::Applied);
+    let result = process_resume_job(&pool, &effects, &retry_job).await;
+    assert!(
+        matches!(result.outcome, JobOutcome::Done),
+        "a retried run must settle, not dead-letter: {}",
+        result.error
+    );
+
+    let (_, status, error) = continuation(&pool, fx.org, retry_id)
+        .await
+        .expect("the retry resumed into a continuation");
+    assert_eq!(status, "succeeded", "the continuation ran: {error:?}");
+    assert_eq!(
+        status_of(&pool, fx.org, failed.id).await,
+        "failed",
+        "the original is a ledger row, never rewritten by a retry"
+    );
 }

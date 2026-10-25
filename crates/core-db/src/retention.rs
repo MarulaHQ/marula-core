@@ -107,7 +107,9 @@ pub struct TableWindow {
 ///   one year and the reasoning is in the doc; the mechanism is a batched
 ///   delete because the conversion costs an exclusive rewrite plus a recreate
 ///   of the `org_usage` read model, and the trigger to revisit is written
-///   down.
+///   down. The delete is not a statement of this module's own: the table is
+///   append-only under migration 0168's trigger, so each batch is a call into
+///   the SECURITY DEFINER `purge_audit_events()` (see [`Batch::AuditPurge`]).
 pub const MATRIX: [TableWindow; 9] = [
     TableWindow {
         table: "jobs",
@@ -364,16 +366,19 @@ pub async fn sweep_once(
         if window.mechanism != Mechanism::BatchedDelete {
             continue;
         }
-        let sql = delete_statement(window.table).expect("matrix table has SQL");
+        let statement = batch_statement(window.table).expect("matrix table has a window");
         let mut deleted = 0_u64;
         let mut saturated = false;
         for _ in 0..MAX_BATCHES_PER_PASS {
-            let removed = sqlx::query(sql)
-                .bind(window.days)
-                .bind(batch)
-                .execute(pool)
-                .await?
-                .rows_affected();
+            let removed = match statement {
+                Batch::Delete(sql) => sqlx::query(sql)
+                    .bind(window.days)
+                    .bind(batch)
+                    .execute(pool)
+                    .await?
+                    .rows_affected(),
+                Batch::AuditPurge => crate::audit::purge_batch(pool, window.days, batch).await?,
+            };
             deleted += removed;
             if removed < batch as u64 {
                 saturated = false;
@@ -390,7 +395,24 @@ pub async fn sweep_once(
     Ok(out)
 }
 
-/// The delete for one table: a `ctid`-keyed batch so no table needs a
+/// How one batched window is enforced.
+///
+/// Two variants, not one, because one table refuses a bare delete: the audit
+/// trail is append-only under migration 0168's trigger, so its batch is a call
+/// into the SECURITY DEFINER `purge_audit_events()` and the row count comes
+/// back as the function's return value rather than as `rows_affected`. Keeping
+/// the distinction in a type means a later edit cannot quietly swap the call
+/// for a `DELETE` and have the sweep fail every hour at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Batch {
+    /// A batched `DELETE` this module runs itself.
+    Delete(&'static str),
+    /// A callback into `core_db::audit::purge_batch` (the audited retention
+    /// door for `audit_events`).
+    AuditPurge,
+}
+
+/// The batch for one table: a `ctid`-keyed delete so no table needs a
 /// single-column key, oldest first through the age index the migration adds.
 ///
 /// `ctid` rather than a key column because two of these tables have a composite
@@ -407,78 +429,74 @@ pub async fn sweep_once(
 /// job that has not finished, an email nobody sent yet, a delivery attempt
 /// still waiting for its retry, a consumer row awaiting another attempt. Age is
 /// only ever one half of the predicate.
-fn delete_statement(table: &str) -> Option<&'static str> {
-    let sql = match table {
-        "jobs" => {
+fn batch_statement(table: &str) -> Option<Batch> {
+    let batch = match table {
+        "jobs" => Batch::Delete(
             r#"DELETE FROM jobs WHERE ctid IN (
                  SELECT ctid FROM jobs
                   WHERE status IN ('done', 'failed', 'dead')
                     AND updated_at < now() - make_interval(days => $1)
                   ORDER BY updated_at
                   LIMIT $2
-               )"#
-        }
-        "dead_events" => {
+               )"#,
+        ),
+        "dead_events" => Batch::Delete(
             r#"DELETE FROM dead_events WHERE ctid IN (
                  SELECT ctid FROM dead_events
                   WHERE dead_at < now() - make_interval(days => $1)
                   ORDER BY dead_at
                   LIMIT $2
-               )"#
-        }
-        "consumer_deliveries" => {
+               )"#,
+        ),
+        "consumer_deliveries" => Batch::Delete(
             r#"DELETE FROM consumer_deliveries WHERE ctid IN (
                  SELECT ctid FROM consumer_deliveries
                   WHERE (settled_at IS NOT NULL AND settled_at < now() - make_interval(days => $1))
                      OR (dead_at IS NOT NULL AND dead_at < now() - make_interval(days => $1))
                   ORDER BY coalesce(settled_at, dead_at)
                   LIMIT $2
-               )"#
-        }
-        "notifications" => {
+               )"#,
+        ),
+        "notifications" => Batch::Delete(
             r#"DELETE FROM notifications WHERE ctid IN (
                  SELECT ctid FROM notifications
                   WHERE created_at < now() - make_interval(days => $1)
                   ORDER BY created_at
                   LIMIT $2
-               )"#
-        }
-        "webhook_deliveries" => {
+               )"#,
+        ),
+        "webhook_deliveries" => Batch::Delete(
             r#"DELETE FROM webhook_deliveries WHERE ctid IN (
                  SELECT ctid FROM webhook_deliveries
                   WHERE created_at < now() - make_interval(days => $1)
                   ORDER BY created_at
                   LIMIT $2
-               )"#
-        }
-        "email_outbound" => {
+               )"#,
+        ),
+        "email_outbound" => Batch::Delete(
             r#"DELETE FROM email_outbound WHERE ctid IN (
                  SELECT ctid FROM email_outbound
                   WHERE status IN ('sent', 'dead')
                     AND updated_at < now() - make_interval(days => $1)
                   ORDER BY updated_at
                   LIMIT $2
-               )"#
-        }
-        "email_messages" => {
+               )"#,
+        ),
+        "email_messages" => Batch::Delete(
             r#"DELETE FROM email_messages WHERE ctid IN (
                  SELECT ctid FROM email_messages
                   WHERE created_at < now() - make_interval(days => $1)
                   ORDER BY created_at
                   LIMIT $2
-               )"#
-        }
-        "audit_events" => {
-            r#"DELETE FROM audit_events WHERE ctid IN (
-                 SELECT ctid FROM audit_events
-                  WHERE occurred_at < now() - make_interval(days => $1)
-                  ORDER BY occurred_at
-                  LIMIT $2
-               )"#
-        }
+               )"#,
+        ),
+        // Append-only: the same past-window predicate, executed inside the
+        // SECURITY DEFINER function the trigger accepts (migration 0168). A
+        // `DELETE` here would be refused, owner pool or not.
+        "audit_events" => Batch::AuditPurge,
         _ => return None,
     };
-    Some(sql)
+    Some(batch)
 }
 
 #[cfg(test)]
@@ -502,17 +520,28 @@ mod tests {
         for row in &MATRIX {
             match row.mechanism {
                 Mechanism::BatchedDelete => assert!(
-                    delete_statement(row.table).is_some(),
+                    batch_statement(row.table).is_some(),
                     "{} has a batched window but no delete statement",
                     row.table
                 ),
                 Mechanism::PartitionDrop => assert!(
-                    delete_statement(row.table).is_none(),
+                    batch_statement(row.table).is_none(),
                     "{} is partition-managed; a delete would fight the drop",
                     row.table
                 ),
             }
         }
+    }
+
+    /// `audit_events` must go through the maintenance function, never through
+    /// a bare `DELETE`: migration 0168's trigger refuses the statement for
+    /// every caller, including the owner pool the sweep runs on. A later edit
+    /// that "simplifies" this back to `Batch::Delete` would pass the matrix
+    /// test above and fail every pass at runtime, so the shape is pinned here.
+    #[test]
+    fn the_audit_window_goes_through_the_maintenance_function() {
+        assert_eq!(batch_statement("audit_events"), Some(Batch::AuditPurge));
+        assert!(matches!(batch_statement("jobs"), Some(Batch::Delete(_))));
     }
 
     /// The row says nine tables have no window. Nine rows, nine names, no

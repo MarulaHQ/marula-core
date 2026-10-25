@@ -343,16 +343,19 @@ impl TrustedProxies {
     ///    its left is attacker-controllable). Every hop trusted ⇒ the peer
     ///    itself is the client.
     /// 3. No peer signal ⇒ walk `X-Forwarded-For` right-to-left past
-    ///    trusted hops (or the rightmost non-empty hop when a `oneshot`
-    ///    test harness passes a synthetic bucket token), else [`UNKNOWN`].
-    ///    This is the harness posture, never production: `core-api` is
-    ///    served with connect info, so a real request always has a peer.
+    ///    trusted hops, else the rightmost hop that parses as an address,
+    ///    else [`UNKNOWN`]. This is the harness posture, never production:
+    ///    `core-api` is served with connect info, so a real request always
+    ///    has a peer. Only a parseable address can come out of this arm — a
+    ///    value that is not an address is not a throttle key.
     pub fn resolve(&self, peer: Option<IpAddr>, headers: &HeaderMap) -> String {
         let Some(peer) = peer else {
             if let Some(client) = self.walk_forwarded_for(headers) {
                 return client.to_string();
             }
-            return rightmost_hop(headers).unwrap_or_else(|| UNKNOWN.to_owned());
+            return rightmost_hop(headers)
+                .map(|ip| ip.to_string())
+                .unwrap_or_else(|| UNKNOWN.to_owned());
         };
         if !self.is_trusted(peer) {
             return peer.to_string();
@@ -448,21 +451,22 @@ fn forwarded_for_hops(headers: &HeaderMap) -> Vec<&str> {
     hops
 }
 
-/// The rightmost hop — the harness posture (`oneshot`, no socket peer)
-/// when `walk_forwarded_for` found no untrusted IP. Canonicalizes a real
-/// address when one parses, and preserves synthetic per-test bucket tokens
-/// (e.g. `114.9.10.<uuid>` in `auth_hardening_flow`) verbatim so existing
-/// `oneshot` suites stay isolated without a socket.
-fn rightmost_hop(headers: &HeaderMap) -> Option<String> {
-    // Already rightmost-first, so `find` is the rightmost match.
-    let hops = forwarded_for_hops(headers);
-    if let Some(ip) = hops.iter().find_map(|hop| parse_ip_field(hop)) {
-        return Some(ip.to_string());
-    }
-    hops.iter()
-        .map(|hop| hop.trim())
-        .find(|hop| !hop.is_empty())
-        .map(str::to_owned)
+/// The rightmost hop that parses as an address — the harness posture
+/// (`oneshot`, no socket peer) when [`TrustedProxies::walk_forwarded_for`]
+/// found no untrusted hop, which means the chain was empty or every entry in
+/// it belongs to a declared trusted proxy.
+///
+/// Addresses only. This arm used to hand back the rightmost NON-EMPTY entry,
+/// so a `oneshot` suite could isolate itself with a synthetic bucket token
+/// (`114.9.10.<uuid>`). The shared caller fixture mints a real address per
+/// case now (Wave 54 follow-up F7), so nothing sends a token, and a string
+/// that parses as no address must not become a throttle key: a key an
+/// attacker can choose is a bucket an attacker can move through.
+fn rightmost_hop(headers: &HeaderMap) -> Option<IpAddr> {
+    // Already rightmost-first, so `find_map` is the rightmost match.
+    forwarded_for_hops(headers)
+        .iter()
+        .find_map(|hop| parse_ip_field(hop))
 }
 
 /// Cloudflare's real-client header.
@@ -746,6 +750,29 @@ mod tests {
         // Unit-test/oneshot drives the router without connection info.
         let headers = headers(&[("x-forwarded-for", "1.2.3.4, 203.0.113.5")]);
         assert_eq!(set.resolve(None, &headers), "203.0.113.5");
+    }
+
+    /// A hop that is not an address never becomes a throttle key. The
+    /// harness arm used to pass the rightmost non-empty entry through
+    /// verbatim so `oneshot` suites could isolate themselves with synthetic
+    /// tokens; the shared caller fixture mints real addresses now, so a
+    /// token-shaped entry falls to the shared bucket instead of choosing a
+    /// key.
+    #[test]
+    fn a_hop_that_is_not_an_address_is_not_a_client_key() {
+        let set = set();
+        for token in [
+            "114.9.10.6f1c2e04-0f0e-4c3e-9f5a-2b3c4d5e6f70",
+            "garbage",
+            "1.2.3",
+        ] {
+            let headers = headers(&[("x-forwarded-for", token)]);
+            assert_eq!(
+                set.resolve(None, &headers),
+                UNKNOWN,
+                "{token} must not become a bucket key"
+            );
+        }
     }
 
     #[test]

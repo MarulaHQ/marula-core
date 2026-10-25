@@ -9,13 +9,33 @@
 #                  --profile edge up --build -d
 #
 # Everything a browser, a Let's Encrypt validator or Cloudflare's edge can
-# reach goes through the `edge` service. core-api and web stay on the
-# compose network and are addressed by service name. Valkey stays
-# loopback-only; Postgres's 15432 and the worker health port publish on all
-# interfaces today and get cleared below — a database on a published
-# interface is the fastest way to turn a small deployment mistake into a
-# data incident, and RLS is not an authentication layer for the database
-# itself.
+# reach goes through the `edge` service, and every publish the base file
+# makes is reclaimed here — not only the application ports (Wave 56
+# p56-deploy-posture). The rule this file enforces:
+#
+#   * the edge binds 80/443 on every interface: it is the front door;
+#   * a diagnostic surface an operator opens over an SSH session is re-pinned
+#     to 127.0.0.1, so the host reaches it and no other machine does;
+#   * a role nobody inspects from a browser (API, web console, worker health,
+#     Postgres) is unpublished outright. A database on a published interface
+#     is the fastest way to turn a small deployment mistake into a data
+#     incident, and RLS is not an authentication layer for the database
+#     itself.
+#
+# Reclaiming the four application ports used to be the whole of it, which
+# meant a bring-up that added the stage2 or observability profile published a
+# password-less Grafana (anonymous admin), an unauthenticated Prometheus, the
+# Garage S3 API with its published dev keys, a ClamAV TCP daemon and a mail
+# sink on the public interface while the proxy was the thing being trusted.
+# Adding a profile no longer widens the ingress.
+#
+# Reclamation is a config change, so it lands when a container is RECREATED:
+# `docker compose up` recreates when this file joins the command line, while
+# `docker compose restart` never re-reads config. That restart is the one way
+# a stack ends up with the old publishes and the proxy both live, so
+# `deploy/edge/check-published-ports.sh` reads the running stack and prints
+# the exact re-create command when it finds it; the merged config is asserted
+# by the same script and by `check-edge.sh`.
 #
 # TLS mode (see deploy/edge/README.md for the whole decision):
 #   direct    MARULA_TLS_MODE=direct     ACME HTTP-01 / TLS-ALPN-01, the
@@ -141,6 +161,10 @@ services:
   # so core-api's 8080 would stay reachable and the proxy would be a
   # decoration rather than a boundary.
   core-api:
+    # Unpublished, not re-pinned: nothing a human does from a browser needs
+    # the API's raw port, and every request reaches it through the proxy by
+    # service name. Debugging goes through `docker compose exec` or the
+    # proxy's own logs.
     ports: !override []
     environment:
       # Cookie flags come from here: core-api derives `Secure` from
@@ -164,6 +188,7 @@ services:
       MARULA_MAX_UPLOAD_MB: ${MARULA_MAX_UPLOAD_MB:-25}
 
   web:
+    # Unpublished for the same reason as core-api: the proxy serves it.
     ports: !override []
     build:
       # Baked into the client bundle at BUILD time. The value is the
@@ -180,6 +205,52 @@ services:
   worker:
     # 8082 is a liveness signal for the compose network.
     ports: !override []
+
+  # ---- Profile slots: loopback only --------------------------------------
+  # The stage2 and observability slots publish on every interface in the base
+  # file, because a laptop wants them from a browser. On the host that runs
+  # this overlay, an operator already has a shell, so each one is re-pinned to
+  # loopback instead: reachable from that host, from no other machine.
+  # `!override` replaces the base list for the same reason it does above —
+  # compose appends otherwise.
+  #
+  # A service listed here is only started when its profile is requested, so
+  # these lines cost nothing on a plain `--profile edge` bring-up.
+  garage:
+    ports: !override
+      - "127.0.0.1:3900:3900"   # S3 API
+      - "127.0.0.1:3901:3901"   # inter-node RPC
+      - "127.0.0.1:3903:3903"   # admin API
+  mailpit:
+    ports: !override
+      - "127.0.0.1:1025:1025"   # SMTP sink
+      - "127.0.0.1:8025:8025"   # web UI
+  clamav:
+    ports: !override
+      - "127.0.0.1:13310:3310"
+  otel-collector:
+    ports: !override
+      - "127.0.0.1:4317:4317"     # OTLP gRPC
+      - "127.0.0.1:4318:4318"     # OTLP HTTP
+      - "127.0.0.1:18899:18899"   # Prometheus exposition
+  prometheus:
+    ports: !override
+      - "127.0.0.1:9090:9090"
+  tempo:
+    ports: !override
+      - "127.0.0.1:3200:3200"
+  loki:
+    ports: !override
+      - "127.0.0.1:3100:3100"
+  grafana:
+    ports: !override
+      - "127.0.0.1:3001:3000"
+  glitchtip:
+    ports: !override
+      - "127.0.0.1:8010:8000"
+  uptime-kuma:
+    ports: !override
+      - "127.0.0.1:3002:3001"
 
 volumes:
   edgedata:

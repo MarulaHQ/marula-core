@@ -31,6 +31,39 @@ None of those can be defaulted. Compose refuses to start without
 `MARULA_DOMAIN`, and Caddy refuses to start without the certificate it can
 obtain.
 
+## What the overlay publishes
+
+The overlay's job is that the edge is the only listener a browser, an ACME
+validator or Cloudflare can reach. It applies one rule to every publish the
+base file makes:
+
+| Base publish | With the edge overlay | Why |
+|---|---|---|
+| `edge` 80/443 | `0.0.0.0:80`, `0.0.0.0:443` | the front door |
+| `core-api` 8080, `web` 3000, `worker` 8082, `postgres` 15432 | unpublished (`ports: !override []`) | nothing a human does from a browser needs them; every caller is inside the compose network |
+| `redis` 16379, `pgbouncer` 6432 | unchanged (loopback in the base) | already host-only |
+| `garage` 3900-3903, `mailpit` 1025/8025, `clamav` 13310, `otel-collector` 4317/4318/18899, `prometheus` 9090, `tempo` 3200, `loki` 3100, `grafana` 3001, `glitchtip` 8010, `uptime-kuma` 3002 | re-pinned to `127.0.0.1` | operator surfaces, reached over an SSH session, not from the internet |
+
+Every stage2 and observability slot in the base publishes on all interfaces
+for a laptop.
+Before this rule existed, adding `--profile observability` to an edge
+deployment published a Grafana with anonymous admin, an unauthenticated
+Prometheus and a ClamAV TCP daemon next to a proxy that was supposed to be
+the only door.
+
+Reclaiming is a config change, so it lands when a container is **recreated**.
+`docker compose up` recreates when this file joins the command line;
+`docker compose restart` never re-reads config and leaves the old publishes
+live next to the proxy. Check the result rather than assuming it:
+
+```sh
+deploy/edge/check-published-ports.sh          # the merged config, every profile
+deploy/edge/check-published-ports.sh --live   # the containers that are actually up
+```
+
+The live mode names any container still publishing off loopback and prints
+the `up -d --force-recreate <service>` command that fixes it.
+
 ## Direct mode
 
 DNS for `MARULA_DOMAIN` resolves to this host's address. Nothing sits in
@@ -39,6 +72,10 @@ front.
 ```sh
 export MARULA_DOMAIN=marula.example.com
 export ACME_EMAIL=ops@example.com
+export JWT_SECRET=$(openssl rand -hex 32)
+export MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
+export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export MARULA_MAX_UPLOAD_MB=25
 
 docker compose -f deploy/docker-compose.yml \
@@ -179,6 +216,7 @@ docker compose -f deploy/docker-compose.yml -f deploy/edge/compose.edge.yml \
 | `Caddyfile.cf-dns01` | ACME DNS-01 through the Cloudflare API |
 | `marula-routes.caddy` | The routing table, imported by all three modes |
 | `origin-lockdown.sh` | Host firewall allowlist for Cloudflare's ranges |
+| `check-published-ports.sh` | Asserts the edge is the only listener off loopback, on the merged config and (`--live`) on the running stack |
 | `certs/` | Where `origin.crt` / `origin.key` land (gitignored) |
 
 The operator runbook, with the core-api settings each mode implies, is

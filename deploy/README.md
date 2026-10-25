@@ -7,7 +7,8 @@
 
 | Directory | What it is |
 |---|---|
-| `docker-compose.yml` | The local stack: Postgres, Valkey, **PgBouncer**, migrations, core-api, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. No TLS, no published-proxy boundary — it targets development. |
+| `docker-compose.yml` | The local stack: Postgres, Valkey, **PgBouncer**, migrations, core-api, worker, web, plus the `stage2`, `observability`, `ai` and `backup` profiles. It ships no secret value and requires four (`JWT_SECRET`, `MARULA_SECRET_KEY` and the two seam tokens). No TLS and no published-proxy boundary, because it targets development. |
+| `dev.env` | The dev marker as a file: the repository's published dev values plus `MARULA_DEV_TOOLS=1`, passed with `--env-file`. Never for a host you do not own. The stack warns at boot while it is in use. |
 | `pooler/` | The PgBouncer config every application pool dials: transaction mode, `DISCARD ALL` after every transaction, no prepared-statement cache. `docs/reference/connection-pooling.md` says why each setting is load-bearing. |
 | `Dockerfile.rust` / `Dockerfile.web` | The workspace images. `NEXT_PUBLIC_API_URL` is baked into the web bundle at build time. |
 | `edge/` | **The public front door.** A Caddy proxy that terminates TLS, the three TLS modes (Direct ACME, Cloudflare Origin CA, Cloudflare DNS-01), and the origin firewall helper. |
@@ -19,6 +20,22 @@
 | `runbooks/` | Operator runbook scaffolds. |
 | `garage.toml` | The Garage config the `stage2` profile binds read-only. |
 
+## Starting the stack
+
+The base file ships no secret value, and compose refuses to render it without
+`JWT_SECRET`, `MARULA_SECRET_KEY`, `MARULA_INTERNAL_TOKEN` and
+`EMAIL_INTERNAL_TOKEN`. A laptop stack takes the repository's published dev
+values, which live in `dev.env` and are marked by `MARULA_DEV_TOOLS=1`:
+
+```sh
+docker compose -f docker-compose.yml --env-file dev.env up --build
+```
+
+The `dev-posture` service prints a warning into the boot log every time those
+published values are in play, because anyone who has read this repository can
+mint an owner token against such a stack. For anything else, generate the four
+values yourself (`openssl rand -hex 32` each) and export them before `up`.
+
 ## Starting a public deployment
 
 The local stack publishes raw ports and speaks plaintext http, which is
@@ -28,15 +45,21 @@ internet. Layer the edge overlay instead of editing the base file:
 ```sh
 export MARULA_DOMAIN=marula.example.com
 export ACME_EMAIL=ops@example.com          # direct and cf-dns01 modes
+export JWT_SECRET=$(openssl rand -hex 32)
+export MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
+export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
 
 docker compose -f docker-compose.yml \
                -f edge/compose.edge.yml \
                --profile edge up --build -d
 ```
 
-The overlay is last on purpose: it pulls the raw `8080`, `3000`,
-`8082`, `15432` and `16379` publishes back off the network, and compose
-only applies that replacement when the file carrying it comes last.
+The overlay is last on purpose: it replaces the base file's published port
+lists (compose appends an overlay's ports to them otherwise), so `8080`,
+`3000`, `8082` and `15432` come off the network and the stage2 and
+observability slots are re-pinned to loopback. `edge/check-published-ports.sh` asserts that on the
+merged config and, with `--live`, on the running containers.
 
 `edge/README.md` has the whole decision — the three TLS modes, the
 Cloudflare dashboard steps behind the edge one, and the origin lockdown.

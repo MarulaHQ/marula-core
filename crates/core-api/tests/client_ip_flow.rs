@@ -232,6 +232,115 @@ async fn distinct_clients_behind_one_trusted_proxy_get_distinct_buckets() {
 }
 
 // ---------------------------------------------------------------------------
+// The resolver as a TABLE over real chains, through a real socket.
+//
+// Each row sends two refresh attempts whose `X-Forwarded-For` chains differ in
+// the part a caller types and agree (or deliberately disagree) on the part a
+// proxy appended. The per-IP gate is the readout: two chains that resolve to
+// the same client land in one bucket, so the second attempt meets the engaged
+// lock; chains that resolve to different clients do not.
+//
+// The socket peer of this harness is loopback, which the default trust set
+// covers, so every row is the production shape — a trusted proxy in front of
+// the API — rather than the peer-less `oneshot` posture.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_trusted_walk_resolves_each_real_chain_shape() {
+    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
+    let base = serve(&admin_url).await;
+    let http = reqwest::Client::new();
+
+    // Placeholders are filled per row so each row gets its own address block
+    // (the per-IP counters are durable and DB-wide).
+    struct Row {
+        name: &'static str,
+        /// Last octets of the two client addresses this row may use.
+        clients: (u8, u8),
+        first: String,
+        second: String,
+        /// Do the two chains resolve to the same client?
+        same_bucket: bool,
+    }
+
+    let rows = vec![
+        Row {
+            name: "a pinned prefix cannot move the bucket when the client and the proxy agree",
+            clients: (51, 52),
+            first: "1.1.1.1, {c1}, 10.0.0.9".to_owned(),
+            second: "9.9.9.9, {c1}, 10.0.0.9".to_owned(),
+            same_bucket: true,
+        },
+        Row {
+            name: "a chain of trusted proxies collapses onto the client behind them",
+            clients: (53, 54),
+            first: "{c1}, 10.0.0.9, 192.168.1.2".to_owned(),
+            second: "{c1}, 10.0.1.1, 192.168.7.7".to_owned(),
+            same_bucket: true,
+        },
+        Row {
+            name: "two distinct clients behind one proxy stay distinct",
+            clients: (55, 56),
+            first: "{c1}, 10.0.0.9".to_owned(),
+            second: "{c2}, 10.0.0.9".to_owned(),
+            same_bucket: false,
+        },
+        Row {
+            name: "a port suffix on the appended hop does not change the client",
+            clients: (57, 58),
+            first: "{c1}:41234, 10.0.0.9".to_owned(),
+            second: "{c1}, 10.0.0.9".to_owned(),
+            same_bucket: true,
+        },
+        Row {
+            name: "an unparseable entry in the client's half is skipped, not believed",
+            clients: (59, 60),
+            first: "not-an-address, {c1}, 10.0.0.9".to_owned(),
+            second: "{c1}, 10.0.0.9".to_owned(),
+            same_bucket: true,
+        },
+        Row {
+            name: "a caller padding the chain past the cap still resolves to the appended client",
+            clients: (61, 62),
+            first: format!("{}, {{c1}}, 10.0.0.9", "198.18.0.9, ".repeat(80).trim_end()),
+            second: "{c1}, 10.0.0.9".to_owned(),
+            same_bucket: true,
+        },
+    ];
+
+    let mut failures = Vec::new();
+    for (index, row) in rows.into_iter().enumerate() {
+        let block = unique_block(20 + index as u8);
+        let (first_octet, second_octet) = row.clients;
+        let c1 = client_ip(block, first_octet);
+        let c2 = client_ip(block, second_octet);
+        let fill = |chain: &str| chain.replace("{c1}", &c1).replace("{c2}", &c2);
+
+        let first_status = refresh_attempt(&http, &base, Some(&fill(&row.first)), None).await;
+        let second_status = refresh_attempt(&http, &base, Some(&fill(&row.second)), None).await;
+        let expected = if row.same_bucket {
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        } else {
+            reqwest::StatusCode::UNAUTHORIZED
+        };
+        if first_status != reqwest::StatusCode::UNAUTHORIZED || second_status != expected {
+            failures.push(format!(
+                "{}: first {first_status} (want 401), second {second_status} (want {expected})",
+                row.name
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "chain shapes resolved to the wrong bucket:\n{}",
+        failures.join("\n")
+    );
+}
+
+// ---------------------------------------------------------------------------
 // No proxy header: the peer address itself is the answer, so every caller
 // on the same socket shares one bucket.
 //

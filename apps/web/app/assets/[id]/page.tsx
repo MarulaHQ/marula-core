@@ -900,6 +900,13 @@ export default function AssetDetailPage() {
                     <span style={{ color: "var(--m-status-danger-fg)" }}>
                       broken target — the item no longer exists
                     </span>
+                  ) : l.target_denied ? (
+                    <span
+                      style={{ color: "var(--m-status-warning-fg)" }}
+                      title="The link survives, but the target sits in a module your role cannot view."
+                    >
+                      restricted target — not visible to your role
+                    </span>
                   ) : (
                     l.target_label ?? l.to_id
                   )}
@@ -908,7 +915,11 @@ export default function AssetDetailPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    aria-label={`Remove link to ${l.target_label ?? l.to_id}`}
+                    aria-label={
+                      l.target_denied
+                        ? "Remove restricted link"
+                        : `Remove link to ${l.target_label ?? l.to_id}`
+                    }
                     onClick={() =>
                       void api.api
                         .DELETE("/api/v1/documents/links/{id}", {

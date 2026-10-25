@@ -572,7 +572,20 @@ async fn an_allowed_retry_records_a_new_row_and_replays_under_the_same_key() {
         job.get::<String, _>("kind"),
         core_db::workflow_runs::WORKFLOW_RESUME_JOB
     );
-    assert_eq!(job.get::<Value, _>("payload")["retry"], json!(true));
+    // F51: the payload is the executor's resume contract. Without `op` the
+    // executor dead-letters the job; with `run_id` naming the FAILED run it
+    // would settle as already finished. Both halves are pinned here.
+    let payload = job.get::<Value, _>("payload");
+    assert_eq!(payload["retry"], json!(true));
+    assert_eq!(
+        payload["op"], "resume",
+        "the op is what routes the job to process_resume"
+    );
+    assert_eq!(
+        payload["run_id"],
+        retry_id.to_string(),
+        "the job resumes the retry row, not the failed one"
+    );
 
     // --- the audit trail names the action ------------------------------------
     let audit = sqlx::query(

@@ -253,6 +253,17 @@ jobs:
                  PREVIEW_API_PORT PREVIEW_WEB_PORT \
                  PREVIEW_CORS_ORIGIN PREVIEW_PUBLIC_URL CF_API_TOKEN \
                  MARULA_DOMAIN
+          # The base file requires all four secrets and ships none (Wave 56).
+          # The two keys this job generates arrive as PREVIEW_*; the base and
+          # the overlay read JWT_SECRET / MARULA_SECRET_KEY by their own
+          # names, so pass them through. The two seam tokens only have to
+          # agree between core-api and the worker, so they are generated
+          # here, on the host, and never leave it.
+          JWT_SECRET="$PREVIEW_JWT_SECRET"
+          MARULA_SECRET_KEY="$PREVIEW_MARULA_SECRET_KEY"
+          MARULA_INTERNAL_TOKEN="$(openssl rand -hex 32)"
+          EMAIL_INTERNAL_TOKEN="$(openssl rand -hex 32)"
+          export JWT_SECRET MARULA_SECRET_KEY MARULA_INTERNAL_TOKEN EMAIL_INTERNAL_TOKEN
           cd "$PREVIEW_CHECKOUT"
 
           # The TLS front door, when asked for. The edge overlay is LAST:

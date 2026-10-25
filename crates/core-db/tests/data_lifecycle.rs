@@ -41,12 +41,21 @@ use uuid::Uuid;
 /// design, so a case that leaves eligible rows behind would hand the next case
 /// extra rows to delete and turn every count into a coin toss.
 async fn clear_retention_tables(admin: &PgPool) {
+    // `audit_events` is append-only at the database (migration 0168): a bare
+    // delete is refused even on the admin pool. Each case here starts from an
+    // empty table, so the helper takes the same transaction-local escape the
+    // demo reset uses — the guard's own sanctioned path for tooling.
+    let mut tx = admin.begin().await.expect("begin clear");
+    core_db::set_dev_reset_bypass(&mut tx)
+        .await
+        .expect("dev reset bypass");
     for table in ["jobs", "audit_events", "notifications"] {
         sqlx::query(&format!("DELETE FROM {table}"))
-            .execute(admin)
+            .execute(&mut *tx)
             .await
             .unwrap_or_else(|e| panic!("clear {table}: {e}"));
     }
+    tx.commit().await.expect("commit clear");
 }
 
 async fn seed_org(db: &TestDb, n: u64) -> Uuid {

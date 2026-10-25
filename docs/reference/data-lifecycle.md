@@ -129,6 +129,30 @@ export reads by time range across tenants, and a partition is the natural prunin
 unit for it. Until then, the batched delete is measured, not assumed: the sweep logs
 the rows it removed per table.
 
+### The trail is append-only in the database
+
+Until migration 0168 the word "append-only" described a habit: the application
+role held UPDATE and DELETE on `audit_events`, and row-level security only
+decided which org's rows a statement could reach. A single `UPDATE`, from any
+path, would have edited evidence without a trace.
+
+Three layers now hold it:
+
+* The application role keeps SELECT and INSERT and loses UPDATE and DELETE.
+* A trigger refuses UPDATE, DELETE and TRUNCATE for every caller, the table owner
+  included. A later `GRANT` cannot restore mutability, because the trigger runs
+  after the privilege check.
+* Three deletes stay sanctioned, each explicit. Retention calls
+  `purge_audit_events()`, a SECURITY DEFINER function that enforces this
+  table's 365-day floor and a batch ceiling. A tenant erasure deletes the `orgs`
+  row and the foreign key cascades. `seed-demo --force` sets the dev-reset
+  bypass from migration 0119.
+
+The sweep calls that function instead of issuing its own `DELETE`, so the pass
+still logs a real count. The floor lives in two places on purpose: the Rust
+matrix decides the window, and the function refuses a caller that asks for less
+than a year.
+
 ## 3. Object store: orphans, missing bytes, and the guard that matters
 
 Rows and bytes are two systems with no shared transaction, and both directions of

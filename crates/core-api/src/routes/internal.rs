@@ -685,14 +685,21 @@ mod tests {
 // constant time. When the env var is unset the whole surface is disabled
 // (404) — a deployment without the token has no machine seam at all.
 //
-// Non-purpose: no user-facing endpoints, no permission-matrix checks
-// (machine callers carry no principal), no evaluation logic of its own —
+// Non-purpose: no user-facing endpoints, no evaluation logic of its own —
 // verdicts arrive precomputed and are re-verified only for idempotency.
+// Most machine callers carry no principal, so most of this surface has no
+// permission matrix to apply. The ONE exception is the workflow node seam
+// below: a run acts as its author, so that endpoint takes a principal and
+// applies the same matrix a user route would (Wave 56 lane
+// `p56-workflow-seam`).
 
+use crate::auth::middleware::require_permission;
 use crate::org_tx;
+use crate::routes::board_access::authorize_board_op;
 use core_db::search::SearchKind;
 
-use core_domain::entities::{Actor, AuditEvent};
+use core_domain::entities::{Actor, AuditEvent, Principal};
+use core_domain::policy::{Action, BoardOp, Module, Permission};
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
@@ -2156,12 +2163,29 @@ pub async fn rotation_notify(
 // typed validation error (a 4xx, which the executor records as a permanent
 // step failure) rather than silently skipped — the coverage boundary is
 // explicit, and lane 19 (the first real multi-step consumer) grows it.
+//
+// # The seam enforces the matrix (Wave 56 lane `p56-workflow-seam`)
+//
+// RLS alone is org-level: it cannot tell a technician from an owner, and it
+// knows nothing about board membership. So the seam used to apply ticket and
+// notification writes for any request-supplied author, which meant a node the
+// author could not run by hand would run through a workflow. The seam now
+// resolves the author as a full `Principal` and applies [`node_authority`]
+// before dispatch — the same `require_permission` and `authorize_board_op`
+// primitives the user routes call. A node with no entry in that mapping is
+// refused, so a new arm cannot run unchecked by being forgotten.
 
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 pub struct WorkflowNodeRequest {
     pub org_id: Uuid,
-    /// The author the run executes as (spec item B).
-    pub actor_user_id: Uuid,
+    /// The author the run executes as (spec item B). A call that names nobody
+    /// — absent, or the nil uuid — is refused by [`workflow_node`]: a node
+    /// that acts for nobody has no principal to check, and an implicit pass
+    /// is the hole this field closes. Optional in the wire shape so "nobody"
+    /// is expressible and refusable rather than a sentinel the seam guesses
+    /// at.
+    #[serde(default)]
+    pub actor_user_id: Option<Uuid>,
     /// The registry node id, e.g. `ticket.update`.
     pub node_id: String,
     #[serde(default)]
@@ -2181,7 +2205,7 @@ pub struct WorkflowNodeResponse {
 }
 
 /// POST /api/internal/workflow/node — executes ONE workflow node org-scoped
-/// as the run's author.
+/// as the run's author, under that author's own permissions.
 ///
 /// Deliberately NOT registered in the OpenAPI paths list (no `#[utoipa::path]`
 /// and no `openapi.rs` entry): internal machine-to-machine endpoints stay out
@@ -2194,10 +2218,19 @@ pub async fn workflow_node(
 ) -> ApiResult<Json<WorkflowNodeResponse>> {
     require_internal_token(&state, &headers)?;
     let org_id = req.org_id;
-    let actor = req.actor_user_id;
     let node_id = req.node_id.clone();
     let params = req.params.clone();
     let context = req.context.clone();
+    // A nil uuid is "nobody" as much as an absent field is: the run's author
+    // is a real user or the node has no principal. Refused BEFORE any
+    // transaction exists, with an audit row written by the refusal path.
+    let Some(actor) = req.actor_user_id.filter(|id| *id != Uuid::nil()) else {
+        let refusal = ApiError::Forbidden(format!(
+            "workflow node {node_id:?}: the call names no principal, and a node that acts for nobody is refused"
+        ));
+        audit_node_refusal(&state, org_id, None, &node_id, &context, &refusal).await;
+        return Err(refusal);
+    };
     // A clone of the pool so the `ticket.transition` arm can call the shared
     // service (item E), which opens its own transaction.
     let pool = state.pool.clone();
@@ -2208,7 +2241,10 @@ pub async fn workflow_node(
     // The at-rest key the parent-side egress transport needs (W53-12): it is
     // `Copy`, so it rides into the closure beside the handles.
     let secret_key = state.config.secret_key;
-    let output = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
+    let effect_node = node_id.clone();
+    let effect_params = params.clone();
+    let effect_context = context.clone();
+    let result = org_tx::with_org_tx(&state, org_id, actor, move |mut ctx| async move {
         let output = execute_workflow_node(
             &mut ctx,
             &pool,
@@ -2216,18 +2252,211 @@ pub async fn workflow_node(
             &plugin_pool,
             secret_key,
             org_id,
-            &node_id,
-            &params,
-            &context,
+            &effect_node,
+            &effect_params,
+            &effect_context,
         )
         .await?;
         Ok((ctx, output))
     })
-    .await?;
+    .await;
+    let output = match result {
+        Ok(output) => output,
+        Err(error) => {
+            // The effect transaction is gone by now, so a denial's record is
+            // written on its own connection. Nothing the node tried to write
+            // survives; the refusal does.
+            audit_node_refusal(&state, org_id, Some(actor), &node_id, &context, &error).await;
+            return Err(error);
+        }
+    };
     Ok(Json(WorkflowNodeResponse {
         status: "applied".to_string(),
         output,
     }))
+}
+
+/// What one seam node needs before its effect may run.
+///
+/// This is a MAPPING onto the one matrix in `core_domain::policy`, never a
+/// second matrix: every variant below resolves to a `Permission` the same
+/// routes check, through the same primitives (`require_permission`,
+/// `authorize_board_op`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NodeAuthority {
+    /// The author's own grant, plus the board operation a direct ticket route
+    /// applies on the ticket the node names. `board_op` is `None` for a node
+    /// whose subject is not a board-scoped ticket.
+    Matrix {
+        permission: Permission,
+        board_op: Option<BoardOp>,
+    },
+    /// The org's grant to the AUTOMATION, not to a user. `plugin.action` runs
+    /// under the install's granted capabilities (ADR 0023 Decisions 3 and 7):
+    /// the install row is the org's consent, and `authorize_invocation`
+    /// re-checks it against the live install at execution time, so a revoked
+    /// or narrowed install refuses before the module runs. Named explicitly
+    /// so this posture is enumerable rather than an implicit pass, and the
+    /// author still has to be a real, active member of the org.
+    InstallGrant,
+}
+
+/// Every node id the seam can apply. Kept beside [`node_authority`] so a unit
+/// test can prove the mapping covers the whole surface: an arm with no
+/// authority is refused at dispatch, which is the fail-closed direction.
+const SEAM_NODE_IDS: [&str; 8] = [
+    "ticket.transition",
+    "ticket.assign",
+    "ticket.setPriority",
+    "ticket.update",
+    "ticket.comment",
+    "ticket.internalNote",
+    "notification.send",
+    "plugin.action",
+];
+
+/// The authority one node requires. `None` means the seam does not know the
+/// node, and the caller refuses it — the deny-by-default direction.
+///
+/// The ticket nodes map onto `tickets:edit` because that is exactly what
+/// `PATCH /api/tickets/{id}` and `POST /api/tickets/{id}/comments` demand
+/// (`routes/tickets.rs`), and onto `BoardOp::WorkTicket` because both routes
+/// then call `authorize_board_op` for the ticket's board. `ticket.transition`
+/// also maps onto `WorkTicket` here as the floor; the shared transition
+/// service re-derives the EXACT operation (`CloseTicket` for a close-category
+/// target) inside its own body, so a close keeps the stricter gate.
+///
+/// `notification.send` maps onto `admin:edit`: no user route sends an in-app
+/// notification on someone else's behalf, and the only org surface that
+/// governs notification fan-out is the admin matrix
+/// (`PUT /api/notification-org-defaults`). A run that can put arbitrary text
+/// in any org member's inbox is an org-wide capability, not a ticket one.
+///
+/// `plugin.action` takes [`NodeAuthority::InstallGrant`]; see its note.
+fn node_authority(node_id: &str) -> Option<NodeAuthority> {
+    // The list is the seam's surface, and it is checked first: an id the
+    // constant does not name is refused even if a match arm below learned to
+    // handle it, so a new arm cannot slip in without being listed here.
+    if !SEAM_NODE_IDS.contains(&node_id) {
+        return None;
+    }
+    let tickets_edit = Permission::Matrix {
+        module: Module::Tickets,
+        action: Action::Edit,
+    };
+    Some(match node_id {
+        "ticket.transition"
+        | "ticket.assign"
+        | "ticket.setPriority"
+        | "ticket.update"
+        | "ticket.comment"
+        | "ticket.internalNote" => NodeAuthority::Matrix {
+            permission: tickets_edit,
+            board_op: Some(BoardOp::WorkTicket),
+        },
+        "notification.send" => NodeAuthority::Matrix {
+            permission: Permission::Matrix {
+                module: Module::Admin,
+                action: Action::Edit,
+            },
+            board_op: None,
+        },
+        "plugin.action" => NodeAuthority::InstallGrant,
+        _ => return None,
+    })
+}
+
+/// Applies one node's authority inside the effect transaction, before the
+/// dispatch can write anything.
+async fn apply_node_authority(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    principal: &Principal,
+    authority: NodeAuthority,
+    params: &Value,
+    context: &Value,
+) -> ApiResult<()> {
+    match authority {
+        NodeAuthority::InstallGrant => Ok(()),
+        NodeAuthority::Matrix {
+            permission,
+            board_op,
+        } => {
+            require_permission(principal, permission)?;
+            if let Some(op) = board_op {
+                let ticket = workflow_ticket(conn, org_id, params, context).await?;
+                authorize_board_op(conn, principal, ticket.board_id, op).await?;
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Records a refusal a permission gate produced, on its own connection.
+///
+/// The effect transaction has already rolled back when this runs, so the row
+/// cannot ride it — and a denial that left no trace would be an invisible
+/// stop. Only the two authorization variants are recorded here: an
+/// unsupported node, a missing ticket or a plugin fault are different
+/// answers with their own typed codes, not permission denials.
+async fn audit_node_refusal(
+    state: &AppState,
+    org_id: Uuid,
+    actor: Option<Uuid>,
+    node_id: &str,
+    context: &Value,
+    error: &ApiError,
+) {
+    let reason = match error {
+        ApiError::Forbidden(reason) | ApiError::Unauthorized(reason) => reason,
+        _ => return,
+    };
+    let (required, board_scoped) = node_authority(node_id)
+        .map(|authority| match authority {
+            NodeAuthority::Matrix {
+                permission,
+                board_op,
+            } => (Some(permission.key()), board_op.is_some()),
+            NodeAuthority::InstallGrant => (None, false),
+        })
+        .unwrap_or((None, false));
+    let event = AuditEvent {
+        id: Uuid::now_v7(),
+        org_id,
+        // A call that named nobody has no human to attribute the refusal to,
+        // so it is the machine seam's own row.
+        actor: actor.map_or(Actor::System, Actor::Human),
+        action: "workflow.node_denied".into(),
+        entity_type: Some("workflow_node".into()),
+        entity_id: Some(node_id.to_string()),
+        detail: json!({
+            "node_id": node_id,
+            "run_id": context.get("run_id").cloned().unwrap_or(Value::Null),
+            "required": required,
+            "board_scoped": board_scoped,
+            "reason": reason,
+        }),
+        ip: None,
+        occurred_at: chrono::Utc::now(),
+    };
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(error) => {
+            tracing::error!(%error, %node_id, "workflow node refusal audit failed");
+            return;
+        }
+    };
+    if let Err(error) = core_db::set_org(&mut tx, org_id).await {
+        tracing::error!(%error, %node_id, "workflow node refusal audit failed");
+        return;
+    }
+    if let Err(error) = core_db::audit::insert(&mut *tx, &event).await {
+        tracing::error!(%error, %node_id, "workflow node refusal audit failed");
+        return;
+    }
+    if let Err(error) = tx.commit().await {
+        tracing::error!(%error, %node_id, "workflow node refusal audit failed");
+    }
 }
 
 /// Applies one workflow node's operation inside the org-scoped transaction.
@@ -2244,6 +2473,16 @@ async fn execute_workflow_node(
     params: &Value,
     context: &Value,
 ) -> ApiResult<Value> {
+    // The run acts as its author. Resolving the principal first means every
+    // arm below shares ONE answer, and an author who has left the org, been
+    // deactivated, or holds no grants is refused before any arm can write.
+    let principal = workflow_principal(&mut ctx.tx, org_id, ctx.user_id).await?;
+    let Some(authority) = node_authority(node_id) else {
+        return Err(ApiError::Validation(format!(
+            "unsupported workflow operation {node_id:?}: the executor has no org-scoped path for this node yet"
+        )));
+    };
+    apply_node_authority(&mut ctx.tx, org_id, &principal, authority, params, context).await?;
     let marker = serde_json::json!({ core_domain::automations::VIA_AUTOMATION_KEY: true });
     match node_id {
         "ticket.transition" => {
@@ -2252,7 +2491,7 @@ async fn execute_workflow_node(
             // instant-first replay and the audit row. It rides the shared
             // service so the gate a workflow must pass is the gate the
             // ticket surface passes.
-            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let ticket = workflow_ticket(&mut ctx.tx, org_id, params, context).await?;
             let status_name = params
                 .get("status")
                 .and_then(Value::as_str)
@@ -2271,10 +2510,10 @@ async fn execute_workflow_node(
                         "ticket.transition: board has no status named {status_name:?}"
                     ))
                 })?;
-            // The run acts as its AUTHOR: materialise that principal so the
-            // shared service re-derives permission and board RBAC exactly as
-            // a session request would, never bypassing them.
-            let principal = workflow_principal(ctx, org_id).await?;
+            // The run acts as its AUTHOR: hand the shared service the same
+            // principal this seam checked, so it re-derives permission and
+            // board RBAC exactly as a session request would — including the
+            // EXACT transition operation, which knows a close from a move.
             crate::services::tickets::transition_status_with_pool(
                 pool,
                 &principal,
@@ -2288,7 +2527,7 @@ async fn execute_workflow_node(
             Ok(json!({ "ticketId": ticket.id, "status": status_name }))
         }
         "ticket.assign" => {
-            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let ticket = workflow_ticket(&mut ctx.tx, org_id, params, context).await?;
             let assignee = params
                 .get("userId")
                 .and_then(Value::as_str)
@@ -2341,7 +2580,7 @@ async fn execute_workflow_node(
             Ok(json!({ "ticketId": ticket.id, "assigneeId": assignee }))
         }
         "ticket.setPriority" => {
-            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let ticket = workflow_ticket(&mut ctx.tx, org_id, params, context).await?;
             let priority = params
                 .get("priority")
                 .and_then(Value::as_str)
@@ -2379,7 +2618,7 @@ async fn execute_workflow_node(
             Ok(json!({ "ticketId": ticket.id, "priority": priority.as_str() }))
         }
         "ticket.update" => {
-            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let ticket = workflow_ticket(&mut ctx.tx, org_id, params, context).await?;
             let fields = params.get("fields").and_then(Value::as_object);
             let title = fields.and_then(|f| f.get("title")).and_then(Value::as_str);
             let body = fields.and_then(|f| f.get("body")).and_then(Value::as_str);
@@ -2431,7 +2670,7 @@ async fn execute_workflow_node(
             Ok(json!({ "ticketId": ticket.id }))
         }
         "ticket.comment" | "ticket.internalNote" => {
-            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let ticket = workflow_ticket(&mut ctx.tx, org_id, params, context).await?;
             let body = params
                 .get("body")
                 .and_then(Value::as_str)
@@ -2543,7 +2782,7 @@ async fn execute_workflow_node(
             Ok(json!({ "sent": sent, "suppressed": suppressed }))
         }
         "plugin.action" => {
-            let ticket = workflow_ticket(ctx, org_id, params, context).await?;
+            let ticket = workflow_ticket(&mut ctx.tx, org_id, params, context).await?;
             let entry_key = params
                 .get("entryKey")
                 .and_then(Value::as_str)
@@ -2618,7 +2857,7 @@ async fn execute_workflow_node(
 /// fired the run without the author hand-copying an id. A run with neither is
 /// refused (the node genuinely names no ticket).
 async fn workflow_ticket(
-    ctx: &mut org_tx::OrgTx<'_>,
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     params: &Value,
     context: &Value,
@@ -2633,27 +2872,27 @@ async fn workflow_ticket(
                 "node names no ticketId and the triggering event carried no ticket".into(),
             )
         })?;
-    core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id)
+    core_db::tickets::get_ticket(&mut *conn, org_id, ticket_id)
         .await
         .map_err(|_| ApiError::NotFound)
 }
 
-/// Materialises the run author's principal (item E). The workflow node
-/// endpoint runs inside `with_org_tx(actor)`, but board RBAC needs a full
-/// `Principal` (user + roles + permissions) — the same shape a session
-/// builds. Reusing it means a `ticket.transition` authored by a technician
-/// refuses on the board matrix exactly as their own session would.
+/// Materialises the run author's principal. The workflow node endpoint runs
+/// inside `with_org_tx(actor)`, but the permission matrix and board RBAC need
+/// a full `Principal` (user + roles + permissions) — the same shape a session
+/// builds. Reusing it means a node authored by a technician refuses on the
+/// matrix exactly as their own session would.
 ///
 /// The roles come from the same union read the session uses
 /// (`users::effective_roles_for_user`), so a run authored by someone whose
 /// authority comes from a directory group is evaluated identically to that
 /// person clicking the same button.
 async fn workflow_principal(
-    ctx: &mut org_tx::OrgTx<'_>,
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
+    actor: Uuid,
 ) -> ApiResult<core_domain::entities::Principal> {
-    let actor = ctx.user_id;
-    let user = core_db::users::get_user(&mut *ctx.tx, org_id, actor)
+    let user = core_db::users::get_user(&mut *conn, org_id, actor)
         .await
         .map_err(|_| ApiError::Unauthorized("the run's author is not a valid user".into()))?;
     if !user.is_active {
@@ -2661,7 +2900,7 @@ async fn workflow_principal(
             "the run's author is no longer active".into(),
         ));
     }
-    let roles = core_db::users::effective_roles_for_user(&mut *ctx.tx, actor, org_id).await?;
+    let roles = core_db::users::effective_roles_for_user(&mut *conn, actor, org_id).await?;
     Ok(crate::auth::middleware::principal_for(user, roles))
 }
 
@@ -2709,6 +2948,82 @@ mod workflow_ticket_tests {
         assert!(trigger_ticket_id(&json!({})).is_none());
         // A malformed id is not silently accepted.
         assert!(trigger_ticket_id(&json!({ "event": { "ticket_id": "not-a-uuid" } })).is_none());
+    }
+}
+
+#[cfg(test)]
+mod seam_authority_tests {
+    use super::{node_authority, NodeAuthority, SEAM_NODE_IDS};
+    use core_domain::policy::{Action, BoardOp, Module, Permission};
+
+    /// The mapping must answer for every node the seam can apply. A missing
+    /// answer is a refusal at dispatch, and this pins that the shipped arms
+    /// are not refused by their own seam.
+    #[test]
+    fn every_seam_node_declares_an_authority() {
+        for node_id in SEAM_NODE_IDS {
+            assert!(
+                node_authority(node_id).is_some(),
+                "{node_id} has no declared authority"
+            );
+        }
+    }
+
+    /// Deny by default: a node outside the list has no authority, and the
+    /// dispatcher refuses it rather than running it unchecked.
+    #[test]
+    fn an_unknown_node_has_no_authority() {
+        assert!(node_authority("ticket.delete").is_none());
+        assert!(node_authority("").is_none());
+    }
+
+    #[test]
+    fn ticket_nodes_require_tickets_edit_and_the_board_work_op() {
+        let expected = NodeAuthority::Matrix {
+            permission: Permission::Matrix {
+                module: Module::Tickets,
+                action: Action::Edit,
+            },
+            board_op: Some(BoardOp::WorkTicket),
+        };
+        for node_id in [
+            "ticket.transition",
+            "ticket.assign",
+            "ticket.setPriority",
+            "ticket.update",
+            "ticket.comment",
+            "ticket.internalNote",
+        ] {
+            assert_eq!(node_authority(node_id), Some(expected), "{node_id}");
+        }
+    }
+
+    /// A notification can name any member and carry any text, so it is gated
+    /// at the admin matrix rather than the ticket one — and it is not board
+    /// scoped, because it need not name a ticket at all.
+    #[test]
+    fn notification_send_requires_the_admin_edit_grant() {
+        assert_eq!(
+            node_authority("notification.send"),
+            Some(NodeAuthority::Matrix {
+                permission: Permission::Matrix {
+                    module: Module::Admin,
+                    action: Action::Edit,
+                },
+                board_op: None,
+            })
+        );
+    }
+
+    /// The single non-matrix posture is enumerable and named: a plugin action
+    /// runs under the install's own capability grant, and nothing else does.
+    #[test]
+    fn plugin_action_is_the_only_install_grant_posture() {
+        let install_granted: Vec<&str> = SEAM_NODE_IDS
+            .into_iter()
+            .filter(|id| node_authority(id) == Some(NodeAuthority::InstallGrant))
+            .collect();
+        assert_eq!(install_granted, vec!["plugin.action"]);
     }
 }
 

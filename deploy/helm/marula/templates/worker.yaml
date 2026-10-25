@@ -33,6 +33,16 @@ spec:
           securityContext:
             {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
+            {{- if and .Values.postgresql.deploy (not .Values.pooler.enabled) }}
+            # Owner-role password from the Secret; DATABASE_URL references the
+            # key rather than carrying the value (Wave 56 lane p56-staging-handoff).
+            # Guarded like core-api's: external or pooled URLs carry their own.
+            - name: POSTGRES_OWNER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
+                  key: POSTGRES_OWNER_PASSWORD
+            {{- end }}
             # Owner role on purpose: the relay reads outbox rows across ALL
             # orgs and must not be constrained by RLS (compose parity).
             - name: DATABASE_URL

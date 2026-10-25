@@ -28,6 +28,7 @@
 
 use std::time::Duration;
 
+use core_domain::retry::RETRIEVAL_WATCH_RETRY;
 use sqlx::PgPool;
 use tokio::sync::watch;
 
@@ -38,10 +39,6 @@ pub const WATCH_ENV: &str = "MARULA_RETRIEVAL_WATCH_SECS";
 /// with requests, and a stricter reading would be a stale number charted more
 /// often.
 pub const DEFAULT_INTERVAL_SECS: u64 = 300;
-
-/// Backoff after a failed tick. Short, like the other sweeps: a failed reading
-/// is not a reason to stop warning the operator for five minutes.
-const RETRY_SECS: u64 = 30;
 
 /// What one tick saw, for the log line and for tests.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -109,7 +106,7 @@ pub async fn run(pool: PgPool, interval_secs: u64, mut shutdown: watch::Receiver
                     }
                     Err(error) => {
                         tracing::warn!(%error, "retrieval distribution read failed");
-                        tokio::time::sleep(Duration::from_secs(RETRY_SECS)).await;
+                        tokio::time::sleep(RETRIEVAL_WATCH_RETRY).await;
                     }
                 }
             }

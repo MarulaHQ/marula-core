@@ -442,6 +442,19 @@ pub fn issue_from_error(error: &WorkflowDocError) -> AuthoringIssue {
             Some(id.clone()),
             error.to_string(),
         ),
+        // Wave 56 (`p56-node-authority`): `validate_candidate` is pure and
+        // principal-free, so a DRAFT never carries these — they arrive at
+        // publish and at run, where an author and an org exist. The codes are
+        // mapped anyway so the vocabulary is complete in one place.
+        WorkflowDocError::NodeKindDisabled { id, .. } => {
+            ("node_kind_disabled", Some(id.clone()), error.to_string())
+        }
+        WorkflowDocError::NodeAuthority { id, .. } => {
+            ("node_authority", Some(id.clone()), error.to_string())
+        }
+        WorkflowDocError::AuthorityUnderivable { id, .. } => {
+            ("authority_underivable", Some(id.clone()), error.to_string())
+        }
     };
     AuthoringIssue {
         code: code.to_string(),

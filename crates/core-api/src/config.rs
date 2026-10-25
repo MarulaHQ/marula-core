@@ -207,6 +207,27 @@ pub struct Config {
     /// Malformed entries are dropped loudly at boot and never fail it.
     /// See [`crate::client_ip`] for the resolution algorithm.
     pub trusted_proxies: crate::client_ip::TrustedProxies,
+    /// Concurrent argon2id hashes this process will run (Wave 56 lane
+    /// `p56-auth-bounds`). Env `MARULA_AUTH_HASH_MAX_CONCURRENCY`, default
+    /// `0` = auto, resolved at boot to
+    /// [`crate::auth::hash_gate::default_slots`] (cores ×
+    /// [`crate::auth::hash_gate::DEFAULT_SLOTS_PER_CORE`], floor 2).
+    ///
+    /// This is the bound on unauthenticated password work: login and
+    /// register take a slot before hashing and release it after, and a
+    /// caller that cannot get one inside
+    /// [`Self::auth_hash_queue_wait`] gets a 503 with `Retry-After`. Raise it
+    /// only if the host has the memory (each in-flight slot is ~19 MiB of
+    /// scratch) — a value that outruns the cores does not add throughput, it
+    /// only widens the tail. See [`crate::auth::hash_gate`].
+    pub auth_hash_max_concurrency: usize,
+    /// How long a password request waits for a hash slot before the 503
+    /// (Wave 56 lane `p56-auth-bounds`). Env
+    /// `MARULA_AUTH_HASH_QUEUE_WAIT_MS`, default
+    /// [`crate::auth::hash_gate::DEFAULT_QUEUE_WAIT_MS`] (250). Roughly one
+    /// argon2 verify: a caller that has already waited longer than a hash is
+    /// better served by retrying than by queueing further.
+    pub auth_hash_queue_wait_ms: u64,
     /// App-pool ceiling (Wave 49 lane R1). Env `MARULA_DB_POOL_MAX`
     /// (default 20). A present-but-invalid value refuses boot; see
     /// [`parse_pool_max`].
@@ -546,6 +567,11 @@ impl Config {
             internal_token: None,
             object_store: core_store::StoreChoice::Local(object_dir.to_string_lossy().into_owned()),
             max_upload_bytes: core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES,
+            // Desktop/test profile: auto-sized to this host. Each in-flight
+            // slot is ~19 MiB of argon2 scratch, so the bound follows the
+            // cores rather than a shipped number.
+            auth_hash_max_concurrency: crate::auth::hash_gate::default_slots(),
+            auth_hash_queue_wait_ms: crate::auth::hash_gate::DEFAULT_QUEUE_WAIT_MS,
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: crate::state::DEFAULT_REPORTING_POOL_MAX,
             statement_cache_capacity: core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,
@@ -586,6 +612,20 @@ impl Config {
             Some(addr) => ScanChoice::Clamd(addr.clone()),
             None => ScanChoice::None,
         }
+    }
+
+    /// The process-wide argon2 admission bound this config asks for (Wave 56
+    /// lane `p56-auth-bounds`). Installs it on first call; every later call
+    /// gets the same gate, because the bound must not resize under load.
+    #[must_use]
+    pub fn auth_hash_gate(&self) -> &'static crate::auth::hash_gate::HashGate {
+        crate::auth::hash_gate::global(self.auth_hash_max_concurrency, self.auth_hash_queue_wait())
+    }
+
+    /// The slot-queue deadline as a duration.
+    #[must_use]
+    pub fn auth_hash_queue_wait(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.auth_hash_queue_wait_ms)
     }
 
     /// App-pool sizing handed to `core_db::connect_with` (Wave 49 lane R1).
@@ -932,6 +972,25 @@ impl Config {
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
             db_pool_max: parse_pool_max("MARULA_DB_POOL_MAX", core_db::DEFAULT_POOL_MAX)?,
+            // Wave 56 lane auth-bounds. 0 means auto (cores × 2); anything
+            // else is an operator's explicit ceiling. Bounded above at 256:
+            // past that the value no longer describes a host's cores, it
+            // describes a memory-pressure incident.
+            auth_hash_max_concurrency: {
+                let requested = parse_bounded_u64("MARULA_AUTH_HASH_MAX_CONCURRENCY", 0, 0, 256)?;
+                if requested == 0 {
+                    crate::auth::hash_gate::default_slots()
+                } else {
+                    usize::try_from(requested)
+                        .unwrap_or_else(|_| crate::auth::hash_gate::default_slots())
+                }
+            },
+            auth_hash_queue_wait_ms: parse_bounded_u64(
+                "MARULA_AUTH_HASH_QUEUE_WAIT_MS",
+                crate::auth::hash_gate::DEFAULT_QUEUE_WAIT_MS,
+                0,
+                5_000,
+            )?,
             reporting_pool_max: parse_pool_max(
                 "MARULA_REPORTING_POOL_MAX",
                 crate::state::DEFAULT_REPORTING_POOL_MAX,
@@ -1295,6 +1354,25 @@ impl Config {
                 .and_then(|v| v.parse::<i64>().ok())
                 .map(|mb| mb * 1024 * 1024)
                 .unwrap_or(core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES),
+            // Read from env like the rest of this fixture, so a test that
+            // sets the bound sees it.
+            auth_hash_max_concurrency: std::env::var("MARULA_AUTH_HASH_MAX_CONCURRENCY")
+                .ok()
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .filter(|n| (0..=256).contains(n))
+                .map(|n| {
+                    if n == 0 {
+                        crate::auth::hash_gate::default_slots()
+                    } else {
+                        usize::try_from(n)
+                            .unwrap_or_else(|_| crate::auth::hash_gate::default_slots())
+                    }
+                })
+                .unwrap_or_else(crate::auth::hash_gate::default_slots),
+            auth_hash_queue_wait_ms: std::env::var("MARULA_AUTH_HASH_QUEUE_WAIT_MS")
+                .ok()
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .unwrap_or(crate::auth::hash_gate::DEFAULT_QUEUE_WAIT_MS),
             db_pool_max: core_db::DEFAULT_POOL_MAX,
             reporting_pool_max: crate::state::DEFAULT_REPORTING_POOL_MAX,
             statement_cache_capacity: core_db::DEFAULT_STATEMENT_CACHE_CAPACITY,

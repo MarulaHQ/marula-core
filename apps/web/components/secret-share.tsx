@@ -391,6 +391,13 @@ export function PasswordLinksPanel({
                 <Badge tone="neutral">{l.to_kind.replaceAll("_", " ")}</Badge>{" "}
                 {l.target_deleted ? (
                   <span style={{ color: "var(--m-status-danger-fg)" }}>deleted target</span>
+                ) : l.target_denied ? (
+                  <span
+                    style={{ color: "var(--m-status-warning-fg)" }}
+                    title="The link survives, but the target sits in a module your role cannot view."
+                  >
+                    restricted target — not visible to your role
+                  </span>
                 ) : (
                   <span className="truncate">{l.target_label ?? "target"}</span>
                 )}

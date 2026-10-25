@@ -6153,6 +6153,54 @@ async fn attachments_dedup_link_and_refcounted_delete() {
         .await
         .expect("refs");
     assert_eq!(refs, 0);
+
+    // Wave 56 (`p56-attachment-refcount`): the key space is shared with
+    // `documents_attachments`, so a document attachment holding the same key is
+    // a reference the ticket-side count has to see. Before this lane the count
+    // reported zero here with the document row still present, and the caller
+    // reclaimed bytes the document advertised.
+    let doc_id = fixed_uuid(13005);
+    sqlx::query(
+        "INSERT INTO documents (id, org_id, title, current_version, created_by, updated_by)
+         VALUES ($1, $2, 'Runbook with the same file', 1, $3, $3)",
+    )
+    .bind(doc_id)
+    .bind(sa.org)
+    .bind(ua)
+    .execute(&mut *tx)
+    .await
+    .expect("document insert");
+    let doc_row = core_db::document_attachments::insert(
+        &mut tx,
+        core_db::document_attachments::NewDocumentAttachment {
+            id: fixed_uuid(13006),
+            org_id: sa.org,
+            document_id: doc_id,
+            filename: "evidence.png",
+            content_type: "image/png",
+            size_bytes: 42,
+            sha256: &"a".repeat(64),
+            storage_key: &a1.storage_key,
+            uploaded_by: Some(ua),
+        },
+    )
+    .await
+    .expect("document attachment insert");
+    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, doc_row.id)
+        .await
+        .expect("refs");
+    assert_eq!(
+        refs, 1,
+        "a document attachment on the same key keeps the object alive"
+    );
+    core_db::document_attachments::delete(&mut tx, sa.org, doc_id, doc_row.id)
+        .await
+        .expect("del doc row")
+        .expect("doc row");
+    let refs = core_db::attachments::count_other_refs(&mut tx, sa.org, &a1.storage_key, doc_row.id)
+        .await
+        .expect("refs");
+    assert_eq!(refs, 0, "the document row was the last reference");
     tx.commit().await.expect("commit del");
 }
 

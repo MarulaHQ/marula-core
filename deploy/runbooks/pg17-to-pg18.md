@@ -29,6 +29,13 @@ docker run --rm -v marula_pgdata:/v pgvector/pgvector:pg18 cat /v/PG_VERSION 2>/
 
 ## 1. Dump/restore leg (compose) — proven 2026-09-23
 
+Every `docker compose` command below interpolates
+`deploy/docker-compose.yml`, which since Wave 56 refuses to render without
+`JWT_SECRET`, `MARULA_SECRET_KEY`, `MARULA_INTERNAL_TOKEN` and
+`EMAIL_INTERNAL_TOKEN`. Export the host's own four values first (the same
+ones the stack was running with), or add `--env-file deploy/dev.env` to each
+command on a laptop stack.
+
 The PG18 image also changed its volume layout (`/var/lib/postgresql/18/…`,
 pg_ctlcluster style) — mount the VOLUME ROOT, not `/data` (already applied
 in `deploy/docker-compose.yml`).

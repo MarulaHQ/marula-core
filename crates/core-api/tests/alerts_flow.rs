@@ -247,6 +247,82 @@ async fn create_source_with(
     }
 }
 
+/// Creates a source with every clearable profile field set: a client, a
+/// generic M2M profile and a payload pin. The demotion tests need a source
+/// that has something to clear.
+async fn create_profiled_source(
+    app: &Router,
+    token: &str,
+    board_id: Uuid,
+    source_ref: &str,
+    client_id: Uuid,
+) -> CreatedSource {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        "/api/alert-sources",
+        &[auth(token)],
+        Some(json!({
+            "name": "Acme RMM",
+            "source_ref": source_ref,
+            "board_id": board_id,
+            "client_id": client_id,
+            "event_type": "acme.event.received",
+            "payload_schema_ref": "acme/webhook-v1",
+        })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "profiled source create must succeed"
+    );
+    let body = body_json(response).await;
+    CreatedSource {
+        source_ref: body["source_ref"].as_str().expect("source_ref").into(),
+        secret: body["secret"].as_str().expect("secret shown once").into(),
+        id: body["id"].as_str().expect("id").parse().expect("uuid"),
+    }
+}
+
+async fn create_client(app: &Router, token: &str, name: &str) -> Uuid {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        "/api/clients",
+        &[auth(token)],
+        Some(json!({ "name": name })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "client create must succeed");
+    body_json(response).await["id"]
+        .as_str()
+        .expect("client id")
+        .parse()
+        .expect("uuid")
+}
+
+/// The source's row as the list route reads it, so an assertion is about the
+/// stored column and not only about the PATCH response.
+async fn stored_source(app: &Router, token: &str, id: Uuid) -> Value {
+    let response = send(
+        app,
+        axum::http::Method::GET,
+        "/api/alert-sources",
+        &[auth(token)],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    body_json(response).await["sources"]
+        .as_array()
+        .expect("sources")
+        .iter()
+        .find(|s| s["id"] == id.to_string())
+        .cloned()
+        .expect("the source is listed")
+}
+
 fn signed(source: &CreatedSource, body: &str) -> Vec<(&'static str, String)> {
     vec![sig(&core_mail::hmac::sign(
         source.secret.as_bytes(),
@@ -914,4 +990,111 @@ async fn dual_mount_parity_for_ingest_and_alias_path() {
         let res = send_raw(&app, &path, &[], "{}").await;
         assert_eq!(res.status(), 401, "{path} must be mounted and auth-gated");
     }
+}
+
+/// F48. A source could be promoted to the generic M2M profile but never
+/// demoted: the web UI sends an explicit `null`, serde read it as "absent",
+/// and the SQL COALESCE bound the same NULL for both shapes. This pins the
+/// demotion end to end — record cleared, and the alert door open again.
+#[tokio::test]
+async fn patch_with_explicit_null_demotes_the_source_and_clears_the_pin() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("alerts-demote-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let board = create_board(&app, &token, "Demote Board").await;
+    let client = create_client(&app, &token, "Demote Client").await;
+    let source =
+        create_profiled_source(&app, &token, board, &unique_ref("demote-rmm"), client).await;
+    assert_eq!(
+        stored_source(&app, &token, source.id).await["event_type"],
+        "acme.event.received",
+        "the create records the generic profile"
+    );
+
+    let patch = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/alert-sources/{}", source.id),
+        &[auth(&token)],
+        Some(json!({
+            "event_type": null,
+            "payload_schema_ref": null,
+            "client_id": null,
+        })),
+    )
+    .await;
+    assert_eq!(
+        patch.status(),
+        200,
+        "an explicit null is a clear, not a no-op"
+    );
+    let body = body_json(patch).await;
+    assert!(body["event_type"].is_null(), "the response shows the clear");
+    assert!(body["payload_schema_ref"].is_null());
+    assert!(body["client_id"].is_null());
+
+    let stored = stored_source(&app, &token, source.id).await;
+    assert!(
+        stored["event_type"].is_null(),
+        "the column is cleared, not just the response: {stored}"
+    );
+    assert!(stored["payload_schema_ref"].is_null());
+    assert!(stored["client_id"].is_null());
+
+    // The demotion is what reopens the alert door: the same source that
+    // refused ingest with a generic profile lands an incident again.
+    let restored = alert_body("evt-demoted", "srv-demoted/disk-c", "Disk full", "warning");
+    let ingest = send_raw(
+        &app,
+        &format!("/api/v1/alerts/ingest/{}", source.source_ref),
+        &signed(&source, &restored),
+        &restored,
+    )
+    .await;
+    assert_eq!(
+        ingest.status(),
+        200,
+        "a demoted source is the classic alert source again"
+    );
+    assert_eq!(body_json(ingest).await["status"], "incident_created");
+}
+
+/// The other half of F48: a PATCH that does not name a clearable field must
+/// leave it exactly as it was. An empty `Option` and an explicit null are
+/// different requests, and only one of them clears.
+#[tokio::test]
+async fn patch_that_omits_the_profile_fields_leaves_them_untouched() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("alerts-omit-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let board = create_board(&app, &token, "Omit Board").await;
+    let client = create_client(&app, &token, "Omit Client").await;
+    let source = create_profiled_source(&app, &token, board, &unique_ref("omit-rmm"), client).await;
+
+    let patch = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/alert-sources/{}", source.id),
+        &[auth(&token)],
+        Some(json!({ "name": "Renamed RMM" })),
+    )
+    .await;
+    assert_eq!(patch.status(), 200);
+    let body = body_json(patch).await;
+    assert_eq!(body["name"], "Renamed RMM");
+
+    let stored = stored_source(&app, &token, source.id).await;
+    assert_eq!(stored["name"], "Renamed RMM", "the named field changed");
+    assert_eq!(
+        stored["event_type"], "acme.event.received",
+        "an omitted profile field is not a clear: {stored}"
+    );
+    assert_eq!(stored["payload_schema_ref"], "acme/webhook-v1");
+    assert_eq!(
+        stored["client_id"],
+        client.to_string(),
+        "an omitted client is not a clear"
+    );
 }

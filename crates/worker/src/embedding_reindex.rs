@@ -33,6 +33,7 @@ use std::time::Duration;
 
 use chrono::Timelike;
 use core_domain::embedding::ReindexPolicy;
+use core_domain::retry::EMBEDDING_REINDEX_RETRY;
 use sqlx::PgPool;
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -40,10 +41,6 @@ use uuid::Uuid;
 /// Runs worked per tick. Bounds how long one tick can hold the loop, so a
 /// shutdown is honoured between runs rather than after a whole install drains.
 pub const RUNS_PER_TICK: usize = 8;
-
-/// Backoff after a database or transport failure. Short: a failed tick is not a
-/// reason to stop, and the next one may be the one that works.
-pub const RETRY_SECS: u64 = 2;
 
 /// What one pass of the sweep did, for the log line and for tests.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -304,7 +301,7 @@ pub async fn run(
                 Ok(_report) => Duration::ZERO,
                 Err(error) => {
                     tracing::error!(%error, "embedding re-index tick failed");
-                    Duration::from_secs(RETRY_SECS)
+                    EMBEDDING_REINDEX_RETRY
                 }
             },
         };

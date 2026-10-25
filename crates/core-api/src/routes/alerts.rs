@@ -870,6 +870,14 @@ pub struct PatchAlertSourceRequest {
     #[schema(value_type = Option<uuid::Uuid>)]
     pub board_id: Option<Uuid>,
     /// `Some(None)` clears; `Some(Some(v))` sets; `None` = no change.
+    /// `deserialize_with` is what keeps the first two apart: serde's own
+    /// `Option` layer reads a JSON `null` as `None`, which is the absent
+    /// shape, so without it a demotion was indistinguishable from a rename.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option"
+    )]
     #[schema(value_type = Option<Option<uuid::Uuid>>)]
     pub client_id: Option<Option<Uuid>>,
     pub correlation_window_secs: Option<i32>,
@@ -877,13 +885,34 @@ pub struct PatchAlertSourceRequest {
     /// Promote/demote a source between alert and generic M2M profiles.
     /// `Some(None)` reverts to alert-source; `Some(Some(v))` sets the
     /// emitted event type.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option"
+    )]
     pub event_type: Option<Option<String>>,
     /// Set/clear the payload contract pin the same way.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "double_option"
+    )]
     pub payload_schema_ref: Option<Option<String>>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
+}
+
+/// Distinguishes "field absent" from "explicit null" in PATCH bodies:
+/// absent leaves the column alone, null clears it (same helper as
+/// `labels.rs` and `email_admin.rs`).
+fn double_option<'de, D, T>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Option::<T>::deserialize(de).map(Some)
 }
 
 /// GET /api/alert-sources — newest-first config list (no secrets).
@@ -1649,6 +1678,58 @@ mod tests {
             message.contains("acme_event.received"),
             "the refusal names the profile the source recorded: {message}"
         );
+    }
+
+    #[test]
+    fn a_patch_body_keeps_an_absent_field_apart_from_an_explicit_null() {
+        // F48: the demotion is the explicit null. Before the
+        // `deserialize_with`, serde read both shapes as `None`, so the
+        // web UI's null meant "no change" and a source could be promoted
+        // but never demoted.
+        let absent: PatchAlertSourceRequest =
+            serde_json::from_value(serde_json::json!({ "name": "Renamed" }))
+                .expect("a patch naming one field parses");
+        assert_eq!(absent.event_type, None, "absent means no change");
+        assert_eq!(absent.client_id, None);
+        assert_eq!(absent.payload_schema_ref, None);
+
+        let cleared: PatchAlertSourceRequest = serde_json::from_value(serde_json::json!({
+            "event_type": null,
+            "client_id": null,
+            "payload_schema_ref": null,
+        }))
+        .expect("a patch of explicit nulls parses");
+        assert_eq!(cleared.event_type, Some(None), "null means clear");
+        assert_eq!(cleared.client_id, Some(None));
+        assert_eq!(cleared.payload_schema_ref, Some(None));
+
+        let set: PatchAlertSourceRequest = serde_json::from_value(serde_json::json!({
+            "event_type": "acme.event.received",
+            "client_id": "0192f3a4-0000-7000-8000-000000000001",
+            "payload_schema_ref": "acme/webhook-v1",
+        }))
+        .expect("a patch of values parses");
+        assert_eq!(
+            set.event_type.as_ref().and_then(|v| v.as_deref()),
+            Some("acme.event.received")
+        );
+        assert_eq!(
+            set.payload_schema_ref.as_ref().and_then(|v| v.as_deref()),
+            Some("acme/webhook-v1")
+        );
+        assert!(matches!(set.client_id, Some(Some(_))), "a uuid sets");
+
+        // The same three shapes must stay apart on the wire too: the
+        // idempotency fingerprint is `to_value(request)`, so a null that
+        // serialises as an absent key would let two different intents claim
+        // the same stored response.
+        let absent_json = serde_json::to_value(&absent).expect("absent serialises");
+        assert!(
+            absent_json.get("event_type").is_none(),
+            "an absent field is omitted: {absent_json}"
+        );
+        let cleared_json = serde_json::to_value(&cleared).expect("cleared serialises");
+        assert_eq!(cleared_json["event_type"], Value::Null, "null stays null");
     }
 
     #[test]
