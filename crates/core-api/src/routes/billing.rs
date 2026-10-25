@@ -1022,6 +1022,19 @@ pub(crate) async fn load_eval_inputs(
     let escalator = core_db::contracts::get_escalator(&mut *tx, org_id, contract.id).await?;
     let orders = core_db::contracts::list_change_orders(&mut *tx, org_id, contract.id).await?;
     let credits = core_db::contracts::list_sla_credits(&mut *tx, org_id, contract.id).await?;
+    // A credit is priced only in the contract's currency (a credit never
+    // converts, ADR 0002). The write path refuses a mismatch, so a row that
+    // fails this check predates the guard: refuse the evaluation with the
+    // credit named rather than price it in the wrong currency or drop it
+    // silently. Every evaluation path (preview, invoice run, verification)
+    // loads its credits here, so they cannot disagree about the rule.
+    if let Some(offender) = core_billing::rules::sla_credit_in_another_currency(contract, &credits)
+    {
+        return Err(ApiError::Validation(format!(
+            "SLA credit {} is in {} and contract {} prices in {}; cancel the credit and issue it in {}",
+            offender.id, offender.currency, contract.number, contract.currency, contract.currency
+        )));
+    }
     let tickets = core_db::contracts::list_closed_tickets(
         &mut *tx,
         org_id,
@@ -1500,9 +1513,19 @@ pub async fn create_sla_credit(
     };
     let built = credit.clone();
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        core_db::contracts::get_contract(&mut *ctx.tx, org_id, id)
+        let contract = core_db::contracts::get_contract(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        // ADR 0002: a credit never converts, so it can only be priced in the
+        // contract's own currency. Refuse a mismatch here, in the 422 shape
+        // the credit-note write already uses, instead of storing a row the
+        // engine cannot turn into a line.
+        if !credit.currency.eq_ignore_ascii_case(&contract.currency) {
+            return Err(ApiError::Validation(format!(
+                "currency {} does not match the contract's currency {}",
+                credit.currency, contract.currency
+            )));
+        }
         core_db::contracts::insert_sla_credit(&mut *ctx.tx, &credit).await?;
         Ok((ctx, ()))
     })
