@@ -9,12 +9,12 @@
 // through the entity ledger. A reconnect that carried a Last-Event-ID
 // cursor runs one idempotent rehydration sweep (the resume fallback past
 // the replay buffer). `__resetInstantRuntimeForTests` gives suites a
-// clean slate (the queue is the only durable piece — it reloads from
-// storage).
+// clean slate (the queue is the only durable piece — it reloads from the
+// signed-in user's own key).
 //
 // Non-purpose: no React (use-instant.ts binds hooks), no page wiring.
 
-import { api, loadTokens, resolveApiBaseUrl } from "../api";
+import { api, loadTokens, onSessionUserChange, resolveApiBaseUrl, sessionUserId } from "../api";
 import {
   answerClaims,
   broadcastEntityChange,
@@ -37,6 +37,8 @@ export interface Runtime {
   stream: InstantStream;
   queue: OfflineQueue;
   transport: InstantTransport;
+  /** Drops the session bindings this runtime holds (suite seam). */
+  detach(): void;
 }
 
 /** SSE URL for one stream scope (null = org-wide), auth via `?token=` —
@@ -181,8 +183,15 @@ function buildRuntime(): Runtime {
 
   const queue = new OfflineQueue({
     storage: typeof window === "undefined" ? memoryStorage() : window.localStorage,
+    userId: sessionUserId(),
     invoke,
   });
+
+  // The outbox belongs to the account, not the browser: a sign-out (`null`) or
+  // a different user rebinds it, dropping the previous account's queued writes
+  // instead of replaying them under the next session's token. Rebinding the
+  // same id on a token refresh is a no-op, so queued work survives rotation.
+  const detachOwner = onSessionUserChange((userId) => queue.bindTo(userId));
 
   // Live deltas: SSE contract-event frames land on the bus; the store
   // subscribes. Presence frames never touch the bus (ephemeral — the
@@ -238,7 +247,7 @@ function buildRuntime(): Runtime {
     });
   }
 
-  return { store, bus, stream, queue, transport };
+  return { store, bus, stream, queue, transport, detach: detachOwner };
 }
 
 /** Test seam: a storage stand-in for non-DOM contexts. */
@@ -261,6 +270,7 @@ export function instantRuntime(): Runtime {
 
 /** Suite seam: discard the current runtime; a fresh one builds lazily. */
 export function __resetInstantRuntimeForTests(): void {
+  runtime?.detach();
   runtime?.stream.stop();
   runtime = null;
 }

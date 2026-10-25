@@ -58,6 +58,34 @@ export function clearTokens(): void {
   memoryTokensExpAtMs = 0;
 }
 
+// --- durable-state ownership -------------------------------------------------
+// The instant layer's outbox lives in localStorage and outlives a reload, so it
+// needs the signed-in user's id to key itself. That layer is React-free (the
+// runtime is a plain module singleton), so the principal is mirrored here at
+// module scope: AuthProvider is the only writer, and every reader learns about
+// a change through the subscription instead of polling a hook.
+let sessionUser: string | null = null;
+const sessionUserListeners = new Set<(userId: string | null) => void>();
+
+/** The signed-in user's id, or null when nobody is signed in. */
+export function sessionUserId(): string | null {
+  return sessionUser;
+}
+
+/** Notifies on every sign-in, sign-out, and user change across this tab. */
+export function onSessionUserChange(fn: (userId: string | null) => void): () => void {
+  sessionUserListeners.add(fn);
+  return () => {
+    sessionUserListeners.delete(fn);
+  };
+}
+
+function setSessionUser(userId: string | null): void {
+  if (sessionUser === userId) return;
+  sessionUser = userId;
+  for (const fn of [...sessionUserListeners]) fn(userId);
+}
+
 /** Desktop shell (ADR 0005) injects the embedded API base before page scripts run. */
 export function resolveApiBaseUrl(): string {
   const raw =
@@ -144,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (message.kind !== "session") return;
       if (message.state === "expired") {
         clearTokens();
+        setSessionUser(null);
         setMe(null);
         setStatus("anonymous");
         notifyAuthSettled();
@@ -167,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           saveTokens(await api.refresh());
         } catch {
           if (cancelled) return;
+          setSessionUser(null);
           setStatus("anonymous");
           notifyAuthSettled();
           return;
@@ -179,6 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch {
           if (cancelled) return;
           clearTokens();
+          setSessionUser(null);
           setStatus("anonymous");
           notifyAuthSettled();
           return;
@@ -188,10 +219,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       if (error !== undefined) {
         clearTokens();
+        setSessionUser(null);
         setStatus("anonymous");
         notifyAuthSettled();
         return;
       }
+      setSessionUser(data.user_id);
       setMe(data);
       setStatus("authed");
       notifyAuthSettled();
@@ -207,6 +240,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await api.logout();
     } finally {
       clearTokens();
+      // Sign-out drops the account's durable outbox with it (the instant
+      // runtime listens and clears the queue for this user).
+      setSessionUser(null);
       setMe(null);
       setStatus("anonymous");
       broadcastSession("expired");
