@@ -146,6 +146,16 @@ pub async fn login(
         true,
     )
     .await?;
+    // Take the hash slot BEFORE any password work (Wave 58 lane `p58-hashing`,
+    // same bound and same reasoning as `auth::handlers::login`). Both arms
+    // below — the resolved verify and the two dummy-verify arms — run
+    // argon2id, and holding the permit across the branch is what makes the
+    // bound cover all of them. Acquiring before the identity read means a
+    // saturated process does no DB work at all for the refused request.
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
     // Narrow SECURITY DEFINER bridge (migration 0021): identity only.
     let resolved: Option<(Uuid, Uuid, Uuid)> =
         sqlx::query_as("SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)")
@@ -158,36 +168,54 @@ pub async fn login(
         None => {
             // Same equalisation as `/api/auth/login` (Wave 54 lane S2c): an
             // unresolved address pays one argon2 verify, so the uniform 401's
-            // duration cannot answer "does this portal account exist".
+            // duration cannot answer "does this portal account exist". The
+            // verify IS the bounded work here, so the slot is held until it
+            // returns.
             crate::auth::password::spend_dummy_verify(req.password.clone()).await;
+            drop(permit);
             return Err(ApiError::Unauthorized("invalid credentials".into()));
         }
     };
 
-    let mut tx = state
-        .pool
-        .begin()
-        .await
-        .map_err(|e| ApiError::Internal(e.into()))?;
-    core_db::set_org(&mut tx, org_id).await?;
-    let creds =
-        match core_db::portal::find_portal_credentials_by_email(&mut *tx, org_id, &req.email)
-            .await?
-        {
-            Some(creds) if creds.id == user_id => creds,
-            // The bridge and the RLS-scoped lookup disagree (an identity deleted
-            // or disabled between the two reads). Unreachable in the ordinary
-            // path, so it pays the verify too rather than becoming a second,
-            // quicker 401 anyone can aim at. The scope is released first: a
-            // 45 ms hash must not sit on a pooled connection.
-            _ => {
-                drop(tx);
-                crate::auth::password::spend_dummy_verify(req.password.clone()).await;
-                return Err(ApiError::Unauthorized("invalid credentials".into()));
-            }
-        };
-    if !crate::auth::password::verify_async(req.password.clone(), creds.password_hash.clone()).await
-    {
+    // The credential read gets its own short transaction, committed BEFORE
+    // the hash (Wave 58 lane `p58-hashing`, the shape `auth::handlers::login`
+    // already uses). The old code kept this transaction open across the
+    // verify, so every in-flight portal login pinned one of the app pool's
+    // connections for the whole argon2 window; with the read committed first,
+    // a hash never holds a connection and the pool is only rented to read.
+    let creds = {
+        let mut tx = state
+            .pool
+            .begin()
+            .await
+            .map_err(|e| ApiError::Internal(e.into()))?;
+        core_db::set_org(&mut tx, org_id).await?;
+        let creds =
+            core_db::portal::find_portal_credentials_by_email(&mut *tx, org_id, &req.email).await?;
+        tx.commit()
+            .await
+            .map_err(|e| ApiError::Internal(e.into()))?;
+        creds
+    };
+    let creds = match creds {
+        Some(creds) if creds.id == user_id => creds,
+        // The bridge and the RLS-scoped lookup disagree (an identity deleted
+        // or disabled between the two reads). Unreachable in the ordinary
+        // path, so it pays the verify too rather than becoming a second,
+        // quicker 401 anyone can aim at.
+        _ => {
+            crate::auth::password::spend_dummy_verify(req.password.clone()).await;
+            drop(permit);
+            return Err(ApiError::Unauthorized("invalid credentials".into()));
+        }
+    };
+    let verified =
+        crate::auth::password::verify_async(req.password.clone(), creds.password_hash.clone())
+            .await;
+    // The hash slot is released the moment the hash returns. Everything below
+    // is ordinary request handling.
+    drop(permit);
+    if !verified {
         audit_best_effort(
             &state,
             org_id,
@@ -207,7 +235,15 @@ pub async fn login(
         .await;
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
-    // First successful login activates an invited identity.
+    // First successful login activates an invited identity. Its own short
+    // transaction: the credential read above is already closed, so this write
+    // never shares a scope with the verify.
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    core_db::set_org(&mut tx, org_id).await?;
     core_db::portal::activate_on_first_login(&mut *tx, org_id, creds.id).await?;
     tx.commit()
         .await
