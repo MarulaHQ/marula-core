@@ -28,6 +28,48 @@ use uuid::Uuid;
 
 const SKEW_SECONDS: i64 = 300;
 
+/// How many `v1` candidates one request may present.
+///
+/// Stripe signs with every active signing secret, which is two during a
+/// rotation (the new secret and the old one being retired); the docs tell
+/// an endpoint to accept a signature that matches ANY of them. Four is
+/// headroom over that rotation shape and a hard ceiling on the work an
+/// unauthenticated caller can buy: without it the cost of one request is
+/// one full-body HMAC per comma-separated part the header carries, bounded
+/// only by the ingress header limit.
+const MAX_V1_CANDIDATES: usize = 4;
+
+/// Splits a `Stripe-Signature` header into its timestamp and its `v1`
+/// candidates, refusing a header that carries more candidates than a
+/// rotation can explain. Pure — unit-tested without a request.
+fn parse_signature_header(raw: &str) -> Result<(i64, Vec<String>), ApiError> {
+    let mut timestamp: Option<i64> = None;
+    let mut signatures: Vec<String> = Vec::new();
+    for part in raw.split(',') {
+        let Some((k, v)) = part.split_once('=') else {
+            continue;
+        };
+        match k.trim() {
+            "t" => timestamp = v.trim().parse().ok(),
+            "v1" => {
+                if signatures.len() >= MAX_V1_CANDIDATES {
+                    return Err(ApiError::StripeWebhookRejected(
+                        "the signature header carries more v1 candidates than a secret rotation explains",
+                    ));
+                }
+                signatures.push(v.trim().to_string());
+            }
+            _ => {}
+        }
+    }
+    let Some(t) = timestamp else {
+        return Err(ApiError::StripeWebhookRejected(
+            "the signature timestamp is missing",
+        ));
+    };
+    Ok((t, signatures))
+}
+
 /// Verifies the Stripe-Signature header against the instance's webhook
 /// secret (Stripe's v1 scheme: `t=…,v1=<hmac-sha256(secret, "t.body")>`,
 /// computed with the SAME `core_mail::hmac` helpers as every other
@@ -41,23 +83,7 @@ pub(crate) fn verify_stripe_signature(
         .get("stripe-signature")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| ApiError::StripeWebhookRejected("a Stripe-Signature header is required"))?;
-    let mut timestamp: Option<i64> = None;
-    let mut signatures: Vec<String> = Vec::new();
-    for part in raw.split(',') {
-        let Some((k, v)) = part.split_once('=') else {
-            continue;
-        };
-        match k.trim() {
-            "t" => timestamp = v.trim().parse().ok(),
-            "v1" => signatures.push(v.trim().to_string()),
-            _ => {}
-        }
-    }
-    let Some(t) = timestamp else {
-        return Err(ApiError::StripeWebhookRejected(
-            "the signature timestamp is missing",
-        ));
-    };
+    let (t, signatures) = parse_signature_header(raw)?;
     // Timestamp skew: fresh events only (replay of old captures dies here).
     let age = (chrono::Utc::now().timestamp() - t).abs();
     if age > SKEW_SECONDS {
@@ -282,4 +308,81 @@ async fn record_decline_audit(
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn header(raw: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "stripe-signature",
+            HeaderValue::from_str(raw).expect("visible ascii header"),
+        );
+        headers
+    }
+
+    fn now() -> i64 {
+        chrono::Utc::now().timestamp()
+    }
+
+    fn candidates(count: usize) -> String {
+        (0..count)
+            .map(|i| format!("v1={i:064x}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    #[test]
+    fn a_rotation_pair_verifies_on_either_candidate() {
+        // Stripe signs with every active secret during a rotation; a
+        // signature matching the SECOND candidate must still be accepted.
+        let payload = b"{\"id\":\"evt_1\"}";
+        let t = now();
+        let signed = format!("{t}.{}", String::from_utf8_lossy(payload));
+        let good = core_mail::hmac::sign(b"whsec_test", signed.as_bytes());
+        let raw = format!("t={t},v1={},v1={good}", candidates(1));
+        assert!(verify_stripe_signature(&header(&raw), payload, "whsec_test").is_ok());
+    }
+
+    #[test]
+    fn the_candidate_set_is_capped_regardless_of_header_size() {
+        // Worst case: the caller fills the header with parts. The parse
+        // stops at the cap, so the number of full-body HMACs one request
+        // can force is a constant, not a function of the header size.
+        let t = now();
+        let at_cap = format!("t={t},{}", candidates(MAX_V1_CANDIDATES));
+        let (parsed_t, parsed) = parse_signature_header(&at_cap).expect("a rotation fits");
+        assert_eq!(parsed_t, t);
+        assert_eq!(parsed.len(), MAX_V1_CANDIDATES);
+
+        let over_cap = format!("t={t},{}", candidates(1_000));
+        let refused = parse_signature_header(&over_cap);
+        assert!(
+            refused.is_err(),
+            "a header past the candidate cap must be refused before verification"
+        );
+    }
+
+    #[test]
+    fn a_flood_of_candidates_is_refused_as_a_webhook_rejection() {
+        let t = now();
+        let raw = format!("t={t},{}", candidates(10_000));
+        let refused = verify_stripe_signature(&header(&raw), b"{}", "whsec_test");
+        match refused {
+            Err(ApiError::StripeWebhookRejected(reason)) => {
+                assert!(reason.contains("v1 candidates"), "typed reason: {reason}");
+            }
+            other => panic!("expected a typed webhook rejection, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stale_timestamps_are_rejected_before_any_hmac() {
+        let stale = now() - SKEW_SECONDS - 1;
+        let raw = format!("t={stale},{}", candidates(1));
+        assert!(verify_stripe_signature(&header(&raw), b"{}", "whsec_test").is_err());
+    }
 }

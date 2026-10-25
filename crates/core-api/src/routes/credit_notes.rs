@@ -555,14 +555,18 @@ pub async fn apply(
             created_by: Some(user_id),
         };
         core_db::invoices::insert_payment(&mut *ctx.tx, &payment).await?;
-        let after_invoice = core_db::invoices::apply_payment_total(
-            &mut *ctx.tx,
+        // The allocation was checked against this invoice's total, so the
+        // total is part of the predicate: an invoice edited or settled
+        // between the read and here refuses with a typed 409 instead of
+        // consuming credit against a total that no longer exists.
+        let after_invoice = core_db::invoices::apply_payment_total_expecting(
+            &mut ctx.tx,
             org_id,
             req.invoice_id,
             req.amount_minor,
+            invoice.total_minor,
         )
-        .await?
-        .ok_or_else(|| ApiError::Conflict("invoice left its payable state; retry".into()))?;
+        .await?;
 
         // The credit-side counter: compare-and-set on remaining value.
         let after_note =

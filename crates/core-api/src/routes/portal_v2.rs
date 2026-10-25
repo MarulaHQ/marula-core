@@ -411,12 +411,18 @@ pub async fn pay_invoice(
             created_by: None,
         };
         core_db::invoices::insert_payment(&mut *ctx.tx, &payment).await?;
-        let after =
-            core_db::invoices::apply_payment_total(&mut *ctx.tx, org_id, id, req.amount_minor)
-                .await?
-                .ok_or_else(|| {
-                    ApiError::Conflict("invoice left its payable state; retry".into())
-                })?;
+        // Same basis as the staff path: the portal read a payable invoice
+        // and validated the amount against its total, so the total is part
+        // of the predicate and a portal payer racing an edit loses with a
+        // typed 409 rather than settling on a stale total.
+        let after = core_db::invoices::apply_payment_total_expecting(
+            &mut ctx.tx,
+            org_id,
+            id,
+            req.amount_minor,
+            invoice.total_minor,
+        )
+        .await?;
 
         ctx.emit(
             types::INVOICE_PAYMENT_RECORDED,

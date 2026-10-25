@@ -21,21 +21,36 @@
 //! unscoped pool reads.
 
 use crate::error::{ApiError, ApiResult};
-use crate::routes::secrets::check_vault_budget;
+use crate::routes::secrets::check_vault_budget_seats;
 use crate::state::AppState;
 use uuid::Uuid;
 
 /// One admission decision for a vault write: in-memory fast path first,
 /// then the durable seat. `limit == 0` disables everywhere (no DB touch).
 pub async fn ensure_vault_budget(state: &AppState, org_id: Uuid) -> ApiResult<()> {
+    ensure_vault_budget_seats(state, org_id, 1).await
+}
+
+/// The multi-row form of [`ensure_vault_budget`]: a request that writes
+/// `seats` rows pays one seat per row, decided in ONE verdict. The bulk
+/// ingestion path uses it so a 100-row chunk cannot buy 100 sealed writes
+/// against a single budget seat; a request over the remaining budget is
+/// refused whole (the typed 429) with no row written.
+pub async fn ensure_vault_budget_seats(
+    state: &AppState,
+    org_id: Uuid,
+    seats: u32,
+) -> ApiResult<()> {
     // Fast path: the in-process bucket — a local breach is conclusive.
-    check_vault_budget(state, org_id)?;
+    check_vault_budget_seats(state, org_id, seats)?;
     let limit_per_min = state.config.vault_write_budget_per_min;
-    if limit_per_min == 0 {
+    if limit_per_min == 0 || seats == 0 {
         return Ok(());
     }
     let mut conn = state.pool.acquire().await.map_err(ApiError::from)?;
-    match core_db::vault_scale::consume_write_budget_seat(&mut conn, org_id, limit_per_min).await {
+    match core_db::vault_scale::consume_write_budget_seats(&mut conn, org_id, limit_per_min, seats)
+        .await
+    {
         Ok(core_db::vault_scale::BudgetSeatVerdict::Admitted) => Ok(()),
         Ok(core_db::vault_scale::BudgetSeatVerdict::Exceeded { retry_after_secs }) => {
             Err(ApiError::RateLimited { retry_after_secs })
