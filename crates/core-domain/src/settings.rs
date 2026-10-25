@@ -237,6 +237,7 @@ impl SettingDeclaration {
                 EMAIL_DIGEST_POLICY => EMAIL_DIGEST_POLICY_OPTIONS,
                 EMAIL_SIGNATURE_POLICY => EMAIL_SIGNATURE_POLICY_OPTIONS,
                 EMAIL_DIGEST => EMAIL_DIGEST_OPTIONS,
+                EMAIL_INBOUND_SENDER_BINDING => EMAIL_INBOUND_SENDER_BINDING_OPTIONS,
                 _ => EMPTY_OPTIONS,
             }),
             _ => None,
@@ -458,6 +459,28 @@ pub const EMAIL_DIGEST_POLICY_OPTIONS: &[&str] = &["allowed", "disabled"];
 pub const EMAIL_SIGNATURE_POLICY_OPTIONS: &[&str] = &["allowed", "org_locked"];
 /// Per-user digest options.
 pub const EMAIL_DIGEST_OPTIONS: &[&str] = &["off", "daily"];
+
+// --- Wave 55 (`p55-inbound-sender-binding`): who may email a ticket -------
+//
+// Record 4 of the Wave 54 security decisions. The webhook HMAC proves a
+// message came through the mail provider and says nothing about who wrote
+// it, so a reply may only join an existing ticket when its `From` is already
+// a participant on that ticket. A message from anyone else waits.
+//
+// The level is the org's grant of authority to the decision engine, and the
+// three answers are levels of triage rather than one rule: `human_only`
+// (default) holds every non-participant message for a person, `shadow`
+// records what the engine would have done beside the held message while a
+// person still decides, and `autonomous` applies the engine's decision with
+// the audit row a person's decision leaves. `core-api/src/email.rs` reads it
+// before the inbound ledger row is written.
+
+/// Authority the org grants the engine over a message whose sender is not a
+/// participant on the ticket it names.
+pub const EMAIL_INBOUND_SENDER_BINDING: &str = "email.inbound_sender_binding";
+/// The three levels, in the order the settings UI renders them: the default
+/// first, then the two that are deliberate acts.
+pub const EMAIL_INBOUND_SENDER_BINDING_OPTIONS: &[&str] = &["human_only", "shadow", "autonomous"];
 
 /// True when the key belongs to the per-board outbound identity family
 /// (`email.board.<uuid>.<field>`), addressed dynamically per board.
@@ -1084,6 +1107,23 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                              one as its fallback; locked to the organization sends \
                              the workspace signature on every message and refuses \
                              personal ones.",
+            },
+            // Wave 55 (`p55-inbound-sender-binding`): who may email a ticket.
+            SettingDeclaration {
+                key: EMAIL_INBOUND_SENDER_BINDING,
+                kind: SettingKind::Enumeration,
+                default: SettingValue::Text("human_only".into()),
+                scope: SettingScope::Org,
+                section: SettingSection::Email,
+                visibility: SettingVisibility::Ui,
+                label: "Replies from unknown senders",
+                description: "What happens when someone who is not already on a \
+                             ticket emails that ticket. Human only holds the message \
+                             for a person and nothing reaches the ticket until they \
+                             decide. Shadow also records what the decision engine \
+                             would have done, so its agreement can be measured while \
+                             a person still decides. Autonomous applies the engine's \
+                             decision and records it as one.",
             },
             // Wave 34 lane 8 (`p34-email-config-closeout`): outbound mail
             // configuration. Selection/identity only — credentials live in
@@ -1869,7 +1909,10 @@ mod tests {
         // 57 → 58. Wave 43 lane 14 added the workflow run-retention window:
         // runs are the highest-volume rows the workflow engine produces, so
         // their window is an org setting rather than an unbounded table.
-        assert_eq!(declarations_for(SettingScope::Org).len(), 58);
+        // 58 → 59. Wave 55 lane V7 added the inbound sender-binding level:
+        // who may email a ticket, and how much authority the engine has over
+        // a message from someone who is not on it.
+        assert_eq!(declarations_for(SettingScope::Org).len(), 59);
     }
 
     #[test]
@@ -1968,6 +2011,40 @@ mod tests {
             declaration(TOURS_ORG_DISABLED).unwrap().scope,
             SettingScope::Org
         );
+    }
+
+    /// The three levels of triage are a per-org setting with the strictest
+    /// one as its default (Wave 55, decision 4). The vocabularies the code
+    /// accepts and the ruling names have to be the same three strings.
+    #[test]
+    fn inbound_sender_binding_defaults_to_human_only_and_names_three_levels() {
+        let decl = declaration(EMAIL_INBOUND_SENDER_BINDING).expect("declared");
+        assert_eq!(decl.scope, SettingScope::Org);
+        assert_eq!(decl.section, SettingSection::Email);
+        assert!(matches!(decl.kind, SettingKind::Enumeration));
+        assert_eq!(
+            decl.default,
+            SettingValue::Text("human_only".into()),
+            "a value nobody chose is not authority for the engine"
+        );
+        assert_eq!(
+            decl.options(),
+            Some(EMAIL_INBOUND_SENDER_BINDING_OPTIONS),
+            "the only levels the code accepts are the three the ruling names"
+        );
+        for level in ["human_only", "shadow", "autonomous"] {
+            assert!(
+                decl.validate(&SettingValue::Text(level.into())).is_ok(),
+                "{level} must be accepted"
+            );
+        }
+        // Anything else is refused rather than read as a grant: the pipeline
+        // falls back to the default for a value it cannot name, and this
+        // declaration is what keeps an unknown value from being stored.
+        assert!(decl
+            .validate(&SettingValue::Text("automatic".into()))
+            .is_err());
+        assert!(decl.validate(&SettingValue::Boolean(true)).is_err());
     }
 
     #[test]
