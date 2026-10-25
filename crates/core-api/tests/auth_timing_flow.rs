@@ -13,12 +13,13 @@
 //!   lane's evidence, and it belongs to the group gate's run, never to the
 //!   unit suite. Exact command: internal/design/qa-p54-argon2-timing/GATES.md.
 //!
-//! Lockout discipline: every request below carries its OWN `x-forwarded-for`
-//! bucket. `app_auth_backoff_secs(1)` is 30 seconds, so a single failed login
-//! locks the per-IP key it used — a shared bucket would gate the next request
-//! and the harness would measure the gate instead of argon2. The per-actor
-//! key is cleared between samples with the same `gate_clear` the login path
-//! calls after a success, and the pre-sample assertion proves it is clear.
+//! Lockout discipline: every request below carries its OWN caller address,
+//! minted by the shared fixture (`support/caller.rs`, Wave 54 follow-up F7).
+//! `app_auth_backoff_secs(1)` is 30 seconds, so a single failed login locks the
+//! per-IP key it used — a shared bucket would gate the next request and the
+//! harness would measure the gate instead of argon2. The per-actor key is
+//! cleared between samples with the same `gate_clear` the login path calls
+//! after a success, and the pre-sample assertion proves it is clear.
 
 use core_api::{auth::password, config::Config, state::AppState};
 use serde_json::{json, Value};
@@ -26,6 +27,11 @@ use sqlx::PgPool;
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+#[path = "support/caller.rs"]
+mod caller;
+
+use caller::fresh_caller_ip;
 
 // --- harness ----------------------------------------------------------------
 
@@ -91,19 +97,6 @@ async fn body_json(response: axum::response::Response) -> Value {
             .unwrap(),
     )
     .unwrap()
-}
-
-/// A block of caller buckets for one invocation. Random so a repeat run inside
-/// the 30-second lock window cannot inherit the previous run's armed key.
-fn run_block() -> u8 {
-    (Uuid::now_v7().as_u128() % 200 + 20) as u8
-}
-
-/// One caller bucket: unique per request inside a run, outside every trusted
-/// default and every Cloudflare range, in public space nobody routes.
-fn bucket(run_block: u8, index: usize, arm: usize) -> String {
-    let n = index * 2 + arm;
-    format!("138.{run_block}.{}.{}", (n / 254) % 254, n % 254 + 1)
 }
 
 fn email_key(email: &str) -> String {
@@ -216,15 +209,15 @@ async fn unregistered_staff_login_spends_a_dummy_verify_and_answers_the_uniform_
     let state = test_state().await;
     let app = core_api::router(state);
     let seeded = seed(&app, "staff-absent").await;
-    let block = run_block();
     let absent = format!("absent-{}@timing.invalid", Uuid::now_v7().simple());
+    let unresolved_caller = fresh_caller_ip();
 
     let before = password::dummy_verify_count();
     let unresolved = send(
         &app,
         axum::http::Method::POST,
         "/api/auth/login",
-        &[("x-forwarded-for", &bucket(block, 0, 0))],
+        &[unresolved_caller.forwarded_for()],
         Some(json!({"email": absent, "password": WALK_IN_PASSWORD})),
     )
     .await;
@@ -236,11 +229,12 @@ async fn unregistered_staff_login_spends_a_dummy_verify_and_answers_the_uniform_
         "an address that resolves to nothing must still pay exactly one argon2 verify"
     );
 
+    let resolved_caller = fresh_caller_ip();
     let resolved = send(
         &app,
         axum::http::Method::POST,
         "/api/auth/login",
-        &[("x-forwarded-for", &bucket(block, 0, 1))],
+        &[resolved_caller.forwarded_for()],
         Some(json!({"email": seeded.owner_email, "password": WALK_IN_PASSWORD})),
     )
     .await;
@@ -270,15 +264,15 @@ async fn unregistered_portal_login_spends_a_dummy_verify_and_answers_the_uniform
     let state = test_state().await;
     let app = core_api::router(state);
     let seeded = seed(&app, "portal-absent").await;
-    let block = run_block();
     let absent = format!("absent-{}@timing.invalid", Uuid::now_v7().simple());
+    let unresolved_caller = fresh_caller_ip();
 
     let before = password::dummy_verify_count();
     let unresolved = send(
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", &bucket(block, 0, 0))],
+        &[unresolved_caller.forwarded_for()],
         Some(json!({"email": absent, "password": WALK_IN_PASSWORD})),
     )
     .await;
@@ -290,11 +284,12 @@ async fn unregistered_portal_login_spends_a_dummy_verify_and_answers_the_uniform
         "the portal's unresolved arm must still pay exactly one argon2 verify"
     );
 
+    let resolved_caller = fresh_caller_ip();
     let resolved = send(
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", &bucket(block, 0, 1))],
+        &[resolved_caller.forwarded_for()],
         Some(json!({"email": seeded.portal_email, "password": WALK_IN_PASSWORD})),
     )
     .await;
@@ -375,7 +370,6 @@ async fn measure_arm(arm: Arm<'_>) -> (Vec<f64>, Vec<f64>) {
         warmup,
     } = arm;
     let keys = vec![email_key(resolved_email), email_key(unresolved_email)];
-    let block = run_block();
     let mut resolved_ms = Vec::with_capacity(samples);
     let mut unresolved_ms = Vec::with_capacity(samples);
 
@@ -392,16 +386,23 @@ async fn measure_arm(arm: Arm<'_>) -> (Vec<f64>, Vec<f64>) {
              measuring the lockout, not the verify"
         );
 
-        let ip_resolved = bucket(block, sample, 0);
-        let ip_unresolved = bucket(block, sample, 1);
+        let ip_resolved = fresh_caller_ip();
+        let ip_unresolved = fresh_caller_ip();
         // Alternate which arm goes first so a monotonic drift (CPU heat, pool
         // warm-up) lands on both arms instead of on one.
         let (resolved, unresolved) = if sample % 2 == 0 {
-            let r = timed_login(app, path, &ip_resolved, resolved_email, WALK_IN_PASSWORD).await;
+            let r = timed_login(
+                app,
+                path,
+                ip_resolved.as_str(),
+                resolved_email,
+                WALK_IN_PASSWORD,
+            )
+            .await;
             let u = timed_login(
                 app,
                 path,
-                &ip_unresolved,
+                ip_unresolved.as_str(),
                 unresolved_email,
                 WALK_IN_PASSWORD,
             )
@@ -411,12 +412,19 @@ async fn measure_arm(arm: Arm<'_>) -> (Vec<f64>, Vec<f64>) {
             let u = timed_login(
                 app,
                 path,
-                &ip_unresolved,
+                ip_unresolved.as_str(),
                 unresolved_email,
                 WALK_IN_PASSWORD,
             )
             .await;
-            let r = timed_login(app, path, &ip_resolved, resolved_email, WALK_IN_PASSWORD).await;
+            let r = timed_login(
+                app,
+                path,
+                ip_resolved.as_str(),
+                resolved_email,
+                WALK_IN_PASSWORD,
+            )
+            .await;
             (r, u)
         };
 

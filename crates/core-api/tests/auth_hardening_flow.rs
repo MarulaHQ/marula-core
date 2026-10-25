@@ -24,6 +24,11 @@ use std::{sync::Arc, time::Duration};
 use tower::ServiceExt;
 use uuid::Uuid;
 
+#[path = "support/caller.rs"]
+mod caller;
+
+use caller::fresh_caller_ip;
+
 // --- harness ----------------------------------------------------------------
 
 async fn test_state(admin_url: &str) -> AppState {
@@ -131,6 +136,11 @@ async fn send(
             .unwrap(),
         None => builder.body(axum::body::Body::empty()).unwrap(),
     };
+    // A caller of its own unless the case named one: the lockout rows are
+    // durable and per-IP, and a headerless `oneshot` request resolves to the
+    // shared `unknown` bucket, which is how one case's lock used to refuse
+    // another case's sign-in (Wave 54 follow-up F7).
+    let request = fresh_caller_ip().stamp(request);
     app.clone().oneshot(request).await.unwrap()
 }
 
@@ -194,14 +204,14 @@ async fn ip_rotation_cannot_bypass_the_account_lock() {
 
     // Re-declare an identical-shape login against the same account from
     // eight DIFFERENT forwarded IPs (each sees its own per-IP counter).
-    for hop in 0..8 {
-        let ip = format!("203.0.113.{hop}");
+    for _ in 0..8 {
+        let ip = fresh_caller_ip();
         let response = send(
             &app,
             Method::POST,
             "/api/auth/login",
             None,
-            &[("x-forwarded-for", ip.as_str())],
+            &[ip.forwarded_for()],
             Some(json!({ "email": email, "password": "wrong-password-11" })),
         )
         .await;
@@ -211,12 +221,13 @@ async fn ip_rotation_cannot_bypass_the_account_lock() {
     // A fresh IP: the per-actor key is STILL locked. The answer is the
     // uniform 401 with the same reason/message shape as the failures
     // above — no typed 429, no lock-state fingerprint (§A1 uniform rule).
+    let fresh_ip = fresh_caller_ip();
     let locked = send(
         &app,
         Method::POST,
         "/api/auth/login",
         None,
-        &[("x-forwarded-for", "203.0.113.199")],
+        &[fresh_ip.forwarded_for()],
         Some(json!({ "email": email, "password": "anything-11-valid" })),
     )
     .await;
@@ -236,7 +247,7 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
     let app = core_api::router(test_state(&admin_url).await);
     // Elaborate the isolated caller IP so other tests' durable lockouts
     // cannot bleed into this one's curve.
-    let ip = format!("114.9.10.{}", Uuid::now_v7());
+    let ip = fresh_caller_ip();
     // Attempt 1: invalid refresh ⇒ counting (uniform 401).
     let first = send(
         &app,
@@ -281,12 +292,12 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
 /// inherited the growing window as "the app cannot rotate, so it bounces to
 /// /login".
 ///
-/// Drives the hardening layer directly with a private caller IP. These
-/// helpers take the resolved client IP as a parameter, so a fresh string is
-/// a private bucket: no SQL cleanup, and no dependence on the fallback key
-/// that every `oneshot` request without a forwarded-for header shares (four
-/// other cases in this file refresh on that key, and a `count(*)` across it
-/// is a race, which is how the first version of this test failed). The
+/// Drives the hardening layer directly with a caller address from the shared
+/// fixture (`support/caller.rs`), held for the whole case: these helpers take
+/// the resolved client IP as a parameter, so one address owned by one case is
+/// a private bucket, with no SQL cleanup and no dependence on the fallback key
+/// every headerless `oneshot` request in this binary shares — counting across
+/// that key is a race, which is how the first version of this test failed. The
 /// handler-side wiring — `handlers::refresh` calling `record_success` after
 /// the rotation commits — is what the E2E acceptance criterion in
 /// `internal/design/qa-p47-gate-truth/GATES.md` checks end to end.
@@ -296,15 +307,16 @@ async fn a_successful_rotation_clears_the_refresh_gate() {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let state = test_state(&admin_url).await;
-    let ip = format!("a26-curve-{}", Uuid::now_v7());
+    let caller = fresh_caller_ip();
+    let ip = caller.as_str();
 
     // Rung 1: one failure engages a window on this caller.
-    record_failure(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly)
+    record_failure(&state, gate_kind::REFRESH, ip, GateSubject::IpOnly)
         .await
         .expect("record one refresh failure");
     assert!(
         matches!(
-            enforce_gate(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly, false).await,
+            enforce_gate(&state, gate_kind::REFRESH, ip, GateSubject::IpOnly, false).await,
             Err(ApiError::AuthThrottled { .. })
         ),
         "one recorded failure must engage the gate"
@@ -312,21 +324,21 @@ async fn a_successful_rotation_clears_the_refresh_gate() {
 
     // A success on the surface clears it. Without the clear the next failure
     // doubles a counter that nothing can lower.
-    record_success(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly)
+    record_success(&state, gate_kind::REFRESH, ip, GateSubject::IpOnly)
         .await
         .expect("clear the curve after a success");
     assert!(
-        enforce_gate(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly, false)
+        enforce_gate(&state, gate_kind::REFRESH, ip, GateSubject::IpOnly, false)
             .await
             .is_ok(),
         "a successful rotation must clear the refresh curve"
     );
 
     // And the ladder restarts at rung one, not two.
-    record_failure(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly)
+    record_failure(&state, gate_kind::REFRESH, ip, GateSubject::IpOnly)
         .await
         .expect("record a failure after the clear");
-    match enforce_gate(&state, gate_kind::REFRESH, &ip, GateSubject::IpOnly, false).await {
+    match enforce_gate(&state, gate_kind::REFRESH, ip, GateSubject::IpOnly, false).await {
         Err(ApiError::AuthThrottled { retry_after_secs }) => assert!(
             retry_after_secs <= 30,
             "the ladder restarts at its first rung after a success, got {retry_after_secs}s"
@@ -346,11 +358,10 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
-    // Elaborate the isolated caller IP (durable per-IP counters are
-    // process-wide; other tests must not bleed into this chain check).
-    let ip = format!("114.51.40.{}", Uuid::now_v7());
-    let ip = ip.as_str();
-    let _ip_dead = format!("114.51.41.{}", Uuid::now_v7());
+    // Its own caller IP: durable per-IP counters are process-wide, and the
+    // rotation below arms this one.
+    let caller = fresh_caller_ip();
+    let ip = caller.as_str();
     let slug = format!("reuse-{}", Uuid::now_v7().simple());
     let seeded = register_org(&app, &slug).await;
     let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
@@ -385,13 +396,13 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
     // The rotation's successor DIED with the chain — presenting it is a
     // 401. A FRESH caller ip because this test's own IP is now under the
     // exponential lock it just demonstrated (durable, per-IP).
-    let ip_dead = format!("114.51.41.{}", Uuid::now_v7());
+    let ip_dead = fresh_caller_ip();
     let dead = send(
         &app,
         Method::POST,
         "/api/auth/refresh",
         None,
-        &[("x-forwarded-for", ip_dead.as_str())],
+        &[ip_dead.forwarded_for()],
         Some(json!({
             "refresh_token": new_refresh,
             "session_id": rotated_pair["session_id"].as_str().unwrap(),
@@ -654,8 +665,8 @@ async fn body_credential_refresh_with_an_ambient_session_cookie_and_no_csrf_head
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
-    let ip = format!("114.70.10.{}", Uuid::now_v7());
-    let ip = ip.as_str();
+    let caller = fresh_caller_ip();
+    let ip = caller.as_str();
     let slug = format!("twoorg-{}", Uuid::now_v7().simple());
     let (seeded, jar, _) = login_with_cookies(&app, &slug).await;
     let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
@@ -739,8 +750,8 @@ async fn cookie_only_refresh_without_the_csrf_header_is_still_403() {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
-    let ip = format!("114.70.11.{}", Uuid::now_v7());
-    let ip = ip.as_str();
+    let caller = fresh_caller_ip();
+    let ip = caller.as_str();
     let slug = format!("cookieonly-{}", Uuid::now_v7().simple());
     let (seeded, jar, set_cookies) = login_with_cookies(&app, &slug).await;
 
@@ -821,8 +832,8 @@ async fn successive_two_origin_refreshes_never_trip_reuse_detection() {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
-    let ip = format!("114.70.12.{}", Uuid::now_v7());
-    let ip = ip.as_str();
+    let caller = fresh_caller_ip();
+    let ip = caller.as_str();
     let slug = format!("chain-{}", Uuid::now_v7().simple());
     let (seeded, _, _) = login_with_cookies(&app, &slug).await;
     let mut refresh = seeded["refresh_token"].as_str().unwrap().to_string();
@@ -880,8 +891,8 @@ async fn logout_with_an_ambient_session_cookie_and_no_csrf_header_succeeds() {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
-    let ip = format!("114.70.13.{}", Uuid::now_v7());
-    let ip = ip.as_str();
+    let caller = fresh_caller_ip();
+    let ip = caller.as_str();
     let slug = format!("logout-{}", Uuid::now_v7().simple());
     let (seeded, _jar, _) = login_with_cookies(&app, &slug).await;
     let refresh = seeded["refresh_token"].as_str().unwrap().to_string();
@@ -962,8 +973,8 @@ async fn concurrent_refresh_from_one_parent_mints_exactly_one_child() {
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     let mut calls = Vec::new();
     for (tag, ip) in [
-        (tag_a.clone(), format!("114.60.20.{}", Uuid::now_v7())),
-        (tag_b.clone(), format!("114.60.21.{}", Uuid::now_v7())),
+        (tag_a.clone(), fresh_caller_ip()),
+        (tag_b.clone(), fresh_caller_ip()),
     ] {
         let router = core_api::router(racer_state(&admin_url, &tag).await);
         let barrier = Arc::clone(&barrier);
@@ -1075,15 +1086,13 @@ async fn concurrent_refresh_from_one_parent_mints_exactly_one_child() {
         .expect("a winner")
         .1
         .clone();
+    let follow_caller = fresh_caller_ip();
     let follow = send(
         &app,
         Method::POST,
         "/api/auth/refresh",
         None,
-        &[(
-            "x-forwarded-for",
-            format!("114.60.22.{}", Uuid::now_v7()).as_str(),
-        )],
+        &[follow_caller.forwarded_for()],
         Some(json!({
             "refresh_token": winner["refresh_token"],
             "session_id": winner["session_id"],
@@ -1129,13 +1138,13 @@ async fn logout_revokes_the_session_row_under_rls() {
             .expect("session row");
     assert!(live_before, "the seeded session starts live");
 
-    let ip = format!("114.71.11.{}", Uuid::now_v7());
+    let ip = fresh_caller_ip();
     let response = send(
         &app,
         Method::POST,
         "/api/auth/logout",
         None,
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({ "refresh_token": refresh, "session_id": session.to_string() })),
     )
     .await;

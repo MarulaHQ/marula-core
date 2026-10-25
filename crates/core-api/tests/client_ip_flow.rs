@@ -14,6 +14,10 @@
 //! Every case sends its own randomly-suffixed client block: the per-IP
 //! counters are DURABLE and DB-wide, so a fixed IP would collide with
 //! parallel runs (the same discipline `auth_hardening_flow.rs` follows).
+//! Addresses that only need to be private to a case come from the shared
+//! fixture (`support/caller.rs`, Wave 54 follow-up F7); this file keeps its
+//! own paired addresses because its subject is WHICH BUCKET a caller lands in,
+//! and two requests deliberately sharing one is the thing under test.
 //!
 //! The per-IP keys stay noise-only. These tests assert throttle *key
 //! quality* (which bucket a caller lands in), never that the per-IP key
@@ -230,6 +234,14 @@ async fn distinct_clients_behind_one_trusted_proxy_get_distinct_buckets() {
 // ---------------------------------------------------------------------------
 // No proxy header: the peer address itself is the answer, so every caller
 // on the same socket shares one bucket.
+//
+// This is the INTENTIONAL shared-bucket case (Wave 54 follow-up F7). Every
+// other suite stamps a caller of its own and never relies on this; here the
+// sharing IS the assertion — two headerless requests from one peer must land
+// on one key. `caller_fixture::headerless_oneshot_requests_share_the_unknown_bucket`
+// pins the sibling fact for the harness posture, where there is no peer at
+// all. Do not "fix" this case by giving each attempt its own address: that
+// would delete the evidence that the peer is the key.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
