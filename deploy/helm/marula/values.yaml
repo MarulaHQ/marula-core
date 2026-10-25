@@ -20,8 +20,10 @@ nonMarulaDigestPinningEnforced: true
 nameOverride: ""
 fullnameOverride: ""
 
-# Existing secret providing JWT_SECRET / MARULA_SECRET_KEY / EMAIL_* keys.
-# When empty, a Secret is generated from the inline values below.
+# Existing secret providing JWT_SECRET / MARULA_SECRET_KEY / EMAIL_* keys,
+# plus POSTGRES_OWNER_PASSWORD and POSTGRES_APP_PASSWORD when
+# `postgresql.deploy` is true (the connection URLs read those two keys at
+# runtime). When empty, a Secret is generated from the inline values below.
 existingSecret: ""
 
 secrets:
@@ -79,6 +81,11 @@ postgresql:
   imageDigest: "sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946"
   database: marula
   ownerUser: marula
+  # These two passwords feed ONLY the chart-generated Secret. The connection
+  # URLs reference the Secret's keys at runtime ($(POSTGRES_OWNER_PASSWORD) /
+  # $(POSTGRES_APP_PASSWORD), expanded by the kubelet), so with
+  # `existingSecret` set the profiles below carry no credential at all.
+  # Keep them URL-safe (no @ : / ? #) — the app parses DATABASE_URL as a URL.
   ownerPassword: ""
   appUser: marula_app
   appPassword: ""

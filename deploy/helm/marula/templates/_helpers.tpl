@@ -66,11 +66,19 @@ validation / admission) rather than silently floating. */ -}}
 {{- end -}}
 {{- end -}}
 
+{{- /* In-chart Postgres URLs carry the ROLE NAME and the secret KEY, never the
+password (Wave 56 lane p56-staging-handoff). Kubernetes expands $(VAR) in an
+env value from a variable defined EARLIER in the same container's list, so each
+consumer below declares POSTGRES_OWNER_PASSWORD / POSTGRES_APP_PASSWORD from the
+Secret before this URL. One source of truth: the Secret. The values-file
+passwords now feed ONLY the chart-generated Secret, so a profile can set
+existingSecret and carry no credential at all — before this, an install with
+existingSecret still rendered whichever default password sat in values.yaml. */ -}}
 {{- define "marula.dbUrl" -}}
 {{- if .Values.pooler.enabled -}}
 {{- required "pooler.ownerUrl required when pooler.enabled=true" .Values.pooler.ownerUrl -}}
 {{- else if .Values.postgresql.deploy -}}
-postgres://{{ .Values.postgresql.ownerUser }}:{{ .Values.postgresql.ownerPassword | default "changeme-owner" }}@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
+postgres://{{ .Values.postgresql.ownerUser }}:$(POSTGRES_OWNER_PASSWORD)@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
 {{- else -}}
 {{- required "postgresql.externalUrl required when postgresql.deploy=false" (.Values.postgresql.externalUrl) -}}
 {{- end -}}
@@ -80,7 +88,7 @@ postgres://{{ .Values.postgresql.ownerUser }}:{{ .Values.postgresql.ownerPasswor
 {{- if .Values.pooler.enabled -}}
 {{- required "pooler.appUrl required when pooler.enabled=true" .Values.pooler.appUrl -}}
 {{- else if .Values.postgresql.deploy -}}
-postgres://{{ .Values.postgresql.appUser }}:{{ .Values.postgresql.appPassword | default "changeme-app" }}@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
+postgres://{{ .Values.postgresql.appUser }}:$(POSTGRES_APP_PASSWORD)@{{ include "marula.fullname" . }}-postgres:5432/{{ .Values.postgresql.database }}
 {{- else -}}
 {{- required "postgresql.externalAppUrl required when postgresql.deploy=false" (.Values.postgresql.externalAppUrl) -}}
 {{- end -}}
