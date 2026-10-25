@@ -88,7 +88,8 @@ pub struct UnitCounts {
 /// and gets the exact v1 behavior.
 #[derive(Debug, Clone, Default)]
 pub struct EvalInputs<'a> {
-    /// Sold prepaid blocks (A), oldest first as read.
+    /// Sold prepaid blocks. Order as read does not matter: the draw sorts
+    /// them earliest-expiry-first (see `apply_blocks`).
     pub blocks: &'a [ContractBlock],
     /// Persisted draw-down minutes per block id (blocks carry a ledger,
     /// so the engine knows what was already consumed BEFORE this window).
@@ -892,6 +893,25 @@ fn change_order_lines(
         .collect()
 }
 
+/// The one currency a credit may be priced in is the contract's: a credit
+/// never converts (ADR 0002), so a row naming another code cannot become a
+/// line without either mispricing it or inventing an exchange rate. Returns
+/// the FIRST offending credit in the caller's order, if any.
+///
+/// The write path refuses such a row (`create_sla_credit`, 422 naming both
+/// codes). This exists for rows written before that guard: the evaluation
+/// calls refuse with the credit named (`load_eval_inputs`) instead of pricing
+/// it in the wrong currency or dropping it silently, and `sla_credit_lines`
+/// keeps a local backstop for a direct library caller.
+pub fn sla_credit_in_another_currency<'a>(
+    contract: &Contract,
+    credits: &'a [core_domain::entities::ContractSlaCredit],
+) -> Option<&'a core_domain::entities::ContractSlaCredit> {
+    credits
+        .iter()
+        .find(|c| !c.currency.eq_ignore_ascii_case(&contract.currency))
+}
+
 /// (E) SLA service credits: PENDING credits whose `applies_on` lands in
 /// the window become NEGATIVE lines (the only signed line kind), each
 /// description carrying the credit id so the run's dedupe and the
@@ -905,6 +925,9 @@ fn sla_credit_lines(
     let mut pending: Vec<&core_domain::entities::ContractSlaCredit> = credits
         .iter()
         .filter(|c| c.status == "pending")
+        // Local backstop for the same rule the API loader enforces: a credit
+        // in another currency is never priced here (no silent conversion).
+        .filter(|c| c.currency.eq_ignore_ascii_case(&contract.currency))
         .filter(|c| c.applies_on >= from && c.applies_on <= to)
         .collect();
     pending.sort_by(|a, b| (a.applies_on, &a.reason).cmp(&(b.applies_on, &b.reason)));
@@ -1170,8 +1193,9 @@ fn line_labor(
 ///    (created_at date in `[lo, hi]`, effective slice) emits a
 ///    `block_sale` line — the deposit the client pays up front.
 /// 2. **Draw-down re-pricing** (labor lines only): each `TimeMaterials`
-///    line's minutes draw against open blocks (oldest, created first,
-///    not expired, balance from `total - prior - this-window draws`).
+///    line's minutes draw against open blocks (earliest expiry first,
+///    then oldest created, not expired, balance from
+///    `total - prior - this-window draws`).
 ///    Drawn minutes re-price at the block's rate when it carries one;
 ///    unblocked minutes keep the card/default pricing and report as
 ///    `unblocked_minutes`. Rollover/expiry facts return via
@@ -1223,7 +1247,22 @@ fn apply_blocks(
             _ => b.expires_on.map(|e| e >= lo).unwrap_or(true),
         })
         .collect();
-    open.sort_by(|a, b| (a.created_at, &a.label).cmp(&(b.created_at, &b.label)));
+    // FEFO, then oldest sale, then label. Earliest expiry pays first because
+    // a balance that lapses is money the client paid and never got; spending
+    // a later-expiring block while an earlier one sits unused takes from the
+    // client for nothing (DECISIONS record 5, 2026-10-25). A block with no
+    // expiry sorts LAST — it can never lapse, so it is the last to be spent.
+    // `created_at` stays the tie-break, which keeps the order total and the
+    // evaluation deterministic. This is a SELECTION rule only: blocks already
+    // sold keep the draws they already carry (`prior_draws`), never a rewrite.
+    open.sort_by(|a, b| {
+        (a.expires_on.is_none(), a.expires_on, a.created_at, &a.label).cmp(&(
+            b.expires_on.is_none(),
+            b.expires_on,
+            b.created_at,
+            &b.label,
+        ))
+    });
 
     let mut balances: BTreeMap<Uuid, i64> = BTreeMap::new();
     for b in &open {
@@ -1337,11 +1376,21 @@ fn apply_blocks(
             .map(|s| s.trim_end_matches(')'))
             .unwrap_or("unclassified")
             .to_string();
-        let Some(BucketDraw { drawn, drawn_cost }) = bucket_draws.get(&work_type) else {
+        // `remove`, not `get`: a per-work-type draw aggregate is spent ONCE.
+        // The uncapped path (`time_materials_lines`) emits exactly one line per
+        // work type, pinned by `time_materials_emits_one_line_per_work_type`,
+        // but a PERIOD-scoped cap splits one work type across its windows and
+        // emits one line per window (`capped_labor_lines`), all carrying the
+        // same "(work_type)" suffix this parse matches on. Spending the entry
+        // is what keeps the aggregate off the second window's line: with
+        // `get`, every matching line took the same draw, so the block cost was
+        // added and the card cost removed once per line (DECISIONS record 5,
+        // latent-bug half).
+        let Some(BucketDraw { drawn, drawn_cost }) = bucket_draws.remove(&work_type) else {
             new_lines.push(line.clone());
             continue;
         };
-        if *drawn == 0 {
+        if drawn == 0 {
             new_lines.push(line.clone());
             continue;
         }
@@ -1352,8 +1401,8 @@ fn apply_blocks(
             .unwrap_or(default_rate);
         // Card cost of the drawn minutes (what the line currently holds
         // for them) vs the block cost actually owed.
-        let card_cost = prorate(*drawn, card_rate).unwrap_or(0) as i128;
-        let amount = line.amount_minor as i128 - card_cost + *drawn_cost;
+        let card_cost = prorate(drawn, card_rate).unwrap_or(0) as i128;
+        let amount = line.amount_minor as i128 - card_cost + drawn_cost;
         let amount = i64::try_from(amount).map_err(|_| BillingError::AmountOverflow)?;
         new_lines.push(BillingCandidateLine {
             description: format!(
@@ -2579,5 +2628,268 @@ mod tests {
         let drawn: i32 = consump.draws.iter().map(|x| x.minutes).sum();
         assert_eq!(drawn, 200, "only the remaining 3h20m drew down");
         assert_eq!(consump.unblocked_minutes, 300);
+    }
+
+    /// A labor line as `time_materials_lines` emits it: the re-price finds
+    /// its bucket through the trailing `(work_type)` in the description.
+    fn labor_line(
+        work_type: &str,
+        minutes: i64,
+        rate: i64,
+        start: NaiveDate,
+        end: NaiveDate,
+    ) -> BillingCandidateLine {
+        BillingCandidateLine {
+            contract_id: Uuid::now_v7(),
+            contract_number: "C-001".into(),
+            client_id: Uuid::now_v7(),
+            kind: BillingLineKind::TimeMaterials,
+            period_start: start,
+            period_end: end,
+            description: format!("Managed services labor: {minutes} min at {rate}/h ({work_type})"),
+            quantity_minutes: minutes,
+            unit_amount_minor: rate,
+            amount_minor: prorate(minutes, rate).unwrap(),
+        }
+    }
+
+    #[test]
+    fn block_draw_spends_the_earliest_expiring_block_first() {
+        let c = contract(ContractType::TimeAndMaterials);
+        // January sold 600 min expiring in DECEMBER; February sold 300 min
+        // expiring in JUNE. Created-first would spend January (and let
+        // February's 300 lapse); FEFO spends June first.
+        let january = block_with_sale_date(
+            "January block",
+            600,
+            3_000_000,
+            None,
+            Some(d(2026, 12, 31)),
+            "expire",
+            chrono::DateTime::from_timestamp(1_768_000_000, 0).unwrap(), // 2026-01-09
+        );
+        let february = block_with_sale_date(
+            "February block",
+            300,
+            2_000_000,
+            None,
+            Some(d(2026, 6, 30)),
+            "expire",
+            chrono::DateTime::from_timestamp(1_770_200_000, 0).unwrap(), // 2026-02-17
+        );
+        let inputs = with_blocks(&c, &[january.clone(), february.clone()]);
+        // The input order is deliberately FIFO (oldest first): the draw must
+        // re-order, not trust the read order.
+        let entries = vec![entry(400, Some("remote"), d(2026, 3, 10))];
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 3, 1),
+            d(2026, 3, 31),
+            &inputs,
+        )
+        .unwrap();
+        let consump = e.block_consumption.expect("block consumption");
+        let drawn_from = |id: Uuid| -> i32 {
+            consump
+                .draws
+                .iter()
+                .filter(|d| d.block_id == id)
+                .map(|d| d.minutes)
+                .sum()
+        };
+        assert_eq!(
+            drawn_from(february.id),
+            300,
+            "the June-expiring block pays first and empties"
+        );
+        assert_eq!(
+            drawn_from(january.id),
+            100,
+            "only the remainder reaches the December block"
+        );
+        assert_eq!(consump.unblocked_minutes, 0);
+    }
+
+    #[test]
+    fn block_draw_keeps_a_non_expiring_block_for_last() {
+        let c = contract(ContractType::TimeAndMaterials);
+        // Sold FIRST and never expires. FIFO would drain it before a block
+        // that can lapse; FEFO treats "no expiry" as last.
+        let forever = block_with_sale_date(
+            "Forever block",
+            600,
+            3_000_000,
+            None,
+            None,
+            "none",
+            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(), // 2023-11-14
+        );
+        let expiring = block_with_sale_date(
+            "Expiring block",
+            600,
+            3_000_000,
+            None,
+            Some(d(2026, 6, 30)),
+            "expire",
+            chrono::DateTime::from_timestamp(1_768_000_000, 0).unwrap(),
+        );
+        let inputs = with_blocks(&c, &[forever.clone(), expiring.clone()]);
+        let entries = vec![entry(120, Some("remote"), d(2026, 3, 10))];
+        let e = evaluate_with(
+            &c,
+            &[],
+            &[],
+            &entries,
+            d(2026, 3, 1),
+            d(2026, 3, 31),
+            &inputs,
+        )
+        .unwrap();
+        let consump = e.block_consumption.expect("block consumption");
+        let drawn_from = |id: Uuid| -> i32 {
+            consump
+                .draws
+                .iter()
+                .filter(|d| d.block_id == id)
+                .map(|d| d.minutes)
+                .sum()
+        };
+        assert_eq!(
+            drawn_from(expiring.id),
+            120,
+            "the expiring block pays first"
+        );
+        assert_eq!(drawn_from(forever.id), 0, "a block that cannot lapse waits");
+    }
+
+    #[test]
+    fn time_materials_emits_one_line_per_work_type() {
+        let c = contract(ContractType::TimeAndMaterials);
+        let entries = vec![
+            entry(60, Some("remote"), d(2026, 2, 2)),
+            entry(30, Some("remote"), d(2026, 2, 3)),
+            entry(45, Some("on_site"), d(2026, 2, 4)),
+        ];
+        let lines = time_materials_lines(&c, &[], &entries, d(2026, 2, 1), d(2026, 2, 28));
+        assert_eq!(lines.len(), 2, "two work types, two lines");
+        // The uncapped path hands a whole per-work-type draw aggregate to the
+        // line whose description ends in that work type, so it is only safe
+        // while exactly one line carries each work type here. A period-scoped
+        // cap can split one work type across windows, which is why the
+        // re-price also spends each aggregate once
+        // (`reprice_consumes_a_work_type_bucket_once`).
+        let mut per_type: BTreeMap<String, usize> = BTreeMap::new();
+        for line in &lines {
+            let work_type = line
+                .description
+                .rsplit('(')
+                .next()
+                .unwrap()
+                .trim_end_matches(')')
+                .to_string();
+            *per_type.entry(work_type).or_default() += 1;
+        }
+        assert!(
+            per_type.values().all(|n| *n == 1),
+            "exactly one TimeMaterials line per work type: {per_type:?}"
+        );
+        assert_eq!(per_type.get("remote"), Some(&1));
+        assert_eq!(per_type.get("on_site"), Some(&1));
+    }
+
+    #[test]
+    fn reprice_consumes_a_work_type_bucket_once() {
+        let c = contract(ContractType::TimeAndMaterials); // default 100.00/h
+        let blk = block(
+            "40/h block",
+            600,
+            3_000_000,
+            Some(4_000),
+            Some(d(2026, 12, 31)),
+            "expire",
+        );
+        let entries = vec![entry(60, Some("remote"), d(2026, 2, 10))];
+        // Two labor lines for the SAME work type — the shape a PERIOD-scoped
+        // cap produces today when one work type has entries in two cap
+        // windows (`capped_labor_lines` emits one line per window, both with
+        // the same "(work_type)" suffix). The 60-minute draw belongs to one
+        // line; the second must keep its card price, never take the aggregate
+        // a second time.
+        let mut lines = vec![
+            labor_line("remote", 60, 10_000, d(2026, 2, 1), d(2026, 2, 28)),
+            labor_line("remote", 60, 10_000, d(2026, 2, 1), d(2026, 2, 28)),
+        ];
+        let prior: BTreeMap<Uuid, i64> = BTreeMap::new();
+        apply_blocks(
+            &c,
+            std::slice::from_ref(&blk),
+            &prior,
+            &entries,
+            &[],
+            d(2026, 2, 1),
+            d(2026, 2, 28),
+            &mut lines,
+        )
+        .unwrap();
+        assert_eq!(
+            lines[0].amount_minor, 4_000,
+            "the drawn line re-prices at the block rate"
+        );
+        assert_eq!(
+            lines[1].amount_minor, 10_000,
+            "the second line for that work type keeps the card price"
+        );
+    }
+
+    #[test]
+    fn sla_credit_in_another_currency_is_never_priced() {
+        let c = contract(ContractType::Recurring); // USD
+        let credit = |currency: &str| core_domain::entities::ContractSlaCredit {
+            id: Uuid::now_v7(),
+            org_id: c.org_id,
+            contract_id: c.id,
+            ticket_id: None,
+            reason: "resolution target breached by 2d".into(),
+            amount_minor: 15_000,
+            currency: currency.into(),
+            applies_on: d(2026, 1, 20),
+            status: "pending".into(),
+            applied_invoice_id: None,
+            created_by: None,
+            created_at: DateTime::UNIX_EPOCH,
+            updated_at: DateTime::UNIX_EPOCH,
+        };
+        let foreign = credit("EUR");
+        // The shared predicate the API loader refuses with.
+        assert_eq!(
+            sla_credit_in_another_currency(&c, std::slice::from_ref(&foreign)).map(|x| x.id),
+            Some(foreign.id)
+        );
+        // The engine's own backstop: no line, no total movement.
+        let inputs = EvalInputs {
+            sla_credits: std::slice::from_ref(&foreign),
+            ..Default::default()
+        };
+        let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
+        assert!(
+            e.lines.iter().all(|l| l.kind != BillingLineKind::SlaCredit),
+            "a EUR credit is never priced in a USD contract: {:?}",
+            e.lines
+        );
+        assert_eq!(e.total_minor, 200_000, "the recurring base is untouched");
+        // The same credit in the contract's currency still bills.
+        let usd = credit("USD");
+        let inputs = EvalInputs {
+            sla_credits: std::slice::from_ref(&usd),
+            ..Default::default()
+        };
+        let e = evaluate_with(&c, &[], &[], &[], d(2026, 1, 1), d(2026, 2, 1), &inputs).unwrap();
+        assert_eq!(
+            e.total_minor, 185_000,
+            "2000.00 base less the 150.00 credit"
+        );
     }
 }
