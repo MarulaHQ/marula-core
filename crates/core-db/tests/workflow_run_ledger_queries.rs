@@ -219,10 +219,17 @@ async fn a_retry_creates_a_new_row_and_refuses_to_repeat_a_non_idempotent_step()
 
     // A from-scratch re-run would repeat BOTH non-idempotent steps: the
     // creation and the send. It is refused, and the refusal names them.
-    let refusal =
-        core_db::workflow_runs::retry_run(&mut tx, org, run.id, actor, None, RetryMode::FromStart)
-            .await
-            .expect_err("a from-start retry must be refused");
+    let refusal = core_db::workflow_runs::retry_run(
+        &mut tx,
+        org,
+        Uuid::now_v7(),
+        run.id,
+        actor,
+        None,
+        RetryMode::FromStart,
+    )
+    .await
+    .expect_err("a from-start retry must be refused");
     let message = refusal.to_string();
     assert!(
         message.contains("ticket.create"),
@@ -233,10 +240,17 @@ async fn a_retry_creates_a_new_row_and_refuses_to_repeat_a_non_idempotent_step()
     // Resuming from the failure re-runs ONLY the failed send, which is
     // still non-idempotent — a failed send may already have sent. So the
     // honest answer is still a refusal, not a silent second email.
-    let resumed =
-        core_db::workflow_runs::retry_run(&mut tx, org, run.id, actor, None, RetryMode::Resume)
-            .await
-            .expect_err("repeating a failed send is not silent-safe either");
+    let resumed = core_db::workflow_runs::retry_run(
+        &mut tx,
+        org,
+        Uuid::now_v7(),
+        run.id,
+        actor,
+        None,
+        RetryMode::Resume,
+    )
+    .await
+    .expect_err("repeating a failed send is not silent-safe either");
     assert!(
         resumed.to_string().contains("email.send"),
         "the refusal names the node that may have half-applied"
@@ -338,10 +352,17 @@ async fn a_safe_retry_records_a_new_row_that_points_back_at_the_failed_one() {
     .await
     .expect("finish run");
 
-    let retry =
-        core_db::workflow_runs::retry_run(&mut tx, org, run.id, actor, None, RetryMode::Resume)
-            .await
-            .expect("a retry of a safe-to-repeat step is allowed");
+    let retry = core_db::workflow_runs::retry_run(
+        &mut tx,
+        org,
+        Uuid::now_v7(),
+        run.id,
+        actor,
+        None,
+        RetryMode::Resume,
+    )
+    .await
+    .expect("a retry of a safe-to-repeat step is allowed");
 
     // It is a NEW row, pointing back, and it records that it was a retry.
     assert_ne!(retry.id, run.id, "a retry is not an edit of the old run");
@@ -1195,9 +1216,16 @@ async fn rls_keeps_one_orgs_runs_invisible_to_another() {
     assert!(cross_steps.is_empty(), "and its trace is not leaked");
     // The retry of another org's run is refused by the same posture.
     let actor = seed_user(&db, org_a, 91077, "op@ledger74.test").await;
-    let cross_retry =
-        core_db::workflow_runs::retry_run(&mut tx, org_a, b_run.id, actor, None, RetryMode::Resume)
-            .await;
+    let cross_retry = core_db::workflow_runs::retry_run(
+        &mut tx,
+        org_a,
+        Uuid::now_v7(),
+        b_run.id,
+        actor,
+        None,
+        RetryMode::Resume,
+    )
+    .await;
     assert!(
         matches!(cross_retry, Err(core_db::DbError::NotFound)),
         "an operator cannot retry another org's run: {cross_retry:?}"
