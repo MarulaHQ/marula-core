@@ -99,7 +99,13 @@ test("connect an outbound feed, see connection health + one-time feed URL", asyn
   await expect(authedPage.getByTestId("one-time-feed-url")).toBeVisible();
 });
 
-test("sync-now against a real local iCal feed reports outcome counters", async ({
+// Blocked by the egress private-address screen (Wave 55). The feed below is a
+// loopback server, and the guard refuses a private address before a socket
+// exists, which is the guard working as designed. Running this offline needs a
+// dev-gated transport allowance, not a relaxed screen; until that is ruled on,
+// the case is `fixme` so the gap shows in the report instead of vanishing like
+// a `skip` would.
+test.fixme("sync-now against a real local iCal feed reports outcome counters", async ({
   authedPage,
   ownerTokens,
 }) => {
