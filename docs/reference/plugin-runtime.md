@@ -36,3 +36,26 @@ deliberately not described here: the core ships the seam and the security model,
 and what a pack builds on top of it belongs to whoever builds the pack. The
 extension points a pack may rely on, point by point, are in
 [extension-points.md](extension-points.md).
+
+## Manifest authentication by source
+
+`manifest_authenticated` records whether a publisher signature covers the
+manifest an approver reads. It is not the artifact check: the digest pin is a
+separate fact, and every source records one. The consent screen renders this
+column as **manifest signed** or **manifest unsigned**.
+
+| Source | `manifest_authenticated` | Why |
+|---|---|---|
+| Marketplace registry, v2 statement, trusted key configured | `true` | The signature names the artifact digest and the manifest digest, and the statement is verified against both before the row is staged. |
+| Marketplace registry, legacy v1 statement | `false` | The signature covers the artifact digest alone. The entry is still accepted, because refusing it would strand plugins already published, and the staged row carries the weaker claim. |
+| GitHub repository pull | `false` | A repository carries no publisher signature. The pinned tag and the artifact digest say which bytes were fetched and that they have not changed since; they say nothing about who published them. |
+| Local zip or manual upload | `false` | There is no publisher claim to verify. |
+
+A registry document ingested with no trusted signing key configured is
+structural-only and lands `false` whatever it claims.
+
+The GitHub row is a decision, not a gap. There is no publisher statement in a
+repository for the pull path to verify, so `false` is the intended end state for
+that source, and the pull path does not grow a signature it cannot check.
+Verifying the bytes it fetched is what the tag and digest are for; claiming a
+publisher is not a thing that path can honestly do.

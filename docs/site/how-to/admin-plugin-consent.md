@@ -24,6 +24,8 @@ Open **Settings → Plugins**:
 - **Registry tab:** Browse and install signed plugins from the marketplace catalog.
 - **GitHub release tag or local `.zip` upload:** Import audited internal plugins. Every source records an append-only provenance chain (`source_kind`, `source_url`, `fetched_ref`, `artifact_digest`, and `uploader`).
 
+A GitHub import always shows **manifest unsigned** on its consent screen. That is deliberate: the pinned tag and the SHA-256 digest record which bytes were fetched and that they have not changed, but a repository carries no publisher signature over its manifest, so there is no publisher claim to show. The [plugin runtime reference](../../reference/plugin-runtime.md#manifest-authentication-by-source) lists which sources can show **manifest signed**.
+
 ## 2. Newly installed plugins start Disabled
 
 When you import or install a plugin, it lands in a **Disabled** state (or **Staged** if uploaded by a non-admin team member). A disabled plugin cannot run background jobs, receive webhooks, or display widgets until an administrator explicitly consents and enables it.
