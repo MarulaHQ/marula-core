@@ -6,6 +6,9 @@ license.workspace = true
 
 [dependencies]
 core-domain = { path = "../core-domain" }
+# The one CSV cell writer: the KB curation export and both report surfaces
+# encode through it, so no surface can neutralise a formula on its own.
+core-reports = { path = "../core-reports" }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }

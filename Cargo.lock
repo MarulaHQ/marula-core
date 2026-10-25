@@ -1322,6 +1322,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "core-domain",
+ "core-reports",
  "regex",
  "serde",
  "serde_json",
