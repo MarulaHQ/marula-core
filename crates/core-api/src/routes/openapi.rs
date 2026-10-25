@@ -180,6 +180,8 @@ use utoipa::OpenApi;
         crate::routes::notifications::org_defaults_get,
         crate::routes::notifications::org_defaults_put,
         // Wave 34 lane 8 (p34-email-config-closeout): the mail admin surface.
+        crate::email::list_inbound_holds,
+        crate::email::decide_inbound_hold,
         crate::routes::email_admin::get_inbound_settings,
         crate::routes::email_admin::put_inbound_settings,
         crate::routes::email_admin::put_board_inbound_address,

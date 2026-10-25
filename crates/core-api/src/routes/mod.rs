@@ -508,6 +508,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             post(portal::magic_link_confirm),
         )
         .merge(portal_protected)
+        // Inbound sender binding (Wave 55): the queue of held messages and the
+        // decision route. Protected: both are admin-gated in the handler.
+        .merge(crate::email::routes(gen))
         // Org-data export (the private build tracker D1): the download endpoint authenticates
         // purely by its short-lived HMAC signature — no JWT middleware — so
         // DR scripts can pull bundles without an interactive session.
