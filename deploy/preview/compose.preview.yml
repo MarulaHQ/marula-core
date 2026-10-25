@@ -79,18 +79,20 @@ services:
     ports:
       - "0.0.0.0:${PREVIEW_API_PORT:-8080}:8080"
     # ---- secrets posture -------------------------------------------------
-    # The base file ships development defaults inline. On a visible
-    # interface those defaults are not "insecure defaults", they are a
-    # known token: anyone who has read this repository can mint a valid
-    # session against a preview env left on them. So both keys become
-    # REQUIRED and compose refuses to start without them.
+    # The base file requires the signing key, the at-rest key and the two
+    # machine-seam tokens, and ships no value for any of them (Wave 56). A
+    # preview env inherits that requirement, which is the posture this
+    # overlay used to create by renaming them: on a visible interface a
+    # published key is not an "insecure default", it is a known token, and
+    # anyone who has read the repository can mint a session against a
+    # preview left on one.
     #
-    # That is the intended failure mode. A preview env that will not boot
-    # until you gave it a real key is one you cannot forget; one that boots
-    # on the repository's published key is one you will.
+    # So there is nothing to override here. Export JWT_SECRET,
+    # MARULA_SECRET_KEY, MARULA_INTERNAL_TOKEN and EMAIL_INTERNAL_TOKEN (see
+    # deploy/preview/README.md) and the base file does the rest. A preview
+    # that will not boot until it was given real keys is one you cannot
+    # forget.
     environment:
-      JWT_SECRET: ${PREVIEW_JWT_SECRET:?PREVIEW_JWT_SECRET is required — see deploy/preview/README.md}
-      MARULA_SECRET_KEY: ${PREVIEW_MARULA_SECRET_KEY:?PREVIEW_MARULA_SECRET_KEY is required — see deploy/preview/README.md}
       # The browser reaches the API cross-origin (the web app and the API
       # are different published ports), so the browser-reachable web origin
       # has to be declared. Without it every call fails CORS, which reads
@@ -112,11 +114,9 @@ services:
     # endpoint is a liveness signal for the compose network, not a service
     # for the reviewer's browser.
     ports: !override []
-    # Must match core-api's MARULA_SECRET_KEY or sealed webhook secrets are
-    # undecryptable by the delivery worker — the same rule the base file
-    # states, and the reason both services read the same variable here.
+    # No MARULA_SECRET_KEY line: the base file requires it and both
+    # services read the same variable, so the two cannot drift apart here.
     environment:
-      MARULA_SECRET_KEY: ${PREVIEW_MARULA_SECRET_KEY:?PREVIEW_MARULA_SECRET_KEY is required}
       EMAIL_TRANSPORT: none
 
   web:

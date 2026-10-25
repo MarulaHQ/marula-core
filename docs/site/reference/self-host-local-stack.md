@@ -76,11 +76,16 @@ grants are provisioned by migration 0001. Do not collapse the two roles.
 
 ## Secrets
 
-The compose file carries dev-only defaults for `JWT_SECRET` and the
-at-rest seal key. For anything beyond a local test harness, override
-`JWT_SECRET`, `MARULA_SECRET_KEY` (worker and core-api must match, or
-sealed webhook secrets become undecryptable) and set `EMAIL_INBOUND_HMAC_SECRET`
-from the start — the inbound webhook mail path stays disabled until it is.
+The compose file ships no secret value. It requires `JWT_SECRET`,
+`MARULA_SECRET_KEY` (worker and core-api must match, or sealed webhook
+secrets become undecryptable), `MARULA_INTERNAL_TOKEN` and
+`EMAIL_INTERNAL_TOKEN`, and compose refuses to render without them. Generate
+each one (`openssl rand -hex 32`) before the first boot, and keep them
+somewhere the host can read at teardown time — `down` interpolates the same
+file. A laptop stack can take the repository's published dev values instead
+(`--env-file deploy/dev.env`), which the stack warns about at every boot.
+Set `EMAIL_INBOUND_HMAC_SECRET` from the start as well: the inbound webhook
+mail path stays disabled until it is.
 
 Optional: asymmetric access-token signing. Set
 `MARULA_JWT_EDDSA_PRIVATE_KEY` and `MARULA_JWT_EDDSA_PUBLIC_KEY` (PEM
