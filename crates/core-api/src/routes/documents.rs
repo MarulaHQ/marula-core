@@ -1063,14 +1063,38 @@ pub struct CreateLinkRequest {
     pub to_id: Uuid,
 }
 
-/// Shared link read/create for both from-kinds (documents mount it at
+/// The view gate one link mount asks: the PANEL's own module, carried by the
+/// from-kind. `links_for` serves four mounts (documents, passwords, assets,
+/// secrets), so a single `documents:view` gate refused a Dispatcher who holds
+/// the panel's module but not the documents one. Each arm names the module
+/// that panel's own routes already ask; assets ride the Clients matrix
+/// (`routes/assets.rs`), exactly as `LinkViewScope` maps them.
+fn mount_view_gate(kind: LinkKind) -> Permission {
+    let module = match kind {
+        LinkKind::Document => Module::Documents,
+        LinkKind::Password => Module::Passwords,
+        LinkKind::Client => Module::Clients,
+        LinkKind::Ticket => Module::Tickets,
+        LinkKind::KbArticle => Module::Kb,
+        LinkKind::Asset => Module::Clients,
+        LinkKind::Secret => Module::Secrets,
+    };
+    Permission::Matrix {
+        module,
+        action: Action::View,
+    }
+}
+
+/// Shared link read/create for every from-kind (documents mount it at
 /// /documents/{id}/links, passwords at /passwords/{id}/links, assets at
-/// /assets/{id}/links).
+/// /assets/{id}/links, secrets at /secrets/records/{id}/links).
 ///
-/// The read gate here is the SURFACE's (`documents:view`): it answers "may
-/// this caller see the list at all". Each label inside it is a read of the
-/// target, so the resolver additionally applies the target module's own
-/// view gate from the caller's scope — see `core_db::document_links`.
+/// The read gate is the SURFACE's own module view (`mount_view_gate`): it
+/// answers "may this caller see the panel at all", and the add-link handlers
+/// reuse it for their response so the refreshed list and the mount agree.
+/// Each label inside the list is a read of the target, so the resolver
+/// additionally applies the target module's own view gate from the caller's
+/// scope — see `core_db::document_links`.
 pub(crate) async fn links_for(
     state: &AppState,
     extensions: &Extensions,
@@ -1078,7 +1102,7 @@ pub(crate) async fn links_for(
     from_id: Uuid,
 ) -> ApiResult<Json<Vec<ResolvedLink>>> {
     let authed = authed::<crate::auth::AuthedUser>(extensions)?;
-    require_permission(&authed.principal, documents(Action::View))?;
+    require_permission(&authed.principal, mount_view_gate(from_kind))?;
     let org_id = authed.principal.user.org_id;
     let scope = LinkViewScope::for_principal(&authed.principal);
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;

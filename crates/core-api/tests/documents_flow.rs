@@ -710,3 +710,286 @@ async fn link_labels_are_redacted_for_targets_outside_the_callers_gates() {
         "the ticket label (number + title) resolves for a caller holding tickets:view"
     );
 }
+
+/// Creates a client and one asset under the seeded `server` layout; returns
+/// `(client_id, asset_id)` — the asset panel's mount gate and its link
+/// targets each need one.
+async fn create_client_and_asset(
+    app: &Router,
+    bearer: &[(&'static str, String)],
+    key: &str,
+) -> (String, String) {
+    let client = body_json(
+        send(
+            app,
+            axum::http::Method::POST,
+            "/api/v1/clients",
+            bearer,
+            Some(json!({ "name": "Acme Systems" })),
+        )
+        .await,
+    )
+    .await;
+    let client_id = client["id"].as_str().unwrap().to_string();
+    let layouts = body_json(
+        send(
+            app,
+            axum::http::Method::GET,
+            "/api/v1/documents/layouts",
+            bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    let layout_id = layouts
+        .as_array()
+        .expect("layouts array")
+        .iter()
+        .find(|l| l["slug"] == "server")
+        .expect("seeded server layout")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let created = send(
+        app,
+        axum::http::Method::POST,
+        "/api/v1/assets",
+        bearer,
+        Some(json!({
+            "client_id": client_id,
+            "tag": "EXCH-01",
+            "name": "Exchange server",
+            "layout_id": layout_id,
+            "fields": { "hostname": "exch01.acme.test" },
+            "idempotency_key": format!("asset-{key}")
+        })),
+    )
+    .await;
+    assert_eq!(created.status(), 200, "asset create");
+    (
+        client_id,
+        body_json(created).await["id"].as_str().unwrap().to_string(),
+    )
+}
+
+/// F52 (Wave 56): a link mount asks the PANEL's own module. A caller holding
+/// exactly `passwords:view` reads the password panel, a caller holding exactly
+/// `clients:view` reads the asset panel, and both are refused the documents
+/// panel they hold no grant for.
+#[tokio::test]
+async fn link_mounts_ask_their_own_module_not_documents() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("panel-gates-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let org_id = me_org_id(&app, &token).await;
+    let bearer = [auth(&token)];
+
+    let doc_id = create_doc(&app, &bearer, "Incident hub", "panel-hub").await;
+    let password = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/passwords",
+        &bearer,
+        Some(json!({
+            "title": "Acme domain admin",
+            "username": "admin",
+            "secret": "vault-secret-1",
+            "idempotency_key": "panel-pw-1"
+        })),
+    )
+    .await;
+    assert_eq!(password.status(), 200, "password create");
+    let password_id = body_json(password).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_client_id, asset_id) = create_client_and_asset(&app, &bearer, "panel").await;
+
+    // Exactly passwords:view — nothing else.
+    let vault_viewer = provision_role_user(
+        &state,
+        &app,
+        org_id,
+        "Vault Viewer",
+        json!([{ "matrix": { "module": "passwords", "action": "view" } }]),
+        &format!("vault-viewer-{slug}@docs.test"),
+        "vault-viewer-1234",
+    )
+    .await;
+    let vault_bearer = [auth(&vault_viewer)];
+    assert_eq!(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/passwords/{password_id}/links"),
+            &vault_bearer,
+            None,
+        )
+        .await
+        .status(),
+        200,
+        "passwords:view opens the password panel"
+    );
+    assert_eq!(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/documents/{doc_id}/links"),
+            &vault_bearer,
+            None,
+        )
+        .await
+        .status(),
+        403,
+        "the documents panel stays closed to a caller without documents:view"
+    );
+
+    // Exactly clients:view — assets ride the Clients matrix.
+    let asset_viewer = provision_role_user(
+        &state,
+        &app,
+        org_id,
+        "Asset Viewer",
+        json!([{ "matrix": { "module": "clients", "action": "view" } }]),
+        &format!("asset-viewer-{slug}@docs.test"),
+        "asset-viewer-1234",
+    )
+    .await;
+    let asset_bearer = [auth(&asset_viewer)];
+    assert_eq!(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/assets/{asset_id}/links"),
+            &asset_bearer,
+            None,
+        )
+        .await
+        .status(),
+        200,
+        "clients:view opens the asset panel"
+    );
+    assert_eq!(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/documents/{doc_id}/links"),
+            &asset_bearer,
+            None,
+        )
+        .await
+        .status(),
+        403,
+        "the documents panel stays closed to a caller without documents:view"
+    );
+}
+
+/// F52 (Wave 56): the add-link response and the mount it refreshes agree.
+/// An editor holding `passwords:edit`/`clients:edit` and no documents grant
+/// gets the refreshed list back from both POSTs instead of a 403 raised by
+/// the shared reader.
+#[tokio::test]
+async fn add_link_response_rides_the_mounts_own_gate() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("panel-add-link-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let org_id = me_org_id(&app, &token).await;
+    let bearer = [auth(&token)];
+
+    let doc_id = create_doc(&app, &bearer, "Incident hub", "add-hub").await;
+    let password = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/passwords",
+        &bearer,
+        Some(json!({
+            "title": "Acme domain admin",
+            "username": "admin",
+            "secret": "vault-secret-1",
+            "idempotency_key": "add-pw-1"
+        })),
+    )
+    .await;
+    assert_eq!(password.status(), 200, "password create");
+    let password_id = body_json(password).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (client_id, asset_id) = create_client_and_asset(&app, &bearer, "add").await;
+
+    let editor = provision_role_user(
+        &state,
+        &app,
+        org_id,
+        "Vault and Asset Editor",
+        json!([
+            { "matrix": { "module": "passwords", "action": "view" } },
+            { "matrix": { "module": "passwords", "action": "edit" } },
+            { "matrix": { "module": "clients", "action": "view" } },
+            { "matrix": { "module": "clients", "action": "edit" } }
+        ]),
+        &format!("vault-editor-{slug}@docs.test"),
+        "vault-editor-1234",
+    )
+    .await;
+    let editor_bearer = [auth(&editor)];
+
+    let password_post = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/v1/passwords/{password_id}/links"),
+        &editor_bearer,
+        Some(json!({ "to_kind": "client", "to_id": client_id })),
+    )
+    .await;
+    assert_eq!(
+        password_post.status(),
+        200,
+        "the add-link response rides passwords:view, the same gate as its mount"
+    );
+    let password_rows = body_json(password_post).await;
+    let password_rows = password_rows.as_array().expect("link array");
+    assert_eq!(
+        password_rows.len(),
+        1,
+        "the refreshed panel carries the link"
+    );
+    assert_eq!(password_rows[0]["target_label"], json!("Acme Systems"));
+    assert_eq!(password_rows[0]["target_denied"], json!(false));
+
+    let asset_post = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/v1/assets/{asset_id}/links"),
+        &editor_bearer,
+        Some(json!({ "to_kind": "client", "to_id": client_id })),
+    )
+    .await;
+    assert_eq!(
+        asset_post.status(),
+        200,
+        "the add-link response rides clients:view, the same gate as its mount"
+    );
+    let asset_rows = body_json(asset_post).await;
+    let asset_rows = asset_rows.as_array().expect("link array");
+    assert_eq!(asset_rows.len(), 1, "the refreshed panel carries the link");
+    assert_eq!(asset_rows[0]["target_label"], json!("Acme Systems"));
+
+    // The shared reader never widens the mount it serves.
+    assert_eq!(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/documents/{doc_id}/links"),
+            &editor_bearer,
+            None,
+        )
+        .await
+        .status(),
+        403,
+        "no documents grant, no documents panel"
+    );
+}
