@@ -411,15 +411,24 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "alert_source_ref_taken",
             "an alert source with this ref already exists",
         )),
-        // Wave 13 lane 7 (identity federation).
-        "oidc_providers_org_id_name_key" => Some((
+        // Wave 13 lane 7 (identity federation). Both pre-auth names are
+        // claimed deployment-wide, not per org (Wave 54 lane S3e, migration
+        // 0159): the login and exchange paths resolve a bare name before a
+        // tenant is known, so a second workspace offering the same name
+        // would take over the first one's resolution. The per-org
+        // constraints stay mapped because a writer that bypasses the
+        // upsert's `ON CONFLICT (org_id, name)` still collides there, and
+        // both collisions are the same UX problem — pick another name.
+        "oidc_providers_global_name_key" | "oidc_providers_org_id_name_key" => Some((
             "oidc_provider_name_taken",
-            "an OIDC provider with this name already exists",
+            "that single sign-on name is already claimed by a workspace; choose a different one",
         )),
-        "edge_assertion_configs_org_id_name_key" => Some((
-            "edge_source_name_taken",
-            "an edge-assertion source with this name already exists",
-        )),
+        "edge_assertion_configs_global_name_key" | "edge_assertion_configs_org_id_name_key" => {
+            Some((
+                "edge_source_name_taken",
+                "that edge source name is already claimed by a workspace; choose a different one",
+            ))
+        }
         "federation_links_source_kind_source_id_subject_key" => Some((
             "federation_link_taken",
             "this federated identity is already linked to an account",
@@ -1114,6 +1123,13 @@ mod tests {
             "uq_ai_usage_ledger_edge_request",
             // Wave 19 lane 2 (signing-key rotation, migration 0095).
             "plugin_signing_keys_key_id_key",
+            // Wave 54 lane S3e (migration 0159): the pre-auth SSO names are
+            // claimed deployment-wide, and the per-org constraints they
+            // replace stay mapped to the same codes.
+            "oidc_providers_global_name_key",
+            "oidc_providers_org_id_name_key",
+            "edge_assertion_configs_global_name_key",
+            "edge_assertion_configs_org_id_name_key",
         ];
         let mut seen = std::collections::HashSet::new();
         for constraint in known {
@@ -1123,13 +1139,25 @@ mod tests {
             assert!(!message.is_empty());
             seen.insert(kind);
         }
-        // The two taxonomy constraints deliberately SHARE one reason code
-        // (`category_name_taken` — root-name and child-name collisions are
-        // the same UX problem), so 23 constraints map to 22 distinct codes.
-        assert_eq!(seen.len(), 22, "unexpected reason-code fan-out: {seen:?}");
+        // Three pairs deliberately SHARE one reason code each: the two
+        // taxonomy constraints (`category_name_taken` — root-name and
+        // child-name collisions are the same UX problem), and the two SSO
+        // name pairs (`oidc_provider_name_taken`, `edge_source_name_taken` —
+        // a per-org and a deployment-wide collision of the same name are the
+        // same answer to the admin). So 27 constraints map to 24 distinct
+        // codes.
+        assert_eq!(seen.len(), 24, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)
+        );
+        assert_eq!(
+            map_unique_constraint("oidc_providers_global_name_key").map(|(k, _)| k),
+            map_unique_constraint("oidc_providers_org_id_name_key").map(|(k, _)| k)
+        );
+        assert_eq!(
+            map_unique_constraint("edge_assertion_configs_global_name_key").map(|(k, _)| k),
+            map_unique_constraint("edge_assertion_configs_org_id_name_key").map(|(k, _)| k)
         );
         // Unknown constraints degrade, never map.
         assert_eq!(map_unique_constraint("some_future_constraint_key"), None);

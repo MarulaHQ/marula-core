@@ -323,7 +323,13 @@ fn urlencode(s: &str) -> String {
 const CLIENT_ID: &str = "marula-core-client";
 const CLIENT_SECRET: &str = "idp-s3cret";
 
-async fn configure_provider(app: &axum::Router, bearer: &str, name: &str, issuer: &str, jit: bool) {
+async fn configure_provider(
+    app: &axum::Router,
+    bearer: &str,
+    name: &str,
+    issuer: &str,
+    jit: bool,
+) -> Value {
     let response = send(
         app,
         axum::http::Method::PUT,
@@ -341,6 +347,7 @@ async fn configure_provider(app: &axum::Router, bearer: &str, name: &str, issuer
     )
     .await;
     assert_eq!(response.status(), 200, "provider upsert succeeds");
+    body_json(response).await
 }
 
 /// Runs login → authorize → callback; returns (callback status, Location).
@@ -704,4 +711,122 @@ async fn oidc_state_and_nonce_validation_reject_attacks() {
         !text.contains(CLIENT_SECRET),
         "secret must never be returned"
     );
+}
+
+// ---------------------------------------------------------------------------
+// pre-auth name scope (Wave 54 lane S3e, migration 0159)
+// ---------------------------------------------------------------------------
+
+/// `/api/auth/oidc/{name}/login` runs before any tenant is known, so a
+/// provider name is claimed deployment-wide. The schema used to allow
+/// `UNIQUE (org_id, name)`, and the resolver bridged with
+/// `ORDER BY created_at LIMIT 1`: two orgs holding `okta` both resolved to
+/// the older row, so the second org's users were redirected to the first
+/// org's issuer with the first org's client_id, and the second org's own
+/// provider could never be reached.
+///
+/// This test is the two-org shape of that fixture: alpha names a provider,
+/// bravo is refused the same name with a typed conflict, and the name still
+/// resolves to alpha's provider id — not to whichever row sorted first.
+#[tokio::test(flavor = "multi_thread")]
+async fn oidc_provider_name_is_claimed_by_one_workspace_and_resolves_to_it() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let suffix = Uuid::now_v7().simple().to_string()[16..].to_string();
+    let name = format!("shared-{suffix}");
+
+    let alpha = register_org(&app, &format!("sso-alpha-{suffix}")).await;
+    let alpha_owner = alpha["access_token"].as_str().unwrap();
+    let alpha_org = org_id_of(&app, alpha_owner).await;
+    let (alpha_issuer, _alpha_idp) =
+        spawn_idp(CLIENT_ID, CLIENT_SECRET, "alpha@example.test").await;
+    let alpha_provider = configure_provider(&app, alpha_owner, &name, &alpha_issuer, false).await;
+    let alpha_provider_id = alpha_provider["id"].as_str().unwrap().to_string();
+
+    // The pre-auth bridge resolves the name to the provider that owns it.
+    let resolved = resolved_provider(&state.pool, &name).await;
+    assert_eq!(
+        resolved,
+        Some((alpha_provider_id.clone(), alpha_org.clone())),
+        "the enabled provider resolves to its own org"
+    );
+
+    // The login redirect uses alpha's issuer, which is the observable
+    // consequence of that resolution.
+    let login = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/auth/oidc/{name}/login"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(login.status(), 303);
+    assert!(
+        location_of(&login).starts_with(&alpha_issuer),
+        "login redirect must reach alpha's IdP"
+    );
+
+    // A second workspace claiming the same login path is refused, typed.
+    let bravo = register_org(&app, &format!("sso-bravo-{suffix}")).await;
+    let bravo_owner = bravo["access_token"].as_str().unwrap();
+    let (bravo_issuer, _bravo_idp) =
+        spawn_idp(CLIENT_ID, CLIENT_SECRET, "bravo@example.test").await;
+    let conflict = send(
+        &app,
+        axum::http::Method::PUT,
+        &format!("/api/auth/oidc/providers/{name}"),
+        Some(bravo_owner),
+        Some(json!({
+            "display_name": "Bravo IdP",
+            "issuer": bravo_issuer,
+            "discovery_url": format!("{bravo_issuer}/.well-known/openid-configuration"),
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "jit_provisioning": false,
+            "enabled": true,
+        })),
+    )
+    .await;
+    assert_eq!(
+        conflict.status(),
+        axum::http::StatusCode::CONFLICT,
+        "a name another workspace holds is a typed conflict, not a second row"
+    );
+    let body = body_json(conflict).await;
+    assert_eq!(body["error"]["reason"], "oidc_provider_name_taken");
+
+    // Alpha's provider is untouched by the refusal, and the name still
+    // resolves to it — the shadowing that motivated 0159 is gone.
+    assert_eq!(
+        resolved_provider(&state.pool, &name).await,
+        Some((alpha_provider_id.clone(), alpha_org.clone()))
+    );
+
+    // Re-upserting inside the owning org still updates in place: the global
+    // index must not break the single-org replace path.
+    let replaced = configure_provider(&app, alpha_owner, &name, &alpha_issuer, true).await;
+    assert_eq!(replaced["id"].as_str().unwrap(), alpha_provider_id);
+    let rows: (i64,) = sqlx::query_as("SELECT count(*) FROM oidc_providers WHERE name = $1")
+        .bind(&name)
+        .fetch_one(&state.pool)
+        .await
+        .expect("count providers by name");
+    assert_eq!(rows.0, 1, "one row per name, deployment-wide");
+}
+
+async fn org_id_of(app: &axum::Router, bearer: &str) -> String {
+    let me =
+        body_json(send(app, axum::http::Method::GET, "/api/me", Some(bearer), None).await).await;
+    me["org_id"].as_str().unwrap().to_string()
+}
+
+async fn resolved_provider(pool: &PgPool, name: &str) -> Option<(String, String)> {
+    let row: Option<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT provider_id, org_id FROM app_resolve_oidc_provider($1)")
+            .bind(name)
+            .fetch_optional(pool)
+            .await
+            .expect("pre-auth provider bridge");
+    row.map(|(provider_id, org_id)| (provider_id.to_string(), org_id.to_string()))
 }
