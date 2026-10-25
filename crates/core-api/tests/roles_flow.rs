@@ -612,4 +612,162 @@ async fn rb2_financial_read_gates_costs_and_contract_rates() {
     )
     .await;
     assert_eq!(denied_costs.status(), 403, "billing previews carry rates");
+
+    // --- contract delete: an acknowledgement, never a rate read -------------
+    // Removal stays commercial-gated (deleting is not a rate read), so the
+    // response must not hand back the aggregate it just removed: a caller
+    // without `financial:read` that holds delete authority receives no money
+    // field. Authority itself is unchanged — the bookkeeper holds
+    // commercial:view and still gets a typed 403 on delete.
+    let bookkeeper_denied = send(
+        &app,
+        axum::http::Method::DELETE,
+        &format!("/api/contracts/{contract_id}"),
+        Some(&bookkeeper),
+        None,
+    )
+    .await;
+    assert_eq!(
+        bookkeeper_denied.status(),
+        403,
+        "delete needs commercial:delete, not commercial:view"
+    );
+    assert_eq!(
+        body_json(bookkeeper_denied).await["error"]["reason"],
+        json!("forbidden")
+    );
+
+    let removed = send(
+        &app,
+        axum::http::Method::DELETE,
+        &format!("/api/contracts/{contract_id}"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(removed.status(), 200, "owner delete must succeed");
+    let ack = body_json(removed).await;
+    assert_eq!(ack["contract_id"], json!(contract_id));
+    assert_eq!(ack["number"], json!("C-001"));
+    assert_eq!(ack["deleted"], json!(true));
+    for rate_bearing in [
+        "rates",
+        "hourly_rate_minor",
+        "fees",
+        "blocks",
+        "caps",
+        "minimum_commitment_minor",
+        "escalator",
+        "change_orders",
+        "sla_credits",
+    ] {
+        assert!(
+            ack.get(rate_bearing).is_none(),
+            "the delete acknowledgement must carry no {rate_bearing}: {ack}"
+        );
+    }
+}
+
+/// Wave 54 lane S3c: a role write whose permission keys do not resolve used
+/// to be stored verbatim, and the read (`Vec<Permission>`) then failed and
+/// defaulted to EMPTY — a role that silently grants nothing. The write now
+/// refuses the unknown key with a typed 422 and stores the resolved form.
+#[tokio::test]
+async fn custom_role_write_refuses_an_unresolvable_permission_key() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("role-keys-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, &slug).await;
+
+    // A mutable custom copy to edit (presets are never editable in place).
+    let roles = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/roles",
+            Some(&owner),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let dispatcher = roles["roles"]
+        .as_array()
+        .expect("roles array")
+        .iter()
+        .find(|r| r["builtin"] == json!("dispatcher"))
+        .expect("dispatcher preset")
+        .clone();
+    let fork = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/roles/{}/fork", dispatcher["id"].as_str().unwrap()),
+        Some(&owner),
+        Some(json!({ "name": "Key Check Role" })),
+    )
+    .await;
+    assert_eq!(fork.status(), 200, "fork must succeed");
+    let forked = body_json(fork).await;
+    let fork_id = forked["id"].as_str().unwrap().to_string();
+    let before = forked["permissions"].clone();
+
+    // `settings:edit` is not in the policy vocabulary — there is no Settings
+    // module. The web matrix editor ships it in its specials list, which is
+    // how a row like this reached the table.
+    let refused = send(
+        &app,
+        axum::http::Method::PUT,
+        &format!("/api/roles/{fork_id}"),
+        Some(&owner),
+        Some(json!({ "permissions": ["tickets:view", "settings:edit"] })),
+    )
+    .await;
+    assert_eq!(
+        refused.status(),
+        422,
+        "an unknown key is a validation failure"
+    );
+    let body = body_json(refused).await;
+    assert_eq!(body["error"]["reason"], "validation_failed");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("settings:edit"),
+        "the refusal names the key: {body}"
+    );
+    assert_eq!(
+        role_permissions(&app, &owner, "Key Check Role").await,
+        before,
+        "a refused write leaves the role exactly as it was"
+    );
+
+    // A resolvable set stores the shape authorization reads back: the
+    // resolved serde form, never the raw wire keys.
+    let accepted = send(
+        &app,
+        axum::http::Method::PUT,
+        &format!("/api/roles/{fork_id}"),
+        Some(&owner),
+        Some(json!({ "permissions": ["tickets:view", "special:manage_boards"] })),
+    )
+    .await;
+    let accepted_body = body_json(accepted).await;
+    let stored = role_permissions(&app, &owner, "Key Check Role").await;
+    let stored = stored
+        .as_array()
+        .unwrap_or_else(|| panic!("permissions must be an array: {stored}"));
+    assert_eq!(
+        stored.len(),
+        2,
+        "both keys stored, none dropped: {stored:?} ({accepted_body})"
+    );
+    assert!(
+        stored.contains(&json!({"matrix": {"module": "tickets", "action": "view"}})),
+        "the matrix key resolves to its stored shape: {stored:?}"
+    );
+    assert!(
+        stored.contains(&json!("manage_boards")),
+        "the special key resolves to its stored shape: {stored:?}"
+    );
 }

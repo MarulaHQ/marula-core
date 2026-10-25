@@ -54,7 +54,7 @@ fn commercial(action: Action) -> Permission {
 /// fields) additionally requires `financial:read` — dispatchers and
 /// technicians hold the commercial matrix but NOT financial visibility
 /// by default. Removal stays commercial-gated only: deleting is not a
-/// rate read.
+/// rate read, so its acknowledgement carries no rate to strip.
 fn financial_read() -> Permission {
     Permission::ViewFinancials
 }
@@ -248,6 +248,17 @@ pub struct ContractMutationResponse {
     #[serde(flatten)]
     pub detail: ContractDetail,
     pub mutation: instant::MutationMeta,
+}
+
+/// Acknowledgement for `DELETE /api/contracts/{id}`. Deliberately carries no
+/// rate, fee, cap, escalator or commitment: the delete is a commercial
+/// action, not a rate read (RB2), so the caller never receives money it did
+/// not ask to see. `deleted` mirrors the vault/asset delete shape.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContractRemovedAck {
+    pub contract_id: Uuid,
+    pub number: String,
+    pub deleted: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
@@ -939,23 +950,33 @@ pub async fn patch(
 /// 404 (`rls_sparse`) means the target was never visible in scope.
 /// The Wave 9 invoicing lane's billing-lock guard refuses the delete
 /// once invoices reference the contract (typed 409).
+///
+/// The response is an acknowledgement, not the aggregate: deleting is a
+/// commercial action, not a rate read (RB2), so a commercial-delete holder
+/// without `financial:read` can still remove a contract and never receives
+/// its money. Every rate-bearing surface in this module keeps its
+/// `financial:read` gate.
 #[utoipa::path(operation_id = "contracts_delete", delete, path = "/api/contracts/{id}", tag = "billing", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = ContractDetail),
+    responses((status = 200, body = ContractRemovedAck),
               (status = 404, description = "contract not visible in scope"),
               (status = 409, description = "contract has invoices")))]
 pub async fn remove(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<ContractDetail>> {
+) -> ApiResult<Json<ContractRemovedAck>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Delete))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
-    let detail = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let detail = load_detail_from_tx(&mut ctx.tx, org_id, id).await?;
+    let contract = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The aggregate itself proves visibility (typed 404); its rate rows
+        // are never read on this path, because none of them is returned.
+        let contract = core_db::contracts::get_contract(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(ApiError::from)?;
         if core_db::invoices::contract_has_invoices(&mut *ctx.tx, org_id, id).await? {
             return Err(ApiError::Conflict(
                 "contract has invoices; void the invoices or keep the contract".into(),
@@ -968,15 +989,19 @@ pub async fn remove(
             Some(id.to_string().as_str()),
             &serde_json::to_value(ContractRemoved {
                 contract_id: id,
-                number: detail.contract.number.clone(),
+                number: contract.number.clone(),
             })
             .unwrap_or_else(|_| serde_json::json!({})),
         )
         .await?;
-        Ok((ctx, detail))
+        Ok((ctx, contract))
     })
     .await?;
-    Ok(Json(detail))
+    Ok(Json(ContractRemovedAck {
+        contract_id: contract.id,
+        number: contract.number,
+        deleted: true,
+    }))
 }
 
 /// Loads every Wave-39 evaluation input for one contract inside an open
@@ -997,6 +1022,19 @@ pub(crate) async fn load_eval_inputs(
     let escalator = core_db::contracts::get_escalator(&mut *tx, org_id, contract.id).await?;
     let orders = core_db::contracts::list_change_orders(&mut *tx, org_id, contract.id).await?;
     let credits = core_db::contracts::list_sla_credits(&mut *tx, org_id, contract.id).await?;
+    // A credit is priced only in the contract's currency (a credit never
+    // converts, ADR 0002). The write path refuses a mismatch, so a row that
+    // fails this check predates the guard: refuse the evaluation with the
+    // credit named rather than price it in the wrong currency or drop it
+    // silently. Every evaluation path (preview, invoice run, verification)
+    // loads its credits here, so they cannot disagree about the rule.
+    if let Some(offender) = core_billing::rules::sla_credit_in_another_currency(contract, &credits)
+    {
+        return Err(ApiError::Validation(format!(
+            "SLA credit {} is in {} and contract {} prices in {}; cancel the credit and issue it in {}",
+            offender.id, offender.currency, contract.number, contract.currency, contract.currency
+        )));
+    }
     let tickets = core_db::contracts::list_closed_tickets(
         &mut *tx,
         org_id,
@@ -1475,9 +1513,19 @@ pub async fn create_sla_credit(
     };
     let built = credit.clone();
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        core_db::contracts::get_contract(&mut *ctx.tx, org_id, id)
+        let contract = core_db::contracts::get_contract(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        // ADR 0002: a credit never converts, so it can only be priced in the
+        // contract's own currency. Refuse a mismatch here, in the 422 shape
+        // the credit-note write already uses, instead of storing a row the
+        // engine cannot turn into a line.
+        if !credit.currency.eq_ignore_ascii_case(&contract.currency) {
+            return Err(ApiError::Validation(format!(
+                "currency {} does not match the contract's currency {}",
+                credit.currency, contract.currency
+            )));
+        }
         core_db::contracts::insert_sla_credit(&mut *ctx.tx, &credit).await?;
         Ok((ctx, ()))
     })

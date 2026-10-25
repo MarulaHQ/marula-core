@@ -12,6 +12,7 @@
 //! rely on the caller's transaction carrying `app.org_id` (RLS).
 
 use crate::{DbError, DbResult};
+use core_domain::policy::Permission;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -143,6 +144,10 @@ pub async fn count_holders(
 }
 
 /// Updates a CUSTOM role's editable fields (name and/or permissions).
+/// `permissions` arrives RESOLVED (`Permission`, not raw wire keys): the
+/// route parses and validates the keys, so this write can only store the
+/// shape `role_from_row` reads back — a key that did not resolve would
+/// deserialize to an empty set and grant nothing.
 /// The `builtin IS NULL` predicate keeps every preset row immutable
 /// (RB1); a 0-rows update (builtin target or missing row) resolves to
 /// typed NotFound for the route to distinguish.
@@ -151,13 +156,12 @@ pub async fn update_custom_role(
     org_id: uuid::Uuid,
     role_id: Uuid,
     name: Option<&str>,
-    permissions: Option<&Vec<String>>,
+    permissions: Option<&[Permission]>,
 ) -> DbResult<()> {
     let result = sqlx::query(
         r#"UPDATE roles SET
               name = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE name END,
-              permissions = CASE WHEN $4::text IS NOT NULL THEN $4::text::jsonb ELSE permissions END,
-              updated_at = now()
+              permissions = CASE WHEN $4::text IS NOT NULL THEN $4::text::jsonb ELSE permissions END
            WHERE org_id = $1 AND id = $2
              AND (builtin IS NULL OR lower(builtin) = '')"#,
     )

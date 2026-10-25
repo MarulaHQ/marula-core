@@ -578,12 +578,39 @@ pub async fn update(
                 ));
             }
         }
+        // Resolve every key BEFORE the write. The stored row is read back as
+        // `Vec<Permission>`, and a key that does not resolve makes that read
+        // fail — which stores a role that reads back EMPTY, silently granting
+        // nothing. Refuse the unknown key with a typed 422 naming it, and
+        // store the resolved form so what was written is exactly what
+        // authorization reads. The parser is the service-account grant parser
+        // (one vocabulary for both write paths).
+        let resolved: Option<Vec<Permission>> = match req.permissions.as_ref() {
+            None => None,
+            Some(keys) => {
+                let mut out: Vec<Permission> = Vec::with_capacity(keys.len());
+                for key in keys {
+                    let Some(perm) = crate::routes::service_accounts::permission_from_key(key)
+                    else {
+                        return Err(ApiError::Validation(format!(
+                            "unknown permission key {key:?}; keys are \"<module>:<action>\" \
+                             (\"tickets:view\") or a policy special (\"special:manage_roles\", \
+                             \"financial:read\", ...)"
+                        )));
+                    };
+                    if !out.contains(&perm) {
+                        out.push(perm);
+                    }
+                }
+                Some(out)
+            }
+        };
         core_db::roles::update_custom_role(
             &mut ctx.tx,
             org_id,
             id,
             req.name.as_deref(),
-            req.permissions.as_ref(),
+            resolved.as_deref(),
         )
         .await
         .map_err(ApiError::from)?;

@@ -283,6 +283,7 @@ MCowBQYDK2VwAyEACifTR92KS0nfpnia/3uCznrkBrmzfHxV+nqX3Xhxw0w=
             web_base_url: "http://localhost:3000".into(),
             email_inbound_hmac_secret: None,
             email_internal_token: None,
+            serves_machine_seam: false,
             email_transport: core_mail::TransportKind::None,
             email_scan_clamd_addr: None,
             email_from_address: "support@marula.local".into(),

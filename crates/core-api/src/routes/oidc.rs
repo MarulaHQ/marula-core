@@ -183,7 +183,8 @@ fn provider_meta_to_info(p: core_db::oidc::ProviderMeta) -> OidcProviderInfo {
 #[utoipa::path(operation_id = "oidc_provider_upsert", put, path = "/api/auth/oidc/providers/{name}",
     tag = "auth", security(("bearer" = [])), params(("name" = String, Path)),
     request_body = UpsertProviderRequest,
-    responses((status = 200, body = OidcProviderInfo), (status = 403)))]
+    responses((status = 200, body = OidcProviderInfo), (status = 403),
+        (status = 409, description = "this name is already claimed by another workspace")))]
 pub async fn providers_upsert(
     State(state): State<AppState>,
     extensions: Extensions,

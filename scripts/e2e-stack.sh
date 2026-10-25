@@ -385,6 +385,10 @@ if [ -n "${E2E_PG_CONTAINER:-}" ] || [ -n "${CI:-}" ]; then
   export BIND_ADDR="${BIND_ADDR:-0.0.0.0:${API_PORT}}"
   export JWT_SECRET="${JWT_SECRET:-e2e-demo-secret-not-for-production}"
   export MARULA_INTERNAL_TOKEN="${MARULA_INTERNAL_TOKEN:-e2e-internal-token-not-for-production}"
+  # core-api refuses boot without the machine-seam token (Wave 54 lane S3d):
+  # this is the WORKER↔API send/effect seam, a different gate from the bearer
+  # token above, and the worker gets the same value from this process env.
+  export EMAIL_INTERNAL_TOKEN="${EMAIL_INTERNAL_TOKEN:-e2e-email-internal-not-for-production}"
   export WEB_BASE_URL="${WEB_BASE_URL:-http://localhost:${WEB_PORT}}"
   export CORS_ORIGIN="${CORS_ORIGIN:-http://localhost:${WEB_PORT}}"
   WORKER_PORT="${WORKER_PORT:-8082}"
