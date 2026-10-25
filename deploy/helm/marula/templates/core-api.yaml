@@ -33,6 +33,20 @@ spec:
           securityContext:
             {{- include "marula.containerSecurityContext" (dict "readOnly" true) | nindent 12 }}
           env:
+            {{- if and .Values.postgresql.deploy (not .Values.pooler.enabled) }}
+            # The role's password comes from the Secret, and DATABASE_URL
+            # references it by key (Wave 56 lane p56-staging-handoff): kubernetes
+            # expands $(POSTGRES_APP_PASSWORD) from this earlier entry, so the
+            # credential exists once — in the Secret — and never in a values
+            # file or a rendered manifest. Guarded: an external database or a
+            # pooler uses a URL that already carries its own credentials, and
+            # requiring this key there would break those installs.
+            - name: POSTGRES_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
+                  key: POSTGRES_APP_PASSWORD
+            {{- end }}
             - name: DATABASE_URL
               value: {{ include "marula.dbAppUrl" . | quote }}
             {{- if .Values.pooler.enabled }}
@@ -133,6 +147,13 @@ spec:
             {{- end }}
             {{- if .Values.coreApi.publicBaseUrl }}
             - name: PUBLIC_BASE_URL
+              value: {{ .Values.coreApi.publicBaseUrl | quote }}
+            # The console's own origin. Recovery links, magic links and the SSO
+            # hand-back are built from it, and its default is localhost:3000 —
+            # so an install that set only PUBLIC_BASE_URL mailed links nobody
+            # outside the cluster could open (Wave 56 lane p56-staging-handoff).
+            # Same-origin ingress makes this the public base URL.
+            - name: WEB_BASE_URL
               value: {{ .Values.coreApi.publicBaseUrl | quote }}
             {{- end }}
             {{- /*

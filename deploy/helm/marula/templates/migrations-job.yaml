@@ -39,6 +39,16 @@ spec:
               done
               exit 1
           env:
+            {{- if and .Values.postgresql.deploy (not .Values.pooler.enabled) }}
+            # Owner-role password from the Secret; DATABASE_URL references the
+            # key rather than carrying the value (Wave 56 lane p56-staging-handoff).
+            # Guarded like core-api's: external or pooled URLs carry their own.
+            - name: POSTGRES_OWNER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
+                  key: POSTGRES_OWNER_PASSWORD
+            {{- end }}
             # Direct, never through the pooler (lane P9): the migrator holds
             # a session advisory lock across the whole run, and a session lock
             # does not survive transaction pooling.

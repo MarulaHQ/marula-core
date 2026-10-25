@@ -41,6 +41,8 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | [`perf.md`](perf.md) | Budgets, the measurement harness, the recorded baselines |
 | [`upgrade-compatibility-policy.md`](upgrade-compatibility-policy.md) | The N−2 support window and the expand-then-contract migration rule |
 | [`desktop-release.md`](desktop-release.md) | Desktop packaging, signing and the auto-update path |
+| [`security/staging-runbook.md`](security/staging-runbook.md) | Deploy, seed, rotate, collect evidence for, and tear down the alpha-tester and penetration-test staging instance |
+| [`security/pentest-known-issues.md`](security/pentest-known-issues.md) | What the audit already owns, written for testers so they do not report it again |
 
 Operator tasks also live in the site, because operators read the site:
 [`site/start/operators.md`](site/start/operators.md) links stand-up, TLS, backup,

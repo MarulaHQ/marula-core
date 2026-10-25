@@ -22,6 +22,17 @@ Non-purpose: not an operator dashboard; no cross-env secret management
 beyond documented values (set `existingSecret` for production secret
 plumbing).
 
+## Staging profile for alpha testers and the penetration test
+
+`values-staging-pentest.yaml` in this directory takes every credential from one
+Secret that already exists, keeps `/api/dev/*` off, lowers the app's own rate
+limits per principal, turns on TLS with a placeholder host, and points mail at a
+sink inside the cluster so recovery links can be read without leaving it. The
+operator's sequence is `docs/security/staging-runbook.md`: create the Secret, pin
+the digests, seed one account per tester, rotate a password, collect evidence,
+tear down. Testers read `SECURITY.md` and
+`docs/security/pentest-known-issues.md` instead.
+
 ## The public front door (the private build tracker V2)
 
 The chart's `ingress` block is the public surface. It routes the four seams
