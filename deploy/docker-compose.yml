@@ -15,7 +15,15 @@
 # an Origin CA certificate or a DNS-01 token) and pulls the raw ports back
 # off the network. See deploy/edge/README.md.
 #
-# Usage:
+# Usage — a laptop stack, which is what the dev marker is for:
+#   docker compose -f deploy/docker-compose.yml \
+#                  --env-file deploy/dev.env up --build
+#
+# Usage — any other stack, where the operator generates the secrets:
+#   export JWT_SECRET=$(openssl rand -hex 32)              # signs access/refresh tokens
+#   export MARULA_SECRET_KEY=$(openssl rand -hex 32)       # AES-256 at-rest key
+#   export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)   # worker machine seam
+#   export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)    # email seam
 #   docker compose -f deploy/docker-compose.yml up --build
 #
 # Ports: 15432 pg · 16379 valkey · 8080 api · 8082 worker-health
@@ -24,6 +32,26 @@
 #        · 3100 loki · 9090 prometheus · 3001 grafana · 8010 glitchtip
 #        · 3002 uptime-kuma · 18899 metrics exposition
 #        · (ai profile) ollama — local model runtime, unpublished
+#
+# Secrets posture (Wave 56 p56-deploy-posture): this file ships NO secret
+# value. Four variables are required — JWT_SECRET, MARULA_SECRET_KEY,
+# MARULA_INTERNAL_TOKEN and EMAIL_INTERNAL_TOKEN — and compose refuses to
+# render the file without them (`:?` guards, the shape the preview overlay
+# already used). The defaults that used to sit here were the reason an
+# install that never set a key signed tokens with one published in this
+# repository: anyone who had read the source could mint an owner token.
+#
+# The dev marker is MARULA_DEV_TOOLS=1 and it is carried by a file, not by
+# a fallback value: deploy/dev.env holds the repository's published dev
+# values and `--env-file deploy/dev.env` is the act of choosing them. The
+# `dev-posture` service below prints a warning whenever those published
+# values are in play (or when the marker is on), so a stack that is only
+# safe on a laptop says so in its own boot logs — exactly what the desktop
+# debug build does at launch.
+#
+# Teardown note: `down` interpolates this file too, so a stack whose
+# variables are no longer exported needs the same `--env-file` (or exports)
+# before it can be stopped. The host's env file is the copy that matters.
 #
 # Security posture (Wave 38 p38-container-hardening): every third-party
 # image is pinned to an exact tag AND a registry digest (the digest is the
@@ -126,8 +154,13 @@ services:
     # effective/maintenance_io_concurrency defaults are left alone — raising
     # them is a sizing decision, documented in
     # docs/site/reference/db-observability.md.
+    # NOTE the command list starts at `-c`, not at `postgres`: the DHI
+    # entrypoint ends with `exec postgres "$@"`, so a leading `postgres` here
+    # becomes `postgres postgres -c ...` and the server refuses with
+    # `invalid argument: "postgres"` (found by the Wave 56 boot check — the
+    # base stack could not start its database at all). The entrypoint owns
+    # the binary name; this list owns the flags.
     command:
-      - postgres
       - -c
       - shared_preload_libraries=pg_stat_statements,auto_explain
       - -c
@@ -235,6 +268,64 @@ services:
       postgres:
         condition: service_healthy
 
+  # The dev marker's megaphone (Wave 56 p56-deploy-posture). The desktop
+  # debug build warns at launch that it trusts the repository's published
+  # dev secret; this stack has the same exposure and no shell in its own
+  # runtime images to say so, so one short-lived container says it instead.
+  #
+  # It keys off the VALUES, not the switch: a hand-exported published key
+  # warns exactly like a `--env-file deploy/dev.env` boot, and a stack with
+  # real generated keys stays quiet. `migrate` depends on it, so the warning
+  # lands above the API's first log line rather than after it. Nothing here
+  # can fail a boot — it prints and exits 0.
+  #
+  # Image: the Postgres pin the stack already pulls (the `postgres` service
+  # above, same digest). It is the one image in this file guaranteed to
+  # carry a shell, and reusing it adds no pin to keep in step. Overriding
+  # the entrypoint means no cluster is initialised and nothing is written.
+  dev-posture:
+    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    mem_limit: 32m
+    restart: "no"
+    logging: *default-logging
+    <<: *cap-common
+    read_only: true
+    user: "65534:65534"
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required - 64 hex chars (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}"
+      MARULA_SECRET_KEY: "${MARULA_SECRET_KEY:?MARULA_SECRET_KEY is required - 64 hex chars, the at-rest key (openssl rand -hex 32)}"
+      MARULA_INTERNAL_TOKEN: "${MARULA_INTERNAL_TOKEN:?MARULA_INTERNAL_TOKEN is required - the worker seam bearer (openssl rand -hex 32)}"
+      EMAIL_INTERNAL_TOKEN: "${EMAIL_INTERNAL_TOKEN:?EMAIL_INTERNAL_TOKEN is required - the email seam token (openssl rand -hex 32)}"
+      MARULA_DEV_TOOLS: ${MARULA_DEV_TOOLS:-}
+    command:
+      - |
+        published=0
+        case "$$JWT_SECRET" in
+          5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e) published=1 ;;
+        esac
+        case "$$MARULA_SECRET_KEY" in
+          6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21) published=1 ;;
+        esac
+        case "$$MARULA_INTERNAL_TOKEN" in
+          dev-internal) published=1 ;;
+        esac
+        case "$$EMAIL_INTERNAL_TOKEN" in
+          dev-email-internal) published=1 ;;
+        esac
+        if [ "$$published" = 1 ]; then
+          echo "DEV POSTURE: this stack signs with the repository's published dev JWT secret," >&2
+          echo "decrypts sealed rows with its published at-rest key, and accepts its published" >&2
+          echo "machine-seam tokens. Any process that has read the repository can mint an owner" >&2
+          echo "token here. Generate real values (openssl rand -hex 32) before this stack reaches" >&2
+          echo "a network you do not own." >&2
+        fi
+        if [ "$$MARULA_DEV_TOOLS" = 1 ]; then
+          echo "DEV POSTURE: MARULA_DEV_TOOLS=1 mounts /api/dev/* (demo reset and dev routes)." >&2
+          echo "Leave it off for an instance anyone else can reach." >&2
+        fi
+        exit 0
+
   migrate:
     mem_limit: 256m
     cpus: 1.0
@@ -252,6 +343,8 @@ services:
     environment:
       DATABASE_URL: postgres://marula:marula@postgres:5432/marula
     depends_on:
+      dev-posture:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 
@@ -288,11 +381,15 @@ services:
       MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula_app:marula_app@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8080
-      JWT_SECRET: ${JWT_SECRET:-5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e}
-      # 64-hex dev-only at-rest seal key (Wave 19 GA hardening): from_env
-      # hard-fails without an explicit MARULA_SECRET_KEY. Operators MUST
-      # override both secrets for anything beyond a local test harness.
-      MARULA_SECRET_KEY: ${MARULA_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required - 64 hex chars (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}"
+      # The at-rest seal key. from_env hard-fails without an explicit
+      # MARULA_SECRET_KEY, and it is required here for the same reason the
+      # signing key is: a value that ships in this repository is a value
+      # anyone who read it can decrypt sealed rows with.
+      MARULA_SECRET_KEY: "${MARULA_SECRET_KEY:?MARULA_SECRET_KEY is required - 64 hex chars, the at-rest key (openssl rand -hex 32)}"
+      # The dev marker. Off unless the operator or dev.env sets it; core-api
+      # mounts /api/dev/* and allows seed-demo only when it equals 1.
+      MARULA_DEV_TOOLS: ${MARULA_DEV_TOOLS:-}
       # Optional EdDSA (Ed25519) access-token signing (Wave 34 lane 6):
       # set BOTH PEMs to switch signing to EdDSA (kid: MARULA_JWT_KID,
       # default m1); leave unset for the HS256 posture. A malformed or
@@ -304,11 +401,11 @@ services:
       # Email v1 defaults (see crates/core-mail/README.md none modes):
       # webhook DISABLED until EMAIL_INBOUND_HMAC_SECRET is set; transport
       # `smtp` requires the stage2-profile mailpit slot (--profile stage2).
-      EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
+      EMAIL_INTERNAL_TOKEN: "${EMAIL_INTERNAL_TOKEN:?EMAIL_INTERNAL_TOKEN is required - the email seam token (openssl rand -hex 32)}"
       # The bearer half of the same seam (SLA, automation, webhook, dedupe,
       # workflow-node calls). core-api refuses boot without it outside the dev
-      # profile, so it is set here exactly like EMAIL_INTERNAL_TOKEN.
-      MARULA_INTERNAL_TOKEN: ${MARULA_INTERNAL_TOKEN:-dev-internal}
+      # profile, so it is required here exactly like EMAIL_INTERNAL_TOKEN.
+      MARULA_INTERNAL_TOKEN: "${MARULA_INTERNAL_TOKEN:?MARULA_INTERNAL_TOKEN is required - the worker seam bearer (openssl rand -hex 32)}"
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
@@ -405,8 +502,10 @@ services:
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
       # Must match core-api's MARULA_SECRET_KEY or sealed webhook secrets
-      # are undecryptable by the delivery worker.
-      MARULA_SECRET_KEY: ${MARULA_SECRET_KEY:-6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21}
+      # are undecryptable by the delivery worker. Required, not defaulted:
+      # the same guard core-api carries, so the two cannot disagree by
+      # accident.
+      MARULA_SECRET_KEY: "${MARULA_SECRET_KEY:?MARULA_SECRET_KEY is required - 64 hex chars, the at-rest key (openssl rand -hex 32)}"
       RELAY_BATCH: "200"
       # Pool ceilings (Wave 49 lane R1); see docs/perf.md §5.
       MARULA_DB_POOL_MAX: ${MARULA_DB_POOL_MAX:-20}
@@ -417,11 +516,11 @@ services:
       # they hold after SIGTERM. Keep it under stop_grace_period above.
       MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
       CORE_API_URL: http://core-api:8080
-      EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
+      EMAIL_INTERNAL_TOKEN: "${EMAIL_INTERNAL_TOKEN:?EMAIL_INTERNAL_TOKEN is required - the email seam token (openssl rand -hex 32)}"
       # The bearer half of the same seam (SLA, automation, webhook, dedupe,
       # workflow-node calls). core-api refuses boot without it outside the dev
       # profile, so it is set here exactly like EMAIL_INTERNAL_TOKEN.
-      MARULA_INTERNAL_TOKEN: ${MARULA_INTERNAL_TOKEN:-dev-internal}
+      MARULA_INTERNAL_TOKEN: "${MARULA_INTERNAL_TOKEN:?MARULA_INTERNAL_TOKEN is required - the worker seam bearer (openssl rand -hex 32)}"
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}

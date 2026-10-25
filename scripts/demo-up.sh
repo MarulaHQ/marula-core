@@ -34,19 +34,27 @@
 # no-op that reports what is already up. Nothing is double-booted; the
 # demo org is never reseeded by `up` once it exists.
 #
-# Secrets posture: no secret is written anywhere. JWT_SECRET and
-# MARULA_SECRET_KEY are deliberately left UNSET so every process uses the
-# documented dev fallback (MARULA_DEV_TOOLS=1, pinned dev secret — the
-# same derivation the desktop test app and the compose dev defaults use),
-# which keeps the API and the seeder on one key. A local
-# JWT_SECRET that is not 64 hex chars makes core-api refuse to boot, so
-# the preflight fails with that message instead of a half-up stack.
+# Secrets posture: nothing secret is written anywhere. The native API and
+# worker leave JWT_SECRET and MARULA_SECRET_KEY UNSET so every process uses
+# the documented dev fallback (MARULA_DEV_TOOLS=1, pinned dev secret — the
+# same derivation the desktop test app and the compose dev values use), which
+# keeps the API and the seeder on one key. The compose file this script
+# starts postgres and redis from requires the four secrets to interpolate, so
+# the calls below pass `--env-file deploy/dev.env`: those values reach the
+# containers only, and postgres/redis read none of them. A local JWT_SECRET
+# that is not 64 hex chars makes core-api refuse to boot, so the preflight
+# fails with that message instead of a half-up stack.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 COMPOSE_FILE="deploy/docker-compose.yml"
+# The base file ships no secret value and refuses to render without four of
+# them (Wave 56). This script starts only postgres and redis from compose, so
+# the published dev values are enough for interpolation; the native API and
+# worker it launches afterwards read the exported environment, not this file.
+compose() { docker compose --env-file "$REPO_ROOT/deploy/dev.env" -f "$COMPOSE_FILE" "$@"; }
 STATE_DIR="$REPO_ROOT/.demo-up"
 LOGDIR="$STATE_DIR/logs"
 PIDSFILE="$STATE_DIR/pids"
@@ -154,22 +162,22 @@ ensure_infra() {
   if [ "$AI" = "1" ]; then
     write_ollama_override
     log "starting postgres + redis + the ai profile (ollama)"
-    (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" -f "$OLLAMA_OVERRIDE" --profile ai up -d postgres redis ollama) \
+    (cd "$REPO_ROOT" && compose -f "$OLLAMA_OVERRIDE" --profile ai up -d postgres redis ollama) \
       || die "docker compose could not start postgres/redis/ollama — is Docker running? (docker info)"
   else
     log "starting postgres + redis"
-    (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" up -d postgres redis) \
+    (cd "$REPO_ROOT" && compose up -d postgres redis) \
       || die "docker compose could not start postgres/redis — is Docker running? (docker info)"
   fi
   for _ in $(seq 1 40); do
     # the corrected probe: compose's POSTGRES_USER is `marula`, not the
     # pre-rebrand `meridian` the retired dev-up.local.sh probed.
-    if (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres pg_isready -U marula -d marula >/dev/null 2>&1); then
+    if (cd "$REPO_ROOT" && compose exec -T postgres pg_isready -U marula -d marula >/dev/null 2>&1); then
       return 0
     fi
     sleep 1
   done
-  die "postgres never became ready on :$PG_PORT — check: docker compose -f $COMPOSE_FILE logs postgres"
+  die "postgres never became ready on :$PG_PORT — check: docker compose --env-file deploy/dev.env -f deploy/docker-compose.yml logs postgres"
 }
 
 write_ollama_override() {
@@ -194,7 +202,7 @@ EOF
 # ---------- database ----------
 
 demo_seeded() {
-  (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
+  (cd "$REPO_ROOT" && compose exec -T postgres \
     psql -U marula -d marula -tAc "SELECT COUNT(*) FROM users WHERE email LIKE '%@demo.local'" 2>/dev/null) \
     | grep -q '[1-9]'
 }
@@ -217,7 +225,7 @@ reseed() {
     || die "reseed failed — full log above"
   # The deterministic-reseed protocol from scripts/e2e-stack.sh: clear the
   # volatile per-user state so every demo starts from the same login.
-  (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
+  (cd "$REPO_ROOT" && compose exec -T postgres \
     psql -U marula -d marula -q -c \
     "TRUNCATE auth_lockouts; TRUNCATE auth_attempt_log;
      DELETE FROM settings WHERE scope = 'user' AND (key LIKE 'onboarding.%' OR key LIKE 'tours.%');") \
@@ -356,7 +364,8 @@ EOF
   ai profile         ollama on 127.0.0.1:11434 (loopback only — the shipped
                      compose publishes nothing, on purpose)
   pull the models (the first inference after a pull is slow — it loads them):
-    docker compose -f $COMPOSE_FILE --profile ai exec ollama ollama pull whisper
+    docker compose --env-file deploy/dev.env -f deploy/docker-compose.yml \\
+      --profile ai exec ollama ollama pull whisper
   the embedding model is fetched by the profile's ollama-model job; the
   bundled default is embeddinggemma-2:270m-q8_0-text
   then in $WEB_URL/settings/ai set the base URL to http://127.0.0.1:11434
@@ -412,7 +421,7 @@ stop_all() { # stop_all [quiet]
   done
   if [ "$WITH_INFRA" = "1" ]; then
     log "stopping compose postgres + redis"
-    (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" down) \
+    (cd "$REPO_ROOT" && compose down) \
       || warn "compose down failed — docker may be down"
   fi
 }
@@ -429,7 +438,7 @@ cmd_reset() {
     warn "DESTROYING the postgres volume (all data). Ctrl-C within 5 seconds to abort."
     sleep 5
     stop_all 1
-    (cd "$REPO_ROOT" && docker compose -f "$COMPOSE_FILE" down -v) \
+    (cd "$REPO_ROOT" && compose down -v) \
       || die "compose down -v failed — docker may be down"
     rm -rf "$STATE_DIR/objects"
   fi

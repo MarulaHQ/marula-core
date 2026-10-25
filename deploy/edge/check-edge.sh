@@ -165,15 +165,17 @@ PY
 # ---------------------------------------------------------------------------
 head "Shell"
 if have shellcheck; then
-	if shellcheck -s sh "$EDGE/origin-lockdown.sh" && shellcheck -s sh "$0"; then
-		ok "shellcheck clean (origin-lockdown.sh, check-edge.sh)"
+	if shellcheck -s sh "$EDGE/origin-lockdown.sh" \
+		&& shellcheck -s sh "$EDGE/check-published-ports.sh" \
+		&& shellcheck -s sh "$0"; then
+		ok "shellcheck clean (origin-lockdown.sh, check-published-ports.sh, check-edge.sh)"
 	else
 		bad "shellcheck reported problems"
 	fi
 else
 	skip "shellcheck not installed"
 fi
-for f in "$EDGE/origin-lockdown.sh" "$0"; do
+for f in "$EDGE/origin-lockdown.sh" "$EDGE/check-published-ports.sh" "$0"; do
 	if sh -n "$f" 2>/dev/null; then
 		ok "sh -n $(basename "$f")"
 	else
@@ -195,10 +197,29 @@ fi
 
 # ---------------------------------------------------------------------------
 head "Compose"
+# The base file ships no secret value since Wave 56, so every render below
+# has to carry the four required variables. Dummy values are correct here:
+# this asserts interpolation and precedence, never a deployment. dev.env is
+# not used on purpose — a check that depends on the dev file cannot tell a
+# missing guard from a missing file.
+
 if have docker; then
+	# The four required values as an env file rather than a word-split
+	# assignment string: compose takes them through `--env-file`, and a file
+	# also gives the "one variable missing" case something to subtract from.
+	ENVDEV=$(mktemp)
+	cat >"$ENVDEV" <<EOF
+JWT_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+MARULA_SECRET_KEY=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+MARULA_INTERNAL_TOKEN=check-internal-token
+EMAIL_INTERNAL_TOKEN=check-email-internal-token
+EOF
+
 	run_cfg() {
 		label=$1; shift
-		if out=$(cd "$ROOT" && env "$@" docker compose -f deploy/docker-compose.yml -f deploy/edge/compose.edge.yml --profile edge config 2>&1); then
+		if out=$(cd "$ROOT" && env "$@" docker compose --env-file "$ENVDEV" \
+			-f deploy/docker-compose.yml -f deploy/edge/compose.edge.yml \
+			--profile edge config 2>&1); then
 			ok "$label interpolates"
 		else
 			bad "$label: $out"
@@ -208,7 +229,9 @@ if have docker; then
 	run_cfg "cf-origin"     MARULA_DOMAIN=marula.example.com MARULA_TLS_MODE=cf-origin
 	run_cfg "cf-dns01"      MARULA_DOMAIN=marula.example.com MARULA_TLS_MODE=cf-dns01 CF_API_TOKEN=tok
 
-	if out=$(cd "$ROOT" && docker compose -f deploy/docker-compose.yml -f deploy/edge/compose.edge.yml --profile edge config 2>&1); then
+	if out=$(cd "$ROOT" && docker compose --env-file "$ENVDEV" \
+		-f deploy/docker-compose.yml -f deploy/edge/compose.edge.yml \
+		--profile edge config 2>&1); then
 		bad "compose started without MARULA_DOMAIN — it should refused"
 	else
 		case "$out" in
@@ -217,40 +240,63 @@ if have docker; then
 		esac
 	fi
 
-	if (cd "$ROOT" && PREVIEW_JWT_SECRET=j PREVIEW_MARULA_SECRET_KEY=k \
+	# The other half of the posture: no secret value is defaulted anywhere,
+	# so a render without one fails and names it. This is the assertion the
+	# audit record asked for — an install cannot sign with the repository's
+	# key by doing nothing.
+	for v in JWT_SECRET MARULA_SECRET_KEY MARULA_INTERNAL_TOKEN EMAIL_INTERNAL_TOKEN; do
+		PARTIAL=$(mktemp)
+		grep -v "^$v=" "$ENVDEV" >"$PARTIAL"
+		if out=$(cd "$ROOT" && env -u "$v" docker compose --env-file "$PARTIAL" \
+			-f deploy/docker-compose.yml config -q 2>&1); then
+			bad "compose rendered with $v unset — the guard is not load-bearing"
+		else
+			case "$out" in
+			*"$v"*) ok "compose refuses to render without $v" ;;
+			*) bad "the $v failure does not name $v: $out" ;;
+			esac
+		fi
+		rm -f "$PARTIAL"
+	done
+
+	if (cd "$ROOT" && \
 		PREVIEW_CORS_ORIGIN=https://pr-1.preview.example.com \
 		PREVIEW_PUBLIC_URL=https://pr-1.preview.example.com \
 		MARULA_DOMAIN=pr-1.preview.example.com \
-		docker compose -f deploy/docker-compose.yml \
+		docker compose --env-file "$ENVDEV" \
+		               -f deploy/docker-compose.yml \
 		               -f deploy/preview/compose.preview.yml \
 		               -f deploy/edge/compose.edge.yml --profile edge config >/dev/null 2>&1); then
 		ok "preview + edge layering interpolates"
 	else
 		bad "preview + edge layering failed"
 	fi
+	rm -f "$ENVDEV"
 else
 	skip "docker compose not available"
 fi
 
 head "The overlay actually takes the ports back"
-python3 - "$ROOT" <<'PY' || FAIL=$((FAIL + 1))
-import re, sys, pathlib
-src = (pathlib.Path(sys.argv[1]) / "deploy/edge/compose.edge.yml").read_text()
-problems = []
-for svc in ("core-api", "web", "postgres", "worker"):
-    block = re.search(rf"^  {re.escape(svc)}:\n((?:    .*\n|\n)*?)(?=^  \S|^\S|\Z)", src, re.M)
-    if not block:
-        problems.append(f"no {svc} block in the overlay")
-    elif "!override []" not in block.group(1):
-        problems.append(f"{svc}: no `ports: !override []` — its base publish stays reachable")
-if "edgedata:" not in src:
-    problems.append("the edgedata volume for the certificate store is not declared")
-if problems:
-    for p in problems:
-        print(f"  FAIL {p}")
-    sys.exit(1)
-print("  ok   core-api, web, postgres and worker are all pulled back")
-PY
+# The merged config is the only place this is true, and the check reads it
+# for every profile rather than for the four services someone remembered.
+if have docker; then
+	PORTS_ERR=$(mktemp)
+	if "$EDGE/check-published-ports.sh" >/dev/null 2>"$PORTS_ERR"; then
+		ok "merged config publishes only the edge off loopback"
+		ok "core-api, web, worker and postgres are unpublished"
+	else
+		bad "merged config leaves a listener off loopback:"
+		"$EDGE/check-published-ports.sh" 2>&1 | sed 's/^/       /'
+	fi
+	rm -f "$PORTS_ERR"
+else
+	skip "docker compose not available"
+fi
+if grep -q '^  edgedata:' "$EDGE/compose.edge.yml"; then
+	ok "the edgedata volume for the certificate store is declared"
+else
+	bad "the edgedata volume for the certificate store is not declared"
+fi
 
 head "Certificate material"
 if [ -d "$EDGE/certs" ] && [ -f "$EDGE/certs/.gitignore" ]; then

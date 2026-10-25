@@ -64,8 +64,10 @@ variables rather than defaults.
 The edge overlay is layered **last**, after this directory's overlay:
 
 ```sh
-export PREVIEW_JWT_SECRET=$(openssl rand -hex 32)
-export PREVIEW_MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export JWT_SECRET=$(openssl rand -hex 32)
+export MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
+export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export MARULA_DOMAIN=pr-482.preview.example.com   # per-PR host
 export MARULA_TLS_MODE=direct                      # or cf-origin / cf-dns01
 export ACME_EMAIL=ops@example.com                  # direct and cf-dns01 only
@@ -113,8 +115,10 @@ Useful before wiring CI — you want to know the overlay works before you
 trust it to a workflow.
 
 ```sh
-export PREVIEW_JWT_SECRET=$(openssl rand -hex 32)
-export PREVIEW_MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export JWT_SECRET=$(openssl rand -hex 32)
+export MARULA_SECRET_KEY=$(openssl rand -hex 32)
+export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
+export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export PREVIEW_PUBLIC_URL=http://localhost:3000
 export PREVIEW_API_URL=http://localhost:8080
 export PREVIEW_CORS_ORIGIN=http://localhost:3000
@@ -144,13 +148,18 @@ have quietly left the local stack's database port open to the network.
 The database is still reachable by service name inside the compose
 network, which is where every client of it lives.
 
-**Secrets.** `JWT_SECRET` and `MARULA_SECRET_KEY` are required, with no
-default. The local stack ships development keys inline; on a
-network-visible interface those are not a development convenience, they
-are a published token that anyone who has read this repository can use to
-mint a session. Compose refuses to start without them, which is the
-behaviour you want: a preview that will not boot until you gave it a real
-key cannot be forgotten, and one that boots on a known key will be.
+**Secrets.** `JWT_SECRET`, `MARULA_SECRET_KEY`, `MARULA_INTERNAL_TOKEN` and
+`EMAIL_INTERNAL_TOKEN` are required by the base file, with no default
+anywhere. On a network-visible interface a development key is not a
+convenience, it is a published token that anyone who has read this
+repository can use to mint a session. Compose refuses to start without
+them, which is the behaviour you want: a preview that will not boot until
+you gave it a real key cannot be forgotten, and one that boots on a known
+key will be.
+
+This overlay used to create that requirement by renaming the two keys to
+`PREVIEW_*`. The base file carries it now, so the preview inherits it and
+there is one name per secret across every deployment shape.
 
 **Mail.** `EMAIL_TRANSPORT=none` on core-api and the worker. A preview
 stack holds demo data and is reachable by more people than production is,
