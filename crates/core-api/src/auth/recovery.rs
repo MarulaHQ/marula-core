@@ -474,6 +474,8 @@ pub async fn magic_link_request(
 /// POST /api/auth/magic-link/confirm — consumes the link and issues a
 /// full session through the SAME machinery as password login. STAFF
 /// family only (the portal is NOT included — see the threat model).
+/// An account with an enrolled second factor answers a typed
+/// `mfa_required` refusal — the link proves the mailbox, not the factor.
 #[utoipa::path(operation_id = "auth_magic_link_confirm", post,
     path = "/api/auth/magic-link/confirm", tag = "auth",
     request_body = MagicLinkConfirm, responses((status = 200, body = crate::routes::openapi::TokenPair),
@@ -501,6 +503,39 @@ pub async fn magic_link_confirm(
             .await
             .map_err(ApiError::from)?
             .ok_or_else(|| ApiError::Unauthorized("invalid or expired sign-in link".into()))?;
+
+    // Token issuance still runs the MFA gate every other identity source
+    // runs (p57): password login refuses tokens while an enrolled factor is
+    // unproven, and the federated paths route through `federated_mfa_gate`
+    // for the same reason. A link from a mailbag is possession of the FIRST
+    // factor (the mailbox), never proof of the second one — issuing tokens
+    // here would let mailbox possession satisfy an account's TOTP or
+    // passkey. The reason code names the password path the caller should
+    // take; the audit row keeps the truth server-side.
+    {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org(&mut tx, resolution.org_id).await?;
+        let caps = core_db::mfa::mfa_capabilities(&mut *tx, resolution.user_id).await?;
+        let any = caps.any();
+        tx.commit().await.map_err(ApiError::from)?;
+        if any {
+            handlers::audit_best_effort(
+                &state,
+                resolution.org_id,
+                Actor::Human(resolution.user_id),
+                "auth.magic_link_mfa_required",
+                Some("user"),
+                Some(resolution.user_id.to_string()),
+                serde_json::json!({ "amr": "magic_link" }),
+            )
+            .await;
+            return Err(ApiError::AuthDenied {
+                reason: "mfa_required",
+                message: "this account requires a second factor; sign in with your password and your authenticator instead of a link",
+            });
+        }
+    }
+
     let (tokens, cookie_head) =
         handlers::issue_tokens_with_cookies(&state, resolution.user_id, resolution.org_id, None)
             .await?;
