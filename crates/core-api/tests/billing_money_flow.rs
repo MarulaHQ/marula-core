@@ -360,7 +360,12 @@ async fn seed_issued_invoice_for_org(state: &AppState, org_id: Uuid, total_minor
     .bind(contract_id)
     .bind(org_id)
     .bind(client_id)
-    .bind(format!("C-WH-{}", &contract_id.simple().to_string()[..8]))
+    // The tail, not the head: the first bytes of a v7 UUID are a timestamp, so
+    // two cases starting in the same millisecond collided on this number.
+    .bind(format!(
+        "C-WH-{}",
+        &contract_id.simple().to_string()[24..32]
+    ))
     .execute(&state.pool)
     .await
     .expect("contract row");
@@ -374,7 +379,10 @@ async fn seed_issued_invoice_for_org(state: &AppState, org_id: Uuid, total_minor
     .bind(org_id)
     .bind(client_id)
     .bind(contract_id)
-    .bind(format!("INV-WH-{}", &invoice_id.simple().to_string()[..8]))
+    .bind(format!(
+        "INV-WH-{}",
+        &invoice_id.simple().to_string()[24..32]
+    ))
     .bind(total_minor)
     .execute(&state.pool)
     .await

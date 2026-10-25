@@ -37,15 +37,10 @@ use uuid::Uuid;
 /// group's `routes/mod.rs` owner applies; mounting it here proves the
 /// handlers, the paths and the permission gates as shipped.
 fn app_with_triage(state: &AppState) -> Router {
-    use axum::middleware;
-    let triage = core_api::email::routes(core_api::routes::ApiGeneration::Canonical)
-        .layer(middleware::from_fn(core_api::otel_http::record_org))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            core_api::auth::middleware::require_auth,
-        ))
-        .with_state(state.clone());
-    core_api::routes::build_router(state.clone()).merge(triage)
+    // `build_router` mounts the triage group now (routes/mod.rs merges it into
+    // the protected chain), so mounting it again here would panic on an
+    // overlapping method route. The shipped router is the thing under test.
+    core_api::routes::build_router(state.clone())
 }
 
 struct Fixture {

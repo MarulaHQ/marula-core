@@ -189,13 +189,15 @@ async fn seed_step_up(
     core_db::set_org(&mut tx, org_id).await.expect("scope");
     core_db::mfa::record_step_up(
         &mut *tx,
-        Uuid::now_v7(),
-        org_id,
-        user_id,
-        session_id,
-        method,
-        factor_ref,
-        chrono::Utc::now() + chrono::Duration::seconds(300),
+        core_db::mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id,
+            user_id,
+            session_id,
+            method,
+            factor_ref,
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+        },
     )
     .await
     .expect("step-up record");
@@ -291,7 +293,9 @@ async fn a_confirmed_totp_cannot_be_replaced_without_a_fresh_step_up() {
     assert_eq!(envelope["error"]["endpoint"], "/api/auth/mfa/step-up");
     assert_eq!(envelope["error"]["ttl_secs"], 300);
 
-    // The confirmed factor is still the one that works.
+    // The confirmed factor is still the one that works: a verify call on this
+    // account answers "already enabled" rather than staging a replacement,
+    // which is the same fact the refused begin preserved.
     let verified = send(
         &app,
         Method::POST,
@@ -302,8 +306,16 @@ async fn a_confirmed_totp_cannot_be_replaced_without_a_fresh_step_up() {
     .await;
     assert_eq!(
         verified.status(),
-        StatusCode::OK,
-        "the live secret still holds"
+        StatusCode::CONFLICT,
+        "the live secret still holds, so nothing was replaced"
+    );
+    let envelope = body_json(verified).await;
+    assert!(
+        envelope["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("already enabled"),
+        "the refusal names the confirmed factor: {envelope}"
     );
 }
 

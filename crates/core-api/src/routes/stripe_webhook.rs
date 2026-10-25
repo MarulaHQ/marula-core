@@ -308,7 +308,7 @@ async fn record_payment(
     // called the no-expectation form, so an out-of-band settlement could
     // apply against a total that had moved, and could pass the total outright.
     core_db::invoices::apply_payment_total_expecting(
-        &mut *tx,
+        &mut tx,
         org_id,
         invoice_id,
         amount_minor,

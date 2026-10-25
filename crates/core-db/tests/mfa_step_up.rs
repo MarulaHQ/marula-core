@@ -100,13 +100,15 @@ async fn a_step_up_is_fresh_inside_its_window_and_stale_after_it() {
 
     mfa::record_step_up(
         &mut *tx,
-        Uuid::now_v7(),
-        org,
-        user,
-        session,
-        "totp",
-        None,
-        chrono::Utc::now() + chrono::Duration::seconds(300),
+        mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id: org,
+            user_id: user,
+            session_id: session,
+            method: "totp",
+            factor_ref: None,
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+        },
     )
     .await
     .expect("record");
@@ -133,13 +135,15 @@ async fn a_step_up_is_fresh_inside_its_window_and_stale_after_it() {
 
     mfa::record_step_up(
         &mut *tx,
-        Uuid::now_v7(),
-        org,
-        user,
-        session,
-        "recovery_code",
-        Some("code-row"),
-        chrono::Utc::now() - chrono::Duration::seconds(1),
+        mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id: org,
+            user_id: user,
+            session_id: session,
+            method: "recovery_code",
+            factor_ref: Some("code-row"),
+            expires_at: chrono::Utc::now() - chrono::Duration::seconds(1),
+        },
     )
     .await
     .expect("record stale");
@@ -168,13 +172,15 @@ async fn a_rotated_session_keeps_the_step_up_through_its_chain() {
 
     mfa::record_step_up(
         &mut *tx,
-        Uuid::now_v7(),
-        org,
-        user,
-        session,
-        "webauthn",
-        Some("cred-1"),
-        chrono::Utc::now() + chrono::Duration::seconds(300),
+        mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id: org,
+            user_id: user,
+            session_id: session,
+            method: "webauthn",
+            factor_ref: Some("cred-1"),
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+        },
     )
     .await
     .expect("record");
@@ -249,13 +255,15 @@ async fn an_admin_reset_clears_every_factor_and_leaves_the_account_owing_one() {
     .expect("codes");
     mfa::record_step_up(
         &mut *tx,
-        Uuid::now_v7(),
-        org,
-        user,
-        session,
-        "totp",
-        None,
-        chrono::Utc::now() + chrono::Duration::seconds(300),
+        mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id: org,
+            user_id: user,
+            session_id: session,
+            method: "totp",
+            factor_ref: None,
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+        },
     )
     .await
     .expect("step-up");

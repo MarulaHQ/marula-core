@@ -183,13 +183,15 @@ async fn stamp_step_up(tx: &mut Tx, authed: &AuthedUser, factor: &SecondFactor) 
     let expires_at = chrono::Utc::now() + chrono::Duration::seconds(STEP_UP_TTL_SECS);
     core_db::mfa::record_step_up(
         &mut **tx,
-        Uuid::now_v7(),
-        user.org_id,
-        user.id,
-        session_id,
-        factor.method,
-        factor.factor_ref.as_deref(),
-        expires_at,
+        core_db::mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id: user.org_id,
+            user_id: user.id,
+            session_id,
+            method: factor.method,
+            factor_ref: factor.factor_ref.as_deref(),
+            expires_at,
+        },
     )
     .await?;
     Ok(())
@@ -211,13 +213,15 @@ async fn record_step_up_for_session(
     let mut tx = org_tx(state, org_id).await?;
     core_db::mfa::record_step_up(
         &mut *tx,
-        Uuid::now_v7(),
-        org_id,
-        user_id,
-        session_id,
-        factor.method,
-        factor.factor_ref.as_deref(),
-        expires_at,
+        core_db::mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id,
+            user_id,
+            session_id,
+            method: factor.method,
+            factor_ref: factor.factor_ref.as_deref(),
+            expires_at,
+        },
     )
     .await?;
     tx.commit()
@@ -730,13 +734,15 @@ pub async fn step_up(
     let expires_at = verified_at + chrono::Duration::seconds(STEP_UP_TTL_SECS);
     let written = core_db::mfa::record_step_up(
         &mut *tx,
-        Uuid::now_v7(),
-        user.org_id,
-        user.id,
-        session_id,
-        proved.method,
-        proved.factor_ref.as_deref(),
-        expires_at,
+        core_db::mfa::StepUpRecord {
+            id: Uuid::now_v7(),
+            org_id: user.org_id,
+            user_id: user.id,
+            session_id,
+            method: proved.method,
+            factor_ref: proved.factor_ref.as_deref(),
+            expires_at,
+        },
     )
     .await?;
     if written == 0 {

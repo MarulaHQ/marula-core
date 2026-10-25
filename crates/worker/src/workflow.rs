@@ -1262,7 +1262,7 @@ async fn file_pending_approval(
         .begin()
         .await
         .map_err(|error| format!("approval transaction failed: {error}"))?;
-    let row = core_db::agent_platform::insert_proposal(&mut *tx, proposal_id, ctx.org_id, &fields)
+    let row = core_db::agent_platform::insert_proposal(&mut tx, proposal_id, ctx.org_id, &fields)
         .await
         .map_err(|error| format!("approval insert failed: {error}"))?;
     core_db::audit::insert(

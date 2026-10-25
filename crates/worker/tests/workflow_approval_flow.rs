@@ -89,7 +89,7 @@ async fn seed(pool: &PgPool, slot: u128) -> Fixture {
     orgs::insert_org(&mut *conn, org, "Gate Co", &slug, "GAT")
         .await
         .expect("org");
-    orgs::seed_default_roles(&mut *conn, org)
+    orgs::seed_default_roles(&mut conn, org)
         .await
         .expect("roles");
     for (id, label) in [
@@ -164,24 +164,42 @@ fn job(org: Uuid, payload: Value) -> ClaimedJob {
     }
 }
 
+/// Inserts the queue row a claimed job represents.
+///
+/// `workflow_runs.trigger_job_id` is a foreign key, so a run started by a job
+/// the queue never held cannot be written. The executor normally consumes a
+/// row the dispatcher inserted; here the suite stands in for the dispatcher.
+async fn enqueue(pool: &PgPool, j: &ClaimedJob) {
+    sqlx::query(
+        "INSERT INTO jobs (id, org_id, kind, payload, status, attempts, max_attempts, updated_at) \
+         VALUES ($1, $2, $3, $4, 'running', $5, $6, now())",
+    )
+    .bind(j.id)
+    .bind(j.org_id)
+    .bind(&j.kind)
+    .bind(&j.payload)
+    .bind(i32::try_from(j.attempts).unwrap_or(1))
+    .bind(i32::try_from(j.max_attempts).unwrap_or(5))
+    .execute(pool)
+    .await
+    .expect("queue row");
+}
+
 /// Starts the document and returns the run it parked at the gate.
 async fn start_at_gate(pool: &PgPool, fx: &Fixture) -> Uuid {
     let effects = RecordingEffectApi::new(EffectOutcome::Applied);
-    let result = process_resume_job(
-        pool,
-        &effects,
-        &job(
-            fx.org,
-            json!({
-                "op": "start",
-                "rule_id": fx.rule,
-                "event": { "ticket_id": null },
-                "event_type": "ticket.created",
-                "event_entity": "ticket",
-            }),
-        ),
-    )
-    .await;
+    let start_job = job(
+        fx.org,
+        json!({
+            "op": "start",
+            "rule_id": fx.rule,
+            "event": { "ticket_id": null },
+            "event_type": "ticket.created",
+            "event_entity": "ticket",
+        }),
+    );
+    enqueue(pool, &start_job).await;
+    let result = process_resume_job(pool, &effects, &start_job).await;
     assert!(
         matches!(result.outcome, JobOutcome::Done),
         "the start job must settle: {}",
@@ -449,7 +467,7 @@ async fn a_decision_for_another_gate_does_not_resume_this_one() {
     let other = Uuid::now_v7();
     let mut conn = pool.acquire().await.expect("connection");
     agent_platform::insert_proposal(
-        &mut *conn,
+        &mut conn,
         other,
         fx.org,
         &agent_platform::ProposalFields {

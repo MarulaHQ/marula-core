@@ -498,16 +498,17 @@ pub struct StepUpRow {
 /// Returns the rows written. Zero means the session row was not visible to
 /// this transaction — the caller should treat that as "no step-up", never as
 /// success.
-pub async fn record_step_up<'e, E>(
-    executor: E,
-    id: Uuid,
-    org_id: Uuid,
-    user_id: Uuid,
-    session_id: Uuid,
-    method: &str,
-    factor_ref: Option<&str>,
-    expires_at: chrono::DateTime<chrono::Utc>,
-) -> DbResult<u64>
+pub struct StepUpRecord<'a> {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub user_id: Uuid,
+    pub session_id: Uuid,
+    pub method: &'a str,
+    pub factor_ref: Option<&'a str>,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub async fn record_step_up<'e, E>(executor: E, step: StepUpRecord<'_>) -> DbResult<u64>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
@@ -521,13 +522,13 @@ where
            FROM auth_sessions a
            WHERE a.id = $4"#,
     )
-    .bind(id)
-    .bind(org_id)
-    .bind(user_id)
-    .bind(session_id)
-    .bind(expires_at)
-    .bind(method)
-    .bind(factor_ref)
+    .bind(step.id)
+    .bind(step.org_id)
+    .bind(step.user_id)
+    .bind(step.session_id)
+    .bind(step.expires_at)
+    .bind(step.method)
+    .bind(step.factor_ref)
     .execute(executor)
     .await?;
     Ok(result.rows_affected())
