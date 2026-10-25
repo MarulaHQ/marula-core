@@ -373,6 +373,11 @@ fn scan_markdown(markdown: &str, meta: &BTreeMap<String, String>) -> Vec<KbImpor
 /// eyeball/edit in a spreadsheet and push through `format=csv`. Body
 /// newlines ride inside RFC 4180 quoting — the engine's parser is
 /// quoted-cell-safe by construction.
+///
+/// Every cell goes through [`core_reports::csv::cell`], the same writer the
+/// interactive and scheduled report lanes encode with: a title or body that
+/// a spreadsheet would evaluate takes the text prefix before quoting, so the
+/// export is a data delivery and not a code execution channel.
 pub fn rows_to_csv(rows: &[KbImportRow]) -> String {
     let mut out = String::from(
         "kind,external_key,category_slug,name,title,slug,body,status,client_visible,description,position\n",
@@ -382,44 +387,36 @@ pub fn rows_to_csv(rows: &[KbImportRow]) -> String {
             KbImportRow::Category(c) => {
                 out.push_str(&format!(
                     "kb_category,{},{},{},{},{},{},{},{},{},{}\n",
-                    csv_cell(&c.external_key),
-                    csv_cell(""),
-                    csv_cell(&c.name),
-                    csv_cell(""),
-                    csv_cell(&c.slug),
-                    csv_cell(""),
-                    csv_cell(""),
-                    csv_cell(&c.client_visible),
-                    csv_cell(&c.description),
-                    csv_cell(&c.position),
+                    core_reports::csv::cell(&c.external_key),
+                    core_reports::csv::cell(""),
+                    core_reports::csv::cell(&c.name),
+                    core_reports::csv::cell(""),
+                    core_reports::csv::cell(&c.slug),
+                    core_reports::csv::cell(""),
+                    core_reports::csv::cell(""),
+                    core_reports::csv::cell(&c.client_visible),
+                    core_reports::csv::cell(&c.description),
+                    core_reports::csv::cell(&c.position),
                 ));
             }
             KbImportRow::Article(a) => {
                 out.push_str(&format!(
                     "kb_article,{},{},{},{},{},{},{},{},{},{}\n",
-                    csv_cell(&a.external_key),
-                    csv_cell(a.category_slug.as_deref().unwrap_or("")),
-                    csv_cell(""),
-                    csv_cell(&a.title),
-                    csv_cell(&a.slug),
-                    csv_cell(&a.body),
-                    csv_cell(&a.status),
-                    csv_cell(&a.client_visible),
-                    csv_cell(""),
-                    csv_cell(""),
+                    core_reports::csv::cell(&a.external_key),
+                    core_reports::csv::cell(a.category_slug.as_deref().unwrap_or("")),
+                    core_reports::csv::cell(""),
+                    core_reports::csv::cell(&a.title),
+                    core_reports::csv::cell(&a.slug),
+                    core_reports::csv::cell(&a.body),
+                    core_reports::csv::cell(&a.status),
+                    core_reports::csv::cell(&a.client_visible),
+                    core_reports::csv::cell(""),
+                    core_reports::csv::cell(""),
                 ));
             }
         }
     }
     out
-}
-
-fn csv_cell(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') {
-        format!("\"{}\"", s.replace('"', "\"\""))
-    } else {
-        s.to_string()
-    }
 }
 
 #[cfg(test)]
@@ -538,6 +535,53 @@ mod integration_tests {
         assert_eq!(parsed[1].fields["kind"], "kb_article");
         // Multi-line quoted cells survive verbatim (RFC 4180).
         assert!(parsed[1].fields["body"].contains('\n'));
+    }
+
+    /// The export is a delivery to a spreadsheet, so every cell takes the
+    /// shared report writer's contract: a formula-leading title or body gets
+    /// the text prefix, a comma-bearing value is quoted after that prefix,
+    /// and a plain number or ISO date survives as data rather than text.
+    #[test]
+    fn curation_export_prefixes_formulas_and_leaves_numbers_and_dates_bare() {
+        fn article(title: &str, body: &str) -> KbImportRow {
+            KbImportRow::Article(KbArticleImportRow {
+                external_key: "art".into(),
+                category_slug: None,
+                title: title.into(),
+                slug: "art".into(),
+                body: body.into(),
+                status: "draft".into(),
+                client_visible: "false".into(),
+            })
+        }
+        let row = |csv: &str| {
+            let parsed = core_domain::import_core::parse_csv_chunk(csv).expect("re-parse");
+            parsed[0].fields.clone()
+        };
+
+        // A title a spreadsheet would evaluate, and a body that hides the
+        // introducer behind whitespace.
+        let fields = row(&rows_to_csv(&[article("=SUM(A1)", "\t=1+1")]));
+        assert_eq!(fields["title"], "'=SUM(A1)");
+        assert_eq!(fields["body"], "'\t=1+1");
+
+        // The prefix lands before RFC 4180 quoting, not inside a bare cell.
+        let csv = rows_to_csv(&[article("=A1,B1", "plain")]);
+        assert!(csv.contains("\"'=A1,B1\""), "{csv}");
+        assert_eq!(row(&csv)["title"], "'=A1,B1");
+
+        // Numbers and dates are data: prefixing them would turn a numeric or
+        // date column into text. (The exemption is per cell, so it holds for a
+        // cell that is only a number, only a date.)
+        let fields = row(&rows_to_csv(&[article("Acme, Inc", "-120")]));
+        assert_eq!(fields["body"], "-120");
+        assert_eq!(fields["title"], "Acme, Inc");
+        let fields = row(&rows_to_csv(&[article(
+            "Reset by 2026-10-22",
+            "2026-10-22",
+        )]));
+        assert_eq!(fields["body"], "2026-10-22");
+        assert_eq!(fields["title"], "Reset by 2026-10-22");
     }
 
     /// The engine mirrors core-kb's portability bounds by value — this test
