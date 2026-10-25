@@ -29,6 +29,11 @@ use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+#[path = "support/caller.rs"]
+mod caller;
+
+use caller::fresh_caller_ip;
+
 async fn test_state() -> (AppState, Router) {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
@@ -86,6 +91,10 @@ async fn send(
             .unwrap(),
         None => builder.body(axum::body::Body::empty()).unwrap(),
     };
+    // A caller of its own per request: the portal sign-in gate is durable and
+    // per-IP, and a headerless `oneshot` would put every case in this binary in
+    // one bucket (Wave 54 follow-up F7).
+    let request = fresh_caller_ip().stamp(request);
     app.clone().oneshot(request).await.unwrap()
 }
 

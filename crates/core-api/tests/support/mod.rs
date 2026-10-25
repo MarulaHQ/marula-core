@@ -6,6 +6,13 @@
 
 #![allow(dead_code)]
 
+// The caller-identity fixture F7 asked for. It is a sibling rather than part
+// of this stack because the auth flow suites need it without the mail
+// harness, and they include it directly (`#[path = "support/caller.rs"]`) to
+// keep their binaries small. `two_weeks` and `email_attachments` reach it
+// here.
+pub mod caller;
+
 use core_api::email::{self, InboundStatus, MailStack};
 use core_api::state::AppState;
 use core_db::emails;
