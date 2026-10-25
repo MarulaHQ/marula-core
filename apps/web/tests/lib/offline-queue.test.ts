@@ -70,6 +70,84 @@ describe("OfflineQueue — durability", () => {
   });
 });
 
+describe("OfflineQueue — per-user keying", () => {
+  function userQueue(userId: string | null, storage: ReturnType<typeof memoryStorage>, invoke: InvokeFn) {
+    return new OfflineQueue({ storage, invoke, userId, now: () => "2026-08-30T10:00:00Z" });
+  }
+
+  it("writes one account's outbox under that account's own key", () => {
+    const storage = memoryStorage();
+    const q = userQueue("u1", storage, async () => ({ outcome: "accepted" as const }));
+    q.enqueue(op("k1"));
+    expect(storage.getItem("marula-instant-outbox:u1")).not.toBeNull();
+    expect(storage.getItem("marula-instant-outbox")).toBeNull();
+  });
+
+  it("keeps queued work across a token refresh for the same user", () => {
+    const storage = memoryStorage();
+    const first = userQueue("u1", storage, async () => ({ outcome: "accepted" as const }));
+    first.enqueue(op("k1"));
+
+    // Rotation re-binds the same id: the queue is untouched.
+    first.bindTo("u1");
+    expect(first.list().map((o) => o.key)).toEqual(["k1"]);
+
+    // A later instance for the same user (reload, new token) sees it too.
+    const second = userQueue("u1", storage, async () => ({ outcome: "accepted" as const }));
+    expect(second.pendingCount).toBe(1);
+  });
+
+  it("never loads one user's queued writes into another user's session", () => {
+    const storage = memoryStorage();
+    const q = userQueue("u1", storage, async () => ({ outcome: "accepted" as const }));
+    q.enqueue(op("k1"));
+    q.enqueue(op("k2", "second"));
+
+    q.bindTo("u2");
+    expect(q.list()).toEqual([]);
+    // The previous account's document is gone, so it cannot replay later.
+    expect(storage.getItem("marula-instant-outbox:u1")).toBeNull();
+    expect(storage.getItem("marula-instant-outbox:u2")).toBeNull();
+  });
+
+  it("drops the bound user's queue on sign-out and stops persisting", () => {
+    const storage = memoryStorage();
+    const q = userQueue("u1", storage, async () => ({ outcome: "accepted" as const }));
+    q.enqueue(op("k1"));
+    q.bindTo(null);
+    expect(q.pendingCount).toBe(0);
+    expect(storage.getItem("marula-instant-outbox:u1")).toBeNull();
+
+    // Nothing is written while nobody is signed in.
+    q.enqueue(op("k2"));
+    expect(q.pendingCount).toBe(1);
+    expect(storage.getItem("marula-instant-outbox")).toBeNull();
+  });
+
+  it("stops an in-flight replay when the user changes mid-flight", async () => {
+    const storage = memoryStorage();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls: string[] = [];
+    const q = userQueue("u1", storage, async (write) => {
+      calls.push(write.key);
+      await gate;
+      return { outcome: "accepted" as const };
+    });
+    q.enqueue(op("k1"));
+    const replaying = q.replay();
+    q.bindTo("u2");
+    release();
+    await replaying;
+    // The old op was attempted once and never settled into the new account.
+    expect(calls).toEqual(["k1"]);
+    expect(q.list()).toEqual([]);
+    expect(storage.getItem("marula-instant-outbox:u2")).toBeNull();
+  });
+});
+
 describe("OfflineQueue — strict in-order replay", () => {
   it("replays FIFO and records per-op outcomes", async () => {
     const order: string[] = [];

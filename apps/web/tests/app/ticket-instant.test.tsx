@@ -323,8 +323,12 @@ describe("/tickets/[id] — offline queue and in-order replay (IF6)", () => {
     expect(await screen.findByText("1 offline change pending", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByTestId("ticket-status-text").textContent).toBe("Working");
 
-    // The queue is durable: it survives reloads via localStorage.
-    expect(window.localStorage.getItem("marula-instant-outbox")).not.toBeNull();
+    // The queue is durable: it survives reloads via localStorage, under the
+    // signed-in user's own key (never a key another account could load).
+    const outboxKeys = Object.keys(window.localStorage).filter((key) =>
+      key.startsWith("marula-instant-outbox"),
+    );
+    expect(outboxKeys).toEqual([`marula-instant-outbox:${ME_FIXTURE.user_id}`]);
 
     // Network returns; replay applies the queued op in order.
     setFetchRouter(base as Parameters<typeof setFetchRouter>[0]);
