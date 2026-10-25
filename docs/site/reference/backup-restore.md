@@ -59,13 +59,42 @@ Notes the runbook enforces:
 1. Copy `deploy/backup/wal-g.env.example` → `wal-g.env` (compose: same for
    restic), fill in the Garage/S3 coordinates, and build with WAL-G:
    `docker compose --profile backup build --build-arg INSTALL_WAL_G=1 backup`.
-2. Enable WAL archiving by starting postgres with
+   The template also takes the database connection — `PGHOST`, `PGPORT`,
+   `PGUSER`, `PGDATABASE`, and a `PGPASSWORD` or `PGPASSFILE`. Those are
+   libpq's own names, so pg_dump, psql and wal-g all read the same values.
+2. The `PGUSER` role needs `REPLICATION` in addition to read access. A
+   `backup-push` with no data directory streams the base backup over the
+   `BASE_BACKUP` protocol, which Postgres accepts only from a role holding
+   that attribute, and the replication connection also needs a `pg_hba.conf`
+   line — `initdb` writes `host replication` for loopback only, so a backup
+   container on another address is refused until the rule exists:
+
+   ```sql
+   CREATE ROLE marula_backup LOGIN PASSWORD '<generated>' REPLICATION;
+   GRANT CONNECT ON DATABASE marula TO marula_backup;
+   GRANT pg_read_all_data TO marula_backup;
+   ```
+
+   ```conf
+   # /var/lib/postgresql/data/pg_hba.conf, then SELECT pg_reload_conf();
+   host replication marula_backup all scram-sha-256
+   ```
+
+   The compose `marula` role is the cluster superuser and holds both, so a
+   single-host install that uses it needs no extra grant. The restore drill is
+   a different role: `restore.sh` creates and drops databases and roles, and
+   its `PGUSER` needs `CREATEDB` and `CREATEROLE` for that.
+3. Enable WAL archiving by starting postgres with
    `-c archive_command='wal-g wal-push %p'` — compose-override file
    documented in `deploy/backup/compose.walg.example.yml`.
-3. `wal-g backup-push` runs on the scheduled nightly pass. Retention via
-   `WALG_RETAIN_FULL` (the runner applies `wal-g delete retain FULL <n>`
-   after each push).
-4. **Alert on archive_command silence.** A broken archive pipe fails
+4. `wal-g backup-push` runs on the scheduled nightly pass. Retention via
+   `WALG_RETAIN_FULL`: after each push the runner calls
+   `wal-g delete retain FULL <n> --confirm`. The flag matters — without it
+   `wal-g delete` only lists what it would remove, so a destination fills up
+   while every night's log says retention ran. To rehearse before letting it
+   delete, set `WALG_RETENTION_DRY_RUN=1`: the runner then calls the same
+   command without `--confirm` and logs `retention DRY RUN`.
+5. **Alert on archive_command silence.** A broken archive pipe fails
    silently and quietly degrades you from "any second" back to "last night."
    If WAL shipping shows no progress for >24h (check the archiver's
    `pg_stat_archiver` view), page yourself.
