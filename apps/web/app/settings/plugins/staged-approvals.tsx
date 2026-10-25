@@ -23,7 +23,7 @@ import {
 import { useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { reasonCopy } from "../../../lib/error-copy";
-import { ConsentSummary } from "./consent";
+import { ConsentSummary, ManifestCoverageBadge } from "./consent";
 import { RatingPanel, VerifiedBadge } from "./marketplace-v2";
 
 type StagedItemView = components["schemas"]["StagedItemView"];
@@ -126,6 +126,10 @@ function StagedRow({
         <Badge tone={STATUS_TONE[item.status] ?? "neutral"}>{item.status}</Badge>
         <span className="text-[13px] font-semibold">{item.artifact_kind}</span>
         <VerifiedBadge sourceUrl={item.source_url} />
+        <ManifestCoverageBadge
+          authenticated={item.manifest_authenticated}
+          sourceKind={item.source_kind}
+        />
         <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           {item.source_kind} · {item.source_url}
           {item.fetched_ref !== null ? ` · ${item.fetched_ref}` : ""}

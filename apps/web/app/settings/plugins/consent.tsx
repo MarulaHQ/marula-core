@@ -28,6 +28,34 @@ const SOURCE_KIND_LABEL: Record<string, string> = {
   manual_upload: "Manual upload",
 };
 
+/** Sources whose catalog carries a publisher signature block. A local zip or a
+ * manual skill upload makes no publisher claim at all, so the manifest-coverage
+ * label renders only where such a claim exists. */
+const SIGNED_SOURCES = new Set(["marketplace_registry", "github_repo"]);
+
+/** Whether the publisher's signature covers the manifest the approver reads, or
+ * only the artifact bytes beside it (record
+ * `plugin-distribution.registry-signature-binds-digest-only`). The weaker claim
+ * is shown, not hidden: a legacy digest-only entry and a zip import both land
+ * here as unsigned. */
+export function ManifestCoverageBadge({
+  authenticated,
+  sourceKind,
+}: {
+  authenticated: boolean;
+  sourceKind: string;
+}) {
+  if (!SIGNED_SOURCES.has(sourceKind)) return null;
+  return (
+    <Badge
+      tone={authenticated ? "success" : "warning"}
+      data-testid="manifest-coverage"
+    >
+      {authenticated ? "manifest signed" : "manifest unsigned"}
+    </Badge>
+  );
+}
+
 function digestShort(digest: string): string {
   return digest.length > 18 ? `${digest.slice(0, 10)}…${digest.slice(-6)}` : digest;
 }
@@ -40,6 +68,7 @@ export function ProvenanceSummary({
   fetchedRef,
   digest,
   uploader,
+  manifestAuthenticated,
 }: {
   artifactKind: string;
   sourceKind: string;
@@ -47,6 +76,8 @@ export function ProvenanceSummary({
   fetchedRef?: string | null;
   digest: string;
   uploader?: string | null;
+  /** Present only for sources that make a signature claim. */
+  manifestAuthenticated?: boolean;
 }) {
   const rows: [string, string][] = [
     ["Origin", SOURCE_KIND_LABEL[sourceKind] ?? sourceKind],
@@ -71,6 +102,16 @@ export function ProvenanceSummary({
           </dd>
         </div>
       ))}
+      {manifestAuthenticated !== undefined ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <ManifestCoverageBadge authenticated={manifestAuthenticated} sourceKind={sourceKind} />
+          <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+            {manifestAuthenticated
+              ? "The publisher's signature covers this manifest."
+              : "The signature covers only the artifact bytes — read the manifest as text the publisher has not signed."}
+          </span>
+        </div>
+      ) : null}
     </dl>
   );
 }
@@ -359,6 +400,9 @@ export function ConsentSummary({
         fetchedRef={artifact.fetched_ref}
         digest={artifact.artifact_digest}
         uploader={artifact.uploaded_by ?? null}
+        manifestAuthenticated={
+          SIGNED_SOURCES.has(artifact.source_kind) ? artifact.manifest_authenticated : undefined
+        }
       />
       <div className="grid gap-3">
         {hasDiff ? (

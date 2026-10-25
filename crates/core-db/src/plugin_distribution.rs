@@ -49,9 +49,9 @@ pub(crate) fn caps_from_json(value: &serde_json::Value) -> Vec<String> {
 
 const STAGED_COLS: &str =
     "id, org_id, artifact_kind::text AS artifact_kind, source_kind::text AS source_kind, \
-     source_url, fetched_ref, artifact_digest, module_digest, manifest, declared_capabilities, \
-     status::text AS status, uploaded_by, uploaded_at, review_note, reviewed_by, \
-     reviewed_at, adopted_install_id, adopted_skill_id, adopted_theme_pack_id, \
+     source_url, fetched_ref, artifact_digest, module_digest, manifest_authenticated, manifest, \
+     declared_capabilities, status::text AS status, uploaded_by, uploaded_at, review_note, \
+     reviewed_by, reviewed_at, adopted_install_id, adopted_skill_id, adopted_theme_pack_id, \
      adopted_identity_bundle_id";
 
 fn row_to_staged(row: &sqlx::postgres::PgRow) -> DbResult<PluginStagedItem> {
@@ -64,6 +64,7 @@ fn row_to_staged(row: &sqlx::postgres::PgRow) -> DbResult<PluginStagedItem> {
         fetched_ref: row.get("fetched_ref"),
         artifact_digest: row.get("artifact_digest"),
         module_digest: row.get("module_digest"),
+        manifest_authenticated: row.get("manifest_authenticated"),
         manifest: row.get("manifest"),
         declared_capabilities: caps_from_json(
             &row.get::<serde_json::Value, _>("declared_capabilities"),
@@ -85,9 +86,9 @@ fn row_to_staged(row: &sqlx::postgres::PgRow) -> DbResult<PluginStagedItem> {
 /// sandbox validation through the plugin-host adapters BEFORE this.
 ///
 /// `sqlx::query()` rather than `query!`: the column list gained `module_digest`
-/// in migration 0156 and a changed `query!` text needs a refreshed offline
-/// cache, which this lane does not run (`cargo sqlx prepare` is a group-gate
-/// action).
+/// in migration 0156 and `manifest_authenticated` in 0167, and a changed
+/// `query!` text needs a refreshed offline cache, which this lane does not run
+/// (`cargo sqlx prepare` is a group-gate action).
 pub async fn create_staged_item(tx: &mut PgConnection, item: &PluginStagedItem) -> DbResult<()> {
     let manifest = item.manifest.clone();
     let declared = serde_json::to_value(&item.declared_capabilities)
@@ -95,9 +96,10 @@ pub async fn create_staged_item(tx: &mut PgConnection, item: &PluginStagedItem) 
     sqlx::query(
         r#"INSERT INTO plugin_staged_items
              (id, org_id, artifact_kind, source_kind, source_url, fetched_ref,
-              artifact_digest, module_digest, manifest, declared_capabilities, status, uploaded_by)
+              artifact_digest, module_digest, manifest_authenticated, manifest,
+              declared_capabilities, status, uploaded_by)
            VALUES ($1, $2, $3::text::plugin_artifact_kind, $4::text::plugin_source_kind,
-                   $5, $6, $7, $8, $9::jsonb, $10::jsonb, 'pending', $11)"#,
+                   $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, 'pending', $12)"#,
     )
     .bind(item.id)
     .bind(item.org_id)
@@ -107,6 +109,7 @@ pub async fn create_staged_item(tx: &mut PgConnection, item: &PluginStagedItem) 
     .bind(&item.fetched_ref)
     .bind(&item.artifact_digest)
     .bind(&item.module_digest)
+    .bind(item.manifest_authenticated)
     .bind(manifest)
     .bind(declared)
     .bind(item.uploaded_by)

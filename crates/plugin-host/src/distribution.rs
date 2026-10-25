@@ -32,15 +32,55 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 
 // --- B1: ed25519 artifact signature verification (Wave 16 lane 9) ---------
 //
-// Signing convention (documented, stable): the operator's ed25519 PUBLIC
-// key (64 hex chars) is configured server-side
-// (`MARULA_PLUGIN_SIGNING_KEY`); the artifact signature is an ed25519
-// signature over the RAW 32 BYTES the artifact digest hex decodes to,
-// hex-encoded (128 chars) on the wire. Verification is a REAL
-// cryptographic check — a configured key plus any invalid/missing
-// signature refuses the artifact with `BadSignature`; with NO key
-// configured the seam degrades to the structural-only check and says so
-// loudly in the log (dev posture, never production).
+// Signing conventions (documented, stable). TWO statements exist, and the
+// difference is WHAT the publisher vouched for:
+//
+// * **v1 — the artifact digest alone.** The operator's ed25519 PUBLIC key
+//   (64 hex chars) is configured server-side (`MARULA_PLUGIN_SIGNING_KEY`,
+//   or the `plugin_signing_keys` registry); the signature is over the RAW
+//   32 BYTES the artifact digest hex decodes to, hex-encoded (128 chars) on
+//   the wire. It authenticates the executable and says nothing about the
+//   manifest printed beside it on the consent screen, so a published
+//   (digest, signature) pair can be replayed next to a substituted
+//   manifest. Registry entries published before Wave 55 all carry this
+//   statement; they are ACCEPTED and marked `manifest_authenticated =
+//   false` (see `ingest_registry_entry`).
+//
+// * **v2 — the artifact digest AND the manifest** (Wave 55, record
+//   `plugin-distribution.registry-signature-binds-digest-only`). The
+//   registry document carries `artifact.statement`:
+//
+//       {"version": 2, "manifest_sha256": "<64 lowercase hex>"}
+//
+//   and exactly these bytes are signed (UTF-8; `\n` is 0x0A; no other
+//   whitespace; both digests lowercase hex, so every field is a fixed
+//   length and no two field combinations can frame the same text):
+//
+//       marula-plugin-registry-statement-v2\n
+//       artifact-sha256:<artifact.digest>\n
+//       manifest-sha256:<manifest_sha256>\n
+//
+//   The ed25519 signature is over `sha256(those bytes)` — the same
+//   32-raw-bytes convention v1 uses, and the leading convention line is
+//   what keeps a signature from moving between the two statements: v1
+//   signs a digest, v2 signs the hash of a framed, domain-separated
+//   statement about two digests.
+//
+//   `manifest_sha256` is the sha256 of the CANONICAL JSON of the
+//   document's `manifest` member ([`canonical_manifest_json`]): object
+//   keys sorted by UTF-8 bytes, no insignificant whitespace, arrays in
+//   declaration order, strings escaped as serde_json escapes them, and
+//   integers — only integers — in plain decimal. Hashing a canonical
+//   serialisation is what stops two different manifests reaching the same
+//   signed bytes; the statement framing is what stops a manifest digest
+//   being read as an artifact digest.
+//
+// Verification is a REAL cryptographic check — a configured key plus any
+// invalid/missing signature refuses the artifact with `BadSignature`; with
+// NO key configured the seam degrades to the structural-only check and
+// says so loudly in the log (dev posture, never production), and every
+// bundle it passes carries `manifest_authenticated = false` because
+// nothing was verified.
 
 use ed25519_dalek::{Signature, VerifyingKey};
 
@@ -57,12 +97,12 @@ pub struct TrustedSigningKey {
     pub public_key: String,
 }
 
-/// One signature verification: key + digest hex + wire signature (hex).
-/// The typed refusal is ALWAYS [`IngestReason::BadSignature`] — key
-/// material never reaches error text.
-pub fn verify_artifact_signature(
+/// One ed25519 verification: key + message + wire signature (hex). The
+/// typed refusal is ALWAYS [`IngestReason::BadSignature`] — key material
+/// never reaches error text.
+pub fn verify_signature_over(
     signing_key_hex: &str,
-    artifact_digest_hex: &str,
+    message: &[u8],
     signature_hex: &str,
 ) -> Result<(), IngestReason> {
     let key_bytes: [u8; 32] = hex::decode(signing_key_hex.trim())
@@ -70,40 +110,203 @@ pub fn verify_artifact_signature(
         .and_then(|v| v.try_into().ok())
         .ok_or(IngestReason::BadSignature)?;
     let vk = VerifyingKey::from_bytes(&key_bytes).map_err(|_| IngestReason::BadSignature)?;
-    let digest_bytes: [u8; 32] = hex::decode(artifact_digest_hex.trim())
-        .ok()
-        .and_then(|v| v.try_into().ok())
-        .ok_or(IngestReason::BadSignature)?;
     let sig_bytes: [u8; 64] = hex::decode(signature_hex.trim())
         .ok()
         .and_then(|v| v.try_into().ok())
         .ok_or(IngestReason::BadSignature)?;
     let sig = Signature::from_bytes(&sig_bytes);
-    vk.verify_strict(&digest_bytes, &sig)
+    vk.verify_strict(message, &sig)
         .map_err(|_| IngestReason::BadSignature)
 }
 
+/// The v1 statement: key + artifact digest hex + wire signature (hex).
+/// The digest hex always decodes to the signed 32-byte message; any shape
+/// problem is [`IngestReason::BadSignature`].
+pub fn verify_artifact_signature(
+    signing_key_hex: &str,
+    artifact_digest_hex: &str,
+    signature_hex: &str,
+) -> Result<(), IngestReason> {
+    let digest_bytes: [u8; 32] = hex::decode(artifact_digest_hex.trim())
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .ok_or(IngestReason::BadSignature)?;
+    verify_signature_over(signing_key_hex, &digest_bytes, signature_hex)
+}
+
 /// Verifies a signature against the trusted key set by trying every key.
-/// Returns [`IngestReason::BadSignature`] when the trust set is EMPTY (a
+/// Returns [`IngestReason::NoTrustedKeys`] when the trust set is EMPTY (a
 /// key-configured operator whose registry is unpopulated must not
 /// silently degrade to structural-only — the single-key seam's dev
-/// posture never re-enters through rotation) or when nothing verifies.
-/// With exactly one trusted key this is byte-for-byte the old
-/// single-key behavior.
-pub fn verify_artifact_signature_against_keys(
+/// posture never re-enters through rotation) or
+/// [`IngestReason::BadSignature`] when nothing verifies.
+pub fn verify_signature_over_against_keys(
     keys: &[TrustedSigningKey],
-    artifact_digest_hex: &str,
+    message: &[u8],
     signature_hex: &str,
 ) -> Result<(), IngestReason> {
     if keys.is_empty() {
         return Err(IngestReason::NoTrustedKeys);
     }
     for key in keys {
-        if verify_artifact_signature(&key.public_key, artifact_digest_hex, signature_hex).is_ok() {
+        if verify_signature_over(&key.public_key, message, signature_hex).is_ok() {
             return Ok(());
         }
     }
     Err(IngestReason::BadSignature)
+}
+
+/// v1 trust-set verification over the artifact digest. With exactly one
+/// trusted key this is byte-for-byte the old single-key behavior.
+pub fn verify_artifact_signature_against_keys(
+    keys: &[TrustedSigningKey],
+    artifact_digest_hex: &str,
+    signature_hex: &str,
+) -> Result<(), IngestReason> {
+    let digest_bytes: [u8; 32] = hex::decode(artifact_digest_hex.trim())
+        .ok()
+        .and_then(|v| v.try_into().ok())
+        .ok_or(IngestReason::BadSignature)?;
+    verify_signature_over_against_keys(keys, &digest_bytes, signature_hex)
+}
+
+/// The statement version this build signs and verifies. A registry entry
+/// that names any other version is refused rather than guessed at: a
+/// statement the verifier cannot read is not a statement it can accept.
+pub const SIGNATURE_STATEMENT_VERSION: u64 = 2;
+
+/// The v2 statement as carried by `artifact.statement`. The version is
+/// already known to be [`SIGNATURE_STATEMENT_VERSION`] by the time this
+/// shape exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureStatement {
+    /// sha256 (lowercase hex) of the canonical manifest JSON.
+    pub manifest_sha256: String,
+}
+
+impl SignatureStatement {
+    /// Parses `{ "version": 2, "manifest_sha256": "<hex>" }`. An unknown
+    /// version is [`IngestReason::SignatureStatementUnsupported`]; a
+    /// malformed object, a non-integer version or a non-sha256 digest is
+    /// [`IngestReason::BadSignature`].
+    pub fn from_value(value: &serde_json::Value) -> Result<Self, IngestReason> {
+        let map = value.as_object().ok_or(IngestReason::BadSignature)?;
+        let version = map
+            .get("version")
+            .and_then(|v| v.as_u64())
+            .ok_or(IngestReason::BadSignature)?;
+        if version != SIGNATURE_STATEMENT_VERSION {
+            return Err(IngestReason::SignatureStatementUnsupported);
+        }
+        let manifest_sha256 = map
+            .get("manifest_sha256")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| is_sha256_hex(s))
+            .ok_or(IngestReason::BadSignature)?;
+        Ok(Self {
+            manifest_sha256: manifest_sha256.to_string(),
+        })
+    }
+}
+
+/// The exact bytes a v2 statement signs, before hashing. Fixed-length
+/// fields in a fixed order behind a version line: no concatenation of
+/// variable-length parts, so no two (artifact, manifest) pairs can produce
+/// the same statement text.
+pub fn statement_bytes(artifact_digest_hex: &str, manifest_sha256_hex: &str) -> String {
+    format!(
+        "marula-plugin-registry-statement-v2\nartifact-sha256:{}\nmanifest-sha256:{}\n",
+        artifact_digest_hex.trim().to_lowercase(),
+        manifest_sha256_hex.trim().to_lowercase()
+    )
+}
+
+/// The signed message for a v2 statement: `sha256(statement_bytes(..))`,
+/// the 32 raw bytes the ed25519 signature covers.
+pub fn statement_message(artifact_digest_hex: &str, manifest_sha256_hex: &str) -> [u8; 32] {
+    Sha256::digest(statement_bytes(artifact_digest_hex, manifest_sha256_hex).as_bytes()).into()
+}
+
+/// The largest integer the canonical form accepts. JSON numbers are IEEE-754
+/// doubles in most publisher languages, so anything above this cannot round-trip
+/// through the JS reference signer unchanged and is refused rather than hashed
+/// into a digest only this server could reproduce.
+const MAX_CANONICAL_INT: i128 = 9_007_199_254_740_991; // 2^53 - 1
+
+/// Canonical JSON for a manifest (the bytes `manifest_sha256` is taken over).
+///
+/// The rules, in full: object members in ascending order of their key's UTF-8
+/// bytes; no whitespace between tokens; arrays in declaration order; `null`,
+/// `true` and `false` spelled as JSON spells them; strings serialised by
+/// serde_json (which escapes only what JSON requires); numbers rendered as
+/// plain decimal integers. A non-integer number, or an integer outside
+/// ±(2^53−1), is [`IngestReason::ManifestNotCanonical`] — the canonical form
+/// is a contract a publisher tool can reproduce, not a float printer's
+/// dialect.
+pub fn canonical_manifest_json(value: &serde_json::Value) -> Result<String, IngestReason> {
+    let mut out = String::new();
+    write_canonical(&mut out, value)?;
+    Ok(out)
+}
+
+/// The sha256 (lowercase hex) of [`canonical_manifest_json`].
+pub fn manifest_sha256(value: &serde_json::Value) -> Result<String, IngestReason> {
+    Ok(sha256_hex(canonical_manifest_json(value)?.as_bytes()))
+}
+
+fn write_canonical(out: &mut String, value: &serde_json::Value) -> Result<(), IngestReason> {
+    match value {
+        serde_json::Value::Null => out.push_str("null"),
+        serde_json::Value::Bool(true) => out.push_str("true"),
+        serde_json::Value::Bool(false) => out.push_str("false"),
+        serde_json::Value::Number(number) => {
+            let rendered = if let Some(i) = number.as_i64() {
+                i.to_string()
+            } else if let Some(u) = number.as_u64() {
+                u.to_string()
+            } else {
+                // A fractional or exponent form: not part of the contract.
+                return Err(IngestReason::ManifestNotCanonical);
+            };
+            let magnitude: i128 = rendered
+                .parse::<i128>()
+                .map_err(|_| IngestReason::ManifestNotCanonical)?;
+            if magnitude.abs() > MAX_CANONICAL_INT {
+                return Err(IngestReason::ManifestNotCanonical);
+            }
+            out.push_str(&rendered);
+        }
+        serde_json::Value::String(s) => out
+            .push_str(&serde_json::to_string(s).expect("a JSON string always serialises to JSON")),
+        serde_json::Value::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_canonical(out, item)?;
+            }
+            out.push(']');
+        }
+        serde_json::Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+            out.push('{');
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                out.push_str(
+                    &serde_json::to_string(key).expect("a JSON string always serialises to JSON"),
+                );
+                out.push(':');
+                write_canonical(out, &map[key])?;
+            }
+            out.push('}');
+        }
+    }
+    Ok(())
 }
 
 /// The signature block as carried on a registry artifact or a pinned
@@ -153,6 +356,20 @@ impl SignatureBlock {
     /// (narrow resolution); an unnamed block sweeps the trust set. An
     /// EMPTY trust set refuses.
     pub fn verify(&self, keys: &[TrustedSigningKey], digest_hex: &str) -> Result<(), IngestReason> {
+        let digest_bytes: [u8; 32] = hex::decode(digest_hex.trim())
+            .ok()
+            .and_then(|v| v.try_into().ok())
+            .ok_or(IngestReason::BadSignature)?;
+        self.verify_message(keys, &digest_bytes)
+    }
+
+    /// Verifies this block over an arbitrary 32-byte message (the v2
+    /// statement's hash). Same narrow-resolution rules as [`Self::verify`].
+    pub fn verify_message(
+        &self,
+        keys: &[TrustedSigningKey],
+        message: &[u8],
+    ) -> Result<(), IngestReason> {
         if keys.is_empty() {
             return Err(IngestReason::NoTrustedKeys);
         }
@@ -162,12 +379,12 @@ impl SignatureBlock {
             // narrowing (the rotation model's tamper-evidence axis).
             for key in keys {
                 if key.key_id == *key_id {
-                    return verify_artifact_signature(&key.public_key, digest_hex, &self.signature);
+                    return verify_signature_over(&key.public_key, message, &self.signature);
                 }
             }
             return Err(IngestReason::UnknownKey);
         }
-        verify_artifact_signature_against_keys(keys, digest_hex, &self.signature)
+        verify_signature_over_against_keys(keys, message, &self.signature)
     }
 }
 
@@ -195,6 +412,16 @@ pub enum IngestReason {
     BadSignature,
     /// The signature block named a key_id that is not in the trusted set.
     UnknownKey,
+    /// The signature block carried a statement version this build does not
+    /// verify (only v2 exists; an unreadable statement is not accepted).
+    SignatureStatementUnsupported,
+    /// The signature's `manifest_sha256` does not match the manifest beside
+    /// it — the digest says one document, the document is another.
+    ManifestDigestMismatch,
+    /// The manifest carries a number the canonical form cannot render (a
+    /// float or an integer outside ±(2^53−1)), so no publisher tool could
+    /// reproduce the digest this server would compute.
+    ManifestNotCanonical,
     /// No trusted key is configured (operator registry empty AND no
     /// legacy env key) while signature policy demands one.
     NoTrustedKeys,
@@ -232,6 +459,11 @@ impl IngestReason {
             IngestReason::BadDigest => "distribution_digest_invalid",
             IngestReason::BadSignature => "distribution_signature_invalid",
             IngestReason::UnknownKey => "distribution_signature_key_unknown",
+            IngestReason::SignatureStatementUnsupported => {
+                "distribution_signature_statement_unsupported"
+            }
+            IngestReason::ManifestDigestMismatch => "distribution_manifest_digest_mismatch",
+            IngestReason::ManifestNotCanonical => "distribution_manifest_not_canonical",
             IngestReason::NoTrustedKeys => "distribution_signing_key_unconfigured",
             IngestReason::BadManifest => "distribution_manifest_invalid",
             IngestReason::ArchiveCap => "distribution_archive_cap",
@@ -261,6 +493,17 @@ pub struct DistributionBundle {
     pub manifest: serde_json::Value,
     /// Declaratively-requested capability keys for the consent diff.
     pub declared_capabilities: Vec<String>,
+    /// Whether a trusted key cryptographically verified a statement that
+    /// covers THIS manifest, not just the artifact digest.
+    ///
+    /// `true` only for a registry entry whose v2 statement verified. `false`
+    /// for a legacy digest-only (v1) registry entry, for every source that
+    /// carries no publisher signature at all (zip, skill, theme), and for any
+    /// ingest run with no trusted key configured — the last case because
+    /// nothing was checked, which is exactly what a consent screen should say.
+    /// The staged row carries this to the approver; it is never inferred from
+    /// the publisher's prose.
+    pub manifest_authenticated: bool,
 }
 
 impl DistributionBundle {
@@ -400,6 +643,23 @@ fn declared_size(
 /// shape: static catalog JSON + git tag + code-signature/digest). The
 /// registry itself is the review channel for this source, but the org
 /// still lands through the staged consent diff.
+///
+/// The signature is verified HERE, before the manifest is trusted, and what
+/// it covers decides the bundle's `manifest_authenticated`:
+///
+/// * `artifact.statement` present → v2. The statement must name version 2,
+///   its `manifest_sha256` must be the digest of the manifest in this very
+///   document, and the signature must verify over the framed statement. Any
+///   disagreement refuses (`distribution_manifest_digest_mismatch`,
+///   `distribution_signature_statement_unsupported`,
+///   `distribution_signature_invalid`).
+/// * no statement → v1, the digest-only signature published before Wave 55.
+///   Accepted (refusing it would strand every plugin already on the
+///   registry), verified against the digest as before, and marked
+///   `manifest_authenticated = false` so the approver sees the weaker claim.
+///
+/// With no trusted key configured the seam is structural-only and the bundle
+/// is marked unauthenticated whatever the document claims.
 pub fn ingest_registry_entry(
     catalog_json: &[u8],
     signing_keys: &[TrustedSigningKey],
@@ -418,14 +678,40 @@ pub fn ingest_registry_entry(
     if signature.signature.trim().is_empty() {
         return Err(IngestReason::BadSignature);
     }
-    // B1: with a trusted key configured the signature is
-    // CRYPTOGRAPHICALLY verified against the digest by key-id block or
-    // trust set; an EMPTY slice stays the structural-only dev posture
-    // (the route layer logs that loudly at boot — never production).
-    if !signing_keys.is_empty() {
-        signature.verify(signing_keys, digest)?;
-    }
     let manifest_value = value.get("manifest").ok_or(IngestReason::BadManifest)?;
+    // B1: with a trusted key configured the signature is
+    // CRYPTOGRAPHICALLY verified by key-id block or trust set; an EMPTY
+    // slice stays the structural-only dev posture (the route layer logs
+    // that loudly at boot — never production).
+    let mut manifest_authenticated = false;
+    if signing_keys.is_empty() {
+        tracing::warn!(
+            source = "registry",
+            "no trusted plugin-signing key is configured: the artifact digest and \
+             the manifest are unverified (structural check only)"
+        );
+    } else if let Some(statement_value) = artifact.get("statement") {
+        let statement = SignatureStatement::from_value(statement_value)?;
+        let computed = manifest_sha256(manifest_value)?;
+        if computed != statement.manifest_sha256 {
+            return Err(IngestReason::ManifestDigestMismatch);
+        }
+        let message = statement_message(digest, &statement.manifest_sha256);
+        signature.verify_message(signing_keys, &message)?;
+        manifest_authenticated = true;
+    } else {
+        // Legacy v1: the signature covers the artifact digest alone. Keep
+        // accepting it — an already-published entry has no v2 statement to
+        // produce — and let the staged row carry the weaker claim to the
+        // approver.
+        signature.verify(signing_keys, digest)?;
+        tracing::warn!(
+            source = "registry",
+            artifact_digest = digest,
+            "legacy digest-only signature: the manifest is NOT covered by it \
+             (staged with manifest_authenticated = false)"
+        );
+    }
     let slug = value
         .get("slug")
         .and_then(|v| v.as_str())
@@ -436,40 +722,47 @@ pub fn ingest_registry_entry(
                 .unwrap_or("unspecified")
         });
     if is_identity_bundle_manifest(manifest_value) {
-        // The signature block above was already verified against the
-        // digest, so the registry path needs no second check here.
         let manifest = validate_identity_bundle_manifest(manifest_value)?;
-        return Ok(bundle(
-            PluginArtifactKind::IdentityBundle,
+        return Ok(mark_manifest(
+            bundle(
+                PluginArtifactKind::IdentityBundle,
+                PluginSourceKind::MarketplaceRegistry,
+                &format!("registry://{slug}"),
+                Some(tag),
+                digest,
+                serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null),
+                Vec::new(),
+            ),
+            manifest_authenticated,
+        ));
+    }
+    if is_theme_manifest(manifest_value) {
+        let pack = validate_theme_manifest(manifest_value)?;
+        return Ok(mark_manifest(
+            bundle(
+                PluginArtifactKind::Theme,
+                PluginSourceKind::MarketplaceRegistry,
+                &format!("registry://{slug}"),
+                Some(tag),
+                digest,
+                serde_json::to_value(&pack).unwrap_or(serde_json::Value::Null),
+                Vec::new(),
+            ),
+            manifest_authenticated,
+        ));
+    }
+    let manifest = validate_plugin_manifest(manifest_value)?;
+    Ok(mark_manifest(
+        bundle(
+            PluginArtifactKind::Plugin,
             PluginSourceKind::MarketplaceRegistry,
             &format!("registry://{slug}"),
             Some(tag),
             digest,
             serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null),
-            Vec::new(),
-        ));
-    }
-    if is_theme_manifest(manifest_value) {
-        let pack = validate_theme_manifest(manifest_value)?;
-        return Ok(bundle(
-            PluginArtifactKind::Theme,
-            PluginSourceKind::MarketplaceRegistry,
-            &format!("registry://{slug}"),
-            Some(tag),
-            digest,
-            serde_json::to_value(&pack).unwrap_or(serde_json::Value::Null),
-            Vec::new(),
-        ));
-    }
-    let manifest = validate_plugin_manifest(manifest_value)?;
-    Ok(bundle(
-        PluginArtifactKind::Plugin,
-        PluginSourceKind::MarketplaceRegistry,
-        &format!("registry://{slug}"),
-        Some(tag),
-        digest,
-        serde_json::to_value(&manifest).unwrap_or(serde_json::Value::Null),
-        manifest.capabilities,
+            manifest.capabilities,
+        ),
+        manifest_authenticated,
     ))
 }
 /// GitHub repo pull: tag/commit-pinned, NEVER HEAD — an unpinned pull
@@ -499,6 +792,17 @@ pub fn ingest_github_pull(
     // carry a valid ed25519 signature over the digest (deny-by-default);
     // the key-id block form pins the exact key. Empty slice = dev
     // posture (structural only), logged loudly by the route layer.
+    //
+    // The v2 manifest-binding statement is NOT accepted here yet: the
+    // signature lives INSIDE the pinned manifest, so a statement over the
+    // canonical manifest would have to exclude this `signature` member to be
+    // satisfiable at all (a document cannot contain the signature over its own
+    // bytes). The call site also hashes the fetched manifest bytes as the
+    // digest, so the legacy check here is effectively unusable with a trust
+    // set — it fails closed. Every bundle from this source therefore carries
+    // `manifest_authenticated = false`; the registry is the only signed
+    // document that separates signature from manifest, and it is the path
+    // Wave 55 binds.
     if !signing_keys.is_empty() {
         let block = SignatureBlock::from_value(
             manifest_json
@@ -860,7 +1164,18 @@ fn bundle(
         artifact_digest: artifact_digest.to_string(),
         manifest,
         declared_capabilities,
+        // Every caller that verifies a manifest-binding statement sets this
+        // explicitly after building; the default is the weaker claim.
+        manifest_authenticated: false,
     }
+}
+
+/// Stamps the verified-coverage flag on a bundle. Separate from [`bundle`]
+/// so the flag is only ever set on a path that actually checked a statement
+/// covering the manifest.
+fn mark_manifest(mut bundle: DistributionBundle, authenticated: bool) -> DistributionBundle {
+    bundle.manifest_authenticated = authenticated;
+    bundle
 }
 
 fn required_string<'a>(value: &'a serde_json::Value, key: &str) -> Result<&'a str, IngestReason> {
@@ -1937,5 +2252,304 @@ mod tests {
         assert_eq!(bundle.artifact_kind, PluginArtifactKind::IdentityBundle);
         assert_eq!(bundle.fetched_ref.as_deref(), Some("v1.4.0"));
         assert!(bundle.declared_capabilities.is_empty());
+    }
+
+    // --- Wave 55: the signature covers the manifest it is printed beside ---------
+
+    /// A deterministic publisher key: RFC 8032 signing is deterministic, so a
+    /// fixed seed lets the cross-language vector below assert exact bytes.
+    fn publisher_key(seed: u8) -> (ed25519_dalek::SigningKey, TrustedSigningKey) {
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[seed; 32]);
+        let key = TrustedSigningKey {
+            key_id: "ops-2026".into(),
+            public_key: hex::encode(signing.verifying_key().as_bytes()),
+        };
+        (signing, key)
+    }
+
+    /// A registry catalog carrying a v2 statement over `manifest`.
+    fn v2_catalog(
+        signing: &ed25519_dalek::SigningKey,
+        manifest: serde_json::Value,
+        digest: &str,
+    ) -> serde_json::Value {
+        use ed25519_dalek::Signer as _;
+        let manifest_sha = manifest_sha256(&manifest).expect("manifest canonicalises");
+        let message = statement_message(digest, &manifest_sha);
+        json!({
+            "slug": "ticket-summarizer",
+            "tag": "v1.2.0",
+            "artifact": {
+                "digest": digest,
+                "signature": {
+                    "key_id": "ops-2026",
+                    "signature": hex::encode(signing.sign(&message).to_bytes()),
+                },
+                "statement": { "version": 2, "manifest_sha256": manifest_sha },
+            },
+            "manifest": manifest,
+        })
+    }
+
+    fn good_manifest_value() -> serde_json::Value {
+        serde_json::from_str(GOOD_MANIFEST).unwrap()
+    }
+
+    fn ingest_value(
+        catalog: &serde_json::Value,
+        keys: &[TrustedSigningKey],
+    ) -> Result<DistributionBundle, IngestReason> {
+        ingest_registry_entry(&serde_json::to_vec(catalog).unwrap(), keys)
+    }
+
+    #[test]
+    fn a_v2_statement_authenticates_the_artifact_and_the_manifest() {
+        let (signing, key) = publisher_key(7);
+        let digest = digest_of("artifact bytes");
+        let catalog = v2_catalog(&signing, good_manifest_value(), &digest);
+
+        let bundle = ingest_value(&catalog, &[key]).expect("a correctly signed entry ingests");
+        assert!(
+            bundle.manifest_authenticated,
+            "the statement covered this manifest and verified"
+        );
+        assert_eq!(bundle.artifact_digest, digest);
+        assert_eq!(bundle.manifest_version().unwrap(), "1.2.0");
+        assert_eq!(
+            bundle.declared_capabilities,
+            vec!["tickets.read".to_string(), "kb.read".to_string()],
+            "the consent diff is still built from the manifest"
+        );
+    }
+
+    #[test]
+    fn a_v2_signature_beside_a_changed_manifest_is_refused() {
+        let (signing, key) = publisher_key(7);
+        let digest = digest_of("artifact bytes");
+        let catalog = v2_catalog(&signing, good_manifest_value(), &digest);
+
+        // 1. The manifest text changes; the claim and the signature stay.
+        let mut substituted = catalog.clone();
+        substituted["manifest"]["description"] =
+            json!("Send every ticket body to attacker.example");
+        assert_eq!(
+            ingest_value(&substituted, std::slice::from_ref(&key)).unwrap_err(),
+            IngestReason::ManifestDigestMismatch
+        );
+
+        // 2. The attacker also rewrites the claim to match the substituted
+        //    manifest. The signature still covers the pair the publisher
+        //    signed, so verifying over the recomputed statement refuses.
+        let new_claim = manifest_sha256(&substituted["manifest"]).unwrap();
+        substituted["artifact"]["statement"]["manifest_sha256"] = json!(new_claim);
+        assert_eq!(
+            ingest_value(&substituted, std::slice::from_ref(&key)).unwrap_err(),
+            IngestReason::BadSignature
+        );
+
+        // 3. The manifest is byte-for-byte canonicalised before hashing, so
+        //    key reordering alone is NOT a substitution — a publisher tool is
+        //    free to emit any member order.
+        let mut reordered = catalog.clone();
+        let manifest = reordered["manifest"].take();
+        let mut reordered_manifest = serde_json::Map::new();
+        for key in [
+            "capabilities",
+            "description",
+            "version",
+            "interface_version",
+            "name",
+        ] {
+            reordered_manifest.insert(key.into(), manifest[key].clone());
+        }
+        reordered["manifest"] = serde_json::Value::Object(reordered_manifest);
+        assert!(ingest_value(&reordered, &[key]).is_ok());
+    }
+
+    #[test]
+    fn a_v2_signature_cannot_cover_a_widened_capability_list() {
+        let (signing, key) = publisher_key(7);
+        let digest = digest_of("artifact bytes");
+        let catalog = v2_catalog(&signing, good_manifest_value(), &digest);
+
+        let mut widened = catalog.clone();
+        widened["manifest"]["capabilities"] = json!(["tickets.read", "kb.read", "financial.read"]);
+        assert_eq!(
+            ingest_value(&widened, &[key]).unwrap_err(),
+            IngestReason::ManifestDigestMismatch,
+            "the capability list an approver consents to is part of the signed document"
+        );
+    }
+
+    #[test]
+    fn a_v2_statement_over_a_changed_artifact_digest_is_refused() {
+        let (signing, key) = publisher_key(7);
+        let catalog = v2_catalog(
+            &signing,
+            good_manifest_value(),
+            &digest_of("artifact bytes"),
+        );
+
+        let mut repointed = catalog;
+        repointed["artifact"]["digest"] = json!(digest_of("some other artifact"));
+        assert_eq!(
+            ingest_value(&repointed, &[key]).unwrap_err(),
+            IngestReason::BadSignature,
+            "the artifact digest is inside the framed statement"
+        );
+    }
+
+    #[test]
+    fn a_statement_version_this_build_does_not_verify_is_refused() {
+        let (signing, key) = publisher_key(7);
+        let mut catalog = v2_catalog(
+            &signing,
+            good_manifest_value(),
+            &digest_of("artifact bytes"),
+        );
+        catalog["artifact"]["statement"]["version"] = json!(3);
+        assert_eq!(
+            ingest_value(&catalog, &[key]).unwrap_err(),
+            IngestReason::SignatureStatementUnsupported
+        );
+        assert_eq!(
+            IngestReason::SignatureStatementUnsupported.as_str(),
+            "distribution_signature_statement_unsupported"
+        );
+    }
+
+    #[test]
+    fn a_v2_entry_with_no_trusted_key_is_accepted_but_not_marked() {
+        let (signing, _key) = publisher_key(7);
+        let catalog = v2_catalog(
+            &signing,
+            good_manifest_value(),
+            &digest_of("artifact bytes"),
+        );
+        // Dev posture: structural only, nothing verified — so the row must not
+        // claim the manifest was authenticated.
+        let bundle = ingest_value(&catalog, &[]).expect("structural-only ingest");
+        assert!(!bundle.manifest_authenticated);
+    }
+
+    #[test]
+    fn a_legacy_digest_only_entry_is_accepted_and_marked_unauthenticated() {
+        use ed25519_dalek::Signer as _;
+        let (signing, key) = publisher_key(7);
+        let digest = digest_of("artifact bytes");
+        let digest_bytes: [u8; 32] = hex::decode(&digest).unwrap().try_into().unwrap();
+        let catalog = json!({
+            "slug": "ticket-summarizer",
+            "tag": "v1.2.0",
+            "artifact": {
+                "digest": digest,
+                "signature": {
+                    "key_id": "ops-2026",
+                    "signature": hex::encode(signing.sign(&digest_bytes).to_bytes()),
+                },
+            },
+            "manifest": good_manifest_value(),
+        });
+
+        // Accepted — every entry published before Wave 55 has this shape, and
+        // the artifact it points at is still authenticated.
+        let bundle =
+            ingest_value(&catalog, std::slice::from_ref(&key)).expect("legacy entry still ingests");
+        assert!(
+            !bundle.manifest_authenticated,
+            "a digest-only signature is the weaker claim and says so"
+        );
+
+        // The manifest beside it is still unsigned: a substitution is accepted
+        // and stays labelled, which is exactly the risk the label exists to
+        // show the approver.
+        let mut substituted = catalog.clone();
+        substituted["manifest"]["description"] = json!("text the publisher never signed");
+        let bundle = ingest_value(&substituted, std::slice::from_ref(&key))
+            .expect("legacy shape accepts it");
+        assert!(!bundle.manifest_authenticated);
+
+        // The digest itself is still checked: a changed digest refuses.
+        let mut repointed = catalog;
+        repointed["artifact"]["digest"] = json!(digest_of("some other artifact"));
+        assert_eq!(
+            ingest_value(&repointed, &[key]).unwrap_err(),
+            IngestReason::BadSignature
+        );
+    }
+
+    #[test]
+    fn canonical_manifest_json_is_order_independent_and_refuses_floats() {
+        let a: serde_json::Value =
+            serde_json::from_str(r#"{"b":1,"a":{"d":[2,true,null],"c":"x"}}"#).unwrap();
+        let b: serde_json::Value =
+            serde_json::from_str(r#"{"a":{"c":"x","d":[2,true,null]},"b":1}"#).unwrap();
+        assert_eq!(
+            canonical_manifest_json(&a).unwrap(),
+            r#"{"a":{"c":"x","d":[2,true,null]},"b":1}"#
+        );
+        assert_eq!(manifest_sha256(&a).unwrap(), manifest_sha256(&b).unwrap());
+
+        // Non-ASCII stays literal, so a publisher tool that writes UTF-8 and
+        // one that escapes it still agree on the bytes.
+        let unicode: serde_json::Value = serde_json::from_str(r#"{"s":"café"}"#).unwrap();
+        assert_eq!(
+            canonical_manifest_json(&unicode).unwrap(),
+            r#"{"s":"café"}"#
+        );
+
+        // A float or an integer past 2^53−1 has no single spelling across
+        // languages, so it is refused rather than hashed into a digest only
+        // this server could reproduce.
+        for body in [r#"{"minimum":0.5}"#, r#"{"n":9007199254740992}"#] {
+            let value: serde_json::Value = serde_json::from_str(body).unwrap();
+            assert_eq!(
+                manifest_sha256(&value).unwrap_err(),
+                IngestReason::ManifestNotCanonical,
+                "{body}"
+            );
+        }
+        assert_eq!(
+            IngestReason::ManifestNotCanonical.as_str(),
+            "distribution_manifest_not_canonical"
+        );
+    }
+
+    /// The statement bytes themselves are a contract with publisher tooling
+    /// outside this repository. The fixture is shared with the plugin kit's
+    /// signer and its test: both sides must derive these exact bytes, this
+    /// digest and this signature (ed25519 is deterministic, so the hex is a
+    /// value both languages can assert rather than a smoke check).
+    #[test]
+    fn the_published_statement_vector_matches_the_plugin_kit() {
+        use ed25519_dalek::Signer as _;
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/plugin-kit/test/fixtures/registry-statement-v2.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let fixture: serde_json::Value = serde_json::from_str(&raw).expect("fixture is JSON");
+        let seed = hex::decode(fixture["private_key_seed_hex"].as_str().unwrap()).unwrap();
+        let signing = ed25519_dalek::SigningKey::from_bytes(&seed.try_into().unwrap());
+        let manifest = &fixture["manifest"];
+        let artifact_digest = fixture["artifact_digest"].as_str().unwrap();
+
+        let manifest_sha = manifest_sha256(manifest).unwrap();
+        assert_eq!(
+            manifest_sha,
+            fixture["expected_manifest_sha256"].as_str().unwrap(),
+            "the canonical manifest digest is the published vector"
+        );
+        let statement = statement_bytes(artifact_digest, &manifest_sha);
+        assert_eq!(
+            statement,
+            fixture["expected_statement"].as_str().unwrap(),
+            "the exact signed bytes are the published vector"
+        );
+        let message = statement_message(artifact_digest, &manifest_sha);
+        assert_eq!(
+            hex::encode(signing.sign(&message).to_bytes()),
+            fixture["expected_signature_hex"].as_str().unwrap(),
+            "the plugin-kit signer and this host agree on the signature"
+        );
     }
 }

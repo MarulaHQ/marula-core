@@ -13,8 +13,31 @@ function artifact() {
     source_url: "registry://rmm",
     fetched_ref: "v1.2.3",
     declared_capabilities: ["automation.triggers"],
+    manifest_authenticated: true,
   };
 }
+
+describe("consent screen — manifest coverage (Wave 55 lane p55-registry-signature-scope)", () => {
+  it("says whether the publisher signature covers the manifest it is printed beside", () => {
+    const { rerender } = render(<ConsentSummary artifact={artifact()} />);
+    expect(screen.getByTestId("manifest-coverage").textContent).toBe("manifest signed");
+    expect(screen.getByText(/signature covers this manifest/)).toBeInTheDocument();
+
+    // A legacy digest-only entry: accepted, and labelled as the weaker claim.
+    rerender(<ConsentSummary artifact={{ ...artifact(), manifest_authenticated: false }} />);
+    expect(screen.getByTestId("manifest-coverage").textContent).toBe("manifest unsigned");
+    expect(screen.getByText(/covers only the artifact bytes/)).toBeInTheDocument();
+  });
+
+  it("shows no coverage label for a source that makes no signature claim", () => {
+    render(
+      <ConsentSummary
+        artifact={{ ...artifact(), source_kind: "local_zip", source_url: "local://zip-import" }}
+      />,
+    );
+    expect(screen.queryByTestId("manifest-coverage")).toBeNull();
+  });
+});
 
 describe("consent screen — declared trigger surfaces (Wave 43 lane 5)", () => {
   it("renders each trigger with its emitted event type, plus a type summary", () => {
