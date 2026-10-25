@@ -430,6 +430,9 @@ fn rule_row(rec: core_db::automations::AutomationRuleRecord) -> serde_json::Valu
         "conditions": rec.conditions,
         "actions": rec.actions,
         "enabled": rec.enabled,
+        // The principal the rule's effects run as. Visible so an admin can see
+        // why a rule was refused for having no author, and re-save it.
+        "created_by": rec.created_by,
     })
 }
 
@@ -641,35 +644,36 @@ pub async fn create_rule(
     core_domain::automations::validate_actions(&actions)?;
 
     let org_id = authed.principal.user.org_id;
+    let author = authed.principal.user.id;
     let subject_kind = AutomationSubjectKind::from_db(req.subject_kind.as_deref());
     let id = Uuid::now_v7();
-    let saved = org_tx::with_org_tx(
-        &state,
-        org_id,
-        authed.principal.user.id,
-        |mut ctx| async move {
-            let rec = core_db::automations::insert(
-                &mut *ctx.tx,
-                id,
-                org_id,
-                req.board_id,
-                subject_kind,
-                &name,
-                req.trigger_event.trim(),
-                req.conditions.clone(),
-                req.actions.clone(),
-            )
-            .await?;
-            ctx.emit(
-                types::AUTOMATION_RULE_UPDATED,
-                "automation_rule",
-                Some(rec.id.to_string().as_str()),
-                &serde_json::json!({ "rule_id": rec.id, "trigger_event": rec.trigger_event }),
-            )
-            .await?;
-            Ok((ctx, rec))
-        },
-    )
+    let saved = org_tx::with_org_tx(&state, org_id, author, |mut ctx| async move {
+        let mut rec = core_db::automations::insert(
+            &mut *ctx.tx,
+            id,
+            org_id,
+            req.board_id,
+            subject_kind,
+            &name,
+            req.trigger_event.trim(),
+            req.conditions.clone(),
+            req.actions.clone(),
+        )
+        .await?;
+        // The author is the principal the rule's effects run as (Wave 58
+        // lane `p58-effects-seam`); the seam refuses a rule without one, so
+        // the save that creates it records the caller in the same commit.
+        core_db::automations::set_author(&mut *ctx.tx, org_id, rec.id, author).await?;
+        rec.created_by = Some(author);
+        ctx.emit(
+            types::AUTOMATION_RULE_UPDATED,
+            "automation_rule",
+            Some(rec.id.to_string().as_str()),
+            &serde_json::json!({ "rule_id": rec.id, "trigger_event": rec.trigger_event }),
+        )
+        .await?;
+        Ok((ctx, rec))
+    })
     .await?;
     Ok(Json(rule_row(saved)))
 }
@@ -713,39 +717,40 @@ pub async fn update_rule(
         core_domain::automations::validate_actions(&actions)?;
     }
     let org_id = authed.principal.user.org_id;
-    let saved = org_tx::with_org_tx(
-        &state,
-        org_id,
-        authed.principal.user.id,
-        |mut ctx| async move {
-            let rec = core_db::automations::update(
-                &mut *ctx.tx,
-                org_id,
-                id,
-                &core_db::automations::RulePatch {
-                    name: req.name.clone(),
-                    board_id: req.board_id,
-                    subject_kind: req
-                        .subject_kind
-                        .as_deref()
-                        .map(|value| AutomationSubjectKind::from_db(Some(value))),
-                    trigger_event: req.trigger_event.as_ref().map(|s| s.trim().to_string()),
-                    conditions: req.conditions.clone(),
-                    actions: req.actions.clone(),
-                    enabled: req.enabled,
-                },
-            )
-            .await?;
-            ctx.emit(
-                types::AUTOMATION_RULE_UPDATED,
-                "automation_rule",
-                Some(rec.id.to_string().as_str()),
-                &serde_json::json!({ "rule_id": rec.id }),
-            )
-            .await?;
-            Ok((ctx, rec))
-        },
-    )
+    let author = authed.principal.user.id;
+    let saved = org_tx::with_org_tx(&state, org_id, author, |mut ctx| async move {
+        let mut rec = core_db::automations::update(
+            &mut *ctx.tx,
+            org_id,
+            id,
+            &core_db::automations::RulePatch {
+                name: req.name.clone(),
+                board_id: req.board_id,
+                subject_kind: req
+                    .subject_kind
+                    .as_deref()
+                    .map(|value| AutomationSubjectKind::from_db(Some(value))),
+                trigger_event: req.trigger_event.as_ref().map(|s| s.trim().to_string()),
+                conditions: req.conditions.clone(),
+                actions: req.actions.clone(),
+                enabled: req.enabled,
+            },
+        )
+        .await?;
+        // Re-saving a rule re-records its author: the editor now owns what the
+        // rule will do, and it is the one repair for a rule the effects seam
+        // refuses for having no author.
+        core_db::automations::set_author(&mut *ctx.tx, org_id, rec.id, author).await?;
+        rec.created_by = Some(author);
+        ctx.emit(
+            types::AUTOMATION_RULE_UPDATED,
+            "automation_rule",
+            Some(rec.id.to_string().as_str()),
+            &serde_json::json!({ "rule_id": rec.id }),
+        )
+        .await?;
+        Ok((ctx, rec))
+    })
     .await?;
     Ok(Json(rule_row(saved)))
 }

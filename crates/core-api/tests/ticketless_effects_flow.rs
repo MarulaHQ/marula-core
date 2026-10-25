@@ -18,6 +18,11 @@
 //! 4. The ticket path is unregressed: a normal effects request still
 //!    applies to the ticket it names.
 //!
+//! Since Wave 58 lane `p58-effects-seam` the seam also runs as the rule's
+//! author, so every case below creates a rule whose author holds the grant.
+//! A batch that names no rule, or a rule with no author, is refused; those
+//! cases live in `internal_effects_principal_flow.rs`.
+//!
 //! Database selection follows the documented contract:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
@@ -137,6 +142,28 @@ async fn create_board(app: &Router, token: &str, name: &str) -> Uuid {
         .expect("uuid")
 }
 
+/// A rule row authored by `author`, which is the principal the effects seam
+/// runs as, carrying the actions the batch will send. The seam refuses a rule
+/// without an author, and it refuses a batch whose actions are not the rule's
+/// own, so both are part of the fixture now.
+async fn authored_rule(pool: &PgPool, org_id: Uuid, author: Uuid, actions: Value) -> Uuid {
+    let rule_id = Uuid::now_v7();
+    sqlx::query(
+        r#"INSERT INTO automation_rules
+               (id, org_id, board_id, name, trigger_event, conditions, actions, enabled, created_by)
+           VALUES ($1, $2, NULL, $3, 'ticket.updated', '[]'::jsonb, $4::jsonb, true, $5)"#,
+    )
+    .bind(rule_id)
+    .bind(org_id)
+    .bind(format!("ticketless rule {rule_id}"))
+    .bind(actions.to_string())
+    .bind(author)
+    .execute(pool)
+    .await
+    .expect("rule row");
+    rule_id
+}
+
 // --- tests ----------------------------------------------------------------------
 
 /// The ticket-less subject applies a subject-agnostic effect and keeps the
@@ -159,7 +186,14 @@ async fn ticket_less_effects_apply_without_a_ticket() {
         .fetch_one(&pool)
         .await
         .expect("owner user row");
-    let rule_id = Uuid::now_v7();
+    let rule_id = authored_rule(
+        &pool,
+        org_id,
+        recipient,
+        json!([{ "type": "notify_users", "user_ids": [recipient],
+                  "kind": "ticket_update", "title": "Board alert" }]),
+    )
+    .await;
 
     let response = send(
         &app,
@@ -218,6 +252,26 @@ async fn ticket_writing_effects_skip_on_a_board_subject() {
         .await
         .expect("org row");
 
+    let owner: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE org_id = $1 LIMIT 1")
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .expect("owner user row");
+    // The batch claims exactly the actions the rule carries: the seam refuses a
+    // batch that asks for something else.
+    let assignee = Uuid::now_v7();
+    let rule_id = authored_rule(
+        &pool,
+        org_id,
+        owner,
+        json!([
+            { "type": "add_internal_comment", "body": "needs a ticket" },
+            { "type": "assign_user", "user_id": assignee },
+            { "type": "set_priority", "priority": "p1" }
+        ]),
+    )
+    .await;
+
     let response = send(
         &app,
         axum::http::Method::POST,
@@ -225,12 +279,12 @@ async fn ticket_writing_effects_skip_on_a_board_subject() {
         Some(INTERNAL_TOKEN),
         Some(json!({
             "org_id": org_id,
-            "rule_id": Uuid::now_v7(),
+            "rule_id": rule_id,
             "ticket_id": null,
             "board_id": board,
             "actions": [
                 { "type": "add_internal_comment", "body": "needs a ticket" },
-                { "type": "assign_user", "user_id": Uuid::now_v7() },
+                { "type": "assign_user", "user_id": assignee },
                 { "type": "set_priority", "priority": "p1" }
             ],
         })),
@@ -256,24 +310,47 @@ async fn ticket_writing_effects_skip_on_a_board_subject() {
 /// A board outside the org is refused, not widened to org scope.
 #[tokio::test]
 async fn a_board_outside_the_org_is_refused() {
-    let (state, _pool) = test_state().await;
+    let (state, pool) = test_state().await;
     let app = core_api::routes::build_router(state.clone());
     let slug = format!("tl-scope-{}", Uuid::now_v7().simple());
-    let token = register_org(&app, &slug).await;
-    let board = create_board(&app, &token, "Scope Board").await;
+    // Registration creates the org the rule lives in; the token is not needed
+    // because every write below crosses the machine seam.
+    let _token = register_org(&app, &slug).await;
+    let org_id: Uuid = sqlx::query_scalar("SELECT id FROM orgs WHERE slug = $1")
+        .bind(&slug)
+        .fetch_one(&pool)
+        .await
+        .expect("org row");
+    let owner: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE org_id = $1 LIMIT 1")
+        .bind(org_id)
+        .fetch_one(&pool)
+        .await
+        .expect("owner user row");
+    let rule_id = authored_rule(
+        &pool,
+        org_id,
+        owner,
+        json!([{ "type": "notify_users", "user_ids": [owner],
+                  "kind": "ticket_update", "title": "not yours" }]),
+    )
+    .await;
 
-    let other_org = Uuid::now_v7();
+    // The board belongs to a different org, so it cannot be a scope here.
+    let other_slug = format!("tl-scope-other-{}", Uuid::now_v7().simple());
+    let other_token = register_org(&app, &other_slug).await;
+    let board = create_board(&app, &other_token, "Scope Board").await;
+
     let response = send(
         &app,
         axum::http::Method::POST,
         "/api/v1/internal/effects",
         Some(INTERNAL_TOKEN),
         Some(json!({
-            "org_id": other_org,
-            "rule_id": Uuid::now_v7(),
+            "org_id": org_id,
+            "rule_id": rule_id,
             "ticket_id": null,
             "board_id": board,
-            "actions": [{ "type": "notify_users", "user_ids": [Uuid::now_v7()],
+            "actions": [{ "type": "notify_users", "user_ids": [owner],
                           "kind": "ticket_update", "title": "not yours" }],
         })),
     )
@@ -304,6 +381,15 @@ async fn ticket_effects_still_apply() {
         .fetch_one(&pool)
         .await
         .expect("owner user row");
+
+    let rule_id = authored_rule(
+        &pool,
+        org_id,
+        user_id,
+        json!([{ "type": "notify_users", "user_ids": [user_id],
+                  "kind": "ticket_update", "title": "Ticket alert" }]),
+    )
+    .await;
 
     let ticket_id = Uuid::now_v7();
     let mut tx = pool.begin().await.expect("begin");
@@ -345,7 +431,7 @@ async fn ticket_effects_still_apply() {
         Some(INTERNAL_TOKEN),
         Some(json!({
             "org_id": org_id,
-            "rule_id": Uuid::now_v7(),
+            "rule_id": rule_id,
             "ticket_id": ticket_id,
             "actions": [{ "type": "notify_users", "user_ids": [user_id],
                           "kind": "ticket_update", "title": "Ticket alert" }],
