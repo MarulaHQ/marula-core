@@ -18,6 +18,15 @@
 //! delete statement, so one statement is the whole implementation and an org
 //! that never touches the setting keeps exactly the default.
 //!
+//! A purge releases, it never rewrites. A retry is a NEW row pointing at the
+//! run it retried, so a parent can expire while its child is still inside the
+//! window. The delete then fires the ledger's own `ON DELETE SET NULL`, which
+//! clears the survivor's pointer to a row that no longer exists (migration
+//! 0169); the guard refuses the same write from anything else, so a purge can
+//! never edit a surviving run's story. That is why the statement below is one
+//! `DELETE` and not a null-out plus a delete: the null-out is the referential
+//! action's job and app code is not permitted to do it.
+//!
 //! Non-purpose: no job kinds, no internal effect calls, no events — a purge
 //! is housekeeping, not a domain effect, and it never needs core-api. The
 //! resume/retry jobs the ledger records DO ride the existing queue through
