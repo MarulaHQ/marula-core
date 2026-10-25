@@ -417,7 +417,7 @@ pub async fn set_status(
         // first's committed deactivation and refuses. Read and count are
         // then one decision with the write below. A replay returns above
         // and never takes it.
-        core_db::org_users::lock_owner_guard(&mut *ctx.tx, org_id).await?;
+        core_db::org_users::lock_owner_guard(&mut ctx.tx, org_id).await?;
         let before = load_entry(&mut ctx, org_id, id).await?;
         if before.id == actor_id && !req.active {
             return Err(ApiError::Validation(
@@ -561,7 +561,7 @@ pub async fn set_role(
         // Same last-active-owner decision as `set_status`, and the same
         // lock before the read: a demotion and a deactivation racing on an
         // org with two owners must not both see "two" and both proceed.
-        core_db::org_users::lock_owner_guard(&mut *ctx.tx, org_id).await?;
+        core_db::org_users::lock_owner_guard(&mut ctx.tx, org_id).await?;
         let before = load_entry(&mut ctx, org_id, id).await?;
         let role_id =
             core_db::org_users::find_builtin_role_id(&mut *ctx.tx, org_id, role.as_str()).await?;

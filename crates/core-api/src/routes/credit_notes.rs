@@ -560,7 +560,7 @@ pub async fn apply(
         // between the read and here refuses with a typed 409 instead of
         // consuming credit against a total that no longer exists.
         let after_invoice = core_db::invoices::apply_payment_total_expecting(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             req.invoice_id,
             req.amount_minor,

@@ -735,7 +735,7 @@ pub async fn create_run(
                 // evaluation read and here refuses instead of being billed
                 // and cancelled at once.
                 core_db::contracts::update_change_order_status(
-                    &mut *ctx.tx,
+                    &mut ctx.tx,
                     org_id,
                     contract.id,
                     order_id,
@@ -1346,7 +1346,7 @@ pub async fn record_payment(
         // loses with a typed 409 and this transaction rolls the payment
         // row back with it.
         let after = core_db::invoices::apply_payment_total_expecting(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             id,
             req.amount_minor,

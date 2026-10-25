@@ -416,7 +416,7 @@ pub async fn pay_invoice(
         // of the predicate and a portal payer racing an edit loses with a
         // typed 409 rather than settling on a stale total.
         let after = core_db::invoices::apply_payment_total_expecting(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             id,
             req.amount_minor,

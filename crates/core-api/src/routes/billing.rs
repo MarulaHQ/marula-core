@@ -1411,7 +1411,7 @@ pub async fn transition_change_order(
         // succeed, and the loser gets the typed 409 rather than
         // overwriting the winner's decision.
         core_db::contracts::update_change_order_status(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             id,
             order_id,

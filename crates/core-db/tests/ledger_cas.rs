@@ -118,7 +118,7 @@ async fn a_payment_priced_on_a_moved_total_is_refused_and_writes_nothing() {
         .expect("total edit");
 
     let refused = invoices::apply_payment_total_expecting(
-        &mut *payer,
+        &mut payer,
         seeded.org,
         seeded.invoice,
         2_500,
@@ -162,7 +162,7 @@ async fn a_second_receipt_beyond_the_balance_is_refused() {
         .await
         .expect("invoice read")
         .total_minor;
-    invoices::apply_payment_total_expecting(&mut *first, seeded.org, seeded.invoice, 6_000, total)
+    invoices::apply_payment_total_expecting(&mut first, seeded.org, seeded.invoice, 6_000, total)
         .await
         .expect("the first receipt fits the balance");
     first.commit().await.expect("commit the first receipt");
@@ -170,7 +170,7 @@ async fn a_second_receipt_beyond_the_balance_is_refused() {
     // A second payer still believes 100.00 is outstanding and tries 60.00.
     let mut second = org_tx(&db.app, seeded.org).await;
     let refused = invoices::apply_payment_total_expecting(
-        &mut *second,
+        &mut second,
         seeded.org,
         seeded.invoice,
         6_000,
