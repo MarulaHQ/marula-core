@@ -12,7 +12,13 @@
 //!   processed event;
 //! * idempotence: the provider_ref (the Stripe intent id from the
 //!   metadata) is looked up BEFORE inserting — a redelivered event finds
-//!   the existing payment row and answers 200 with `processed: false`;
+//!   the existing payment row and answers 200 with `acted: false`;
+//! * settlement is decided by the statement that writes it: the total the
+//!   event was priced on rides in the UPDATE's predicate next to the payable
+//!   status and the outstanding balance, so a total that moved between the
+//!   read and the write is a typed 409 rather than a silent settlement. A
+//!   retry of that delivery re-reads the invoice inside its own transaction
+//!   and settles once against the total that is actually there;
 //! * the raw event payload is never persisted (only typed extracts);
 //!   webhook secrets are config, never logged.
 use crate::error::{ApiError, ApiResult};
@@ -211,7 +217,9 @@ pub async fn receive(
 
 /// Records an out-of-band settled payment EXACTLY ONCE (the provider_ref
 /// idempotence lock), through the same org tx + FX behavior as the API
-/// flow. Returns whether a NEW row was inserted.
+/// flow, and with the same decision shape: the total read here rides into
+/// the apply statement's predicate. Returns whether a NEW row was inserted,
+/// and answers a typed 409 when the invoice refused the receipt.
 async fn record_payment(
     state: &AppState,
     org_id: Uuid,
@@ -223,6 +231,12 @@ async fn record_payment(
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id).await?;
     let invoice = core_db::invoices::get_invoice(&mut *tx, org_id, invoice_id).await?;
+    // The total this event is priced on, read from the invoice in THIS
+    // transaction — the one that validates the event (its provider_ref
+    // idempotence and the invoice's payable state). Carrying it into the
+    // apply statement below is what makes the value the settlement was
+    // validated against the value it writes against.
+    let expected_total_minor = invoice.total_minor;
     let exists =
         core_db::invoices::payment_exists_for_ref(&mut *tx, org_id, invoice_id, provider_ref)
             .await?;
@@ -260,11 +274,25 @@ async fn record_payment(
         created_by: None,
     };
     core_db::invoices::insert_payment(&mut *tx, &payment).await?;
-    core_db::invoices::apply_payment_total(&mut *tx, org_id, invoice_id, amount_minor)
-        .await?
-        .ok_or_else(|| {
-            ApiError::Conflict("invoice left its payable state (webhook settlement)".into())
-        })?;
+    // The settlement decides against the basis it read, not against whatever
+    // the invoice holds by the time the UPDATE runs: payable status, the
+    // total it was priced on, and the outstanding balance are all in the
+    // predicate. A total that moved between the read above and this write
+    // loses with a typed `DbError::Conflict` (409 at the wire) naming what
+    // moved, and the receipt row inserted a line earlier rolls back with the
+    // transaction — nothing is committed, so a Stripe retry finds no
+    // provider_ref and settles exactly once against the total now on the
+    // invoice. This path was the one window Wave 54's S4a left open: it
+    // called the no-expectation form, so an out-of-band settlement could
+    // apply against a total that had moved, and could pass the total outright.
+    core_db::invoices::apply_payment_total_expecting(
+        &mut *tx,
+        org_id,
+        invoice_id,
+        amount_minor,
+        expected_total_minor,
+    )
+    .await?;
     core_db::audit::insert(
         &mut *tx,
         &core_domain::entities::AuditEvent {
