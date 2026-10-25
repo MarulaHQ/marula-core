@@ -209,6 +209,22 @@ pub async fn require_auth(
     let claims = crate::auth::jwt::verify_access_token(&state.config, &token)
         .ok_or_else(|| ApiError::Unauthorized("invalid or expired token".into()))?;
 
+    // Wave 57 (p57 finding 3): the session row is the thing revocation writes,
+    // and nothing on this path read it. Logout, an admin factor reset and
+    // refresh-token reuse all killed the chain while an already-issued access
+    // token kept working for its full TTL. One primary-key probe through the
+    // SECURITY DEFINER bridge (the pool carries no org scope).
+    //
+    // `rotated` passes: a refresh retires the parent while the parent's access
+    // token is still in the client's hands, and refusing that would turn every
+    // rotation into a burst of 401s. Every deliberate reason refuses.
+    if !core_db::users::session_active(&state.pool, claims.sid)
+        .await
+        .map_err(|_| ApiError::Unauthorized("session not found".into()))?
+    {
+        return Err(ApiError::Unauthorized("session ended".into()));
+    }
+
     // Wave 52 lane P3: the principal is cached per replica for
     // `ref_cache_ttl_secs` and dropped the moment a `user.*` or `role.*` event
     // lands (`crate::cache_invalidation`), so the two indexed queries below run
