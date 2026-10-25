@@ -96,7 +96,7 @@ pub async fn get(
 }
 
 /// Newest-first list for one document, filtered by the same admission rule
-/// the document download door applies ([`core_db::attachments::admitted_verdict_filter`]):
+/// the document download door applies ([`crate::attachments::admitted_verdict_filter`]):
 /// an object the door would refuse is not offered. `scanner_installed` is the
 /// door's flag; false (a none-mode deployment) leaves the list as it was.
 pub async fn list_for_document(
@@ -137,11 +137,11 @@ pub async fn find_existing_object_key(
 }
 
 /// Deletes one row; returns it so the caller reclaims the object only when
-/// [`count_other_refs`] (across BOTH tables sharing a key space) reports
-/// zero remaining references. The shared table's refs count FIRST — the
-/// content-addressed key space is per org across both tables, so the
-/// sibling-table count must be included to avoid dropping bytes that are
-/// still referenced.
+/// [`count_other_refs`] (every table sharing the key space) reports zero
+/// remaining references. The shared count is the whole point: the
+/// content-addressed key space is per org across both attachment tables, so
+/// the sibling-table references must be included to avoid dropping bytes that
+/// are still referenced.
 pub async fn delete(
     conn: &mut PgConnection,
     org_id: Uuid,
@@ -161,30 +161,19 @@ pub async fn delete(
     Ok(row)
 }
 
-/// How many OTHER rows across BOTH attachments tables still reference this
+/// How many OTHER rows across EVERY attachments table still reference this
 /// storage key after a delete — the object is reclaimed only on zero.
+///
+/// Delegates to [`crate::attachments::count_other_refs`] on purpose: the key
+/// space is one inventory (that module's `ATTACHMENT_REF_TABLES`), and this
+/// function used to carry the second hand-written copy of it. The document side
+/// counted both tables and the ticket side counted one, which is exactly the
+/// drift the shared list removes (Wave 56, `p56-attachment-refcount`).
 pub async fn count_other_refs(
     conn: &mut PgConnection,
     org_id: Uuid,
     storage_key: &str,
     excluding_id: Uuid,
 ) -> DbResult<i64> {
-    let own: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM documents_attachments \
-         WHERE org_id = $1 AND storage_key = $2 AND id <> $3",
-    )
-    .bind(org_id)
-    .bind(storage_key)
-    .bind(excluding_id)
-    .fetch_one(&mut *conn)
-    .await?;
-    let shared: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM attachments \
-         WHERE org_id = $1 AND storage_key = $2",
-    )
-    .bind(org_id)
-    .bind(storage_key)
-    .fetch_one(&mut *conn)
-    .await?;
-    Ok(own + shared)
+    crate::attachments::count_other_refs(conn, org_id, storage_key, excluding_id).await
 }

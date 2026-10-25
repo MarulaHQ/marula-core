@@ -285,22 +285,104 @@ pub async fn delete(
     Ok(row)
 }
 
+// --- the refcount: who still points at a stored object ------------------------
+
+/// Every table whose rows can reference one stored attachment object, with the
+/// migration that created it and what its rows own.
+///
+/// `attachments` (0024) holds ticket, ticket-comment and inbound-email files;
+/// `documents_attachments` (0089) holds document files. They write into ONE
+/// content-addressed key space per org (`core_store::attachment_key` →
+/// `org/<org>/attachments/<sha256>`), so the same bytes attached on two
+/// surfaces are stored once and referenced twice. A reclaim decision is
+/// therefore not complete until EVERY table here has been asked: counting one
+/// of them is how a document's bytes were deleted out from under its row
+/// (Wave 56, audit record `attachments.rs:count-other-refs`).
+///
+/// This list feeds [`other_refs_sql`], so a table added here is counted in the
+/// same edit. A table that carries the key without owning the object belongs in
+/// [`ATTACHMENT_KEY_TABLES_NOT_REFERENCES`] with its reason. The
+/// `attachment_refcount` suite reads the database's own catalogue and fails
+/// when a table holding a `storage_key` column is in neither list, so a new
+/// referencing table cannot be forgotten quietly.
+///
+/// The orphan sweep keeps a second list for the same key space
+/// (`core_db::object_gc::SOURCES`), and it must stay a SUPERSET of this one: a
+/// table it forgets does not leak, it lets the sweep delete that table's
+/// objects. A table added here belongs there in the same change.
+pub const ATTACHMENT_REF_TABLES: &[(&str, &str)] = &[
+    (
+        "attachments",
+        "0024 — ticket, ticket-comment and inbound-email files",
+    ),
+    ("documents_attachments", "0089 — document files"),
+];
+
+/// Tables that hold an attachment object's key and must NOT keep it alive,
+/// each with the reason it is excluded from [`ATTACHMENT_REF_TABLES`].
+///
+/// These rows record a fact ABOUT the object (a verdict, a finding) or live in
+/// a different key space. Letting them hold the bytes hostage would leak
+/// objects instead of protecting them, which is why the exclusion is stated
+/// rather than left to a `WHERE` clause nobody can read.
+pub const ATTACHMENT_KEY_TABLES_NOT_REFERENCES: &[(&str, &str)] = &[
+    (
+        "attachment_scans",
+        "0139 — the scan verdict about the object, not an owner of it: the row is \
+         evidence and outlives the bytes by design, and a re-upload of the same \
+         digest reuses it",
+    ),
+    (
+        "org_exports",
+        "0089 — a different key space (`core_store::export_key`, \
+         `org/<org>/exports/…`); its digest names an export bundle, never an \
+         attachment object",
+    ),
+    (
+        "object_integrity_findings",
+        "0146 — an integrity pass's evidence about a key, written after the fact \
+         and keyed by no owner",
+    ),
+];
+
+/// The refcount statement: `count(*)` over one `UNION ALL` arm per table in
+/// [`ATTACHMENT_REF_TABLES`], so "is this object still referenced anywhere" is
+/// one round trip rather than one query per surface — and no surface can be
+/// skipped by a caller that only knows about its own table.
+///
+/// Every arm binds the same three parameters: the org (the key space is per
+/// org), the storage key, and `$3` — the caller's own row, which the ticket
+/// side still has on disk when it asks.
+#[must_use]
+pub fn other_refs_sql() -> String {
+    let mut sql = String::from("SELECT count(*) FROM (");
+    for (i, (table, _why)) in ATTACHMENT_REF_TABLES.iter().enumerate() {
+        if i > 0 {
+            sql.push_str(" UNION ALL ");
+        }
+        sql.push_str("SELECT 1 FROM ");
+        sql.push_str(table);
+        sql.push_str(" WHERE org_id = $1 AND storage_key = $2 AND id <> $3");
+    }
+    sql.push_str(") refs");
+    sql
+}
+
 /// How many OTHER rows still reference this storage key after a delete —
-/// the object is reclaimed only on zero.
+/// across every table in [`ATTACHMENT_REF_TABLES`], because they share one key
+/// space. The object is reclaimed only on zero.
 pub async fn count_other_refs(
     conn: &mut PgConnection,
     org_id: Uuid,
     storage_key: &str,
     excluding_id: Uuid,
 ) -> DbResult<i64> {
-    let n: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM attachments WHERE org_id = $1 AND storage_key = $2 AND id <> $3",
-    )
-    .bind(org_id)
-    .bind(storage_key)
-    .bind(excluding_id)
-    .fetch_one(conn)
-    .await?;
+    let n: i64 = sqlx::query_scalar(&other_refs_sql())
+        .bind(org_id)
+        .bind(storage_key)
+        .bind(excluding_id)
+        .fetch_one(conn)
+        .await?;
     Ok(n)
 }
 
@@ -534,6 +616,58 @@ mod tests {
             assert!(
                 QUALIFIED_COLS.contains(&format!("a.{bare}")),
                 "QUALIFIED_COLS missing a.{bare}"
+            );
+        }
+    }
+
+    /// The refcount statement is generated from the inventory, so the two
+    /// cannot drift: every listed table gets an arm with the same three binds,
+    /// and no excluded table is counted.
+    #[test]
+    fn the_refcount_names_every_referencing_table_and_binds_three_params() {
+        let sql = other_refs_sql();
+        assert!(
+            sql.starts_with("SELECT count(*) FROM ("),
+            "one statement over one UNION ALL set: {sql}"
+        );
+        for (table, _why) in ATTACHMENT_REF_TABLES {
+            assert!(
+                sql.contains(&format!(
+                    "FROM {table} WHERE org_id = $1 AND storage_key = $2 AND id <> $3"
+                )),
+                "the inventory names {table} but the statement does not ask it: {sql}"
+            );
+        }
+        assert_eq!(
+            sql.matches("$1").count(),
+            ATTACHMENT_REF_TABLES.len(),
+            "every arm binds the org: {sql}"
+        );
+        assert_eq!(
+            sql.matches(" UNION ALL ").count(),
+            ATTACHMENT_REF_TABLES.len() - 1,
+            "one arm per table, joined by UNION ALL: {sql}"
+        );
+        for (table, why) in ATTACHMENT_KEY_TABLES_NOT_REFERENCES {
+            assert!(
+                !sql.contains(&format!("FROM {table} ")),
+                "{table} is excluded on purpose ({why}) and must not be counted: {sql}"
+            );
+        }
+    }
+
+    /// The exclusion list carries a reason for every table, because the reason
+    /// is what stops a future reader from "fixing" the omission.
+    #[test]
+    fn every_excluded_table_states_why() {
+        for (table, why) in ATTACHMENT_KEY_TABLES_NOT_REFERENCES {
+            assert!(
+                !why.trim().is_empty(),
+                "{table} is excluded without a reason"
+            );
+            assert!(
+                !ATTACHMENT_REF_TABLES.iter().any(|(t, _)| t == table),
+                "{table} is in both lists, so the inventory disagrees with itself"
             );
         }
     }
