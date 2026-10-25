@@ -47,7 +47,7 @@ import { overlapsInterval, type CalendarEntry } from "../lib/calendar-view";
 import { LocalTime } from "./local-time";
 import { useTimeFormat } from "../lib/use-time-format";
 
-type Connection = components["schemas"]["CalendarSyncConnection"];
+type Connection = components["schemas"]["CalendarSyncConnectionView"];
 type Direction = components["schemas"]["CalendarSyncDirection"];
 /** The three kinds the API's `provider` CHECK admits. */
 type CalendarProvider = "ical" | "google" | "microsoft";
@@ -544,8 +544,9 @@ function ConnectionRow({
             <Badge tone="neutral">{conn.provider}</Badge>
             {/* A delegated connection with no token is NOT connected. Saying
                 so plainly is the difference between an operator who
-                retries and one who assumes the sync is running. */}
-            {conn.provider !== "ical" && !conn.access_token ? (
+                retries and one who assumes the sync is running. The API
+                reports presence, never the token itself. */}
+            {conn.provider !== "ical" && !conn.has_access_token ? (
               <>
                 <Badge tone="warning">not connected</Badge>
                 <Button

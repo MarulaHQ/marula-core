@@ -1756,10 +1756,10 @@ use utoipa::OpenApi;
         crate::routes::scheduling::ConflictCheckResponse,
         crate::routes::scheduling::ConflictView,
         // two-way calendar sync (Wave 14 lane 2)
-        core_domain::entities::CalendarSyncConnection,
         core_domain::entities::CalendarSyncDirection,
         core_domain::entities::CalendarSyncStatus,
         core_domain::entities::CalendarSyncEvent,
+        crate::routes::calendar_sync::CalendarSyncConnectionView,
         crate::routes::calendar_sync::CreateConnectionRequest,
         crate::routes::calendar_sync::OAuthStartResponse,
         crate::routes::calendar_sync::OAuthCallbackQuery,

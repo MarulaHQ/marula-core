@@ -8,6 +8,12 @@
 //! and — since Wave 54 lane S1a — the poll's refusal of a feed URL the outbound
 //! egress guard rejects.
 //!
+//! Since Wave 55 lane `p55-calendar-token-redaction` it also pins the read
+//! surface: a delegated connection's cached provider token is held and read
+//! server-side only, so every connection response reports
+//! `has_access_token` and never the token, while the poll keeps working from
+//! what storage holds.
+//!
 //! The poll's wire is guarded (https only, public host, judged resolution), so a
 //! test cannot point it at an in-process loopback fixture. The mirror half runs
 //! through `apply_sync`, the same call the route makes after a poll returns, and
@@ -858,4 +864,262 @@ async fn a_successful_pull_mirrors_events_through_the_seam() {
     .expect("a second pull");
     assert_eq!(again.outcome.imported, 0);
     assert_eq!(again.outcome.duplicates, 1);
+}
+
+// --- the cached provider token never crosses the wire (Wave 55 decision 9) ---
+
+/// The cached token a delegated connection holds after consent. Nothing in the
+/// API may return it; a client only learns whether one exists.
+const STORED_TOKEN: &str = "ya29.a0AfB-stored-calendar-token";
+
+/// Writes the cached token the way the OAuth callback does — `access_token`
+/// and `token_expires_at` together, because the row's CHECK pairs them.
+async fn store_cached_token(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+    connection_id: Uuid,
+    token: &str,
+) {
+    let mut tx = state.pool.begin().await.expect("org transaction");
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .expect("org scope");
+    sqlx::query(
+        "UPDATE calendar_sync_connections
+            SET access_token = $3, token_expires_at = $4, updated_at = now()
+          WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(connection_id)
+    .bind(token)
+    .bind(chrono::Utc::now() + chrono::Duration::hours(1))
+    .execute(&mut *tx)
+    .await
+    .expect("store the cached token");
+    tx.commit().await.expect("commit");
+}
+
+/// Creates a delegated (Google) inbound connection, which is created WITHOUT a
+/// token: the consent callback is what adds one.
+async fn create_google_connection(app: &Router, bearer: &str, name: &str) -> Uuid {
+    let created: Value = body_json(
+        send(
+            app,
+            axum::http::Method::POST,
+            "/api/calendar-sync",
+            Some(bearer),
+            Some(json!({
+                "name": name,
+                "provider": "google",
+                "direction": "inbound",
+            })),
+        )
+        .await,
+    )
+    .await;
+    created["connection"]["id"]
+        .as_str()
+        .expect("connection id")
+        .parse()
+        .expect("uuid")
+}
+
+async fn me_ids(app: &Router, bearer: &str) -> (Uuid, Uuid) {
+    let me: Value =
+        body_json(send(app, axum::http::Method::GET, "/api/me", Some(bearer), None).await).await;
+    (
+        me["org_id"].as_str().unwrap().parse().unwrap(),
+        me["user_id"].as_str().unwrap().parse().unwrap(),
+    )
+}
+
+/// The read side reports presence and never the value.
+///
+/// Every connection response is checked here — create, list and patch — because
+/// the token reached all three before this lane: create and rotate through the
+/// `ConnectionView` envelope, list and patch through the bare row.
+#[tokio::test]
+async fn a_connection_read_reports_token_presence_and_never_the_token() {
+    let (state, app) = test_state().await;
+    let tokens = register_org(&app, format!("csync6-{}", Uuid::now_v7().simple())).await;
+    let bearer = tokens["access_token"].as_str().unwrap().to_string();
+    let (org_id, user_id) = me_ids(&app, &bearer).await;
+
+    let created_text = body_text(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/calendar-sync",
+            Some(&bearer),
+            Some(json!({
+                "name": "Delegated calendar",
+                "provider": "google",
+                "direction": "inbound",
+            })),
+        )
+        .await,
+    )
+    .await;
+    let created: Value = serde_json::from_str(&created_text).expect("create json");
+    let connection_id: Uuid = created["connection"]["id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        created["connection"].get("access_token").is_none(),
+        "create must not carry the token field: {created}"
+    );
+    assert_eq!(
+        created["connection"]["has_access_token"],
+        json!(false),
+        "a delegated connection is created without a token: {created}"
+    );
+
+    store_cached_token(&state, org_id, user_id, connection_id, STORED_TOKEN).await;
+
+    let listed_text = body_text(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/calendar-sync",
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        !listed_text.contains(STORED_TOKEN),
+        "the list response carried the token: {listed_text}"
+    );
+    let listed: Value = serde_json::from_str(&listed_text).expect("list json");
+    let row = listed
+        .as_array()
+        .expect("connections array")
+        .iter()
+        .find(|c| c["id"] == connection_id.to_string().as_str())
+        .expect("the connection is listed");
+    assert!(
+        row.get("access_token").is_none(),
+        "the row must not carry the token field: {row}"
+    );
+    assert_eq!(
+        row["has_access_token"],
+        json!(true),
+        "the client needs to know a token is held: {row}"
+    );
+
+    let patched_text = body_text(
+        send(
+            &app,
+            axum::http::Method::PATCH,
+            &format!("/api/calendar-sync/{connection_id}"),
+            Some(&bearer),
+            Some(json!({ "name": "Delegated calendar (renamed)" })),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        !patched_text.contains(STORED_TOKEN),
+        "the patch response carried the token: {patched_text}"
+    );
+    let patched: Value = serde_json::from_str(&patched_text).expect("patch json");
+    assert!(
+        patched.get("access_token").is_none(),
+        "the patch response must not carry the token field: {patched}"
+    );
+    assert_eq!(patched["has_access_token"], json!(true));
+}
+
+/// A provider that answers from a fixture and records what it was handed.
+struct TokenRecordingProvider {
+    body: String,
+    seen: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+#[async_trait::async_trait]
+impl CalendarSyncProvider for TokenRecordingProvider {
+    fn kind(&self) -> &'static str {
+        "google"
+    }
+
+    async fn fetch_events(
+        &self,
+        connection: &CalendarSyncConnection,
+    ) -> Result<ProviderPull, ProviderError> {
+        *self.seen.lock().expect("mutex") = connection.access_token.clone();
+        Ok(ProviderPull {
+            events: core_api::routes::calendar_sync::parse_ical(&self.body),
+            sync_token: None,
+        })
+    }
+}
+
+/// Redaction touches the API surface only: the poll still reads the token from
+/// storage. The connection is read with the same org-scoped query the route
+/// uses, so the only thing this test replaces is the vendor's wire.
+#[tokio::test]
+async fn the_poll_still_reads_the_stored_token() {
+    let (state, app) = test_state().await;
+    let tokens = register_org(&app, format!("csync7-{}", Uuid::now_v7().simple())).await;
+    let bearer = tokens["access_token"].as_str().unwrap().to_string();
+    let (org_id, user_id) = me_ids(&app, &bearer).await;
+
+    let connection_id = create_google_connection(&app, &bearer, "Poll from storage").await;
+    store_cached_token(&state, org_id, user_id, connection_id, STORED_TOKEN).await;
+
+    let connection = {
+        let mut tx = state.pool.begin().await.unwrap();
+        core_db::set_org_and_user(&mut tx, org_id, user_id)
+            .await
+            .unwrap();
+        let connection = core_db::calendar_sync::get_connection(&mut tx, org_id, connection_id)
+            .await
+            .expect("the connection reads back");
+        tx.commit().await.unwrap();
+        connection
+    };
+    assert_eq!(
+        connection.access_token.as_deref(),
+        Some(STORED_TOKEN),
+        "the read path must still serve the token to the poll"
+    );
+
+    let day = next_monday_date();
+    let provider = TokenRecordingProvider {
+        body: fixture_ics(&day, "stored-token@external.test", 9, 10, "Busy"),
+        seen: std::sync::Arc::new(std::sync::Mutex::new(None)),
+    };
+    let outcome = core_api::routes::calendar_sync::sync_with_provider(
+        &state,
+        org_id,
+        user_id,
+        &connection,
+        &provider,
+    )
+    .await
+    .expect("a poll through a stored token");
+    assert_eq!(
+        provider.seen.lock().unwrap().as_deref(),
+        Some(STORED_TOKEN),
+        "the provider seam received the stored token"
+    );
+    assert_eq!(outcome.outcome.imported, 1);
+
+    // And the surface that reports the result still says nothing else.
+    let listed_text = body_text(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/calendar-sync",
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert!(!listed_text.contains(STORED_TOKEN), "{listed_text}");
 }
