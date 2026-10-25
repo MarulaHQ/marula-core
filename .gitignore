@@ -13,6 +13,13 @@ coverage/
 .env.*
 !.env.example
 *.local
+# Backup destination credentials (p56). `docker compose` reads these from
+# deploy/backup/ by name, so they sit in the tree — and they are the keys to
+# every backup this deployment makes. The *.example files are the shape; the
+# real files are never tracked. (.env does not match wal-g.env.)
+deploy/backup/wal-g.env
+deploy/backup/restic.env
+deploy/backup/restic.pass
 RUNBOOK-DEV.local.md
 dev-up.local.sh
 

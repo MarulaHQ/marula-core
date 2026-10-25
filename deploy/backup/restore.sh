@@ -3,6 +3,11 @@
 #   sh deploy/backup/restore.sh <path to .dump>
 # Requires: psql/pg_restore reachable and a running PG. Creates the scratch DB
 # `marula_restore_test`, restores into it, then asserts the restore is real:
+#   0. the archive's SHA-256 matches the `.sha256` sidecar backupd.sh wrote
+#      next to it. A dump without a sidecar is refused by default: restoring an
+#      unverified artifact is how a truncated backup becomes a partial database
+#      nobody notices. RESTORE_VERIFY=warn restores it with a warning,
+#      RESTORE_VERIFY=off skips the check entirely (both for a legacy dump).
 #   1. schema landed (tables restored, RLS enforced on every public table);
 #   2. round-trip row parity: when the source DB is reachable (PGDATABASE
 #      set, e.g. `PGDATABASE=marula` against the live stack), row counts
@@ -21,13 +26,50 @@ DUMP="${1:?usage: restore.sh <path to .dump>}"
 PGHOST="${PGHOST:-localhost}"
 PGPORT="${PGPORT:-15432}"
 SCRATCH_DB="marula_restore_test"
+# strict (default) | warn | off — see the header.
+RESTORE_VERIFY="${RESTORE_VERIFY:-strict}"
 
 log() { echo "[restore $(date -u +%FT%TZ)] $*"; }
 fail() { log "FAIL: $*"; exit 1; }
 
+# Reads the sidecar backupd.sh writes, and compares digests rather than the
+# filename recorded in it: a dump restored from a different mount path would
+# make `sha256sum -c` fail on the path alone, which is not what this proves.
+verify_dump_checksum() {
+  _dump="$1"
+  case "$RESTORE_VERIFY" in
+    off)
+      log "verify: checksum skipped (RESTORE_VERIFY=off)"
+      return 0
+      ;;
+    strict|warn) ;;
+    *)
+      fail "RESTORE_VERIFY=$RESTORE_VERIFY is not one of strict|warn|off"
+      ;;
+  esac
+  if [ ! -f "$_dump.sha256" ]; then
+    if [ "$RESTORE_VERIFY" = "warn" ]; then
+      log "WARNING: no checksum sidecar next to $_dump — integrity unproven (RESTORE_VERIFY=warn)"
+      return 0
+    fi
+    fail "no checksum sidecar ($(basename "$_dump").sha256) — the archive's integrity is unproven. backupd.sh writes one with every dump. Re-run with RESTORE_VERIFY=warn to restore it anyway, or RESTORE_VERIFY=off to skip this check."
+  fi
+  _expected=$(cut -d' ' -f1 "$_dump.sha256" 2>/dev/null)
+  [ -n "$_expected" ] || fail "checksum sidecar $_dump.sha256 is empty or unreadable"
+  _actual=$(sha256sum "$_dump" | cut -d' ' -f1)
+  [ "$_actual" = "$_expected" ] ||
+    fail "checksum mismatch: sidecar says $_expected, archive is $_actual — the archive is truncated or corrupt"
+  log "verify: sha256 matches ($_actual)"
+}
+
 psql_scratch() {
   psql -h "$PGHOST" -p "$PGPORT" -U marula -d "$SCRATCH_DB" "$@"
 }
+
+# Before any database work: an archive that does not match its sidecar is not
+# restored at all, so a truncated dump cannot become a scratch database that
+# looks healthy until someone misses rows.
+verify_dump_checksum "$DUMP"
 
 log "scratch DB create"
 # The dump carries GRANTs for marula_app; a scratch PG created straight
