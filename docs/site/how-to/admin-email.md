@@ -275,8 +275,9 @@ SMTP_PASSWORD=<password>
 EMAIL_SCAN=clamd
 CLAMD_ADDR=clamd:3310
 
-# Worker to core-api send pipeline (the worker claims and reports sends)
-MARULA_INTERNAL_TOKEN=<shared random token>
+# Worker to core-api send pipeline (the worker claims and reports sends;
+# the same value must be set on both processes or core-api refuses boot)
+EMAIL_INTERNAL_TOKEN=<shared random token>
 ```
 
 Notes:

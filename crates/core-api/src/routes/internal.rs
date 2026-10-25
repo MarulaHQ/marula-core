@@ -5,8 +5,9 @@
 //! scheduler deems due — the core-api-callback pattern that keeps core-api
 //! the ONLY database writer (§4.1) while the worker performs transport
 //! calls and clock scheduling. Authenticated by a shared internal token
-//! header; disabled entirely when the token is unconfigured. Deliberately
-//! NOT in OpenAPI/SDK.
+//! header. An unset or blank token closes the endpoint (`404`), and a profile
+//! that serves the seam refuses boot without one (`Config::validate_machine_seam`).
+//! Deliberately NOT in OpenAPI/SDK.
 //!
 //! Non-purpose: no rendering, no retry math (core-mail), no direct worker
 //! DB access, no nudge scheduling (the worker decides what is due; the
@@ -32,18 +33,32 @@ use std::collections::HashMap;
 
 pub const INTERNAL_TOKEN_HEADER: &str = "X-Internal-Token";
 
-/// Constant-time shared-token gate. Unset token disables both endpoints.
+/// Constant-time shared-token gate. Unset or blank token closes both endpoints.
 fn ensure_internal_token(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
-    let Some(expected) = state.config.email_internal_token.as_deref() else {
+    ensure_internal_token_matches(state.config.email_internal_token.as_deref(), headers)
+}
+
+/// The gate itself, split from `AppState` so a unit test can exercise it
+/// without a pool.
+///
+/// NEITHER side may be empty. A missing `X-Internal-Token` header reads as
+/// `""`, so an empty expectation used to match it: `EMAIL_INTERNAL_TOKEN=`
+/// in a deployment file authorized every anonymous caller. A blank
+/// expectation is treated as absent (the seam closes with `404`, exactly as
+/// when the variable is unset), and a blank presentation is `401`. "Blank"
+/// means whitespace-only too, the same rule the boot check applies.
+fn ensure_internal_token_matches(expected: Option<&str>, headers: &HeaderMap) -> ApiResult<()> {
+    let Some(expected) = expected.filter(|token| !token.trim().is_empty()) else {
         return Err(ApiError::NotFound);
     };
     let presented = headers
         .get(INTERNAL_TOKEN_HEADER)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let ok = expected.len() == presented.len()
-        && subtle_ct_eq(expected.as_bytes(), presented.as_bytes());
-    if ok {
+    if presented.is_empty() {
+        return Err(ApiError::Unauthorized("missing internal token".into()));
+    }
+    if subtle_ct_eq(expected.as_bytes(), presented.as_bytes()) {
         Ok(())
     } else {
         Err(ApiError::Unauthorized("invalid internal token".into()))
@@ -584,6 +599,56 @@ async fn run_one_gap_audit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers_with(token: Option<&str>) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        if let Some(token) = token {
+            headers.insert(INTERNAL_TOKEN_HEADER, HeaderValue::from_str(token).unwrap());
+        }
+        headers
+    }
+
+    /// `EMAIL_INTERNAL_TOKEN=` is absent, not a token. Before this guard the
+    /// blank expectation matched the blank a missing header reads as, so the
+    /// seam authorized an anonymous caller.
+    #[test]
+    fn a_blank_configured_token_closes_the_seam() {
+        let err = ensure_internal_token_matches(Some(""), &headers_with(None))
+            .expect_err("a blank token must not match a missing header");
+        assert!(matches!(err, ApiError::NotFound), "got: {err:?}");
+        assert!(
+            ensure_internal_token_matches(Some("   "), &headers_with(Some("   "))).is_err(),
+            "whitespace-only counts as blank, the rule the boot check applies"
+        );
+    }
+
+    #[test]
+    fn an_unset_token_closes_the_seam() {
+        let err = ensure_internal_token_matches(None, &headers_with(Some("anything")))
+            .expect_err("unset disables the seam");
+        assert!(matches!(err, ApiError::NotFound), "got: {err:?}");
+    }
+
+    #[test]
+    fn a_blank_presented_token_is_refused() {
+        let err = ensure_internal_token_matches(Some("shared"), &headers_with(None))
+            .expect_err("a missing header is not the token");
+        assert!(matches!(err, ApiError::Unauthorized(_)), "got: {err:?}");
+        let err = ensure_internal_token_matches(Some("shared"), &headers_with(Some("")))
+            .expect_err("an empty header is not the token");
+        assert!(matches!(err, ApiError::Unauthorized(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn the_configured_token_is_accepted() {
+        assert!(
+            ensure_internal_token_matches(Some("shared"), &headers_with(Some("shared"))).is_ok()
+        );
+        let err = ensure_internal_token_matches(Some("shared"), &headers_with(Some("other")))
+            .expect_err("a different token is refused");
+        assert!(matches!(err, ApiError::Unauthorized(_)), "got: {err:?}");
+    }
 
     #[test]
     fn constant_time_compare_matches_only_equal_buffers() {
@@ -634,8 +699,15 @@ use uuid::Uuid;
 
 /// Constant-time bearer check against the configured internal token.
 pub(crate) fn require_internal_token(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
-    let Some(expected) = state.config.internal_token.as_deref() else {
-        // No token configured ⇒ surface disabled entirely.
+    let Some(expected) = state
+        .config
+        .internal_token
+        .as_deref()
+        .filter(|token| !token.trim().is_empty())
+    else {
+        // No token configured — or a blank one, which is not a token — so the
+        // surface is disabled entirely rather than matching a bare
+        // `Authorization: Bearer `.
         return Err(ApiError::NotFound);
     };
     let provided = headers

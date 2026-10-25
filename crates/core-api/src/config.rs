@@ -88,8 +88,23 @@ pub struct Config {
     /// open relay into ticketing).
     pub email_inbound_hmac_secret: Option<String>,
     /// Shared secret the worker must present on internal send-pipeline
-    /// endpoints. Unset ⇒ those endpoints are disabled.
+    /// endpoints (`X-Internal-Token`). Unset or blank ⇒ those endpoints answer
+    /// `404`, and a profile that serves the seam refuses boot instead — see
+    /// [`Config::validate_machine_seam`].
     pub email_internal_token: Option<String>,
+    /// Whether this process SERVES the worker machine seam (`/api/internal/*`).
+    ///
+    /// The env-driven profiles do, so their token is required. core-api is the
+    /// only database writer, and the worker posts every effect it computes to
+    /// this surface; without a token those calls answer `404` while the
+    /// deployment looks healthy, mail stays queued and no nudge or escalation
+    /// ever lands. [`Config::validate_machine_seam`] therefore refuses boot.
+    ///
+    /// The desktop local profile (`from_local`) does not serve it: it is the
+    /// double-clickable demo, it turns every integration off and runs no worker
+    /// loop to call the seam. It is exempt rather than forced to carry a secret
+    /// nothing presents.
+    pub serves_machine_seam: bool,
     /// Outbound transport selection (none | smtp | postmark).
     pub email_transport: TransportKind,
     /// Malware scanner selection (none | clamd TCP).
@@ -444,6 +459,12 @@ impl Config {
     /// pins it so the demo seed's at-rest seal key derives identically.
     const DEV_JWT_SECRET: &'static str = "dev-only-insecure-secret-change-me";
 
+    /// Dev machine-seam token — the same value `deploy/docker-compose.yml`
+    /// defaults `EMAIL_INTERNAL_TOKEN` to. Used ONLY behind the dev marker
+    /// (`MARULA_DEV_TOOLS=1`) or the test alias, exactly as [`Self::DEV_JWT_SECRET`]
+    /// is; production boot refuses without a real one.
+    const DEV_EMAIL_INTERNAL_TOKEN: &'static str = "dev-email-internal";
+
     /// Local/desktop profile (desktop crate, ADR 0005): a clean
     /// constructor for the double-clickable test app — every external
     /// integration is off (no SMTP/Postmark, no inbound webhook, no
@@ -476,6 +497,7 @@ impl Config {
             web_base_url: "tauri://localhost".into(),
             email_inbound_hmac_secret: None,
             email_internal_token: None,
+            serves_machine_seam: false,
             email_transport: TransportKind::None,
             email_scan_clamd_addr: None,
             email_from_address: "support@marula.local".into(),
@@ -546,6 +568,44 @@ impl Config {
         self.listen_database_url
             .as_deref()
             .unwrap_or(&self.database_url)
+    }
+
+    /// The machine-seam precondition (Wave 54, lane S3d). Runs at boot from
+    /// `from_env`; a no-op for a profile that does not serve the seam.
+    ///
+    /// The seam is `POST /api/internal/*`: the worker's only way to report a
+    /// send, enqueue a notification or digest, apply an SLA verdict, run the
+    /// gap audit, or post automation and workflow effects. It is guarded by
+    /// [`Config::email_internal_token`], and the guards answer `404` when that
+    /// token is absent. A deployment that forgot the token therefore serves a
+    /// seam that refuses every caller while `/healthz` stays green: mail stays
+    /// queued, nudges never fire, escalations never apply. Refusing boot names
+    /// the variable instead, which is the same fail-closed posture
+    /// `JWT_SECRET` and `MARULA_SECRET_KEY` already take.
+    ///
+    /// A blank value is absent. The handler compares the configured token to
+    /// the presented header byte for byte, so `EMAIL_INTERNAL_TOKEN=` would
+    /// otherwise authorize a request that presents no header at all.
+    pub fn validate_machine_seam(&self) -> Result<(), String> {
+        if !self.serves_machine_seam {
+            return Ok(());
+        }
+        let token = self
+            .email_internal_token
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("");
+        if token.is_empty() {
+            return Err(
+                "EMAIL_INTERNAL_TOKEN is not set — core-api serves the worker machine \
+                 seam (/api/internal/*) and refuses every caller without it: mail stays \
+                 queued, digests and nudges never send, SLA verdicts and automation \
+                 effects never apply. Set the same value on core-api and the worker \
+                 (MARULA_DEV_TOOLS=1 enables the dev fallback)."
+                    .into(),
+            );
+        }
+        Ok(())
     }
 
     /// All-in-one preconditions (Wave 49 lane R4). Runs at boot from
@@ -721,6 +781,22 @@ impl Config {
         let retrieval =
             core_domain::retrieval::RetrievalMode::from_lookup(&|key| std::env::var(key).ok())
                 .map_err(|error| error.to_string())?;
+        // The worker↔api seam token. A blank value is ABSENT, never a token:
+        // the handler compares bytes, and a blank expectation would match the
+        // blank a missing header reads as. Production then refuses at
+        // `validate_machine_seam`; the dev marker keeps the compose default so
+        // a local stack still boots.
+        let email_internal_token = match std::env::var("EMAIL_INTERNAL_TOKEN") {
+            Ok(token) if !token.trim().is_empty() => Some(token),
+            _ if dev_tools => {
+                tracing::warn!(
+                    "EMAIL_INTERNAL_TOKEN unset or blank: using the dev machine-seam token \
+                     (dev profile — never ship)"
+                );
+                Some(Config::DEV_EMAIL_INTERNAL_TOKEN.to_string())
+            }
+            _ => None,
+        };
         let cfg = Self {
             database_url: std::env::var("DATABASE_URL").unwrap_or_else(|_| {
                 "postgres://marula_app:marula_app@localhost:15432/marula".into()
@@ -756,7 +832,8 @@ impl Config {
             web_base_url: std::env::var("WEB_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".into()),
             email_inbound_hmac_secret: std::env::var("EMAIL_INBOUND_HMAC_SECRET").ok(),
-            email_internal_token: std::env::var("EMAIL_INTERNAL_TOKEN").ok(),
+            email_internal_token,
+            serves_machine_seam: true,
             email_transport: TransportKind::parse(
                 &std::env::var("EMAIL_TRANSPORT").unwrap_or_default(),
                 TransportCredentials {
@@ -856,7 +933,9 @@ impl Config {
             retrieval,
         };
         // Fail-closed at the parse step, so the binary and any test that
-        // goes through `from_env` inherit the all-in-one preconditions.
+        // goes through `from_env` inherit the machine-seam and all-in-one
+        // preconditions.
+        cfg.validate_machine_seam()?;
         cfg.validate_all_in_one()?;
         Ok(cfg)
     }
@@ -1116,6 +1195,9 @@ impl Config {
             web_base_url: "http://localhost:3000".into(),
             email_inbound_hmac_secret: std::env::var("EMAIL_INBOUND_HMAC_SECRET").ok(),
             email_internal_token: std::env::var("EMAIL_INTERNAL_TOKEN").ok(),
+            // A unit fixture never boots, so no seam precondition applies to it;
+            // the profile decision is made by the constructors above.
+            serves_machine_seam: false,
             email_transport: TransportKind::parse(
                 &std::env::var("EMAIL_TRANSPORT").unwrap_or_default(),
                 TransportCredentials {
@@ -1259,6 +1341,9 @@ mod hardening_tests {
                 // The retrieval mode is resolved at boot too, so a test that
                 // sets a bad token must not leak it into the next one.
                 "MARULA_RETRIEVAL_MODE",
+                // The machine seam refuses boot without this, so a value from
+                // the developer's shell must not decide a test's outcome.
+                "EMAIL_INTERNAL_TOKEN",
             ] {
                 state.push((key.to_string(), std::env::var(key).ok()));
             }
@@ -1384,6 +1469,9 @@ mod hardening_tests {
         std::env::set_var("JWT_SECRET", "f".repeat(64));
         std::env::set_var("MARULA_SECRET_KEY", "e".repeat(64));
         std::env::remove_var("MARULA_DEV_TOOLS");
+        // Satisfies the machine-seam precondition so the success arms below
+        // fail only on the lever this test is about.
+        std::env::set_var("EMAIL_INTERNAL_TOKEN", "r15-test-token");
 
         std::env::remove_var("MARULA_RETRIEVAL_MODE");
         let cfg = Config::from_env().expect("unset means exact");
@@ -1451,6 +1539,93 @@ mod hardening_tests {
             err.contains("MARULA_JWT_EDDSA_PRIVATE_KEY"),
             "operator copy names the malformed variable: {err}"
         );
+    }
+
+    // --- machine seam (Wave 54, lane S3d) --------------------------------
+
+    /// A production env that satisfies every other secret, so the only thing
+    /// a boot can fail on is the machine-seam token.
+    fn production_env_without_the_seam_token() -> CleanEnv {
+        let guard = CleanEnv::snapshot();
+        std::env::set_var("JWT_SECRET", "f".repeat(64));
+        std::env::set_var("MARULA_SECRET_KEY", "e".repeat(64));
+        std::env::remove_var("MARULA_DEV_TOOLS");
+        std::env::remove_var("EMAIL_INTERNAL_TOKEN");
+        guard
+    }
+
+    /// A deployment that serves the seam without a token looks healthy and
+    /// does nothing: every worker report and every effect is a `404`. The
+    /// boot refuses instead, and the copy names the variable and the fallout.
+    #[test]
+    fn production_boot_refuses_the_machine_seam_without_a_token() {
+        let _guard = production_env_without_the_seam_token();
+        let err = Config::from_env().expect_err("no token means no seam");
+        assert!(
+            err.contains("EMAIL_INTERNAL_TOKEN") && err.contains("/api/internal/*"),
+            "operator copy names the variable and the seam: {err}"
+        );
+    }
+
+    /// `EMAIL_INTERNAL_TOKEN=` (blank) is the shape a deployment file produces
+    /// when a value is missing. Byte-compared against a missing header it used
+    /// to MATCH, so blank counts as absent and refuses boot.
+    #[test]
+    fn a_blank_seam_token_is_absent_and_refuses_boot() {
+        let _guard = production_env_without_the_seam_token();
+        std::env::set_var("EMAIL_INTERNAL_TOKEN", "   ");
+        let err = Config::from_env().expect_err("blank is not a token");
+        assert!(err.contains("EMAIL_INTERNAL_TOKEN"), "got: {err}");
+    }
+
+    /// The present-token path: a real value boots and reaches the handler.
+    #[test]
+    fn a_configured_seam_token_passes_the_boot_check() {
+        let _guard = production_env_without_the_seam_token();
+        std::env::set_var("EMAIL_INTERNAL_TOKEN", "shared-seam-token");
+        let cfg = Config::from_env().expect("a present token boots");
+        assert!(cfg.serves_machine_seam);
+        assert_eq!(
+            cfg.email_internal_token.as_deref(),
+            Some("shared-seam-token")
+        );
+        assert!(cfg.validate_machine_seam().is_ok());
+    }
+
+    /// The desktop local profile is the one profile that does NOT serve the
+    /// seam: no worker loop calls it and every integration is off by design,
+    /// so the missing token is not a fault and must not block the demo.
+    #[test]
+    fn the_desktop_local_profile_does_not_serve_the_machine_seam() {
+        let cfg = Config::from_local(
+            "postgres://marula_app@127.0.0.1:5432/marula".into(),
+            8080,
+            std::path::PathBuf::from("./objects"),
+        );
+        assert!(!cfg.serves_machine_seam);
+        assert!(cfg.email_internal_token.is_none());
+        assert!(
+            cfg.validate_machine_seam().is_ok(),
+            "a profile with no worker to call the seam is not required to carry its token"
+        );
+    }
+
+    /// The dev fallback the rest of this file already uses: the explicit dev
+    /// marker takes the compose default, so local development keeps booting
+    /// (and the API and worker still agree on one value).
+    #[test]
+    fn the_dev_marker_keeps_the_documented_seam_fallback() {
+        let _guard = CleanEnv::snapshot();
+        std::env::remove_var("JWT_SECRET");
+        std::env::remove_var("MARULA_SECRET_KEY");
+        std::env::remove_var("EMAIL_INTERNAL_TOKEN");
+        std::env::set_var("MARULA_DEV_TOOLS", "1");
+        let cfg = Config::from_env().expect("dev profile boots");
+        assert_eq!(
+            cfg.email_internal_token.as_deref(),
+            Some(Config::DEV_EMAIL_INTERNAL_TOKEN)
+        );
+        assert!(cfg.validate_machine_seam().is_ok());
     }
 }
 
