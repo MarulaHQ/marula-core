@@ -128,6 +128,11 @@ where
 }
 
 /// Patchable source config; `None` leaves a field untouched.
+///
+/// The three clearable columns are `Option<Option<T>>`: `None` = no change,
+/// `Some(None)` = clear to NULL, `Some(Some(v))` = set. SQL cannot read the
+/// outer layer from a bound NULL, so each one binds a presence flag beside
+/// its value.
 #[derive(Debug, Default, Clone)]
 pub struct AlertSourcePatch<'a> {
     pub name: Option<&'a str>,
@@ -153,11 +158,11 @@ where
         "UPDATE alert_sources SET \
              name = COALESCE($3, name), \
              board_id = COALESCE($4, board_id), \
-             client_id = COALESCE($5, client_id), \
-             correlation_window_secs = COALESCE($6, correlation_window_secs), \
-             enabled = COALESCE($7, enabled), \
-             event_type = COALESCE($8, event_type), \
-             payload_schema_ref = COALESCE($9, payload_schema_ref), \
+             client_id = CASE WHEN $5 THEN $6 ELSE client_id END, \
+             correlation_window_secs = COALESCE($7, correlation_window_secs), \
+             enabled = COALESCE($8, enabled), \
+             event_type = CASE WHEN $9 THEN $10 ELSE event_type END, \
+             payload_schema_ref = CASE WHEN $11 THEN $12 ELSE payload_schema_ref END, \
              updated_at = now() \
          WHERE id = $1 AND org_id = $2 \
          RETURNING {SOURCE_COLS}"
@@ -167,11 +172,16 @@ where
         .bind(org_id)
         .bind(p.name)
         .bind(p.board_id)
-        .bind(p.client_id)
+        // The flag and the value: `$5` says the caller named the column, `$6`
+        // is what it should become. A bound NULL alone cannot say both.
+        .bind(p.client_id.is_some())
+        .bind(p.client_id.flatten())
         .bind(p.correlation_window_secs)
         .bind(p.enabled)
-        .bind(p.event_type)
-        .bind(p.payload_schema_ref)
+        .bind(p.event_type.is_some())
+        .bind(p.event_type.flatten())
+        .bind(p.payload_schema_ref.is_some())
+        .bind(p.payload_schema_ref.flatten())
         .fetch_optional(executor)
         .await?
         .ok_or(DbError::NotFound)

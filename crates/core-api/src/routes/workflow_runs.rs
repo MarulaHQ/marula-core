@@ -424,12 +424,17 @@ pub async fn retry(
 
             // The re-run is a job on the EXISTING queue, and the retry row
             // records which job: the two are one fact, so the job is enqueued
-            // INSIDE this transaction. `workflow.resume` is settled by the
-            // executor lane (that is its own to-do); until then the queue
-            // dead-letters it as an unknown kind, which is loud and recoverable
-            // rather than a parked run that silently never wakes.
+            // INSIDE this transaction. The payload is the executor's resume
+            // contract — `op: "resume"` names the branch it handles, and
+            // `run_id` names the WAITING row it resumes, which is the retry
+            // row this handler is about to insert. That is why the row's id is
+            // chosen here, before the insert: a job that named the failed run
+            // would be settled as "already finished" and the retry would never
+            // run.
+            let retry_id = Uuid::now_v7();
             let job_payload = serde_json::json!({
-                "run_id": id,
+                "op": "resume",
+                "run_id": retry_id,
                 "retry": true,
             });
             let job_id = core_db::queue::enqueue(
@@ -452,6 +457,7 @@ pub async fn retry(
             let row = core_db::workflow_runs::retry_run(
                 &mut ctx.tx,
                 org_id,
+                retry_id,
                 id,
                 user_id,
                 Some(job_id),

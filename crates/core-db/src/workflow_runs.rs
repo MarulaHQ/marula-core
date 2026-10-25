@@ -652,9 +652,16 @@ pub async fn finish_run(
 ///   because the re-run has not started yet;
 /// * the failed run is NOT touched. It stays `failed`, which is what
 ///   happened, and the retry row is what happens next.
+///
+/// The row's `id` is chosen by the caller, not generated here. The row is the
+/// run the `workflow.resume` job resumes, and that job is enqueued (in the
+/// caller's transaction) before this insert: a payload cannot name a row that
+/// does not exist yet, so the id has to exist first. `trigger_job_id` then
+/// records the same job on the row, keeping the two one fact.
 pub async fn retry_run(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
+    id: Uuid,
     run_id: Uuid,
     actor_id: Uuid,
     trigger_job_id: Option<Uuid>,
@@ -677,7 +684,6 @@ pub async fn retry_run(
         .map_err(|e| DbError::Conflict(e.to_string()))?;
     let cursor = workflow_runs::retry_cursor(&plan);
 
-    let id = Uuid::now_v7();
     let row = sqlx::query(&format!(
         "INSERT INTO workflow_runs
             (id, org_id, rule_id, rule_name, rule_version, rule_definition,
