@@ -10,9 +10,13 @@
 //!   against `MARULA_STRIPE_WEBHOOK_SECRET`, timestamp skew ≤ 5 min,
 //!   and a request without/with a bad signature is a typed 403, never a
 //!   processed event;
-//! * idempotence: the provider_ref (the Stripe intent id from the
-//!   metadata) is looked up BEFORE inserting — a redelivered event finds
-//!   the existing payment row and answers 200 with `acted: false`;
+//! * idempotence: one provider reference settles money once per invoice, and
+//!   the DATABASE says so — `invoice_payments` carries a unique index on
+//!   `(org_id, invoice_id, provider_ref)` (migration 0165), and the receipt
+//!   insert below uses `ON CONFLICT DO NOTHING`. A redelivered event, including
+//!   one that races the first delivery, inserts nothing and answers 200 with
+//!   `acted: false`. The lookup before the insert is a fast path, not the
+//!   decision;
 //! * settlement is decided by the statement that writes it: the total the
 //!   event was priced on rides in the UPDATE's predicate next to the payable
 //!   status and the outstanding balance, so a total that moved between the
@@ -123,7 +127,8 @@ pub(crate) fn verify_stripe_signature(
 
 #[utoipa::path(operation_id = "stripe_webhook_receive", post, path = "/api/webhooks/stripe", tag = "billing",
     request_body(content = Vec<u8>, content_type = "application/json"),
-    responses((status = 200, body = Value), (status = 400), (status = 403)))]
+    responses((status = 200, body = Value), (status = 400), (status = 403),
+              (status = 409, description = "the invoice refused the settlement: it left its payable state, its total moved since the event was priced, or the amount exceeds the balance")))]
 pub async fn receive(
     State(state): State<AppState>,
     extensions: Extensions,
@@ -215,11 +220,14 @@ pub async fn receive(
     ))
 }
 
-/// Records an out-of-band settled payment EXACTLY ONCE (the provider_ref
-/// idempotence lock), through the same org tx + FX behavior as the API
-/// flow, and with the same decision shape: the total read here rides into
-/// the apply statement's predicate. Returns whether a NEW row was inserted,
-/// and answers a typed 409 when the invoice refused the receipt.
+/// Records an out-of-band settled payment EXACTLY ONCE, through the same org
+/// tx + FX behavior as the API flow. "Once" is a database fact, not a check
+/// here: the receipt insert runs with `ON CONFLICT DO NOTHING` against the
+/// per-invoice provider-reference index (0165), so a delivery that raced
+/// another one inserts nothing and answers `false` — the same answer a later
+/// redelivery gets. The settlement also carries the total it read into the
+/// apply statement's predicate, so a total that moved is a typed 409 rather
+/// than a settlement.
 async fn record_payment(
     state: &AppState,
     org_id: Uuid,
@@ -237,6 +245,10 @@ async fn record_payment(
     // apply statement below is what makes the value the settlement was
     // validated against the value it writes against.
     let expected_total_minor = invoice.total_minor;
+    // Advisory fast path, and nothing more: the read takes no lock, so two
+    // deliveries can both see "absent" here. It is kept because a redelivery is
+    // the common case and this answers it before paying FX resolution. The
+    // decision is the receipt insert below, which the database refuses twice.
     let exists =
         core_db::invoices::payment_exists_for_ref(&mut *tx, org_id, invoice_id, provider_ref)
             .await?;
@@ -273,7 +285,17 @@ async fn record_payment(
         received_at: chrono::Utc::now(),
         created_by: None,
     };
-    core_db::invoices::insert_payment(&mut *tx, &payment).await?;
+    // The fence: the unique index on (org_id, invoice_id, provider_ref) decides
+    // whether this delivery is the first one. A false answer means another
+    // delivery of this event committed the receipt while this one was reading —
+    // including one that passed the advisory check above — so nothing this
+    // transaction did is kept, and the answer is the same one a later
+    // redelivery gets. Until migration 0165 this insert was the second half of
+    // a check-then-act pair and two deliveries could both land it.
+    if !core_db::invoices::insert_payment_once(&mut *tx, &payment).await? {
+        tx.commit().await.map_err(ApiError::from)?;
+        return Ok(false);
+    }
     // The settlement decides against the basis it read, not against whatever
     // the invoice holds by the time the UPDATE runs: payable status, the
     // total it was priced on, and the outstanding balance are all in the

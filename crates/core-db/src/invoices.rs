@@ -694,38 +694,106 @@ where
     Ok(row.map(invoice_row))
 }
 
+/// The unique index migration 0165 puts on a receipt's provider reference.
+///
+/// Named here because both insert paths below answer for the same constraint:
+/// [`insert_payment_once`] reads zero affected rows as "already applied", and
+/// [`insert_payment`] types the violation for the API writers.
+const PROVIDER_REF_INDEX: &str = "idx_invoice_payments_provider_ref";
+
+const INSERT_PAYMENT_SQL: &str = r#"INSERT INTO invoice_payments (id, org_id, invoice_id, amount_minor, currency,
+                                         fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
+                                         provider, provider_ref, notes, received_at, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6::text::numeric, $7, $8, $9, $10, $11, $12, $13, $14)"#;
+
+/// One receipt insert, one statement. `once` appends `ON CONFLICT DO NOTHING`
+/// so the caller learns from the affected-row count whether the unique index
+/// (0165) already held this provider reference on this invoice.
+async fn insert_payment_rows<'e, E>(
+    executor: E,
+    payment: &InvoicePayment,
+    once: bool,
+) -> Result<u64, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = if once {
+        format!("{INSERT_PAYMENT_SQL} ON CONFLICT DO NOTHING")
+    } else {
+        INSERT_PAYMENT_SQL.to_string()
+    };
+    let done = sqlx::query(&sql)
+        .bind(payment.id)
+        .bind(payment.org_id)
+        .bind(payment.invoice_id)
+        .bind(payment.amount_minor)
+        .bind(payment.currency.as_str())
+        .bind(payment.fx_rate_used.as_deref())
+        .bind(payment.fx_rate_date)
+        .bind(payment.fx_source.as_deref())
+        .bind(payment.base_amount_minor)
+        .bind(payment.provider.as_str())
+        .bind(payment.provider_ref.as_deref())
+        .bind(payment.notes.as_deref())
+        .bind(payment.received_at)
+        .bind(payment.created_by)
+        .execute(executor)
+        .await?;
+    Ok(done.rows_affected())
+}
+
+/// Records one receipt, refusing a provider reference the invoice already
+/// carries.
+///
+/// The refusal used to be a read in the caller, which two concurrent callers
+/// could both pass. It is the unique index now (migration 0165), so this
+/// statement cannot write the double credit at all: a violation becomes
+/// `DbError::Conflict` naming the reference (409 at the wire) rather than the
+/// sanitized generic conflict an unmapped unique violation produces.
+///
+/// The webhook does not use this form — a duplicate delivery there is an
+/// acknowledgement, not an error. It calls [`insert_payment_once`].
 pub async fn insert_payment<'e, E>(executor: E, payment: &InvoicePayment) -> DbResult<()>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query!(
-        r#"INSERT INTO invoice_payments (id, org_id, invoice_id, amount_minor, currency,
-                                         fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
-                                         provider, provider_ref, notes, received_at, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6::text::numeric, $7, $8, $9, $10, $11, $12, $13, $14)"#,
-        payment.id,
-        payment.org_id,
-        payment.invoice_id,
-        payment.amount_minor,
-        payment.currency,
-        payment.fx_rate_used,
-        payment.fx_rate_date,
-        payment.fx_source,
-        payment.base_amount_minor,
-        payment.provider,
-        payment.provider_ref,
-        payment.notes,
-        payment.received_at,
-        payment.created_by,
-    )
-    .execute(executor)
-    .await?;
-    Ok(())
+    match insert_payment_rows(executor, payment, false).await {
+        Ok(_) => Ok(()),
+        Err(sqlx::Error::Database(db)) if db.constraint() == Some(PROVIDER_REF_INDEX) => {
+            Err(DbError::Conflict(format!(
+                "provider reference {} is already recorded on this invoice",
+                payment.provider_ref.as_deref().unwrap_or_default()
+            )))
+        }
+        Err(e) => Err(DbError::Sql(e)),
+    }
 }
 
-/// Idempotence guard for PSCallback-style settlements (Wave 22 Stripe
-/// webhook): whether ONE payment already carries `provider_ref` on this
-/// invoice — a redelivered event finds this true and does nothing.
+/// Records one receipt UNLESS the invoice already carries this provider
+/// reference, and says which happened: `true` when the row landed, `false`
+/// when the unique index (0165) refused it.
+///
+/// This is the settlement path's fence. `ON CONFLICT DO NOTHING` turns the
+/// index's answer into a row count instead of an error, so two deliveries of
+/// one event that raced past the advisory read in `record_payment` end with
+/// one receipt and one `false` — the same answer a later delivery gets, not a
+/// 500 and not a second credit. A losing insert writes nothing, so the caller
+/// can commit the transaction it opened and answer normally.
+pub async fn insert_payment_once<'e, E>(executor: E, payment: &InvoicePayment) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = insert_payment_rows(executor, payment, true).await?;
+    Ok(rows == 1)
+}
+
+/// Whether ONE payment already carries `provider_ref` on this invoice.
+///
+/// ADVISORY, not the fence. The Stripe webhook calls this first so a
+/// redelivery replies before it pays FX resolution, but two deliveries can
+/// both read `false` here — the read takes no lock. The decision belongs to
+/// [`insert_payment_once`], which the database cannot let both of them pass.
+/// Never treat a `false` answer as permission to insert twice.
 pub async fn payment_exists_for_ref<'e, E>(
     executor: E,
     org_id: Uuid,
