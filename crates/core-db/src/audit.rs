@@ -1,8 +1,15 @@
 //! Append-only audit event persistence (§6).
+//!
+//! "Append-only" is enforced by the database, not by this module's discipline:
+//! migration 0168 revokes UPDATE and DELETE from the application role and adds
+//! a trigger that refuses both for every caller. Insert and read are the only
+//! verbs here. The one write path that removes rows is retention, and it goes
+//! through [`purge_batch`], which is a thin call into the SECURITY DEFINER
+//! `purge_audit_events()` the same migration installs.
 
 use crate::DbResult;
 use core_domain::entities::{Actor, AuditEvent};
-use sqlx::Postgres;
+use sqlx::{PgPool, Postgres};
 use uuid::Uuid;
 
 /// Filters for the admin audit query API. All optional; unset = unfiltered.
@@ -54,6 +61,27 @@ where
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// Removes one bounded batch of rows older than `days`, returning the count.
+///
+/// This is the retention sweep's only delete, and it is a call into
+/// `purge_audit_events()` rather than a statement of its own: the table's
+/// append-only trigger refuses a bare `DELETE`, including on the owner pool,
+/// and the function is the one place the guard accepts (see migration 0168).
+/// The function enforces the 365-day floor and a batch ceiling, so a caller
+/// cannot turn a window into a table-wide erase.
+///
+/// Takes a pool rather than an executor because the function is a
+/// transaction-scoped surface: its `SET LOCAL` marker and the delete it
+/// permits must stay in one statement.
+pub async fn purge_batch(pool: &PgPool, days: i32, batch: i64) -> DbResult<u64> {
+    let removed: i64 = sqlx::query_scalar("SELECT public.purge_audit_events($1, $2)")
+        .bind(days)
+        .bind(batch)
+        .fetch_one(pool)
+        .await?;
+    Ok(u64::try_from(removed).unwrap_or(0))
 }
 
 fn event_from_row(row: sqlx::postgres::PgRow) -> AuditEvent {
