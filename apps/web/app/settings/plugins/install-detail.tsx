@@ -483,6 +483,11 @@ function consentArtifactFromProposal(proposal: UpdateProposalView) {
     artifact_digest: proposal.pending_digest ?? proposal.slug,
     declared_capabilities: proposal.current_granted_capabilities,
     fetched_ref: null,
+    // An update proposal arrives through the consent commit, not the registry
+    // adapter, so no signature the trust set verified covers this manifest.
+    // The weaker claim is the honest one, and `pending-update` is not a signed
+    // source, so the consent screen shows no coverage badge.
+    manifest_authenticated: false,
     source_kind: "pending-update",
     source_url: proposal.slug,
   };

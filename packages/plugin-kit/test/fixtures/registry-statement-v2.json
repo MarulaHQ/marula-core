@@ -1,0 +1,22 @@
+{
+  "note": "The v2 registry signature statement, pinned on both sides. crates/plugin-host verifies and the plugin-kit signer produces these exact bytes; ed25519 is deterministic, so expected_signature_hex is a value both languages assert rather than a smoke check.",
+  "private_key_seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+  "artifact_digest": "3c2b1f0a9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a",
+  "manifest": {
+    "name": "Ticket Summarizer",
+    "version": "1.4.0",
+    "interface_version": 1,
+    "description": "Drafts a summary of a ticket and its recent comments — café-safe.",
+    "capabilities": ["tickets.read", "kb.read"],
+    "settings_schema": {
+      "type": "object",
+      "properties": {
+        "tone": { "type": "string", "maxLength": 40 },
+        "max_comments": { "type": "integer", "minimum": 1, "maximum": 50 }
+      }
+    }
+  },
+  "expected_manifest_sha256": "029ad629b6bc6943d7becac460306b7deae76e76f22693fd9e519d3f273e5e3f",
+  "expected_statement": "marula-plugin-registry-statement-v2\nartifact-sha256:3c2b1f0a9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a\nmanifest-sha256:029ad629b6bc6943d7becac460306b7deae76e76f22693fd9e519d3f273e5e3f\n",
+  "expected_signature_hex": "1879749f5cbca7deb00cec27a6a2d5e8d06fa7c0b045fd5dbbb4acf87360ff13bd39a8d4cfd0c04e153277bfcae8905c9948d3663416a4fe639d70339b29f607"
+}

@@ -24,6 +24,14 @@
 //! datetimes only) and serializer; anything it cannot place deterministically
 //! it skips rather than guessing.
 //!
+//! Credential posture: a connection row CACHES a delegated provider's
+//! short-lived access token. The OAuth callback writes it, the poll reads it,
+//! and no response body carries it — every connection surface returns
+//! [`CalendarSyncConnectionView`], which reports presence
+//! (`has_access_token`) and never the value (Wave 55 decision 9). The outbound
+//! `feed_token` is the one credential a client ever sees, once, at creation or
+//! rotation.
+//!
 //! Non-purpose: recurring-event expansion (RRULE — skipped events, next
 //! provider), OAuth calendar providers (the seam exists for them),
 //! reminders, the UI surfaces (Wave 14 lane 7 wires these through the
@@ -458,10 +466,91 @@ pub struct UpdateConnectionRequest {
     pub status: Option<String>,
 }
 
+/// One connection as the API returns it: the stored row minus the cached
+/// provider credential.
+///
+/// A credential is written and never read back through a view (Wave 55
+/// decision 9). The row's `access_token` is read by the poll and by nothing
+/// else, so what a client gets is presence — a token is held or it is not —
+/// and never the token itself. An access token a client can read leaves the
+/// product through a screenshot, a copied log line or a support bundle, and
+/// it reads the whole of that person's calendar until it expires.
+///
+/// No hint field: the tree exposes no last-four pattern for a credential
+/// anywhere else, so this surface does not invent one. `token_expires_at`
+/// stays, because an expiry is not a credential and Settings needs it to say
+/// when the grant lapses.
+///
+/// This is a view, not a mirror: a field added to the entity does not appear
+/// here until someone decides the API should carry it. That is the fail-closed
+/// direction for a response shape.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CalendarSyncConnectionView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub org_id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub user_id: Uuid,
+    pub name: String,
+    pub provider: String,
+    pub direction: CalendarSyncDirection,
+    pub status: CalendarSyncStatus,
+    /// Inbound: the external iCal URL the provider polls.
+    pub feed_url: Option<String>,
+    /// Outbound: relative feed path clients render against the API origin.
+    pub feed_path: Option<String>,
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub last_synced_at: Option<DateTime<Utc>>,
+    /// Last poll failure message (fixed provider-side copy, no internals).
+    pub last_error: Option<String>,
+    /// Whether the row holds a usable cached provider token. Presence only;
+    /// the token itself never crosses the wire.
+    pub has_access_token: bool,
+    #[schema(value_type = Option<String>, format = "date-time")]
+    pub token_expires_at: Option<DateTime<Utc>>,
+    /// The provider's own account id (Google `sub`, Microsoft `oid`).
+    pub external_account: Option<String>,
+    /// Scopes actually granted at consent.
+    pub scopes: Option<String>,
+    #[schema(value_type = String, format = "date-time")]
+    pub created_at: DateTime<Utc>,
+    #[schema(value_type = String, format = "date-time")]
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<CalendarSyncConnection> for CalendarSyncConnectionView {
+    fn from(c: CalendarSyncConnection) -> Self {
+        Self {
+            id: c.id,
+            org_id: c.org_id,
+            user_id: c.user_id,
+            name: c.name,
+            provider: c.provider,
+            direction: c.direction,
+            status: c.status,
+            feed_url: c.feed_url,
+            feed_path: c.feed_path,
+            last_synced_at: c.last_synced_at,
+            last_error: c.last_error,
+            // The same predicate the poll applies in `require_token`: a blank
+            // token is no token, so presence must not claim otherwise.
+            has_access_token: c
+                .access_token
+                .as_deref()
+                .is_some_and(|t| !t.trim().is_empty()),
+            token_expires_at: c.token_expires_at,
+            external_account: c.external_account,
+            scopes: c.scopes,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ConnectionView {
-    #[schema(value_type = uuid::Uuid)]
-    pub connection: CalendarSyncConnection,
+    pub connection: CalendarSyncConnectionView,
     /// The raw outbound feed token — returned ONLY here (creation) and
     /// by the rotate endpoint. Never readable again afterwards.
     pub feed_token: Option<String>,
@@ -514,12 +603,12 @@ fn parse_status(value: &str) -> ApiResult<CalendarSyncStatus> {
 /// GET /api/calendar-sync — the caller's (or target user's) connections.
 #[utoipa::path(operation_id = "calendar_sync_list", get, path = "/api/calendar-sync", tag = "scheduling", security(("bearer" = [])),
     params(crate::routes::availability::AvailabilityQuery),
-    responses((status = 200, body = Vec<CalendarSyncConnection>)))]
+    responses((status = 200, body = Vec<CalendarSyncConnectionView>)))]
 pub async fn list_connections(
     State(state): State<AppState>,
     extensions: Extensions,
     axum::extract::Query(q): axum::extract::Query<crate::routes::availability::AvailabilityQuery>,
-) -> ApiResult<Json<Vec<CalendarSyncConnection>>> {
+) -> ApiResult<Json<Vec<CalendarSyncConnectionView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(core_domain::policy::Action::View))?;
     let user_id = target_user(&authed.principal, q.user_id, "calendar-sync reads")?;
@@ -534,6 +623,7 @@ pub async fn list_connections(
         connections
             .into_iter()
             .filter(|c| c.user_id == user_id)
+            .map(CalendarSyncConnectionView::from)
             .collect(),
     ))
 }
@@ -659,7 +749,7 @@ pub async fn create_connection(
         (
             StatusCode::CREATED,
             Json(ConnectionView {
-                connection,
+                connection: connection.into(),
                 feed_token,
             }),
         )
@@ -669,13 +759,13 @@ pub async fn create_connection(
 /// PATCH /api/calendar-sync/{id} — edit name/direction/feed_url/status.
 #[utoipa::path(operation_id = "calendar_sync_update", patch, path = "/api/calendar-sync/{id}", tag = "scheduling", security(("bearer" = [])),
     params(("id" = uuid::Uuid, Path)), request_body = UpdateConnectionRequest,
-    responses((status = 200, body = CalendarSyncConnection), (status = 404)))]
+    responses((status = 200, body = CalendarSyncConnectionView), (status = 404)))]
 pub async fn update_connection(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateConnectionRequest>,
-) -> ApiResult<Json<CalendarSyncConnection>> {
+) -> ApiResult<Json<CalendarSyncConnectionView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(core_domain::policy::Action::Edit))?;
     let org_id = authed.principal.user.org_id;
@@ -739,7 +829,7 @@ pub async fn update_connection(
         Ok((tx, updated))
     })
     .await?;
-    Ok(Json(updated))
+    Ok(Json(updated.into()))
 }
 
 /// DELETE /api/calendar-sync/{id} — the connection, its mirror rows, and
@@ -841,7 +931,7 @@ pub async fn rotate_token(
     })
     .await?;
     Ok(Json(ConnectionView {
-        connection,
+        connection: connection.into(),
         feed_token: Some(token),
     }))
 }
@@ -1226,6 +1316,69 @@ mod tests {
         );
         handle.join().expect("listener");
     }
+
+    fn connection_with_token(token: Option<&str>) -> CalendarSyncConnection {
+        CalendarSyncConnection {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            user_id: Uuid::now_v7(),
+            name: "Work".into(),
+            provider: "google".into(),
+            direction: CalendarSyncDirection::Inbound,
+            status: CalendarSyncStatus::Active,
+            feed_url: None,
+            feed_path: None,
+            last_synced_at: None,
+            last_error: None,
+            access_token: token.map(str::to_string),
+            token_expires_at: token.map(|_| Utc::now() + Duration::hours(1)),
+            external_account: Some("sub-1".into()),
+            scopes: Some("calendar.readonly".into()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    /// Wave 55 decision 9: the token is written and read server-side, and the
+    /// only thing a response may say about it is whether one is held.
+    #[test]
+    fn the_connection_wire_reports_presence_and_never_the_token() {
+        let token = "ya29.a0AfB-secret-token-value";
+        let wire = CalendarSyncConnectionView::from(connection_with_token(Some(token)));
+        let json = serde_json::to_value(&wire).expect("wire serializes");
+        assert!(
+            json.get("access_token").is_none(),
+            "no field may carry the cached token: {json}"
+        );
+        assert_eq!(json["has_access_token"], serde_json::json!(true));
+        assert!(json["token_expires_at"].is_string());
+    }
+
+    /// The second fence: even a route that returned the stored row directly
+    /// (none does) must not serialize the token.
+    #[test]
+    fn the_stored_row_does_not_serialize_the_token() {
+        let token = "ya29.a0AfB-secret-token-value";
+        let json =
+            serde_json::to_value(connection_with_token(Some(token))).expect("row serializes");
+        assert!(
+            json.get("access_token").is_none(),
+            "the entity fence must hold: {json}"
+        );
+    }
+
+    /// Presence follows the poll's own predicate: a blank token is no token,
+    /// so the flag must not claim a delegation is connected when it is not.
+    #[test]
+    fn a_blank_token_is_reported_as_absent() {
+        for token in [None, Some(""), Some("   ")] {
+            let wire = CalendarSyncConnectionView::from(connection_with_token(token));
+            assert!(
+                !wire.has_access_token,
+                "a blank token must not read as present: {token:?}"
+            );
+        }
+    }
 }
 
 // --- delegated OAuth: connect a Google or Microsoft calendar (claim 5) ------
@@ -1236,11 +1389,11 @@ mod tests {
 // code, seals the refresh token, and caches the access token.
 //
 // The refresh token is SEALED, never stored on the connection row. It is a
-// long-lived bearer that can read the user's entire calendar, and the
-// connection row is readable by anything that can list connections. The
-// access token IS cached there, because it is short-lived and regenerable
-// and refreshing on every poll would make the poll endpoint a proxy for the
-// vendor's token service.
+// long-lived bearer that can read the user's entire calendar. The access token
+// IS cached there, because it is short-lived and regenerable and refreshing on
+// every poll would make the poll endpoint a proxy for the vendor's token
+// service — but it is read only by the poll: it is skipped in serialization and
+// no connection response carries it (Wave 55 decision 9).
 
 /// Sealed-slot names for the two delegated providers. Namespaced under
 /// `calendar.` so they cannot collide with the `mail.*` transport slots in

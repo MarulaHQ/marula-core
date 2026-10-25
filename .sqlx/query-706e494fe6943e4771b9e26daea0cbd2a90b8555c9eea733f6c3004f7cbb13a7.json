@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE email_messages\n           SET sender_binding = $3,\n               sender_binding_decided_at = now(),\n               sender_binding_decided_by = $4,\n               sender_binding_decided_source = $5,\n               sender_binding_reason = COALESCE($6, sender_binding_reason),\n               ticket_id = $7,\n               comment_id = $8\n           WHERE org_id = $1 AND id = $2 AND sender_binding = 'held'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "706e494fe6943e4771b9e26daea0cbd2a90b8555c9eea733f6c3004f7cbb13a7"
+}

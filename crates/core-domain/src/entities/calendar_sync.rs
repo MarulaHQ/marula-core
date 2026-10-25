@@ -104,6 +104,13 @@ pub struct CalendarSyncConnection {
     // can read the user's whole calendar — is sealed in `byok_secrets` under
     // `calendar.google` / `calendar.microsoft` and is never on this row.
     /// Cached access token, valid until `token_expires_at`.
+    ///
+    /// Never serialized. A credential is written and read server-side only,
+    /// and the API returns presence through
+    /// `CalendarSyncConnectionView::has_access_token` instead (Wave 55
+    /// decision 9). The attribute is the second fence: a route that returned
+    /// this row directly would still not carry the token.
+    #[serde(skip_serializing)]
     pub access_token: Option<String>,
     /// Expiry of `access_token`. CHECK-paired with the token so a token row
     /// can never be read as valid-forever.

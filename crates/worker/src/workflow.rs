@@ -43,17 +43,19 @@ use crate::effects::{EffectApi, EffectOutcome};
 use core_db::queue::{ClaimedJob, NewJob};
 use core_db::workflow_runs as runs_db;
 use core_db::workflow_runs::NewStep;
+use core_domain::entities::{Actor, AuditEvent};
 use core_domain::node_registry::{self, ExecutorPath};
+use core_domain::workflow_approvals::{self, GateRequest};
 use core_domain::workflow_document::{
     self, EdgeOutcome, WorkflowCursor, WorkflowDocument, WorkflowNode, DEFAULT_FALSE_LABEL,
-    DEFAULT_TRUE_LABEL, ERROR_LABEL, FLOW_ABANDON, FLOW_BRANCH, FLOW_DEADLINE, FLOW_DELAY,
-    FLOW_FAIL, FLOW_FOREACH, FLOW_JOIN, FLOW_PARALLEL, FLOW_STOP, FLOW_SWITCH, FLOW_WAIT_FOR,
-    FLOW_WAIT_FOR_ALL, FLOW_WAIT_UNTIL,
+    DEFAULT_TRUE_LABEL, ERROR_LABEL, FLOW_ABANDON, FLOW_AWAIT_APPROVAL, FLOW_BRANCH, FLOW_DEADLINE,
+    FLOW_DELAY, FLOW_FAIL, FLOW_FOREACH, FLOW_JOIN, FLOW_PARALLEL, FLOW_STOP, FLOW_SWITCH,
+    FLOW_WAIT_FOR, FLOW_WAIT_FOR_ALL, FLOW_WAIT_UNTIL,
 };
 use core_domain::workflow_runs::{RunStatus, RunTrigger, StepStatus, WORKFLOW_RESUME_JOB};
 use core_events::Envelope;
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::{Connection, PgPool};
 use tokio::sync::watch;
 
 const CONSUMER_GROUP: &str = "workflows";
@@ -401,6 +403,58 @@ async fn process_resume<E: EffectApi>(
     let Some(author) = parent.trigger_user_id else {
         return JobResult::dead("parked run has no author; refusing to resume as a system user");
     };
+    // The document and the continuation state ride the PARENT: `begin_resumed`
+    // copies both onto the continuation, so reading them here is reading the
+    // same values — and it has to happen before the continuation exists,
+    // because a gate's decision is judged BEFORE the run is continued.
+    let doc = match WorkflowDocument::parse(&parent.rule_definition) {
+        Ok(doc) => doc,
+        Err(error) => return JobResult::dead(format!("invalid workflow document: {error}")),
+    };
+    let mut cursor: WorkflowCursor = parent
+        .resume_cursor
+        .clone()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    // A gate's continuation is earned by its OWN approving decision. A wake
+    // that does not satisfy the gate is recorded against the run and the run
+    // stays parked: no continuation row exists for a decision that did not
+    // release it.
+    let event_type = job.payload.get("event_type").and_then(Value::as_str);
+    // The decision's own fields (proposal id, entity, deciding principal) ride
+    // the wake EVENT; the job payload only carries the op, the run and the
+    // event's type beside it. Reading the payload here asked every decision for
+    // a `proposal_id` it never carries, so every gate wake refused itself as
+    // `approval_unbound` and no gate could be released.
+    match gate_verdict(
+        &mut tx, job.org_id, parent_id, &cursor, &doc, &event, event_type,
+    )
+    .await
+    {
+        Ok(None) => {}
+        Ok(Some(refusal)) => {
+            if refusal.record {
+                if let Err(error) = record_gate_refusal(
+                    &mut tx, job.org_id, parent_id, &cursor, &refusal, event_type,
+                )
+                .await
+                {
+                    return JobResult::retry(format!("gate refusal write failed: {error}"));
+                }
+            }
+            if let Err(error) = tx.commit().await {
+                return JobResult::retry(format!("gate refusal commit failed: {error}"));
+            }
+            tracing::warn!(
+                run_id = %parent_id,
+                code = refusal.code,
+                detail = %refusal.detail,
+                "workflow approval refused; the run stays parked"
+            );
+            return JobResult::done();
+        }
+        Err(error) => return JobResult::retry(format!("gate verdict failed: {error}")),
+    }
     // The continuation is a NEW row; the parked row is never rewritten.
     let run = match runs_db::begin_resumed(&mut tx, job.org_id, parent_id, Some(job.id)).await {
         Ok(run) => run,
@@ -411,17 +465,8 @@ async fn process_resume<E: EffectApi>(
     if let Err(error) = tx.commit().await {
         return JobResult::retry(format!("begin_resumed commit failed: {error}"));
     }
-    let doc = match WorkflowDocument::parse(&run.rule_definition) {
-        Ok(doc) => doc,
-        Err(error) => return JobResult::dead(format!("invalid workflow document: {error}")),
-    };
     // Loop protection: a resumed run may not re-enter past the document's
     // bound (spec item D).
-    let mut cursor: WorkflowCursor = run
-        .resume_cursor
-        .clone()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
     if cursor.depth >= doc.loop_max_depth {
         if let Ok(mut conn) = pool.acquire().await {
             let _ = runs_db::finish_run(
@@ -458,6 +503,245 @@ async fn process_resume<E: EffectApi>(
 }
 
 // ---------------------------------------------------------------------------
+// The approval gate: which decision releases the run, and from whom
+// ---------------------------------------------------------------------------
+
+/// A wake that arrived at a parked gate and did NOT satisfy it.
+struct GateRefusal {
+    /// Machine-readable reason, recorded with the run.
+    code: &'static str,
+    /// Prose an operator can act on.
+    detail: String,
+    /// The principal whose decision was refused, when the wake names one.
+    actor: Option<uuid::Uuid>,
+    /// The approval row the wake named, if it named one.
+    proposal_id: Option<uuid::Uuid>,
+    /// Whether this is worth an audit row. A decision on a non-gate proposal
+    /// wakes every parked gate in the org (the waiters index matches the event
+    /// TYPE, exactly as `flow.waitFor` does); it is refused silently, while a
+    /// decision ABOUT a gate is recorded against the run it failed to release.
+    record: bool,
+}
+
+/// Decides whether this wake releases the run parked at its gate.
+///
+/// `Ok(None)` covers two cases that both continue: the run is not parked at a
+/// gate (every other parking node keeps its own rule), or the gate's own
+/// approving decision arrived from a principal the gate entitles. `Ok(Some(_))`
+/// is a decision that does not release the gate; the caller records it and
+/// leaves the run parked.
+///
+/// `event` is the wake's event VALUE (the `event` field of the job payload,
+/// what a publisher emitted), not the payload around it: the proposal id, the
+/// entity and the deciding principal are fields of the event.
+///
+/// The event is not trusted for the decision itself. It names the row; the row
+/// is the record, so the status, the decider and the gate binding are read from
+/// it, and the decider is checked against the approvers the row carries — the
+/// list the approver actually saw.
+async fn gate_verdict(
+    conn: &mut sqlx::PgConnection,
+    org_id: uuid::Uuid,
+    run_id: uuid::Uuid,
+    cursor: &WorkflowCursor,
+    doc: &WorkflowDocument,
+    event: &Value,
+    event_type: Option<&str>,
+) -> core_db::DbResult<Option<GateRefusal>> {
+    let Some(gate_id) = cursor.parked_node.as_deref() else {
+        return Ok(None);
+    };
+    let Some(node) = doc.node(gate_id) else {
+        // An unknown parked node is the walk's failure to report, not ours.
+        return Ok(None);
+    };
+    if node.node_type != FLOW_AWAIT_APPROVAL {
+        // A `flow.waitFor` on the same event type is a plain wait.
+        return Ok(None);
+    }
+    // No event: this is the expiry, and `parking_node` honours `onExpiry`.
+    let Some(event_type) = event_type else {
+        return Ok(None);
+    };
+
+    let proposal_id = event
+        .get("proposal_id")
+        .and_then(Value::as_str)
+        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let actor = event
+        .get(
+            if event_type == core_domain::events::types::AGENT_PROPOSAL_DECLINED {
+                "declined_by"
+            } else {
+                "approved_by"
+            },
+        )
+        .and_then(Value::as_str)
+        .and_then(|s| uuid::Uuid::parse_str(s).ok());
+    let about_a_gate = !matches!(
+        event.get("entity").and_then(Value::as_str),
+        Some(entity) if entity != workflow_approvals::GATE_ENTITY
+    );
+    let refuse = |code: &'static str, detail: String, record: bool| {
+        Ok::<Option<GateRefusal>, core_db::DbError>(Some(GateRefusal {
+            code,
+            detail,
+            actor,
+            proposal_id,
+            record,
+        }))
+    };
+
+    if !about_a_gate {
+        // Another kind of proposal's approval. It cannot release this gate,
+        // and recording it would bury a run's real refusals under noise from
+        // decisions about tickets.
+        return refuse(
+            "approval_other_proposal",
+            "the decision is not a workflow approval".to_string(),
+            false,
+        );
+    }
+    let Some(bound) = cursor.approvals.get(gate_id) else {
+        return refuse(
+            "approval_unbound",
+            format!("the run parked at {gate_id:?} with no approval bound to it"),
+            true,
+        );
+    };
+    let Ok(bound) = uuid::Uuid::parse_str(bound) else {
+        return refuse(
+            "approval_unbound",
+            format!("the approval bound to {gate_id:?} is not a proposal id"),
+            true,
+        );
+    };
+    let Some(proposal_id) = proposal_id else {
+        return refuse(
+            "approval_unbound",
+            "the decision names no approval row".to_string(),
+            true,
+        );
+    };
+    if proposal_id != bound {
+        return refuse(
+            "approval_other_gate",
+            format!("a decision on {proposal_id} does not satisfy the gate bound to {bound}"),
+            true,
+        );
+    }
+    if event_type == core_domain::events::types::AGENT_PROPOSAL_DECLINED {
+        // A veto. The row is decided once, so no later approval can release
+        // this gate; the run waits out its expiry, which is the one resolution
+        // the author had to declare.
+        return refuse(
+            "approval_declined",
+            format!("approval {proposal_id} was declined, not approved"),
+            true,
+        );
+    }
+    if event_type != core_domain::events::types::AGENT_PROPOSAL_APPROVED {
+        return refuse(
+            "approval_unknown_event",
+            format!("{event_type} cannot decide a gate"),
+            true,
+        );
+    }
+
+    let row = match core_db::agent_platform::get_proposal(&mut *conn, org_id, proposal_id).await {
+        Ok(row) => row,
+        Err(core_db::DbError::NotFound) => {
+            return refuse(
+                "approval_unknown",
+                format!("no approval row {proposal_id} in this org"),
+                true,
+            )
+        }
+        Err(error) => return Err(error),
+    };
+    let request = GateRequest::from_row(&row.proposed_value);
+    let bound_to_this_gate = row.entity == workflow_approvals::GATE_ENTITY
+        && row.entity_id == Some(run_id)
+        && request.as_ref().is_some_and(|gate| gate.gate == gate_id);
+    if !bound_to_this_gate {
+        return refuse(
+            "approval_other_gate",
+            format!("approval {proposal_id} gates another run or another node"),
+            true,
+        );
+    }
+    if row.status != "approved" {
+        return refuse(
+            "approval_not_approved",
+            format!("approval {proposal_id} is {}, not approved", row.status),
+            true,
+        );
+    }
+    let Some(decided_by) = row.decided_by else {
+        return refuse(
+            "approval_not_approved",
+            format!("approval {proposal_id} records no deciding principal"),
+            true,
+        );
+    };
+    if Some(decided_by) != actor {
+        return refuse(
+            "approval_decider_mismatch",
+            format!("the decision names {actor:?} but the row was decided by {decided_by}"),
+            true,
+        );
+    }
+    let approvers = request.map(|gate| gate.approvers).unwrap_or_default();
+    let roles = core_db::users::effective_roles_for_user(&mut *conn, decided_by, org_id).await?;
+    let keys: Vec<String> = roles
+        .iter()
+        .filter_map(|role| role.builtin.map(|builtin| builtin.as_str().to_string()))
+        .collect();
+    let names: Vec<String> = roles.iter().map(|role| role.name.clone()).collect();
+    if !workflow_approvals::entitled(&approvers, decided_by, &keys, &names) {
+        return refuse(
+            "approval_not_entitled",
+            format!("{decided_by} is not one of this gate's approvers"),
+            true,
+        );
+    }
+    Ok(None)
+}
+
+/// Writes the refusal where an operator will find it: the org's audit trail,
+/// against the run that did not move.
+async fn record_gate_refusal(
+    conn: &mut sqlx::PgConnection,
+    org_id: uuid::Uuid,
+    run_id: uuid::Uuid,
+    cursor: &WorkflowCursor,
+    refusal: &GateRefusal,
+    event_type: Option<&str>,
+) -> core_db::DbResult<()> {
+    core_db::audit::insert(
+        conn,
+        &AuditEvent {
+            id: uuid::Uuid::now_v7(),
+            org_id,
+            actor: refusal.actor.map_or(Actor::System, Actor::Human),
+            action: "workflow.approval_refused".into(),
+            entity_type: Some("workflow_run".into()),
+            entity_id: Some(run_id.to_string()),
+            detail: json!({
+                "gate": cursor.parked_node,
+                "proposal_id": refusal.proposal_id,
+                "event_type": event_type,
+                "code": refusal.code,
+                "detail": refusal.detail,
+            }),
+            ip: None,
+            occurred_at: chrono::Utc::now(),
+        },
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
 // The walk
 // ---------------------------------------------------------------------------
 
@@ -491,7 +775,7 @@ async fn execute_run<E: EffectApi>(
                 Err(error) => JobResult::retry(format!("finish_run failed: {error}")),
             };
         };
-        match run_one_node(&mut conn, effects, ctx, doc, &mut cursor, &node).await {
+        match run_one_node(&mut conn, effects, ctx, doc, &mut cursor, &node, false).await {
             NodeFlow::Continue => {}
             NodeFlow::Parked => return park_run(&mut conn, ctx, cursor).await,
             NodeFlow::Stop(status, code, error) => {
@@ -522,6 +806,9 @@ enum NodeFlow {
 
 /// Runs ONE node: record the step, execute it, finish the step, apply the
 /// outcome to the cursor. Shared by the main walk and a foreach body.
+///
+/// `in_body` is true for a `flow.foreach` body: a body may not park, so a gate
+/// inside one files no approval (the caller refuses the park).
 async fn run_one_node<E: EffectApi>(
     conn: &mut sqlx::PgConnection,
     effects: &E,
@@ -529,6 +816,7 @@ async fn run_one_node<E: EffectApi>(
     doc: &WorkflowDocument,
     cursor: &mut WorkflowCursor,
     node: &WorkflowNode,
+    in_body: bool,
 ) -> NodeFlow {
     let step_index = cursor.index;
     cursor.index += 1;
@@ -568,12 +856,53 @@ async fn run_one_node<E: EffectApi>(
     }
 
     let exec = execute_node(effects, ctx, cursor, node).await;
+    // A gate the EXPIRY resolved must not leave its approval behind as a
+    // decision someone still owes: the run is no longer waiting on it. A gate
+    // that re-parks (there is none today) keeps its row.
+    if node.node_type == FLOW_AWAIT_APPROVAL
+        && ctx.resumed
+        && ctx.event.is_null()
+        && !matches!(&exec, NodeExec::Parked { .. })
+    {
+        close_expired_gate(conn, ctx, cursor, node).await;
+    }
     match exec {
         NodeExec::Parked {
             wake_at,
             wake_on,
             received,
         } => {
+            // A gate files its pending approval BEFORE the run parks, and the
+            // cursor carries the row's id. A run parked on a decision nobody
+            // was asked to make is the failure this binds away. A body of a
+            // `flow.foreach` may not park at all (the caller refuses it), so it
+            // files nothing: no orphan approval for a run that never waits.
+            if node.node_type == FLOW_AWAIT_APPROVAL && !in_body {
+                match file_pending_approval(conn, ctx, node).await {
+                    Ok(proposal_id) => {
+                        cursor
+                            .approvals
+                            .insert(node.id.clone(), proposal_id.to_string());
+                    }
+                    Err(error) => {
+                        let _ = runs_db::finish_step(
+                            conn,
+                            ctx.org_id,
+                            step.id,
+                            StepStatus::Failed,
+                            None,
+                            Some("approval_filing_failed"),
+                            Some(&error),
+                        )
+                        .await;
+                        return NodeFlow::Stop(
+                            RunStatus::Failed,
+                            Some("approval_filing_failed".into()),
+                            Some(error),
+                        );
+                    }
+                }
+            }
             // The step is parked, not finished: the continuation resumes it.
             let out = json!({ "parked": true, "wake_at": wake_at.map(|t| t.to_rfc3339()), "wake_on": wake_on });
             let _ = runs_db::park_step(conn, ctx.org_id, step.id, out).await;
@@ -738,7 +1067,7 @@ async fn run_foreach<E: EffectApi>(
             // the node runner, so the future is a cycle the compiler cannot
             // size without an indirection.
             match Box::pin(run_one_node(
-                conn, effects, ctx, &body_doc, &mut sub, &body_node,
+                conn, effects, ctx, &body_doc, &mut sub, &body_node, true,
             ))
             .await
             {
@@ -878,6 +1207,167 @@ async fn park_run(
         }
     }
     JobResult::done()
+}
+
+/// Files the gate's pending approval and returns the `agent_proposals` row it
+/// created.
+///
+/// The gate rides the queue the product already has: one proposal row, the
+/// existing decision route, the existing audit trail and the existing surface.
+/// `entity` marks it a workflow approval (approving it applies nothing — the
+/// run's continuation is the effect), `entity_id` is the run, and
+/// `proposed_value` is the [`GateRequest`] the approver reads.
+///
+/// The row, its audit entry and its `agent_proposal.created` event commit in
+/// one transaction, so the queue and the event cannot disagree about a gate
+/// having been filed.
+async fn file_pending_approval(
+    conn: &mut sqlx::PgConnection,
+    ctx: &RunContext,
+    node: &WorkflowNode,
+) -> Result<uuid::Uuid, String> {
+    let request = GateRequest::from_params(&node.id, &node.params)?;
+    let proposed_value = serde_json::to_value(&request)
+        .map_err(|error| format!("gate request serialization failed: {error}"))?;
+    let proposal_id = uuid::Uuid::now_v7();
+    let agent_ref = format!("workflow-run:{}", ctx.run_id);
+    let fields = core_db::agent_platform::ProposalFields {
+        entity: workflow_approvals::GATE_ENTITY.to_string(),
+        entity_id: Some(ctx.run_id),
+        // The op names what approval permits: the run continues. Nothing is
+        // applied by the approval itself (the queue only applies approved
+        // ticket updates), so the row is the decision record and the engine is
+        // what moves the run.
+        op: "update".to_string(),
+        // A gate writes nothing, so there is no before value to diff; the run
+        // and the gate ride `entity_id` and `proposed_value`.
+        before_value: Value::Null,
+        proposed_value,
+        classification: "internal".to_string(),
+        capability: None,
+        dial_mode: "proposed".to_string(),
+        base_version: 0,
+        agent_kind: "agent".to_string(),
+        agent_ref: agent_ref.clone(),
+        skill_slug: None,
+        skill_version: None,
+        rule_set_hash: None,
+        session_id: None,
+        tool: None,
+        // Neither the author nor a single approver: a gate is decided by its
+        // approver list alone, and the decision route enforces that list.
+        // Setting `for_user` here would add the proposal-owner fallback on top
+        // of the gate's own rule and widen it past what the author wrote.
+        for_user: None,
+        rationale: request.prompt.clone(),
+    };
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|error| format!("approval transaction failed: {error}"))?;
+    let row = core_db::agent_platform::insert_proposal(&mut tx, proposal_id, ctx.org_id, &fields)
+        .await
+        .map_err(|error| format!("approval insert failed: {error}"))?;
+    core_db::audit::insert(
+        &mut *tx,
+        &AuditEvent {
+            id: uuid::Uuid::now_v7(),
+            org_id: ctx.org_id,
+            actor: Actor::Human(ctx.actor_user_id),
+            action: "agent_proposal.created".into(),
+            entity_type: Some("agent_proposal".into()),
+            entity_id: Some(row.id.to_string()),
+            detail: json!({
+                "entity": workflow_approvals::GATE_ENTITY,
+                "entity_id": ctx.run_id,
+                "op": "update",
+                "classification": "internal",
+                "dial_mode": "proposed",
+                "agent_ref": agent_ref,
+                "gate": request.gate,
+            }),
+            ip: None,
+            occurred_at: chrono::Utc::now(),
+        },
+    )
+    .await
+    .map_err(|error| format!("approval audit failed: {error}"))?;
+    core_db::outbox::insert(
+        &mut tx,
+        uuid::Uuid::now_v7(),
+        ctx.org_id,
+        core_domain::events::types::AGENT_PROPOSAL_CREATED,
+        "agent_proposal",
+        Some(row.id.to_string().as_str()),
+        &json!({
+            "proposal_id": row.id,
+            "entity": workflow_approvals::GATE_ENTITY,
+            "entity_id": ctx.run_id,
+            "op": "update",
+            "classification": "internal",
+            "dial_mode": "proposed",
+            "agent_ref": agent_ref,
+            "skill_slug": Value::Null,
+            "skill_version": Value::Null,
+        }),
+    )
+    .await
+    .map_err(|error| format!("approval event failed: {error}"))?;
+    tx.commit()
+        .await
+        .map_err(|error| format!("approval commit failed: {error}"))?;
+    Ok(row.id)
+}
+
+/// Closes a gate's approval after the expiry resolved the run without it.
+///
+/// The row would otherwise sit in the queue as a decision someone still owes
+/// on a run that is no longer waiting. Only the untouched `proposed` row is
+/// closed, so a gate that was decided keeps its decision; the audit row says
+/// the system closed it, because nobody decided.
+async fn close_expired_gate(
+    conn: &mut sqlx::PgConnection,
+    ctx: &RunContext,
+    cursor: &WorkflowCursor,
+    node: &WorkflowNode,
+) {
+    let Some(proposal_id) = cursor
+        .approvals
+        .get(&node.id)
+        .and_then(|bound| uuid::Uuid::parse_str(bound).ok())
+    else {
+        return;
+    };
+    let note = "the workflow gate expired before a decision";
+    match core_db::agent_platform::withdraw_expired_gate(conn, ctx.org_id, proposal_id, note).await
+    {
+        Ok(None) => {}
+        Ok(Some(_)) => {
+            let _ = core_db::audit::insert(
+                conn,
+                &AuditEvent {
+                    id: uuid::Uuid::now_v7(),
+                    org_id: ctx.org_id,
+                    actor: Actor::System,
+                    action: "agent_proposal.expired".into(),
+                    entity_type: Some("agent_proposal".into()),
+                    entity_id: Some(proposal_id.to_string()),
+                    detail: json!({
+                        "proposal_id": proposal_id,
+                        "run_id": ctx.run_id,
+                        "gate": node.id,
+                        "reason": note,
+                    }),
+                    ip: None,
+                    occurred_at: chrono::Utc::now(),
+                },
+            )
+            .await;
+        }
+        Err(error) => {
+            tracing::warn!(%error, %proposal_id, "closing an expired gate approval failed");
+        }
+    }
 }
 
 /// Maps a terminal run status onto the step status its terminating node
@@ -1428,17 +1918,43 @@ fn parking_node(
                 }
             }
         }
-        "flow.awaitApproval" => {
-            // The approval lifecycle rides the agent-proposal path; when a
-            // decision event arrives the gate resolves.
+        FLOW_AWAIT_APPROVAL => {
             if ctx.event.is_null() {
-                NodeExec::Succeeded {
-                    output: json!({ "outcome": "expired" }),
-                    edges: EdgeOutcome::All,
+                // The expiry, not a decision. Honour onExpiry in the same
+                // three shapes `flow.deadline` uses — the old arm fired every
+                // outgoing edge here, including the branch the gate guards.
+                let on_expiry = node
+                    .params
+                    .get("onExpiry")
+                    .and_then(Value::as_str)
+                    .unwrap_or("continue");
+                match on_expiry {
+                    "fail" => NodeExec::Terminal {
+                        status: RunStatus::Failed,
+                        code: Some("approval_expired".into()),
+                        error: Some("flow.awaitApproval expired without a decision".into()),
+                    },
+                    "route" => NodeExec::Succeeded {
+                        output: json!({ "outcome": "expired", "expired": true }),
+                        edges: EdgeOutcome::Labels(vec![ERROR_LABEL.to_string()]),
+                    },
+                    _ => NodeExec::Succeeded {
+                        output: json!({ "outcome": "expired", "expired": true }),
+                        edges: EdgeOutcome::All,
+                    },
                 }
             } else {
+                // Only an approving decision reaches here: `process_resume`
+                // refuses to continue a run whose wake does not name this
+                // gate's bounded approval, come from an entitled principal and
+                // carry the approving outcome. So the arm records the decision
+                // it was handed rather than re-deciding it.
                 NodeExec::Succeeded {
-                    output: json!({ "outcome": "approved", "event": ctx.event }),
+                    output: json!({
+                        "outcome": "approved",
+                        "approverId": ctx.event.get("approved_by").cloned().unwrap_or(Value::Null),
+                        "proposalId": cursor.approvals.get(&node.id).cloned(),
+                    }),
                     edges: EdgeOutcome::All,
                 }
             }
@@ -1521,11 +2037,24 @@ fn park_decision(node: &WorkflowNode, node_type: &str) -> NodeExec {
             }
         }
         "flow.awaitApproval" => {
-            let wake_at =
-                string_duration(node, "timeout").map(|s| now + chrono::Duration::seconds(s));
+            // The gate cannot be parked without an expiry: a run waiting on a
+            // decision that never comes is a run nobody can find again, which
+            // is why the catalogue requires `timeout` and `onExpiry`.
+            let Some(wake_at) =
+                string_duration(node, "timeout").map(|s| now + chrono::Duration::seconds(s))
+            else {
+                return NodeExec::Failed {
+                    code: "gate_without_expiry".into(),
+                    error: "flow.awaitApproval needs a parseable `timeout`".into(),
+                };
+            };
             NodeExec::Parked {
-                wake_at,
-                wake_on: Some("agent_proposal.decided".into()),
+                wake_at: Some(wake_at),
+                // The wake list is built from the lifecycle constants, never
+                // spelled out: the literal this used to carry
+                // (`agent_proposal.decided`) named an event no producer emits,
+                // so the gate could only ever be released by its expiry.
+                wake_on: Some(workflow_approvals::decision_wake()),
                 received: vec![],
             }
         }
@@ -1835,6 +2364,124 @@ mod tests {
                 assert_eq!(wake_on.as_deref(), Some("a.b,c.d"));
             }
             _ => panic!("waitFor parks on an event"),
+        }
+        // flow.awaitApproval → the two lifecycle decisions AND an expiry, from
+        // the constants rather than a spelled-out event this build never emits.
+        let gate = WorkflowNode {
+            id: "g".into(),
+            node_type: FLOW_AWAIT_APPROVAL.into(),
+            params: json!({
+                "approvers": ["technician"],
+                "timeout": "2h",
+                "onExpiry": "fail"
+            }),
+        };
+        match park_decision(&gate, FLOW_AWAIT_APPROVAL) {
+            NodeExec::Parked {
+                wake_at, wake_on, ..
+            } => {
+                assert!(wake_at.is_some(), "a gate always carries its expiry");
+                assert_eq!(
+                    wake_on,
+                    Some(workflow_approvals::decision_wake()),
+                    "the wake is the lifecycle's own decision events"
+                );
+            }
+            _ => panic!("awaitApproval parks on a decision"),
+        }
+        // A gate with no parseable expiry is refused rather than parked.
+        let gate_without_expiry = WorkflowNode {
+            id: "g".into(),
+            node_type: FLOW_AWAIT_APPROVAL.into(),
+            params: json!({ "approvers": ["technician"], "onExpiry": "fail" }),
+        };
+        match park_decision(&gate_without_expiry, FLOW_AWAIT_APPROVAL) {
+            NodeExec::Failed { code, .. } => assert_eq!(code, "gate_without_expiry"),
+            _ => panic!("a gate with no expiry fails"),
+        }
+    }
+
+    #[test]
+    fn a_resumed_gate_reads_the_decision_and_honours_its_expiry() {
+        let gate = WorkflowNode {
+            id: "g".into(),
+            node_type: FLOW_AWAIT_APPROVAL.into(),
+            params: json!({
+                "approvers": ["technician"],
+                "timeout": "2h",
+                "onExpiry": "fail"
+            }),
+        };
+        let mut cursor = WorkflowCursor::start();
+        cursor
+            .approvals
+            .insert("g".to_string(), uuid::Uuid::nil().to_string());
+        // A decision that reached this arm was admitted by `gate_verdict`, so
+        // the arm records what it was handed: the approving outcome, the
+        // approver and the row that was decided.
+        let mut decided = test_ctx(
+            json!({ "proposal_id": uuid::Uuid::nil(), "approved_by": uuid::Uuid::nil() }),
+            None,
+        );
+        decided.resumed = true;
+        decided.event_type = Some(core_domain::events::types::AGENT_PROPOSAL_APPROVED.into());
+        match parking_node(&decided, &cursor, &gate, FLOW_AWAIT_APPROVAL) {
+            NodeExec::Succeeded { output, edges } => {
+                assert_eq!(output["outcome"], json!("approved"));
+                assert_eq!(
+                    output["proposalId"],
+                    json!(uuid::Uuid::nil().to_string()),
+                    "the output names the gate's own approval row"
+                );
+                assert!(matches!(edges, EdgeOutcome::All));
+            }
+            _ => panic!("an admitted decision releases the gate"),
+        }
+        // The expiry: a null event is the timeout, and `onExpiry: fail` ends
+        // the run instead of firing the branch the gate guards.
+        let mut expired = test_ctx(Value::Null, None);
+        expired.resumed = true;
+        expired.event_type = None;
+        match parking_node(&expired, &cursor, &gate, FLOW_AWAIT_APPROVAL) {
+            NodeExec::Terminal { status, code, .. } => {
+                assert_eq!(status, RunStatus::Failed);
+                assert_eq!(code.as_deref(), Some("approval_expired"));
+            }
+            _ => panic!("onExpiry fail is terminal"),
+        }
+        // `onExpiry: route` takes the error arm only.
+        let routing = WorkflowNode {
+            params: json!({
+                "approvers": ["technician"],
+                "timeout": "2h",
+                "onExpiry": "route"
+            }),
+            ..gate.clone()
+        };
+        match parking_node(&expired, &cursor, &routing, FLOW_AWAIT_APPROVAL) {
+            NodeExec::Succeeded { output, edges } => {
+                assert_eq!(output["outcome"], json!("expired"));
+                match edges {
+                    EdgeOutcome::Labels(labels) => {
+                        assert_eq!(labels, vec![ERROR_LABEL.to_string()])
+                    }
+                    _ => panic!("route takes the error arm"),
+                }
+            }
+            _ => panic!("onExpiry route succeeds down the error arm"),
+        }
+        // `onExpiry: continue` (the default) fires the ordinary edges.
+        let continuing = WorkflowNode {
+            params: json!({
+                "approvers": ["technician"],
+                "timeout": "2h",
+                "onExpiry": "continue"
+            }),
+            ..gate
+        };
+        match parking_node(&expired, &cursor, &continuing, FLOW_AWAIT_APPROVAL) {
+            NodeExec::Succeeded { edges, .. } => assert!(matches!(edges, EdgeOutcome::All)),
+            _ => panic!("onExpiry continue succeeds"),
         }
     }
 

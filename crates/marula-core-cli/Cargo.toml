@@ -9,8 +9,10 @@ name = "marula"
 path = "src/main.rs"
 
 [dependencies]
+core-api = { path = "../core-api" }
 core-db = { path = "../core-db" }
 core-domain = { path = "../core-domain" }
+core-mail = { path = "../core-mail" }
 core-otel = { path = "../core-otel" }
 core-store = { path = "../core-store" }
 worker = { path = "../worker" }
@@ -27,6 +29,5 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-core-api = { path = "../core-api" }
 reqwest = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

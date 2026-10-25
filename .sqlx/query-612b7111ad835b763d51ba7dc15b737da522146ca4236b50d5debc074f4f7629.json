@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             EXISTS (\n               SELECT 1 FROM tickets t\n                 JOIN users u ON u.id = t.requester_id\n               WHERE t.org_id = $1 AND t.id = $2 AND lower(u.email) = $3\n             ) AS \"requester!\",\n             EXISTS (\n               SELECT 1 FROM tickets t\n                 JOIN contacts c ON c.id = t.contact_id\n               WHERE t.org_id = $1 AND t.id = $2 AND lower(c.email) = $3\n             ) AS \"contact!\",\n             EXISTS (\n               SELECT 1 FROM email_messages m\n               WHERE m.org_id = $1 AND m.ticket_id = $2\n                 AND (\n                   (m.direction = 'inbound' AND lower(m.from_address) = $3)\n                   OR (m.direction = 'outbound' AND EXISTS (\n                         SELECT 1 FROM unnest(m.to_addresses) AS addr\n                         WHERE lower(addr) = $3))\n                 )\n             ) AS \"corresponded!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "requester!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "contact!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "corresponded!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "612b7111ad835b763d51ba7dc15b737da522146ca4236b50d5debc074f4f7629"
+}

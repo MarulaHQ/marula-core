@@ -2,6 +2,7 @@
 //! flows through (§6). Unit-tested, auditable, exhaustive.
 
 use serde::Serialize;
+use uuid::Uuid;
 
 /// Product modules that carry a permission matrix (view/create/edit/delete/export).
 #[derive(
@@ -725,6 +726,89 @@ pub fn check_any(granted: &[Permission], required: &[Permission]) -> PolicyDecis
     }
 }
 
+// --- cross-entity link reads -------------------------------------------------
+//
+// A resolved link label is a read of the target (Wave 55 decision 3), so a
+// link panel's authority is the target module's own `View` gate, plus the
+// record-scoped layers that already narrow that gate (vault folder grants,
+// board membership). One value carries every answer so the document,
+// password and asset panels cannot ask a weaker question than the target's
+// own route asks.
+
+/// What the caller of a link list may read, derived once from the
+/// principal. The module flags mirror the target route's own
+/// `require_permission(.., Action::View)`; `user_id` and `role_ids` are the
+/// inputs those record-scoped gates need (board membership, category
+/// grants).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinkViewScope {
+    pub documents: bool,
+    pub passwords: bool,
+    pub clients: bool,
+    pub tickets: bool,
+    pub kb_articles: bool,
+    pub assets: bool,
+    pub secrets: bool,
+    pub user_id: Uuid,
+    pub role_ids: Vec<Uuid>,
+}
+
+impl LinkViewScope {
+    /// The scope a principal's permissions entitle them to.
+    pub fn for_principal(principal: &crate::entities::Principal) -> Self {
+        Self::from_permissions(
+            &principal.permissions,
+            principal.user.id,
+            principal.roles.iter().map(|r| r.id).collect(),
+        )
+    }
+
+    pub fn from_permissions(
+        permissions: &[Permission],
+        user_id: Uuid,
+        role_ids: Vec<Uuid>,
+    ) -> Self {
+        let may_view = |module: Module| {
+            check(
+                permissions,
+                Permission::Matrix {
+                    module,
+                    action: Action::View,
+                },
+            )
+            .is_allowed()
+        };
+        Self {
+            documents: may_view(Module::Documents),
+            passwords: may_view(Module::Passwords),
+            clients: may_view(Module::Clients),
+            tickets: may_view(Module::Tickets),
+            kb_articles: may_view(Module::Kb),
+            // Assets ride the Clients matrix (`routes/assets.rs`), so the
+            // asset kind answers to the same gate the asset route asks.
+            assets: may_view(Module::Clients),
+            secrets: may_view(Module::Secrets),
+            user_id,
+            role_ids,
+        }
+    }
+
+    /// The module answer for one link kind. Every kind has a flag — a new
+    /// kind cannot be added without deciding its gate here.
+    pub const fn may_view_module(&self, kind: crate::entities::LinkKind) -> bool {
+        use crate::entities::LinkKind;
+        match kind {
+            LinkKind::Document => self.documents,
+            LinkKind::Password => self.passwords,
+            LinkKind::Client => self.clients,
+            LinkKind::Ticket => self.tickets,
+            LinkKind::KbArticle => self.kb_articles,
+            LinkKind::Asset => self.assets,
+            LinkKind::Secret => self.secrets,
+        }
+    }
+}
+
 // --- portal v1 role policy ---------------------------------------------------
 //
 // Portal authorization is deliberately NOT the staff permission matrix:
@@ -843,6 +927,68 @@ pub fn check_portal(role: crate::entities::PortalRole, action: PortalAction) -> 
 mod tests {
     use super::*;
     use crate::entities::PortalRole;
+
+    /// The link read scope is the target modules' own view gates: a role
+    /// without `documents:view` still resolves ticket labels, and the asset
+    /// kind answers to Clients because the asset route does.
+    #[test]
+    fn link_view_scope_mirrors_each_target_modules_view_gate() {
+        use crate::entities::LinkKind;
+        let nil = Uuid::nil();
+
+        let tech =
+            LinkViewScope::from_permissions(&BuiltinRole::Technician.permissions(), nil, vec![]);
+        assert!(
+            !tech.documents,
+            "technicians hold no documents grant, so a document label is not theirs"
+        );
+        assert!(tech.tickets);
+        assert!(tech.kb_articles);
+        assert!(tech.passwords);
+        assert!(tech.secrets);
+        assert!(tech.clients);
+        assert!(tech.assets, "assets answer to the Clients matrix");
+
+        let readonly =
+            LinkViewScope::from_permissions(&BuiltinRole::ReadOnly.permissions(), nil, vec![]);
+        for kind in [
+            LinkKind::Document,
+            LinkKind::Password,
+            LinkKind::Client,
+            LinkKind::Ticket,
+            LinkKind::KbArticle,
+            LinkKind::Asset,
+            LinkKind::Secret,
+        ] {
+            assert!(
+                readonly.may_view_module(kind),
+                "read_only holds every view, {kind:?} included"
+            );
+        }
+
+        let docs_only = LinkViewScope::from_permissions(
+            &[Permission::Matrix {
+                module: Module::Documents,
+                action: Action::View,
+            }],
+            nil,
+            vec![],
+        );
+        assert!(docs_only.may_view_module(LinkKind::Document));
+        for kind in [
+            LinkKind::Password,
+            LinkKind::Client,
+            LinkKind::Ticket,
+            LinkKind::KbArticle,
+            LinkKind::Asset,
+            LinkKind::Secret,
+        ] {
+            assert!(
+                !docs_only.may_view_module(kind),
+                "{kind:?} must stay behind its own gate"
+            );
+        }
+    }
 
     #[test]
     fn every_portal_tier_may_view_and_reply() {

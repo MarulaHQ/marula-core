@@ -25,6 +25,7 @@
 
 use axum::Router;
 use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_store::ObjectStore as _;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -1611,6 +1612,10 @@ async fn a_held_object_issues_neither_a_url_nor_bytes() {
 /// would lock every pre-gate file out of an install that has no scanner to
 /// re-scan it with — the no-scanner half of
 /// `an_unscanned_object_is_refused_at_the_staff_and_portal_doors` below.
+///
+/// Wave 55 (F31) added the lists to this arm: they apply the same rule, and in
+/// this mode the rule is a no-op, so a client is still offered the file it can
+/// still download.
 #[tokio::test]
 async fn a_deployment_without_a_scanner_still_streams_an_unscanned_object() {
     let (mut state, store) = test_state().await;
@@ -1623,7 +1628,56 @@ async fn a_deployment_without_a_scanner_still_streams_an_unscanned_object() {
     let org = seed_org(&app, "presign-unscanned").await;
     let uploaded = upload_png(&app, &org).await;
     let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+    // Surfaced through a client-visible note, so the portal list has a reason
+    // to consider the object.
+    let comment = send_json(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/tickets/{}/comments", org.ticket_a),
+        Some(&org.token),
+        Some(json!({
+            "body": "see attached",
+            "kind": "client_visible",
+            "attachment_ids": [uploaded.id],
+        })),
+    )
+    .await;
+    assert_eq!(comment.status(), 200, "linking the attachment to a note");
+    let portal_token = portal_token_for(&app, &org, "presign-unscanned").await;
     delete_verdict(&state, org_id, &uploaded.sha256).await;
+
+    let staff_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/tickets/{}/attachments", org.ticket_a),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ids_of(&staff_list),
+        vec![uploaded.id.clone()],
+        "none mode lists as it always did: {staff_list}"
+    );
+    let portal_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/portal/tickets/{}/attachments", org.ticket_a),
+            Some(&portal_token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ids_of(&portal_list),
+        vec![uploaded.id.clone()],
+        "and so does the portal list: {portal_list}"
+    );
 
     let app = presigning_app(&mut state, &store);
     let ticket = body_json(
@@ -1873,4 +1927,586 @@ async fn portal_download(
         None,
     )
     .await
+}
+
+// ---------------------------------------------------------------------------
+// The verdict backfill and the list/door parity (Wave 55, F30 + F31)
+// ---------------------------------------------------------------------------
+
+/// A scanner that counts the BYTES legs it is asked to take, so a test can
+/// prove a second backfill run paid for nothing. The verdicts are
+/// [`GateScan`]'s, so the two tests agree on what a marker means.
+struct CountingScan {
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl core_mail::ScanProvider for CountingScan {
+    fn name(&self) -> &'static str {
+        "gate-scripted"
+    }
+
+    async fn scan(&self, body_text: &str) -> Result<core_mail::ScanVerdict, core_mail::ScanError> {
+        self.scan_bytes(body_text.as_bytes()).await
+    }
+
+    async fn scan_bytes(
+        &self,
+        bytes: &[u8],
+    ) -> Result<core_mail::ScanVerdict, core_mail::ScanError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        core_mail::ScanProvider::scan_bytes(&GateScan, bytes).await
+    }
+}
+
+/// A row and its bytes exactly as a deployment WITHOUT the gate used to write
+/// them: the object at its canonical key, an `attachments` row pointing at it,
+/// and no verdict row at all. Every door now refuses to store unscanned bytes,
+/// so this is the only way to build the shape the backfill exists for.
+#[allow(clippy::too_many_arguments)]
+async fn store_legacy_object(
+    state: &AppState,
+    store: &Arc<core_store::memory::MemoryStore>,
+    org_id: Uuid,
+    ticket_id: Uuid,
+    comment_id: Option<Uuid>,
+    bytes: &[u8],
+    filename: &str,
+    content_type: &str,
+) -> Uploaded {
+    use sha2::Digest as _;
+    let sha = hex::encode(sha2::Sha256::digest(bytes));
+    let key = core_store::attachment_key(org_id, &sha);
+    store
+        .put(&key, content_type, bytes::Bytes::copy_from_slice(bytes))
+        .await
+        .expect("legacy bytes");
+    let id = Uuid::now_v7();
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    core_db::attachments::insert(
+        &mut tx,
+        core_db::attachments::NewAttachment {
+            id,
+            org_id,
+            kind: core_domain::entities::AttachmentKind::TicketComment,
+            ticket_id: Some(ticket_id),
+            ticket_comment_id: comment_id,
+            email_message_id: None,
+            filename,
+            content_type,
+            size_bytes: bytes.len() as i64,
+            sha256: &sha,
+            storage_key: &key,
+            uploaded_by_user_id: None,
+            uploaded_by_portal_user_id: None,
+        },
+    )
+    .await
+    .expect("legacy row");
+    tx.commit().await.expect("commit");
+    Uploaded {
+        id: id.to_string(),
+        sha256: sha,
+        storage_key: key,
+    }
+}
+
+/// An operator release, the way the P6c admin surface writes it: the row keeps
+/// its `infected` status as evidence and gains the override that admits the
+/// object again.
+async fn release_object(state: &AppState, org_id: Uuid, sha: &str) {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    let owner: Uuid = sqlx::query_scalar(
+        "SELECT id FROM users WHERE org_id = $1 ORDER BY created_at, id LIMIT 1",
+    )
+    .bind(org_id)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("the org has an owner");
+    sqlx::query(
+        "UPDATE attachment_scans SET released_at = now(), released_by_user_id = $3, \
+         release_reason = 'wave 55 list parity' WHERE org_id = $1 AND sha256 = $2",
+    )
+    .bind(org_id)
+    .bind(sha)
+    .bind(owner)
+    .execute(&mut *tx)
+    .await
+    .expect("release");
+    tx.commit().await.expect("commit");
+}
+
+fn ids_of(rows: &Value) -> Vec<String> {
+    rows.as_array()
+        .unwrap_or_else(|| panic!("expected a list of rows: {rows}"))
+        .iter()
+        .map(|row| {
+            row["id"]
+                .as_str()
+                .unwrap_or_else(|| panic!("every row carries an id: {row}"))
+                .to_string()
+        })
+        .collect()
+}
+
+/// Row F30: files stored before a scanner existed carry no verdict, and since
+/// the Wave 54 admission rule a deployment WITH a scanner refuses them at every
+/// door. The backfill is the pass that gives them one — and it must judge
+/// exactly those files, once.
+///
+/// Three objects: one the upload door already admitted (its verdict is the
+/// record of what happened and must not be re-examined), one legacy object a
+/// scanner will pass, one legacy object it will hold. Each leg is a claim the
+/// operator command depends on: only unverdict objects are scanned, one verdict
+/// per object, an infection goes through the SAME quarantine writer the doors
+/// use, and a second run finds nothing to do.
+#[tokio::test]
+async fn the_verdict_backfill_judges_only_objects_without_a_verdict_once() {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(CountingScan {
+        calls: Arc::clone(&calls),
+    });
+    let (state, store) = test_state_with(Some(scanner)).await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string();
+    let org = seed_org(&app, &tag).await;
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+    let ticket_id = Uuid::parse_str(&org.ticket_a).expect("ticket uuid");
+
+    // Admitted through the real door: its verdict already exists.
+    let admitted = upload_png(&app, &org).await;
+    let before = scan_row(&state, org_id, &admitted.sha256)
+        .await
+        .expect("the upload door recorded a verdict");
+
+    // The two pre-gate objects: bytes on disk, a row, no verdict.
+    let clean = store_legacy_object(
+        &state,
+        &store,
+        org_id,
+        ticket_id,
+        None,
+        PDF_BYTES,
+        "policy.pdf",
+        "application/pdf",
+    )
+    .await;
+    let held = store_legacy_object(
+        &state,
+        &store,
+        org_id,
+        ticket_id,
+        None,
+        INFECTED_PDF_BYTES,
+        "invoice.pdf",
+        "application/pdf",
+    )
+    .await;
+
+    let plan = core_api::scan_backfill::plan(&state.pool, Some(org_id))
+        .await
+        .expect("plan");
+    assert_eq!(plan.total, 2, "the admitted object is not part of the plan");
+
+    let calls_before = calls.load(std::sync::atomic::Ordering::SeqCst);
+    let report = core_api::scan_backfill::run(
+        &state.pool,
+        state.store.as_ref(),
+        state.mail.scanner.as_ref(),
+        Some(org_id),
+        50,
+        Some(2),
+    )
+    .await
+    .expect("the backfill runs");
+    assert_eq!(
+        report.found, 2,
+        "one object per missing verdict: {report:?}"
+    );
+    assert_eq!(report.clean, 1, "{report:?}");
+    assert_eq!(report.quarantined, 1, "{report:?}");
+    assert_eq!(report.skipped, 0, "a scanner was configured: {report:?}");
+    assert_eq!(report.unreadable, 0, "{report:?}");
+    assert_eq!(report.already, 0, "{report:?}");
+    assert!(report.aborted.is_none(), "{report:?}");
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst) - calls_before,
+        2,
+        "one bytes leg per object with no verdict, and none for the admitted one"
+    );
+
+    // The clean legacy object reads exactly like a door-admitted one.
+    let (status, storage_key, quarantined) = scan_row(&state, org_id, &clean.sha256)
+        .await
+        .expect("the clean object now has a verdict");
+    assert_eq!(status, "clean");
+    assert_eq!(
+        storage_key, clean.storage_key,
+        "the verdict points at its bytes"
+    );
+    assert!(!quarantined);
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download", clean.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "a backfilled clean object downloads again"
+    );
+    assert_eq!(body_bytes(response).await, PDF_BYTES);
+
+    // The infected one went through the shared quarantine writer: held row,
+    // quarantine copy, and the notification the doors send.
+    let (status, storage_key, quarantined) = scan_row(&state, org_id, &held.sha256)
+        .await
+        .expect("the held object now has a verdict");
+    assert_eq!(status, "infected");
+    assert!(quarantined, "the row names when it was held");
+    assert_eq!(
+        storage_key,
+        core_store::quarantine_key(org_id, &held.sha256),
+        "the verdict points at the quarantine copy, not the admitted key"
+    );
+    assert!(
+        store
+            .get(&core_store::quarantine_key(org_id, &held.sha256))
+            .await
+            .is_ok(),
+        "the held bytes were written where the row says they are"
+    );
+    let notices = scan_notifications(&state, org_id).await;
+    assert_eq!(
+        notices.len(),
+        1,
+        "the backfill sends the same quarantine notice an upload does: {notices:?}"
+    );
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download", held.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        409,
+        "an object the backfill held must not download"
+    );
+
+    // The admitted object's verdict is the record of what happened: untouched.
+    let after = scan_row(&state, org_id, &admitted.sha256)
+        .await
+        .expect("still on record");
+    assert_eq!(after, before, "the backfill rewrote an existing verdict");
+
+    // Second run: nothing to scan, nothing to write, no scanner call paid for.
+    let calls_before = calls.load(std::sync::atomic::Ordering::SeqCst);
+    let plan = core_api::scan_backfill::plan(&state.pool, Some(org_id))
+        .await
+        .expect("second plan");
+    assert_eq!(plan.total, 0, "a re-run must find nothing");
+    let second = core_api::scan_backfill::run(
+        &state.pool,
+        state.store.as_ref(),
+        state.mail.scanner.as_ref(),
+        Some(org_id),
+        50,
+        None,
+    )
+    .await
+    .expect("the second run");
+    assert_eq!(second.found, 0);
+    assert_eq!(
+        second.clean + second.skipped + second.quarantined + second.already + second.unreadable,
+        0,
+        "a second run records nothing: {second:?}"
+    );
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        calls_before,
+        "a second run pays for no scan"
+    );
+}
+
+/// Row F31: a list must not offer what its own download refuses. The rule is
+/// one predicate in the shared query layer, so it is asserted on every list
+/// that names the same object — the ticket list, the comment list, the portal
+/// list and the document list — against the door's answer for the same object.
+#[tokio::test]
+async fn the_lists_omit_what_their_door_refuses() {
+    let (state, store) = test_state_with(Some(Arc::new(GateScan))).await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string();
+    let org = seed_org(&app, &tag).await;
+    let portal_token = portal_token_for(&app, &org, &tag).await;
+    let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
+    let ticket_id = Uuid::parse_str(&org.ticket_a).expect("ticket uuid");
+
+    // One admitted object, linked to a client-visible note so the portal list
+    // has a reason to consider it at all.
+    let admitted = upload_png(&app, &org).await;
+    let comment = send_json(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/tickets/{}/comments", org.ticket_a),
+        Some(&org.token),
+        Some(json!({
+            "body": "see attached",
+            "kind": "client_visible",
+            "attachment_ids": [admitted.id],
+        })),
+    )
+    .await;
+    assert_eq!(comment.status(), 200, "linking the attachment to a note");
+    let comment_id = Uuid::parse_str(
+        body_json(comment).await["id"]
+            .as_str()
+            .expect("the created comment carries its id"),
+    )
+    .expect("comment uuid");
+
+    // And one object no scanner ever looked at, on the same ticket and note.
+    let legacy = store_legacy_object(
+        &state,
+        &store,
+        org_id,
+        ticket_id,
+        Some(comment_id),
+        PDF_BYTES,
+        "legacy.pdf",
+        "application/pdf",
+    )
+    .await;
+
+    let ticket_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/tickets/{}/attachments", org.ticket_a),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ids_of(&ticket_list),
+        vec![admitted.id.clone()],
+        "the ticket list offers exactly what its door would hand out: {ticket_list}"
+    );
+    let comment_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!(
+                "/api/tickets/{}/comments/{comment_id}/attachments",
+                org.ticket_a
+            ),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ids_of(&comment_list),
+        vec![admitted.id.clone()],
+        "the comment list applies the same rule: {comment_list}"
+    );
+    let portal_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/portal/tickets/{}/attachments", org.ticket_a),
+            Some(&portal_token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ids_of(&portal_list),
+        vec![admitted.id.clone()],
+        "a client is not offered a file the portal download refuses: {portal_list}"
+    );
+
+    // The door agrees with all three lists about the object they left out.
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download", legacy.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 409, "the omitted object is refused");
+    let response = portal_download(&app, &org.ticket_a, &legacy.id, &portal_token).await;
+    assert_eq!(response.status(), 409, "and refused at the portal door too");
+
+    // --- a held object: hidden while held, back after a release -----------
+    hold_object(&state, org_id, &admitted.sha256).await;
+    let held_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/tickets/{}/attachments", org.ticket_a),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        ids_of(&held_list).is_empty(),
+        "a held object is not offered: {held_list}"
+    );
+    let held_portal = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/portal/tickets/{}/attachments", org.ticket_a),
+            Some(&portal_token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        ids_of(&held_portal).is_empty(),
+        "and the portal list hides it too: {held_portal}"
+    );
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download", admitted.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 409, "the door refuses the held object");
+
+    release_object(&state, org_id, &admitted.sha256).await;
+    let released_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/tickets/{}/attachments", org.ticket_a),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ids_of(&released_list),
+        vec![admitted.id.clone()],
+        "a release puts the object back in the list, because the door admits it again: {released_list}"
+    );
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/attachments/{}/download", admitted.id),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "and the door hands it out again");
+
+    // --- the document list is the same rule on the same key space ---------
+    let document_id = body_json(
+        send_json(
+            &app,
+            axum::http::Method::POST,
+            "/api/documents",
+            Some(&org.token),
+            Some(json!({
+                "title": "Attachment policy",
+                "body": "Files go here.",
+                "idempotency_key": format!("doc-{tag}"),
+            })),
+        )
+        .await,
+    )
+    .await["id"]
+        .as_str()
+        .expect("the created document carries its id")
+        .to_string();
+    let uploaded_doc = body_json(
+        send_raw(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/documents/{document_id}/attachments"),
+            Some(&org.token),
+            &[
+                ("x-filename", "rfc.pdf"),
+                ("content-type", "application/pdf"),
+            ],
+            Some(b"%PDF-1.7 rfc 1918".to_vec()),
+        )
+        .await,
+    )
+    .await["id"]
+        .as_str()
+        .expect("the document attachment carries its id")
+        .to_string();
+    let document_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/documents/{document_id}/attachments"),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        ids_of(&document_list["attachments"]),
+        vec![uploaded_doc.clone()],
+        "an admitted document attachment lists: {document_list}"
+    );
+    let doc_sha = sha_of(b"%PDF-1.7 rfc 1918");
+    delete_verdict(&state, org_id, &doc_sha).await;
+    let document_list = body_json(
+        send_json(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/documents/{document_id}/attachments"),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        ids_of(&document_list["attachments"]).is_empty(),
+        "an unverdict document attachment is not offered: {document_list}"
+    );
+    let response = send_raw(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/documents/{document_id}/attachments/{uploaded_doc}/download"),
+        Some(&org.token),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        409,
+        "which is what the document door answers for it"
+    );
 }

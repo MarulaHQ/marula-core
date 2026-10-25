@@ -86,6 +86,11 @@ spec:
                   name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
                   key: EMAIL_INBOUND_HMAC_SECRET
                   optional: true
+            - name: MARULA_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
+                  key: MARULA_INTERNAL_TOKEN
             - name: EMAIL_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -1,6 +1,6 @@
 //! Guarded outbound fetch for the product edges (Wave 54 lane S1a).
 //!
-//! ## One control, four call sites
+//! ## One control, five call sites
 //!
 //! The decision lives in `core_domain::egress`; this module is the only place a
 //! non-plugin caller turns that decision into a request. Before Wave 54 the KB
@@ -9,6 +9,11 @@
 //! a stored `http://127.0.0.1:…` or `http://169.254.169.254/…` was a request the
 //! process made on the row's behalf. `plugin_http.rs` already screened with the
 //! same guard; these four edges now do too.
+//!
+//! Wave 55 added the fifth: the plugin distribution fetch, whose URL arrives in
+//! a request body rather than in a row. It screens with the seam's
+//! https-only/no-port shape through [`guard_with`], and inherits steps 2 to 4
+//! unchanged.
 //!
 //! ## Order, and what each step stops
 //!
@@ -77,12 +82,28 @@ impl Guarded {
     }
 }
 
-/// Screens `raw`, resolves its host once, and judges every answer.
+/// Screens `raw` with the product-fetch shape, resolves its host once, and
+/// judges every answer.
 ///
 /// Every failure is a typed [`EgressDenial`]; the caller maps it onto the
 /// vocabulary its own surface already returns.
 pub async fn guard(raw: &str) -> Result<Guarded, EgressDenial> {
-    let target = egress::screen_fetch(raw)?;
+    guard_with(raw, egress::screen_fetch).await
+}
+
+/// [`guard`] with the screening decision supplied by the caller.
+///
+/// Two surfaces ask the same address question and disagree only on the consent
+/// shape: the product edges accept plain http and an explicit port, while the
+/// plugin distribution seam is https-only on the default port. The
+/// resolve-once, judge-every-answer, pin-the-result sequence is identical, so
+/// the seam passes [`egress::screen`] here instead of growing a second guard —
+/// which is how the distribution fetch ended up with a client of its own.
+pub async fn guard_with<F>(raw: &str, screen: F) -> Result<Guarded, EgressDenial>
+where
+    F: FnOnce(&str) -> Result<EgressTarget, EgressDenial>,
+{
+    let target = screen(raw)?;
     if target.is_ip_literal() {
         return Ok(Guarded {
             target,
@@ -93,6 +114,16 @@ pub async fn guard(raw: &str) -> Result<Guarded, EgressDenial> {
         .await
         .map_err(|_| EgressDenial::Unresolved)?
         .collect();
+    judged(target, addrs)
+}
+
+/// Judges one resolution answer and pins it.
+///
+/// Split from the lookup so the decision is testable without a resolver: the
+/// addresses are the input, and one private answer refuses the whole name
+/// before a client exists. `check_resolved` also refuses an empty answer, so a
+/// name that resolves to nothing is a refusal rather than a retry.
+fn judged(target: EgressTarget, addrs: Vec<SocketAddr>) -> Result<Guarded, EgressDenial> {
     let ips: Vec<IpAddr> = addrs.iter().map(SocketAddr::ip).collect();
     egress::check_resolved(&ips)?;
     Ok(Guarded { target, addrs })
@@ -164,5 +195,144 @@ mod tests {
             .expect("a public http literal is a product fetch");
         assert_eq!(guarded.url(), "http://8.8.8.8/hook");
         assert!(guarded.client(Duration::from_millis(100)).is_ok());
+    }
+
+    /// The record's DNS half: a name the screen accepts is still refused when
+    /// the resolver answers with an address the process must not reach.
+    ///
+    /// Driven through [`judged`], the step between the lookup and the client,
+    /// so the answer is supplied rather than looked up: no test depends on a
+    /// resolver, and none can be rescued by one. A mixed answer is refused
+    /// because the private address is reachable through the name, and an empty
+    /// answer is a refusal rather than a retry.
+    #[test]
+    fn a_name_that_resolves_to_a_private_address_is_refused_before_a_client_exists() {
+        // Both shapes screen this name: the distribution seam (https, default
+        // port) and the product fetch (http, explicit port).
+        let seam = egress::screen("https://plugins.example.com/manifest.json")
+            .expect("a public name screens for the distribution seam");
+        let product = egress::screen_fetch("http://plugins.example.com:8443/hook")
+            .expect("a public name screens for a product fetch");
+
+        for answer in [
+            "127.0.0.1:443",
+            "127.0.0.53:53",
+            "10.20.30.40:443",
+            "172.16.4.4:443",
+            "192.168.1.10:443",
+            "169.254.169.254:443",
+            "[::1]:443",
+            "[fd00:ec2::254]:443",
+            "[::ffff:127.0.0.1]:443",
+        ] {
+            let addr: SocketAddr = answer.parse().expect("a socket address");
+            assert!(
+                matches!(
+                    judged(seam.clone(), vec![addr]),
+                    Err(EgressDenial::PrivateAddress)
+                ),
+                "{answer} must be refused before a client exists"
+            );
+        }
+
+        // One private answer poisons the whole name: the request would reach it.
+        let mixed = vec![
+            "93.184.216.34:443".parse().expect("public"),
+            "127.0.0.1:443".parse().expect("loopback"),
+        ];
+        assert!(matches!(
+            judged(seam, mixed),
+            Err(EgressDenial::PrivateAddress)
+        ));
+        // ... and the same rule holds for the product-fetch shape.
+        assert!(matches!(
+            judged(
+                product,
+                vec!["169.254.169.254:8443".parse().expect("metadata")]
+            ),
+            Err(EgressDenial::PrivateAddress)
+        ));
+        // Nothing resolved is a refusal, not a name with no addresses.
+        let empty = egress::screen("https://plugins.example.com/manifest.json").expect("screens");
+        assert!(matches!(
+            judged(empty, Vec::new()),
+            Err(EgressDenial::Unresolved)
+        ));
+    }
+
+    /// A `3xx` comes back as a response and the `Location` is never dialled.
+    ///
+    /// The listener counts the connections it accepts, so "not followed" is a
+    /// measurement. Two loopback listeners on one machine have to be reached by
+    /// pinning the client to the first one's address, which is exactly what the
+    /// guard does for a resolved name; `judged` would refuse that pin, so the
+    /// [`Guarded`] is built here with the same private fields the guard fills.
+    /// This drives the transport policy (`Policy::none`), not the address rule.
+    #[tokio::test]
+    async fn a_redirect_is_answered_and_never_followed_to_a_second_host() {
+        let (second_addr, second_connections) = counting_redirector(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+        );
+        let (first_addr, first_connections) = counting_redirector(&format!(
+            "HTTP/1.1 302 Found\r\nLocation: http://{second_addr}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        ));
+
+        let target = egress::screen_fetch(&format!(
+            "http://plugins.example.com:{}/manifest.json",
+            first_addr.port()
+        ))
+        .expect("a public name with an explicit port screens as a product fetch");
+        let guarded = Guarded {
+            target,
+            addrs: vec![first_addr],
+        };
+
+        let response = guarded
+            .client(Duration::from_secs(5))
+            .expect("the client carries the pin")
+            .get(guarded.url())
+            .send()
+            .await
+            .expect("the pinned listener answers");
+        assert_eq!(response.status().as_u16(), 302);
+        assert!(is_redirect(response.status().as_u16()));
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            first_connections.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the 302 was answered once"
+        );
+        assert_eq!(
+            second_connections.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "the Location was never dialled"
+        );
+    }
+
+    /// A loopback listener that answers every request with `response` and counts
+    /// the connections it accepts. The count is the assertion.
+    fn counting_redirector(
+        response: &str,
+    ) -> (SocketAddr, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let count = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&count);
+        let response = response.to_string();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                seen.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (addr, count)
     }
 }

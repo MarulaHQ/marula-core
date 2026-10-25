@@ -7,9 +7,19 @@
 //! inside core-api, preserving single-writer (§4.1); the worker only
 //! transports and reports back through internal endpoints.
 //!
+//! Since Wave 55 this module also decides whether the sender of a reply is a
+//! participant on the ticket it names (record 4 of the Wave 54 security
+//! decisions), holds the message when they are not, and owns the two routes
+//! a person uses to settle a hold. The level that governs the hold —
+//! human only, human with suggestions (shadow), or autonomous — is an
+//! org-scope setting, so the switch is an admin write rather than a change in
+//! engine behaviour.
+//!
 //! Non-purpose: no retry/backoff math (core-mail owns it), no raw SQL
 //! beyond calls into core-db queries, no notification policy decisions
-//! beyond the two v1 outbound kinds wired by callers.
+//! beyond the two v1 outbound kinds wired by callers, and no model call in
+//! the ingest path (the engine's proposal is the deterministic binder this
+//! path already runs — see `engine_proposal`).
 
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
@@ -17,8 +27,12 @@ use chrono::Utc;
 use core_db::emails::{self, InboundRoute, NewMessage};
 use core_domain::email_signature as signature;
 use core_domain::email_signature::{SignaturePolicy, SignatureSource};
-use core_domain::entities::{EmailDirection, ScanStatus};
-use core_domain::events::{self, types, EmailMessageRecorded, TicketCommentAdded};
+use core_domain::entities::{
+    EmailDirection, ScanStatus, SenderBindingDecisionSource, SenderBindingLevel, SenderBindingState,
+};
+use core_domain::events::{
+    self, types, EmailMessageRecorded, EmailSenderBindingDecided, TicketCommentAdded,
+};
 use core_domain::settings as registry;
 use core_domain::status::{NoteKind, Priority};
 use core_mail::inbound::{normalize_message_key, plan_inbound, InboundOutcome};
@@ -405,6 +419,11 @@ pub enum InboundStatus {
     Quarantined,
     Duplicate,
     Unroutable,
+    /// The sender is not a participant on the ticket the message names, so
+    /// the message is recorded and waits for a decision (Wave 55, decision
+    /// 4). Terminal for the provider: the hold is durable, and a retry would
+    /// only be answered `duplicate`.
+    Held,
 }
 
 impl InboundStatus {
@@ -415,6 +434,7 @@ impl InboundStatus {
             InboundStatus::Quarantined => "quarantined",
             InboundStatus::Duplicate => "duplicate",
             InboundStatus::Unroutable => "unrouted",
+            InboundStatus::Held => "held",
         }
     }
 }
@@ -549,6 +569,7 @@ pub async fn process_inbound(
     let rfc_id = normalize_message_key(&msg.rfc_message_id);
     let refs: Vec<String> = msg.thread_keys();
     let recipients = msg.recipients_in_priority_order();
+    let sender = msg.from_address.trim().to_ascii_lowercase();
 
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
 
@@ -560,6 +581,65 @@ pub async fn process_inbound(
         return Ok(InboundStatus::Unroutable);
     };
     core_db::set_org(&mut tx, org_id).await?;
+
+    // --- routing target + sender binding (Wave 55, decision 4) ---
+    // Both reads happen BEFORE the claim so the ledger row is written with
+    // the binding state it was resolved with. A delivery replayed on its
+    // Message-ID is answered `duplicate` and touches nothing, so a hold can
+    // never be applied twice or applied late to a row that threaded.
+    //
+    // The routing reads are the same ones the acting stage used to make
+    // after the claim (thread target first, then the subject token); moving
+    // them up changes no outcome, only the order.
+    let thread_hit = if proceed {
+        emails::find_thread_target(&mut *tx, org_id, &refs).await?
+    } else {
+        None
+    };
+    let token_hit = if proceed && thread_hit.is_none() {
+        let mut hit = None;
+        for token in msg
+            .subject
+            .as_deref()
+            .map(core_mail::inbound::extract_subject_tokens)
+            .unwrap_or_default()
+        {
+            hit = emails::find_ticket_id_by_number_ci(&mut *tx, org_id, &token).await?;
+            if hit.is_some() {
+                break;
+            }
+        }
+        hit
+    } else {
+        None
+    };
+
+    let level = sender_binding_level(&mut tx, org_id).await?;
+    let candidate_ticket = thread_hit.or(token_hit);
+    let mut binding = BindingRecord::default();
+    if let Some(ticket_id) = candidate_ticket {
+        binding.candidate_ticket_id = Some(ticket_id);
+        let standing =
+            emails::resolve_sender_standing(&mut *tx, org_id, ticket_id, &sender).await?;
+        if standing.is_participant() {
+            binding.state = SenderBindingState::Bound;
+            binding.reason = standing.matched_on().map(str::to_string);
+        } else {
+            // Not a participant: the message is held whatever the level is.
+            // Only the engine levels add a proposal, and only `autonomous`
+            // applies it (below, in the acting stage).
+            binding.state = SenderBindingState::Held;
+            binding.reason = Some(SENDER_NOT_PARTICIPANT.to_string());
+            if level.engine_engaged() {
+                binding.proposal = Some(engine_proposal(
+                    level,
+                    ticket_id,
+                    thread_hit.is_some(),
+                    &sender,
+                ));
+            }
+        }
+    }
 
     // --- REPLAY GATE: claim the Message-ID before any side effect ---
     let message_id = Uuid::now_v7();
@@ -573,7 +653,7 @@ pub async fn process_inbound(
             in_reply_to: msg.in_reply_to.as_deref().map(normalize_message_key),
             email_refs: refs.clone(),
             subject: msg.subject.clone(),
-            from_address: msg.from_address.trim().to_ascii_lowercase(),
+            from_address: sender.clone(),
             from_name: msg.from_name.clone(),
             to_addresses: recipients,
             body_text: body_text.clone(),
@@ -581,6 +661,10 @@ pub async fn process_inbound(
             comment_id: None,
             scan_status,
             transport: format!("webhook/{}", state.mail.scanner.name()),
+            sender_binding: binding.state,
+            sender_binding_reason: binding.reason.clone(),
+            sender_binding_candidate_ticket_id: binding.candidate_ticket_id,
+            sender_binding_proposal: binding.proposal.clone(),
         },
     )
     .await?;
@@ -773,54 +857,39 @@ pub async fn process_inbound(
     let (ticket_id, comment_id, status) = if !proceed {
         (None, None, InboundStatus::Quarantined)
     } else {
-        let thread_hit = emails::find_thread_target(&mut *tx, org_id, &refs).await?;
-        let token_hit = if thread_hit.is_none() {
-            let mut hit = None;
-            for token in msg
-                .subject
-                .as_deref()
-                .map(core_mail::inbound::extract_subject_tokens)
-                .unwrap_or_default()
-            {
-                hit = emails::find_ticket_id_by_number_ci(&mut *tx, org_id, &token).await?;
-                if hit.is_some() {
-                    break;
-                }
-            }
-            hit
-        } else {
-            None
-        };
         match plan_inbound(thread_hit, token_hit) {
             InboundOutcome::CommentOn { ticket_id }
             | InboundOutcome::AttachByToken { ticket_id } => {
-                let comment = core_db::tickets::insert_comment(
-                    &mut *tx,
-                    core_db::tickets::NewTicketComment {
-                        id: Uuid::now_v7(),
-                        org_id,
-                        ticket_id,
-                        author_id: None,
-                        kind: NoteKind::ClientVisible,
-                        body: body_text.as_deref().unwrap_or("(empty body)"),
-                        workflow_meta: None,
-                    },
-                )
-                .await?;
-                emit_event(
-                    &mut tx,
-                    org_id,
-                    types::TICKET_COMMENT_ADDED,
-                    "ticket_comment",
-                    Some(comment.id),
-                    &serde_json::to_value(TicketCommentAdded {
-                        comment: comment.clone(),
-                        mentioned_user_ids: Vec::new(),
-                    })
-                    .unwrap_or_default(),
-                )
-                .await?;
-                (Some(ticket_id), Some(comment.id), InboundStatus::Commented)
+                // A held message is threaded only when the engine holds the
+                // authority to decide it. `human_only` and `shadow` both stop
+                // here: the row is already claimed, with its reason and (in
+                // shadow) the engine's proposal, and no comment exists.
+                if binding.state == SenderBindingState::Held && !level.applies_without_a_person() {
+                    (None, None, InboundStatus::Held)
+                } else {
+                    let decision =
+                        (binding.state == SenderBindingState::Held).then(|| BindingDecision {
+                            state: SenderBindingState::Accepted,
+                            source: SenderBindingDecisionSource::Engine,
+                            decided_by: None,
+                            reason: Some("engine_applied".into()),
+                            level,
+                        });
+                    let comment_id = thread_message(
+                        &mut tx,
+                        Threading {
+                            org_id,
+                            message_id,
+                            rfc_message_id: &rfc_id,
+                            ticket_id,
+                            body_text: body_text.as_deref(),
+                            decision,
+                            proposal: binding.proposal.as_ref(),
+                        },
+                    )
+                    .await?;
+                    (Some(ticket_id), Some(comment_id), InboundStatus::Commented)
+                }
             }
             InboundOutcome::NewTicket => {
                 create_ticket_from_email(
@@ -867,6 +936,261 @@ pub async fn process_inbound(
         return Err(ApiError::from(e));
     }
     Ok(status)
+}
+
+// --- Wave 55: inbound sender binding ---------------------------------------
+//
+// Record 4 of the Wave 54 security decisions, ruled 2026-10-25. The HMAC on
+// the webhook authenticates the channel, never the author, so a reply may
+// only join an existing ticket when its `From` is already a participant on
+// that ticket. Everything below is the recording half: the level the org
+// granted, the proposal the engine made, and the act that threads a held
+// message and leaves the audit row.
+
+/// The reason recorded on a message held because its sender is not a
+/// participant on the ticket it names.
+pub const SENDER_NOT_PARTICIPANT: &str = "sender_not_participant";
+
+/// What the pipeline resolved about one inbound message's binding, carried
+/// from the pre-claim reads into the ledger insert.
+#[derive(Debug, Clone)]
+struct BindingRecord {
+    state: SenderBindingState,
+    reason: Option<String>,
+    candidate_ticket_id: Option<Uuid>,
+    proposal: Option<serde_json::Value>,
+}
+
+impl Default for BindingRecord {
+    fn default() -> Self {
+        Self {
+            // No existing ticket was in play until routing says otherwise.
+            state: SenderBindingState::NotRequired,
+            reason: None,
+            candidate_ticket_id: None,
+            proposal: None,
+        }
+    }
+}
+
+/// A decision to apply to a held message. `decided_by` is `None` for the
+/// engine, and the source travels with it so the audit row can never dress
+/// an engine act as a person's.
+#[derive(Debug, Clone)]
+struct BindingDecision {
+    state: SenderBindingState,
+    source: SenderBindingDecisionSource,
+    decided_by: Option<Uuid>,
+    reason: Option<String>,
+    /// The org's level when the decision was applied, recorded in the audit
+    /// detail so an engine act is distinguishable from a person's on the
+    /// same ledger row.
+    level: SenderBindingLevel,
+}
+
+/// The org's triage level, resolved through the typed settings registry.
+/// No stored row means the declaration's default: `human_only`.
+async fn sender_binding_level(tx: &mut Tx, org_id: Uuid) -> ApiResult<SenderBindingLevel> {
+    let stored =
+        core_db::settings::get_org_value(&mut **tx, org_id, registry::EMAIL_INBOUND_SENDER_BINDING)
+            .await
+            .map_err(ApiError::from)?;
+    Ok(SenderBindingLevel::from_setting(
+        stored.as_ref().and_then(serde_json::Value::as_str),
+    ))
+}
+
+/// The engine's proposal for a message whose sender does not bind.
+///
+/// The proposer is the deterministic binder this path already runs
+/// (`plan_inbound`, plus the thread and token reads), not a model call: the
+/// inbound webhook works inside the transaction that claims the Message-ID,
+/// and a network round trip there would hold that claim open and decide the
+/// same message differently on a retry. The proposal says which ticket the
+/// routing signal named, that no sender match exists, and which signal it
+/// rested on, so `autonomous` can be read afterwards as exactly the rule it
+/// applied.
+fn engine_proposal(
+    level: SenderBindingLevel,
+    ticket_id: Uuid,
+    from_thread: bool,
+    sender: &str,
+) -> serde_json::Value {
+    let signal = if from_thread {
+        "thread_reference"
+    } else {
+        "subject_token"
+    };
+    json!({
+        "surface": "inbound_sender_binding",
+        "level": level.as_str(),
+        "proposed_action": "attach",
+        "ticket_id": ticket_id,
+        "sender_match": "none",
+        "signals": [signal],
+        "rationale": format!(
+            "the message names the ticket through {signal}, but {sender} is not a \
+             participant on it: attachment rests on the routing signal alone"
+        ),
+    })
+}
+
+/// What threading one held or bound message needs: the targets, the body,
+/// and — when this act is the decision on a held row — that decision.
+struct Threading<'a> {
+    org_id: Uuid,
+    message_id: Uuid,
+    rfc_message_id: &'a str,
+    ticket_id: Uuid,
+    body_text: Option<&'a str>,
+    decision: Option<BindingDecision>,
+    proposal: Option<&'a serde_json::Value>,
+}
+
+/// Creates the client-visible comment for an inbound message on a ticket,
+/// and, when the message was held, records the decision that allowed it.
+///
+/// The comment and the decision land in the caller's transaction, so a
+/// failure leaves the message held rather than half-attached. Returns the
+/// comment id.
+async fn thread_message(tx: &mut Tx, threading: Threading<'_>) -> ApiResult<Uuid> {
+    let Threading {
+        org_id,
+        message_id,
+        rfc_message_id,
+        ticket_id,
+        body_text,
+        decision,
+        proposal,
+    } = threading;
+    let comment = core_db::tickets::insert_comment(
+        &mut **tx,
+        core_db::tickets::NewTicketComment {
+            id: Uuid::now_v7(),
+            org_id,
+            ticket_id,
+            author_id: None,
+            kind: NoteKind::ClientVisible,
+            body: body_text.unwrap_or("(empty body)"),
+            workflow_meta: None,
+        },
+    )
+    .await?;
+    emit_event(
+        tx,
+        org_id,
+        types::TICKET_COMMENT_ADDED,
+        "ticket_comment",
+        Some(comment.id),
+        &serde_json::to_value(TicketCommentAdded {
+            comment: comment.clone(),
+            mentioned_user_ids: Vec::new(),
+        })
+        .unwrap_or_default(),
+    )
+    .await?;
+    if let Some(decision) = decision {
+        record_binding_decision(
+            tx,
+            org_id,
+            message_id,
+            rfc_message_id,
+            Some(ticket_id),
+            Some(comment.id),
+            &decision,
+            proposal,
+        )
+        .await?;
+    }
+    Ok(comment.id)
+}
+
+/// Applies a decision to a row that is still held and leaves the trail: the
+/// ledger's decision columns, an audit row whose actor says who acted, and
+/// `email.sender_binding_decided` for consumers.
+///
+/// A decision that loses the guarded update is a typed conflict — the row was
+/// already decided, and a second comment would be a duplicate of the first.
+#[allow(clippy::too_many_arguments)]
+async fn record_binding_decision(
+    tx: &mut Tx,
+    org_id: Uuid,
+    message_id: Uuid,
+    rfc_message_id: &str,
+    ticket_id: Option<Uuid>,
+    comment_id: Option<Uuid>,
+    decision: &BindingDecision,
+    proposal: Option<&serde_json::Value>,
+) -> ApiResult<()> {
+    let applied = emails::decide_held(
+        tx,
+        &emails::HeldDecision {
+            org_id,
+            message_id,
+            state: decision.state,
+            ticket_id,
+            comment_id,
+            reason: decision.reason.clone(),
+            source: decision.source,
+            decided_by: decision.decided_by,
+        },
+    )
+    .await?;
+    if !applied {
+        return Err(ApiError::Conflict(
+            "this message was already decided".to_string(),
+        ));
+    }
+
+    let actor = match decision.decided_by {
+        Some(user_id) => core_domain::entities::Actor::Human(user_id),
+        None => core_domain::entities::Actor::System,
+    };
+    let detail = json!({
+        "decision": decision.state.as_str(),
+        "source": decision.source.as_str(),
+        "level": decision.level.as_str(),
+        "ticket_id": ticket_id,
+        "comment_id": comment_id,
+        "reason": decision.reason,
+        "proposal": proposal,
+    });
+    core_db::audit::insert(
+        &mut **tx,
+        &core_domain::entities::AuditEvent {
+            id: Uuid::now_v7(),
+            org_id,
+            actor,
+            action: format!("inbound:sender_binding_{}", decision.state.as_str()),
+            entity_type: Some("email_message".into()),
+            entity_id: Some(message_id.to_string()),
+            detail,
+            ip: None,
+            occurred_at: Utc::now(),
+        },
+    )
+    .await
+    .map_err(ApiError::from)?;
+
+    emit_event(
+        tx,
+        org_id,
+        types::EMAIL_SENDER_BINDING_DECIDED,
+        "email_message",
+        Some(message_id),
+        &serde_json::to_value(EmailSenderBindingDecided {
+            message_id,
+            rfc_message_id: rfc_message_id.to_string(),
+            decision: decision.state.as_str().to_string(),
+            source: decision.source.as_str().to_string(),
+            level: decision.level.as_str().to_string(),
+            ticket_id,
+            comment_id,
+        })
+        .unwrap_or_default(),
+    )
+    .await?;
+    Ok(())
 }
 
 /// One decoded, size-capped, hashed inbound attachment ready to persist, with
@@ -1285,4 +1609,288 @@ pub async fn emit_event(
 #[must_use]
 pub fn inbound_response(status: InboundStatus) -> serde_json::Value {
     json!({ "status": status.as_str(), "received_at": Utc::now() })
+}
+
+// --- Wave 55: the triage surface -------------------------------------------
+//
+// A held message is visible here and nowhere else: it has no `ticket_id`, so
+// the ticket timeline, the portal read and attachment visibility cannot see
+// it. Two routes, the shape the quarantine queue and the approval queue
+// already use — an admin permission, a required typed outcome, and an audit
+// row carrying the actor and the reason.
+//
+// The group is mounted by one line in `routes/mod.rs`, inside the protected
+// chain and beside the other `.merge(...)` calls, so it inherits the auth
+// and org-binding layers rather than re-declaring them.
+
+/// One held message as the triage queue renders it.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct HeldMessageView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    pub rfc_message_id: String,
+    pub from_address: String,
+    pub from_name: Option<String>,
+    pub subject: Option<String>,
+    /// The message body as it would appear in the ticket's comment.
+    pub body_text: Option<String>,
+    /// Why it is held: `sender_not_participant` today.
+    pub reason: Option<String>,
+    /// The ticket routing resolved. Accepting without naming a ticket uses it.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub candidate_ticket_id: Option<Uuid>,
+    /// The engine's proposal, present under `shadow` and `autonomous`.
+    pub proposal: Option<serde_json::Value>,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct HeldMessagesView {
+    /// The org's level, so the queue can say why these messages are waiting.
+    pub level: String,
+    pub holds: Vec<HeldMessageView>,
+}
+
+impl HeldMessageView {
+    fn from_row(row: emails::HeldMessage) -> Self {
+        Self {
+            id: row.id,
+            rfc_message_id: row.rfc_message_id,
+            from_address: row.from_address,
+            from_name: row.from_name,
+            subject: row.subject,
+            body_text: row.body_text,
+            reason: row.sender_binding_reason,
+            candidate_ticket_id: row.sender_binding_candidate_ticket_id,
+            proposal: row.sender_binding_proposal,
+            created_at: row.created_at,
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct HeldQuery {
+    /// Defaults to 50, capped at 200.
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct DecideHeldRequest {
+    /// `accept` threads a client-visible comment on the ticket; `refuse`
+    /// leaves the message off every ticket.
+    pub decision: String,
+    /// Required for `accept` unless routing already resolved a ticket.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub ticket_id: Option<Uuid>,
+    /// Recorded with the decision in place of the hold reason.
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct DecideHeldResponse {
+    #[schema(value_type = uuid::Uuid)]
+    pub message_id: Uuid,
+    /// `accepted` | `refused`.
+    pub decision: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub ticket_id: Option<Uuid>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub comment_id: Option<Uuid>,
+}
+
+/// Longest decision reason accepted — parity with the quarantine release.
+const MAX_DECISION_REASON_CHARS: usize = 500;
+
+fn require_email_admin(
+    principal: &core_domain::entities::Principal,
+    action: core_domain::policy::Action,
+) -> ApiResult<()> {
+    crate::auth::middleware::require_permission(
+        principal,
+        core_domain::policy::Permission::Matrix {
+            module: core_domain::policy::Module::Admin,
+            action,
+        },
+    )
+}
+
+/// Builds the triage route group for one API generation. Merged into the
+/// protected chain by `routes/mod.rs`.
+pub fn routes(gen: crate::routes::ApiGeneration) -> axum::Router<AppState> {
+    use axum::routing::{get, post};
+    let base = gen.base();
+    axum::Router::new()
+        .route(
+            &format!("{base}/email/inbound-holds"),
+            get(list_inbound_holds),
+        )
+        .route(
+            &format!("{base}/email/inbound-holds/{{id}}/decide"),
+            post(decide_inbound_hold),
+        )
+}
+
+/// GET /api/email/inbound-holds — messages waiting for a decision, newest
+/// first, with the reason each is held and the engine's proposal when the org
+/// runs shadow or autonomous.
+#[utoipa::path(operation_id = "email_inbound_holds_list", get,
+    path = "/api/email/inbound-holds", tag = "email",
+    security(("bearer" = [])), params(HeldQuery),
+    responses((status = 200, body = HeldMessagesView), (status = 403)))]
+pub async fn list_inbound_holds(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: axum::http::Extensions,
+    axum::extract::Query(query): axum::extract::Query<HeldQuery>,
+) -> ApiResult<axum::Json<HeldMessagesView>> {
+    let authed = crate::auth::middleware::authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_email_admin(&authed.principal, core_domain::policy::Action::View)?;
+    let org_id = authed.principal.user.org_id;
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let level = sender_binding_level(&mut tx, org_id).await?;
+    let holds = emails::list_held(&mut *tx, org_id, limit).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(axum::Json(HeldMessagesView {
+        level: level.as_str().to_string(),
+        holds: holds.into_iter().map(HeldMessageView::from_row).collect(),
+    }))
+}
+
+/// POST /api/email/inbound-holds/{id}/decide — the person's decision on one
+/// held message. `accept` threads it onto the ticket and leaves a
+/// client-visible comment; `refuse` records the refusal. Both write the
+/// decision columns, an audit row naming the person, and
+/// `email.sender_binding_decided`. A message that is no longer held answers a
+/// typed 409, so a decision cannot thread twice.
+#[utoipa::path(operation_id = "email_inbound_hold_decide", post,
+    path = "/api/email/inbound-holds/{id}/decide", tag = "email",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path, description = "Ledger message id")),
+    request_body = DecideHeldRequest,
+    responses((status = 200, body = DecideHeldResponse),
+              (status = 403),
+              (status = 404, description = "no such message in this org"),
+              (status = 409, description = "already decided"),
+              (status = 422, description = "unknown decision, no ticket to attach to, or a reason over the cap")))]
+pub async fn decide_inbound_hold(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: axum::http::Extensions,
+    axum::extract::Path(message_id): axum::extract::Path<Uuid>,
+    axum::Json(req): axum::Json<DecideHeldRequest>,
+) -> ApiResult<axum::Json<DecideHeldResponse>> {
+    let authed = crate::auth::middleware::authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_email_admin(&authed.principal, core_domain::policy::Action::Edit)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let accept = match req.decision.trim().to_ascii_lowercase().as_str() {
+        "accept" => true,
+        "refuse" => false,
+        other => {
+            return Err(ApiError::Validation(format!(
+                "decision must be 'accept' or 'refuse', got '{other}'"
+            )))
+        }
+    };
+    let reason = match req.reason.as_deref().map(str::trim) {
+        Some(text) if !text.is_empty() => {
+            if text.chars().count() > MAX_DECISION_REASON_CHARS {
+                return Err(ApiError::Validation(format!(
+                    "reason must be {MAX_DECISION_REASON_CHARS} characters or fewer"
+                )));
+            }
+            Some(text.to_string())
+        }
+        _ => None,
+    };
+
+    let outcome = crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let level = sender_binding_level(&mut ctx.tx, org_id).await?;
+        let row = emails::get_binding_message(&mut *ctx.tx, org_id, message_id).await?;
+        if row.sender_binding != SenderBindingState::Held.as_str() {
+            return Err(ApiError::Conflict(format!(
+                "this message was already decided ({})",
+                row.sender_binding
+            )));
+        }
+        let proposal = row.sender_binding_proposal.clone();
+
+        if accept {
+            let ticket_id = req
+                .ticket_id
+                .or(row.sender_binding_candidate_ticket_id)
+                .ok_or_else(|| {
+                    ApiError::Validation(
+                        "ticket_id is required: routing resolved no ticket for this message".into(),
+                    )
+                })?;
+            // The ticket must exist inside THIS org before anything is
+            // written onto it — the same check the catch-all route makes.
+            core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id)
+                .await
+                .map_err(|_| ApiError::Validation("ticket_id not found in org".into()))?;
+            let decision = BindingDecision {
+                state: SenderBindingState::Accepted,
+                source: SenderBindingDecisionSource::Human,
+                decided_by: Some(user_id),
+                reason,
+                level,
+            };
+            let comment_id = thread_message(
+                &mut ctx.tx,
+                Threading {
+                    org_id,
+                    message_id,
+                    rfc_message_id: &row.rfc_message_id,
+                    ticket_id,
+                    body_text: row.body_text.as_deref(),
+                    decision: Some(decision),
+                    proposal: proposal.as_ref(),
+                },
+            )
+            .await?;
+            Ok((
+                ctx,
+                DecideHeldResponse {
+                    message_id,
+                    decision: SenderBindingState::Accepted.as_str().to_string(),
+                    ticket_id: Some(ticket_id),
+                    comment_id: Some(comment_id),
+                },
+            ))
+        } else {
+            let decision = BindingDecision {
+                state: SenderBindingState::Refused,
+                source: SenderBindingDecisionSource::Human,
+                decided_by: Some(user_id),
+                reason,
+                level,
+            };
+            record_binding_decision(
+                &mut ctx.tx,
+                org_id,
+                message_id,
+                &row.rfc_message_id,
+                None,
+                None,
+                &decision,
+                proposal.as_ref(),
+            )
+            .await?;
+            Ok((
+                ctx,
+                DecideHeldResponse {
+                    message_id,
+                    decision: SenderBindingState::Refused.as_str().to_string(),
+                    ticket_id: None,
+                    comment_id: None,
+                },
+            ))
+        }
+    })
+    .await?;
+    Ok(axum::Json(outcome))
 }

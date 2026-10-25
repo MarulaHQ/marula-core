@@ -121,6 +121,11 @@ pub struct DocumentLink {
 
 /// A link with its target resolved to a display label for the UI
 /// (typed read model; the raw row never carries the label).
+///
+/// A label is a READ OF THE TARGET, so it is present only when the
+/// caller's own gate for the target's module passed (Wave 55 decision 3:
+/// `design/qa-p55-link-labels`). A denied target keeps the link row and
+/// carries no title.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ResolvedLink {
@@ -128,13 +133,20 @@ pub struct ResolvedLink {
     pub link: DocumentLink,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub target_client_id: Option<ClientId>,
-    /// Present when the target row still exists.
+    /// Present when the target row still exists AND the caller may read
+    /// it. `None` with `target_denied` set means the row exists for
+    /// someone else.
     #[serde(default)]
     pub target_label: Option<String>,
-    /// The target's own current link count — surfaced for document
-    /// targets so the panel can hint at hub records.
+    /// The target row is gone; the link outlives it (a typed read model
+    /// surfaces the vanishing rather than dropping the row).
     #[serde(default)]
     pub target_deleted: bool,
+    /// The caller's gate for the target's module denied, so this row
+    /// carries no label and no client id. Distinct from
+    /// `target_deleted`: the interface says "not yours", never "gone".
+    #[serde(default)]
+    pub target_denied: bool,
 }
 
 /// A vault credential. `secret_ciphertext` is AES-256-GCM from

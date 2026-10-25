@@ -21,6 +21,11 @@ use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+#[path = "support/caller.rs"]
+mod caller;
+
+use caller::fresh_caller_ip;
+
 async fn test_state() -> AppState {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::WARN)
@@ -73,6 +78,12 @@ async fn send(
             .unwrap(),
         None => builder.body(axum::body::Body::empty()).unwrap(),
     };
+    // Every request carries a caller of its own. A `oneshot` request with no
+    // `X-Forwarded-For` collapses into the shared `unknown` gate bucket, so a
+    // failure in one case could refuse a sign-in in another (Wave 54 follow-up
+    // F7). `stamp` respects an explicit header, which is how a case that needs
+    // one stable caller across several requests gets it.
+    let request = fresh_caller_ip().stamp(request);
     app.clone().oneshot(request).await.unwrap()
 }
 
@@ -97,6 +108,7 @@ async fn send_with_headers(
             .unwrap(),
         None => builder.body(axum::body::Body::empty()).unwrap(),
     };
+    let request = fresh_caller_ip().stamp(request);
     app.clone().oneshot(request).await.unwrap()
 }
 
@@ -746,11 +758,12 @@ async fn portal_refresh_rotates_and_replay_fails() {
     // rides its own caller IP: a recorded failure is durable and per-IP, so a
     // shared bucket would lock OTHER portal cases in this binary out of their
     // first sign-in (Wave 54 lane S2a put the portal password path on a gate).
+    let caller = fresh_caller_ip();
     let bad_password = send_with_headers(
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", test_caller_ip().as_str())],
+        &[caller.forwarded_for()],
         Some(json!({"email": email, "password": "definitely-wrong-password"})),
     )
     .await;
@@ -1360,18 +1373,12 @@ async fn portal_magic_link_is_single_use_portal_scoped_and_status_aware() {
 // pays down only its own curve.
 // ---------------------------------------------------------------------------
 
-/// A caller IP private to ONE test. The gates are durable and per-IP, so a
-/// shared bucket — the `unknown` sentinel every headerless `oneshot` request
-/// collapses into — would let one test's failure deny another test's sign-in.
-/// RFC 2544 benchmarking space, never a real client.
-fn test_caller_ip() -> String {
-    // The random tail, not the leading bytes: a v7 UUID starts with a
-    // millisecond timestamp, so `bytes[0]`/`bytes[1]` barely move within a run
-    // and every test would share one caller bucket. That is exactly the
-    // collision the gate is keyed on, so it has to be genuinely fresh.
-    let bytes = Uuid::now_v7().into_bytes();
-    format!("198.18.{}.{}", bytes[9], bytes[10])
-}
+// A caller IP private to ONE test comes from the shared fixture
+// (`support/caller.rs`, Wave 54 follow-up F7): the gates are durable and
+// per-IP, and a headerless request collapses into the shared `unknown` bucket,
+// so each case mints its own address. The four cases below hold one `CallerIp`
+// for the whole case — a later request must meet the lock an earlier one
+// armed — and no case shares it with another.
 
 /// `attempts` on one gate row; 0 when no row exists. A success DELETEs the
 /// row (`app_auth_gate_clear`), so "no row" and "cleared" are one fact and
@@ -1408,13 +1415,13 @@ async fn portal_password_failure_writes_a_portal_row_and_never_arms_the_staff_ga
     let org = seed_org(&app, &tag).await;
     let email = format!("s2a-a-{tag}@a.test");
     invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
-    let ip = test_caller_ip();
+    let ip = fresh_caller_ip();
 
     let bad = send_with_headers(
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": email, "password": "not-the-passphrase"})),
     )
     .await;
@@ -1451,7 +1458,7 @@ async fn portal_password_failure_writes_a_portal_row_and_never_arms_the_staff_ga
         &app,
         axum::http::Method::POST,
         "/api/auth/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": org.owner_email, "password": "correct-horse-battery"})),
     )
     .await;
@@ -1475,13 +1482,13 @@ async fn a_staff_sign_in_failure_does_not_lock_the_portal() {
     let org = seed_org(&app, &tag).await;
     let email = format!("s2a-b-{tag}@a.test");
     invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
-    let ip = test_caller_ip();
+    let ip = fresh_caller_ip();
 
     let staff_bad = send_with_headers(
         &app,
         axum::http::Method::POST,
         "/api/auth/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": org.owner_email, "password": "not-the-password"})),
     )
     .await;
@@ -1493,7 +1500,7 @@ async fn a_staff_sign_in_failure_does_not_lock_the_portal() {
         &app,
         axum::http::Method::POST,
         "/api/auth/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": org.owner_email, "password": "correct-horse-battery"})),
     )
     .await;
@@ -1507,7 +1514,7 @@ async fn a_staff_sign_in_failure_does_not_lock_the_portal() {
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": email, "password": "portal-passphrase-1"})),
     )
     .await;
@@ -1542,13 +1549,13 @@ async fn a_portal_success_does_not_clear_a_staff_lock() {
     let org = seed_org(&app, &tag).await;
     let email = format!("s2a-c-{tag}@a.test");
     invite_portal_user(&app, &org.token, &org.client_a, &email, "contact").await;
-    let ip = test_caller_ip();
+    let ip = fresh_caller_ip();
 
     let staff_bad = send_with_headers(
         &app,
         axum::http::Method::POST,
         "/api/auth/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": org.owner_email, "password": "not-the-password"})),
     )
     .await;
@@ -1571,7 +1578,7 @@ async fn a_portal_success_does_not_clear_a_staff_lock() {
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": email, "password": "portal-passphrase-1"})),
     )
     .await;
@@ -1591,7 +1598,7 @@ async fn a_portal_success_does_not_clear_a_staff_lock() {
         &app,
         axum::http::Method::POST,
         "/api/auth/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": org.owner_email, "password": "correct-horse-battery"})),
     )
     .await;
@@ -1624,13 +1631,13 @@ async fn the_portal_pre_check_refuses_a_locked_identity_before_the_password_hash
         .fetch_one(&state.pool)
         .await
         .expect("read the invited identity's org");
-    let ip = test_caller_ip();
+    let ip = fresh_caller_ip();
 
     let bad = send_with_headers(
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": email, "password": "not-the-passphrase"})),
     )
     .await;
@@ -1640,7 +1647,7 @@ async fn the_portal_pre_check_refuses_a_locked_identity_before_the_password_hash
         &app,
         axum::http::Method::POST,
         "/api/portal/login",
-        &[("x-forwarded-for", ip.as_str())],
+        &[ip.forwarded_for()],
         Some(json!({"email": email, "password": "portal-passphrase-1"})),
     )
     .await;

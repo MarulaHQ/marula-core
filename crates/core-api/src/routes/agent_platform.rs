@@ -54,6 +54,7 @@ use core_db::agent_platform::{
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
 use core_domain::policy::{Action, BoardOp, Module, Permission};
+use core_domain::workflow_approvals;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -1387,6 +1388,38 @@ fn ensure_can_decide(
     authed: &crate::auth::AuthedUser,
     proposal: &AgentProposalRow,
 ) -> ApiResult<()> {
+    // A workflow gate is the one proposal that names its own approvers, and
+    // that list is the authority: the document's author chose who may open
+    // THIS gate, so an owner/admin the gate did not name is not entitled, and
+    // a named technician is — without an owner having to decide for them.
+    // A gate row whose approver list will not parse entitles nobody, which is
+    // the fail-closed reading: the run expires instead.
+    if proposal.entity == workflow_approvals::GATE_ENTITY {
+        let approvers = workflow_approvals::GateRequest::approvers_of(&proposal.proposed_value);
+        let role_keys: Vec<String> = authed
+            .principal
+            .roles
+            .iter()
+            .filter_map(|role| role.builtin.map(|builtin| builtin.as_str().to_string()))
+            .collect();
+        let role_names: Vec<String> = authed
+            .principal
+            .roles
+            .iter()
+            .map(|role| role.name.clone())
+            .collect();
+        if workflow_approvals::entitled(
+            &approvers,
+            authed.principal.user.id,
+            &role_keys,
+            &role_names,
+        ) {
+            return Ok(());
+        }
+        return Err(ApiError::Forbidden(
+            "this workflow gate names its own approvers; you are not one of them".into(),
+        ));
+    }
     if ctx_can_admin(authed) {
         return Ok(());
     }

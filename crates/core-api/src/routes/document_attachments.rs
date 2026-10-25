@@ -318,8 +318,13 @@ pub async fn list(
     core_db::documents::get_document(&mut *tx, org_id, document_id)
         .await
         .map_err(ApiError::from)?;
-    let rows =
-        core_db::document_attachments::list_for_document(&mut tx, org_id, document_id).await?;
+    let rows = core_db::document_attachments::list_for_document(
+        &mut tx,
+        org_id,
+        document_id,
+        crate::routes::attachments::scanner_installed(&state),
+    )
+    .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(DocumentAttachmentList {
         attachments: rows.into_iter().map(Into::into).collect(),

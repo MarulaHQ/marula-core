@@ -95,18 +95,24 @@ pub async fn get(
     .ok_or(crate::DbError::NotFound)
 }
 
-/// Newest-first list for one document.
+/// Newest-first list for one document, filtered by the same admission rule
+/// the document download door applies ([`core_db::attachments::admitted_verdict_filter`]):
+/// an object the door would refuse is not offered. `scanner_installed` is the
+/// door's flag; false (a none-mode deployment) leaves the list as it was.
 pub async fn list_for_document(
     conn: &mut PgConnection,
     org_id: Uuid,
     document_id: Uuid,
+    scanner_installed: bool,
 ) -> DbResult<Vec<DocumentAttachmentRow>> {
     let rows = sqlx::query_as::<_, DocumentAttachmentRow>(&format!(
-        "{SELECT_COLS} FROM documents_attachments \
-         WHERE org_id = $1 AND document_id = $2 ORDER BY created_at, id"
+        "{SELECT_COLS} FROM documents_attachments a \
+         WHERE a.org_id = $1 AND a.document_id = $2{} ORDER BY a.created_at, a.id",
+        crate::attachments::admitted_verdict_filter(3)
     ))
     .bind(org_id)
     .bind(document_id)
+    .bind(scanner_installed)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows)

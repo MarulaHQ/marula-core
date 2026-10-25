@@ -385,9 +385,10 @@ if [ -n "${E2E_PG_CONTAINER:-}" ] || [ -n "${CI:-}" ]; then
   export BIND_ADDR="${BIND_ADDR:-0.0.0.0:${API_PORT}}"
   export JWT_SECRET="${JWT_SECRET:-e2e-demo-secret-not-for-production}"
   export MARULA_INTERNAL_TOKEN="${MARULA_INTERNAL_TOKEN:-e2e-internal-token-not-for-production}"
-  # core-api refuses boot without the machine-seam token (Wave 54 lane S3d):
-  # this is the WORKER↔API send/effect seam, a different gate from the bearer
-  # token above, and the worker gets the same value from this process env.
+  # core-api refuses boot without BOTH machine-seam tokens: the bearer above
+  # (SLA, automation, webhook, dedupe, workflow-node calls) and this
+  # worker↔API send/effect token (Wave 54 lane S3d, bearer half in Wave 55).
+  # The worker gets the same values from this process env.
   export EMAIL_INTERNAL_TOKEN="${EMAIL_INTERNAL_TOKEN:-e2e-email-internal-not-for-production}"
   export WEB_BASE_URL="${WEB_BASE_URL:-http://localhost:${WEB_PORT}}"
   export CORS_ORIGIN="${CORS_ORIGIN:-http://localhost:${WEB_PORT}}"
@@ -403,10 +404,12 @@ else
   export JWT_SECRET="$(openssl rand -hex 32 2>/dev/null || true)"
   [ ${#JWT_SECRET} -eq 64 ] || die "openssl rand -hex 32 unavailable"
   export MARULA_SECRET_KEY="$JWT_SECRET" # same dev seal key as the seed
-  # The worker↔api internal token (Wave 43 lane 20, item G). core-api only
-  # serves `/api/internal/*` when this is set, and the worker's node endpoint
-  # and `workflow.resume` consumer both need it — without it no lane could
-  # execute a workflow against a stack booted by this script.
+  # The bearer half of the worker↔api machine seam (Wave 43 lane 20, item G;
+  # required by the boot check since Wave 55). The worker's node endpoint and
+  # `workflow.resume` consumer need it — without it no lane could execute a
+  # workflow — and core-api now refuses boot without it outside the dev
+  # profile. Pair it with EMAIL_INTERNAL_TOKEN below, which core-api refuses
+  # boot without the same way.
   export MARULA_INTERNAL_TOKEN="$(openssl rand -hex 32 2>/dev/null || true)"
   [ ${#MARULA_INTERNAL_TOKEN} -eq 64 ] || die "openssl rand -hex 32 unavailable"
   REDIS_PORT="$(free_port 26379)"

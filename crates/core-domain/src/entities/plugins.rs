@@ -1941,6 +1941,17 @@ pub struct PluginStagedItem {
     /// (the archive), and this one identifies what would RUN. The install pins
     /// this one, because a pin over the archive cannot address a module.
     pub module_digest: String,
+    /// Whether a signature the operator's trust set verified covers THIS
+    /// manifest — not just the artifact bytes.
+    ///
+    /// `true` only for a marketplace-registry entry whose v2 statement
+    /// (artifact digest + canonical manifest digest) verified at ingest. A
+    /// legacy digest-only registry entry, a zip, a skill and a GitHub pull all
+    /// carry `false`, and so does anything ingested while no trusted key is
+    /// configured. The consent screen shows this so an approver can tell a
+    /// publisher-signed manifest from a manifest that merely travelled beside
+    /// a signature. Added in migration 0167.
+    pub manifest_authenticated: bool,
     /// The full declarative manifest (plugin v2 shape incl.
     /// settings_schema, or the skill manifest).
     pub manifest: serde_json::Value,

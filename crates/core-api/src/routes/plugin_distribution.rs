@@ -198,6 +198,11 @@ pub struct StagedItemView {
     /// one. This is the value the install will pin and the executor will load;
     /// the consent screen shows it so an operator approves bytes, not a name.
     pub module_digest: String,
+    /// Whether a signature the operator's trust set verified covers the
+    /// manifest on this row, not just the artifact bytes. `false` is the
+    /// weaker claim: a legacy digest-only registry entry, a zip, a skill, a
+    /// GitHub pull, or any ingest run with no trusted key configured.
+    pub manifest_authenticated: bool,
     pub manifest: serde_json::Value,
     pub declared_capabilities: Vec<String>,
     pub status: String,
@@ -222,6 +227,7 @@ impl From<PluginStagedItem> for StagedItemView {
             fetched_ref: i.fetched_ref,
             artifact_digest: i.artifact_digest,
             module_digest: i.module_digest,
+            manifest_authenticated: i.manifest_authenticated,
             manifest: i.manifest,
             declared_capabilities: i.declared_capabilities,
             status: i.status.as_str().into(),
@@ -243,6 +249,12 @@ pub struct ConsentView {
     pub source_url: String,
     pub fetched_ref: Option<String>,
     pub artifact_digest: String,
+    /// Whether the publisher's signature covers this manifest (the registry
+    /// v2 statement) or only the artifact bytes (legacy v1, or no signature at
+    /// all). The consent screen shows it so an approver can tell a
+    /// publisher-signed manifest from one that merely travelled beside a
+    /// signature.
+    pub manifest_authenticated: bool,
     pub declared_capabilities: Vec<String>,
     pub settings_schema: Option<serde_json::Value>,
     /// ADR 0009 §6 full semantics — the modeled connector governance
@@ -503,36 +515,89 @@ impl From<PluginProvenanceEntry> for ProvenanceView {
 /// serves smaller artifacts.
 const MAX_FETCH_ARTIFACT_BYTES: i64 = 8 * 1024 * 1024;
 
+/// Whole-request budget. A distribution source is a manifest or an artifact,
+/// not a stream: a source that cannot answer inside this window is refused.
+const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The one server-side fetch every distribution source funnels through.
+///
+/// The URL arrives in a request body, so the process must not connect anywhere
+/// the request names. Four decisions stand between the string and a socket, and
+/// all four come from the shared guard (`crate::outbound`):
+///
+/// 1. **Screen** with `core_domain::egress::screen` — the seam's shape, https on
+///    the default port, no userinfo, no private or metadata host by literal or
+///    by name. The rule is shared; this file carries no copy of it.
+/// 2. **Resolve once and judge every answer** — a public name whose A record is
+///    `127.0.0.1` is refused here, before a client exists. The screen alone
+///    cannot see that, because it decides on the URL string.
+/// 3. **Pin** the connection to the judged addresses, so a DNS answer that
+///    changes between the screen and the connect has nothing to redirect: the
+///    transport dials the address the guard approved.
+/// 4. **Refuse a redirect.** `Guarded::client` builds with `Policy::none`, so a
+///    `3xx` arrives as a response and is refused below. A hop is a second host
+///    that nothing screened and nothing pinned; following it would reopen the
+///    exact gap steps 1 to 3 close. See `REVIEW.md` for the argument against
+///    re-screening per hop.
+///
+/// The body is read to a bound rather than collected whole, so a source that
+/// answers with an endless stream cannot exhaust the process.
 async fn fetch_bytes(url: &str) -> ApiResult<Vec<u8>> {
-    url_guard(url)?;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| ApiError::Validation(format!("http client unavailable: {e}")))?;
+    let guarded = crate::outbound::guard_with(url, core_domain::egress::screen)
+        .await
+        .map_err(|denial| ApiError::Validation(format!("source url refused: {denial}")))?;
+    let client = guarded
+        .client(FETCH_TIMEOUT)
+        .map_err(|denial| ApiError::Validation(format!("http client unavailable: {denial}")))?;
+    // The guard's canonical serialization, not the caller's string: one parse
+    // authorizes the URL and fetches it.
     let resp = client
-        .get(url)
+        .get(guarded.url())
         .send()
         .await
         .map_err(|e| ApiError::Validation(format!("distribution fetch failed: {e}")))?;
+    if crate::outbound::is_redirect(resp.status().as_u16()) {
+        tracing::warn!(
+            status = resp.status().as_u16(),
+            host = guarded.host(),
+            "distribution fetch refused a redirect: the hop is a host nothing screened"
+        );
+        return Err(ApiError::Validation(format!(
+            "distribution fetch refused: the source answered {} (redirects are never followed)",
+            resp.status().as_u16()
+        )));
+    }
     if !resp.status().is_success() {
         return Err(ApiError::NotFound);
     }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| ApiError::Validation(format!("distribution fetch failed: {e}")))?;
-    Ok(bytes.to_vec())
+    read_capped(resp).await
 }
 
-/// SSRF posture: https-only, and no host that is not publicly routable. The
-/// decision lives in `core_domain::egress` so the distribution seam, the plugin
-/// egress path and Wave 54's connector egress cannot drift apart. This call
-/// site previously accepted `http://`; it no longer does, because a plaintext
-/// fetch of an executable artifact is a rewrite of the bytes that run.
-fn url_guard(url: &str) -> ApiResult<()> {
-    core_domain::egress::screen(url)
-        .map(|_| ())
-        .map_err(|denial| ApiError::Validation(format!("source url refused: {denial}")))
+/// Reads the body to one byte past the artifact cap and refuses beyond it.
+///
+/// The caller's own cap is the decision (an artifact over
+/// [`MAX_FETCH_ARTIFACT_BYTES`] is the intake's `ArchiveCap` refusal, which this
+/// keeps reachable by returning the extra byte). This bound exists so the read
+/// itself is finite: before Wave 55 the registry and skill fetches collected the
+/// body with no cap at all, and the artifact cap was applied after a `Vec` of
+/// whatever size the source chose to send.
+async fn read_capped(mut resp: reqwest::Response) -> ApiResult<Vec<u8>> {
+    let ceiling = MAX_FETCH_ARTIFACT_BYTES as usize + 1;
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| ApiError::Validation(format!("distribution fetch failed: {e}")))?
+    {
+        if body.len() + chunk.len() > ceiling {
+            return Err(ApiError::Validation(format!(
+                "distribution fetch refused: the response exceeds the \
+                 {MAX_FETCH_ARTIFACT_BYTES} byte artifact cap"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn validate_repo_component(value: &str) -> ApiResult<()> {
@@ -607,6 +672,7 @@ async fn stage_bundle(
         fetched_ref: bundle.fetched_ref,
         artifact_digest: bundle.artifact_digest,
         module_digest,
+        manifest_authenticated: bundle.manifest_authenticated,
         manifest: bundle.manifest,
         declared_capabilities: bundle.declared_capabilities,
         status: PluginStagedStatus::Pending,
@@ -639,6 +705,7 @@ async fn stage_bundle(
                     "fetched_ref": item.fetched_ref,
                     "artifact_digest": item.artifact_digest,
                     "module_digest": item.module_digest,
+                    "manifest_authenticated": item.manifest_authenticated,
                     "declared_capabilities": item.declared_capabilities,
                     "status": "pending",
                 }),
@@ -937,6 +1004,7 @@ pub async fn get_staged_consent(
         source_url: item.source_url,
         fetched_ref: item.fetched_ref,
         artifact_digest: item.artifact_digest,
+        manifest_authenticated: item.manifest_authenticated,
         declared_capabilities: item.declared_capabilities,
         settings_schema: item
             .manifest
@@ -2887,4 +2955,110 @@ pub async fn put_rating(
         rows
     };
     Ok(Json(rating_view(rows, &actor).summary))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The record's own spellings, driven through the fetch the routes call.
+    ///
+    /// Every one of these is refused by the screen, so no socket exists and no
+    /// test needs a network. The point is the composition: `fetch_bytes` is the
+    /// only path to a distribution source, and it refuses before it builds a
+    /// client.
+    #[tokio::test]
+    async fn a_private_or_metadata_source_url_is_refused_before_a_socket() {
+        for url in [
+            "https://127.0.0.1/manifest.json",
+            "https://[::1]/manifest.json",
+            "https://10.0.0.5/manifest.json",
+            "https://172.16.4.4/manifest.json",
+            "https://192.168.1.10/manifest.json",
+            "https://100.64.0.1/manifest.json",
+            "https://0.0.0.0/manifest.json",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://metadata.google.internal/computeMetadata/v1/",
+            "https://2130706433/manifest.json",
+            "https://localhost/manifest.json",
+            "https://plugins.internal/manifest.json",
+        ] {
+            match fetch_bytes(url).await {
+                Err(ApiError::Validation(message)) => assert!(
+                    message.contains("source url refused"),
+                    "{url} must be refused by the guard, got: {message}"
+                ),
+                Err(other) => panic!("{url} was refused for the wrong reason: {other:?}"),
+                Ok(bytes) => panic!("{url} returned {} bytes", bytes.len()),
+            }
+        }
+    }
+
+    /// The seam's https-only consent shape survives the move onto the shared
+    /// guard. A plaintext fetch of an executable artifact is a rewrite of the
+    /// bytes that run, so `http` stays refused even though the product-fetch
+    /// shape next door accepts it.
+    #[tokio::test]
+    async fn a_plain_http_source_url_is_still_refused() {
+        for url in [
+            "http://registry.example.com/manifest.json",
+            "http://8.8.8.8/manifest.json",
+        ] {
+            match fetch_bytes(url).await {
+                Err(ApiError::Validation(message)) => assert!(
+                    message.contains("egress_scheme_denied"),
+                    "{url} must be refused for its scheme, got: {message}"
+                ),
+                other => panic!("{url} must be refused: {other:?}"),
+            }
+        }
+    }
+
+    /// A userinfo component and a non-default port are still refused: the two
+    /// spellings that made the old hand-split guard read one host and fetch
+    /// another.
+    #[tokio::test]
+    async fn a_userinfo_or_explicit_port_source_url_is_refused() {
+        for (url, token) in [
+            (
+                "https://user:pw@registry.example.com/manifest.json",
+                "egress_userinfo_denied",
+            ),
+            (
+                "https://registry.example.com:8443/manifest.json",
+                "egress_port_denied",
+            ),
+        ] {
+            match fetch_bytes(url).await {
+                Err(ApiError::Validation(message)) => assert!(
+                    message.contains(token),
+                    "{url} must be refused with {token}, got: {message}"
+                ),
+                other => panic!("{url} must be refused: {other:?}"),
+            }
+        }
+    }
+
+    /// The resolve step runs in this path: a name the screen accepts and the
+    /// resolver cannot answer is refused, not fetched. A resolver that hijacks
+    /// `NXDOMAIN` for a public address changes which arm fires, never the
+    /// answer — the fetch returns an error in both, and bytes in neither.
+    #[tokio::test]
+    async fn an_unresolvable_public_name_never_returns_bytes() {
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            fetch_bytes("https://p55-distribution-egress.invalid/manifest.json"),
+        )
+        .await
+        .expect("the resolver answers or fails inside the test budget");
+
+        match result {
+            Err(ApiError::Validation(message)) => assert!(
+                message.contains("egress_unresolved")
+                    || message.contains("distribution fetch failed"),
+                "an unresolvable name must be a refusal, got: {message}"
+            ),
+            other => panic!("an unresolvable name must never return bytes: {other:?}"),
+        }
+    }
 }

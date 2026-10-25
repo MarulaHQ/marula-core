@@ -29,7 +29,12 @@ async fn two_simulated_weeks_with_zero_lost_messages() {
         "vip@bigco.test",
         "nobody@stranger.test",
     ];
-    let mut live_messages: Vec<String> = Vec::new();
+    // (Message-ID, the address that opened the conversation). Wave 55: a
+    // reply threads only from an address already on the ticket, so the
+    // scenario replies as the correspondent rather than as an arbitrary
+    // sender from the roster — a stranger's reply is the sender-binding
+    // suite's subject, not this zero-loss one.
+    let mut live_messages: Vec<(String, String)> = Vec::new();
     let mut expected_inbound = 0_usize; // unique Message-IDs delivered
     let mut expected_replays = 0_usize;
     let mut expected_quarantined = 0_usize;
@@ -52,30 +57,39 @@ async fn two_simulated_weeks_with_zero_lost_messages() {
             } else {
                 expected_tickets += 1;
                 expected_outbound += 1; // autoresponder confirmation
-                live_messages.push(rfc);
+                live_messages.push((rfc, sender.to_string()));
             }
         }
         // Afternoon: threaded reply onto an existing conversation.
         if !live_messages.is_empty() && day % 2 == 1 {
-            let target = live_messages[(day % live_messages.len() as i64) as usize].clone();
+            let (target, author) =
+                live_messages[(day % live_messages.len() as i64) as usize].clone();
             sim.reply(
                 day_base + 7_200,
                 &format!("d{day}-reply@client.test"),
                 &target,
-                senders[0],
+                &author,
             );
             expected_inbound += 1;
             expected_comments += 1;
         }
         // Subject-token fallback reply.
         if !live_messages.is_empty() && day % 3 == 2 {
-            sim.token_reply(day_base + 10_800, &format!("d{day}-token@client.test"));
+            let author = live_messages
+                .last()
+                .map(|(_, sender)| sender.clone())
+                .unwrap_or_else(|| senders[0].to_string());
+            sim.token_reply(
+                day_base + 10_800,
+                &format!("d{day}-token@client.test"),
+                &author,
+            );
             expected_inbound += 1;
             expected_comments += 1;
         }
         // Provider replays an earlier delivery — MUST be inert.
         if day % 4 == 3 {
-            if let Some(rfc) = live_messages.first().cloned() {
+            if let Some((rfc, _)) = live_messages.first().cloned() {
                 sim.replay(day_base + 20_000, &rfc);
                 expected_replays += 1;
             }

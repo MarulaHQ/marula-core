@@ -6,6 +6,13 @@
 
 #![allow(dead_code)]
 
+// The caller-identity fixture F7 asked for. It is a sibling rather than part
+// of this stack because the auth flow suites need it without the mail
+// harness, and they include it directly (`#[path = "support/caller.rs"]`) to
+// keep their binaries small. `two_weeks` and `email_attachments` reach it
+// here.
+pub mod caller;
+
 use core_api::email::{self, InboundStatus, MailStack};
 use core_api::state::AppState;
 use core_db::emails;
@@ -156,6 +163,8 @@ pub struct Scenario {
     pub events: Vec<SimEvent>,
     pub inbound_ids: Vec<String>,
     templates: HashMap<String, InboundEmail>,
+    /// Sender for each subject-token fallback delivery, keyed by Message-ID.
+    token_senders: HashMap<String, String>,
     pub last_ticket_number: Option<String>,
 }
 
@@ -196,8 +205,12 @@ impl Scenario {
     }
 
     /// Registers a subject-token fallback delivery (`[MER-n]` in the
-    /// subject); the number is filled in when the pipeline reaches it.
-    pub fn token_reply(&mut self, at_secs: i64, rfc: &str) {
+    /// subject); the number is filled in when the pipeline reaches it. The
+    /// sender is named because the fallback models the same correspondent
+    /// losing the thread tag, not a stranger quoting a number.
+    pub fn token_reply(&mut self, at_secs: i64, rfc: &str, sender: &str) {
+        self.token_senders
+            .insert(rfc.to_string(), sender.to_string());
         self.inbound_ids.push(rfc.to_string());
         self.events.push(SimEvent::TokenReply {
             at_secs,
@@ -371,17 +384,25 @@ impl MailHarness {
                         Ok(InboundStatus::Quarantined) => counters.quarantined += 1,
                         Ok(InboundStatus::Duplicate) => counters.duplicate += 1,
                         Ok(InboundStatus::Unroutable) => counters.unroutable += 1,
+                        Ok(InboundStatus::Held) => counters.held += 1,
                         Err(e) => panic!("pipeline failed: {e}"),
                     }
                 }
                 SimEvent::TokenReply { rfc, .. } => {
                     let number = sim.last_ticket_number.clone().unwrap_or_default();
+                    // Same correspondent, tag lost — not a stranger quoting
+                    // a number at the board address.
+                    let sender = sim
+                        .token_senders
+                        .get(&rfc)
+                        .cloned()
+                        .unwrap_or_else(|| "client@example.test".into());
                     let msg = InboundEmail {
                         rfc_message_id: rfc,
                         in_reply_to: None,
                         references: vec![],
                         subject: Some(format!("[{number}] lost the thread tag")),
-                        from_address: "client@example.test".into(),
+                        from_address: sender,
                         from_name: None,
                         to: vec!["support@acme.test".into()],
                         cc: vec![],
@@ -584,4 +605,9 @@ pub struct OutcomeCounters {
     pub duplicate: usize,
     pub unroutable: usize,
     pub staff_replies: usize,
+    /// Messages held because the sender was not a participant on the ticket
+    /// the message named (Wave 55). The two-week scenario keeps replies on
+    /// the address that opened the conversation, so this stays zero there;
+    /// the sender-binding suite drives it deliberately.
+    pub held: usize,
 }

@@ -57,6 +57,11 @@ spec:
               value: {{ .Values.worker.shutdownGraceSeconds | quote }}
             - name: CORE_API_URL
               value: http://{{ include "marula.fullname" . }}-core-api:{{ .Values.service.coreApi.port }}
+            - name: MARULA_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-secrets" (include "marula.fullname" .)) .Values.existingSecret }}
+                  key: MARULA_INTERNAL_TOKEN
             - name: EMAIL_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
