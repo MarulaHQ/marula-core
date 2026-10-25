@@ -129,7 +129,7 @@ why only two are required.
 | `JWT_SECRET` | secret, required | none | 64 hex chars. Access/refresh token signing. Boot refuses without it outside dev. |
 | `MARULA_SECRET_KEY` | secret, required | none | 64 hex chars. AES-256 at-rest key for sealed integration secrets. |
 | `MARULA_INTERNAL_TOKEN` | secret | none | Bearer token for /api/internal/* (worker to API machine surface). |
-| `EMAIL_INTERNAL_TOKEN` | secret | none | Shared token for the email claim/report loop. |
+| `EMAIL_INTERNAL_TOKEN` | secret, required | none | Shared token for the worker↔api machine seam (`X-Internal-Token`). Boot refuses without it outside the desktop local profile and the dev marker. |
 | `EMAIL_INBOUND_HMAC_SECRET` | secret | none | HMAC secret for the inbound email webhook. Unset disables it. |
 | `MARULA_PLUGIN_SIGNING_KEYS` | string | none | Trusted plugin-signing public keys (key_id=hex, comma-separated). |
 | `MARULA_PLUGIN_SIGNING_KEY` | secret | none | Single trusted plugin-signing key (key_id=hex). Superseded by MARULA_PLUGIN_SIGNING_KEYS. |
