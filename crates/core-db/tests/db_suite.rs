@@ -6113,15 +6113,17 @@ async fn attachments_dedup_link_and_refcounted_delete() {
     );
 
     // Listing sees both rows for the ticket and per-comment.
+    // `false`: this case is about row presence under RLS, not about the
+    // Wave 55 admission filter, which a none-mode reading leaves as it was.
     assert_eq!(
-        core_db::attachments::list_for_ticket(&mut *tx, sa.org, t1.id)
+        core_db::attachments::list_for_ticket(&mut *tx, sa.org, t1.id, false)
             .await
             .expect("list")
             .len(),
         2
     );
     assert_eq!(
-        core_db::attachments::list_for_comment(&mut *tx, sa.org, c1.id)
+        core_db::attachments::list_for_comment(&mut *tx, sa.org, c1.id, false)
             .await
             .expect("per-comment")
             .len(),
@@ -6195,7 +6197,7 @@ async fn rls_isolates_attachments_table() {
             .is_err()
     );
     assert!(
-        core_db::attachments::list_for_ticket(&mut *tx_b, sb.org, t1.id)
+        core_db::attachments::list_for_ticket(&mut *tx_b, sb.org, t1.id, false)
             .await
             .expect("empty")
             .is_empty()

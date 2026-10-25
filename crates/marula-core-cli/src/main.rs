@@ -14,6 +14,7 @@ use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use tokio::sync::watch;
 
+mod attachments;
 mod data;
 mod deploy;
 mod fixture;
@@ -92,6 +93,13 @@ enum Command {
         #[command(subcommand)]
         action: DataAction,
     },
+    /// Stored-object maintenance. The verdict backfill is the pass an install
+    /// runs BEFORE it turns a scanner on, so files stored without a scan are
+    /// not locked out of every download door (Wave 55, follow-up F30).
+    Attachments {
+        #[command(subcommand)]
+        action: AttachmentAction,
+    },
 }
 
 /// Data-lifecycle verbs.
@@ -118,6 +126,36 @@ enum DataAction {
         dry_run: bool,
         /// Owner-role connection string (defaults to DATABASE_URL). The RLS app
         /// role cannot erase a tenant.
+        #[arg(long)]
+        database_url: Option<String>,
+    },
+}
+
+/// Stored-object verbs.
+#[derive(Debug, Subcommand)]
+enum AttachmentAction {
+    /// Give every stored object without an admission verdict one, by reading
+    /// its bytes back and running them through the configured scanner. An
+    /// object that already carries a verdict is never re-scanned, so a second
+    /// run finds nothing. Run before enabling a scanner on an install that
+    /// stored files without one (Wave 55, follow-up F30).
+    #[command(name = "backfill-verdicts")]
+    BackfillVerdicts {
+        /// Report the plan and stop. Records nothing and scans nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// The number of objects the dry run reported. Required to execute:
+        /// the run re-counts first and refuses if the plan moved.
+        #[arg(long)]
+        confirm: Option<i64>,
+        /// Restrict the walk to one org. The connection still has to be the
+        /// deployment role: a narrowed walk is only a smaller plan.
+        #[arg(long)]
+        org_id: Option<uuid::Uuid>,
+        /// Objects fetched per query batch.
+        #[arg(long, default_value_t = core_api::scan_backfill::DEFAULT_BATCH)]
+        batch_size: i64,
+        /// Owner-role connection string (defaults to DATABASE_URL).
         #[arg(long)]
         database_url: Option<String>,
     },
@@ -232,6 +270,7 @@ async fn main() -> anyhow::Result<()> {
         Command::PluginKey { action } => plugin_key(action).await,
         Command::Deploy { action } => deploy_command(action).await,
         Command::Data { action } => data_command(action).await,
+        Command::Attachments { action } => attachments_command(action).await,
     }
 }
 
@@ -267,6 +306,44 @@ async fn data_command(action: DataAction) -> anyhow::Result<()> {
                 dry_run,
             };
             data::purge_org(&url, store.as_ref(), &args).await
+        }
+    }
+}
+
+/// `marula attachments backfill-verdicts` (Wave 55, follow-up F30). The store
+/// and the scanner are resolved from the process environment exactly as
+/// core-api resolves them, so the walk reads the bytes the API wrote and asks
+/// the scanner the API asks.
+async fn attachments_command(action: AttachmentAction) -> anyhow::Result<()> {
+    match action {
+        AttachmentAction::BackfillVerdicts {
+            dry_run,
+            confirm,
+            org_id,
+            batch_size,
+            database_url,
+        } => {
+            let url = database_url
+                .or_else(|| std::env::var("DATABASE_URL").ok())
+                .unwrap_or_else(|| DEFAULT_DATABASE_URL.to_string());
+            if std::env::var("OBJECT_STORE").is_err() {
+                eprintln!(
+                    "warning: OBJECT_STORE is unset, so the walk reads the default local \
+                     directory. Point the store variables at what core-api writes, or every object \
+                     reports unreadable."
+                );
+            }
+            anyhow::ensure!(
+                batch_size > 0,
+                "--batch-size must be at least 1 (0 would fetch nothing and report success)"
+            );
+            let args = attachments::BackfillArgs {
+                org_id,
+                batch_size,
+                dry_run,
+                confirm,
+            };
+            attachments::backfill_verdicts(&url, &args).await
         }
     }
 }
@@ -962,6 +1039,65 @@ mod tests {
         // The org id is not optional: without it the verb would have to guess
         // which tenant to erase.
         assert!(parse(&["data", "purge-org", "--dry-run"]).is_err());
+    }
+
+    /// The verdict backfill's flags have to mean what the doc says: a dry run
+    /// needs no confirmation, the org filter is optional (absent walks all of
+    /// them), and the batch default is the shared constant.
+    #[test]
+    fn parses_attachments_backfill_verdicts() {
+        let cmd = parse(&["attachments", "backfill-verdicts", "--dry-run"]).expect("parses");
+        match cmd {
+            Command::Attachments {
+                action:
+                    AttachmentAction::BackfillVerdicts {
+                        dry_run,
+                        confirm,
+                        org_id,
+                        batch_size,
+                        ..
+                    },
+            } => {
+                assert!(dry_run);
+                assert!(confirm.is_none(), "a dry run confirms nothing");
+                assert!(org_id.is_none(), "absent means every org");
+                assert_eq!(batch_size, core_api::scan_backfill::DEFAULT_BATCH);
+            }
+            _ => panic!("expected attachments backfill-verdicts"),
+        }
+
+        let cmd = parse(&[
+            "attachments",
+            "backfill-verdicts",
+            "--confirm",
+            "37",
+            "--org-id",
+            "00000000-0000-4000-8000-000000000001",
+            "--batch-size",
+            "50",
+        ])
+        .expect("parses");
+        match cmd {
+            Command::Attachments {
+                action:
+                    AttachmentAction::BackfillVerdicts {
+                        dry_run,
+                        confirm,
+                        org_id,
+                        batch_size,
+                        ..
+                    },
+            } => {
+                assert!(!dry_run);
+                assert_eq!(confirm, Some(37));
+                assert_eq!(
+                    org_id.unwrap().to_string(),
+                    "00000000-0000-4000-8000-000000000001"
+                );
+                assert_eq!(batch_size, 50);
+            }
+            _ => panic!("expected attachments backfill-verdicts"),
+        }
     }
 
     #[test]

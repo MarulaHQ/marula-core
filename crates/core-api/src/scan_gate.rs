@@ -44,6 +44,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::org_tx::OrgTx;
 use crate::state::AppState;
 use core_domain::entities::ScanStatus;
+use core_mail::ScanProvider;
 use sqlx::{Postgres, Transaction};
 
 /// What the scanner said, in the terms a caller records.
@@ -88,7 +89,19 @@ impl GateVerdict {
 /// caller must write NOTHING in that case — that is what closing the gate
 /// means.
 pub async fn gate(state: &AppState, bytes: &[u8]) -> ApiResult<GateVerdict> {
-    let scanner = std::sync::Arc::clone(&state.mail.scanner);
+    gate_with(state.mail.scanner.as_ref(), bytes).await
+}
+
+/// The same gate for a caller that holds the configured scanner but no
+/// [`AppState`]: the operator verdict backfill ([`crate::scan_backfill`]) runs
+/// in the CLI process, where there is no router and no server state. One
+/// implementation still decides what a scanner answer MEANS, so the backfill
+/// cannot record a verdict shape an upload door would not.
+///
+/// # Errors
+/// [`ApiError::Unavailable`] (503) when the scanner cannot be reached; the
+/// caller writes nothing for the object it was judging.
+pub async fn gate_with(scanner: &dyn ScanProvider, bytes: &[u8]) -> ApiResult<GateVerdict> {
     // The BYTES leg: an upload is binary, and a text view of it is how a
     // signature in the binary region stops matching.
     match scanner.scan_bytes(bytes).await {
@@ -115,6 +128,18 @@ pub async fn gate(state: &AppState, bytes: &[u8]) -> ApiResult<GateVerdict> {
             )))
         }
     }
+}
+
+/// Whether this deployment has a scanner that could have recorded a verdict.
+///
+/// The documented none mode ([`core_mail::NoopScan`], `name() == "none"`) is
+/// the answer. One definition, read by the download doors and by the verdict
+/// backfill: a backfill that disagreed with the doors about whether a scanner
+/// exists would either lock files out (writing slots nobody reads) or leave
+/// the hole it was run to close.
+#[must_use]
+pub fn scanner_is_installed(scanner: &dyn ScanProvider) -> bool {
+    scanner.name() != "none"
 }
 
 /// What an upload surface did with one gated upload. Both arms COMMIT: the

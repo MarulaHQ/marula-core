@@ -20,6 +20,7 @@ pub mod plugin_http;
 pub mod realtime;
 pub mod routes;
 pub mod routing;
+pub mod scan_backfill;
 pub mod scan_gate;
 pub mod services;
 pub mod state;

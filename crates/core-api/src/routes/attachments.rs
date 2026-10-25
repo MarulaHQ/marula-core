@@ -280,7 +280,8 @@ pub async fn upload(
     }
 }
 
-/// GET /api/tickets/{id}/attachments — every attachment on one ticket.
+/// GET /api/tickets/{id}/attachments — every attachment on one ticket that
+/// the download door would also hand out.
 #[utoipa::path(operation_id = "attachments_list_for_ticket", get,
     path = "/api/tickets/{id}/attachments", tag = "attachments",
     security(("bearer" = [])), params(("id" = Uuid, Path)),
@@ -298,13 +299,15 @@ pub async fn list_for_ticket(
     core_db::set_org(&mut tx, org_id).await?;
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
     authorize_board_op(&mut tx, &authed.principal, ticket.board_id, BoardOp::View).await?;
-    let items = core_db::attachments::list_for_ticket(&mut *tx, org_id, id).await?;
+    let items =
+        core_db::attachments::list_for_ticket(&mut *tx, org_id, id, scanner_installed(&state))
+            .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(items))
 }
 
 /// GET /api/tickets/{id}/comments/{comment_id}/attachments — one comment's
-/// attachments.
+/// attachments that the download door would also hand out.
 #[utoipa::path(operation_id = "attachments_list_for_comment", get,
     path = "/api/tickets/{id}/comments/{comment_id}/attachments", tag = "attachments",
     security(("bearer" = [])),
@@ -323,7 +326,13 @@ pub async fn list_for_comment(
     core_db::set_org(&mut tx, org_id).await?;
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
     authorize_board_op(&mut tx, &authed.principal, ticket.board_id, BoardOp::View).await?;
-    let items = core_db::attachments::list_for_comment(&mut *tx, org_id, comment_id).await?;
+    let items = core_db::attachments::list_for_comment(
+        &mut *tx,
+        org_id,
+        comment_id,
+        scanner_installed(&state),
+    )
+    .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(items))
 }
@@ -536,8 +545,11 @@ pub(crate) fn unscanned_refusal() -> ApiError {
 /// again. With a scanner configured, an absent verdict means the bytes
 /// entered the store without passing the gate, which is exactly what a
 /// download must not hand out.
+///
+/// The rule itself lives in [`crate::scan_gate::scanner_is_installed`] so the
+/// verdict backfill asks the same question of the same adapter.
 pub(crate) fn scanner_installed(state: &AppState) -> bool {
-    state.mail.scanner.name() != "none"
+    crate::scan_gate::scanner_is_installed(state.mail.scanner.as_ref())
 }
 
 /// The door's decision for one object, in one place so the ticket door,
