@@ -91,6 +91,7 @@ fn staged_item(n: u64, org: Uuid, uploader: Uuid, manifest: serde_json::Value) -
         fetched_ref: None,
         artifact_digest: "a".repeat(64),
         module_digest: "b".repeat(64),
+        manifest_authenticated: false,
         manifest,
         declared_capabilities: vec!["tickets.read".to_string()],
         status: PluginStagedStatus::Pending,
@@ -679,5 +680,72 @@ async fn agent_skills_should_append_versions_and_default_to_disabled() {
     .await
     .expect("row");
     assert!(latest.0);
+    tx.commit().await.expect("commit");
+}
+
+/// Wave 55 (`p55-registry-signature-scope`, migration 0167): the
+/// manifest-authentication verdict the adapter reached at ingest is the one the
+/// approver reads back. Without this column there was nothing to re-verify at
+/// read time — the signature and statement are not persisted — so the consent
+/// screen could only present the manifest as unqualified text.
+#[tokio::test]
+async fn manifest_authentication_round_trips_on_the_staged_row() {
+    let db = pool().await;
+    let (org, _roles) = seed_org_at(&db, 6950, "dist-manifest-auth").await;
+    let uploader = fixed_uuid(6971);
+    let mut tx = org_tx(&db.admin, org).await;
+    users::create_user(
+        &mut *tx,
+        uploader,
+        org,
+        "member@manifest-auth.test",
+        "Member",
+        "argon2hash",
+        "UTC",
+    )
+    .await
+    .expect("member");
+    tx.commit().await.expect("commit");
+
+    // A registry entry the trust set verified as covering its manifest.
+    let mut verified = staged_item(6951, org, uploader, sample_manifest(951, &["tickets.read"]));
+    verified.source_kind = PluginSourceKind::MarketplaceRegistry;
+    verified.source_url = "registry://ticket-summarizer".into();
+    verified.manifest_authenticated = true;
+    // A legacy digest-only entry: same table, weaker claim, and it stays false.
+    let mut legacy = staged_item(6952, org, uploader, sample_manifest(952, &["tickets.read"]));
+    legacy.source_kind = PluginSourceKind::MarketplaceRegistry;
+    legacy.source_url = "registry://legacy-plugin".into();
+    assert!(!legacy.manifest_authenticated);
+
+    let mut tx = org_tx(&db.admin, org).await;
+    plugin_distribution::create_staged_item(&mut tx, &verified)
+        .await
+        .expect("stage verified");
+    plugin_distribution::create_staged_item(&mut tx, &legacy)
+        .await
+        .expect("stage legacy");
+    tx.commit().await.expect("commit");
+
+    let mut tx = org_tx(&db.admin, org).await;
+    let listed = plugin_distribution::list_staged_items(&mut tx, org)
+        .await
+        .expect("list");
+    let signed = listed
+        .iter()
+        .find(|i| i.id == verified.id)
+        .expect("verified row listed");
+    assert!(
+        signed.manifest_authenticated,
+        "the adapter's verdict survives staging"
+    );
+    let unsigned = listed
+        .iter()
+        .find(|i| i.id == legacy.id)
+        .expect("legacy row listed");
+    assert!(
+        !unsigned.manifest_authenticated,
+        "a digest-only entry reads back as the weaker claim"
+    );
     tx.commit().await.expect("commit");
 }

@@ -198,6 +198,11 @@ pub struct StagedItemView {
     /// one. This is the value the install will pin and the executor will load;
     /// the consent screen shows it so an operator approves bytes, not a name.
     pub module_digest: String,
+    /// Whether a signature the operator's trust set verified covers the
+    /// manifest on this row, not just the artifact bytes. `false` is the
+    /// weaker claim: a legacy digest-only registry entry, a zip, a skill, a
+    /// GitHub pull, or any ingest run with no trusted key configured.
+    pub manifest_authenticated: bool,
     pub manifest: serde_json::Value,
     pub declared_capabilities: Vec<String>,
     pub status: String,
@@ -222,6 +227,7 @@ impl From<PluginStagedItem> for StagedItemView {
             fetched_ref: i.fetched_ref,
             artifact_digest: i.artifact_digest,
             module_digest: i.module_digest,
+            manifest_authenticated: i.manifest_authenticated,
             manifest: i.manifest,
             declared_capabilities: i.declared_capabilities,
             status: i.status.as_str().into(),
@@ -243,6 +249,12 @@ pub struct ConsentView {
     pub source_url: String,
     pub fetched_ref: Option<String>,
     pub artifact_digest: String,
+    /// Whether the publisher's signature covers this manifest (the registry
+    /// v2 statement) or only the artifact bytes (legacy v1, or no signature at
+    /// all). The consent screen shows it so an approver can tell a
+    /// publisher-signed manifest from one that merely travelled beside a
+    /// signature.
+    pub manifest_authenticated: bool,
     pub declared_capabilities: Vec<String>,
     pub settings_schema: Option<serde_json::Value>,
     /// ADR 0009 §6 full semantics — the modeled connector governance
@@ -660,6 +672,7 @@ async fn stage_bundle(
         fetched_ref: bundle.fetched_ref,
         artifact_digest: bundle.artifact_digest,
         module_digest,
+        manifest_authenticated: bundle.manifest_authenticated,
         manifest: bundle.manifest,
         declared_capabilities: bundle.declared_capabilities,
         status: PluginStagedStatus::Pending,
@@ -692,6 +705,7 @@ async fn stage_bundle(
                     "fetched_ref": item.fetched_ref,
                     "artifact_digest": item.artifact_digest,
                     "module_digest": item.module_digest,
+                    "manifest_authenticated": item.manifest_authenticated,
                     "declared_capabilities": item.declared_capabilities,
                     "status": "pending",
                 }),
@@ -990,6 +1004,7 @@ pub async fn get_staged_consent(
         source_url: item.source_url,
         fetched_ref: item.fetched_ref,
         artifact_digest: item.artifact_digest,
+        manifest_authenticated: item.manifest_authenticated,
         declared_capabilities: item.declared_capabilities,
         settings_schema: item
             .manifest

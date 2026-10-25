@@ -16514,6 +16514,14 @@ export interface components {
             connector_profile?: unknown;
             declared_capabilities: string[];
             fetched_ref?: string | null;
+            /**
+             * @description Whether the publisher's signature covers this manifest (the registry
+             *     v2 statement) or only the artifact bytes (legacy v1, or no signature at
+             *     all). The consent screen shows it so an approver can tell a
+             *     publisher-signed manifest from one that merely travelled beside a
+             *     signature.
+             */
+            manifest_authenticated: boolean;
             settings_schema?: unknown;
             source_kind: string;
             source_url: string;
@@ -28804,6 +28812,13 @@ export interface components {
             /** Format: uuid */
             id: string;
             manifest: unknown;
+            /**
+             * @description Whether a signature the operator's trust set verified covers the
+             *     manifest on this row, not just the artifact bytes. `false` is the
+             *     weaker claim: a legacy digest-only registry entry, a zip, a skill, a
+             *     GitHub pull, or any ingest run with no trusted key configured.
+             */
+            manifest_authenticated: boolean;
             /**
              * @description The digest of the executable module this import carries, when it carries
              *     one. This is the value the install will pin and the executor will load;
