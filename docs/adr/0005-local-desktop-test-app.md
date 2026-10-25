@@ -16,18 +16,18 @@ would have made the bundle trivially self-contained. It is not viable here:
 
 - **RLS is load-bearing.** Every org-scoped table ships a row-level-security
   policy keyed on `current_setting('app.org_id')` and the API runs as the
-  RLS-constrained `marula_app` role (migration 0001 provisions it; compose
-  parity requires the `marula` owner role for migrations/worker). SQLite has
-  no RLS; every query path would need a parallel, non-RLS enforcement layer —
-  a second security model to maintain and drift against.
+  RLS-constrained `marula_app` role, provisioned by migration 0001. Compose parity requires the `marula` owner
+  role for migrations and the worker. SQLite has no RLS, so every query path
+  would need a parallel, non-RLS enforcement layer, which is a second security
+  model to maintain and drift against.
 - **SECURITY DEFINER seams.** Cross-org email routing and the alert ingestor
   deliberately use narrow `SECURITY DEFINER` functions instead of role grants
   (a role-membership grant would exempt `marula_app` from RLS on every
   owned table). Those seams are Postgres-specific and would need rethinking
   from scratch on SQLite.
 - **Email idempotency gates.** The inbound replay gate is a unique
-  `(org_id, rfc_message_id)` on `email_messages`; outbound exactly-once rides
-  a ledger table with lease recovery. These are transactional Postgres
+  `(org_id, rfc_message_id)` on `email_messages`. Outbound exactly-once rides a
+  ledger table with lease recovery. These are transactional Postgres
   patterns the codebase depends on.
 - **The core's data stays queryable** (doctrine #9, docs/STRATEGY.md): the
   same SQL, migrations, and `psql` access must work against the desktop data
@@ -58,9 +58,9 @@ Marula.app
 ```
 
 - **Role parity with compose:** the bootstrap superuser creates `marula`
-  (LOGIN SUPERUSER — compose's `POSTGRES_USER` is a bootstrap superuser too);
-  migration 0001 provisions `marula_app`. Migrations + demo seed run as the
-  owner; the API connects as `marula_app`.
+  (LOGIN SUPERUSER, and compose's `POSTGRES_USER` is a bootstrap superuser
+  too). Migration 0001 provisions `marula_app`. Migrations and the demo seed run
+  as the owner. The API connects as `marula_app`.
 - **Local mode:** `core_api::config::Config::from_local()` is a clean
   constructor (no env hacks) that turns every external integration off:
   email transport `none`, no inbound webhook HMAC, no internal token, object
@@ -103,18 +103,18 @@ Marula.app
    globs skip hidden dirs, so the script owns the bundle layout)
 
 Measured on M-series (2026-09-13): first build ≈ 2.5–3 min (one-time binary
-download + full compile); incremental web-only ≈ 2.2 min (dominated by the
-Next build); Rust-touch incremental ≈ 2.3 min (cargo ~20 s of that). The data
-dir is never touched by rebuilds; migrations apply incrementally on startup
+download plus full compile). Incremental web-only work ≈ 2.2 min (dominated by
+the Next build). A Rust touch ≈ 2.3 min, of which cargo is ~20 s. The data dir
+is never touched by rebuilds, and migrations apply incrementally on startup
 (a second launch skips applied migrations and the seed logs
 `demo org already seeded`).
 
 ## Deviations from the original plan (and why)
 
 1. **Next standalone server instead of static export as Tauri assets.** The
-   web app has 11 dynamic `[id]` routes without `generateStaticParams`;
-   `output: "export"` fails the build, and even a prerendered export would
-   404 client-side navigations to non-prerendered params. The Next standalone
+   web app has 11 dynamic `[id]` routes without `generateStaticParams`, so
+   `output: "export"` fails the build. Even a prerendered export would answer
+   client-side navigations to non-prerendered params with a 404. The Next standalone
    server is bundled into the .app and run as a managed child process on a
    loopback port.
 2. **The bundled server uses the machine's `node`** (probing
@@ -128,15 +128,43 @@ dir is never touched by rebuilds; migrations apply incrementally on startup
    and its resource globs skip dot-directories (`.next`). The script owns the
    `.app` layout and ad-hoc codesigns it.
 4. **`redis_url` is a placeholder** in local mode — core-api never connects
-   to Redis in-process (realtime rides Postgres LISTEN); the field exists for
+   to Redis in-process (realtime rides Postgres LISTEN). The field exists for
    compose wiring.
 
 ## Consequences
 
 - First run downloads Postgres binaries (~30 MB) and applies all migrations —
-  slower start; every later start reuses the cached install and data dir.
+  slower start. Every later start reuses the cached install and data dir.
 - `brew install pgvector` is a one-time prerequisite.
 - Wiping `~/Library/Application Support/Marula` resets the app to first-run
   state (troubleshooting path; see RUNBOOK-DEV.local.md).
-- The desktop crate is workspace member `desktop` (profile `desktop`); it
+- The desktop crate is workspace member `desktop` (profile `desktop`), and it
   does not affect server builds or CI.
+
+## Amendment 2026-10-25: a release build exposes no dev surface
+
+**The exposure.** `Config::from_local` sets `dev_tools: true`, so the packaged
+shell mounts `/api/dev/*` and seeds the demo accounts by construction. Anyone who
+installs the `.app` gets a dev surface on loopback. That was tolerable while the
+bundle was a developer's own test app. It is not tolerable as a release artifact,
+because nothing about the artifact says which it is.
+
+**The decision.** A release build of the desktop shell mounts no `/api/dev/*`
+route and seeds no demo account. `from_local` derives the dev-tools flag from the
+build profile rather than setting it unconditionally, and the demo seed runs only
+when that flag is on.
+
+**What stays the same.** `cargo run`, `cargo test` and the debug profile keep the
+whole local test app: dev routes, demo logins with `demo-password-123`, the
+published JWT secret with its boot warning. The demo workflow this ADR exists to
+serve is a developer workflow and it keeps working.
+
+**Why not a flag.** `MARULA_DEV_TOOLS=1` already gates the server routes, and the
+desktop path bypasses it by turning the setting on in code. A release build that
+trusts an environment variable to be absent is one stray export away from the
+surface this amendment removes. The profile is not something an operator sets.
+
+**Scope.** This amendment covers the dev surface and the seeded accounts only. The
+release build's own secrets, the embedded Postgres credentials and the printer
+allow-list are covered by the same Wave 54 lane that found this and are unchanged
+by this amendment.

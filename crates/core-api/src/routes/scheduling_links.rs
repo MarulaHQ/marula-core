@@ -82,6 +82,11 @@ struct RateWindows {
     /// cost of a request that arrives at the cap is a lookup and a length
     /// read, never a full scan.
     last_sweep: Option<Instant>,
+    /// When the cap last refused a new token. The refusal is a 429 with no
+    /// body difference from a per-key breach, so the warn is the only place an
+    /// operator can see that the map itself is the reason. Throttled to one
+    /// per window, because this surface is unauthenticated.
+    last_cap_warn: Option<Instant>,
 }
 
 impl RateWindows {
@@ -100,6 +105,17 @@ impl RateWindows {
                 self.last_sweep = Some(now);
             }
             if self.buckets.len() >= RATE_WINDOW_MAX_KEYS {
+                let warn_due = self.last_cap_warn.is_none_or(|warned| {
+                    now.saturating_duration_since(warned).as_secs() >= RATE_WINDOW_SECS
+                });
+                if warn_due {
+                    self.last_cap_warn = Some(now);
+                    tracing::warn!(
+                        keys = self.buckets.len(),
+                        cap = RATE_WINDOW_MAX_KEYS,
+                        "scheduling rate map is at capacity and no window expired: refusing a new token with 429"
+                    );
+                }
                 return Err(i64::try_from(RATE_WINDOW_SECS).unwrap_or(i64::MAX));
             }
         }
