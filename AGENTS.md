@@ -84,10 +84,12 @@ the eight Wave 49 rows that sat live for a day after every one of them had merge
 
 ## UI skills (vendored design-engineering skills)
 
-`/skills` on ui-skills.com, vendored to `.kilo/skills/` (ui-skills-root, improve-ui,
-web-design-guidelines, better-ui, interface-design, fixing-accessibility, rams).
+`/skills` on ui-skills.com: ui-skills-root, improve-ui, web-design-guidelines,
+better-ui, interface-design, fixing-accessibility, rams. They are installed into the
+agent workspace rather than committed to this repository, so resolve one by name
+(`skill: ui-skills-root`) and let it point at its own files.
 When doing UI work (building pages, components, polish, audits), consult these:
-- Routing: start from `.kilo/skills/ui-skills-root/SKILL.md`.
+- Routing: start from the ui-skills-root skill.
 - Audits/reviews: improve-ui (audit → self-contained plan for another agent),
   web-design-guidelines, fixing-accessibility.
 - Polish/craft: better-ui, interface-design (dashboards/admin/SaaS), rams.
@@ -160,7 +162,7 @@ token set or motion law is rejected, not applied.
 
 ## Backend skills (vendored)
 
-`.kilo/skills/` also carries stack skills: rust-best-practices (Apollo handbook),
+The installed skill set also carries stack skills: rust-best-practices (Apollo handbook),
 postgres-best-practices (Supabase; includes RLS performance + connection pooling
 references), stripe-best-practices (for the future PaymentProvider adapter),
 insecure-defaults (Trail of Bits; audit command + pattern catalogs for the
@@ -176,8 +178,8 @@ housekeeping is `scripts/dev-clean.sh` (dry-run default, `--go` applies).
 emails, UI copy with full sentences, and the lane evidence documents that carry a verdict
 (`LANDING.md`, `REVIEW.md`, `GATES.md`, `PLAN.md`, `RESEARCH.md`). Any prose an agent
 writes or edits in those files must be evaluated with the SlopMonster
-skill (`.kilo/skills/slopmonster/`). Load it (`skill: slopmonster`) before writing the
-prose, then verify with `python3 .kilo/skills/slopmonster/tools/deslop.py <file>`.
+skill (`skill: slopmonster`). Load it before writing the prose, then run the scorer it
+ships with: `python3 <slopmonster skill>/tools/deslop.py <file>`.
 Ship only at **5/5 CLEAN** (use `--allow-proof` only when a number is real and
 evidenced). If the score is below 5, clean it following the skill's loop
 (kill vocabulary → kill constructions → put a person back in) and re-lint.
@@ -192,9 +194,9 @@ those files plainly and economically as before; the rule simply does not gate th
 removes a real cost — two lanes this wave independently had to hand-polish rows or route
 doctrine around the rule.
 
-That verdict carries to the lane evidence documents too: they are in scope, so
-`python3 .kilo/skills/slopmonster/tools/deslop.py design/qa-<lane>/REVIEW.md` and friends
-must report **5/5 CLEAN** before you land.
+That verdict carries to the lane evidence documents too: they are in scope, so the
+scorer must report **5/5 CLEAN** on `design/qa-<lane>/REVIEW.md` and its siblings before
+you land.
 
 This is not needed for code, code comments, logs, git messages, or prose inside
 `code` spans/fenced blocks — the scorer skips those too.

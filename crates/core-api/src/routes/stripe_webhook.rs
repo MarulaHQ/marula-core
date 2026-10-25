@@ -53,6 +53,15 @@ fn parse_signature_header(raw: &str) -> Result<(i64, Vec<String>), ApiError> {
             "t" => timestamp = v.trim().parse().ok(),
             "v1" => {
                 if signatures.len() >= MAX_V1_CANDIDATES {
+                    // A real Stripe sends one candidate, or two while a secret
+                    // rotation is live. Reaching the cap means either an attack
+                    // or a rotation with more secrets live than the bound
+                    // explains, and the two look identical in the response, so
+                    // the log is where an operator can tell them apart.
+                    tracing::warn!(
+                        cap = MAX_V1_CANDIDATES,
+                        "stripe signature header exceeds the v1 candidate cap: refusing the webhook. A live rotation with more than two secrets would look the same"
+                    );
                     return Err(ApiError::StripeWebhookRejected(
                         "the signature header carries more v1 candidates than a secret rotation explains",
                     ));

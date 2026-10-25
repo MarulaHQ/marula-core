@@ -144,6 +144,8 @@ pub async fn count_holders(
 }
 
 /// Updates a CUSTOM role's editable fields (name and/or permissions).
+/// Migration 0160 added `roles.updated_at`; this statement is the only writer,
+/// so a custom role's row carries the time of its last edit.
 /// `permissions` arrives RESOLVED (`Permission`, not raw wire keys): the
 /// route parses and validates the keys, so this write can only store the
 /// shape `role_from_row` reads back — a key that did not resolve would
@@ -161,7 +163,8 @@ pub async fn update_custom_role(
     let result = sqlx::query(
         r#"UPDATE roles SET
               name = CASE WHEN $3::text IS NOT NULL THEN $3 ELSE name END,
-              permissions = CASE WHEN $4::text IS NOT NULL THEN $4::text::jsonb ELSE permissions END
+              permissions = CASE WHEN $4::text IS NOT NULL THEN $4::text::jsonb ELSE permissions END,
+              updated_at = now()
            WHERE org_id = $1 AND id = $2
              AND (builtin IS NULL OR lower(builtin) = '')"#,
     )
