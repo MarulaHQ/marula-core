@@ -297,7 +297,7 @@ export default function CalendarSyncPanel({ entries }: { entries?: CalendarEntry
         try {
           const auth = await api.api.POST(
             "/api/v1/calendar-sync/{connection_id}/authorize",
-            { params: { path: { connection_id: data.connection } } },
+            { params: { path: { connection_id: data.connection.id } } },
           );
           const start = auth.data;
           if (start === undefined) {
