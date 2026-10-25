@@ -14,19 +14,25 @@ use std::sync::Arc;
 use tauri::{Manager, RunEvent};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+mod launch_secrets;
 mod os_integrations;
+mod printers;
 mod window_manager;
 mod windows;
 
 const PREFERRED_PG_PORT: u16 = 15434;
 const PREFERRED_API_PORT: u16 = 15433;
 const PREFERRED_WEB_PORT: u16 = 15435;
+/// Ports the bundled Next server may bind, and — exactly — the origins
+/// `desktop/capabilities/desktop-web.json` grants IPC to. The webview's origin
+/// is this server, so a wider grant is a wider IPC surface; a narrower one
+/// silently denies every app command on the launch that lands on a port the
+/// file does not list. The two move together, and the capability test in this
+/// file fails if they drift.
+const WEB_PORT_CANDIDATES: std::ops::RangeInclusive<u16> = PREFERRED_WEB_PORT..=15439;
 /// Raw-ZPL transport timeout (label printing must fail fast and honestly,
 /// not hang the webview when the printer is off or the address is wrong).
 const ZPL_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
-/// Dev JWT secret — must match the compose/dev default so the demo seed's
-/// at-rest seal key derives identically (crates/core-db/src/demo.rs).
-const DEV_JWT_SECRET: &str = "dev-only-insecure-secret-change-me";
 const DEMO_LOGINS: &str =
     "owner@demo.local / dispatcher@demo.local / tech@demo.local / bookkeeper@demo.local";
 
@@ -57,12 +63,14 @@ fn data_root() -> PathBuf {
 
 /// First free TCP port at or after `start`, for Postgres and the API.
 fn free_port(start: u16) -> u16 {
-    for port in start..start + 100 {
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
-            return port;
-        }
-    }
-    start
+    first_free_port(start..=start.saturating_add(99)).unwrap_or(start)
+}
+
+/// First free port in `candidates`, or `None` when they are all taken.
+fn first_free_port(candidates: std::ops::RangeInclusive<u16>) -> Option<u16> {
+    candidates
+        .into_iter()
+        .find(|port| std::net::TcpListener::bind(("127.0.0.1", *port)).is_ok())
 }
 
 /// Spawn the Next.js standalone server (bundled at Resources/resources/web
@@ -259,6 +267,88 @@ async fn role_exists(pool: &sqlx::PgPool, role: &str) -> anyhow::Result<bool> {
         .is_some())
 }
 
+/// A SQL string literal for `value`, quoted by the server: `CREATE ROLE …
+/// PASSWORD` takes a literal, not a bind parameter, so Postgres quotes it
+/// (`quote_literal`) and this process never splices a credential into SQL
+/// text.
+async fn quote_literal(pool: &sqlx::PgPool, value: &str) -> anyhow::Result<String> {
+    sqlx::query_scalar("SELECT quote_literal($1::text)")
+        .bind(value)
+        .fetch_one(pool)
+        .await
+        .context("quoting a credential for a role statement")
+}
+
+/// Rotate a role's password. Same reason as [`quote_literal`]: the statement
+/// text comes back from the server (`format` with `%I`/`%L`), so a credential
+/// is never concatenated here.
+async fn alter_role_password(
+    pool: &sqlx::PgPool,
+    role: &str,
+    password: &str,
+) -> anyhow::Result<()> {
+    let statement: String =
+        sqlx::query_scalar("SELECT format('ALTER ROLE %I PASSWORD %L', $1::text, $2::text)")
+            .bind(role)
+            .bind(password)
+            .fetch_one(pool)
+            .await
+            .with_context(|| format!("building the password rotation for role {role}"))?;
+    sqlx::query(&statement)
+        .execute(pool)
+        .await
+        .with_context(|| format!("rotating the password of role {role}"))?;
+    Ok(())
+}
+
+/// Connect as the bootstrap superuser.
+///
+/// A cluster an older build initialized carries the published default
+/// password. A release build cannot connect with its own credential until the
+/// cluster has been rotated, so the published one is accepted exactly once,
+/// for the migration, and replaced before anything else runs. Debug builds
+/// hold the published value already and never take that path.
+async fn open_super_pool(
+    postgresql: &postgresql_embedded::PostgreSQL,
+    credentials: &launch_secrets::PgCredentials,
+) -> anyhow::Result<sqlx::PgPool> {
+    let url_with = |password: &str| {
+        let mut settings = postgresql.settings().clone();
+        settings.password = password.to_string();
+        settings.url("postgres")
+    };
+    match sqlx::postgres::PgPool::connect(&url_with(&credentials.superuser)).await {
+        Ok(pool) => Ok(pool),
+        Err(current) => {
+            if credentials.superuser == launch_secrets::LEGACY_SUPERUSER_PASSWORD {
+                return Err(current).context(
+                    "connecting as the embedded Postgres superuser with the published default \
+                     password (a debug build). A data directory created by a release build \
+                     carries a per-install password instead: run a release build again, or move \
+                     that pgdata aside to start a fresh demo database",
+                );
+            }
+            let legacy = sqlx::postgres::PgPool::connect(&url_with(
+                launch_secrets::LEGACY_SUPERUSER_PASSWORD,
+            ))
+            .await
+            .context(
+                "connecting as the embedded Postgres superuser, both with this install's \
+                 credential and with the published default an older cluster was created with",
+            )?;
+            tracing::warn!(
+                "this data directory was created with the published Postgres passwords; \
+                 rotating every role onto this install's credentials"
+            );
+            alter_role_password(&legacy, "postgres", &credentials.superuser).await?;
+            legacy.close().await;
+            sqlx::postgres::PgPool::connect(&url_with(&credentials.superuser))
+                .await
+                .context("connecting after rotating the superuser password")
+        }
+    }
+}
+
 /// Cluster major of an existing pgdata directory (PG_VERSION), if present.
 fn pgdata_major(pgdata: &Path) -> Option<String> {
     std::fs::read_to_string(pgdata.join("PG_VERSION"))
@@ -327,7 +417,10 @@ async fn cut_pg17_to_pg18(root: &Path) -> anyhow::Result<Option<PathBuf>> {
 
     let mut dumpall = tokio::process::Command::new(old_bin.join("pg_dumpall"));
     dumpall
-        .env("PGPASSWORD", "postgres")
+        // A PG17 cluster predates this shell's credential split, so its
+        // superuser carries the published password — that is the credential
+        // the cut needs and the only place it is still used.
+        .env("PGPASSWORD", launch_secrets::LEGACY_SUPERUSER_PASSWORD)
         .args(["-h", "127.0.0.1", "-U", "postgres"])
         .arg("-p")
         .arg(old_port.to_string())
@@ -354,11 +447,18 @@ async fn cut_pg17_to_pg18(root: &Path) -> anyhow::Result<Option<PathBuf>> {
 
 /// Replay a pg17 cut dump into the freshly initialized PG18 cluster. Runs
 /// before the role/database bootstrap so an already-cut dump is authoritative.
-async fn replay_pg17_dump(root: &Path, dump: &Path, pg_port: u16) -> anyhow::Result<()> {
+/// The cluster is new, so it authenticates with the credential `initdb` was
+/// given — this install's superuser password, never the published default.
+async fn replay_pg17_dump(
+    root: &Path,
+    dump: &Path,
+    pg_port: u16,
+    superuser_password: &str,
+) -> anyhow::Result<()> {
     let new_bin = install_bin_dir(&root.join("pginstall"), "18")
         .context("PG18 binaries missing right after setup — unexpected")?;
     let mut psql = tokio::process::Command::new(new_bin.join("psql"));
-    psql.env("PGPASSWORD", "postgres")
+    psql.env("PGPASSWORD", superuser_password)
         .args(["-h", "127.0.0.1", "-U", "postgres", "-d", "postgres"])
         .arg("-p")
         .arg(pg_port.to_string())
@@ -373,6 +473,20 @@ async fn replay_pg17_dump(root: &Path, dump: &Path, pg_port: u16) -> anyhow::Res
 async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     let root = data_root();
     std::fs::create_dir_all(&root)?;
+    // Which loopback credentials this build uses. A debug build keeps the
+    // repository's published dev secret and Postgres passwords (demo-seed
+    // parity, compose parity, existing data dirs); a release build mints a
+    // per-install secret and derives the passwords from it. See
+    // `launch_secrets` for why the split exists.
+    let secrets = launch_secrets::for_this_build(&root)?;
+    if secrets.publishes_dev_defaults {
+        tracing::warn!(
+            "DEBUG BUILD: the in-process API trusts the repository's published dev JWT \
+             secret and the embedded Postgres keeps its published passwords — every local \
+             process can forge an owner token or connect as superuser. A release build \
+             mints a per-install secret instead; never ship this build."
+        );
+    }
     let pg_port = free_port(PREFERRED_PG_PORT);
 
     let mut settings = postgresql_embedded::Settings::default();
@@ -381,11 +495,20 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         settings.version = v;
     }
     settings.username = "postgres".into();
-    settings.password = "postgres".into();
+    settings.password = secrets.pg.superuser.clone();
     settings.data_dir = root.join("pgdata");
     settings.installation_dir = root.join("pginstall");
     settings.temporary = false;
     settings.port = pg_port;
+    // `initdb --pwfile` reads the bootstrap password from a file. The crate's
+    // default path is a temp dir it keeps for the process lifetime; put the
+    // file in the app data dir at 0600 and delete it once the cluster exists,
+    // so the credential lives in the cluster (hashed by initdb) rather than in
+    // a file on disk. An existing cluster never reads it.
+    let initdb_password_file = root.join("pgpass-init");
+    launch_secrets::write_owner_only(&initdb_password_file, &secrets.pg.superuser)
+        .with_context(|| format!("writing {}", initdb_password_file.display()))?;
+    settings.password_file = initdb_password_file.clone();
 
     // A pre-18 embedded cluster cannot boot under the 18 binaries — cut it
     // first (pg_dumpall replay; the old directory is archived for rollback).
@@ -398,6 +521,9 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         .setup()
         .await
         .context("setting up the embedded Postgres (first run downloads the binaries)")?;
+    // initdb has hashed the password into the cluster; the plaintext file has
+    // done its job.
+    let _ = std::fs::remove_file(&initdb_password_file);
     ensure_pgvector(&root.join("pginstall"), "18")?;
     postgresql
         .start()
@@ -405,10 +531,9 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         .context("starting the embedded Postgres")?;
     let pg_port = postgresql.settings().port;
 
-    let super_url = postgresql.settings().url("postgres");
-    let super_pool = sqlx::postgres::PgPool::connect(&super_url).await?;
+    let super_pool = open_super_pool(&postgresql, &secrets.pg).await?;
     if let Some(dump) = cut_dump {
-        replay_pg17_dump(&root, &dump, pg_port)
+        replay_pg17_dump(&root, &dump, pg_port, &secrets.pg.superuser)
             .await
             .context("replaying the archived PG17 cluster into the PG18 cluster")?;
     }
@@ -419,7 +544,11 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     // here (the idempotent ALTER also repairs data dirs created before
     // this was a superuser).
     if !role_exists(&super_pool, "marula").await? {
-        sqlx::query("CREATE ROLE marula LOGIN SUPERUSER PASSWORD 'marula'")
+        let create = format!(
+            "CREATE ROLE marula LOGIN SUPERUSER PASSWORD {}",
+            quote_literal(&super_pool, &secrets.pg.owner).await?
+        );
+        sqlx::query(&create)
             .execute(&super_pool)
             .await
             .context("creating the marula owner role")?;
@@ -428,6 +557,7 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
             .execute(&super_pool)
             .await
             .context("aligning the marula owner role with compose parity")?;
+        alter_role_password(&super_pool, "marula", &secrets.pg.owner).await?;
     }
     let db_missing = sqlx::query("SELECT 1 FROM pg_database WHERE datname = 'marula'")
         .fetch_optional(&super_pool)
@@ -441,20 +571,28 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     }
     super_pool.close().await;
 
-    let owner_url = format!("postgres://marula:marula@127.0.0.1:{pg_port}/marula");
+    let owner_url = format!(
+        "postgres://marula:{}@127.0.0.1:{pg_port}/marula",
+        secrets.pg.owner
+    );
     let owner_pool = core_db::connect(&owner_url)
         .await
         .context("connecting as the schema owner")?;
     core_db::run_migrations(&owner_pool)
         .await
         .context("running migrations (owner role)")?;
+    // Migration 0114 creates `marula_app` with the published default
+    // password; move it onto this install's credential before anything
+    // connects as the app role.
+    alter_role_password(&owner_pool, "marula_app", &secrets.pg.app).await?;
     core_db::assert_rls_coverage(&owner_pool)
         .await
         .context("RLS coverage check")?;
 
     // Seed the deterministic demo org (same path as `marula-core-cli
-    // seed-demo`); idempotent — an existing seed is left untouched.
-    let seal = core_db::demo::derive_dev_seal_key(DEV_JWT_SECRET);
+    // seed-demo`); idempotent — an existing seed is left untouched. The seal
+    // key follows the effective JWT secret, which is what the API derives.
+    let seal = secrets.seal_key();
     // `object_store_dir: None` matches the pre-existing behaviour (the test
     // app seeds no attachment payloads); the field was added to the options
     // struct after this call site was written, leaving the workspace red on
@@ -473,19 +611,30 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     }
     owner_pool.close().await;
 
-    let app_url = format!("postgres://marula_app:marula_app@127.0.0.1:{pg_port}/marula");
+    let app_url = format!(
+        "postgres://marula_app:{}@127.0.0.1:{pg_port}/marula",
+        secrets.pg.app
+    );
     let api_port = free_port(PREFERRED_API_PORT);
     let api_url = format!("http://127.0.0.1:{api_port}");
-    let web_port = free_port(PREFERRED_WEB_PORT);
+    let web_port = first_free_port(WEB_PORT_CANDIDATES).with_context(|| {
+        format!(
+            "no free web port in {WEB_PORT_CANDIDATES:?} — the capability file grants IPC to \
+             exactly these origins, so the app cannot move to another port"
+        )
+    })?;
     let web_url = format!("http://127.0.0.1:{web_port}");
     let next_server =
         spawn_next_server(&next_standalone_dir(), &root.join("webrun"), web_port).await?;
 
-    let config = Arc::new(core_api::config::Config::from_local(
-        app_url.clone(),
-        api_port,
-        root.join("objects"),
-    ));
+    let mut config =
+        core_api::config::Config::from_local(app_url.clone(), api_port, root.join("objects"));
+    // `from_local` pins the repository's published dev JWT secret and derives
+    // the at-rest seal key from it. Replace both with this launch's secret so
+    // a release build trusts nothing that ships in the source.
+    config.jwt_secret = secrets.jwt_secret.clone();
+    config.secret_key = core_api::config::SecretKey(seal);
+    let config = Arc::new(config);
     let pool = core_db::connect(&config.database_url).await?;
     let state = core_api::state::AppState {
         plugin_pool: Default::default(),
@@ -600,12 +749,16 @@ fn install_sigterm_handler(data_dir: PathBuf) {
 // Raw ZPL transport (Wave 32 lane 5, `p32-labels-scanning`)
 // ---------------------------------------------------------------------------
 
-/// Sends raw ZPL bytes to a networked Zebra printer over a TCP socket — the
-/// printer's standard raw port (9100 unless the caller says otherwise).
+/// Sends raw ZPL bytes to a networked Zebra printer over a TCP socket, on the
+/// printer's raw port (9100 unless the configured printer says otherwise).
 /// This is the desktop-only half of the label print contract: the web app
 /// renders the label server-side and hands the exact ZPL string down; this
 /// command transports those bytes and NOTHING else — it never parses,
 /// rewrites, or "improves" the stream.
+///
+/// The destination arrives already resolved against configured state (see
+/// [`printers`]); this function is the transport and does not decide where to
+/// send.
 async fn send_zpl_to(host: &str, port: u16, zpl: &[u8]) -> anyhow::Result<()> {
     use tokio::io::AsyncWriteExt;
     if host.trim().is_empty() {
@@ -630,10 +783,23 @@ async fn send_zpl_to(host: &str, port: u16, zpl: &[u8]) -> anyhow::Result<()> {
 
 /// Tauri command: the web app's typed raw-ZPL door. Errors come back as
 /// strings the UI shows as-is ("connecting to 10.0.0.9:9100: Connection
-/// refused") — never a silent success.
+/// refused", or "printer 10.0.0.9:9100 is not configured — …") — never a
+/// silent success.
+///
+/// `host` and `port` are a LOOKUP KEY, not a destination. The renderer may
+/// only name a printer this shell already has in `<app data>/printers.json`;
+/// the socket goes to the configured address. Without that rule the webview
+/// (and anything running in its origin) holds a TCP write primitive against
+/// every host the workstation can reach.
 #[tauri::command]
-async fn print_raw_zpl(host: String, port: Option<u16>, zpl: String) -> Result<(), String> {
-    send_zpl_to(&host, port.unwrap_or(9100), zpl.as_bytes())
+async fn print_raw_zpl(
+    registry: tauri::State<'_, printers::Registry>,
+    host: String,
+    port: Option<u16>,
+    zpl: String,
+) -> Result<(), String> {
+    let destination = registry.resolve(&host, port.unwrap_or(printers::DEFAULT_PORT))?;
+    send_zpl_to(&destination.host, destination.port, zpl.as_bytes())
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -729,6 +895,15 @@ fn main() {
     // JSON file under the app data dir, roles keyed by route key.
     let window_state_path = data_root().join("window-state.json");
 
+    // Configured printers (raw-ZPL destination check): the shell owns the
+    // list, the renderer only names an entry. The template is written on
+    // first launch so the file the refusal message names actually exists.
+    let app_root = data_root();
+    if let Err(e) = printers::ensure_config(&app_root) {
+        tracing::warn!("could not write the printer config template: {e}");
+    }
+    let printer_registry = printers::Registry::load(&app_root);
+
     tauri::Builder::default()
         // Auto-update channel (GA packaging): the updater reads its
         // endpoint + pubkey from tauri.conf.json `plugins.updater`. The
@@ -777,6 +952,7 @@ fn main() {
         .manage(backend)
         .manage(PendingUpdate::default())
         .manage(window_manager::WindowRegistry::new(window_state_path))
+        .manage(printer_registry)
         .manage(WebUrl(web_url.clone()))
         .manage(window_manager::ApiUrl(api_url.clone()))
         .setup(move |app| {
@@ -897,31 +1073,192 @@ mod tests {
         assert!(format!("{err:#}").contains("empty"), "{err:#}");
     }
 
-    /// ACL wiring contract (Wave 34 lane 6): the web app loads from a
-    /// REMOTE loopback origin, and since tauri 2.11 remote origins need an
-    /// explicit `remote` capability even for custom commands. This pins
-    /// the capability file that grants the three app commands — losing any
-    /// of them silently disables the ZPL transport or the update UI in the
-    /// real shell while every browser test stays green.
+    /// The ZPL door end to end, without a printer: a listener is configured in
+    /// the registry, the command's resolve step is what turns the caller's
+    /// string into the address, and the bytes arrive. A second call to a
+    /// printer that is NOT configured is refused before a socket exists — a
+    /// listener that counts connections on that port proves it.
+    #[tokio::test]
+    async fn a_configured_printer_is_reached_and_an_unconfigured_one_is_refused() {
+        let configured = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind configured printer");
+        let configured_addr = configured.local_addr().expect("addr");
+        let configured_printer = tokio::spawn(async move {
+            let (mut sock, _) = configured.accept().await.expect("accept");
+            let mut buf = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut sock, &mut buf)
+                .await
+                .expect("read");
+            buf
+        });
+
+        let unconfigured = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind unconfigured printer");
+        let unconfigured_addr = unconfigured.local_addr().expect("addr");
+        let refused_connections = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&refused_connections);
+        tokio::spawn(async move {
+            while unconfigured.accept().await.is_ok() {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        });
+
+        let root = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            root.path().join(printers::CONFIG_FILE),
+            format!(
+                r#"{{"printers":[{{"name":"configured","host":"127.0.0.1","port":{}}}]}}"#,
+                configured_addr.port()
+            ),
+        )
+        .expect("write printer config");
+        let registry = printers::Registry::load(root.path());
+
+        let destination = registry
+            .resolve("127.0.0.1", configured_addr.port())
+            .expect("the configured printer resolves");
+        send_zpl_to(&destination.host, destination.port, b"^XA^XZ\n")
+            .await
+            .expect("send to the configured printer");
+        assert_eq!(configured_printer.await.expect("printer task"), b"^XA^XZ\n");
+
+        let refusal = registry
+            .resolve("127.0.0.1", unconfigured_addr.port())
+            .expect_err("an unconfigured printer must be refused");
+        assert!(refusal.contains("not configured"), "{refusal}");
+        // Give the listener a moment to feel a connection that must not exist.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            refused_connections.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "a refused destination must never open a socket"
+        );
+    }
+
+    /// ACL wiring contract (Wave 34 lane 6, narrowed in Wave 54): the web app
+    /// loads from a REMOTE loopback origin, and since tauri 2.11 remote origins
+    /// need an explicit `remote` capability even for custom commands. This pins
+    /// two things at once: the app commands the shell exposes, and the exact
+    /// origins that may invoke them. Losing a permission silently disables the
+    /// ZPL transport or the update UI in the real shell while every browser
+    /// test stays green; widening the URLs hands those commands to any local
+    /// HTTP server.
     #[test]
-    fn loopback_web_capability_grants_the_three_app_commands() {
+    fn the_capability_grants_the_app_commands_to_exactly_the_shells_web_origins() {
         let raw = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capabilities/desktop-web.json"
         ))
         .expect("capability file exists");
         let v: serde_json::Value = serde_json::from_str(&raw).expect("capability parses");
+
         assert_eq!(v["windows"][0], "main");
-        assert_eq!(v["remote"]["urls"][0], "http://127.0.0.1:*");
+        assert_eq!(v["windows"][1], "subwindow:*");
+
+        let listed: Vec<String> = v["remote"]["urls"]
+            .as_array()
+            .expect("remote urls array")
+            .iter()
+            .map(|url| url.as_str().expect("url is a string").to_string())
+            .collect();
+        let expected: Vec<String> = WEB_PORT_CANDIDATES
+            .map(|port| format!("http://127.0.0.1:{port}"))
+            .collect();
+        assert_eq!(
+            listed, expected,
+            "the capability must grant exactly the ports the shell may bind \
+             (WEB_PORT_CANDIDATES in src/main.rs)"
+        );
+        assert!(
+            listed.iter().all(|url| !url.contains('*')),
+            "a wildcard origin would grant these commands to any local server: {listed:?}"
+        );
+
         let permissions = v["permissions"].as_array().expect("permissions array");
         for expected in [
             "allow-print-raw-zpl",
             "allow-check-desktop-update",
             "allow-install-desktop-update",
+            "allow-open-native-window",
+            "allow-focus-native-window",
+            "allow-route-marula-link",
         ] {
             assert!(
                 permissions.contains(&serde_json::json!(expected)),
                 "capability must grant {expected}"
+            );
+        }
+    }
+
+    /// The port candidates are a closed set, and the fallback stays inside it:
+    /// `first_free_port` is what bootstrap asks for, and a launch may not land
+    /// on an origin the capability does not grant.
+    #[test]
+    fn the_web_port_candidates_are_bounded_and_held_to_the_capability() {
+        let ports: Vec<u16> = WEB_PORT_CANDIDATES.collect();
+        assert_eq!(ports.first(), Some(&PREFERRED_WEB_PORT));
+        assert!(ports.len() >= 2, "one candidate leaves no fallback");
+        assert!(
+            ports.windows(2).all(|pair| pair[1] == pair[0] + 1),
+            "the range must be contiguous: {ports:?}"
+        );
+        // Every candidate is either bindable here or already taken by another
+        // process; either way the answer stays inside the granted set.
+        assert!(first_free_port(WEB_PORT_CANDIDATES)
+            .is_none_or(|port| WEB_PORT_CANDIDATES.contains(&port)));
+    }
+
+    /// The narrowing, proven against tauri's own URLPattern matcher instead of
+    /// by eye: every origin the shell may serve matches, and a neighbouring
+    /// port, another host spelling and another scheme do not. This is the test
+    /// that would fail if someone widened the file back to a wildcard — and the
+    /// one that keeps the grant honest if the port candidates ever move.
+    #[test]
+    fn the_capability_origins_match_the_webview_origin_and_nothing_else() {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capabilities/desktop-web.json"
+        ))
+        .expect("capability file exists");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("capability parses");
+        let patterns: Vec<tauri::utils::acl::RemoteUrlPattern> = v["remote"]["urls"]
+            .as_array()
+            .expect("remote urls array")
+            .iter()
+            .map(|url| {
+                url.as_str()
+                    .expect("url is a string")
+                    .parse()
+                    .expect("a parseable URL pattern")
+            })
+            .collect();
+
+        for port in WEB_PORT_CANDIDATES {
+            let served = tauri::Url::parse(&format!("http://127.0.0.1:{port}/tickets/42"))
+                .expect("parse served origin");
+            assert!(
+                patterns.iter().any(|pattern| pattern.test(&served)),
+                "the webview's own origin {served} must be granted IPC"
+            );
+        }
+
+        for refused in [
+            // One past the candidate set: the shell may not serve here.
+            "http://127.0.0.1:15440/tickets/42",
+            // The API and Postgres ports are not webview origins.
+            "http://127.0.0.1:15433/login",
+            "http://127.0.0.1:15434/login",
+            // Another spelling of loopback, another scheme, another host.
+            "http://localhost:15435/login",
+            "https://127.0.0.1:15435/login",
+            "http://192.168.1.20:15435/login",
+        ] {
+            let url = tauri::Url::parse(refused).expect("parse refused origin");
+            assert!(
+                !patterns.iter().any(|pattern| pattern.test(&url)),
+                "{refused} must not match a granted origin"
             );
         }
     }

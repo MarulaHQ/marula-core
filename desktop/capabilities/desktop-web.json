@@ -1,10 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop-web",
-  "description": "Grants the web app (served by the bundled Next server on a loopback port, i.e. a REMOTE origin for Tauri) exactly the app commands it drives: raw-ZPL label transport, the update check/apply pair, and the Wave 38 lane 2 native window commands (open/focus role windows, route marula:// links — geometry persistence is Rust-side window events, not renderer-driven). No plugin permissions are granted to this origin and no core permission is needed to invoke app commands. Since tauri 2.11.1 remote origins are ACL-gated for custom commands too, so without this capability all commands are denied in the real shell. 'main' plus 'subwindow::*' labels: every native role window carries the same remote origin and drives the same command surface (ZPL printing works from ANY window).",
+  "description": "Grants the web app (served by the bundled Next server on a loopback port, i.e. a REMOTE origin for Tauri) exactly the app commands it drives: raw-ZPL label transport, the update check/apply pair, and the Wave 38 lane 2 native window commands (open/focus role windows, route marula:// links — geometry persistence is Rust-side window events, not renderer-driven). No plugin permissions are granted to this origin and no core permission is needed to invoke app commands. Since tauri 2.11.1 remote origins are ACL-gated for custom commands too, so without this capability all commands are denied in the real shell. 'main' plus 'subwindow::*' labels: every native role window carries the same remote origin and drives the same command surface (ZPL printing works from ANY window). The remote URLs are EXACT origins, not a 127.0.0.1 wildcard: they are the port candidates the shell binds the Next server to (WEB_PORT_CANDIDATES in src/main.rs, 15435-15439), and the capability test there fails if the two lists drift. A wider grant would hand these commands to any local HTTP server; a ZPL destination is separately restricted to printers the user configured in printers.json, so this grant cannot be turned into a TCP write primitive.",
   "windows": ["main", "subwindow:*"],
   "remote": {
-    "urls": ["http://127.0.0.1:*"]
+    "urls": [
+      "http://127.0.0.1:15435",
+      "http://127.0.0.1:15436",
+      "http://127.0.0.1:15437",
+      "http://127.0.0.1:15438",
+      "http://127.0.0.1:15439"
+    ]
   },
   "permissions": [
     "allow-print-raw-zpl",

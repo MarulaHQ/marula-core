@@ -1,8 +1,10 @@
 // Sync provider and data hooks — the React binding of the sync engine.
 //
-// Purpose: create the engine for the signed-in session, wire connectivity
-// transitions and token refresh into it, tear it down (and drop the offline
-// stores) on sign-out, and expose the read/mutation/queue hooks screens use.
+// Purpose: create the engine for the signed-in session, bind durable storage
+// to that session's user, wire connectivity transitions and token refresh into
+// it, and on sign-out tear it down and await the device clear before another
+// user's engine can hydrate. Also exposes the read/mutation/queue hooks
+// screens use.
 //
 // Non-purpose: no UI. Screens never see the stream, stores, or the queue.
 
@@ -27,7 +29,7 @@ import { createSseSource } from "@/core/sse";
 import type { WriteOperation } from "@/core/writes";
 import { SSE_URL } from "@/config";
 import { useConnectivity } from "@/data/connectivity";
-import { asyncStore } from "@/data/storage";
+import { asyncStore, clearUserStorage, setStorageOwner } from "@/data/storage";
 
 export interface MutationHandle {
   mutate<A, B extends Record<string, unknown>>(
@@ -43,6 +45,10 @@ interface SyncContextValue {
 }
 
 const SyncContext = createContext<SyncContextValue>({ engine: null, revision: 0 });
+
+/** The sign-out teardown currently running. A new engine awaits it, so a
+ * second user's cache can never hydrate over an unfinished clear. */
+let pendingTeardown: Promise<void> | null = null;
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const { client, status, ensureToken, accessToken, me } = useAuth();
@@ -70,37 +76,66 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const existing = engineRef.current;
       engineRef.current = null;
       setEngine(null);
-      if (existing !== null) {
-        existing.stop();
-        void existing.reset();
-      }
+      if (existing !== null) existing.stop();
+      // Only a definite end clears the device. "loading" has not decided yet
+      // and "biometric" is holding the previous session for an unlock, so
+      // sweeping there would delete the cache the same user is about to
+      // hydrate. A sign-out that never finished on the previous launch is
+      // covered by the signed-out boot, which lands here.
+      if (status !== "signedOut" && status !== "mfa") return;
+      // Sign-out owns the whole device, not just the engine's three stores:
+      // the engine's own state goes first (while the outgoing user is still
+      // bound), then every namespace `asyncStore` hands out — cache, queue,
+      // versions, the saved-scan shelf, the live token and preference — plus
+      // the unprefixed keys older builds wrote. The next engine waits on it.
+      // A storage failure must not wedge that wait: per-user keys already keep
+      // the accounts apart, so a sweep that cannot run degrades to isolation
+      // rather than stranding the next session without an engine.
+      const teardown = (async () => {
+        if (existing !== null) await existing.reset();
+        await clearUserStorage();
+      })().catch(() => undefined);
+      pendingTeardown = teardown;
       return;
     }
     if (engineRef.current !== null) return;
-    const next = new SyncEngine({
-      client,
-      stores: {
-        cache: asyncStore("cache"),
-        queue: asyncStore("queue"),
-        versions: asyncStore("versions"),
-      },
-      realtime: {
-        url: () => SSE_URL,
-        token: () => accessToken(),
-        factory: (url) => createSseSource(url),
-      },
-      isOnline: () => onlineRef.current,
-      userId: () => meRef.current?.user_id ?? null,
-      ensureToken,
-      uuid: () => Crypto.randomUUID(),
-    });
-    engineRef.current = next;
-    setEngine(next);
-    void next.start();
+    let cancelled = false;
+    void (async () => {
+      const teardown = pendingTeardown;
+      if (teardown !== null) {
+        await teardown;
+        if (pendingTeardown === teardown) pendingTeardown = null;
+      }
+      if (cancelled || engineRef.current !== null) return;
+      // Every store this engine opens resolves its keys from the owner, so
+      // the binding lands before the first hydrate reads anything.
+      setStorageOwner(meRef.current?.user_id ?? null);
+      const next = new SyncEngine({
+        client,
+        stores: {
+          cache: asyncStore("cache"),
+          queue: asyncStore("queue"),
+          versions: asyncStore("versions"),
+        },
+        realtime: {
+          url: () => SSE_URL,
+          token: () => accessToken(),
+          factory: (url) => createSseSource(url),
+        },
+        isOnline: () => onlineRef.current,
+        userId: () => meRef.current?.user_id ?? null,
+        ensureToken,
+        uuid: () => Crypto.randomUUID(),
+      });
+      engineRef.current = next;
+      setEngine(next);
+      void next.start();
+    })();
     return () => {
       // The engine lifecycle is bound to `status`; the cleanup for a
       // signed-in engine runs on sign-out above, and on unmount here.
-      next.stop();
+      cancelled = true;
+      engineRef.current?.stop();
     };
   }, [status, client, ensureToken, accessToken]);
   /* eslint-enable react-hooks/set-state-in-effect */

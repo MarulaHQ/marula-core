@@ -25,7 +25,13 @@ tracing-subscriber.workspace = true
 axum.workspace = true
 tower-http.workspace = true
 hex.workspace = true
+# The per-install loopback secret (Wave 54 lane S5a) comes from the OS CSPRNG.
+rand.workspace = true
 libc = "0.2"
 core-api = { path = "../crates/core-api" }
 core-db = { path = "../crates/core-db" }
 core-store = { path = "../crates/core-store" }
+
+[dev-dependencies]
+# Scratch app-data dirs for the secret and printer-config tests.
+tempfile = "3"

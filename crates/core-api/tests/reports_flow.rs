@@ -795,15 +795,16 @@ async fn csv_shape_is_stable_and_quotes_specials() {
     let s = slug("csv");
     let (bearer, _org, board_id) = seed_org(&app, s.clone()).await;
 
-    // Client name WITH a comma proves quoting stability in labels.
-    let comma_client = make_client(&app, &bearer, "Beta, Inc & Sons").await;
+    // Client name WITH a comma proves quoting stability in labels, and a
+    // leading `=` proves the formula prefix lands inside those quotes.
+    let risky_client = make_client(&app, &bearer, "=Beta, Inc & Sons").await;
     let t = make_ticket(
         &app,
         &bearer,
         &board_id,
         "comma csv",
         None,
-        Some(comma_client),
+        Some(risky_client),
     )
     .await["id"]
         .as_str()
@@ -843,8 +844,8 @@ async fn csv_shape_is_stable_and_quotes_specials() {
     assert_eq!(header, "group_id,label,metric,billable_minutes,entry_count");
     let row_line = lines.next().unwrap();
     assert!(
-        row_line.contains("\"Beta, Inc & Sons\""),
-        "quoting must wrap the embedded comma: {row_line}"
+        row_line.contains("\"'=Beta, Inc & Sons\""),
+        "quoting must wrap the embedded comma inside the formula prefix: {row_line}"
     );
     assert!(
         row_line.contains(",120,"),

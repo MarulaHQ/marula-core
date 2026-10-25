@@ -65,16 +65,24 @@ Marula.app
   constructor (no env hacks) that turns every external integration off:
   email transport `none`, no inbound webhook HMAC, no internal token, object
   store on the local filesystem, dev tools on, loopback bind only.
+  *Wave 54 (`p54-desktop-hardening`) split the credentials out of this
+  constructor's defaults:* the shell overrides the JWT secret (and the at-rest
+  key derived from it) and the embedded Postgres passwords. A debug build keeps
+  the published dev values on purpose. A release build mints a per-install
+  secret in the app data dir and derives every password from it. Dev tools stay
+  on in both, as declared below, because the demo workflow uses them.
 - **pgvector:** migration 0062 requires the `vector` extension, which stock
   Postgres binaries don't ship. On first setup the app copies
   `vector.dylib` + the extension scripts from a Homebrew pgvector install
   (`brew install pgvector`) into the embedded installation. Prerequisite:
   **brew install pgvector**.
 - **Demo seed:** the deterministic demo org (same path as
-  `marula-core-cli seed-demo`) is seeded idempotently on startup with the dev
-  JWT secret, so logins `owner@demo.local` / `dispatcher@demo.local` /
-  `tech@demo.local` / `bookkeeper@demo.local` (password `demo-password-123`)
-  work out of the box.
+  `marula-core-cli seed-demo`) is seeded idempotently on startup, so logins
+  `owner@demo.local` / `dispatcher@demo.local` / `tech@demo.local` /
+  `bookkeeper@demo.local` (password `demo-password-123`) work out of the box.
+  The seed's at-rest seal key derives from the effective JWT secret (the dev
+  secret in a debug build, the per-install secret in a release build), so the
+  seeded sealed columns open under the build that wrote them.
 - **Release profile:** the `desktop` cargo profile uses `opt-level=2` +
   thin LTO + symbol stripping instead of default release. Tradeoff: a few
   percent of server throughput for much faster link times and incremental
