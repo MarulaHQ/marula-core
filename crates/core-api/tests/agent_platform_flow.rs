@@ -735,3 +735,158 @@ async fn withdrawal_is_proposer_or_admin_only() {
     let events = outbox_events(&state, org.org_id, "agent_proposal.withdrawn").await;
     assert_eq!(events.len(), 1);
 }
+
+// ===========================================================================
+// A workflow gate names its own approvers
+// ===========================================================================
+
+/// Invites and redeems one user; returns (access token, user id).
+async fn invite_and_activate(
+    app: &Router,
+    state: &AppState,
+    org: &Org,
+    email: &str,
+    role: &str,
+) -> (String, Uuid) {
+    let invite = send(
+        app,
+        axum::http::Method::POST,
+        "/api/org/users",
+        &[auth(&org.token)],
+        Some(json!({
+            "email": email,
+            "display_name": email.split('@').next().unwrap_or("user"),
+            "role": role,
+            "idempotency_key": format!("invite-{}", Uuid::now_v7().simple()),
+        })),
+    )
+    .await;
+    assert_eq!(invite.status(), 200, "invite must succeed: {role}");
+    let setup_token = body_json(invite).await["invite"]["setup_token"]
+        .as_str()
+        .expect("setup token")
+        .to_string();
+    let accept = send(
+        app,
+        axum::http::Method::POST,
+        "/api/org/users/accept-invite",
+        &[],
+        Some(json!({ "token": setup_token, "password": "another-correct-horse" })),
+    )
+    .await;
+    assert_eq!(accept.status(), 200, "redemption must succeed");
+    let token = body_json(accept).await["access_token"]
+        .as_str()
+        .expect("access token")
+        .to_string();
+    let user_id: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE org_id = $1 AND email = $2")
+        .bind(org.org_id)
+        .bind(email)
+        .fetch_one(&state.pool)
+        .await
+        .expect("invited user id");
+    (token, user_id)
+}
+
+/// The decision route is where entitlement is decided for a gate: the names on
+/// the approval row are the authority, not the proposal-owner fallback. An
+/// owner/admin the gate did not name is refused, and the technician it did
+/// name can decide without an owner deciding for them.
+#[tokio::test]
+async fn a_workflow_gate_is_decided_only_by_the_approvers_it_names() {
+    let (state, app) = test_state().await;
+    let org = register_org(&app, format!("ag-gate-{}", Uuid::now_v7())).await;
+    let (_tech_token, tech_id) = invite_and_activate(
+        &app,
+        &state,
+        &org,
+        &format!("gate-tech-{}@example.test", Uuid::now_v7().simple()),
+        "technician",
+    )
+    .await;
+
+    // The worker files this row when the run parks; insert the same shape here
+    // so the route can be exercised without a running executor.
+    let run_id = Uuid::now_v7();
+    let proposal_id = Uuid::now_v7();
+    let mut conn = state.pool.acquire().await.expect("connection");
+    core_db::agent_platform::insert_proposal(
+        &mut conn,
+        proposal_id,
+        org.org_id,
+        &core_db::agent_platform::ProposalFields {
+            entity: core_domain::workflow_approvals::GATE_ENTITY.to_string(),
+            entity_id: Some(run_id),
+            op: "update".to_string(),
+            before_value: Value::Null,
+            proposed_value: json!({
+                "gate": "gate-1",
+                "approvers": [tech_id.to_string()],
+                "timeout": "1h",
+                "onExpiry": "fail",
+                "prompt": "Release this run?"
+            }),
+            classification: "internal".to_string(),
+            capability: None,
+            dial_mode: "proposed".to_string(),
+            base_version: 0,
+            agent_kind: "agent".to_string(),
+            agent_ref: format!("workflow-run:{run_id}"),
+            skill_slug: None,
+            skill_version: None,
+            rule_set_hash: None,
+            session_id: None,
+            tool: None,
+            for_user: None,
+            rationale: None,
+        },
+    )
+    .await
+    .expect("gate approval row");
+
+    // The owner is an admin, and is still not entitled: the gate named someone
+    // else, and the author chose that.
+    let refused = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/v1/agent-proposals/{proposal_id}/approve"),
+        &[auth(&org.token)],
+        Some(json!({ "note": null })),
+    )
+    .await;
+    assert_eq!(
+        refused.status(),
+        403,
+        "a principal the gate did not name cannot decide it"
+    );
+    let mut conn = state.pool.acquire().await.expect("connection");
+    let row = core_db::agent_platform::get_proposal(&mut *conn, org.org_id, proposal_id)
+        .await
+        .expect("proposal row");
+    assert_eq!(
+        row.status, "proposed",
+        "the refused decision changed nothing"
+    );
+
+    // The named technician decides, and the contract event names them.
+    let approved = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/v1/agent-proposals/{proposal_id}/approve"),
+        &[auth(&_tech_token)],
+        Some(json!({ "note": "looks right" })),
+    )
+    .await;
+    assert_eq!(approved.status(), 200, "the named approver may decide");
+    assert_eq!(body_json(approved).await["status"], "approved");
+
+    let events = outbox_events(&state, org.org_id, "agent_proposal.approved").await;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["proposal_id"], json!(proposal_id));
+    assert_eq!(events[0]["approved_by"], json!(tech_id));
+    assert_eq!(
+        events[0]["entity"],
+        json!(core_domain::workflow_approvals::GATE_ENTITY)
+    );
+    assert_eq!(events[0]["entity_id"], json!(run_id));
+}

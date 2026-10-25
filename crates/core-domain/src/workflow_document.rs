@@ -927,6 +927,11 @@ pub struct WorkflowCursor {
     /// when it is event-based (`flow.waitFor*` / `flow.deadline`).
     #[serde(default)]
     pub wake_on: Option<String>,
+    /// For `flow.awaitApproval`: the approval row each gate filed, per gate
+    /// node id. This is the binding a decision must name — a decision whose
+    /// `proposal_id` is not this value satisfies a different gate.
+    #[serde(default)]
+    pub approvals: BTreeMap<String, String>,
 }
 
 /// Which outgoing edges of a node fire after it succeeds. Most nodes fire
