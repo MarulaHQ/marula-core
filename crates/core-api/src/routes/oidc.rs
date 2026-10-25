@@ -631,8 +631,22 @@ pub async fn callback(
                 email,
                 display_name,
             }) => {
+                // Bound the hash before it starts (Wave 58 lane `p58-hashing`):
+                // this arm is reachable by anonymous callback traffic, and
+                // argon2 used to run here with the transaction — and so a
+                // pooled connection — already open. Taking the slot at the
+                // point of need, rather than at the top of the callback, keeps
+                // a slow identity provider from holding password slots
+                // hostage: it is only held for this one hash.
+                let permit = match state.config.auth_hash_gate().admit().await {
+                    Ok(permit) => permit,
+                    Err(refused) => {
+                        return Ok(crate::auth::handlers::hash_slots_exhausted(refused));
+                    }
+                };
                 let user_id =
-                    provision_jit_user(&mut tx, provider.org_id, &email, &display_name).await?;
+                    provision_jit_user(&mut tx, provider.org_id, &email, &display_name, permit)
+                        .await?;
                 core_db::oidc::create_link(
                     &mut *tx,
                     Uuid::now_v7(),
@@ -761,11 +775,23 @@ pub async fn callback(
 }
 
 /// Creates a disabled-password user under the org's default Technician role.
+///
+/// The caller passes the hash-slot permit it took (Wave 58 lane `p58-hashing`).
+/// Making the permit a parameter is the point: this function is the only place
+/// that knows when the hash ends, so it releases the slot the instant the hash
+/// returns, and a caller cannot reach it without having taken one. The
+/// transaction stays open across that hash on purpose — the user row, its
+/// role, the email-verified stamp, the link and the audit row have to be one
+/// transaction, and the decision to provision is only known after reads in it.
+/// So the bound here is a concurrency cap on the hash itself (at most one
+/// pooled connection per slot can be parked in argon2), not the full
+/// connection-free shape the login path gets by committing its read first.
 pub(crate) async fn provision_jit_user(
     tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
     org_id: Uuid,
     email: &str,
     display_name: &str,
+    permit: tokio::sync::SemaphorePermit<'static>,
 ) -> ApiResult<Uuid> {
     use rand::RngCore;
     let mut random = [0u8; 32];
@@ -773,6 +799,8 @@ pub(crate) async fn provision_jit_user(
     let unusable_password_hash = crate::auth::password::hash_async(hex::encode(random))
         .await
         .map_err(ApiError::Internal)?;
+    // The whole bounded section. Everything below is ordinary DB work.
+    drop(permit);
     let user_id = Uuid::now_v7();
     core_db::users::create_user(
         &mut **tx,

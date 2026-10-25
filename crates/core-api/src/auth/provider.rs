@@ -207,8 +207,17 @@ async fn provision_jit_then_issue(
         .clone()
         .unwrap_or_else(|| email.clone());
     let mut tx = tx;
+    // The same bound as the OIDC callback's provisioning arm (Wave 58 lane
+    // `p58-hashing`). This seam cannot answer a header, so a refusal here is
+    // the typed 503 envelope through `hash_capacity_error`; the HTTP door that
+    // calls it is what adds `Retry-After`.
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Err(crate::auth::handlers::hash_capacity_error(refused)),
+    };
     let user_id =
-        crate::routes::oidc::provision_jit_user(&mut tx, ctx.org_id, &email, &display_name).await?;
+        crate::routes::oidc::provision_jit_user(&mut tx, ctx.org_id, &email, &display_name, permit)
+            .await?;
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;

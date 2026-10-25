@@ -1,5 +1,5 @@
-//! The password-hash admission bound on the portal door (Wave 58 lane
-//! `p58-hashing`, follow-up F62).
+//! The password-hash admission bound on the two doors Wave 56 left open
+//! (Wave 58 lane `p58-hashing`).
 //!
 //! `p56-auth-bounds` bounded `POST /api/auth/login` and `POST /api/auth/register`
 //! with `auth::hash_gate`. Two more paths spend the same argon2id on input
@@ -38,7 +38,11 @@
 //! the shape it wants before its first request.
 
 use axum::Router;
+use core_api::auth::federation::LinkNamespace;
 use core_api::auth::hash_gate::{self, HashGate};
+use core_api::auth::provider::{
+    resolve_and_issue, ProviderContext, ProviderLoginOutcome, VerifiedPrincipal,
+};
 use core_api::config::Config;
 use core_api::state::AppState;
 use serde_json::{json, Value};
@@ -213,6 +217,23 @@ async fn seed(app: &Router, tag: &str) -> Seeded {
         portal_email,
         org_id,
     }
+}
+
+/// How many user rows carry this address, read under the org's RLS scope so
+/// the count is the row the provisioning would have written.
+async fn users_with_email(pool: &PgPool, org_id: Uuid, email: &str) -> i64 {
+    let mut tx = pool.begin().await.expect("scoped tx");
+    core_db::set_org(&mut tx, org_id).await.expect("org scope");
+    let count = sqlx::query_scalar(
+        "SELECT count(*) FROM users WHERE org_id = $1 AND lower(email) = lower($2)",
+    )
+    .bind(org_id)
+    .bind(email)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("user count");
+    tx.rollback().await.expect("rollback");
+    count
 }
 
 /// The one gate this process has, pinned to a single slot with no queue, so a
@@ -457,6 +478,92 @@ async fn idle_in_transaction_on_portal_users(pool: &PgPool) -> i64 {
     .fetch_one(pool)
     .await
     .expect("pg_stat_activity read")
+}
+
+// --- the JIT door -----------------------------------------------------------
+
+fn jit_context(org_id: Uuid) -> ProviderContext {
+    ProviderContext {
+        // A namespace with no link rows: the conservative decision falls
+        // through to JIT, which is the arm this case needs.
+        namespace: LinkNamespace::Oidc(Uuid::now_v7()),
+        org_id,
+        display_source: "p58-hashing-test",
+        jit_allowed: true,
+    }
+}
+
+fn jit_principal(email: &str) -> VerifiedPrincipal {
+    VerifiedPrincipal {
+        subject: format!("sub-{}", Uuid::now_v7()),
+        email: email.to_string(),
+        email_verified: true,
+        display_name: Some("JIT Person".into()),
+        amr: vec!["pwd".into()],
+    }
+}
+
+/// Every slot taken ⇒ JIT provisioning is refused before it hashes, so an SSO
+/// deployment cannot be made to park a pooled transaction on argon2 by
+/// anonymous callback traffic. The refusal is the same typed 503 the other
+/// password doors answer, and no user row is written.
+#[tokio::test]
+#[serial_test::serial]
+async fn jit_provisioning_answers_503_when_every_hash_slot_is_taken() {
+    one_slot_gate();
+    let state = test_state(5).await;
+    let app = core_api::router(state.clone());
+    let seeded = seed(&app, "jit-saturated").await;
+    let email = format!("jit-{}@example.test", Uuid::now_v7().simple());
+
+    let held = drain_slots().await;
+    let refused =
+        resolve_and_issue(&state, &jit_context(seeded.org_id), jit_principal(&email)).await;
+    let error = match refused {
+        Ok(_) => panic!("a saturated gate must refuse JIT provisioning, not admit it"),
+        Err(error) => error,
+    };
+    let response = axum::response::IntoResponse::into_response(error);
+    assert_service_unavailable(response).await;
+    assert_eq!(
+        users_with_email(&state.pool, seeded.org_id, &email).await,
+        0,
+        "a refused provisioning must not write a user row"
+    );
+
+    drop(held);
+}
+
+/// The bound is a bound, not a wall: with a slot free the same call provisions
+/// the user, and the slot is back the moment the hash returns.
+#[tokio::test]
+#[serial_test::serial]
+async fn jit_provisioning_is_admitted_and_returns_its_slot() {
+    one_slot_gate();
+    let state = test_state(5).await;
+    let app = core_api::router(state.clone());
+    let seeded = seed(&app, "jit-admitted").await;
+    let email = format!("jit-{}@example.test", Uuid::now_v7().simple());
+    let gate = one_slot_gate();
+    assert_eq!(gate.available(), 1, "the case starts with a free slot");
+
+    let outcome = resolve_and_issue(&state, &jit_context(seeded.org_id), jit_principal(&email))
+        .await
+        .expect("a free slot admits the provisioning");
+    assert!(
+        matches!(outcome, ProviderLoginOutcome::Tokens(_)),
+        "an admitted JIT login issues a session"
+    );
+    assert_eq!(
+        gate.available(),
+        1,
+        "the provisioning hash must return its slot"
+    );
+    assert_eq!(
+        users_with_email(&state.pool, seeded.org_id, &email).await,
+        1,
+        "an admitted provisioning writes the user exactly once"
+    );
 }
 
 // --- measurement (ignored) --------------------------------------------------
