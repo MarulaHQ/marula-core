@@ -470,6 +470,15 @@ async fn replay_pg17_dump(
     Ok(())
 }
 
+/// Whether this launch seeds the demo org. The demo accounts are part of the
+/// local TEST app, so the decision is the same one that mounts `/api/dev/*`
+/// (ADR 0005, amendment 2026-10-25): a release build mounts no dev route and
+/// seeds no demo account. [`core_api::config::Config::local_dev_tools`] is the
+/// single source of truth, so the seed and the routes cannot disagree.
+fn seeds_the_demo_org(release_build: bool) -> bool {
+    core_api::config::Config::local_dev_tools(release_build)
+}
+
 async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     let root = data_root();
     std::fs::create_dir_all(&root)?;
@@ -590,24 +599,34 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
         .context("RLS coverage check")?;
 
     // Seed the deterministic demo org (same path as `marula-core-cli
-    // seed-demo`); idempotent — an existing seed is left untouched. The seal
-    // key follows the effective JWT secret, which is what the API derives.
+    // seed-demo`) — part of the local TEST app, so it follows the same
+    // build-posture decision that mounts `/api/dev/*` (ADR 0005, amendment
+    // 2026-10-25): a release build exposes no dev surface and seeds no demo
+    // account. Idempotent — an existing seed is left untouched. The seal key
+    // follows the effective JWT secret, which is what the API derives.
     let seal = secrets.seal_key();
-    // `object_store_dir: None` matches the pre-existing behaviour (the test
-    // app seeds no attachment payloads); the field was added to the options
-    // struct after this call site was written, leaving the workspace red on
-    // base. Wave 43 lane 15 closes that inherited red. Point it at a real
-    // directory if the demo ever needs attachment fixtures.
-    let opts = core_db::demo::DemoSeedOptions {
-        seal_key: seal,
-        object_store_dir: None,
-    };
-    match core_db::demo::seed(&owner_pool, &opts).await {
-        Ok(_) => tracing::info!("demo org seeded; logins: {DEMO_LOGINS}"),
-        Err(core_db::demo::DemoError::AlreadySeeded(_)) => {
-            tracing::info!("demo org already seeded")
+    if seeds_the_demo_org(!secrets.publishes_dev_defaults) {
+        // `object_store_dir: None` matches the pre-existing behaviour (the test
+        // app seeds no attachment payloads); the field was added to the options
+        // struct after this call site was written, leaving the workspace red on
+        // base. Wave 43 lane 15 closes that inherited red. Point it at a real
+        // directory if the demo ever needs attachment fixtures.
+        let opts = core_db::demo::DemoSeedOptions {
+            seal_key: seal,
+            object_store_dir: None,
+        };
+        match core_db::demo::seed(&owner_pool, &opts).await {
+            Ok(_) => tracing::info!("demo org seeded; logins: {DEMO_LOGINS}"),
+            Err(core_db::demo::DemoError::AlreadySeeded(_)) => {
+                tracing::info!("demo org already seeded")
+            }
+            Err(e) => return Err(anyhow::anyhow!("demo seed failed: {e}")),
         }
-        Err(e) => return Err(anyhow::anyhow!("demo seed failed: {e}")),
+    } else {
+        tracing::info!(
+            "release build: no demo org seeded and no /api/dev/* routes mounted — \
+             sign in with an account you created"
+        );
     }
     owner_pool.close().await;
 
@@ -1038,6 +1057,29 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A release build ships neither the `/api/dev/*` routes nor the demo
+    /// accounts they exist for (ADR 0005, amendment 2026-10-25). The seed
+    /// decision is the same one `Config::from_local` makes, so the two cannot
+    /// drift apart: a build that mounts no dev route must seed nothing.
+    #[test]
+    fn a_release_build_seeds_no_demo_org() {
+        assert!(
+            seeds_the_demo_org(false),
+            "a debug build keeps the demo logins the ADR exists for"
+        );
+        assert!(
+            !seeds_the_demo_org(true),
+            "a release build must seed no demo account"
+        );
+        for release_build in [false, true] {
+            assert_eq!(
+                seeds_the_demo_org(release_build),
+                core_api::config::Config::local_dev_tools(release_build),
+                "the seed follows the dev-surface decision for every posture"
+            );
+        }
+    }
 
     /// Command-level check without a physical printer: a local listener
     /// stands in for the Zebra and must receive the EXACT ZPL bytes.

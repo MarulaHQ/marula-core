@@ -238,10 +238,12 @@ pub fn build_router(state: AppState) -> Router {
     let docs = openapi::scalar_router();
 
     // Dev-tools surface (the private build tracker DX2): mounted ONLY when the process runs
-    // with MARULA_DEV_TOOLS=1. Unset, the routes DO NOT EXIST — no
-    // registration at all, not a 403 — and they stay outside the /api/v1
-    // contract, the OpenAPI document, and the two-mount rule (a dev surface
-    // is not an API generation).
+    // with MARULA_DEV_TOOLS=1, or on the desktop local profile's debug build,
+    // which derives the flag from the build profile (ADR 0005, amendment
+    // 2026-10-25 — a release build mounts nothing here). Unset, the routes DO
+    // NOT EXIST — no registration at all, not a 403 — and they stay outside
+    // the /api/v1 contract, the OpenAPI document, and the two-mount rule (a
+    // dev surface is not an API generation).
     let dev = if state.config.dev_tools {
         Router::new().merge(dev::router(state.clone()))
     } else {
@@ -2287,4 +2289,90 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
 
 async fn health() -> &'static str {
     "ok"
+}
+
+#[cfg(test)]
+mod release_surface_tests {
+    //! The dev surface is a decision of the profile, and a release build of the
+    //! desktop shell must not carry it (ADR 0005, amendment 2026-10-25). These
+    //! tests prove BOTH halves of the mount through the real router, with
+    //! lazily-connected pools so no database is needed:
+    //!
+    //! * flag off — the paths are unmatched (`404`, empty body: no rejection
+    //!   envelope, because no route exists);
+    //! * flag on — the same paths are registered, which axum answers with `405`
+    //!   for an unsupported method BEFORE running a handler.
+
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    fn state(dev_tools: bool) -> AppState {
+        let url = "postgres://marula:marula@127.0.0.1:1/marula";
+        let mut config = crate::config::Config::test_with_secret("release-surface");
+        config.dev_tools = dev_tools;
+        let config = Arc::new(config);
+        AppState {
+            pool: sqlx::postgres::PgPoolOptions::new()
+                .connect_lazy(url)
+                .expect("a lazily-connected pool parses"),
+            oidc: crate::auth::oidc_client::OidcHttpClient::new(),
+            mail: Arc::new(crate::email::MailStack::from_config(&config)),
+            store: core_store::build(&core_store::StoreChoice::Local(
+                std::env::temp_dir().to_string_lossy().into_owned(),
+            )),
+            routing: crate::routing::build_registry(&config),
+            reporting: AppState::reporting_pool_lazy(url).expect("lazy reporting pool"),
+            config,
+            plugin_pool: Default::default(),
+        }
+    }
+
+    async fn send(app: &Router, method: Method, uri: &str) -> axum::response::Response {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("router")
+    }
+
+    #[tokio::test]
+    async fn the_dev_routes_do_not_exist_when_the_flag_is_off() {
+        let app = build_router(state(false));
+        for uri in ["/api/dev/status", "/api/dev/events"] {
+            let response = send(&app, Method::GET, uri).await;
+            assert_eq!(
+                response.status(),
+                StatusCode::NOT_FOUND,
+                "{uri} must be unmatched when the flag is off"
+            );
+            let body = axum::body::to_bytes(response.into_body(), 16 * 1024)
+                .await
+                .expect("body");
+            assert!(
+                body.is_empty(),
+                "{uri} must be an unmatched route, not an envelope from a mounted handler"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn the_dev_routes_exist_when_the_flag_is_on() {
+        let app = build_router(state(true));
+        for uri in ["/api/dev/status", "/api/dev/events"] {
+            let response = send(&app, Method::PATCH, uri).await;
+            assert_eq!(
+                response.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{uri} must be a registered path when the flag is on"
+            );
+        }
+    }
 }

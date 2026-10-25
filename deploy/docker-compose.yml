@@ -305,6 +305,10 @@ services:
       # webhook DISABLED until EMAIL_INBOUND_HMAC_SECRET is set; transport
       # `smtp` requires the stage2-profile mailpit slot (--profile stage2).
       EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
+      # The bearer half of the same seam (SLA, automation, webhook, dedupe,
+      # workflow-node calls). core-api refuses boot without it outside the dev
+      # profile, so it is set here exactly like EMAIL_INTERNAL_TOKEN.
+      MARULA_INTERNAL_TOKEN: ${MARULA_INTERNAL_TOKEN:-dev-internal}
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
@@ -414,6 +418,10 @@ services:
       MARULA_SHUTDOWN_GRACE_SECS: ${MARULA_SHUTDOWN_GRACE_SECS:-20}
       CORE_API_URL: http://core-api:8080
       EMAIL_INTERNAL_TOKEN: ${EMAIL_INTERNAL_TOKEN:-dev-email-internal}
+      # The bearer half of the same seam (SLA, automation, webhook, dedupe,
+      # workflow-node calls). core-api refuses boot without it outside the dev
+      # profile, so it is set here exactly like EMAIL_INTERNAL_TOKEN.
+      MARULA_INTERNAL_TOKEN: ${MARULA_INTERNAL_TOKEN:-dev-internal}
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       SMTP_HOST: ${SMTP_HOST:-mailpit}
       SMTP_PORT: ${SMTP_PORT:-1025}
