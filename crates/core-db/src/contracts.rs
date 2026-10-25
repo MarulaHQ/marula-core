@@ -904,9 +904,6 @@ where
         .collect())
 }
 
-/// Transition a change order's status. Typed `DbError::NotFound` when
-/// the row is not visible in scope; a stale transition is the API
-/// layer's typed conflict.
 /// A change-order transition's stamped fields (who/when approved, which
 /// invoice billed). `None` fields leave the stored value untouched.
 #[derive(Debug, Clone, Default)]
@@ -917,39 +914,68 @@ pub struct ChangeOrderTransition<'a> {
     pub billed_invoice_id: Option<Uuid>,
 }
 
+/// Transition a change order's status, but ONLY while it still carries one
+/// of the statuses `expected` names — the predecessor is a predicate, so a
+/// transition that lost a race is decided by Postgres, not by a read made
+/// before it. `DbError::NotFound` when the row is not visible in scope;
+/// `DbError::Conflict` when it moved under the caller (409 at the API).
 #[allow(clippy::too_many_arguments)]
-pub async fn update_change_order_status<'e, E>(
-    executor: E,
+pub async fn update_change_order_status(
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     contract_id: Uuid,
     id: Uuid,
     status: &str,
+    expected: &[&str],
     approved_by: Option<Uuid>,
     approved_at: Option<chrono::DateTime<chrono::Utc>>,
     billed_invoice_id: Option<Uuid>,
-) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
-    let result = sqlx::query!(
+) -> DbResult<()> {
+    // The predecessor status is part of the predicate, not a check made
+    // before it: an approve and a reject racing on one draft both read
+    // `draft` under READ COMMITTED, and without this the second overwrites
+    // the first's decision with its own. Naming the status the caller
+    // expects lets Postgres re-evaluate it on the latest committed row
+    // after the row lock, so exactly one of them wins.
+    let expected: Vec<String> = expected.iter().map(|s| s.to_string()).collect();
+    let result = sqlx::query(
         r#"UPDATE contract_change_orders SET status = $4,
               approved_by = COALESCE($5, approved_by),
               approved_at = COALESCE($6, approved_at),
               billed_invoice_id = COALESCE($7, billed_invoice_id),
               updated_at = now()
-           WHERE org_id = $1 AND contract_id = $2 AND id = $3"#,
-        org_id,
-        contract_id,
-        id,
-        status,
-        approved_by,
-        approved_at,
-        billed_invoice_id,
+           WHERE org_id = $1 AND contract_id = $2 AND id = $3
+             AND status = ANY($8)"#,
     )
-    .execute(executor)
+    .bind(org_id)
+    .bind(contract_id)
+    .bind(id)
+    .bind(status)
+    .bind(approved_by)
+    .bind(approved_at)
+    .bind(billed_invoice_id)
+    .bind(&expected)
+    .execute(&mut *conn)
     .await?;
     if result.rows_affected() == 0 {
-        return Err(DbError::NotFound);
+        // Distinguish "gone" (404 at the API) from "moved under the
+        // caller" (409), so a lost transition is a typed refusal and never
+        // a silent success or a 500.
+        let current: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM contract_change_orders \
+             WHERE org_id = $1 AND contract_id = $2 AND id = $3",
+        )
+        .bind(org_id)
+        .bind(contract_id)
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        return match current {
+            None => Err(DbError::NotFound),
+            Some(current) => Err(DbError::Conflict(format!(
+                "change order is {current}; it cannot move to {status} from there"
+            ))),
+        };
     }
     Ok(())
 }

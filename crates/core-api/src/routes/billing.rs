@@ -1387,10 +1387,17 @@ pub async fn transition_change_order(
     require_permission(&authed.principal, financial_read())?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let (status, approved_by, approved_at, billed_invoice_id) = match req.action.as_str() {
-        "approve" => ("approved", Some(user_id), Some(chrono::Utc::now()), None),
-        "reject" => ("rejected", None, None, None),
-        "cancel" => ("cancelled", None, None, None),
+    let (status, expected, approved_by, approved_at, billed_invoice_id) = match req.action.as_str()
+    {
+        "approve" => (
+            "approved",
+            &["draft"][..],
+            Some(user_id),
+            Some(chrono::Utc::now()),
+            None,
+        ),
+        "reject" => ("rejected", &["draft"][..], None, None, None),
+        "cancel" => ("cancelled", &["draft", "approved"][..], None, None, None),
         other => {
             return Err(ApiError::Validation(format!(
                 "invalid transition action: {other} (approve|reject|cancel; billed is run-owned)"
@@ -1398,35 +1405,24 @@ pub async fn transition_change_order(
         }
     };
     let updated = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let existing = core_db::contracts::list_change_orders(&mut *ctx.tx, org_id, id)
-            .await?
-            .into_iter()
-            .find(|o| o.id == order_id)
-            .ok_or_else(|| instant::mutation_scope_err(core_db::DbError::NotFound.into()))?;
-        // Typed lifecycle guard: transitions only from the legal
-        // predecessor statuses (billed is terminal, run-owned).
-        let allowed = match req.action.as_str() {
-            "approve" | "reject" => existing.status == "draft",
-            "cancel" => matches!(existing.status.as_str(), "draft" | "approved"),
-            _ => false,
-        };
-        if !allowed {
-            return Err(ApiError::Conflict(format!(
-                "cannot {} a {} change order",
-                req.action, existing.status
-            )));
-        }
+        // The predecessor status is the UPDATE's predicate (see the store
+        // fn), so the lifecycle guard is decided by Postgres on the latest
+        // row: an approve and a reject racing on one draft cannot both
+        // succeed, and the loser gets the typed 409 rather than
+        // overwriting the winner's decision.
         core_db::contracts::update_change_order_status(
             &mut *ctx.tx,
             org_id,
             id,
             order_id,
             status,
+            expected,
             approved_by,
             approved_at,
             billed_invoice_id,
         )
-        .await?;
+        .await
+        .map_err(|e| instant::mutation_scope_err(e.into()))?;
         let updated = core_db::contracts::list_change_orders(&mut *ctx.tx, org_id, id)
             .await?
             .into_iter()
