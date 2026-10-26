@@ -54,6 +54,13 @@ handle @edge_health {
 	}
 }
 
+# The demo/dev surface never crosses the public edge. The demo overlay mounts
+# /api/dev/* and binds core-api to loopback; this deny keeps a remote caller
+# from reaching the unauthenticated reset routes through the proxy as well.
+route /api/dev/* {
+	respond 404
+}
+
 @api {
 	path /api /api/* /openapi.json
 }

@@ -1,0 +1,113 @@
+# Demo overlay — a seeded, resettable instance that is not an accident.
+#
+# This is the deliberate act that turns the dev surface on. Use it with the
+# base file and the demo profile:
+#
+#   export JWT_SECRET=$(openssl rand -hex 32)
+#   export MARULA_SECRET_KEY=$(openssl rand -hex 32)   # explicit; never derived
+#   export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
+#   export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
+#   export POSTGRES_PASSWORD=$(openssl rand -hex 32)
+#   export MARULA_APP_PASSWORD=marula_app
+#   export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
+#   export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.demo.yml \
+#     --profile demo up -d --build
+#
+# SECURITY POSTURE (read before changing anything here):
+#   * core-api's published port is pinned to 127.0.0.1. The dev surface has no
+#     bearer auth; a demo box must not put /api/dev/* on a public interface.
+#   * deploy/edge/marula-routes.caddy answers 404 for /api/dev/*, so the public
+#     edge cannot reach the reset routes even if someone publishes 8080 later.
+#   * The reset script runs over loopback (SSH tunnel on a VPS), never through
+#     the public hostname.
+#   * MARULA_SECRET_KEY is explicit and required. The at-rest key is never
+#     derived from JWT_SECRET on this profile, and a reset never rotates it.
+#
+# The API and worker keep the dev flag on because /api/dev/{reset-org,time-travel}
+# is how the demo is reset. The one-shot `demo-seed` service runs without
+# --force, so a restart never wipes a demo an operator has already prepared; it
+# is idempotent and exits 0 when the org already exists.
+name: marula
+
+services:
+  core-api:
+    environment:
+      MARULA_DEV_TOOLS: "1"
+      MARULA_DEMO_MODE: "1"
+    # Loopback only. Do not widen this to 0.0.0.0: the dev surface is
+    # unauthenticated by design (routes/dev.rs).
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      demo-seed:
+        condition: service_completed_successfully
+
+  worker:
+    environment:
+      MARULA_DEV_TOOLS: "1"
+      MARULA_DEMO_MODE: "1"
+
+  dev-posture:
+    environment:
+      MARULA_DEV_TOOLS: "1"
+      MARULA_DEMO_MODE: "1"
+
+  demo-seed:
+    profiles: ["demo"]
+    mem_limit: 256m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    read_only: true
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args: { BIN: marula-core-cli }
+    entrypoint: ["/usr/local/bin/marula"]
+    command: ["seed-demo"]
+    environment:
+      DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/marula
+      MARULA_SECRET_KEY: "${MARULA_SECRET_KEY:?MARULA_SECRET_KEY is required - the explicit at-rest key}"
+      MARULA_DEV_TOOLS: "1"
+      OBJECT_STORE: local
+      OBJECT_STORE_LOCAL_DIR: /data/objects
+    volumes:
+      - objectdata:/data/objects
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  web:
+    profiles: ["demo"]
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        # The BROWSER's URL for core-api. Laptop: localhost:8080. A VPS behind
+        # the edge: the public origin, e.g. https://demo.example.com.
+        NEXT_PUBLIC_API_URL: ${DEMO_PUBLIC_ORIGIN:-http://localhost:8080}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      core-api:
+        condition: service_started
+
