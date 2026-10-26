@@ -13,6 +13,7 @@ pub mod email;
 pub mod error;
 pub mod http_version;
 pub mod instant;
+pub mod mcp_catalog;
 pub mod org_tx;
 pub mod otel_http;
 pub mod outbound;

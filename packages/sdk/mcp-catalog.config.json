@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "_comment": "Authored policy for the MCP read surface (row A29). The generator (scripts/gen-mcp-catalog.mjs) reads this plus packages/sdk/openapi.json and writes packages/sdk/mcp-catalog.json and the cutover migration. Change here, re-run the generator, review the diff.",
+  "exclude_families": [
+    "events",
+    "mcp",
+    "me",
+    "migration",
+    "onboarding",
+    "passwords",
+    "public",
+    "secrets"
+  ],
+  "exclude_paths": {
+    "admin": ["/api/admin/quarantine", "/api/admin/quarantine/{sha256}"],
+    "ai": ["/api/ai/me/credentials"],
+    "assets": ["/api/assets/{id}/vault"],
+    "calendar-sync": ["/api/calendar-sync/feed/{token}", "/api/calendar-sync/{provider}/callback"],
+    "orgs": ["/api/orgs/{org_id}/service-accounts"],
+    "settings": [
+      "/api/settings/ai/credentials",
+      "/api/settings/ai/matrix",
+      "/api/settings/ai/status"
+    ],
+    "sign-offs": ["/api/sign-offs/{id}/payload"]
+  },
+  "sensitive_families": ["documents"],
+  "sensitive_tools": [
+    {
+      "capability": "tickets_correspondence:read",
+      "paths": ["/api/tickets/{id}/emails"]
+    }
+  ]
+}

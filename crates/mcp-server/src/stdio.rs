@@ -81,7 +81,10 @@ pub async fn serve_from_env() -> anyhow::Result<()> {
     };
     let granted_set: std::collections::HashSet<String> = granted.into_iter().collect();
     let scoped = ScopedBackend::new(backend, granted_set.clone());
-    let tools = crate::catalog::filter_granted(crate::catalog::build_catalog(&spec), &granted_set);
+    let tools = crate::catalog::filter_granted(
+        crate::catalog::build_catalog(&spec, &crate::mcp_catalog_spec()),
+        &granted_set,
+    );
     let server = Server::new(scoped, tools);
     serve(server).await
 }

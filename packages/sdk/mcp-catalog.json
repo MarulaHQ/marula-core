@@ -1,0 +1,2255 @@
+{
+  "version": 1,
+  "generated_from": "packages/sdk/openapi.json + packages/sdk/mcp-catalog.config.json",
+  "families": [
+    {
+      "namespace": "admin",
+      "capability": "admin:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "dead_work_list",
+          "path": "/api/admin/dead-work",
+          "capability": "admin:read",
+          "summary": "GET /api/admin/dead-work — every ledger's abandoned work, newest first."
+        },
+        {
+          "name": "dead_work_destinations",
+          "path": "/api/admin/dead-work/destinations",
+          "capability": "admin:read",
+          "summary": "GET /api/admin/dead-work/destinations — webhook destinations and their\nfailure counters."
+        }
+      ]
+    },
+    {
+      "namespace": "agent-proposals",
+      "capability": "agent-proposals:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "agent_proposals_list",
+          "path": "/api/agent-proposals",
+          "capability": "agent-proposals:read",
+          "summary": "GET /api/agent-proposals — cursor-paged listing, newest first."
+        },
+        {
+          "name": "agent_proposals_get",
+          "path": "/api/agent-proposals/{id}",
+          "capability": "agent-proposals:read",
+          "summary": "GET /api/agent-proposals/{id}."
+        }
+      ]
+    },
+    {
+      "namespace": "agent-skills",
+      "capability": "agent-skills:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "agent_skills_list",
+          "path": "/api/agent-skills",
+          "capability": "agent-skills:read",
+          "summary": "GET /api/v1/agent-skills — latest version per slug (or one slug's history)."
+        },
+        {
+          "name": "agent_skills_get",
+          "path": "/api/agent-skills/{id}",
+          "capability": "agent-skills:read",
+          "summary": "GET /api/v1/agent-skills/{id} — one immutable version."
+        }
+      ]
+    },
+    {
+      "namespace": "ai",
+      "capability": "ai:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "ai_my_surfaces_get",
+          "path": "/api/ai/me/surfaces",
+          "capability": "ai:read",
+          "summary": "GET /ai/me/surfaces — which surfaces the CALLER may use\n(deny-by-default: only granted, enabled, non-internal rows surface)."
+        },
+        {
+          "name": "ai_my_usage_get",
+          "path": "/api/ai/me/usage",
+          "capability": "ai:read",
+          "summary": "GET /ai/me/usage — personal progress against caps."
+        }
+      ]
+    },
+    {
+      "namespace": "alert-sources",
+      "capability": "alert-sources:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "alert_sources_list",
+          "path": "/api/alert-sources",
+          "capability": "alert-sources:read",
+          "summary": "GET /api/alert-sources — newest-first config list (no secrets)."
+        }
+      ]
+    },
+    {
+      "namespace": "alerts",
+      "capability": "alerts:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "alerts_list",
+          "path": "/api/alerts",
+          "capability": "alerts:read",
+          "summary": "GET /api/alerts — newest-first ledger browse, filterable by source and\nincident ticket (staff, ticket-view scoped)."
+        }
+      ]
+    },
+    {
+      "namespace": "appointment-requests",
+      "capability": "appointment-requests:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "appointment_requests_list",
+          "path": "/api/appointment-requests",
+          "capability": "appointment-requests:read",
+          "summary": "GET /api/appointment-requests — the staff queue (optionally narrowed\nby status), newest first."
+        }
+      ]
+    },
+    {
+      "namespace": "appointments",
+      "capability": "appointments:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "appointment_get",
+          "path": "/api/appointments/{id}",
+          "capability": "appointments:read",
+          "summary": "GET /api/appointments/{id} — fetch one booking in the caller's org."
+        }
+      ]
+    },
+    {
+      "namespace": "assets",
+      "capability": "assets:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "assets_list",
+          "path": "/api/assets",
+          "capability": "assets:read",
+          "summary": "GET /api/assets — org-wide, filterable (resource REST for external-DMS\nparity; the client-scoped tab narrows with `?client_id=`)."
+        },
+        {
+          "name": "assets_get",
+          "path": "/api/assets/{id}",
+          "capability": "assets:read",
+          "summary": "GET /api/assets/{id}"
+        },
+        {
+          "name": "assets_list_links",
+          "path": "/api/assets/{id}/links",
+          "capability": "assets:read",
+          "summary": "GET /api/assets/{id}/links — the related-items panel."
+        },
+        {
+          "name": "assets_integration_links",
+          "path": "/api/assets/integration-links",
+          "capability": "assets:read",
+          "summary": "GET /api/assets/integration-links — per-connector link state as data\n(QBO/Xero and friends): linked/unlinked + last-touch timestamps. No\nlive sync runs here; th"
+        }
+      ]
+    },
+    {
+      "namespace": "audit-events",
+      "capability": "audit-events:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "audit_list",
+          "path": "/api/audit-events",
+          "capability": "audit-events:read",
+          "summary": "GET /api/audit-events — append-only audit trail. Newest first by default;\n`order=asc` + `after` turns it into a forward-only export tail."
+        }
+      ]
+    },
+    {
+      "namespace": "automation-rules",
+      "capability": "automation-rules:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "automation_rules_list",
+          "path": "/api/automation-rules",
+          "capability": "automation-rules:read",
+          "summary": "GET /api/automation-rules"
+        }
+      ]
+    },
+    {
+      "namespace": "availability",
+      "capability": "availability:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "availability_list",
+          "path": "/api/availability",
+          "capability": "availability:read",
+          "summary": "GET /api/availability — list one user's weekly templates."
+        }
+      ]
+    },
+    {
+      "namespace": "billing",
+      "capability": "billing:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "billing_invoice_runs_list",
+          "path": "/api/billing/invoice-runs",
+          "capability": "billing:read",
+          "summary": "GET /api/billing/invoice-runs — most recent runs first."
+        },
+        {
+          "name": "billing_invoice_runs_get",
+          "path": "/api/billing/invoice-runs/{id}",
+          "capability": "billing:read",
+          "summary": "GET /api/billing/invoice-runs/{id} — one run's roll-up."
+        },
+        {
+          "name": "billing_preview",
+          "path": "/api/billing/preview",
+          "capability": "billing:read",
+          "summary": "GET /api/billing/preview — evaluate EVERY billable contract in the\norg over `[from, to]` (cancelled contracts excluded; effective windows\nmust intersect). READ-"
+        },
+        {
+          "name": "billing_verification",
+          "path": "/api/billing/verification",
+          "capability": "billing:read",
+          "summary": "GET /api/billing/verification — the workspace for one contract over\none window. READ-ONLY: no entry changes, no side effects."
+        }
+      ]
+    },
+    {
+      "namespace": "board-groups",
+      "capability": "board-groups:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "board_groups_list",
+          "path": "/api/board-groups",
+          "capability": "board-groups:read",
+          "summary": "GET /api/board-groups — the org's groups in nav order (any member may\nread; rendering input for the tree)."
+        }
+      ]
+    },
+    {
+      "namespace": "boards",
+      "capability": "boards:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "boards_list",
+          "path": "/api/boards",
+          "capability": "boards:read",
+          "summary": "GET /api/boards"
+        },
+        {
+          "name": "boards_get_checklist_template",
+          "path": "/api/boards/{id}/checklist-template",
+          "capability": "boards:read",
+          "summary": "GET /api/boards/{id}/checklist-template"
+        },
+        {
+          "name": "fields_list_for_board",
+          "path": "/api/boards/{id}/fields",
+          "capability": "boards:read",
+          "summary": "GET /api/boards/{id}/fields — active ticket definitions governing this\nboard (org-wide plus board-owned), sort-order stable."
+        },
+        {
+          "name": "boards_list_members",
+          "path": "/api/boards/{id}/members",
+          "capability": "boards:read",
+          "summary": "GET /api/boards/{id}/members — the roster (ConfigureBoard gated)."
+        },
+        {
+          "name": "boards_list_statuses",
+          "path": "/api/boards/{id}/statuses",
+          "capability": "boards:read",
+          "summary": "GET /api/boards/{id}/statuses"
+        },
+        {
+          "name": "boards_status_usage",
+          "path": "/api/boards/{id}/statuses/usage",
+          "capability": "boards:read",
+          "summary": ""
+        },
+        {
+          "name": "boards_list_transitions",
+          "path": "/api/boards/{id}/transitions",
+          "capability": "boards:read",
+          "summary": "GET /api/boards/{id}/transitions — the board's effective workflow."
+        },
+        {
+          "name": "boards_nav",
+          "path": "/api/boards/nav",
+          "capability": "boards:read",
+          "summary": "GET /api/boards/nav — every org board annotated with the current\nuser's favorite mark, board role, and group assignment."
+        }
+      ]
+    },
+    {
+      "namespace": "calendar",
+      "capability": "calendar:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "calendar_day",
+          "path": "/api/calendar/day",
+          "capability": "calendar:read",
+          "summary": "GET /api/calendar/day — one local day for one user."
+        },
+        {
+          "name": "calendar_deadlines",
+          "path": "/api/calendar/deadlines",
+          "capability": "calendar:read",
+          "summary": "GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model\n(Wave 17 lane 13): /calendar team mode overlays THIS instead of the\nbounded page-1 tickets"
+        },
+        {
+          "name": "calendar_team",
+          "path": "/api/calendar/team",
+          "capability": "calendar:read",
+          "summary": "GET /api/calendar/team — every org member over an absolute UTC range."
+        },
+        {
+          "name": "calendar_week",
+          "path": "/api/calendar/week",
+          "capability": "calendar:read",
+          "summary": "GET /api/calendar/week — Monday-start local week for one user."
+        }
+      ]
+    },
+    {
+      "namespace": "calendar-exclusions",
+      "capability": "calendar-exclusions:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "calendar_exclusion_list",
+          "path": "/api/calendar-exclusions",
+          "capability": "calendar-exclusions:read",
+          "summary": "GET /api/calendar-exclusions?user_id=&from=&to="
+        }
+      ]
+    },
+    {
+      "namespace": "calendar-sync",
+      "capability": "calendar-sync:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "calendar_sync_list",
+          "path": "/api/calendar-sync",
+          "capability": "calendar-sync:read",
+          "summary": "GET /api/calendar-sync — the caller's (or target user's) connections."
+        },
+        {
+          "name": "calendar_sync_events",
+          "path": "/api/calendar-sync/{id}/events",
+          "capability": "calendar-sync:read",
+          "summary": "GET /api/calendar-sync/{id}/events — the inbound mirror (the\nconflict/duplicate surface Wave 14 lane 7 renders)."
+        }
+      ]
+    },
+    {
+      "namespace": "catalog-items",
+      "capability": "catalog-items:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "catalog_items_list",
+          "path": "/api/catalog-items",
+          "capability": "catalog-items:read",
+          "summary": "GET /api/catalog-items — newest/active first, filterable."
+        },
+        {
+          "name": "catalog_items_get",
+          "path": "/api/catalog-items/{id}",
+          "capability": "catalog-items:read",
+          "summary": "GET /api/catalog-items/{id}."
+        }
+      ]
+    },
+    {
+      "namespace": "client-loans",
+      "capability": "client-loans:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "client_loans_list",
+          "path": "/api/client-loans",
+          "capability": "client-loans:read",
+          "summary": "GET /api/client-loans."
+        },
+        {
+          "name": "client_loans_get",
+          "path": "/api/client-loans/{id}",
+          "capability": "client-loans:read",
+          "summary": "GET /api/client-loans/{id}."
+        }
+      ]
+    },
+    {
+      "namespace": "clients",
+      "capability": "clients:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "clients_list",
+          "path": "/api/clients",
+          "capability": "clients:read",
+          "summary": "GET /api/clients"
+        },
+        {
+          "name": "clients_get_one",
+          "path": "/api/clients/{id}",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}"
+        },
+        {
+          "name": "clients_list_assets",
+          "path": "/api/clients/{id}/assets",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}/assets"
+        },
+        {
+          "name": "board_exposures_list",
+          "path": "/api/clients/{id}/board-exposures",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}/board-exposures — every configured row for the\nclient (exposed or not), so admin UI can render toggles."
+        },
+        {
+          "name": "clients_completeness",
+          "path": "/api/clients/{id}/completeness",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}/completeness — backend documentation-completeness\nscoring (Wave 17 lane 13): the weights live SERVER-side now, replacing\nthe honest client"
+        },
+        {
+          "name": "clients_list_contacts",
+          "path": "/api/clients/{id}/contacts",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}/contacts"
+        },
+        {
+          "name": "portal_users_list",
+          "path": "/api/clients/{id}/portal-users",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}/portal-users — directory for one client."
+        },
+        {
+          "name": "clients_list_sites",
+          "path": "/api/clients/{id}/sites",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}/sites"
+        },
+        {
+          "name": "client_workflow_overrides_get",
+          "path": "/api/clients/{id}/workflow-overrides",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/{id}/workflow-overrides — the client's resolved workflow:\none entry per registry declaration with precedence outcome, provenance,\nrenderable de"
+        },
+        {
+          "name": "clients_org_map_list",
+          "path": "/api/clients/org-map",
+          "capability": "clients:read",
+          "summary": "GET /api/clients/org-map — the durable operator mapping (settings view)."
+        }
+      ]
+    },
+    {
+      "namespace": "config-items",
+      "capability": "config-items:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "config_items_list",
+          "path": "/api/config-items",
+          "capability": "config-items:read",
+          "summary": "GET /api/config-items — active items only (merged tombstones excluded)."
+        },
+        {
+          "name": "config_items_get",
+          "path": "/api/config-items/{id}",
+          "capability": "config-items:read",
+          "summary": "GET /api/config-items/{id} — the CI with its source links + interfaces."
+        },
+        {
+          "name": "config_items_list_merges",
+          "path": "/api/config-items/{id}/merges",
+          "capability": "config-items:read",
+          "summary": "GET /api/config-items/{id}/merges — the item's merge audit trail."
+        },
+        {
+          "name": "config_items_list_candidates",
+          "path": "/api/config-items/merge-candidates",
+          "capability": "config-items:read",
+          "summary": "GET /api/config-items/merge-candidates — the review queue."
+        },
+        {
+          "name": "config_items_candidate_workbench",
+          "path": "/api/config-items/merge-candidates/{id}/workbench",
+          "capability": "config-items:read",
+          "summary": "GET /api/config-items/merge-candidates/{id}/workbench — the guided\nmerge workbench's read model: side-by-side cards across ALL\nConfigSourceLinks, the field-by-f"
+        },
+        {
+          "name": "config_items_list_precedence",
+          "path": "/api/config-items/precedence",
+          "capability": "config-items:read",
+          "summary": "GET /api/config-items/precedence — org overrides (shipped ADR defaults\nresolve in Rust when no row matches)."
+        },
+        {
+          "name": "config_items_get_settings",
+          "path": "/api/config-items/settings",
+          "capability": "config-items:read",
+          "summary": "GET /api/config-items/settings — the org's auto-merge threshold."
+        }
+      ]
+    },
+    {
+      "namespace": "connectors",
+      "capability": "connectors:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "connectors_index",
+          "path": "/api/connectors",
+          "capability": "connectors:read",
+          "summary": "GET /api/v1/connectors — the org's installed bridges (presence only)."
+        }
+      ]
+    },
+    {
+      "namespace": "contracts",
+      "capability": "contracts:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "contracts_list",
+          "path": "/api/contracts",
+          "capability": "contracts:read",
+          "summary": "GET /api/contracts — list with optional client/status/effective-date\nfilters, ordered by contract number."
+        },
+        {
+          "name": "contracts_get_one",
+          "path": "/api/contracts/{id}",
+          "capability": "contracts:read",
+          "summary": "GET /api/contracts/{id} — the contract aggregate (agreement + rate\ncard + fee schedule)."
+        },
+        {
+          "name": "contracts_billing_preview",
+          "path": "/api/contracts/{id}/billing-preview",
+          "capability": "contracts:read",
+          "summary": "GET /api/contracts/{id}/billing-preview — evaluate this contract's\nbilling rules over `[from, to]` and return the draft invoice-line\ncandidates. READ-ONLY: noth"
+        }
+      ]
+    },
+    {
+      "namespace": "credit-notes",
+      "capability": "credit-notes:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "credit_notes_list",
+          "path": "/api/credit-notes",
+          "capability": "credit-notes:read",
+          "summary": "GET /api/credit-notes — newest first, client/status filters."
+        },
+        {
+          "name": "credit_notes_get",
+          "path": "/api/credit-notes/{id}",
+          "capability": "credit-notes:read",
+          "summary": "GET /api/credit-notes/{id} — the credit plus its application ledger."
+        }
+      ]
+    },
+    {
+      "namespace": "day-pack",
+      "capability": "day-pack:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "day_pack_read",
+          "path": "/api/day-pack",
+          "capability": "day-pack:read",
+          "summary": ""
+        },
+        {
+          "name": "day_pack_picks_list",
+          "path": "/api/day-pack/picks",
+          "capability": "day-pack:read",
+          "summary": ""
+        },
+        {
+          "name": "day_pack_rules_list",
+          "path": "/api/day-pack/rules",
+          "capability": "day-pack:read",
+          "summary": ""
+        }
+      ]
+    },
+    {
+      "namespace": "dedupe",
+      "capability": "dedupe:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "dedupe_get_workflow",
+          "path": "/api/dedupe/workflow",
+          "capability": "dedupe:read",
+          "summary": "GET /api/dedupe/workflow — the org's workflow + the honest gate state."
+        }
+      ]
+    },
+    {
+      "namespace": "directory-groups",
+      "capability": "directory-groups:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "directory_groups_list",
+          "path": "/api/directory-groups",
+          "capability": "directory-groups:read",
+          "summary": "GET /api/directory-groups — every group in the org (manager+)."
+        },
+        {
+          "name": "directory_groups_detail",
+          "path": "/api/directory-groups/{id}",
+          "capability": "directory-groups:read",
+          "summary": "GET /api/directory-groups/{id} — the group with its members and role\nmappings (manager+)."
+        }
+      ]
+    },
+    {
+      "namespace": "dispatch",
+      "capability": "dispatch:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "dispatch_capacity",
+          "path": "/api/dispatch/capacity",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/capacity — multi-day capacity horizon: the day view's\ncapacity math repeated per UTC day over the window, one org-wide\navailability read + one"
+        },
+        {
+          "name": "dispatch_day",
+          "path": "/api/dispatch/day",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/day — the whole board for one day."
+        },
+        {
+          "name": "dispatch_journey_start_get",
+          "path": "/api/dispatch/journey-start",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/journey-start — the resolved start point plus the\nexplicit override, if any."
+        },
+        {
+          "name": "dispatch_match",
+          "path": "/api/dispatch/match",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/match — for every unassigned open ticket carrying\nrequired skills, the active technicians sorted best-first by how many\nrequired skills they a"
+        },
+        {
+          "name": "dispatch_phase_allocations_list",
+          "path": "/api/dispatch/planning/allocations",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/planning/allocations — who is committed to which phase."
+        },
+        {
+          "name": "dispatch_capacity_forecast",
+          "path": "/api/dispatch/planning/forecast",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/planning/forecast — committed project load per\ntechnician over a window."
+        },
+        {
+          "name": "dispatch_queue_list",
+          "path": "/api/dispatch/queue",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/queue — the full unassigned queue with dispatcher\noverrides applied: overridden tickets sort by explicit rank first\n(ties fall back to the com"
+        },
+        {
+          "name": "dispatch_reconciliation",
+          "path": "/api/dispatch/reconciliation",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/reconciliation — planned-vs-actual rollup over the\nexisting travel drafts and their linked expenses: mileage, time, and\nreimbursements per tec"
+        },
+        {
+          "name": "dispatch_routing_day",
+          "path": "/api/dispatch/routing",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/routing — the day's journey plans, typed warnings,\nand (measured providers only) suggestion-grade route improvements."
+        },
+        {
+          "name": "dispatch_skills_catalog",
+          "path": "/api/dispatch/skills",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/skills — the org's skill/certification catalog."
+        },
+        {
+          "name": "dispatch_travel_draft_list",
+          "path": "/api/dispatch/travel-drafts",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/travel-drafts — the caller's drafts (all users for\nowner/admin via `user_id`), newest first."
+        },
+        {
+          "name": "dispatch_work_next_list",
+          "path": "/api/dispatch/work-next",
+          "capability": "dispatch:read",
+          "summary": "GET /api/dispatch/work-next — the caller's curated queue, or another\ntechnician's when the caller may see theirs."
+        }
+      ]
+    },
+    {
+      "namespace": "dispatch-connector",
+      "capability": "dispatch-connector:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "dispatch_connector_schedule",
+          "path": "/api/dispatch-connector/schedule",
+          "capability": "dispatch-connector:read",
+          "summary": "GET /api/dispatch-connector/schedule — bookings in a bounded window\nwith technician/ticket/client coordinates and the latest pushed\nfield-service status per boo"
+        },
+        {
+          "name": "dispatch_connector_technicians",
+          "path": "/api/dispatch-connector/technicians",
+          "capability": "dispatch-connector:read",
+          "summary": "GET /api/dispatch-connector/technicians — active technicians with\ntheir current (non-expired) skills."
+        }
+      ]
+    },
+    {
+      "namespace": "documents",
+      "capability": "documents:read",
+      "sensitive": true,
+      "tools": [
+        {
+          "name": "documents_list",
+          "path": "/api/documents",
+          "capability": "documents:read",
+          "summary": "GET /api/documents"
+        },
+        {
+          "name": "documents_get",
+          "path": "/api/documents/{id}",
+          "capability": "documents:read",
+          "summary": "GET /api/documents/{id}"
+        },
+        {
+          "name": "documents_list_links",
+          "path": "/api/documents/{id}/links",
+          "capability": "documents:read",
+          "summary": ""
+        },
+        {
+          "name": "documents_list_versions",
+          "path": "/api/documents/{id}/versions",
+          "capability": "documents:read",
+          "summary": "GET /api/documents/{id}/versions — the full immutable history, newest\nfirst, complete bodies included so any pair is diffable."
+        },
+        {
+          "name": "documents_get_version",
+          "path": "/api/documents/{id}/versions/{version}",
+          "capability": "documents:read",
+          "summary": "GET /api/documents/{id}/versions/{version} — one immutable snapshot."
+        },
+        {
+          "name": "documents_list_layouts",
+          "path": "/api/documents/layouts",
+          "capability": "documents:read",
+          "summary": "GET /api/documents/layouts — the org's layout catalog (system first)."
+        }
+      ]
+    },
+    {
+      "namespace": "entity-dedupe",
+      "capability": "entity-dedupe:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "entity_dedupe_list_candidates",
+          "path": "/api/entity-dedupe/candidates",
+          "capability": "entity-dedupe:read",
+          "summary": "GET /api/entity-dedupe/candidates — the client/contact review queue."
+        },
+        {
+          "name": "entity_dedupe_candidate_workbench",
+          "path": "/api/entity-dedupe/candidates/{id}/workbench",
+          "capability": "entity-dedupe:read",
+          "summary": "GET /api/entity-dedupe/candidates/{id}/workbench — the client/contact\nside of the guided merge workbench."
+        }
+      ]
+    },
+    {
+      "namespace": "fx",
+      "capability": "fx:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "fx_rates_list",
+          "path": "/api/fx/rates",
+          "capability": "fx:read",
+          "summary": "GET /api/fx/rates — the org's append-only rate book, newest first."
+        },
+        {
+          "name": "fx_rates_resolve",
+          "path": "/api/fx/rates/resolve",
+          "capability": "fx:read",
+          "summary": "GET /api/fx/rates/resolve — the effective rate for one direction on\none date (defaults to today). Read-only; mirrors the resolver the\nlock-moment write paths us"
+        },
+        {
+          "name": "fx_reconciliation",
+          "path": "/api/fx/reconciliation",
+          "capability": "fx:read",
+          "summary": "GET /api/fx/reconciliation — the FX deliverable to the books (FX7):\noriginal amount, rate, source/date, base equivalent, sync target. The\ncore records conversio"
+        }
+      ]
+    },
+    {
+      "namespace": "imports",
+      "capability": "imports:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "imports_list_batches",
+          "path": "/api/imports/batches",
+          "capability": "imports:read",
+          "summary": "GET /api/imports/batches"
+        },
+        {
+          "name": "imports_get_batch",
+          "path": "/api/imports/batches/{batch_id}",
+          "capability": "imports:read",
+          "summary": "GET /api/imports/batches/{id}"
+        },
+        {
+          "name": "imports_list_templates",
+          "path": "/api/imports/templates",
+          "capability": "imports:read",
+          "summary": "GET /api/imports/templates"
+        },
+        {
+          "name": "imports_get_template",
+          "path": "/api/imports/templates/{template_id}",
+          "capability": "imports:read",
+          "summary": "GET /api/imports/templates/{id}"
+        }
+      ]
+    },
+    {
+      "namespace": "invoice-candidates",
+      "capability": "invoice-candidates:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "invoice_candidates_list",
+          "path": "/api/invoice-candidates",
+          "capability": "invoice-candidates:read",
+          "summary": "GET /api/invoice-candidates — every billable, not-yet-billed cost line\nand expense in the org, oldest first. The invoicing run consumes rows\nby writing `invoice"
+        }
+      ]
+    },
+    {
+      "namespace": "invoices",
+      "capability": "invoices:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "invoices_list",
+          "path": "/api/invoices",
+          "capability": "invoices:read",
+          "summary": "GET /api/invoices — list with client/contract/status/dunning filters."
+        },
+        {
+          "name": "invoices_get_one",
+          "path": "/api/invoices/{id}",
+          "capability": "invoices:read",
+          "summary": "GET /api/invoices/{id} — the invoice aggregate (document, lines,\npayment receipts)."
+        },
+        {
+          "name": "invoices_document",
+          "path": "/api/invoices/{id}/document",
+          "capability": "invoices:read",
+          "summary": "GET /api/invoices/{id}/document — the print-ready HTML invoice\ndocument (print-to-PDF from any browser; v1 ships no PDF binary\noutput — see the private build tr"
+        },
+        {
+          "name": "invoices_payments_list",
+          "path": "/api/invoices/{id}/payments",
+          "capability": "invoices:read",
+          "summary": "GET /api/invoices/{id}/payments — the payment receipts."
+        }
+      ]
+    },
+    {
+      "namespace": "kb",
+      "capability": "kb:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "kb_list_articles",
+          "path": "/api/kb/articles",
+          "capability": "kb:read",
+          "summary": "GET /api/kb/articles"
+        },
+        {
+          "name": "kb_list_article_embeds",
+          "path": "/api/kb/articles/{article_id}/embeds",
+          "capability": "kb:read",
+          "summary": "GET /api/kb/articles/{article_id}/embeds"
+        },
+        {
+          "name": "kb_get_article",
+          "path": "/api/kb/articles/{id}",
+          "capability": "kb:read",
+          "summary": "GET /api/kb/articles/{id} — with the sanitized read-only HTML\nprojection (no editor package in any read bundle)."
+        },
+        {
+          "name": "kb_list_categories",
+          "path": "/api/kb/categories",
+          "capability": "kb:read",
+          "summary": "GET /api/kb/categories"
+        },
+        {
+          "name": "kb_list_embed_providers",
+          "path": "/api/kb/embed-providers",
+          "capability": "kb:read",
+          "summary": "GET /api/kb/embed-providers — system rows + the org's extensions."
+        },
+        {
+          "name": "kb_list_external_documents",
+          "path": "/api/kb/external-documents",
+          "capability": "kb:read",
+          "summary": "GET /api/kb/external-documents"
+        },
+        {
+          "name": "kb_get_external_document",
+          "path": "/api/kb/external-documents/{id}",
+          "capability": "kb:read",
+          "summary": "GET /api/kb/external-documents/{id}"
+        }
+      ]
+    },
+    {
+      "namespace": "label-templates",
+      "capability": "label-templates:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "label_templates_list",
+          "path": "/api/label-templates",
+          "capability": "label-templates:read",
+          "summary": "GET /api/label-templates — org templates, optionally per purpose."
+        },
+        {
+          "name": "label_templates_get",
+          "path": "/api/label-templates/{id}",
+          "capability": "label-templates:read",
+          "summary": "GET /api/label-templates/{id}."
+        }
+      ]
+    },
+    {
+      "namespace": "meeting-types",
+      "capability": "meeting-types:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "meeting_types_list",
+          "path": "/api/meeting-types",
+          "capability": "meeting-types:read",
+          "summary": "GET /api/meeting-types"
+        }
+      ]
+    },
+    {
+      "namespace": "notification-org-defaults",
+      "capability": "notification-org-defaults:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "notification_org_defaults_get",
+          "path": "/api/notification-org-defaults",
+          "capability": "notification-org-defaults:read",
+          "summary": "GET /api/notification-org-defaults — the org's default rows (admin)."
+        }
+      ]
+    },
+    {
+      "namespace": "notification-preferences",
+      "capability": "notification-preferences:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "notification_prefs_get",
+          "path": "/api/notification-preferences",
+          "capability": "notification-preferences:read",
+          "summary": "GET /api/notification-preferences — the caller's effective preference\nfor every kind (defaults-first resolution applied)."
+        }
+      ]
+    },
+    {
+      "namespace": "notifications",
+      "capability": "notifications:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "notifications_list",
+          "path": "/api/notifications",
+          "capability": "notifications:read",
+          "summary": "GET /api/notifications — the caller's notifications, newest first,\nkeyset-paginated."
+        },
+        {
+          "name": "notifications_unread_count",
+          "path": "/api/notifications/unread-count",
+          "capability": "notifications:read",
+          "summary": "GET /api/notifications/unread-count"
+        }
+      ]
+    },
+    {
+      "namespace": "on-call-blocks",
+      "capability": "on-call-blocks:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "on_call_list",
+          "path": "/api/on-call-blocks",
+          "capability": "on-call-blocks:read",
+          "summary": "GET /api/on-call-blocks?user_id=&from=&to="
+        }
+      ]
+    },
+    {
+      "namespace": "org",
+      "capability": "org:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "org_profile_get",
+          "path": "/api/org",
+          "capability": "org:read",
+          "summary": "GET /api/org — profile fields shown on General settings / the wizard."
+        },
+        {
+          "name": "org_manifest",
+          "path": "/api/org/manifest",
+          "capability": "org:read",
+          "summary": "GET /api/org/manifest — the org's customization manifest."
+        },
+        {
+          "name": "org_pod_visibility_get",
+          "path": "/api/org/pod-visibility",
+          "capability": "org:read",
+          "summary": "GET /api/org/pod-visibility — the org's stored matrix; `config` is\n`{}` when the org never customized (clients fall back to their\nregistry defaults, defaults-fi"
+        },
+        {
+          "name": "sign_off_consents_current",
+          "path": "/api/org/sign-off-consents/current",
+          "capability": "org:read",
+          "summary": "GET /api/org/sign-off-consents/current — the wording a pad must show. The\npad fetches this before capture so the version it sends back is the one\nthe signer act"
+        },
+        {
+          "name": "org_users_list",
+          "path": "/api/org/users",
+          "capability": "org:read",
+          "summary": "GET /api/org/users — the staff directory (manager+)."
+        }
+      ]
+    },
+    {
+      "namespace": "orgs",
+      "capability": "orgs:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "org_custom_domain_get",
+          "path": "/api/orgs/{org_id}/custom-domain",
+          "capability": "orgs:read",
+          "summary": "`GET /api/v1/orgs/{org_id}/custom-domain` — current state + verification\nstatus + provider-plugin availability."
+        },
+        {
+          "name": "org_quotas_get",
+          "path": "/api/orgs/{org_id}/quotas",
+          "capability": "orgs:read",
+          "summary": "GET /api/v1/orgs/{org_id}/quotas — usage beside configured limits."
+        },
+        {
+          "name": "org_suspension_status_get",
+          "path": "/api/orgs/{org_id}/suspension-status",
+          "capability": "orgs:read",
+          "summary": "`GET /api/v1/orgs/{org_id}/suspension-status` — the org's notice state."
+        },
+        {
+          "name": "org_usage_get",
+          "path": "/api/orgs/{org_id}/usage",
+          "capability": "orgs:read",
+          "summary": "GET /api/v1/orgs/{org_id}/usage — the org's current usage counts."
+        }
+      ]
+    },
+    {
+      "namespace": "pipeline",
+      "capability": "pipeline:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "pipeline_deals_list",
+          "path": "/api/pipeline/deals",
+          "capability": "pipeline:read",
+          "summary": "GET /api/pipeline/deals — newest first, filterable."
+        },
+        {
+          "name": "pipeline_deals_get_one",
+          "path": "/api/pipeline/deals/{id}",
+          "capability": "pipeline:read",
+          "summary": "GET /api/pipeline/deals/{id} — deal + transition ledger.\n(Registered at the `get_one` name in the router.)"
+        },
+        {
+          "name": "pipeline_stages_list",
+          "path": "/api/pipeline/stages",
+          "capability": "pipeline:read",
+          "summary": "GET /api/pipeline/stages — ordered pipeline definition."
+        }
+      ]
+    },
+    {
+      "namespace": "plugins",
+      "capability": "plugins:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "plugin_catalog_list",
+          "path": "/api/plugins/catalog",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/catalog — the marketplace registry."
+        },
+        {
+          "name": "plugin_catalog_get",
+          "path": "/api/plugins/catalog/{slug}",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/catalog/{slug}."
+        },
+        {
+          "name": "plugin_distribution_skills_list",
+          "path": "/api/plugins/distribution/agent-skills",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/distribution/agent-skills — the ACTIVE version of\nevery org skill, with its provenance."
+        },
+        {
+          "name": "plugin_distribution_publishers_list",
+          "path": "/api/plugins/distribution/publishers",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/distribution/publishers — the org's publisher\nregistry (vouched history included; `verified` = the active badge)."
+        },
+        {
+          "name": "plugin_distribution_ratings_list",
+          "path": "/api/plugins/distribution/ratings",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/distribution/ratings — the org's ratings, optionally\nnarrowed to one artifact release."
+        },
+        {
+          "name": "plugin_distribution_staged_list",
+          "path": "/api/plugins/distribution/staged",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/distribution/staged — pending + terminal rows.\nOwners/admins see everything; plain members see only their OWN\nuploads (the deny-by-default stag"
+        },
+        {
+          "name": "plugin_distribution_staged_consent",
+          "path": "/api/plugins/distribution/staged/{id}/consent",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/distribution/staged/{id}/consent — the SAME consent\nshape for every source: declared capabilities + the manifest's\nsettings JSON-Schema (the ty"
+        },
+        {
+          "name": "theme_packs_list",
+          "path": "/api/plugins/distribution/theme-packs",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/distribution/theme-packs — the org's installed\ntheme packs (ADR 0009 V1 distribution; restyle-only manifests)."
+        },
+        {
+          "name": "plugin_install_list",
+          "path": "/api/plugins/installed",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/installed — this org's adoptions."
+        },
+        {
+          "name": "plugin_distribution_provenance_list",
+          "path": "/api/plugins/installed/{id}/provenance",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/installed/{id}/provenance — the append-only\n`{source_kind, source_url, fetched_ref, artifact_digest, uploader}`\nfor one install. The chain SURV"
+        },
+        {
+          "name": "plugin_install_settings_get",
+          "path": "/api/plugins/installed/{id}/settings",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/installed/{id}/settings — the render source: the\npinned manifest's declared JSON-Schema + the validated config."
+        },
+        {
+          "name": "plugin_install_update_get",
+          "path": "/api/plugins/installed/{id}/update",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/installed/{id}/update — the pending-state read (the\nconsent screen shows exactly what consent would do)."
+        },
+        {
+          "name": "plugin_surface_automation_actions",
+          "path": "/api/plugins/surface/automation-actions",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/surface/automation-actions — the org's registered\nplugin automation action kinds (the automations editor lists them\nalongside the built-ins)."
+        },
+        {
+          "name": "plugin_surface_field_validators",
+          "path": "/api/plugins/surface/field-validators",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/surface/field-validators — the org's registered\nplugin schema validators for board custom fields."
+        },
+        {
+          "name": "plugin_surface_report_renders",
+          "path": "/api/plugins/surface/report-renders",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/surface/report-renders — the org's registered\nplugin render kinds for the report builder."
+        },
+        {
+          "name": "plugin_surface_widgets",
+          "path": "/api/plugins/surface/widgets",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/surface/widgets — the org's registered plugin\nwidgets (dashboard + ticket-pane slots), enabled installs only."
+        }
+      ]
+    },
+    {
+      "namespace": "pm-schedules",
+      "capability": "pm-schedules:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "pm_schedules_list",
+          "path": "/api/pm-schedules",
+          "capability": "pm-schedules:read",
+          "summary": "GET /api/pm-schedules — every schedule, next-run ordered."
+        },
+        {
+          "name": "pm_schedules_get",
+          "path": "/api/pm-schedules/{id}",
+          "capability": "pm-schedules:read",
+          "summary": "GET /api/pm-schedules/{id}"
+        },
+        {
+          "name": "pm_schedules_runs",
+          "path": "/api/pm-schedules/{id}/runs",
+          "capability": "pm-schedules:read",
+          "summary": "GET /api/pm-schedules/{id}/runs — the append-only run ledger (the run\nrecord; the worker emits nothing)."
+        }
+      ]
+    },
+    {
+      "namespace": "project-templates",
+      "capability": "project-templates:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "project_templates_list",
+          "path": "/api/project-templates",
+          "capability": "project-templates:read",
+          "summary": "GET /api/project-templates"
+        }
+      ]
+    },
+    {
+      "namespace": "project-views",
+      "capability": "project-views:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "project_views_list",
+          "path": "/api/project-views",
+          "capability": "project-views:read",
+          "summary": "GET /api/project-views — one project's views, or all org views when\n`project_id` is omitted."
+        }
+      ]
+    },
+    {
+      "namespace": "projects",
+      "capability": "projects:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "projects_list",
+          "path": "/api/projects",
+          "capability": "projects:read",
+          "summary": "GET /api/projects — filtered, newest-first list."
+        },
+        {
+          "name": "projects_get_one",
+          "path": "/api/projects/{id}",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}"
+        },
+        {
+          "name": "projects_billing_releases",
+          "path": "/api/projects/{id}/billing-releases",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}/billing-releases — the release ledger: every\nstaged milestone/fee for this project with its status (`pending`\nbills on the next run reach"
+        },
+        {
+          "name": "projects_cost_rollup",
+          "path": "/api/projects/{id}/cost-rollup",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}/cost-rollup — posted PO bills in base currency\n(ADR 0002 locked) plus the project budget for comparison."
+        },
+        {
+          "name": "projects_gantt",
+          "path": "/api/projects/{id}/gantt",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}/gantt — the dated timeline plus its undated\nremainder, each phase carrying its budget burn."
+        },
+        {
+          "name": "projects_phase_burn",
+          "path": "/api/projects/{id}/phase-burn",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}/phase-burn — the burn read model (report P3):\nconsumed approved billable minutes and card-priced value per phase\nagainst the phase's budg"
+        },
+        {
+          "name": "projects_list_phases",
+          "path": "/api/projects/{id}/phases",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}/phases — ordered by sort_order."
+        },
+        {
+          "name": "projects_list_tasks",
+          "path": "/api/projects/{id}/tasks",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}/tasks — filtered by phase/status/assignee and\nthe milestone flag, sort_order-ordered."
+        },
+        {
+          "name": "projects_get_dependencies",
+          "path": "/api/projects/{id}/tasks/{task_id}/dependencies",
+          "capability": "projects:read",
+          "summary": "GET /api/projects/{id}/tasks/{task_id}/dependencies"
+        }
+      ]
+    },
+    {
+      "namespace": "provenance",
+      "capability": "provenance:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "provenance_list",
+          "path": "/api/provenance",
+          "capability": "provenance:read",
+          "summary": "GET /api/provenance — the provenance read model: who / record+field /\nbefore-after / actor kind / agent session+skill+rule-set hash / when,\nnewest first, filter"
+        }
+      ]
+    },
+    {
+      "namespace": "purchase-orders",
+      "capability": "purchase-orders:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "purchase_orders_list",
+          "path": "/api/purchase-orders",
+          "capability": "purchase-orders:read",
+          "summary": "GET /api/purchase-orders"
+        },
+        {
+          "name": "purchase_orders_get",
+          "path": "/api/purchase-orders/{id}",
+          "capability": "purchase-orders:read",
+          "summary": "GET /api/purchase-orders/{id} — header + lines + receipts + bill."
+        },
+        {
+          "name": "purchase_orders_get_bill",
+          "path": "/api/purchase-orders/{id}/bill",
+          "capability": "purchase-orders:read",
+          "summary": "GET /api/purchase-orders/{id}/bill"
+        },
+        {
+          "name": "purchase_orders_deeplinks",
+          "path": "/api/purchase-orders/{id}/deeplinks",
+          "capability": "purchase-orders:read",
+          "summary": "GET /api/purchase-orders/{id}/deeplinks — the one-click open list:\nvendor portal links first, then PO-level links, then per-line links\n(with their line context)"
+        },
+        {
+          "name": "purchase_orders_list_links",
+          "path": "/api/purchase-orders/{id}/links",
+          "capability": "purchase-orders:read",
+          "summary": "GET /api/purchase-orders/{id}/links"
+        }
+      ]
+    },
+    {
+      "namespace": "quotes",
+      "capability": "quotes:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "quotes_list",
+          "path": "/api/quotes",
+          "capability": "quotes:read",
+          "summary": "GET /api/quotes — newest first, client/status filters."
+        },
+        {
+          "name": "quotes_get",
+          "path": "/api/quotes/{id}",
+          "capability": "quotes:read",
+          "summary": "GET /api/quotes/{id} — the quote plus its lines."
+        }
+      ]
+    },
+    {
+      "namespace": "rag",
+      "capability": "rag:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "rag_deletion_receipts_list",
+          "path": "/api/rag/deletion-receipts",
+          "capability": "rag:read",
+          "summary": "GET /api/v1/rag/deletion-receipts — lists verifiable deletion receipts for\nthe caller's org (including receipts minted automatically by core entity\ndeletion cas"
+        },
+        {
+          "name": "rag_deletion_receipt_get",
+          "path": "/api/rag/deletion-receipts/{id}",
+          "capability": "rag:read",
+          "summary": "GET /api/v1/rag/deletion-receipts/{id} — fetches a single verifiable\ndeletion receipt by `receipt_id` under RLS."
+        }
+      ]
+    },
+    {
+      "namespace": "reply-snippets",
+      "capability": "reply-snippets:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "list",
+          "path": "/api/reply-snippets",
+          "capability": "reply-snippets:read",
+          "summary": "GET /api/v1/reply-snippets — the org's snippet library with the\nsearch-in-composer predicate applied (`board_id` offer filter + `q`\ncase-insensitive substring o"
+        },
+        {
+          "name": "get_by_id",
+          "path": "/api/reply-snippets/{id}",
+          "capability": "reply-snippets:read",
+          "summary": "GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix,\nWave 34 lane 4: the fork-on-edit flow reads the origin after forking;\nthe route was missing"
+        }
+      ]
+    },
+    {
+      "namespace": "report-catalog",
+      "capability": "report-catalog:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "report_catalog",
+          "path": "/api/report-catalog",
+          "capability": "report-catalog:read",
+          "summary": "GET /api/report-catalog — the fixed field catalog for the R6 builder\n(ADR 0001): per-view projected columns + filterable inventory with value\nclasses. Static da"
+        }
+      ]
+    },
+    {
+      "namespace": "report-definitions",
+      "capability": "report-definitions:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "report_definitions_list",
+          "path": "/api/report-definitions",
+          "capability": "report-definitions:read",
+          "summary": "GET /api/report-definitions — visible definitions, deterministically\nordered `(name, id)`."
+        },
+        {
+          "name": "report_definitions_get",
+          "path": "/api/report-definitions/{id}",
+          "capability": "report-definitions:read",
+          "summary": "GET /api/report-definitions/{id} — one visible definition; anything not\nvisible (deleted, other org, private of another user) is a bare 404."
+        },
+        {
+          "name": "report_definitions_run",
+          "path": "/api/report-definitions/{id}/run",
+          "capability": "report-definitions:read",
+          "summary": "GET /api/report-definitions/{id}/run — compile-on-demand execution of a\nvisible stored definition's spec (R6 builder runs). The spec re-validates\nthrough the re"
+        }
+      ]
+    },
+    {
+      "namespace": "report-schedules",
+      "capability": "report-schedules:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "report_schedules_list",
+          "path": "/api/report-schedules",
+          "capability": "report-schedules:read",
+          "summary": "GET /api/report-schedules — cursor-paged listing (admin), ordered\n`(name, id)`, each row carrying its next-run preview."
+        },
+        {
+          "name": "report_schedules_get",
+          "path": "/api/report-schedules/{id}",
+          "capability": "report-schedules:read",
+          "summary": "GET /api/report-schedules/{id} — one schedule; anything not in this\norg is a bare 404."
+        },
+        {
+          "name": "report_schedules_deliveries",
+          "path": "/api/report-schedules/{id}/deliveries",
+          "capability": "report-schedules:read",
+          "summary": "GET /api/report-schedules/{id}/deliveries — the delivery ledger for\none schedule (R4 history surface). Worker-written data: rows are\nappend-only run records, ne"
+        }
+      ]
+    },
+    {
+      "namespace": "reports",
+      "capability": "reports:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "report_get",
+          "path": "/api/reports/{kind}",
+          "capability": "reports:read",
+          "summary": "GET /api/reports/{kind} — prebuilt operational report over the read-model\nviews. Kinds: time_by_user | time_by_client | time_by_ticket |\nsla_attainment | sla_br"
+        }
+      ]
+    },
+    {
+      "namespace": "roles",
+      "capability": "roles:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "roles_list",
+          "path": "/api/roles",
+          "capability": "roles:read",
+          "summary": "GET /api/roles — the org's roles plus the canonical preset + portal\ntier rosters (manager+)."
+        }
+      ]
+    },
+    {
+      "namespace": "scheduling-groups",
+      "capability": "scheduling-groups:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "scheduling_groups_list",
+          "path": "/api/scheduling-groups",
+          "capability": "scheduling-groups:read",
+          "summary": "GET /api/scheduling-groups — the org's free-form groups (availability\npools; deliberately NOT the org chart)."
+        },
+        {
+          "name": "scheduling_groups_get",
+          "path": "/api/scheduling-groups/{id}",
+          "capability": "scheduling-groups:read",
+          "summary": "GET /api/scheduling-groups/{id}"
+        }
+      ]
+    },
+    {
+      "namespace": "scheduling-links",
+      "capability": "scheduling-links:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "scheduling_links_list",
+          "path": "/api/scheduling-links",
+          "capability": "scheduling-links:read",
+          "summary": "GET /api/scheduling-links — newest-first (optionally per ticket) so\nthe tech sees the created / viewed / scheduled / expired lifecycle."
+        },
+        {
+          "name": "scheduling_links_bookings",
+          "path": "/api/scheduling-links/{id}/bookings",
+          "capability": "scheduling-links:read",
+          "summary": "GET /api/scheduling-links/{id}/bookings — the link → booking trail."
+        }
+      ]
+    },
+    {
+      "namespace": "scorecards",
+      "capability": "scorecards:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "scorecard_list_team",
+          "path": "/api/scorecards",
+          "capability": "scorecards:read",
+          "summary": "GET /api/scorecards?from&to — every active staff member's scorecard in\none org-wide read (owner/admin only; R5 private-by-default means a\nplain tech never sees "
+        },
+        {
+          "name": "scorecard_get_user",
+          "path": "/api/scorecards/{user_id}",
+          "capability": "scorecards:read",
+          "summary": "GET /api/scorecards/{user_id}?from&to — one member's scorecard; a\nmember may read their own, owner/admin may read anyone's."
+        },
+        {
+          "name": "scorecard_client_rollups",
+          "path": "/api/scorecards/clients",
+          "capability": "scorecards:read",
+          "summary": "GET /api/scorecards/clients?from&to — per-client CSAT rollups over the\nwindow (owner/admin only). `available: false` until the org records its\nfirst survey, mat"
+        },
+        {
+          "name": "scorecard_get_own",
+          "path": "/api/scorecards/me",
+          "capability": "scorecards:read",
+          "summary": "GET /api/scorecards/me?from&to — the caller's own scorecard."
+        },
+        {
+          "name": "scorecard_get_settings",
+          "path": "/api/scorecards/me/settings",
+          "capability": "scorecards:read",
+          "summary": "GET /api/scorecards/me/settings — the caller's scorecard settings\n(absent row reads as the private-by-defaults)."
+        }
+      ]
+    },
+    {
+      "namespace": "search",
+      "capability": "search:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "search_query",
+          "path": "/api/search",
+          "capability": "search:read",
+          "summary": "GET /api/search — unified staff search across tickets, comments and the\nclient hierarchy."
+        },
+        {
+          "name": "search_pins_list",
+          "path": "/api/search/pins",
+          "capability": "search:read",
+          "summary": "GET /api/search/pins — the caller's own pins, newest-first."
+        }
+      ]
+    },
+    {
+      "namespace": "settings",
+      "capability": "settings:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "settings_ai_decision_overview",
+          "path": "/api/settings/ai/decision",
+          "capability": "settings:read",
+          "summary": ""
+        },
+        {
+          "name": "settings_ai_decision_runs",
+          "path": "/api/settings/ai/decision/{surface_key}/runs",
+          "capability": "settings:read",
+          "summary": "GET /api/settings/ai/decision/{surface_key}/runs — the shadow run log."
+        },
+        {
+          "name": "settings_ai_plugin_surfaces_get",
+          "path": "/api/settings/ai/plugin-surfaces",
+          "capability": "settings:read",
+          "summary": "Org-scoped plugin surfaces registered by THIS org (kind = 'plugin'),\nfor the admin plugin-surface management view. Globally seeded\nnative/internal keys are admi"
+        },
+        {
+          "name": "settings_ai_usage_org_get",
+          "path": "/api/settings/ai/usage/org",
+          "capability": "settings:read",
+          "summary": "GET /settings/ai/usage/org — org progress roll-up (admin)."
+        },
+        {
+          "name": "settings_org_get",
+          "path": "/api/settings/org",
+          "capability": "settings:read",
+          "summary": "GET /api/settings/org — effective org settings (defaults overlaid by\nstored overrides). Visible to every member."
+        },
+        {
+          "name": "settings_registry",
+          "path": "/api/settings/registry",
+          "capability": "settings:read",
+          "summary": "GET /api/settings/registry — every declared setting with kind, default,\nscope and validation shape. Any authenticated member may read it."
+        },
+        {
+          "name": "settings_self_host_get",
+          "path": "/api/settings/self-host",
+          "capability": "settings:read",
+          "summary": "GET /api/v1/settings/self-host — the self-hoster visibility payload."
+        },
+        {
+          "name": "settings_user_get",
+          "path": "/api/settings/user",
+          "capability": "settings:read",
+          "summary": "GET /api/settings/user — the caller's effective personal settings."
+        },
+        {
+          "name": "settings_user_email_envelope",
+          "path": "/api/settings/user/email-envelope",
+          "capability": "settings:read",
+          "summary": "GET /api/settings/user/email-envelope — the caller's resolved envelope,\nfor the signature editor's live preview and the composer's prefill."
+        }
+      ]
+    },
+    {
+      "namespace": "sla",
+      "capability": "sla:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "sla_calendars_list",
+          "path": "/api/sla/calendars",
+          "capability": "sla:read",
+          "summary": "GET /api/sla/calendars"
+        },
+        {
+          "name": "sla_policies_list",
+          "path": "/api/sla/policies",
+          "capability": "sla:read",
+          "summary": "GET /api/sla/policies"
+        },
+        {
+          "name": "sla_ladder_get",
+          "path": "/api/sla/policies/{id}/ladder",
+          "capability": "sla:read",
+          "summary": "GET /api/sla/policies/{id}/ladder — enabled + disabled steps, ordered."
+        }
+      ]
+    },
+    {
+      "namespace": "stock",
+      "capability": "stock:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "stock_consumption_velocity",
+          "path": "/api/stock/consumption-velocity",
+          "capability": "stock:read",
+          "summary": "GET /api/stock/consumption-velocity — the outbound-rate read model."
+        },
+        {
+          "name": "stock_on_hand",
+          "path": "/api/stock/on-hand",
+          "capability": "stock:read",
+          "summary": "GET /api/stock/on-hand — the stock-on-hand read model."
+        }
+      ]
+    },
+    {
+      "namespace": "stock-items",
+      "capability": "stock-items:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "stock_items_list",
+          "path": "/api/stock-items",
+          "capability": "stock-items:read",
+          "summary": "GET /api/stock-items."
+        },
+        {
+          "name": "stock_items_get",
+          "path": "/api/stock-items/{id}",
+          "capability": "stock-items:read",
+          "summary": "GET /api/stock-items/{id}."
+        },
+        {
+          "name": "stock_item_movements",
+          "path": "/api/stock-items/{id}/movements",
+          "capability": "stock-items:read",
+          "summary": "GET /api/stock-items/{id}/movements — THE traceability ledger read."
+        },
+        {
+          "name": "stock_item_serials",
+          "path": "/api/stock-items/{id}/serials",
+          "capability": "stock-items:read",
+          "summary": "GET /api/stock-items/{id}/serials — serialized WHERE-IT-IS-NOW."
+        }
+      ]
+    },
+    {
+      "namespace": "stock-locations",
+      "capability": "stock-locations:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "stock_locations_list",
+          "path": "/api/stock-locations",
+          "capability": "stock-locations:read",
+          "summary": "GET /api/stock-locations."
+        },
+        {
+          "name": "stock_locations_get",
+          "path": "/api/stock-locations/{id}",
+          "capability": "stock-locations:read",
+          "summary": "GET /api/stock-locations/{id}."
+        }
+      ]
+    },
+    {
+      "namespace": "stock-serials",
+      "capability": "stock-serials:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "stock_serials_whereabouts",
+          "path": "/api/stock-serials",
+          "capability": "stock-serials:read",
+          "summary": "GET /api/stock-serials — WHERE IS IT NOW, per serialized unit (tools\nand loaned devices; each row carries its live holder or client)."
+        }
+      ]
+    },
+    {
+      "namespace": "tags",
+      "capability": "tags:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "tags_list",
+          "path": "/api/tags",
+          "capability": "tags:read",
+          "summary": "GET /api/tags — the org's tag taxonomy with application counts."
+        }
+      ]
+    },
+    {
+      "namespace": "taxonomy",
+      "capability": "taxonomy:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "taxonomy_list_categories",
+          "path": "/api/taxonomy/categories",
+          "capability": "taxonomy:read",
+          "summary": "GET /api/taxonomy/categories — the two-level category tree, flat and\nordered (roots and subcategories interleaved by sort order; `parent_id`\nreconstructs the tr"
+        },
+        {
+          "name": "taxonomy_list_types",
+          "path": "/api/taxonomy/types",
+          "capability": "taxonomy:read",
+          "summary": "GET /api/taxonomy/types — the org's ticket types; active-only unless\n`include_retired`."
+        }
+      ]
+    },
+    {
+      "namespace": "templates",
+      "capability": "templates:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "templates_list",
+          "path": "/api/templates",
+          "capability": "templates:read",
+          "summary": "GET /api/templates — the org's templates (shipped defaults first, then\norg-owned rows), optionally filtered by kind."
+        },
+        {
+          "name": "templates_get",
+          "path": "/api/templates/{id}",
+          "capability": "templates:read",
+          "summary": "GET /api/templates/{id}"
+        }
+      ]
+    },
+    {
+      "namespace": "tickets",
+      "capability": "tickets:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "tickets_list",
+          "path": "/api/tickets",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets — filtered, priority-ordered list; each row carries its\ncustom-field values (the private build tracker 2.17) fetched in one batched query.\nPagi"
+        },
+        {
+          "name": "tickets_get_one",
+          "path": "/api/tickets/{id}",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id} — a conditional read."
+        },
+        {
+          "name": "tickets_get_checklist",
+          "path": "/api/tickets/{id}/checklist",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/checklist — lazily instantiates any template items\nthe ticket has not picked up yet, then returns the full view."
+        },
+        {
+          "name": "tickets_list_comments",
+          "path": "/api/tickets/{id}/comments",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/comments — internal notes require ticket view;\nthe portal surface filters kinds separately (portal v1)."
+        },
+        {
+          "name": "tickets_list_cost_lines",
+          "path": "/api/tickets/{id}/cost-lines",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/cost-lines"
+        },
+        {
+          "name": "tickets_decision_suggestions",
+          "path": "/api/tickets/{id}/decision-suggestions",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/decision-suggestions — the workbench card's\nread. Optimistic UI rides the instant-first envelope upstream; this\nendpoint is a plain RLS'd "
+        },
+        {
+          "name": "tickets_list_emails",
+          "path": "/api/tickets/{id}/emails",
+          "capability": "tickets_correspondence:read",
+          "summary": "GET /api/tickets/{id}/emails — every ledger row routed to this ticket\n(inbound + outbound), newest first, with reply-chain parents resolved\nand outbound deliver"
+        },
+        {
+          "name": "tickets_list_expenses",
+          "path": "/api/tickets/{id}/expenses",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/expenses — the ticket's expense entries."
+        },
+        {
+          "name": "tickets_list_links",
+          "path": "/api/tickets/{id}/links",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/links — outgoing + incoming edges + the rollup."
+        },
+        {
+          "name": "tickets_get_note_draft",
+          "path": "/api/tickets/{id}/note-draft",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/note-draft — restores the caller's autosaved\ncomposer draft (IF2, §5.2). Typed absence (200 with `draft: null`),\nnever a 404: an absent dr"
+        },
+        {
+          "name": "ticket_presence",
+          "path": "/api/tickets/{id}/presence",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/presence — current viewers/editors of the\nticket, TTL-pruned. The ticket must exist in the caller's org (RLS);\nthe roster is org-keyed, so"
+        },
+        {
+          "name": "tickets_rollup",
+          "path": "/api/tickets/{id}/rollup",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/rollup — children/members + folded time + billable money."
+        },
+        {
+          "name": "sign_offs_list",
+          "path": "/api/tickets/{id}/sign-offs",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/sign-offs — the ticket's sign-offs with payload\nfacts, revocation state and the correction relation. Renders a timeline\nrow without ever m"
+        },
+        {
+          "name": "tickets_similar_tickets",
+          "path": "/api/tickets/{id}/similar-tickets",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/similar-tickets — retrieval top-k + per-candidate\nrelatedness Noul. Degrade-never-5xx: a quiet decision edge returns the\nplain retrieval l"
+        },
+        {
+          "name": "tickets_sla_status",
+          "path": "/api/tickets/{id}/sla",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/comments — optional kind filter; internal notes\nrequire ticket view. The portal surface must consume the dedicated\nclient-visible read (`c"
+        },
+        {
+          "name": "ticket_stock_movements",
+          "path": "/api/tickets/{id}/stock-movements",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/stock-movements — the job's parts-used ledger\nread: every movement anchored to this ticket, newest first. Ticket\nvisibility gates the read"
+        },
+        {
+          "name": "tickets_list_tags",
+          "path": "/api/tickets/{id}/tags",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/tags — the ticket's applied tags."
+        },
+        {
+          "name": "tickets_ticket_time_entries",
+          "path": "/api/tickets/{id}/time-entries",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/time-entries"
+        },
+        {
+          "name": "tickets_undo_stack",
+          "path": "/api/tickets/{id}/undo-stack",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/{id}/undo-stack — the per-field / per-record\napplied-state history read model for one record."
+        },
+        {
+          "name": "tickets_my_work",
+          "path": "/api/tickets/my-work",
+          "capability": "tickets:read",
+          "summary": "GET /api/tickets/my-work — everything assigned to me, not closed,\nacross all boards, priority-then-SLA-due ordered (the unified\ncross-board view from §1; the pr"
+        }
+      ]
+    },
+    {
+      "namespace": "time-categories",
+      "capability": "time-categories:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "time_categories_list",
+          "path": "/api/time-categories",
+          "capability": "time-categories:read",
+          "summary": "GET /api/time-categories — the org's taxonomy (admin + pickers)."
+        },
+        {
+          "name": "time_categories_capture_defaults",
+          "path": "/api/time-categories/capture-defaults",
+          "capability": "time-categories:read",
+          "summary": "GET /api/time-categories/capture-defaults — the picker read for the\nwrap-up sheet + quick-log: ordered non-retired categories + the\nkept backfill mapping."
+        },
+        {
+          "name": "time_categories_work_type_map_list",
+          "path": "/api/time-categories/work-type-map",
+          "capability": "time-categories:read",
+          "summary": "GET /api/time-categories/work-type-map — the kept backfill + manual\nmapping (settings read)."
+        }
+      ]
+    },
+    {
+      "namespace": "time-entries",
+      "capability": "time-entries:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "timers_list_entries",
+          "path": "/api/time-entries",
+          "capability": "time-entries:read",
+          "summary": "GET /api/time-entries"
+        },
+        {
+          "name": "time_entries_approval_history",
+          "path": "/api/time-entries/{id}/approvals",
+          "capability": "time-entries:read",
+          "summary": "GET /api/time-entries/:id/approvals — the append-only decision trail\n(`seq` ascending). Approvers and owner/admins read any trail; other\nusers only their own en"
+        },
+        {
+          "name": "time_entry_billing_suggestions",
+          "path": "/api/time-entries/{id}/billing-suggestions",
+          "capability": "time-entries:read",
+          "summary": "GET /api/time-entries/{id}/billing-suggestions — the\n`decision_billing_audit` shadow answers for one entry, classified\ninto suggestion chips. Read-only: chips n"
+        },
+        {
+          "name": "time_entries_queue",
+          "path": "/api/time-entries/approvals/queue",
+          "capability": "time-entries:read",
+          "summary": "GET /api/time-entries/approvals/queue — the approver queue (submitted\nentries by default). Approvers (`special:approve_time`) see the org\nqueue and can filter `"
+        },
+        {
+          "name": "time_entries_billing_suggestions_bulk",
+          "path": "/api/time-entries/billing-suggestions",
+          "capability": "time-entries:read",
+          "summary": "GET /api/time-entries/billing-suggestions?ids=a,b,c — the bulk read\nfor approvals rows (≤ 100 ids per call)."
+        }
+      ]
+    },
+    {
+      "namespace": "time-gaps",
+      "capability": "time-gaps:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "time_gaps_user",
+          "path": "/api/time-gaps",
+          "capability": "time-gaps:read",
+          "summary": "GET /api/time-gaps?user_id= — manager-scoped report for one member.\nOwner/admin only; everyone else uses `/api/time-gaps/me`."
+        },
+        {
+          "name": "time_gaps_me",
+          "path": "/api/time-gaps/me",
+          "capability": "time-gaps:read",
+          "summary": "GET /api/time-gaps/me — the caller's day-level gap report (defaults to\nyesterday in the caller's timezone)."
+        }
+      ]
+    },
+    {
+      "namespace": "time-settings",
+      "capability": "time-settings:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "time_settings_get",
+          "path": "/api/time-settings",
+          "capability": "time-settings:read",
+          "summary": "GET /api/time-settings — org time-discipline knobs (admin)."
+        }
+      ]
+    },
+    {
+      "namespace": "timers",
+      "capability": "timers:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "timers_active",
+          "path": "/api/timers/active",
+          "capability": "timers:read",
+          "summary": "GET /api/timers/active — the caller's running session (at most one)."
+        },
+        {
+          "name": "timers_working_set",
+          "path": "/api/timers/working-set",
+          "capability": "timers:read",
+          "summary": "GET /api/timers/working-set — recent sessions (running first): the\ndocked working set the UI renders."
+        }
+      ]
+    },
+    {
+      "namespace": "tool-checkouts",
+      "capability": "tool-checkouts:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "tool_checkouts_list",
+          "path": "/api/tool-checkouts",
+          "capability": "tool-checkouts:read",
+          "summary": "GET /api/tool-checkouts."
+        },
+        {
+          "name": "tool_checkouts_get",
+          "path": "/api/tool-checkouts/{id}",
+          "capability": "tool-checkouts:read",
+          "summary": "GET /api/tool-checkouts/{id}."
+        }
+      ]
+    },
+    {
+      "namespace": "tool-kits",
+      "capability": "tool-kits:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "tool_kits_list",
+          "path": "/api/tool-kits",
+          "capability": "tool-kits:read",
+          "summary": "GET /api/tool-kits."
+        },
+        {
+          "name": "tool_kits_get",
+          "path": "/api/tool-kits/{id}",
+          "capability": "tool-kits:read",
+          "summary": "GET /api/tool-kits/{id}."
+        },
+        {
+          "name": "tool_kits_availability",
+          "path": "/api/tool-kits/{id}/availability",
+          "capability": "tool-kits:read",
+          "summary": "GET /api/tool-kits/{id}/availability — can the kit go out here?"
+        }
+      ]
+    },
+    {
+      "namespace": "tools",
+      "capability": "tools:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "tools_availability",
+          "path": "/api/tools/availability",
+          "capability": "tools:read",
+          "summary": "GET /api/tools/availability — in-stock counts per tool item + location."
+        }
+      ]
+    },
+    {
+      "namespace": "vendors",
+      "capability": "vendors:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "vendors_list",
+          "path": "/api/vendors",
+          "capability": "vendors:read",
+          "summary": "GET /api/vendors"
+        },
+        {
+          "name": "vendors_get",
+          "path": "/api/vendors/{id}",
+          "capability": "vendors:read",
+          "summary": "GET /api/vendors/{id} — entity + contacts + links."
+        },
+        {
+          "name": "vendors_list_contacts",
+          "path": "/api/vendors/{id}/contacts",
+          "capability": "vendors:read",
+          "summary": "GET /api/vendors/{id}/contacts"
+        },
+        {
+          "name": "vendors_list_links",
+          "path": "/api/vendors/{id}/links",
+          "capability": "vendors:read",
+          "summary": "GET /api/vendors/{id}/links"
+        }
+      ]
+    },
+    {
+      "namespace": "workflow-overrides",
+      "capability": "workflow-overrides:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "workflow_overrides_registry",
+          "path": "/api/workflow-overrides/registry",
+          "capability": "workflow-overrides:read",
+          "summary": "GET /api/workflow-overrides/registry — the closed set of overridable\nconstructs with their typed value kinds (the UI renders the editor FROM\nthis; policy §4.5: "
+        }
+      ]
+    },
+    {
+      "namespace": "workflows",
+      "capability": "workflows:read",
+      "sensitive": false,
+      "tools": [
+        {
+          "name": "workflow_documents_list",
+          "path": "/api/workflows/documents",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/documents"
+        },
+        {
+          "name": "workflow_documents_get",
+          "path": "/api/workflows/documents/{id}",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/documents/{id}"
+        },
+        {
+          "name": "workflow_nodes_list",
+          "path": "/api/workflows/nodes",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/nodes — the catalogue, filtered. Declarations carry\nno org data, so any authed org member may read; each consuming surface\nkeeps its own data"
+        },
+        {
+          "name": "workflow_nodes_get",
+          "path": "/api/workflows/nodes/{id}",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/nodes/{id} — one node with both schemas parsed.\nThe on-demand schema leg the authoring model uses, so exposing the\ncatalogue to a prompt cost"
+        },
+        {
+          "name": "workflow_plugin_nodes",
+          "path": "/api/workflows/plugin-nodes",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/plugin-nodes — the org's plugin-contributed\nworkflow nodes, parsed through the same contract the registry uses."
+        },
+        {
+          "name": "workflow_runs_list",
+          "path": "/api/workflows/runs",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/runs — the run ledger, newest first, filterable by\nstatus and by rule. Keyset-cursored on `(created_at, id)`, exactly like\nthe webhook delive"
+        },
+        {
+          "name": "workflow_run_detail",
+          "path": "/api/workflows/runs/{id}",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/runs/{id} — one run with its whole trace."
+        },
+        {
+          "name": "workflow_run_steps",
+          "path": "/api/workflows/runs/{id}/steps",
+          "capability": "workflows:read",
+          "summary": "GET /api/workflows/runs/{id}/steps — one run's step trace, paged."
+        }
+      ]
+    }
+  ],
+  "sensitive_capabilities": [
+    {
+      "capability": "tickets_correspondence:read",
+      "namespace": "tickets",
+      "paths": [
+        "/api/tickets/{id}/emails"
+      ]
+    }
+  ]
+}

@@ -204,6 +204,14 @@ mod tests {
         }})
     }
 
+    fn catalog_fixture() -> Value {
+        json!({ "families": [{
+            "namespace": "clients",
+            "capability": "clients:read",
+            "tools": [{"name": "clients_get_one", "path": "/api/clients/{id}", "capability": "clients:read"}]
+        }]})
+    }
+
     fn rpc(id: i64, method: &str, params: Value) -> RpcRequest {
         RpcRequest {
             jsonrpc: "2.0".into(),
@@ -215,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn initialize_hanshake() {
-        let server = Server::new(FakeBackend, build_catalog(&spec()));
+        let server = Server::new(FakeBackend, build_catalog(&spec(), &catalog_fixture()));
         let resp = server
             .handle(rpc(1, "initialize", json!({})))
             .await
@@ -228,7 +236,7 @@ mod tests {
 
     #[tokio::test]
     async fn tools_call_proxies_and_errors() {
-        let server = Server::new(FakeBackend, build_catalog(&spec()));
+        let server = Server::new(FakeBackend, build_catalog(&spec(), &catalog_fixture()));
         let resp = server
             .handle(rpc(
                 2,
@@ -257,7 +265,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_tool_and_method() {
-        let server = Server::new(FakeBackend, build_catalog(&spec()));
+        let server = Server::new(FakeBackend, build_catalog(&spec(), &catalog_fixture()));
         let resp = server
             .handle(rpc(4, "tools/call", json!({ "name": "nope" })))
             .await
@@ -267,7 +275,7 @@ mod tests {
 
     #[tokio::test]
     async fn notifications_have_no_reply() {
-        let server = Server::new(FakeBackend, build_catalog(&spec()));
+        let server = Server::new(FakeBackend, build_catalog(&spec(), &catalog_fixture()));
         let req = RpcRequest {
             jsonrpc: "2.0".into(),
             id: None,

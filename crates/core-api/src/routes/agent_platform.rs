@@ -1463,22 +1463,26 @@ fn normalize_agent_ref(
 /// `<namespace>:read` | `<namespace>:write` — the capability slug grammar
 /// (mirrors migration 0040's CHECK).
 fn validate_capability(capability: &str) -> ApiResult<()> {
-    let Some((ns, action)) = capability.rsplit_once(':') else {
-        return Err(ApiError::Validation(
-            "capability must be <namespace>:read or <namespace>:write".into(),
-        ));
-    };
-    let valid_ns = !ns.is_empty()
-        && ns.chars().next().is_some_and(|c| c.is_ascii_lowercase())
-        && ns
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
-    if !valid_ns || !matches!(action, "read" | "write") {
-        return Err(ApiError::Validation(
-            "capability must be <namespace>:read or <namespace>:write".into(),
-        ));
+    // Row A29: the registry may only express what the derived catalog can
+    // serve. Before this, any plausible namespace was accepted, so an admin
+    // could grant `invoices:read`, watch the tool appear in `tools/list`, and
+    // then see it 401 two layers down.
+    if crate::mcp_catalog::is_grantable(capability) {
+        return Ok(());
     }
-    Ok(())
+    Err(ApiError::Validation(format!(
+        "capability {capability:?} is not in the MCP catalog; grantable capabilities: {}",
+        crate::mcp_catalog::families()
+            .iter()
+            .map(|f| f.capability.as_str())
+            .chain(
+                crate::mcp_catalog::sensitive_capabilities()
+                    .iter()
+                    .map(|s| s.capability.as_str())
+            )
+            .collect::<Vec<_>>()
+            .join(", ")
+    )))
 }
 
 fn validate_slug(slug: &str) -> ApiResult<()> {

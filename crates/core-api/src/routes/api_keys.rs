@@ -86,9 +86,14 @@ fn validate_scopes(scopes: &[String]) -> ApiResult<()> {
         ));
     }
     for s in scopes {
-        if !KNOWN_SCOPES.contains(&s.as_str()) {
+        // Hand-written connector scopes plus the derived MCP read vocabulary
+        // (row A29): one source — packages/sdk/mcp-catalog.json — so a mintable
+        // scope always has a catalog tool and a key-allowed path behind it.
+        if !KNOWN_SCOPES.contains(&s.as_str())
+            && !crate::mcp_catalog::mintable_read_scopes().any(|known| known == s)
+        {
             return Err(ApiError::Validation(format!(
-                "unknown scope {s:?}; known: {}",
+                "unknown scope {s:?}; known: {} plus the MCP read catalog",
                 KNOWN_SCOPES.join(", ")
             )));
         }

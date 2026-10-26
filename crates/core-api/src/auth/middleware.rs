@@ -138,7 +138,7 @@ pub async fn require_auth(
                 || candidate
                     .strip_prefix(p)
                     .is_some_and(|rest| rest.starts_with('/'))
-        });
+        }) || crate::mcp_catalog::key_path_allowed(&candidate);
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),
@@ -414,6 +414,14 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
     for scope in scopes {
         match scope.as_str() {
             "tickets:read" => push(Module::Tickets, &[Action::View]),
+            // The catalog's sensitive ticket-correspondence read (row A29):
+            // its own MCP capability so enabling ticket reads does not imply
+            // correspondence. At core-api it maps to the ticket-view permission
+            // the read handler already enforces — so a KEY minted with only
+            // this scope can also call the ordinary ticket reads directly. The
+            // tight surface is the MCP adapter, which exposes only the tools
+            // this capability declares; keys are connector surface.
+            "tickets_correspondence:read" => push(Module::Tickets, &[Action::View]),
             "tickets:write" => push(
                 Module::Tickets,
                 &[Action::View, Action::Create, Action::Edit],
