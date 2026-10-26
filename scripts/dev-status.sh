@@ -2,11 +2,11 @@
 # Process registry for agents (report §3.5): list the running Marula stack
 # — pids, ports, env fingerprint — so a lane stops guessing which process it
 # may kill. Sources of truth:
-#   1. run-*-pids.json entries written by scripts/e2e-stack.sh, read from the
-#      SHARED root's .kilo/dev-registry/ (the main checkout) PLUS any linked
-#      worktree's own registry — so a stack booted inside a lane worktree is
-#      still visible from here.
-#   2. live docker containers matching marula-e2e-* (image pgvector/valkey)
+#   1. run-*-pids.json entries written by scripts/e2e-stack.sh or
+#      scripts/gate-db.sh, read from the SHARED root's .kilo/dev-registry/ (the
+#      main checkout) PLUS any linked worktree's own registry — so a stack
+#      booted inside a lane worktree is still visible from here.
+#   2. live docker containers matching marula-e2e-* and marula-gate-*
 #   3. listening ports held by the registered processes (re-checked live)
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)" 2>/dev/null
@@ -24,7 +24,7 @@ esac
 
 alive() { kill -0 "$1" 2>/dev/null && echo yes || echo no; }
 
-echo "== registered e2e-stack runs (run-*-pids.json) =="
+echo "== registered runs (e2e-stack and gate-db; run-*-pids.json) =="
 reg_files=()
 for pat in "$SHARED_ROOT/.kilo/dev-registry/run-"*-pids.json \
            "$SHARED_ROOT/.kilo/worktrees/"*"/.kilo/dev-registry/run-"*-pids.json; do
@@ -40,15 +40,24 @@ if [ "${#reg_files[@]}" -gt 0 ]; then
         origin="worktree $(echo "$f" | sed "s|^$SHARED_ROOT/.kilo/worktrees/||; s|/.kilo/dev-registry/.*||")" ;;
     esac
     python3 - "$f" "$origin" <<'PY'
-import os, json, sys
+import os, json, subprocess, sys
 d = json.load(open(sys.argv[1]))
 origin = sys.argv[2]
 env = d.get("env", {})
-print(f"\nrun {d.get('run_id','?')}  started {d.get('started_at','?')}  "
+kind = d.get("kind", "e2e")
+print(f"\nrun {d.get('run_id','?')}  kind {kind}  started {d.get('started_at','?')}  "
       f"fingerprint {d.get('env_fingerprint','?')}  [{origin}]")
-print(f"  DATABASE_URL : {env.get('E2E_DATABASE_URL','?')}")
-print(f"  JWT_SECRET   : {env.get('JWT_SECRET','?')[:12]}… (fingerprint field — keep secret)")
+print(f"  DATABASE_URL : {env.get('E2E_DATABASE_URL') or env.get('DATABASE_URL','?')}")
+if env.get("JWT_SECRET"):
+    print(f"  JWT_SECRET   : {env.get('JWT_SECRET','?')[:12]}… (fingerprint field — keep secret)")
+if env.get("REDIS_URL"):
+    print(f"  REDIS_URL    : {env['REDIS_URL']}")
 for s in d.get("services", []):
+    if s.get("source") == "docker":
+        c = s.get("container", "?")
+        up = subprocess.run(["docker", "inspect", c], capture_output=True).returncode == 0
+        print(f"  {s.get('name', '?'):10} port={s.get('port', '?'):6} container {c} ({'up' if up else 'gone'})")
+        continue
     pid = s.get("pid")
     state = "gone"
     try:
@@ -100,6 +109,25 @@ if command -v docker >/dev/null 2>&1; then
   echo
   echo "To inspect:  docker logs marula-e2e-pg-<run-id>"
   echo "Service logs:  $SHARED_ROOT/.kilo/e2e-logs/<run-id>/{core-api,worker}.log"
+
+  echo
+  echo "== live marula-gate-* containers (scripts/gate-db.sh) =="
+  docker ps --filter "name=marula-gate" --format \
+    "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}" 2>/dev/null \
+    | { read -r header; echo "  $header"; while read -r l; do echo "  $l"; done; }
+  unregistered=0
+  for name in $(docker ps --filter "name=marula-gate" --format '{{.Names}}' 2>/dev/null); do
+    run="${name#marula-gate-pg-}"
+    [ "$run" = "$name" ] && run="${name#marula-gate-redis-}"
+    if [ ! -f "$SHARED_ROOT/.kilo/dev-registry/run-$run-pids.json" ]; then
+      if [ "$unregistered" -eq 0 ]; then
+        echo "  UNREGISTERED (no registry entry — nothing else names these):"
+      fi
+      unregistered=$((unregistered + 1))
+      echo "    $name"
+      echo "      reclaim:  bash scripts/gate-db.sh down $run"
+    fi
+  done
 else
   echo "  (docker unavailable)"
 fi
@@ -110,5 +138,6 @@ ps -axo pid,command | grep -E "release/(core-api|worker)|\.next/standalone/serve
   | grep -v grep | sed 's/^/  /' || echo "  (none)"
 echo
 echo "Teardown: bash scripts/e2e-stack.sh down <RUN_ID>   # run ids are e2e-<digits> (bare digits work too)."
+echo "          bash scripts/gate-db.sh down <RUN_ID>     # run ids are gatedb-<digits> (bare digits work too)."
 echo "          A teardown that removes nothing now exits non-zero and names what it looked for,"
 echo "          so a run that is still up after a down is a failure, not a silent success."
