@@ -72,6 +72,7 @@ services:
       DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required}@postgres:5432/marula
       MARULA_LISTEN_DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required}@postgres:5432/marula
       MARULA_EMBEDDING_TIER: minimal
+      CORS_ORIGIN: http://localhost:${DEMO_WEB_PORT:-3000}
     # Loopback only. Do not widen this to 0.0.0.0: the dev surface is
     # unauthenticated by design (routes/dev.rs).
     ports: !override
@@ -159,9 +160,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.web
       args:
-        # The BROWSER's URL for core-api. Laptop: localhost:8080. A VPS behind
-        # the edge: the public origin, e.g. https://demo.example.com.
-        NEXT_PUBLIC_API_URL: ${DEMO_PUBLIC_ORIGIN:-http://localhost:8080}
+        # The BROWSER's URL for core-api, not the web console. Laptop:
+        # http://localhost:8080 (or DEMO_API_PORT). A VPS behind the edge: the
+        # public origin, e.g. https://demo.example.com.
+        NEXT_PUBLIC_API_URL: ${DEMO_API_ORIGIN:-http://localhost:8080}
     ports: !override
       - "127.0.0.1:${DEMO_WEB_PORT:-3000}:3000"
     depends_on:

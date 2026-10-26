@@ -45,7 +45,7 @@ export MARULA_APP_PASSWORD=marula_app
 export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
 export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
 
-export DEMO_PUBLIC_ORIGIN=https://demo.example.com   # or http://localhost:8080 on a laptop
+export DEMO_API_ORIGIN=https://demo.example.com      # the browser's API origin
 export DEMO_API_PORT=8080                            # host port; keep 8080 unless it is taken
 export DEMO_WEB_PORT=3000                            # host port for the web console
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.demo.yml \
