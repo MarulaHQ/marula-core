@@ -18,6 +18,11 @@
 # removed, verifies the run is gone afterwards, and exits non-zero when a
 # target it claimed could not be reclaimed.
 #
+# `--brief` prints only the decision line per run, with no database URL and no
+# env fingerprint, so another long-running command can announce a stalled or
+# orphaned lane without spraying state: `e2e-stack.sh up` calls it and names
+# what needs attention before it finishes booting.
+#
 # A live-but-stalled owner is also surfaced, not reaped: every entry states its
 # last commit (and its evidence dir's newest file, when the lane recorded one),
 # and one that has produced nothing for MARULA_STALL_HOURS (default 4) prints
@@ -43,6 +48,7 @@ for arg in "$@"; do
     --reap) MODE=reap ;;
     --status) MODE=status ;;
     --self-test) MODE=selftest ;;
+    --brief) MODE=brief ;;
     --stall-hours=*) STALL_HOURS="${arg#*=}" ;;
     -h|--help)
       sed -n '2,30p' "$0"; exit 0 ;;
@@ -287,6 +293,17 @@ PY
          LOG_ROOT="$tmp/logs" E2E_ENV_FILE="$tmp/no-such.env" bash "$SELF" 2>&1)" || rc=$?
   check "the listing calls an unowned run OWNER UNKNOWN, not ORPHAN" \
     "$(printf '%s' "$out" | grep -c 'OWNER UNKNOWN')" "1"
+  # `--brief` is what another long-running command reads, so it must carry the
+  # decision without the run's credentials.
+  rc=0
+  out="$(DOCKER="$tmp/docker" FAKE_DOCKER_STATE="$tmp/state" REGISTRY_DIR="$tmp/reg" \
+         LOG_ROOT="$tmp/logs" E2E_ENV_FILE="$tmp/no-such.env" bash "$SELF" --brief 2>&1)" || rc=$?
+  check "brief mode still names the unowned run" \
+    "$(printf '%s' "$out" | grep -c 'OWNER UNKNOWN')" "1"
+  check "brief mode prints no database URL" \
+    "$(printf '%s' "$out" | grep -c 'DATABASE_URL')" "0"
+  check "brief mode prints no env fingerprint" \
+    "$(printf '%s' "$out" | grep -c 'fingerprint')" "0"
   kill "$svc" 2>/dev/null || true
   rm -f "$tmp/reg/run-e2e-9003-pids.json"
 
@@ -330,6 +347,10 @@ if [ "$MODE" = "reap" ]; then
   exit $?
 fi
 
+BRIEF=0
+[ "$MODE" = "brief" ] && BRIEF=1
+export DEV_STATUS_BRIEF="$BRIEF"
+
 echo "== registered e2e-stack runs (run-*-pids.json) =="
 files="$(registry_files)"
 if [ -n "$files" ]; then
@@ -339,6 +360,7 @@ import json, os, subprocess, sys, time
 
 shared_root, stall_hours = sys.argv[1], float(sys.argv[2])
 files = sys.argv[3:]
+BRIEF = os.environ.get("DEV_STATUS_BRIEF") == "1"
 
 def pid_alive(pid):
     try:
@@ -396,17 +418,20 @@ for path in files:
     owner = d.get("owner") or {}
     pid = owner.get("pid")
     session = owner.get("session") or "none recorded"
-    print(f"\nrun {d.get('run_id', '?')}  started {d.get('started_at', '?')}  "
-          f"fingerprint {d.get('env_fingerprint', '?')}  [{origin}]")
-    print(f"  DATABASE_URL : {env.get('E2E_DATABASE_URL', '?')}")
-    print(f"  JWT_SECRET   : {env.get('JWT_SECRET', '?')[:12]}… (fingerprint field — keep secret)")
-    print(f"  owner        : session {session}, "
-          f"{state(pid) if pid else 'no pid recorded — gone and idle look the same'}"
-          f"{' — ' + owner.get('cmd', '') if owner.get('cmd') else ''}")
-    for s in d.get("services", []):
-        print(f"  {s.get('name', '?'):12} port={s.get('port', '?'):6} {state(s.get('pid'))}")
-    if d.get("log_dir"):
-        print(f"  logs         : {d['log_dir']}")
+    if BRIEF:
+        print(f"run {d.get('run_id', '?')}  [{origin}]")
+    else:
+        print(f"\nrun {d.get('run_id', '?')}  started {d.get('started_at', '?')}  "
+              f"fingerprint {d.get('env_fingerprint', '?')}  [{origin}]")
+        print(f"  DATABASE_URL : {env.get('E2E_DATABASE_URL', '?')}")
+        print(f"  JWT_SECRET   : {env.get('JWT_SECRET', '?')[:12]}… (fingerprint field — keep secret)")
+        print(f"  owner        : session {session}, "
+              f"{state(pid) if pid else 'no pid recorded — gone and idle look the same'}"
+              f"{' — ' + owner.get('cmd', '') if owner.get('cmd') else ''}")
+        for s in d.get("services", []):
+            print(f"  {s.get('name', '?'):12} port={s.get('port', '?'):6} {state(s.get('pid'))}")
+        if d.get("log_dir"):
+            print(f"  logs         : {d['log_dir']}")
 
     # Activity: the newest of (last commit on the owning branch, newest file in
     # the evidence dir the lane recorded). Silence alone is not proof of a
@@ -452,6 +477,12 @@ print(f"{len(files)} registered run(s): {orphaned} orphaned, {stalled} stalled, 
 PY
 else
   echo "  (none)"
+fi
+
+# Brief mode stops here: another command is calling this for the decision lines,
+# and the container table plus the process scan are for a human reading it.
+if [ "$BRIEF" = "1" ]; then
+  exit 0
 fi
 
 echo

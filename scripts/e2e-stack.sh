@@ -794,6 +794,15 @@ with open(os.path.join(regdir, f"run-{run_id}-pids.json"), "w") as f:
 PY
 echo "[e2e-stack] owner: session ${OWNER_SESSION:-none recorded} pid ${OWNER_PID:-?} (${OWNER_CMD:-unknown command})"
 echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.sh"
+# A stalled or orphaned lane is otherwise found by whoever happens to look, so
+# every boot announces the ones already on the machine. `--brief` prints decision
+# lines only — no database URL, no env fingerprint — and never touches a run.
+ATTENTION="$(DEV_STATUS_BRIEF=1 bash "$REPO_ROOT/scripts/dev-status.sh" --brief 2>/dev/null \
+  | grep -E '^  (ORPHAN|OWNER UNKNOWN|WARN STALLED)' || true)"
+if [ -n "$ATTENTION" ]; then
+  echo "[e2e-stack] other registered runs need attention (scripts/dev-status.sh):"
+  printf '%s\n' "$ATTENTION" | sed 's/^/    /'
+fi
 # Past this line the run is discoverable, so a later failure is a lane's own
 # teardown (`down $RUN_ID`) and not a leak.
 UP_COMPLETE=1
