@@ -55,6 +55,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { formatNumber } from "@marula-core/ui";
 import { LocalTime } from "../../components/local-time";
@@ -67,7 +68,6 @@ import { runEnvelopeMutation, newIdempotencyKey } from "../../lib/envelope-write
 import {
   AlertIcon,
   HEAD_CELL_CLASS,
-  LedgerFooter,
   LockIcon,
   NoMatches,
   PageFrame,
@@ -907,10 +907,10 @@ export default function VaultPage() {
             )}
           </TableCard>
 
-          <LedgerFooter
+          <SurfaceFooter
             shown={shownRows.length}
             total={view === "credentials" ? (entries?.length ?? 0) : (records?.length ?? 0)}
-            noun={view === "credentials" ? "credentials" : "records"}
+            noun={view === "credentials" ? "credential" : "record"}
             density={<DensitySwitch value={density} onChange={applyDensity} />}
             trailing={
               selectedFolder !== null && view !== "credentials" ? (

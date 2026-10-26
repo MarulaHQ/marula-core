@@ -160,6 +160,10 @@ pub struct TicketCursor {
     pub id: Uuid,
 }
 
+/// The list filter, and `Clone` because the route reads the page AND its
+/// denominator from one transaction: the rows first, then the count over the
+/// same filter.
+#[derive(Clone)]
 pub struct TicketFilter {
     pub board_id: Option<Uuid>,
     pub assignee_id: Option<Uuid>,
@@ -267,6 +271,44 @@ pub(crate) fn page_sql(f: &TicketFilter) -> String {
              due_at NULLS LAST, created_at, id
            LIMIT $7 OFFSET $8"#
     )
+}
+
+/// The filter's whole denominator, the `x-total-count` the list footer reads
+/// ("shown N of M"). The predicate matches [`page_sql`]'s WHERE exactly, minus
+/// the keyset resume and the page's own LIMIT/OFFSET, so page and total agree.
+/// One indexed count per list call, on the same transaction the rows were read
+/// under. String fragments are literals only — the values stay bound.
+pub async fn count_tickets<'e, E>(executor: E, org_id: Uuid, f: &TicketFilter) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let tag_clause = if f.tag_ids.as_ref().is_some_and(|v| !v.is_empty()) {
+        crate::tags::tag_filter_sql(9)
+    } else {
+        String::new()
+    };
+    let sql = format!(
+        r#"SELECT count(*) FROM tickets
+           WHERE org_id = $1
+             AND ($2::uuid IS NULL OR board_id = $2)
+             AND ($3::uuid IS NULL OR assignee_id = $3)
+             AND ($4::uuid IS NULL OR client_id = $4)
+             AND ($5::text IS NULL OR category = $5)
+             AND ($6::text IS NULL OR priority = $6)
+             {tag_clause}"#
+    );
+    let sql = sql.as_str();
+    let row: (i64,) = sqlx::query_as(sql)
+        .bind(org_id)
+        .bind(f.board_id)
+        .bind(f.assignee_id)
+        .bind(f.client_id)
+        .bind(f.category.map(|c| c.as_str().to_string()))
+        .bind(f.priority.map(|p| p.as_str().to_string()))
+        .bind(f.tag_ids.clone().unwrap_or_default())
+        .fetch_one(executor)
+        .await?;
+    Ok(row.0)
 }
 
 /// Tickets for a user's my-work view: assigned to them, not closed, across

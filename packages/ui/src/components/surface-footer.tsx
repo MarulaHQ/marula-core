@@ -94,7 +94,11 @@ export function SurfaceFooter({
   label = "List footer",
 }: SurfaceFooterProps): React.JSX.Element {
   const many = nounPlural ?? `${noun}s`;
-  const word = shown === 1 ? noun : many;
+  /* The noun's number follows the SET the count describes, not the shown
+     rows: "1 of 3 projects" always exists, "1 of 3 project" does not. With
+     no denominator, shown decides, which keeps "1 project" singular. */
+  const base = total ?? shown;
+  const word = base === 1 ? noun : many;
   return (
     <div className={cn("m-surface-footer", className)} role="group" aria-label={label}>
       <span className="m-surface-footer-count" data-testid={countTestId}>

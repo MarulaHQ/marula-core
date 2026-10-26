@@ -34,6 +34,7 @@ import {
   type ExportRequest,
   type FilterClause,
   type ViewOption,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import {
   Segmented,
@@ -371,12 +372,12 @@ export default function BoardsIndexPage() {
               ))}
             </tbody>
           </Table>
-          <div className="m-table-foot">
-            <span>
-              Showing {shown.length} of {rows?.length ?? 0} {rows?.length === 1 ? "board" : "boards"}
-            </span>
-            <DensitySwitch value={prefs.density} onChange={prefs.setDensity} variant="icons" label="Row density" />
-          </div>
+          <SurfaceFooter
+            shown={shown.length}
+            total={shown.length === (rows?.length ?? 0) ? undefined : (rows?.length ?? 0)}
+            noun="board"
+            density={<DensitySwitch value={prefs.density} onChange={prefs.setDensity} variant="icons" label="Row density" />}
+          />
         </Card>
       )}
     </div>

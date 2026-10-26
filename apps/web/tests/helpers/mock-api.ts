@@ -19,7 +19,7 @@ interface RecordedCall {
 
 type RouteHandler = (
   ctx: Pick<RecordedCall, "query" | "body">,
-) => { status?: number; json: unknown };
+) => { status?: number; json: unknown; headers?: Record<string, string> };
 
 export class MockApi {
   private readonly routes = new Map<string, RouteHandler>();
@@ -89,7 +89,7 @@ export class MockApi {
       }
       try {
         const out = handler({ query, body: parsedBody });
-        return makeJsonResponse(out.json, out.status ?? 200);
+        return makeJsonResponse(out.json, out.status ?? 200, out.headers);
       } catch (e) {
         return makeJsonResponse(
           { error: { message: e instanceof Error ? e.message : String(e) } },
@@ -101,14 +101,17 @@ export class MockApi {
   }
 }
 
-/** Minimal fetch-Response stand-in openapi-fetch relies on (ok/status/json/text). */
-function makeJsonResponse(json: unknown, status: number): Response {
+/** Minimal fetch-Response stand-in openapi-fetch relies on (ok/status/json/
+ *  text/headers). The handler's `headers` merge in, so a route can simulate
+ *  the contract headers the app reads (x-total-count on the tickets list). */
+function makeJsonResponse(json: unknown, status: number, extraHeaders?: Record<string, string>): Response {
   const body = JSON.stringify(json) ?? "";
   return {
     ok: status >= 200 && status < 300,
     status,
     headers: new Headers({
       "content-type": "application/json",
+      ...extraHeaders,
       // A real response states its length. Without it, openapi-fetch parses
       // through `text()` and hands back a parsed copy instead of the fixture
       // object, so a suite that mutates a fixture array and expects the page

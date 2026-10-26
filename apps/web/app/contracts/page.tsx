@@ -48,6 +48,8 @@ import {
   Th,
   Tr,
   ViewSwitch,
+  SurfaceFooter,
+  DensitySwitch,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
@@ -610,22 +612,17 @@ export default function ContractsPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-        {/* The count leads, then the "of" clause only when a filter has
-            actually narrowed the list — the same convention the projects
-            ledger uses, so the two surfaces read alike. */}
-        <span className="tabular-nums">
-          {filtered?.length ?? 0} contract{(filtered?.length ?? 0) === 1 ? "" : "s"}
-        </span>
-        {filtered !== null && contracts !== null && filtered.length !== contracts.length ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="tabular-nums">of {contracts.length} in total</span>
-          </>
-        ) : null}
-        <span className="flex-1" />
-        <span className="tabular-nums">Booked per period: {posture.book}</span>
-      </div>
+      <SurfaceFooter
+        shown={filtered?.length ?? 0}
+        total={
+          filtered !== null && contracts !== null && filtered.length !== contracts.length
+            ? contracts.length
+            : undefined
+        }
+        noun="contract"
+        density={<DensitySwitch value={prefs.density} onChange={(step) => void prefs.setDensity(step)} variant="icons" label="Row density" />}
+        trailing={<span className="tabular-nums">Booked per period: {posture.book}</span>}
+      />
     </div>
   );
 }

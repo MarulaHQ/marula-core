@@ -45,6 +45,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTrigger,
+  DensitySwitch,
   EmptyState,
   ExportControl,
   FieldHint,
@@ -53,6 +54,7 @@ import {
   Input,
   Label,
   Spinner,
+  SurfaceFooter,
   SurfaceHeader,
   Table,
   Td,
@@ -64,6 +66,8 @@ import {
   type FilterField,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
+import { csvExporter } from "../../lib/csv-download";
+import { filterUrl } from "../../lib/filter-url";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -192,6 +196,9 @@ export default function ClientsPage() {
   // this surface's item 2 — a list that can search AND filter).
   const [clauses, setClauses] = useState<FilterClause[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
+  /** How the builder's clauses combine (§6): every condition must match, or
+   *  any one of them. The list behind the popover moves with the choice. */
+  const [match, setMatch] = useState<"all" | "any">("all");
   // The two header shortcuts, as pressed-or-not toggles rather than separate
   // filter state: pressing one narrows the same list the view already shows.
   const [onlyRenewing, setOnlyRenewing] = useState(false);
@@ -327,7 +334,8 @@ export default function ClientsPage() {
       const contract = activeContract(c.id);
       if (onlyRenewing && !insideRenewalWindow(contract?.effective_until, now)) return false;
       if (onlyNoContract && contract !== null) return false;
-      if (!clauses.every((clause) => clauseMatches(c, clause))) return false;
+      const holds = match === "all" ? clauses.every((clause) => clauseMatches(c, clause)) : clauses.some((clause) => clauseMatches(c, clause));
+      if (!holds) return false;
       if (q === "") return true;
       const contact = primaryContactLabel(c.id);
       return (
@@ -335,7 +343,7 @@ export default function ClientsPage() {
         (contact ?? "").toLowerCase().includes(q)
       );
     });
-  }, [clients, query, onlyRenewing, onlyNoContract, activeContract, now, clauses]);
+  }, [clients, query, onlyRenewing, onlyNoContract, activeContract, now, clauses, match]);
 
   // A client's main contact is its primary contact; without one the cell
   // says so in words rather than showing an empty column.
@@ -417,12 +425,37 @@ export default function ClientsPage() {
     filtersRestored.current = true;
     const restored = clausesFromSaved(saved.filters);
     if (restored.length > 0) setClauses(restored);
-  }, [prefs.ready, saved.filters]);
+    if (saved.match !== undefined) setMatch(saved.match);
+  }, [prefs.ready, saved.filters, saved.match]);
 
   const visible = useMemo(
     () => COLUMNS.filter((c) => visibleColumns.includes(c.id)),
     [visibleColumns],
   );
+
+  /** The link that reproduces these rows (§6): one URL a copy into chat can
+   *  carry, ending at the surface with the same filter, view and match. */
+  const shareUrl = useMemo(
+    () =>
+      typeof window === "undefined"
+        ? undefined
+        : filterUrl(`${window.location.origin}/clients`, {
+            view,
+            match,
+            filters: clauses,
+          }),
+    [view, match, clauses],
+  );
+  /** Save the current filter as the user's view: the habit, rather than the
+   *  moment — the two answers live side by side in the builder (§6). */
+  const saveAsView = useCallback(() => {
+    void prefs.save(SURFACE, {
+      view,
+      match,
+      filters: clauses,
+      columns: COLUMNS.map((c) => ({ key: String(c.id), visible: visibleColumns.includes(c.id) })),
+    });
+  }, [prefs, view, match, clauses, visibleColumns]);
 
   const onColumnsChange = (next: { key: string; visible: boolean }[]) => {
     const ordered = next
@@ -646,6 +679,12 @@ export default function ClientsPage() {
             label="Client filters"
             open={filterOpen}
             onOpenChange={setFilterOpen}
+            match={match}
+            onMatchChange={setMatch}
+            matchCount={filtered === null ? undefined : filtered.length}
+            matchNoun="clients"
+            shareUrl={shareUrl}
+            onSaveView={saveAsView}
           />
         }
         columns={
@@ -662,10 +701,19 @@ export default function ClientsPage() {
           <ExportControl
             columns={visible.map((c) => c.label)}
             rowCount={filtered === null ? 0 : filtered.length}
-            onExport={() => {
-              /* The control reports the request; the CSV write is the app's
-                 job and the control already states rows, filters and columns. */
-            }}
+            filters={clauses}
+            onExport={csvExporter("clients.csv", () => visible.map((c) => c.label), () =>
+              (filtered ?? []).map((row) =>
+                visible.map((col) =>
+                  clientExportValue(row, col.id, {
+                    contact: primaryContactLabel(row.id),
+                    contract: activeContract(row.id),
+                    openTickets: openTicketsByClient[row.id],
+                    owner: ownerName,
+                  }),
+                ),
+              ),
+            )}
           />
         }
       />
@@ -883,22 +931,27 @@ export default function ClientsPage() {
         )}
       </div>
 
-      {/* ---- footer: the count leads, then the "of" clause only when a
-          filter has actually narrowed the list — the same convention the
-          projects and contracts ledgers use, so the three read alike. ---- */}
-      <div className="flex flex-wrap items-center gap-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-        <span className="tabular-nums">
-          {filtered?.length ?? 0} client{(filtered?.length ?? 0) === 1 ? "" : "s"}
-        </span>
-        {filtered !== null && clients !== null && filtered.length !== clients.length ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="tabular-nums">of {clients.length} in total</span>
-          </>
-        ) : null}
-        <span className="flex-1" />
-        <DensityInline />
-      </div>
+      {/* ---- footer: the pack's 52px strip, one composer with every other
+          surface. When a filter has narrowed the list the "of" clause reads,
+          else the count stands alone — the same convention the projects and
+          contracts ledgers use, so the three read alike. ---- */}
+      <SurfaceFooter
+        shown={filtered?.length ?? 0}
+        total={
+          filtered !== null && clients !== null && filtered.length !== clients.length
+            ? clients.length
+            : undefined
+        }
+        noun="client"
+        density={
+          <DensitySwitch
+            value={prefs.density}
+            onChange={(step) => void prefs.setDensity(step)}
+            variant="icons"
+            label="Row density"
+          />
+        }
+      />
     </div>
   );
 }
@@ -938,35 +991,41 @@ function ShortcutPill({
   );
 }
 
-/** Density rides the account's typed key (lane 2b's D7), so the step chosen
- * in a table footer is the step every other table shows. */
-function DensityInline() {
-  const prefs = useDataSurfacePrefs();
-  const steps = [
-    { id: "comfortable", label: "Comfortable" },
-    { id: "compact", label: "Compact" },
-    { id: "dense", label: "Dense" },
-  ] as const;
-  return (
-    <div className="flex items-center gap-1" role="group" aria-label="Row density">
-      {steps.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          aria-pressed={prefs.density === s.id}
-          onClick={() => void prefs.setDensity(s.id)}
-          className="cursor-pointer rounded-[0.5rem] border px-2 py-1 text-[12px] font-semibold"
-          style={{
-            background: prefs.density === s.id ? "var(--m-accent)" : "transparent",
-            color: prefs.density === s.id ? "var(--m-on-accent)" : "var(--m-text-secondary)",
-            borderColor: prefs.density === s.id ? "transparent" : "var(--m-border)",
-          }}
-        >
-          {s.label}
-        </button>
-      ))}
-    </div>
-  );
+/** Density rides the account's typed key (lane 2b's D7) in the kit's
+ * `DensitySwitch`, so the step chosen in a table footer is the step every
+ * other table shows. */
+
+/** One CSV cell for a client row, matching what the table renders for that
+ *  column. The name maps ride in as arguments the way the tickets exporter
+ *  passes its maps, so the function stays a pure row-to-string reader. */
+function clientExportValue(
+  row: Client,
+  key: string,
+  maps: {
+    contact: string | null;
+    contract: Contract | null;
+    openTickets: number | undefined;
+    owner: string;
+  },
+): string {
+  switch (key) {
+    case "client":
+      return row.name;
+    case "contact":
+      return maps.contact ?? "—";
+    case "openTickets":
+      return maps.openTickets === undefined ? "—" : String(maps.openTickets);
+    case "contract":
+      return maps.contract === null ? "no contract" : "active";
+    case "renews":
+      return maps.contract?.effective_until ?? "—";
+    case "owner":
+      return maps.owner || "—";
+    case "visibility":
+      return row.restricted_to.length === 0 ? "All members" : `Restricted${row.restricted_to.length}`;
+    default:
+      return "—";
+  }
 }
 
 function PlusIcon() {

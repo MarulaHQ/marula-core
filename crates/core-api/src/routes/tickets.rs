@@ -383,7 +383,9 @@ where
     responses(
         (status = 200, body = [TicketWithFields],
          headers(("x-next-cursor" = String,
-                  description = "Opaque keyset cursor for the next page; present when this page is full and the walk may continue")))
+                  description = "Opaque keyset cursor for the next page; present when this page is full and the walk may continue"),
+                 ("x-total-count" = i64,
+                  description = "Total tickets matching this call's filter, before pagination — the list footer's N-of-M denominator")))
     )
 )]
 pub async fn list(
@@ -404,32 +406,32 @@ pub async fn list(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let rows = core_db::tickets::list_tickets(
-        &mut *tx,
-        org_id,
-        core_db::tickets::TicketFilter {
-            board_id: q.board_id,
-            assignee_id: q.assignee_id,
-            client_id: q.client_id,
-            category: q.category,
-            priority: q.priority,
-            tag_ids: q.tags.as_deref().and_then(|s| {
-                let ids: Result<Vec<Uuid>, _> = s
-                    .split(',')
-                    .filter(|t| !t.trim().is_empty())
-                    .map(|t| Uuid::parse_str(t.trim()))
-                    .collect();
-                ids.ok()
-            }),
-            limit,
-            // Keyset and offset are different callers' mechanisms: a
-            // cursor walk resumes on its own anchor, so offset zeroes.
-            offset: if anchor.is_some() { 0 } else { q.offset.max(0) },
-            cursor: anchor,
-        },
-    )
-    .await?;
+    let filter = core_db::tickets::TicketFilter {
+        board_id: q.board_id,
+        assignee_id: q.assignee_id,
+        client_id: q.client_id,
+        category: q.category,
+        priority: q.priority,
+        tag_ids: q.tags.as_deref().and_then(|s| {
+            let ids: Result<Vec<Uuid>, _> = s
+                .split(',')
+                .filter(|t| !t.trim().is_empty())
+                .map(|t| Uuid::parse_str(t.trim()))
+                .collect();
+            ids.ok()
+        }),
+        limit,
+        // Keyset and offset are different callers' mechanisms: a
+        // cursor walk resumes on its own anchor, so offset zeroes.
+        offset: if anchor.is_some() { 0 } else { q.offset.max(0) },
+        cursor: anchor,
+    };
+    let rows = core_db::tickets::list_tickets(&mut *tx, org_id, filter.clone()).await?;
     let enriched = TicketWithFields::load_many(&mut tx, org_id, rows).await?;
+    // The denominator rides the SAME transaction, so the page and its total
+    // answer the same database state. `count_tickets` matches this call's
+    // filter; the cursor/offset/limit scrolls the window, not the set.
+    let total = core_db::tickets::count_tickets(&mut *tx, org_id, &filter).await?;
     tx.commit().await.map_err(ApiError::from)?;
     // A full page hints another exists; anchor it to the LAST row (the
     // sort order is global + id-tiebroken, so this anchor is exact).
@@ -444,6 +446,12 @@ pub async fn list(
         None
     };
     let mut response = Json(enriched).into_response();
+    // Header, not body: the response envelope stays the plain array, and the
+    // footer's denominator rides the same header the cursor does (CORS exposes
+    // both, so the app reads them cross-origin).
+    if let Ok(value) = axum::http::HeaderValue::from_str(&total.to_string()) {
+        response.headers_mut().insert("x-total-count", value);
+    }
     if let Some(cursor) = next_cursor {
         // Header, not body: the response envelope stays the plain array.
         if let Ok(value) = axum::http::HeaderValue::from_str(&encode_cursor(cursor)) {

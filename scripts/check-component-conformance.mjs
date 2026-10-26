@@ -323,14 +323,6 @@ const RESIDUAL_LEDGER = [
     verify: () => someShippedModuleServes("m-skel") || someShippedModuleServes("skeleton"),
   },
   {
-    id: "merge-bulk-caller",
-    drawn: "the bulk bar carries Merge, needs two or more (§7)",
-    missing:
-      "no staff surface passes onMerge — `POST /api/tickets/{id}/merge` ships (operation tickets_merge, typed 409 conflicts) and e2e/flows/11 drives it, but the kit's Merge button renders only when a surface wires it",
-    ownedBy: "Wave 48 lane 3 (p48-surface-adoption)",
-    verify: () => repoHas("apps/web/app/tickets/page.tsx", ["BulkActionBar", "onMerge"]),
-  },
-  {
     id: "x-total-count-header",
     drawn: "the footer's N of M — shown of total, never an invented denominator",
     missing:

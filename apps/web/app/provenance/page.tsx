@@ -30,6 +30,7 @@ import {
   Tr,
   type FilterClause,
   type FilterField,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -475,34 +476,15 @@ export default function ProvenancePage() {
               ))}
             </tbody>
           </Table>
-          <div className="m-insight-footer flex min-h-[52px] flex-wrap items-center gap-3 px-3 pb-2">
-            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
-                {sorted.length}
-              </b>{" "}
-              of{" "}
-              <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
-                {rows.length}
-              </b>{" "}
-              writes
-            </span>
-            {nextCursor !== null ? (
-              <button
-                type="button"
-                className="m-insight-pager"
-                onClick={() => void load({ cursor: nextCursor })}
-              >
-                Load 50 more
-              </button>
-            ) : null}
-            <span className="flex-1" />
-            <span className="flex items-center gap-2">
-              {/* The switch carries its own visible label — adding one here
-                  double-prints "Density". */}
+          <SurfaceFooter
+            shown={sorted.length}
+            total={rows.length === sorted.length ? undefined : rows.length}
+            noun="write"
+            onLoadMore={nextCursor === null ? undefined : () => void load({ cursor: nextCursor })}
+            density={
               <DensitySwitch value={prefs.density} onChange={(d) => void prefs.setDensity(d)} />
-            </span>
-          </div>
-        </div>
+            }
+          />        </div>
       )}
     </div>
   );
