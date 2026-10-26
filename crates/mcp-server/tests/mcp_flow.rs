@@ -22,33 +22,77 @@ use mcp_server::Server;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
+use axum::response::IntoResponse;
+
 /// A tiny stub of the core-api surface the adapter proxies onto.
+///
+/// The proxied read routes REQUIRE `x-api-key` — exactly what real
+/// core-api's require_auth does. This is the pin that keeps the proxy
+/// authenticated: `tools/call` must carry the service key on every
+/// read (mcp_flow regression: the proxy once sent none, and real
+/// core-api answered 401 to every tool call).
 fn stub_core_api() -> Router {
+    const KEY: &str = "service-key";
+    let proxied = |headers: axum::http::HeaderMap,
+                   respond: axum::response::Response|
+     -> axum::response::Response {
+        let present = headers
+            .get("x-api-key")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|k| k == KEY);
+        if present {
+            respond
+        } else {
+            axum::http::StatusCode::UNAUTHORIZED.into_response()
+        }
+    };
     Router::new()
         .route(
             "/api/v1/mcp/capabilities",
-            axum::routing::get(|| async {
+            axum::routing::get(move |headers: axum::http::HeaderMap| async move {
+                let present = headers
+                    .get("x-api-key")
+                    .and_then(|v| v.to_str().ok())
+                    .is_some_and(|k| k == KEY);
+                if !present {
+                    return axum::http::StatusCode::UNAUTHORIZED.into_response();
+                }
                 Json(json!({
                     "grants": [
                         { "capability": "clients:read", "mode": "proposed" },
                         { "capability": "tickets:read", "mode": "proposed" }
                     ]
                 }))
+                .into_response()
             }),
         )
         .route(
             "/api/v1/clients/{id}",
-            axum::routing::get(|path: axum::extract::Path<String>| async move {
-                Json(json!({ "id": path.0, "name": "Acme Manufacturing" }))
+            axum::routing::get(move |headers: axum::http::HeaderMap,
+                                     path: axum::extract::Path<String>| async move {
+                proxied(
+                    headers,
+                    Json(json!({ "id": path.0, "name": "Acme Manufacturing" })).into_response(),
+                )
             }),
         )
         .route(
             "/api/v1/clients",
-            axum::routing::get(|| async { Json(json!({ "clients": [], "next_cursor": null })) }),
+            axum::routing::get(move |headers: axum::http::HeaderMap| async move {
+                proxied(
+                    headers,
+                    Json(json!({ "clients": [], "next_cursor": null })).into_response(),
+                )
+            }),
         )
         .route(
             "/api/v1/tickets",
-            axum::routing::get(|| async { Json(json!({ "tickets": [], "next_cursor": null })) }),
+            axum::routing::get(move |headers: axum::http::HeaderMap| async move {
+                proxied(
+                    headers,
+                    Json(json!({ "tickets": [], "next_cursor": null })).into_response(),
+                )
+            }),
         )
 }
 
@@ -60,7 +104,7 @@ async fn mcp_app() -> Router {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
 
-    let backend = CoreApiBackend::new(&format!("http://{addr}"));
+    let backend = CoreApiBackend::new(&format!("http://{addr}")).with_service_key("service-key");
     // The registry read itself must go through the stub.
     let granted = backend.granted_capabilities("service-key").await;
     assert!(

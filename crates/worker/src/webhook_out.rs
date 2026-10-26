@@ -512,13 +512,29 @@ pub async fn process_delivery_job<S: DeliverySink, E: EffectApi>(
         {
             // Delivered but the ledger write bounced — retry the job; the
             // receiver sees an idempotent duplicate, the ledger stays complete.
-            core_db::queue::schedule_retry(
-                pool,
-                job.id,
-                backoff_secs(job.attempts),
-                "ledger unavailable",
-            )
-            .await?;
+            // The retry rides the job's OWN budget: a ledger endpoint that
+            // stays down must not turn into an unbounded duplicate-delivery
+            // loop, so past the budget the job dead-letters like any other
+            // exhausted job (redrivable from the dead-work surface).
+            match ledger_bounce_decision(job.attempts, job.max_attempts) {
+                Decision::Dead => {
+                    core_db::queue::mark_dead(
+                        pool,
+                        job.id,
+                        "ledger unavailable past attempt budget",
+                    )
+                    .await?;
+                }
+                _ => {
+                    core_db::queue::schedule_retry(
+                        pool,
+                        job.id,
+                        backoff_secs(job.attempts),
+                        "ledger unavailable",
+                    )
+                    .await?;
+                }
+            }
         }
         (Decision::Done, _) => core_db::queue::mark_done(pool, job.id).await?,
         (Decision::Retry, _) => {
@@ -544,6 +560,20 @@ pub async fn process_delivery_job<S: DeliverySink, E: EffectApi>(
         }
     }
     Ok(())
+}
+
+/// The ledger-bounce settle choice: delivered, but the attempt-ledger
+/// write bounced. The receiver already has the event; only the ledger is
+/// missing. Retry while the job's budget lasts (the redelivery is an
+/// idempotent duplicate), and dead-letter once the budget is spent — a
+/// ledger endpoint that stays down must not become an unbounded
+/// duplicate-delivery loop.
+fn ledger_bounce_decision(attempts: i32, max_attempts: i32) -> Decision {
+    if attempts >= max_attempts {
+        Decision::Dead
+    } else {
+        Decision::Retry
+    }
 }
 
 async fn record_attempt<E: EffectApi>(
@@ -588,8 +618,15 @@ impl DeliveryPayload {
         if envelope.is_null() {
             return Ok(None);
         }
-        let parsed: Envelope = serde_json::from_value(envelope.clone())
-            .map_err(|e| anyhow::anyhow!("envelope malformed: {e}"))?;
+        // A present-but-unparseable envelope is malformed too: schema
+        // drift or a hand-edited job row lands here, and an Err would
+        // abort the whole queue tick with the row never settled —
+        // stale-lease reclaim would claim it again, forever (livelock,
+        // p47 review). Malformed means dead-letter, so every malformed
+        // shape answers the same `Ok(None)`.
+        let Ok(parsed) = serde_json::from_value::<Envelope>(envelope.clone()) else {
+            return Ok(None);
+        };
         Ok(Some(Self {
             webhook_id,
             event_id: parsed.id,
@@ -893,6 +930,18 @@ mod tests {
         );
     }
 
+    /// The ledger-bounce retry rides the job's own budget: while attempts
+    /// remain the job retries (idempotent duplicate to the receiver), past
+    /// the budget it dead-letters — a permanently failing ledger endpoint
+    /// must never retry forever.
+    #[test]
+    fn ledger_bounce_pasts_budget_dead_letters() {
+        assert_eq!(ledger_bounce_decision(0, 6), Decision::Retry);
+        assert_eq!(ledger_bounce_decision(5, 6), Decision::Retry);
+        assert_eq!(ledger_bounce_decision(6, 6), Decision::Dead);
+        assert_eq!(ledger_bounce_decision(9, 6), Decision::Dead);
+    }
+
     #[test]
     fn malformed_payloads_are_detected_without_panicking() {
         assert!(DeliveryPayload::parse(&serde_json::json!({}))
@@ -903,6 +952,16 @@ mod tests {
                 .expect("parse")
                 .is_none()
         );
+        // A present-but-unparseable envelope is malformed too: it must
+        // answer the same Ok(None) (dead-letter at the call site), never
+        // an Err — an Err here aborts the queue tick and the row is
+        // never settled, so stale-lease reclaim re-claims it forever.
+        assert!(DeliveryPayload::parse(&serde_json::json!({
+            "webhook_id": uuid::Uuid::now_v7(),
+            "envelope": {"event_type": 42},
+        }))
+        .expect("malformed envelope is not an error")
+        .is_none());
         let good = serde_json::json!({
             "webhook_id": uuid::Uuid::now_v7(),
             "event_id": uuid::Uuid::now_v7().to_string(),

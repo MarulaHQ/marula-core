@@ -834,8 +834,22 @@ function LibraryPanel({
     return [...byFamily.entries()];
   }, [palette, query]);
 
+  // Dialog contract: Escape dismisses, and focus returns to whatever held
+  // it before the panel opened (the autofocus below moves it in).
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
+  }, [onClose]);
+
   return (
-    <div className="wf-lib" role="dialog" aria-label="Add a step">
+    <div className="wf-lib" role="dialog" aria-modal="true" aria-label="Add a step">
       <div className="wf-lib-h">
         <div className="wf-lib-hrow">
           <b className="wf-lib-title">Add a step</b>
