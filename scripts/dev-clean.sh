@@ -78,7 +78,7 @@ dout_status() { # dout_status <secs> <args…> — prints output, returns 124 on
   return "$rc"
 }
 dout() { dout_status "$@"; }
-docker_ok() { [[ -n "$(dout 8 info)" ]] }
+docker_ok() { [[ -n "$(dout 8 info)" ]]; }
 
 # Which volumes `docker volume prune` (no flags) actually removes: the volumes
 # docker created ANONYMOUSLY (for `docker run -v <path>`, or an image's VOLUME

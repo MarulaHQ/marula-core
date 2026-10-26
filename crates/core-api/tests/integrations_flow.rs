@@ -317,11 +317,14 @@ async fn api_key_creation_scope_matrix_and_revocation() {
         "read scope must authorize GET tickets"
     );
 
-    // Same key on a NON-allowlisted endpoint ⇒ rejected outright.
+    // Same key on a NON-allowlisted endpoint ⇒ rejected outright. The
+    // allowance is the derived MCP catalog plus the connector prefixes
+    // (row A29), so the probe names a path the catalog deliberately never
+    // lists: the AI credential surface is excluded by policy.
     let response = send(
         &app,
         axum::http::Method::GET,
-        "/api/notifications",
+        "/api/settings/ai/credentials",
         std::slice::from_ref(&key_header),
         None,
     )

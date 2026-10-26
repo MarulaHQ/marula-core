@@ -16,6 +16,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   EmptyState,
   Input,
   Label,
@@ -37,6 +38,20 @@ import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { resultErrorText } from "../../../lib/error-copy";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
+import mcpCatalog from "@marula-core/sdk/mcp-catalog.json";
+
+/** The generated MCP read surface (row A29) — the same artifact core-api
+ * reads for its scope vocabulary and key allowance. */
+type CatalogJson = {
+  families: Array<{
+    namespace: string;
+    capability: string;
+    sensitive: boolean;
+    tools: Array<{ name: string; path: string; capability: string }>;
+  }>;
+  sensitive_capabilities: Array<{ capability: string; namespace: string; paths: string[] }>;
+};
+const CATALOG = mcpCatalog as CatalogJson;
 
 type CapabilityGrantView = components["schemas"]["CapabilityGrantView"];
 type CapabilityMode = components["schemas"]["CapabilityMode"];
@@ -71,6 +86,7 @@ export default function AgentPlatformPage() {
   const [newCapability, setNewCapability] = useState("");
   const [newMode, setNewMode] = useState<CapabilityMode>("proposed");
   const [grantBusy, setGrantBusy] = useState(false);
+  const [catalogFilter, setCatalogFilter] = useState("");
 
   const [proposalFilter, setProposalFilter] = useState<string>("proposed");
   const [decidingId, setDecidingId] = useState<string | null>(null);
@@ -137,6 +153,37 @@ export default function AgentPlatformPage() {
     void refresh();
   };
 
+  /** One control for the catalog toggles: grant on, revoke off. Reads grant
+   *  `proposed` (the only mode a read capability can hold). */
+  const toggleGrant = async (capability: string, on: boolean) => {
+    setActionError(null);
+    if (!on) {
+      await revokeCapability(capability);
+      return;
+    }
+    const previous = grants;
+    setGrants((prev) => [
+      {
+        capability,
+        mode: "proposed",
+        granted_by: "me",
+        granted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        id: `pending:${capability}`,
+      },
+      ...(prev ?? []),
+    ]);
+    const { error } = await api.api.PUT("/api/v1/mcp/capabilities", {
+      body: { capability, mode: "proposed" },
+    });
+    if (error !== undefined) {
+      setGrants(previous);
+      setActionError(`${capability} was refused — it is not in the MCP catalog.`);
+      return;
+    }
+    void refresh();
+  };
+
   const decide = async (p: AgentProposalView, decision: "approve" | "decline") => {
     setActionError(null);
     setDecidingId(p.id);
@@ -189,7 +236,118 @@ export default function AgentPlatformPage() {
       ) : (
         <>
           <Card>
+            <h2 className="p-4 pb-0 text-sm font-semibold">MCP capability catalog</h2>
+            <p className="mt-1 max-w-prose px-4 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+              The derived read surface — one artifact behind the MCP catalog, the mintable key
+              scopes and the server&apos;s allowance. Nothing is callable until it is checked
+              here: grants are deny-by-default and revocable at any time.
+            </p>
+            <div className="px-4 pt-3">
+              <Label htmlFor="mcp-catalog-filter">Filter</Label>
+              <Input
+                id="mcp-catalog-filter"
+                placeholder="Filter families (tickets, invoices, …)"
+                value={catalogFilter}
+                onChange={(e) => setCatalogFilter(e.target.value)}
+              />
+            </div>
+            <div data-testid="mcp-catalog-families">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th className="w-10">On</Th>
+                    <Th>Family</Th>
+                    <Th>Capability</Th>
+                    <Th className="text-right">Tools</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {CATALOG.families
+                    .filter((f) => !f.sensitive)
+                    .filter((f) =>
+                      catalogFilter.trim() === ""
+                        ? true
+                        : f.namespace.includes(catalogFilter.trim().toLowerCase()),
+                    )
+                    .map((f) => {
+                      const granted = (grants ?? []).some((g) => g.capability === f.capability);
+                      return (
+                        <Tr key={f.namespace}>
+                          <Td>
+                            <Checkbox
+                              checked={granted}
+                              aria-label={`Grant ${f.namespace} reads`}
+                              onCheckedChange={(on) => void toggleGrant(f.capability, on === true)}
+                            />
+                          </Td>
+                          <Td>{f.namespace}</Td>
+                          <Td><Badge>{f.capability}</Badge></Td>
+                          <Td className="text-right">{f.tools.length}</Td>
+                        </Tr>
+                      );
+                    })}
+                </tbody>
+              </Table>
+            </div>
+
+            <div className="mx-4 my-4 rounded-[var(--m-radius-container)] border p-3" style={{ borderColor: "var(--m-border)", background: "var(--m-surface-2)" }} data-testid="mcp-sensitive-reads">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-semibold">Sensitive reads — off by default</h3>
+                <Badge>requires an explicit grant</Badge>
+              </div>
+              <p className="mt-1 max-w-prose text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+                Document bodies and ticket correspondence are legitimate agent reads but the
+                most sensitive content in the org. They start disabled and a family grant never
+                implies them.
+              </p>
+              <div className="mt-3 space-y-2">
+                {CATALOG.families
+                  .filter((f) => f.sensitive)
+                  .map((f) => {
+                    const granted = (grants ?? []).some((g) => g.capability === f.capability);
+                    return (
+                      <div key={f.namespace} className="flex items-center gap-3">
+                        <Checkbox
+                          checked={granted}
+                          aria-label={`Grant ${f.namespace} reads (sensitive)`}
+                          onCheckedChange={(on) => void toggleGrant(f.capability, on === true)}
+                        />
+                        <span className="text-[13px]">{f.namespace}</span>
+                        <Badge>{f.capability}</Badge>
+                        <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                          {f.tools.length} tool{f.tools.length === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                {CATALOG.sensitive_capabilities.map((s) => {
+                  const granted = (grants ?? []).some((g) => g.capability === s.capability);
+                  return (
+                    <div key={s.capability} className="flex items-center gap-3">
+                      <Checkbox
+                        checked={granted}
+                        aria-label={`Grant ${s.capability}`}
+                        onCheckedChange={(on) => void toggleGrant(s.capability, on === true)}
+                      />
+                      <span className="text-[13px]">ticket correspondence</span>
+                      <Badge>{s.capability}</Badge>
+                      <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                        {s.paths.length} read{s.paths.length === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <div data-testid="mcp-capability-registry">
             <h2 className="p-4 pb-0 text-sm font-semibold">Capability registry</h2>
+            <p className="mt-1 max-w-prose px-4 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+              Advanced: the raw grant table. New grants must name a capability in the catalog
+              above — anything else is refused with the grantable list.
+            </p>
             <div className="flex items-end gap-3 p-4 pb-2">
               <div className="flex-1">
                 <Label htmlFor="cap-name">Capability</Label>
@@ -248,6 +406,7 @@ export default function AgentPlatformPage() {
                 </tbody>
               </Table>
             )}
+            </div>
           </Card>
 
           <Card>

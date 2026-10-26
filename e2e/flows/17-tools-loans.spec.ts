@@ -3,6 +3,7 @@
 // from stock and returned, and a kit whose member readiness shows before a
 // checkout. Scratch units are staged through the API per test.
 import { expect, test } from "../helpers/harness";
+import { localDatePlus } from "../helpers/dates";
 import { authedFetch } from "../helpers/api";
 import type { Locator, Page } from "@playwright/test";
 
@@ -57,9 +58,7 @@ async function stageTool(post: ReturnType<typeof authedFetch>, run: number): Pro
 }
 
 function tomorrow(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return localDatePlus(1);
 }
 
 test("check a tool out to me and check it back in", async ({ authedPage, ownerTokens }) => {

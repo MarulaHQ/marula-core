@@ -44,56 +44,22 @@ pub use tools::{Backend, CoreApiBackend, ScopedBackend, ToolError};
 /// file (the binary does not trust its CWD).
 pub const OPENAPI_SNAPSHOT: &str = include_str!("../../../packages/sdk/openapi.json");
 
+/// The derived MCP read surface (row A29), generated from the snapshot plus
+/// `packages/sdk/mcp-catalog.config.json`. Core-api reads the same artifact
+/// for its scope vocabulary and api-key allowance, so the adapter and the
+/// server cannot disagree about what exists.
+pub const MCP_CATALOG: &str = include_str!("../../../packages/sdk/mcp-catalog.json");
+
 /// Parses the embedded snapshot.
 pub fn openapi_spec() -> serde_json::Value {
     serde_json::from_str(OPENAPI_SNAPSHOT).expect("committed openapi.json parses")
 }
 
-/// Sensitive prefixes a GET path may never carry into the tool catalog:
-/// document downloads, export bundles, and webhook delivery logs are data
-/// exfiltration surfaces, not agent reads. The committed snapshot lists
-/// canonical `/api/v1` paths, so exclusions are written against that
-/// mount; `capability_of` normalizes any legacy `/api` twin first.
-const EXCLUDED_PATH_PREFIXES: &[&str] = &[
-    "/api/v1/attachments",
-    "/api/v1/org/exports",
-    "/api/v1/webhooks",
-    "/api/v1/api-keys",
-    "/api/v1/auth",
-    "/api/v1/email",
-    "/api/v1/internal",
-    "/api/v1/portal",
-    // Legacy twins, for completeness if a spec ever lists them again.
-    "/api/attachments",
-    "/api/org/exports",
-    "/api/webhooks",
-    "/api/api-keys",
-    "/api/auth",
-    "/api/email",
-    "/api/internal",
-    "/api/portal",
-];
-
-/// Capability namespace derived from an API path: the resource segment
-/// after the (optional) version prefix — `/api/v1/tickets/...` and
-/// `/api/tickets/...` both derive `tickets`.
-pub(crate) fn capability_of(path: &str) -> Option<String> {
-    let rest = path.strip_prefix("/api/")?;
-    let rest = rest.strip_prefix("v1/").unwrap_or(rest);
-    let ns = rest.split('/').next()?;
-    if ns.is_empty() {
-        None
-    } else {
-        Some(ns.to_string())
-    }
+/// Parses the embedded derived catalog.
+pub fn mcp_catalog_spec() -> serde_json::Value {
+    serde_json::from_str(MCP_CATALOG).expect("committed mcp-catalog.json parses")
 }
 
-pub(crate) fn is_excluded(path: &str) -> bool {
-    if EXCLUDED_PATH_PREFIXES.iter().any(|p| path.starts_with(p)) {
-        return true;
-    }
-    // Attachment content rides many mount points (tickets, comments,
-    // portal); file bytes and file listings never enter the agent
-    // catalog regardless of where they hang.
-    path.contains("/attachments")
-}
+// Inclusion, sensitive-prefix exclusion and capability assignment live in
+// the generated artifact (packages/sdk/mcp-catalog.json); the adapter no
+// longer keeps its own copy of the rules.

@@ -67,7 +67,7 @@ fn stub_core_api() -> Router {
             }),
         )
         .route(
-            "/api/v1/clients/{id}",
+            "/api/clients/{id}",
             axum::routing::get(move |headers: axum::http::HeaderMap,
                                      path: axum::extract::Path<String>| async move {
                 proxied(
@@ -77,7 +77,7 @@ fn stub_core_api() -> Router {
             }),
         )
         .route(
-            "/api/v1/clients",
+            "/api/clients",
             axum::routing::get(move |headers: axum::http::HeaderMap| async move {
                 proxied(
                     headers,
@@ -86,7 +86,7 @@ fn stub_core_api() -> Router {
             }),
         )
         .route(
-            "/api/v1/tickets",
+            "/api/tickets",
             axum::routing::get(move |headers: axum::http::HeaderMap| async move {
                 proxied(
                     headers,
@@ -114,7 +114,7 @@ async fn mcp_app() -> Router {
     let granted_set: std::collections::HashSet<String> = granted.into_iter().collect();
     let scoped = ScopedBackend::new(backend, granted_set.clone());
     let spec = mcp_server::openapi_spec();
-    let tools = build_catalog(&spec);
+    let tools = build_catalog(&spec, &mcp_server::mcp_catalog_spec());
     let tools = mcp_server::catalog::filter_granted(tools, &granted_set);
     router(Server::new(scoped, tools))
 }
@@ -156,7 +156,7 @@ async fn rpc(app: &Router, id: i64, method: &str, params: Value) -> Value {
 #[test]
 fn catalog_is_get_only_and_excludes_sensitive_prefixes() {
     let spec = mcp_server::openapi_spec();
-    let tools = build_catalog(&spec);
+    let tools = build_catalog(&spec, &mcp_server::mcp_catalog_spec());
     assert!(
         tools.len() > 20,
         "the real snapshot yields a meaningful read catalog (got {})",
@@ -191,7 +191,7 @@ fn catalog_is_get_only_and_excludes_sensitive_prefixes() {
 #[test]
 fn capabilities_map_from_path_namespaces() {
     let spec = mcp_server::openapi_spec();
-    let tools = build_catalog(&spec);
+    let tools = build_catalog(&spec, &mcp_server::mcp_catalog_spec());
     let tickets = tools.iter().find(|t| t.name == "tickets_list").unwrap();
     assert_eq!(tickets.capability, "tickets:read");
     let clients = tools.iter().find(|t| t.name == "clients_list").unwrap();

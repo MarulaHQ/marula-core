@@ -11,6 +11,7 @@
 // appointments cancelled). Runs in NONE mode, which is the honest posture
 // this panel is built for: heuristic legs, no provider.
 import { expect, test } from "../helpers/harness";
+import { localDate, localDatePlus } from "../helpers/dates";
 import { authedFetch, firstDemoTicket } from "../helpers/api";
 // Captures land in THIS lane's evidence dir, not a neighbouring lane's
 // committed record (Wave 47 lane A17): `design/qa-<branch>/captures/…`.
@@ -94,8 +95,8 @@ test("the day pack groups trips, ticks plan notes, and checks out from /today", 
   const token = ownerTokens.access_token;
   const api = authedFetch(token);
   const run = Date.now() % 1000000;
-  const day = new Date().toISOString().slice(0, 10);
-  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const day = localDate();
+  const tomorrow = localDatePlus(1);
 
   const me = await api<MeView>("/me");
   const clients = await api<ClientView[]>("/clients?limit=5");
