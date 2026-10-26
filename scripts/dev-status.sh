@@ -280,6 +280,13 @@ PY
   check "an entry with no owner is refused" "$(printf '%s' "$out" | grep -c 'REFUSED e2e-9003')" "1"
   check "the refusal names the manual command" "$(printf '%s' "$out" | grep -c 'e2e-stack.sh down e2e-9003')" "1"
   check "the unowned run is left alone" "$(kill -0 "$svc" 2>/dev/null && echo alive || echo gone)" "alive"
+  # The listing must not call an unowned run an orphan: from outside, gone and
+  # idle are the same picture, which is why the sweep refuses it (A23 item D).
+  rc=0
+  out="$(DOCKER="$tmp/docker" FAKE_DOCKER_STATE="$tmp/state" REGISTRY_DIR="$tmp/reg" \
+         LOG_ROOT="$tmp/logs" E2E_ENV_FILE="$tmp/no-such.env" bash "$SELF" 2>&1)" || rc=$?
+  check "the listing calls an unowned run OWNER UNKNOWN, not ORPHAN" \
+    "$(printf '%s' "$out" | grep -c 'OWNER UNKNOWN')" "1"
   kill "$svc" 2>/dev/null || true
   rm -f "$tmp/reg/run-e2e-9003-pids.json"
 
@@ -374,7 +381,7 @@ def newest_file(root):
                 newest = mtime
     return newest
 
-stalled = orphaned = 0
+stalled = orphaned = unknown = 0
 now = time.time()
 for path in files:
     origin = shared_root
@@ -393,7 +400,8 @@ for path in files:
           f"fingerprint {d.get('env_fingerprint', '?')}  [{origin}]")
     print(f"  DATABASE_URL : {env.get('E2E_DATABASE_URL', '?')}")
     print(f"  JWT_SECRET   : {env.get('JWT_SECRET', '?')[:12]}… (fingerprint field — keep secret)")
-    print(f"  owner        : session {session}, {state(pid)}"
+    print(f"  owner        : session {session}, "
+          f"{state(pid) if pid else 'no pid recorded — gone and idle look the same'}"
           f"{' — ' + owner.get('cmd', '') if owner.get('cmd') else ''}")
     for s in d.get("services", []):
         print(f"  {s.get('name', '?'):12} port={s.get('port', '?'):6} {state(s.get('pid'))}")
@@ -418,7 +426,14 @@ for path in files:
         signals = ["no commit or evidence recorded; counting from the boot"]
     idle_hours = (now - newest) / 3600 if newest is not None else None
 
-    if not pid_alive(pid):
+    if not pid:
+        # Nothing recorded for the owner. Silence on its own is not proof the
+        # owner died (an instrument can fail after measuring), so this is named
+        # for a human instead of being called an orphan.
+        unknown += 1
+        print(f"  OWNER UNKNOWN no owner was recorded for this run, so gone cannot be told "
+              f"from idle — tear down by hand: bash scripts/e2e-stack.sh down {d.get('run_id', '?')}")
+    elif not pid_alive(pid):
         orphaned += 1
         print(f"  ORPHAN       owner gone — reclaim: bash scripts/dev-status.sh --reap")
     elif idle_hours is not None and idle_hours >= stall_hours:
@@ -431,8 +446,9 @@ for path in files:
         print(f"  activity     : {'; '.join(signals)} — active")
 
 print()
-print(f"{len(files)} registered run(s): {orphaned} orphaned, {stalled} stalled "
-      f"(stall limit {stall_hours:g}h, MARULA_STALL_HOURS overrides).")
+print(f"{len(files)} registered run(s): {orphaned} orphaned, {stalled} stalled, "
+      f"{unknown} with no recorded owner (stall limit {stall_hours:g}h, "
+      f"MARULA_STALL_HOURS overrides).")
 PY
 else
   echo "  (none)"
