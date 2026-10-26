@@ -94,6 +94,11 @@ test("demo path: create a ticket, note it, run the timer, land a time entry", as
   // (on the ticket page the same control hands to the wrap-up sheet; this leg
   // takes the shortest honest stop).
   await authedPage.goto("/today");
+  // The stop endpoint rejects a session whose measured duration is 0 seconds
+  // (`invalid duration: 0 seconds`). A fast local run can start and stop inside
+  // one second, so let the clock tick before wrapping up. This is a test timing
+  // fact, not a product wait: the API assertion below still owns the truth.
+  await authedPage.waitForTimeout(1100);
   await authedPage.getByTestId("workbar-wrap-up").click();
   await expect(authedPage.getByTestId("work-bar")).toBeHidden({ timeout: 20_000 });
   await expect

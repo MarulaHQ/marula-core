@@ -1,0 +1,172 @@
+# Demo overlay — a seeded, resettable instance that is not an accident.
+#
+# This is the deliberate act that turns the dev surface on. Use it with the
+# base file and the demo profile:
+#
+#   export JWT_SECRET=$(openssl rand -hex 32)
+#   export MARULA_SECRET_KEY=$(openssl rand -hex 32)   # explicit; never derived
+#   export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
+#   export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
+#   export POSTGRES_PASSWORD=$(openssl rand -hex 32)
+#   export MARULA_APP_PASSWORD=marula_app
+#   export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
+#   export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.demo.yml \
+#     --profile demo up -d --build
+#
+# SECURITY POSTURE (read before changing anything here):
+#   * core-api's published port is pinned to 127.0.0.1. The dev surface has no
+#     bearer auth; a demo box must not put /api/dev/* on a public interface.
+#   * deploy/edge/marula-routes.caddy answers 404 for /api/dev/*, so the public
+#     edge cannot reach the reset routes even if someone publishes 8080 later.
+#   * The reset script runs over loopback (SSH tunnel on a VPS), never through
+#     the public hostname.
+#   * MARULA_SECRET_KEY is explicit and required. The at-rest key is never
+#     derived from JWT_SECRET on this profile, and a reset never rotates it.
+#
+# The API and worker keep the dev flag on because /api/dev/{reset-org,time-travel}
+# is how the demo is reset. The one-shot `demo-seed` service runs without
+# --force, so a restart never wipes a demo an operator has already prepared; it
+# is idempotent and exits 0 when the org already exists.
+name: marula
+
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:15432:5432"
+
+  # The objectdata volume is created root-owned; the runtime images run as
+  # 65532 and the seeder writes attachment bytes here. One root one-shot makes
+  # the volume writable before any service that mounts it starts.
+  object-init:
+    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /data/objects && chown -R 65532:65532 /data/objects"]
+    volumes:
+      - objectdata:/data/objects
+    restart: "no"
+
+  # core-api probes shared_preload_libraries to choose its retrieval mode. The
+  # app role cannot read that setting without the predefined role; grant it once,
+  # after migrations, before the API starts.
+  db-grants:
+    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    entrypoint: ["/bin/sh", "-c", "psql -v ON_ERROR_STOP=1 -c 'GRANT pg_read_all_settings TO marula_app'"]
+    environment:
+      PGHOST: postgres
+      PGUSER: marula
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      PGDATABASE: marula
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  core-api:
+    environment:
+      MARULA_DEV_TOOLS: "1"
+      MARULA_DEMO_MODE: "1"
+      # The pooler ships a static userlist (deploy/pooler/userlist.txt), so a
+      # demo with a generated owner password cannot authenticate through it.
+      # Go direct: the database is on the same compose network.
+      DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required}@postgres:5432/marula
+      MARULA_LISTEN_DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required}@postgres:5432/marula
+      MARULA_EMBEDDING_TIER: minimal
+      CORS_ORIGIN: http://localhost:${DEMO_WEB_PORT:-3000}
+    # Loopback only. Do not widen this to 0.0.0.0: the dev surface is
+    # unauthenticated by design (routes/dev.rs).
+    ports: !override
+      - "127.0.0.1:${DEMO_API_PORT:-8080}:8080"
+    depends_on:
+      object-init:
+        condition: service_completed_successfully
+      db-grants:
+        condition: service_completed_successfully
+      demo-seed:
+        condition: service_completed_successfully
+
+  worker:
+    ports: !override
+      - "127.0.0.1:8082:8082"
+    environment:
+      MARULA_DEV_TOOLS: "1"
+      MARULA_DEMO_MODE: "1"
+      # Direct Postgres, for the same reason core-api is: the pooler userlist is
+      # static and the demo's owner password is generated.
+      DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/marula
+      MARULA_LISTEN_DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/marula
+      MARULA_EMBEDDING_TIER: minimal
+    depends_on:
+      object-init:
+        condition: service_completed_successfully
+      db-grants:
+        condition: service_completed_successfully
+
+  dev-posture:
+    environment:
+      MARULA_DEV_TOOLS: "1"
+      MARULA_DEMO_MODE: "1"
+
+  demo-seed:
+    profiles: ["demo"]
+    mem_limit: 256m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    read_only: true
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args: { BIN: marula-core-cli }
+    entrypoint: ["/usr/local/bin/marula"]
+    command: ["seed-demo"]
+    environment:
+      DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/marula
+      MARULA_SECRET_KEY: "${MARULA_SECRET_KEY:?MARULA_SECRET_KEY is required - the explicit at-rest key}"
+      MARULA_DEV_TOOLS: "1"
+      OBJECT_STORE: local
+      OBJECT_STORE_LOCAL_DIR: /data/objects
+    volumes:
+      - objectdata:/data/objects
+    depends_on:
+      object-init:
+        condition: service_completed_successfully
+      db-grants:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  web:
+    profiles: ["demo"]
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        # The BROWSER's URL for core-api, not the web console. Laptop:
+        # http://localhost:8080 (or DEMO_API_PORT). A VPS behind the edge: the
+        # public origin, e.g. https://demo.example.com.
+        NEXT_PUBLIC_API_URL: ${DEMO_API_ORIGIN:-http://localhost:8080}
+    ports: !override
+      - "127.0.0.1:${DEMO_WEB_PORT:-3000}:3000"
+    depends_on:
+      core-api:
+        condition: service_started
+

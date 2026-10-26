@@ -2,11 +2,11 @@
 # Process registry for agents (report §3.5): list the running Marula stack
 # — pids, ports, env fingerprint, owner and activity — so a lane stops guessing
 # which process it may kill. Sources of truth:
-#   1. run-*-pids.json entries written by scripts/e2e-stack.sh, read from the
-#      SHARED root's .kilo/dev-registry/ (the main checkout) PLUS any linked
-#      worktree's own registry — so a stack booted inside a lane worktree is
-#      still visible from here.
-#   2. live docker containers matching marula-e2e-* (image pgvector/valkey)
+#   1. run-*-pids.json entries written by scripts/e2e-stack.sh or
+#      scripts/gate-db.sh, read from the SHARED root's .kilo/dev-registry/ (the
+#      main checkout) PLUS any linked worktree's own registry — so a stack
+#      booted inside a lane worktree is still visible from here.
+#   2. live docker containers matching marula-e2e-* and marula-gate-*
 #   3. listening ports held by the registered processes (re-checked live)
 #
 # `--reap` reclaims runs whose OWNER IS GONE and refuses every run whose owner
@@ -16,7 +16,9 @@
 # is thinking or leave a cancelled lane's stack holding ports for hours (A21
 # held three for five). `--reap` is honest in A17's sense: it prints what it
 # removed, verifies the run is gone afterwards, and exits non-zero when a
-# target it claimed could not be reclaimed.
+# target it claimed could not be reclaimed. It picks the teardown that owns the
+# entry — `e2e-stack.sh down` for a lane stack, `gate-db.sh down` for a gate
+# database.
 #
 # `--brief` prints only the decision line per run, with no database URL and no
 # env fingerprint, so another long-running command can announce a stalled or
@@ -51,14 +53,15 @@ for arg in "$@"; do
     --brief) MODE=brief ;;
     --stall-hours=*) STALL_HOURS="${arg#*=}" ;;
     -h|--help)
-      sed -n '2,30p' "$0"; exit 0 ;;
+      sed -n '2,35p' "$0"; exit 0 ;;
     *)
-      echo "dev-status: unknown option '$arg' (try --reap, --stall-hours=N, or no option)" >&2
+      echo "dev-status: unknown option '$arg' (try --reap, --brief, --stall-hours=N, or no option)" >&2
       exit 2 ;;
   esac
 done
 
 STACK_SCRIPT="$(cd "$(dirname "$0")" && pwd)/e2e-stack.sh"
+GATE_SCRIPT="$(cd "$(dirname "$0")" && pwd)/gate-db.sh"
 REGISTRY_DIR="${REGISTRY_DIR:-$SHARED_ROOT/.kilo/dev-registry}"
 DOCKER_BIN="${DOCKER:-docker}"
 
@@ -85,11 +88,11 @@ reap() {
     return 0
   fi
   # shellcheck disable=SC2086 # the file list is newline-split on purpose
-  python3 - "$STACK_SCRIPT" "$DOCKER_BIN" $files <<'PY'
+  python3 - "$STACK_SCRIPT" "$GATE_SCRIPT" "$DOCKER_BIN" $files <<'PY'
 import json, os, shutil, subprocess, sys, time
 
-stack_script, docker_bin = sys.argv[1], sys.argv[2]
-files = sys.argv[3:]
+stack_script, gate_script, docker_bin = sys.argv[1], sys.argv[2], sys.argv[3]
+files = sys.argv[4:]
 
 def pid_alive(pid):
     try:
@@ -100,14 +103,21 @@ def pid_alive(pid):
     except PermissionError:
         return True  # someone else's process: alive, and not ours to kill
 
-def container_names(run):
-    return [f"marula-e2e-pg-{run}", f"marula-e2e-redis-{run}"]
+def teardown_for(kind):
+    """The script that owns this entry's resources, and the command a human runs."""
+    if kind == "gate-db":
+        return gate_script, "bash scripts/gate-db.sh down"
+    return stack_script, "bash scripts/e2e-stack.sh down"
 
-def containers_up(run):
+def container_names(run, kind):
+    prefix = "marula-gate" if kind == "gate-db" else "marula-e2e"
+    return [f"{prefix}-pg-{run}", f"{prefix}-redis-{run}"]
+
+def containers_up(run, kind):
     if shutil.which(docker_bin) is None:
         return None  # unknown: no docker to ask
     up = []
-    for name in container_names(run):
+    for name in container_names(run, kind):
         if subprocess.run([docker_bin, "inspect", name],
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
             up.append(name)
@@ -119,14 +129,16 @@ for path in files:
     try:
         d = json.load(open(path))
     except Exception as exc:  # a half-written entry is not a licence to guess
-        refused.append((path, f"unreadable registry entry ({exc})"))
+        refused.append((path, "unreadable registry entry", ""))
         continue
+    kind = d.get("kind", "e2e")
+    script, down_hint = teardown_for(kind)
     run = d.get("run_id") or os.path.basename(path).removeprefix("run-").removesuffix("-pids.json")
     owner = d.get("owner") or {}
     pid, session = owner.get("pid"), owner.get("session") or "none recorded"
 
     if not pid:
-        refused.append((run, "no owner recorded — cannot tell gone from idle"))
+        refused.append((run, "no owner recorded — cannot tell gone from idle", down_hint))
         continue
     if pid_alive(pid):
         kept.append(run)
@@ -134,12 +146,12 @@ for path in files:
         continue
 
     services = [s for s in d.get("services", []) if pid_alive(s.get("pid"))]
-    boxes = containers_up(run)
+    boxes = containers_up(run, kind)
     print(f"  ORPHAN  {run}: owner pid {pid} is gone (session {session}); "
           f"{len(services)} live service(s), "
           f"{'docker unavailable' if boxes is None else str(len(boxes)) + ' container(s)'}")
 
-    proc = subprocess.run(["bash", stack_script, "down", run],
+    proc = subprocess.run(["bash", script, "down", run],
                           capture_output=True, text=True)
     out = (proc.stdout + proc.stderr).strip()
     if out:
@@ -152,7 +164,7 @@ for path in files:
     while still and time.time() < deadline:
         time.sleep(0.2)
         still = [s for s in d.get("services", []) if pid_alive(s.get("pid"))]
-    boxes_after = containers_up(run)
+    boxes_after = containers_up(run, kind)
     entry_gone = not os.path.exists(path)
 
     if still or (boxes_after not in (None, [])) or not entry_gone:
@@ -173,9 +185,9 @@ for path in files:
         reclaimed.append(run)
         print(f"  REAPED  {run}: nothing was running — reclaimed the stale registry entry only")
 
-for run, why in refused:
+for run, why, hint in refused:
     print(f"  REFUSED {run}: {why}")
-    print(f"          reclaim by hand once the owner is known: bash scripts/e2e-stack.sh down {run}")
+    print(f"          reclaim by hand once the owner is known: {hint} {run}")
 
 print()
 print(f"dev-status --reap: {len(reclaimed)} reclaimed, {len(kept)} kept (owner alive), "
@@ -188,7 +200,7 @@ sys.exit(0)
 PY
 }
 
-# ---------- self-test: the reaper's three answers, without a stack ----------
+# ---------- self-test: the reaper's answers, without a stack ----------
 # A fake docker (the same shape scripts/e2e-stack.sh's self-test uses) plus a
 # real `sleep` standing in for a service pid lets the sweep's decisions be
 # asserted here: an orphan is reclaimed, a live owner is refused, an entry with
@@ -230,12 +242,13 @@ FAKE
            bash "$SELF" --reap 2>&1)" || rc=$?
   }
 
-  write_entry() { # write_entry <run> <owner-pid-or-empty> <service-pid>
-    python3 - "$tmp/reg/run-$1-pids.json" "$1" "$2" "$3" <<'PY'
+  write_entry() { # write_entry <run> <owner-pid-or-empty> <service-pid> [kind]
+    python3 - "$tmp/reg/run-$1-pids.json" "$1" "$2" "$3" "${4:-e2e}" <<'PY'
 import json, sys, time
-path, run, owner_pid, service_pid = sys.argv[1:5]
+path, run, owner_pid, service_pid, kind = sys.argv[1:6]
 entry = {
     "run_id": run,
+    "kind": kind,
     "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     "started_epoch": int(time.time()),
     "env_fingerprint": "selftest",
@@ -329,6 +342,17 @@ PY
   kill -9 "$svc" 2>/dev/null || true
   rm -f "$tmp/reg"/run-e2e-900*-pids.json
 
+  # 6. a gate-db entry carries no owner today, so it must be refused with the
+  #    command that actually owns it — not e2e-stack.sh, which would find nothing.
+  sleep 300 >/dev/null 2>&1 & svc=$!; disown "$svc" 2>/dev/null || true
+  write_entry gatedb-9101 "" "$svc" gate-db
+  run_reap
+  check "an unowned gate-db run is refused" "$(printf '%s' "$out" | grep -c 'REFUSED gatedb-9101')" "1"
+  check "the gate refusal names gate-db.sh down" \
+    "$(printf '%s' "$out" | grep -c 'gate-db.sh down gatedb-9101')" "1"
+  kill "$svc" 2>/dev/null || true
+  rm -f "$tmp/reg/run-gatedb-9101-pids.json"
+
   if [ "$failures" -eq 0 ]; then
     echo "dev-status self-test: $checks checks pass"
     return 0
@@ -351,7 +375,7 @@ BRIEF=0
 [ "$MODE" = "brief" ] && BRIEF=1
 export DEV_STATUS_BRIEF="$BRIEF"
 
-echo "== registered e2e-stack runs (run-*-pids.json) =="
+echo "== registered runs (e2e-stack and gate-db; run-*-pids.json) =="
 files="$(registry_files)"
 if [ -n "$files" ]; then
   # shellcheck disable=SC2086 # the file list is newline-split on purpose
@@ -375,6 +399,18 @@ def state(pid):
     if not pid:
         return "unknown"
     return f"alive pid {pid}" if pid_alive(pid) else f"gone (pid {pid} recorded)"
+
+def service_state(s):
+    """A service is a local pid or a container, depending on who registered it."""
+    if s.get("source") == "docker":
+        c = s.get("container", "?")
+        try:
+            up = subprocess.run([docker_bin, "inspect", c],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+        except OSError:
+            return f"container {c} (docker unavailable)"
+        return f"container {c} ({'up' if up else 'gone'})"
+    return state(s.get("pid"))
 
 def last_commit(checkout, branch):
     """Newest commit time on the owning checkout's branch, or None."""
@@ -403,6 +439,7 @@ def newest_file(root):
                 newest = mtime
     return newest
 
+docker_bin = os.environ.get("DOCKER") or "docker"
 stalled = orphaned = unknown = 0
 now = time.time()
 for path in files:
@@ -415,21 +452,26 @@ for path in files:
         print(f"\nrun ?  [{origin}] unreadable registry entry: {exc}")
         continue
     env = d.get("env", {})
+    kind = d.get("kind", "e2e")
+    down_hint = "bash scripts/gate-db.sh down" if kind == "gate-db" else "bash scripts/e2e-stack.sh down"
     owner = d.get("owner") or {}
     pid = owner.get("pid")
     session = owner.get("session") or "none recorded"
     if BRIEF:
-        print(f"run {d.get('run_id', '?')}  [{origin}]")
+        print(f"run {d.get('run_id', '?')}  kind {kind}  [{origin}]")
     else:
-        print(f"\nrun {d.get('run_id', '?')}  started {d.get('started_at', '?')}  "
+        print(f"\nrun {d.get('run_id', '?')}  kind {kind}  started {d.get('started_at', '?')}  "
               f"fingerprint {d.get('env_fingerprint', '?')}  [{origin}]")
-        print(f"  DATABASE_URL : {env.get('E2E_DATABASE_URL', '?')}")
-        print(f"  JWT_SECRET   : {env.get('JWT_SECRET', '?')[:12]}… (fingerprint field — keep secret)")
+        print(f"  DATABASE_URL : {env.get('E2E_DATABASE_URL') or env.get('DATABASE_URL', '?')}")
+        if env.get("JWT_SECRET"):
+            print(f"  JWT_SECRET   : {env.get('JWT_SECRET', '?')[:12]}… (fingerprint field — keep secret)")
+        if env.get("REDIS_URL"):
+            print(f"  REDIS_URL    : {env['REDIS_URL']}")
         print(f"  owner        : session {session}, "
               f"{state(pid) if pid else 'no pid recorded — gone and idle look the same'}"
               f"{' — ' + owner.get('cmd', '') if owner.get('cmd') else ''}")
         for s in d.get("services", []):
-            print(f"  {s.get('name', '?'):12} port={s.get('port', '?'):6} {state(s.get('pid'))}")
+            print(f"  {s.get('name', '?'):12} port={s.get('port', '?'):6} {service_state(s)}")
         if d.get("log_dir"):
             print(f"  logs         : {d['log_dir']}")
 
@@ -448,7 +490,7 @@ for path in files:
     if newest is None:
         started = d.get("started_epoch")
         newest = float(started) if started else None
-        signals = ["no commit or evidence recorded; counting from the boot"]
+        signals = ["no commit or evidence readable; counting from the boot"]
     idle_hours = (now - newest) / 3600 if newest is not None else None
 
     if not pid:
@@ -457,7 +499,7 @@ for path in files:
         # for a human instead of being called an orphan.
         unknown += 1
         print(f"  OWNER UNKNOWN no owner was recorded for this run, so gone cannot be told "
-              f"from idle — tear down by hand: bash scripts/e2e-stack.sh down {d.get('run_id', '?')}")
+              f"from idle — tear down by hand: {down_hint} {d.get('run_id', '?')}")
     elif not pid_alive(pid):
         orphaned += 1
         print(f"  ORPHAN       owner gone — reclaim: bash scripts/dev-status.sh --reap")
@@ -465,8 +507,7 @@ for path in files:
         stalled += 1
         print(f"  WARN STALLED owner alive and nothing landed for {idle_hours:.1f}h "
               f"(limit {stall_hours:g}h, {'; '.join(signals)})")
-        print(f"               checkpoint or tear down: bash scripts/e2e-stack.sh down "
-              f"{d.get('run_id', '?')}")
+        print(f"               checkpoint or tear down: {down_hint} {d.get('run_id', '?')}")
     else:
         print(f"  activity     : {'; '.join(signals)} — active")
 
@@ -480,7 +521,7 @@ else
 fi
 
 # Brief mode stops here: another command is calling this for the decision lines,
-# and the container table plus the process scan are for a human reading it.
+# and the container tables plus the process scan are for a human reading it.
 if [ "$BRIEF" = "1" ]; then
   exit 0
 fi
@@ -502,7 +543,7 @@ if command -v docker >/dev/null 2>&1; then
     run="${name#marula-e2e-pg-}"
     [ "$run" = "$name" ] && run="${name#marula-e2e-redis-}"
     registered=no
-    for f in "$SHARED_ROOT/.kilo/dev-registry/run-$run-pids.json" \
+    for f in "$REGISTRY_DIR/run-$run-pids.json" \
              "$SHARED_ROOT/.kilo/worktrees/"*"/.kilo/dev-registry/run-$run-pids.json"; do
       [ -f "$f" ] && registered=yes && break
     done
@@ -518,6 +559,25 @@ if command -v docker >/dev/null 2>&1; then
   echo
   echo "To inspect:  docker logs marula-e2e-pg-<run-id>"
   echo "Service logs:  $SHARED_ROOT/.kilo/e2e-logs/<run-id>/{core-api,worker}.log"
+
+  echo
+  echo "== live marula-gate-* containers (scripts/gate-db.sh) =="
+  docker ps --filter "name=marula-gate" --format \
+    "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}" 2>/dev/null \
+    | { read -r header; echo "  $header"; while read -r l; do echo "  $l"; done; }
+  unregistered=0
+  for name in $(docker ps --filter "name=marula-gate" --format '{{.Names}}' 2>/dev/null); do
+    run="${name#marula-gate-pg-}"
+    [ "$run" = "$name" ] && run="${name#marula-gate-redis-}"
+    if [ ! -f "$REGISTRY_DIR/run-$run-pids.json" ]; then
+      if [ "$unregistered" -eq 0 ]; then
+        echo "  UNREGISTERED (no registry entry — nothing else names these):"
+      fi
+      unregistered=$((unregistered + 1))
+      echo "    $name"
+      echo "      reclaim:  bash scripts/gate-db.sh down $run"
+    fi
+  done
 else
   echo "  (docker unavailable)"
 fi
@@ -529,5 +589,6 @@ ps -axo pid,command | grep -E "release/(core-api|worker)|\.next/standalone/serve
 echo
 echo "Reap orphaned runs:  bash scripts/dev-status.sh --reap"
 echo "Teardown: bash scripts/e2e-stack.sh down <RUN_ID>   # run ids are e2e-<digits> (bare digits work too)."
+echo "          bash scripts/gate-db.sh down <RUN_ID>     # run ids are gatedb-<digits> (bare digits work too)."
 echo "          A teardown that removes nothing now exits non-zero and names what it looked for,"
 echo "          so a run that is still up after a down is a failure, not a silent success."

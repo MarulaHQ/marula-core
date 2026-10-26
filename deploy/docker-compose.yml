@@ -86,6 +86,12 @@
 # variables are no longer exported needs the same `--env-file` (or exports)
 # before it can be stopped. The host's env file is the copy that matters.
 #
+# Demo instance (Wave 47 lane V1 `p47-demo-deploy-profile`): use the overlay
+# `deploy/docker-compose.demo.yml`. It turns the dev surface on deliberately,
+# binds core-api to 127.0.0.1, seeds once through a one-shot `demo-seed`
+# service, and leaves the reset path on loopback. See the overlay header and
+# docs/reference/demo-instance.md. The base file alone never enables dev tools.
+#
 # Security posture (Wave 38 p38-container-hardening): every third-party
 # image is pinned to an exact tag AND a registry digest (the digest is the
 # enforcement, the tag the human reference; both must move together on a
@@ -341,6 +347,7 @@ services:
       GARAGE_RPC_SECRET: ${GARAGE_RPC_SECRET:-}
       GLITCHTIP_SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-}
       MARULA_DEV_TOOLS: ${MARULA_DEV_TOOLS:-}
+      MARULA_DEMO_MODE: ${MARULA_DEMO_MODE:-}
     command:
       - |
         published=0
@@ -385,6 +392,11 @@ services:
         if [ "$$MARULA_DEV_TOOLS" = 1 ]; then
           echo "DEV POSTURE: MARULA_DEV_TOOLS=1 mounts /api/dev/* (demo reset and dev routes)." >&2
           echo "Leave it off for an instance anyone else can reach." >&2
+        fi
+        if [ "$$MARULA_DEMO_MODE" = 1 ]; then
+          echo "DEMO POSTURE: deploy/docker-compose.demo.yml is active. core-api is bound to" >&2
+          echo "127.0.0.1:8080 and the public edge answers 404 for /api/dev/*; reset the demo" >&2
+          echo "over loopback (SSH tunnel on a VPS), never through the public hostname." >&2
         fi
         exit 0
 

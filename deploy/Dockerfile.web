@@ -30,7 +30,7 @@ COPY apps/web/package.json apps/web/
 COPY packages/ui/package.json packages/ui/
 COPY packages/layout/package.json packages/layout/
 COPY packages/sdk/package.json packages/sdk/
-RUN pnpm --filter @marula/web... install --frozen-lockfile
+RUN pnpm --filter @marula-core/web... install --frozen-lockfile
 
 COPY . .
 WORKDIR /repo/apps/web
@@ -38,7 +38,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY deploy/web-standalone-remap.cjs /remap.cjs
-RUN pnpm --filter @marula/web build && node /remap.cjs
+RUN pnpm --filter @marula-core/web build && node /remap.cjs
 
 FROM dhi.io/node:22@sha256:7390ab11306fa78b4e3f47acaa08bddcaaabac850a01996d153a2e805360a741 AS run
 WORKDIR /repo/apps/web/.next/standalone
@@ -51,10 +51,12 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 # (same trick the desktop bundler uses in scripts/build-desktop.sh). Keep
 # the run stage rooted exactly there instead of dereferencing — a flat
 # re-location breaks every ../../../node_modules/.pnpm link.
-COPY --from=build /repo/node_modules /repo/node_modules
-COPY --from=build /repo/apps/web/.next/standalone /repo/apps/web/.next/standalone
-COPY --from=build /repo/apps/web/.next/static /repo/apps/web/.next/static
-RUN chown -R node:node /repo/node_modules /repo/apps/web/.next
+# The runtime image is the stripped dhi node image: it has no shell, so a
+# RUN chown cannot execute here. COPY --chown sets ownership in the layer.
+COPY --chown=1000:1000 --from=build /repo/node_modules /repo/node_modules
+COPY --chown=1000:1000 --from=build /repo/apps/web/.next/standalone /repo/apps/web/.next/standalone
+COPY --chown=1000:1000 --from=build /repo/apps/web/.next/static /repo/apps/web/.next/standalone/.next/static
+COPY --chown=1000:1000 --from=build /repo/apps/web/public /repo/apps/web/.next/standalone/public
 # The image's own node user: uid/gid 1000 (numeric, passwd-verified —
 # runAsNonRoot-verifiable).
 USER 1000:1000
