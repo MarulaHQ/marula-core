@@ -10,6 +10,7 @@
 // exactly the posture this flow proves: honest estimates + silent
 // suggestions.
 import { expect, test } from "../helpers/harness";
+import { localDate } from "../helpers/dates";
 import { authedFetch, firstDemoTicket } from "../helpers/api";
 // Captures land in THIS lane's evidence dir, not a neighbouring lane's record
 // (Wave 47 lane A17): `design/qa-<branch>/captures/…`.
@@ -94,7 +95,7 @@ test("travel books from the day start, warns on zero transfer, and reconciles mi
   const token = ownerTokens.access_token;
   const api = authedFetch(token);
   const run = Date.now() % 1000000;
-  const day = new Date().toISOString().slice(0, 10);
+  const day = localDate();
 
   const me = await api<MeView>("/me");
   const meId = me.user_id;

@@ -83,10 +83,15 @@ test("tour suppression persists across reload via the user setting", async ({
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
   const toggle = authedPage.getByTestId("pref-tours-disabled");
   await expect(toggle).toBeVisible({ timeout: 20_000 });
+  // The control is disabled until the user's preference row loads; a click
+  // before that lands on a disabled input and silently does nothing (it
+  // flaked exactly that way on a loaded box). Wait for the load, then act.
+  await expect(toggle).toBeEnabled({ timeout: 20_000 });
   await toggle.check();
   await expect(toggle).toBeChecked();
   await authedPage.reload();
   await expect(toggle).toBeVisible({ timeout: 20_000 });
+  await expect(toggle).toBeEnabled({ timeout: 20_000 });
   await expect(toggle).toBeChecked();
   // With suppression on, no tour auto-starts on any surface.
   await authedPage.goto("/today");

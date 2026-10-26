@@ -10,6 +10,7 @@
 //
 // Order-independent: own client + own contract per run, no shared state.
 import { expect, test } from "../helpers/harness";
+import { localDatePlus } from "../helpers/dates";
 import { authedFetch } from "../helpers/api";
 
 interface Workspace {
@@ -70,7 +71,7 @@ test("workspace groups by ticket, adjustments need a reason, sign-off re-checks 
     contract_type: "time_and_materials",
     currency: "USD",
     hourly_rate_minor: 15000,
-    effective_from: new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10),
+    effective_from: localDatePlus(-30),
     idempotency_key: `p39-verify-contract-${run}`,
   });
 
@@ -130,8 +131,8 @@ test("workspace groups by ticket, adjustments need a reason, sign-off re-checks 
   await approve(classified.id);
   await approve(unclassified.id);
 
-  const from = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
-  const to = new Date(Date.now() + 86400_000).toISOString().slice(0, 10);
+  const from = localDatePlus(-30);
+  const to = localDatePlus(1);
   const workspaceUrl = `/billing/verification?contract_id=${contract.id}&from=${from}&to=${to}`;
 
   // 3. The workspace groups by ticket, counts the unclassified entry,

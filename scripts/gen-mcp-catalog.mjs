@@ -75,11 +75,14 @@ const out = {
   })),
 };
 
-// Capabilities an org may hold: every family read capability and every
-// declared sensitive sub-capability. :write is absent — this release has no
-// write tools, and the cutover revokes any :write grant along with the rest.
+// Capabilities an org may hold: every family read capability, every declared
+// sensitive sub-capability, and each family's :write dial (the IF8 proposal
+// pipeline gate — no MCP write tools exist, and the dial cannot expose any).
 const grantable = new Set();
-for (const f of out.families) grantable.add(f.capability);
+for (const f of out.families) {
+  grantable.add(f.capability);
+  grantable.add(`${f.namespace}:write`);
+}
 for (const s of out.sensitive_capabilities) grantable.add(s.capability);
 
 writeFileSync(join(root, "packages/sdk/mcp-catalog.json"), JSON.stringify(out, null, 2) + "\n");

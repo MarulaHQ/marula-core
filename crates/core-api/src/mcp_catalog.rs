@@ -49,8 +49,14 @@ struct Catalog {
 fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        serde_json::from_str::<Catalog>(CATALOG_JSON)
-            .expect("mcp-catalog.json is generated and valid")
+        let parsed: Catalog =
+            serde_json::from_str(CATALOG_JSON).expect("mcp-catalog.json is generated and valid");
+        assert_eq!(
+            parsed.version, 1,
+            "mcp-catalog.json version {} is newer than this reader understands",
+            parsed.version
+        );
+        parsed
     })
 }
 
@@ -66,20 +72,28 @@ pub fn sensitive_capabilities() -> &'static [SensitiveCapability] {
     &catalog().sensitive_capabilities
 }
 
-/// A capability an MCP admin may hold: a family's `:read` or a declared
-/// sensitive sub-capability. `:write` is NOT grantable — this release has no
-/// write tools, and a grant that produces a dead tool is the defect class
-/// row A29 exists to close. The registry grows a write tier when a write
-/// surface lands, in a row that designs that trust boundary.
+/// A capability an MCP admin may hold: a family's `:read`, a declared
+/// sensitive sub-capability, or a family's `:write`. The write dial does not
+/// expose MCP tools (this release has none); it gates the IF8 proposal
+/// pipeline — the agent's authored change is admitted under the dial and
+/// still applies only through approval. What it cannot be is a namespace the
+/// catalog does not know: that is the dead-grant class row A29 closes.
 pub fn is_grantable(capability: &str) -> bool {
-    catalog()
-        .families
+    if catalog()
+        .sensitive_capabilities
         .iter()
-        .any(|f| f.capability == capability)
-        || catalog()
-            .sensitive_capabilities
+        .any(|s| s.capability == capability)
+    {
+        return true;
+    }
+    let Some((ns, action)) = capability.rsplit_once(':') else {
+        return false;
+    };
+    matches!(action, "read" | "write")
+        && catalog()
+            .families
             .iter()
-            .any(|s| s.capability == capability)
+            .any(|f| f.namespace == ns && f.capability == format!("{ns}:read"))
 }
 
 /// Scopes an api key may be minted with, beyond the hand-written connector
@@ -318,16 +332,19 @@ mod tests {
     #[test]
     fn unknown_capabilities_are_refused() {
         for bad in [
-            "invoices:write",
             "nonsense:read",
+            "nonsense:write",
             "tickets_correspondence:write",
             "tickets",
             "",
-            "tickets:write",
         ] {
             assert!(!is_grantable(bad), "{bad} must not be grantable");
         }
         assert!(is_grantable("invoices:read"));
         assert!(is_grantable("tickets_correspondence:read"));
+        assert!(
+            is_grantable("tickets:write"),
+            "the proposal dial stays grantable"
+        );
     }
 }
