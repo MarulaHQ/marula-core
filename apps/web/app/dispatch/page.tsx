@@ -18,7 +18,7 @@
 "use client";
 
 import "./dispatch.css";
-import { Badge, ColumnChooser, ExportControl, useDensity, type ChoosableColumn as ChooserColumn } from "@marula-core/ui";
+import { Badge, ColumnChooser, ExportControl, useDensity, useFocusTrap, type ChoosableColumn as ChooserColumn } from "@marula-core/ui";
 import { DispatchFooter } from "./dispatch-footer";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
@@ -271,6 +271,11 @@ export default function DispatchBoardPage() {
   // --- drag machinery ----------------------------------------------------
   const laneElsRef = useRef<Array<HTMLDivElement | null>>([]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // The settings modal's containment root: focus moves in on open, Tab
+  // cycles inside, and the previous holder gets focus back on close —
+  // the containment `aria-modal` promises.
+  const settingsRef = useRef<HTMLDivElement | null>(null);
+  useFocusTrap(settingsRef, settings === true, () => setSettings(false));
   const pdRef = useRef<{ kind: DragState["kind"]; tk?: number; jid?: string; x: number; y: number; started: boolean } | null>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -1890,7 +1895,7 @@ export default function DispatchBoardPage() {
   const renderSettings =
     settings === true ? (
       <div className="dp-scrim" onClick={(e) => { if (e.target === e.currentTarget) setSettings(false); }}>
-        <div className="dp-modal" role="dialog" aria-modal="true" aria-labelledby="dp-st-title" data-testid="dispatch-settings">
+        <div ref={settingsRef} className="dp-modal" role="dialog" aria-modal="true" aria-labelledby="dp-st-title" data-testid="dispatch-settings">
           <div className="mh">
             <div>
               <h2 id="dp-st-title">Dispatch settings</h2>

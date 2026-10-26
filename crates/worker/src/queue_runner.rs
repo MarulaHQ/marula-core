@@ -197,25 +197,40 @@ async fn settle_job<S: DeliverySink, E: EffectApi>(
     counters: &QueueCounters,
 ) -> anyhow::Result<SettleOutcome> {
     // Signed-webhook delivery performs its own HTTP attempt + attempt
-    // ledger write + settle (it needs more than one effect call).
+    // ledger write + settle (it needs more than one effect call). It
+    // reports the settle it actually made, so the counters and the otel
+    // outcome reflect retries and deads for this kind too — not a
+    // uniform Done.
     if job.kind == webhook_out::JOB_KIND {
         return match webhook_secret_key {
             Some(key) => {
-                if let Err(error) =
-                    webhook_out::process_delivery_job(pool, &key, sink, effects, job).await
-                {
-                    tracing::error!(%error, job_id = %job.id, "webhook delivery crashed");
-                    core_db::queue::schedule_retry(
-                        pool,
-                        job.id,
-                        backoff_secs(job.attempts),
-                        "delivery processing error",
-                    )
-                    .await?;
-                    counters.retried.fetch_add(1, Ordering::Relaxed);
-                    Ok(SettleOutcome::Retried)
-                } else {
-                    Ok(SettleOutcome::Done)
+                let settle =
+                    webhook_out::process_delivery_job(pool, &key, sink, effects, job).await;
+                match settle {
+                    Err(error) => {
+                        tracing::error!(%error, job_id = %job.id, "webhook delivery crashed");
+                        core_db::queue::schedule_retry(
+                            pool,
+                            job.id,
+                            backoff_secs(job.attempts),
+                            "delivery processing error",
+                        )
+                        .await?;
+                        counters.retried.fetch_add(1, Ordering::Relaxed);
+                        Ok(SettleOutcome::Retried)
+                    }
+                    Ok(webhook_out::DeliverySettle::Done) => {
+                        counters.done.fetch_add(1, Ordering::Relaxed);
+                        Ok(SettleOutcome::Done)
+                    }
+                    Ok(webhook_out::DeliverySettle::Retried) => {
+                        counters.retried.fetch_add(1, Ordering::Relaxed);
+                        Ok(SettleOutcome::Retried)
+                    }
+                    Ok(webhook_out::DeliverySettle::Dead) => {
+                        counters.dead.fetch_add(1, Ordering::Relaxed);
+                        Ok(SettleOutcome::Dead)
+                    }
                 }
             }
             None => {

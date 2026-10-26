@@ -57,3 +57,45 @@ test("the automation step-library dialog closes on Escape and restores focus", a
   // Focus returns to the toggle that opened the dialog.
   await expect(addStep).toBeFocused();
 });
+
+test("the step-library dialog keeps Tab inside itself", async ({ authedPage }) => {
+  await authedPage.goto("/automations/canvas");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  const addStep = authedPage.getByRole("button", { name: "Add step" }).first();
+  await addStep.waitFor({ state: "visible", timeout: 30_000 });
+  await addStep.click();
+
+  const dialog = authedPage.getByRole("dialog", { name: "Add a step" });
+  await expect(dialog).toBeVisible();
+  // A full Tab lap cycles inside the dialog: focus that walks to the
+  // toggle button underneath would land outside the role=dialog element.
+  for (let i = 0; i < 12; i += 1) await authedPage.keyboard.press("Tab");
+  await expect(
+    authedPage.evaluate(() =>
+      Boolean(document.activeElement?.closest('[role="dialog"]')),
+    ),
+  ).resolves.toBe(true);
+});
+
+test("the dispatch settings modal keeps Tab inside itself", async ({ authedPage }) => {
+  await authedPage.goto("/dispatch");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  await authedPage.getByRole("button", { name: "Dispatch settings" }).click();
+
+  const modal = authedPage.getByTestId("dispatch-settings");
+  await expect(modal).toBeVisible();
+  // Focus moved in on open, then a Tab lap stays inside the modal.
+  await expect(
+    authedPage.evaluate(() =>
+      Boolean(document.activeElement?.closest('[data-testid="dispatch-settings"]')),
+    ),
+  ).resolves.toBe(true);
+  for (let i = 0; i < 12; i += 1) await authedPage.keyboard.press("Tab");
+  await expect(
+    authedPage.evaluate(() =>
+      Boolean(document.activeElement?.closest('[data-testid="dispatch-settings"]')),
+    ),
+  ).resolves.toBe(true);
+  await authedPage.keyboard.press("Escape");
+  await expect(modal).toHaveCount(0);
+});

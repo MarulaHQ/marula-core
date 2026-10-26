@@ -37,7 +37,7 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Badge, Button, EmptyState, Spinner } from "@marula-core/ui";
+import { Badge, Button, EmptyState, Spinner, useFocusTrap } from "@marula-core/ui";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -822,6 +822,10 @@ function LibraryPanel({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const libRef = useRef<HTMLDivElement>(null);
+  // Dialog contract, one implementation: focus moves in, Tab cycles
+  // inside, Escape dismisses, focus returns to the opener on close.
+  useFocusTrap(libRef, true, onClose);
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = palette.filter(
@@ -834,22 +838,8 @@ function LibraryPanel({
     return [...byFamily.entries()];
   }, [palette, query]);
 
-  // Dialog contract: Escape dismisses, and focus returns to whatever held
-  // it before the panel opened (the autofocus below moves it in).
-  useEffect(() => {
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      previous?.focus();
-    };
-  }, [onClose]);
-
   return (
-    <div className="wf-lib" role="dialog" aria-modal="true" aria-label="Add a step">
+    <div ref={libRef} className="wf-lib" role="dialog" aria-modal="true" aria-label="Add a step">
       <div className="wf-lib-h">
         <div className="wf-lib-hrow">
           <b className="wf-lib-title">Add a step</b>

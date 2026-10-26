@@ -7,6 +7,7 @@
  */
 
 export { cn } from "./lib/cn";
+export { useFocusTrap } from "./lib/focus-trap";
 export * from "./lib/time";
 export * from "./lib/number";
 export * from "./tokens";
