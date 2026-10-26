@@ -51,10 +51,11 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 # (same trick the desktop bundler uses in scripts/build-desktop.sh). Keep
 # the run stage rooted exactly there instead of dereferencing — a flat
 # re-location breaks every ../../../node_modules/.pnpm link.
-COPY --from=build /repo/node_modules /repo/node_modules
-COPY --from=build /repo/apps/web/.next/standalone /repo/apps/web/.next/standalone
-COPY --from=build /repo/apps/web/.next/static /repo/apps/web/.next/static
-RUN chown -R node:node /repo/node_modules /repo/apps/web/.next
+# The runtime image is the stripped dhi node image: it has no shell, so a
+# RUN chown cannot execute here. COPY --chown sets ownership in the layer.
+COPY --chown=1000:1000 --from=build /repo/node_modules /repo/node_modules
+COPY --chown=1000:1000 --from=build /repo/apps/web/.next/standalone /repo/apps/web/.next/standalone
+COPY --chown=1000:1000 --from=build /repo/apps/web/.next/static /repo/apps/web/.next/static
 # The image's own node user: uid/gid 1000 (numeric, passwd-verified —
 # runAsNonRoot-verifiable).
 USER 1000:1000
