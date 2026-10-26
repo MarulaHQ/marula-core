@@ -1,0 +1,43 @@
+Marula PSA documentation
+
+Copyright © 2026 Marula. All rights reserved except as expressly licensed
+below.
+
+Documentation licence
+---------------------
+
+The documentation in this directory (`marula-core/docs/site/`) is licensed
+under the Creative Commons Attribution 4.0 International licence (CC BY 4.0).
+
+You may copy, redistribute, remix, adapt and build on this documentation for
+any purpose, including commercial use, provided you give appropriate credit,
+link to the licence, indicate whether changes were made, and keep the
+copyright and warranty notices. The full licence text is in `LICENSE`.
+
+Licence: https://creativecommons.org/licenses/by/4.0/
+Source:  https://github.com/marulahq/marula/tree/main/docs/site
+
+Code and software licence
+-------------------------
+
+The software in this repository is not covered by CC BY 4.0. Core code under
+`crates/` and `apps/` is licensed under AGPL-3.0. The SDK, plugin kit,
+plugins and connectors are licensed under Apache-2.0. Code examples embedded
+in the documentation remain under the licence that applies to the code they
+come from; if an example is copied from AGPL-3.0 code, it remains
+AGPL-3.0-or-later.
+
+Trademarks
+----------
+
+The Marula name, the marula wordmark and the Marula fruit mark are
+trademarks. CC BY 4.0 grants copyright permissions only. It does not grant
+any right to use the Marula trademarks, logos or brand assets, except for
+reasonable attribution and source identification.
+
+Third-party material
+--------------------
+
+Third-party names, logos and trademarks referenced in the documentation
+remain the property of their owners. Their appearance does not imply
+endorsement.
