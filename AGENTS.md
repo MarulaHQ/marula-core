@@ -230,11 +230,45 @@ boot, openapi pin regen, scratch verification — routes through
   inside a lane worktree is visible from `main`. The run registry and service
   logs live under that shared root; only `e2e/.e2e-stack.env` stays in the
   checkout that ran the boot.
+- **Owned runs and the reaper (Wave 47 lane A23).** `up` records the owner
+  beside the run — the agent session id and the pid of the process that dies
+  with it — so an owner that is gone reads differently from an owner that is
+  idle. `scripts/dev-status.sh --reap` reclaims only runs whose owner is gone,
+  refuses every run whose owner is alive, and exits non-zero when a run it
+  claimed is still holding resources; it never prints a success line for work
+  it did not verify. An entry with no recorded owner is refused and named for a
+  human — silence is not proof that the owner died (an instrument can fail
+  after measuring and before writing). A live owner that has landed nothing for
+  `MARULA_STALL_HOURS` (default 4) prints `WARN STALLED` with its teardown
+  command, so a stalled lane announces itself instead of holding ports. Lanes
+  that want the evidence half of that check export `MARULA_EVIDENCE_DIR` before
+  `up`; without it the check reads commits only.
 - `scripts/regen-openapi-pins.sh` is the only sanctioned way to re-pin the
   OpenAPI snapshots (compact byte-identical pair + SDK regen + gate).
 - Frontend verification stays frontend-tooling-only (typecheck/lint/targeted
   Playwright), per ui-tranches_cargo_check_limits.
 - Flow-author rules (order independence, durable-gate login retry): `e2e/README.md`.
+
+## Lanes never park work in an anonymous stash (BINDING, added 2026-10-26)
+
+One stash stack is shared by every worktree of a repository: the ref lives in
+the common `.git`, entries are anonymous, and `pop` means "the top of the
+stack", not "mine". On 2026-10-17 the stack here carried 13 entries from other
+lanes, and a path-limited `git stash push` that created nothing was followed by
+a `pop` that restored a foreign entry and conflicted on a peer's file. Nothing
+was lost that time, by luck rather than design.
+
+- A lane that needs scratch work parks it somewhere addressable: its own
+  branch, a WIP commit, or at minimum a named stash —
+  `git stash push -m "<lane> <purpose>"` — taken back by that name
+  (`git stash list`, then `git stash pop stash@{N}`), never by bare `pop`.
+- `node scripts/check-lane-stash.mjs` enforces the naming half. An entry whose
+  subject git generated itself (`WIP on`, `index on`, `untracked files on`) has
+  no owner a lane can prove, and the check fails on it; its `--self-test`
+  proves the classifier in a temporary repo, with no stack involved.
+- Dropping an entry is a ruling, not a cleanup: read it with
+  `git stash show -p <ref>`, decide dead or unlanded, and drop only the dead
+  ones. When the entry belongs to someone else, a human makes that call.
 
 ## Lane gate pause — wait for user go-ahead (BINDING, all new lanes)
 

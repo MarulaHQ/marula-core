@@ -58,14 +58,22 @@ export function SelectContent({
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Content className={cn("m-select-content", className)} {...props}>
-        {/* No tabIndex here. The scrollable listbox viewport trips axe's
-            `scrollable-region-focusable` once the option list is long enough to
-            scroll, but giving the viewport a focus target of its own turns it
-            into an ARIA owner and raises a CRITICAL `aria-required-children`
-            (the grouped children do not satisfy `listbox`). Radix keeps the
-            items reachable by roving focus while the list is open; the static
-            check cannot see that. Recorded as a residual in REVIEW.md. */}
-        <SelectPrimitive.Viewport>{children}</SelectPrimitive.Viewport>
+        {/* The viewport is the popup's scroll container (Radix gives it
+            `overflow: hidden auto`), and both of axe's relevant rules land on
+            it. `scrollable-region-focusable` (serious) fires once the option
+            list is tall enough to scroll, because the options are not tabbable.
+            A bare `tabIndex` does not fix it: a focusable generic element is
+            never flattened by axe, so it becomes an owned child of the listbox
+            and `aria-required-children` (critical) fires instead — a listbox may
+            own only `group` and `option`. `role="group"` is the role a listbox
+            may own, so axe keeps counting the options below it, and the tab stop
+            satisfies the scrollable rule. Guarded by
+            tests/components/select-a11y.test.tsx and
+            e2e/flows/select-a11y.spec.ts. Instances stay keyboard-driven:
+            Radix focuses the selected item on open. */}
+        <SelectPrimitive.Viewport role="group" tabIndex={0}>
+          {children}
+        </SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   );

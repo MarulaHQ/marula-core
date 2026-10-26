@@ -84,6 +84,53 @@ LOG_ROOT="${LOG_ROOT:-$SHARED_ROOT/.kilo/e2e-logs}"
 
 die() { echo "[e2e-stack] FAIL: $*" >&2; exit 1; }
 
+# ---------- owner identity (read by `scripts/dev-status.sh --reap`) ----------
+# A run outlives the command that booted it, so the registry records who owns
+# it: the agent session id and the pid of the long-lived ancestor that dies
+# with the lane. Without that, a sweep cannot tell "owner gone" (reap it) from
+# "owner idle and thinking" (never touch it) — the distinction the 2026-10-17
+# leak turned on, when a cancelled lane left a Postgres, a Valkey and two
+# services holding three ports for five hours while the evidence to reclaim
+# them sat in the registry the whole time.
+session_id() {
+  printf '%s' "${MARULA_SESSION_ID:-${OPENCODE_SESSION_ID:-}}"
+}
+
+# The highest ancestor below pid 1 is the desktop app, the terminal or the
+# service process the shell was spawned from, and it lives exactly as long as
+# the session does. MARULA_OWNER_PID overrides the walk: that is how the
+# self-test and the gate rehearse a dead owner without killing a real one.
+owner_pid() {
+  if [ -n "${MARULA_OWNER_PID:-}" ]; then printf '%s' "$MARULA_OWNER_PID"; return 0; fi
+  local pid="$$" next hops=0
+  while [ "$hops" -lt 16 ]; do
+    next="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    case "$next" in ''|*[!0-9]*) break ;; esac
+    if [ "$next" -le 1 ]; then break; fi
+    pid="$next"
+    hops=$((hops + 1))
+  done
+  printf '%s' "$pid"
+}
+
+owner_cmd() {
+  ps -o command= -p "$1" 2>/dev/null | head -1 | cut -c1-120 || true
+}
+
+OWNER_SESSION="$(session_id)"
+OWNER_PID="$(owner_pid)"
+OWNER_CMD="$(owner_cmd "$OWNER_PID")"
+CHECKOUT_BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+# Optional, and only ever recorded when the lane exports it: an evidence
+# directory the stall check reads as a second activity signal next to commits.
+# Made absolute here because the sweep runs from another checkout.
+EVIDENCE_DIR="${MARULA_EVIDENCE_DIR:-}"
+case "$EVIDENCE_DIR" in
+  "") ;;
+  /*) ;;
+  *)  EVIDENCE_DIR="$REPO_ROOT/$EVIDENCE_DIR" ;;
+esac
+
 # ---------- stage narration ----------
 # Every slow stage announces itself before it runs and reports its elapsed time
 # when it finishes, so a boot never looks frozen between the container start
@@ -349,6 +396,54 @@ FAKE
   return 1
 }
 
+# ---------- self-test: the owner identity a sweep reads -------------------
+# The reaper's whole decision is "is the recorded owner still alive", so the
+# recording is provable without a stack. The env override is the rehearsal hook
+# `scripts/dev-status.sh --reap` is gated against; the ancestor walk is what a
+# real boot records; the session id is whichever name the agent exported.
+selftest_owner() {
+  local failures=0 checks=0 got
+
+  check() { # check <label> <got> <want>
+    checks=$((checks + 1))
+    if [ "$2" = "$3" ]; then
+      echo "  PASS  $1"
+    else
+      echo "  FAIL  $1: got '$2', want '$3'"
+      failures=$((failures + 1))
+    fi
+  }
+
+  echo "e2e-stack self-test: owner identity (no stack)"
+  got="$(MARULA_OWNER_PID=424242; owner_pid)"
+  check "MARULA_OWNER_PID overrides the walk" "$got" "424242"
+
+  got="$(owner_pid)"
+  if [ "$got" != "$$" ] && kill -0 "$got" 2>/dev/null; then
+    check "the walk records a live ancestor, not the transient shell" "alive" "alive"
+  else
+    check "the walk records a live ancestor, not the transient shell" "pid $got" "a live pid other than $$"
+  fi
+
+  got="$(MARULA_SESSION_ID=ses_override OPENCODE_SESSION_ID=ses_env; session_id)"
+  check "MARULA_SESSION_ID wins over the harness name" "$got" "ses_override"
+  got="$(unset MARULA_SESSION_ID; OPENCODE_SESSION_ID=ses_env; session_id)"
+  check "OPENCODE_SESSION_ID is the fallback" "$got" "ses_env"
+
+  if [ -n "$(owner_cmd "$(owner_pid)")" ]; then
+    check "the owner command is recorded for the human reading the registry" "set" "set"
+  else
+    check "the owner command is recorded for the human reading the registry" "empty" "set"
+  fi
+
+  if [ "$failures" -eq 0 ]; then
+    echo "e2e-stack self-test: $checks owner checks pass"
+    return 0
+  fi
+  echo "e2e-stack self-test: $failures of $checks owner checks failed"
+  return 1
+}
+
 # ########## dispatch ##########
 case "${1:-up}" in
   down)
@@ -368,7 +463,12 @@ case "${1:-up}" in
     fi
     if down_run "$run_id"; then exit 0; else exit $?; fi
     ;;
-  selftest) selftest_teardown; exit $? ;;
+  selftest)
+    rc=0
+    selftest_teardown || rc=1
+    selftest_owner || rc=1
+    exit "$rc"
+    ;;
   help|-h|--help)
     sed -n '1,28p' "$0"; exit 0 ;;
 esac
@@ -653,9 +753,11 @@ echo "[e2e-stack] wrote $ENV_FILE (run $RUN_ID; shared with Playwright + e2e-bui
 
 # ########## pid registry for dev-status.sh ##########
 FINGERPRINT="$(printf '%s' "$JWT_SECRET" | cut -c1-8)-$(echo "$DATABASE_URL" | sed 's|.*/||')-$API_PORT"
-python3 - "$ENV_FILE" "$API_PID" "$WORKER_PID" "$REGISTRY_DIR" "$RUN_ID" "$FINGERPRINT" "$LOG_DIR" <<'PY' || true
+python3 - "$ENV_FILE" "$API_PID" "$WORKER_PID" "$REGISTRY_DIR" "$RUN_ID" "$FINGERPRINT" "$LOG_DIR" \
+  "$OWNER_SESSION" "$OWNER_PID" "$OWNER_CMD" "$REPO_ROOT" "$CHECKOUT_BRANCH" "$EVIDENCE_DIR" <<'PY' || true
 import json, os, sys, time
-envfile, api, worker, regdir, run_id, fingerprint, log_dir = sys.argv[1:8]
+(envfile, api, worker, regdir, run_id, fingerprint, log_dir,
+ owner_session, owner_pid, owner_cmd, checkout, branch, evidence_dir) = sys.argv[1:14]
 env = {}
 for line in open(envfile):
     line = line.strip()
@@ -665,8 +767,19 @@ for line in open(envfile):
 reg = {
     "run_id": run_id,
     "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    "started_epoch": int(time.time()),
     "env_fingerprint": fingerprint,
     "log_dir": log_dir,
+    # Who owns this run, in the terms a sweep can check: the session that
+    # booted it and the process that dies with that session.
+    "owner": {
+        "session": owner_session or None,
+        "pid": int(owner_pid) if owner_pid.isdigit() else None,
+        "cmd": owner_cmd or None,
+    },
+    "checkout": checkout or None,
+    "branch": branch or None,
+    "evidence_dir": evidence_dir or None,
     "env": env,
     "services": [
         {"name": "core-api", "pid": int(api), "source": "local", "port": env.get("E2E_API_PORT", ""),
@@ -679,7 +792,17 @@ os.makedirs(regdir, exist_ok=True)
 with open(os.path.join(regdir, f"run-{run_id}-pids.json"), "w") as f:
     json.dump(reg, f, indent=2)
 PY
+echo "[e2e-stack] owner: session ${OWNER_SESSION:-none recorded} pid ${OWNER_PID:-?} (${OWNER_CMD:-unknown command})"
 echo "[e2e-stack] registered run in $REGISTRY_DIR — check scripts/dev-status.sh"
+# A stalled or orphaned lane is otherwise found by whoever happens to look, so
+# every boot announces the ones already on the machine. `--brief` prints decision
+# lines only — no database URL, no env fingerprint — and never touches a run.
+ATTENTION="$(DEV_STATUS_BRIEF=1 bash "$REPO_ROOT/scripts/dev-status.sh" --brief 2>/dev/null \
+  | grep -E '^  (ORPHAN|OWNER UNKNOWN|WARN STALLED)' || true)"
+if [ -n "$ATTENTION" ]; then
+  echo "[e2e-stack] other registered runs need attention (scripts/dev-status.sh):"
+  printf '%s\n' "$ATTENTION" | sed 's/^/    /'
+fi
 # Past this line the run is discoverable, so a later failure is a lane's own
 # teardown (`down $RUN_ID`) and not a leak.
 UP_COMPLETE=1

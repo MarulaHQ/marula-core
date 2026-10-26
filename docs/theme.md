@@ -291,6 +291,18 @@ not carry.
   `DataToolbar`; the chooser's list is the table's own order, so hiding a
   column and moving one are the same gesture, and the export states its row
   count on the control rather than after the file arrives.
+- **Tables below 768px (decided 2026-10-26, lane A22).** A data table keeps
+  every column and scrolls sideways. It does not stack into cards at that
+  width: the stacked row loses the column-to-column comparison the table
+  exists for, and the two surfaces that measured worst (the run ledger and its
+  step table, 680px of content in a 289px box at 375px) would double in height
+  before the user saw a single row. No column is dropped to make the fit — a
+  hidden column is data the user cannot reach. The scroll container is
+  keyboard reachable (its own tab stop, because a scroll wheel is not the only
+  way in), and the first column stays pinned so the row identity never scrolls
+  out of view. A surface whose rows are prose, or that needs more than one
+  pinned column, may use a stacked list at that breakpoint instead; that is a
+  per-surface decision with its own measurement, not a second default.
 - **Cards:** `rounded-xl`, 1px border, 24px padding.
 - **Charts:** the §3.5 ramp. Gridlines at border colour. No gradients.
 - **Forms:** labels above fields. Validation renders **on the field**, with
