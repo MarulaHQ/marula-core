@@ -823,9 +823,11 @@ function LibraryPanel({
 }) {
   const [query, setQuery] = useState("");
   const libRef = useRef<HTMLDivElement>(null);
-  // Dialog contract, one implementation: focus moves in, Tab cycles
-  // inside, Escape dismisses, focus returns to the opener on close.
-  useFocusTrap(libRef, true, onClose);
+  const searchRef = useRef<HTMLInputElement>(null);
+  // Dialog contract, one implementation: focus moves in (the search
+  // field, not the first button), Tab cycles inside, Escape dismisses,
+  // focus returns to the opener on close.
+  useFocusTrap(libRef, true, onClose, searchRef);
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = palette.filter(
@@ -849,12 +851,12 @@ function LibraryPanel({
           </Button>
         </div>
         <input
+          ref={searchRef}
           className="wf-fi wf-fi-search"
           placeholder="Search steps"
           aria-label="Search steps"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          autoFocus
         />
       </div>
       <div className="wf-lib-b">

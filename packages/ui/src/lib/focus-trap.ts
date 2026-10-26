@@ -8,14 +8,19 @@ import { useEffect, useRef, type RefObject } from "react";
  * keeps it (a modal that declares containment but lets Tab walk through
  * to the background is the defect this exists for).
  *
- * Usage: give the overlay container a ref, call `useFocusTrap(ref, open, onClose)`
- * from inside it, and leave the rest to the hook. The container itself is
- * focused when it has no focusable children (a scrim or empty panel).
+ * Usage: give the overlay container a ref, call
+ * `useFocusTrap(ref, open, onClose, initial?)` from inside it, and leave
+ * the rest to the hook. `initial` names the control focus should land on
+ * when it differs from the first focusable (a search field above the
+ * controls, a primary input); without it the first focusable — or the
+ * container itself when there are none (a scrim-only overlay) — takes
+ * focus.
  */
 export function useFocusTrap(
   container: RefObject<HTMLElement | null>,
   active: boolean,
   onClose: () => void,
+  initial?: RefObject<HTMLElement | null>,
 ): void {
   // The latest close callback, read through the keydown closure: the
   // parent re-creates its handler every render, and re-running this
@@ -37,10 +42,14 @@ export function useFocusTrap(
         ),
       ).filter((el) => el.offsetParent !== null || el === document.activeElement);
 
-    // Move focus in: the first control, or the container itself when it
-    // has none (scrim-only overlays).
-    const targets = focusables();
-    (targets[0] ?? root).focus();
+    // Move focus in: the named initial control when given, else the
+    // first focusable, else the container itself (scrim-only overlays).
+    if (initial?.current) {
+      initial.current.focus();
+    } else {
+      const targets = focusables();
+      (targets[0] ?? root).focus();
+    }
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -75,5 +84,5 @@ export function useFocusTrap(
       root.removeEventListener("keydown", onKey);
       previous?.focus();
     };
-  }, [active, container]);
+  }, [active, container, initial]);
 }
