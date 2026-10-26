@@ -1,3 +1,7 @@
+---
+description: "The phone moves stock through the same ledger as the web app. A transfer you make in a basement and a transfer the stockroom makes at the desk are the same…"
+---
+
 # How to move stock and check out tools in the field
 
 > **Audience:** both. Technicians run these flows on the phone. Owners and

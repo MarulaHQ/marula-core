@@ -1,3 +1,7 @@
+---
+description: "You are accountable for the numbers and for who can see what. These are the jobs that land on your desk, in the order they usually arrive."
+---
+
 # Owner tasks
 
 > **Audience:** owner — you sign off on contracts and invoices, and you decide

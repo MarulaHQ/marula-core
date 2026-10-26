@@ -1,3 +1,7 @@
+---
+description: "System facts about the routing provider seam, its endpoints, its settings, and the reconciliation surface."
+---
+
 # Routing and travel reference
 
 System facts about the routing provider seam, its endpoints, its settings, and

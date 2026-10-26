@@ -1,3 +1,7 @@
+---
+description: "The search vector leg has one exact answer and two indexed shortcuts. Which one fits depends on the shape of the install, and the shapes pull in opposite…"
+---
+
 # How to choose the retrieval mode
 
 > **Audience:** admin — this page changes how the whole install answers a

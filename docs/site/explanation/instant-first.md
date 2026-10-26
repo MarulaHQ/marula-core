@@ -1,3 +1,7 @@
+---
+description: "When you are on the phone with a customer and updating a ticket's priority or assignee, you shouldn't have to hunt for a Save button at the bottom of a form…"
+---
+
 # Instant-first interaction
 
 > The full technical specification lives in [`docs/instant-first.md`](../../instant-first.md)

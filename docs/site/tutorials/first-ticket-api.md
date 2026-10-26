@@ -1,3 +1,7 @@
+---
+description: "If you prefer exploring a system from the terminal or want to build an integration script, this tutorial walks through the exact same workflow as Your first…"
+---
+
 # Tutorial: your first ticket
 
 > **Audience:** developer — the API edition of the first-ticket lesson.

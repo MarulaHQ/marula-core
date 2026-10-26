@@ -1,3 +1,7 @@
+---
+description: "A reply snippet is a canned reply your team writes once and inserts everywhere. Open the composer on any ticket, press Snippets, and pick one."
+---
+
 # How to use reply snippets
 
 > **Audience:** both — any staff member who writes ticket replies can

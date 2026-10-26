@@ -1,3 +1,7 @@
+---
+description: "Take a fresh clone to a booted, seeded demo with Postgres, Valkey and the sample organization."
+---
+
 # How to run the local demo stack
 
 > **Audience:** admin — you run Marula on your own machine to show it to

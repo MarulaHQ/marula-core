@@ -1,3 +1,7 @@
+---
+description: "Each tutorial walks you through one real job from start to finish using the sample organization that ships with Marula."
+---
+
 # Tutorials
 
 Each tutorial walks you through one real job from start to finish using the sample organization that ships with Marula. If you just need a quick checklist for a daily task, jump to [How-to guides](../how-to/index.md). If you want field definitions or API details, check [Reference](../reference/index.md). If you want the reasoning behind a product rule, read [Explanation](../explanation/index.md).

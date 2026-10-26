@@ -1,3 +1,7 @@
+---
+description: "Marula turns tickets, comments, clients and knowledge articles into vectors so search can match on meaning as well as words."
+---
+
 # Embedding model catalogue
 
 Marula turns tickets, comments, clients and knowledge articles into vectors so search can match on meaning as well as words. One embedding model serves the whole install. This page is the table of models you can choose, what each one needs from the machine, and the bookkeeping that makes a change safe.

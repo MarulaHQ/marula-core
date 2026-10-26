@@ -1,3 +1,7 @@
+---
+description: "A template is typed by PURPOSE, and the purpose decides which fields it can print and what its QR code points at. Four purposes ship:"
+---
+
 # How to set up labels and label templates
 
 > **Audience:** admin — you own the org's label stock, template library,

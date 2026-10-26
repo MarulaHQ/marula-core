@@ -1,3 +1,7 @@
+---
+description: "In many ticketing tools, renaming a board column from \"Waiting on Vendor\" to \"Parts Ordered\" breaks every SLA rule, report filter, and billing script that…"
+---
+
 # How to set workflow categories
 
 > **Audience:** admin — reshaping a board's statuses is a settings-owner

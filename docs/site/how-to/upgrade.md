@@ -1,3 +1,7 @@
+---
+description: "Marula guarantees you can always upgrade from either of the two previous tagged releases (the N−2 rule, policy §1/§3). This guide gets you there safely."
+---
+
 # How to upgrade to the latest release
 
 > **Audience:** both — self-host operators run the upgrade, admins own release timing.
@@ -5,6 +9,11 @@
 Marula guarantees you can always upgrade from either of the two previous
 tagged releases (the **N−2 rule**, policy §1/§3). This guide gets you there
 safely.
+
+> [!WARNING]
+> Take a backup that has restored once, and run `marula upgrade --check`
+> before you touch the deployment. A failed upgrade is recoverable; a missing
+> backup is not.
 
 ## Prerequisites
 

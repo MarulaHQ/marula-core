@@ -1,3 +1,7 @@
+---
+description: "Marula measures performance one endpoint at a time. That leaves the real query mix unseen and the slow tail unmeasured, so the database now records both."
+---
+
 # Database observability
 
 Marula measures performance one endpoint at a time. That leaves the real query

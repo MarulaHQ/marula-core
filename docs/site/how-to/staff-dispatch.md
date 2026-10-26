@@ -1,3 +1,7 @@
+---
+description: "The Dispatch board (/dispatch) gives dispatchers and technicians a single view of who is booked where, which tickets are waiting for an owner, and how much…"
+---
+
 # How to dispatch from the board
 
 > **Audience:** both — dispatch is the dispatcher's surface and every

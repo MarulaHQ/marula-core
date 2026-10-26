@@ -1,3 +1,7 @@
+---
+description: "Everything in Marula lives in the Postgres database, and once S3 object storage is enabled also the object-storage (Garage/S3) bucket."
+---
+
 # Runbook: backup and restore
 
 > **Audience:** site operator / MSP admin — you host Marula yourself and
@@ -12,6 +16,9 @@ back neither up alone: document attachments (content-addressed uploads) and
 versioned documents reference object storage, while everything else —
 tickets, time, invoices, FX rates, the provenance and audit ledges, AI
 decision answers, customization rows — is rows in Postgres.
+
+> [!WARNING]
+> Back up Postgres and object storage together. A database-only restore leaves attachments and versioned documents pointing at objects that are not there.
 
 ## Backup
 

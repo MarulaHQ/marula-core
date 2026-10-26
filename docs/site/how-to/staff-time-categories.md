@@ -1,3 +1,7 @@
+---
+description: "How work categories decide what a time entry bills, where it lands and why the category matters."
+---
+
 # How to log billable time with categories
 
 > **Audience:** both — staff log the time, admins own the taxonomy the

@@ -1,3 +1,7 @@
+---
+description: "Your runbooks in the Knowledge Base (/kb) and your stored credentials in the Secret Vault (/passwords) use the exact same folder permission model (ADR 0006)."
+---
+
 # Knowledge-base categories and the secret vault share one grant model
 
 > **Audience:** both — admins administer grants; every staff member

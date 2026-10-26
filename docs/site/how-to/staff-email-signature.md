@@ -1,3 +1,7 @@
+---
+description: "Every message you send to a client can close with your own details: your name, your address, the workspace name."
+---
+
 # How to sign your own email
 
 > **Audience:** staff — anyone who writes to a client from a ticket. Admins

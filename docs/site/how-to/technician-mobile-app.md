@@ -1,3 +1,7 @@
+---
+description: "The mobile app is the same product as the web app against the same API. A note you write on the phone lands on the ticket everyone else is looking at, and a…"
+---
+
 # How to use the Marula mobile app
 
 > **Audience:** both — technicians carry the app, and owners and admins install

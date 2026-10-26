@@ -1,3 +1,7 @@
+---
+description: "Marula's AI features talk to a model runtime you choose. The core ships no model weights, in no image, under no profile."
+---
+
 # Local AI: transcription and embeddings on your own hardware
 
 > **Audience:** site operator / MSP admin — you host Marula yourself, you

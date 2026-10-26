@@ -1,3 +1,7 @@
+---
+description: 'How to work on the Marula docs site: layout, generated pages, publish commands and the licence boundary.'
+---
+
 # Docs site (Diátaxis) — Phase 4
 
 > This page is for people maintaining the docs. If you are looking for product

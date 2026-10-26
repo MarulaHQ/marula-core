@@ -1,3 +1,7 @@
+---
+description: "You are not the workspace admin. Admins configure boards, email routing and people."
+---
+
 # Operator tasks
 
 > **Audience:** site operator — you run the instance. You have shell access, you

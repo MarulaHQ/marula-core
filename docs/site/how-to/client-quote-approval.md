@@ -1,3 +1,7 @@
+---
+description: "How a client reads, accepts or declines a quote in the portal, and what changes after acceptance."
+---
+
 # How to approve or decline a quote
 
 > **Audience:** both — the admin hands over the portal sign-in, and

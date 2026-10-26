@@ -1,3 +1,7 @@
+---
+description: "Each how-to guide gives you a direct checklist for one specific job in Marula. If you are brand new and want a guided walkthrough from start to finish…"
+---
+
 # Admin how-to guides
 
 Each how-to guide gives you a direct checklist for one specific job in Marula. If you are brand new and want a guided walkthrough from start to finish, begin with [Tutorials](../tutorials/index.md). If you want the reasoning behind a product rule, read [Explanation](../explanation/index.md). For field-level schemas and endpoints, see [Reference](../reference/index.md).

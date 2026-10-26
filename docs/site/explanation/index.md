@@ -1,3 +1,7 @@
+---
+description: "These pages explain why Marula works the way it does: why renaming a board column never breaks an SLA timer, why billing corrections create credit notes…"
+---
+
 # Explanation
 
 These pages explain **why** Marula works the way it does: why renaming a board column never breaks an SLA timer, why billing corrections create credit notes instead of editing sent invoices, and why AI features ship turned off by default.

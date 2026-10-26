@@ -1,3 +1,7 @@
+---
+description: "The Settings → Self-host services pane answers two operator questions in one place: is the stack running, and where do I look when it is not."
+---
+
 # How to watch your self-hosted services
 
 > **Audience:** admin — this page reads infrastructure state and links out

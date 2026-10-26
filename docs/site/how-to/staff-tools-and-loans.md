@@ -1,3 +1,7 @@
+---
+description: "Tools are stock items flagged as tools: serialized, individually tracked, and always answerable to \"who has this unit right now\"."
+---
+
 # How to check tools out, and how to run client loans
 
 > **Audience:** both — technicians check tools in and out from the van;

@@ -1,3 +1,7 @@
+---
+description: "Every MSP names its ticket columns, client fields, and routing rules a little differently."
+---
+
 # How to customize without code
 
 > **Audience:** both — admins declare the customization; staff experience the result.

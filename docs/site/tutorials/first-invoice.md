@@ -1,3 +1,7 @@
+---
+description: "Walk the invoice cycle end to end in the demo organization, from billable time to a sent invoice."
+---
+
 # Tutorial: your first invoice
 
 > **Audience:** admin — staff contribute the billable time; this lesson

@@ -1,3 +1,7 @@
+---
+description: "Your day pack lists what the jobs need: the tools, the consumables, and the parts already reserved against the tickets. It lives on Today under the schedule."
+---
+
 # How to check out tools and use parts on site
 
 > **Audience:** both — the technician does the scans and taps; stock admins read

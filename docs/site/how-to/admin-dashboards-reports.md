@@ -1,3 +1,7 @@
+---
+description: "Marula gives service leads and owners three ways to track how the shop is running: live Dashboards (/reports/dashboards), a custom Report Builder…"
+---
+
 # How to manage dashboards & report schedules
 
 > **Audience:** admin — report and dashboard management is a settings

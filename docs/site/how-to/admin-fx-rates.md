@@ -1,3 +1,7 @@
+---
+description: "If your MSP bills a client in EUR or CAD while reporting company financials in USD, you need historical invoices and inventory receipts to keep the exact…"
+---
+
 # How to record FX rates & read reconciliation
 
 > **Audience:** admin — the rate book and its corrections are

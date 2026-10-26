@@ -1,3 +1,7 @@
+---
+description: "An issued invoice is a record of what happened, not a draft that can be tidied up later."
+---
+
 # Billing corrections, and where tax lives
 
 > **Audience:** both — admins decide how a bill gets corrected, staff see
@@ -8,6 +12,10 @@ tidied up later. That single decision is why every correction in Marula
 billing is a new document instead of an edit, and it is also why no tax
 number is computed on an invoice. Both fall out of the same boundary, so
 they are worth stating in one place.
+
+> [!NOTE]
+> A correction appends a new document. Nothing rewrites an issued invoice in
+> place, and no tax number is computed on the invoice itself.
 
 ## Corrections are additive
 

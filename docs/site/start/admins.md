@@ -1,3 +1,7 @@
+---
+description: "Most of this work happens once, at the start, and then twice a year. The list is grouped by the job rather than by the settings menu, because the menu moves…"
+---
+
 # Admin tasks
 
 > **Audience:** admin — you hold settings access and you are the person the team

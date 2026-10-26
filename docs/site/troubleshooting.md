@@ -1,3 +1,7 @@
+---
+description: "Start from what you see. Each entry below names a symptom in plain words, the checks in the order they usually find it, and the page that explains the part…"
+---
+
 # Troubleshooting
 
 Start from what you see. Each entry below names a symptom in plain words, the

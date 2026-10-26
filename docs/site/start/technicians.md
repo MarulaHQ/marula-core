@@ -1,3 +1,7 @@
+---
+description: "The technician's path through Marula: work the queue, run a service day, log billable time and answer the customer."
+---
+
 # Technician tasks
 
 > **Audience:** staff — you work tickets, run a service day, and log the time

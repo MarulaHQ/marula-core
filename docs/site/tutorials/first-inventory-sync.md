@@ -1,3 +1,7 @@
+---
+description: "When you pull computers and network gear from an RMM tool, an MDM, and a spreadsheet, most PSAs dump duplicate rows into your asset list and leave techs…"
+---
+
 # Tutorial: your first inventory sync
 
 > **Audience:** both — admins configure the connector; staff and admins

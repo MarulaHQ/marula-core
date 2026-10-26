@@ -1,3 +1,7 @@
+---
+description: "Instead of creating temporary passwords and reading them over the phone, you invite teammates from Settings → Team."
+---
+
 # How to manage users and invites
 
 > **Audience:** admin — invitations and access are settings-owner
@@ -24,6 +28,10 @@ Email verification links are **single-use and valid for 24 hours**, with a one-c
 
 - **Staff accounts:** Requesting a password reset sends a single-use recovery link to the staff member's email.
 - **Client portal accounts:** Portal users are excluded from the staff password-reset flow so the two login systems never mix. Your service desk resets portal passwords or sends portal sign-in links from **Settings → Portal** (see [Set up the portal](admin-portal-setup.md)).
+
+> [!IMPORTANT]
+> Removing a person ends their access, not their history. Reassign their open
+> work before the last day, then remove the account.
 
 ## 4. Turn on two-factor authentication and passkeys
 

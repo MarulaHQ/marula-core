@@ -1,3 +1,7 @@
+---
+description: "Marula is an open-source PSA (professional services automation) platform for IT service teams and MSPs."
+---
+
 # Marula documentation
 
 ![Marula logo lockup](../../.github/assets/logo-lockup-ink@2x.png)

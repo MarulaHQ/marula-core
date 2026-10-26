@@ -16,27 +16,27 @@
 ## Lane C-DOCS-2 — Content contract and navigation
 
 - [x] **C-DOCS-2.1** Add `docs/site/nav.json` with the published groups: Start here, Tutorials, Set up and administer, Tickets/time/field work, Billing and contracts, Client portal, Automation/API/agents, Self-host and operate, Reference, Explanation, Troubleshooting, Get help. **Accept:** every page appears exactly once. *Landed: 97 public pages mapped; `index` is the home; `README`/`DOCS-COVERAGE` excluded.*
-- [ ] **C-DOCS-2.2** Add `description` to every page; derive from the first paragraph, then edit to 80–160 characters.
+- [x] **C-DOCS-2.2** Add `description` to every page; derive from the first paragraph, then edit to 80–160 characters. *Landed: 95 prose pages plus `README`/`DOCS-COVERAGE` and the two generated pages; `apply-descriptions.mjs` records the overrides; `check-docs-ia.mjs` fails a page outside 80–160.*
 - [ ] **C-DOCS-2.3** Add `tags` and `redirect_from` where useful.
-- [ ] **C-DOCS-2.4** Add GFM alerts to install, upgrade, backup, restore, deletion, permissions, migration and billing-correction pages.
+- [x] **C-DOCS-2.4** Add GFM alerts to install, upgrade, backup, restore, deletion, permissions, migration and billing-correction pages. *Landed: 10 alerts across upgrade, export, backup/restore, first-org, invites, SSO, imports, PG18, billing corrections and the local stack.*
 - [ ] **C-DOCS-2.5** Add code fence titles and line highlights to install, upgrade and API examples.
 - [ ] **C-DOCS-2.6** Capture the top 10 workflows in light and dark; store under `docs/site/assets/`; add alt text and `*Figure: …*` captions.
-- [ ] **C-DOCS-2.7** Keep `**Audience:**` on every task page; the website parses it into manifest metadata.
+- [x] **C-DOCS-2.7** Keep `**Audience:**` on every task page; the website parses it into manifest metadata. *Landed: the site checker fails a how-to or tutorial page without the tag; the IA checker pins the vocabulary.*
 
 ## Lane C-DOCS-3 — API reference and validators
 
 - [ ] **C-DOCS-3.1** Split `docs/site/scripts/generate-api-reference.mjs` into `reference/api/index.md`, `reference/api/<tag>.md`, `reference/api/schemas.md` and `reference/api/manifest.json`.
-- [ ] **C-DOCS-3.2** Update `check-docs-site.mjs` for anchors, frontmatter, generated-page freshness and nav coverage.
-- [ ] **C-DOCS-3.3** Update `check-docs-ia.mjs` for `nav.json` coverage and the audience vocabulary.
-- [ ] **C-DOCS-3.4** Add `docs/site/scripts/check-docs-license.mjs` (or fold into the site checker): `LICENSE` and `NOTICE` exist; the README licence section names CC BY 4.0.
-- [ ] **C-DOCS-3.5** Run both checkers in CI on every docs PR. **Accept:** a broken anchor, missing description, orphan page or stale generated page fails.
+- [x] **C-DOCS-3.2** Update `check-docs-site.mjs` for anchors, frontmatter, generated-page freshness and nav coverage. *Landed: links + anchors, generated API/upgrade freshness, help-manifest paths/titles/audiences, licence files, publishing path; descriptions in `check-docs-ia.mjs`.*
+- [x] **C-DOCS-3.3** Update `check-docs-ia.mjs` for `nav.json` coverage and the audience vocabulary. *Landed: index reachability, quadrant coverage, audience vocabulary, descriptions and wayfinding.*
+- [x] **C-DOCS-3.4** Add `docs/site/scripts/check-docs-license.mjs` (or fold into the site checker): `LICENSE` and `NOTICE` exist; the README licence section names CC BY 4.0. *Landed: folded into `check-docs-site.mjs`.*
+- [x] **C-DOCS-3.5** Run both checkers in CI on every docs PR. **Accept:** a broken anchor, missing description, orphan page or stale generated page fails. *Landed: `.github/workflows/docs-check.yml` runs both on docs PRs.*
 
 ## Lane C-DOCS-4 — Release and in-app help
 
-- [ ] **C-DOCS-4.1** Update `docs/site/help-manifest.json` `docsBase` to the versioned URL at release (`https://getmarula.com/docs/psa/v<version>`).
-- [ ] **C-DOCS-4.2** Add a release check that every help-manifest path resolves to a docs route.
-- [ ] **C-DOCS-4.3** Add `.github/workflows/docs-release.yml`: on `v*`, run docs validators and dispatch `docs-sync` to `marula-hq/website` with `product=psa`, `version`, `sha`.
-- [ ] **C-DOCS-4.4** Add a `docs` job to the main CI workflow: `node docs/site/scripts/check-docs-site.mjs` and `check-docs-ia.mjs`.
+- [x] **C-DOCS-4.1** Update `docs/site/help-manifest.json` `docsBase` to the versioned URL at release (`https://getmarula.com/docs/psa/v<version>`). *Landed: `https://getmarula.com/docs/psa/v0.2`, mirrored byte-identically into `apps/web/lib/help/help-manifest.json`.*
+- [x] **C-DOCS-4.2** Add a release check that every help-manifest path resolves to a docs route. *Landed: `check-docs-site.mjs` verifies every path, title and audience, plus the byte-identical web copy.*
+- [x] **C-DOCS-4.3** Add `.github/workflows/docs-release.yml`: on `v*`, run docs validators and dispatch `docs-sync` to `marula-hq/website` with `product=psa`, `version`, `sha`. *Landed: dispatch skips honestly when `WEBSITE_DISPATCH_TOKEN` is absent; validators run in `docs-check.yml` on the PR.*
+- [x] **C-DOCS-4.4** Add a `docs` job to the main CI workflow: `node docs/site/scripts/check-docs-site.mjs` and `check-docs-ia.mjs`. *Landed: `.github/workflows/docs-check.yml`.*
 
 **Lane gate:** the corpus is licensed, navigable, validated, versioned in the website lock, and dispatched on release.
 

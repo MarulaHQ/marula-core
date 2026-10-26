@@ -1,3 +1,7 @@
+---
+description: "The canonical local stack: Postgres, Redis, schema migration, core API, worker and web console."
+---
+
 # Self-host reference: the local stack
 
 > **Audience:** site operator / MSP admin — you host Marula yourself and
@@ -9,6 +13,10 @@ console); the header comments there are the
 ground truth for every flag listed below. What follows is the descriptive
 map — upgrade procedures live in [How to upgrade](../how-to/upgrade.md)
 and the [backup/restore runbook](backup-restore.md).
+
+> [!NOTE]
+> The compose file is the ground truth. This page maps the services and ports;
+> if the two disagree, the compose file wins.
 
 ## Services and ports
 

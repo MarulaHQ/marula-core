@@ -1,3 +1,7 @@
+---
+description: "Your clients shouldn't have to email your helpdesk just to check if a ticket is being worked on, download last month's invoice, or approve a hardware quote."
+---
+
 # Tutorial: portal onboarding
 
 > **Audience:** both — steps 1–3 are admin (provisioning and exposure);

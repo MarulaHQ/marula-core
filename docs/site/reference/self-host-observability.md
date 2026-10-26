@@ -1,3 +1,7 @@
+---
+description: "Marula's telemetry is off by default. With OTELEXPORTEROTLPENDPOINT unset, core-api and the worker run exactly as they did before the observability work…"
+---
+
 # Observability: distributed traces, logs, metrics
 
 > **Audience:** site operator / MSP admin — you host Marula yourself and
