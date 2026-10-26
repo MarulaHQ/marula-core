@@ -11,7 +11,8 @@ The API and worker run with `MARULA_DEV_TOOLS=1`, because the demo reset needs
 `/api/dev/reset-org` and `/api/dev/time-travel`. That surface has no bearer auth.
 It is safe here for three reasons, and all three are required:
 
-1. `deploy/docker-compose.demo.yml` pins core-api to `127.0.0.1:8080`. The dev
+1. `deploy/docker-compose.demo.yml` pins core-api to `127.0.0.1:8080`
+(`DEMO_API_PORT` moves the host side only). The dev
    surface never listens on a public interface.
 2. `deploy/edge/marula-routes.caddy` answers `404` for `/api/dev/*`. The public
    edge cannot reach the reset routes even if someone later publishes 8080.
@@ -45,6 +46,8 @@ export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
 export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
 
 export DEMO_PUBLIC_ORIGIN=https://demo.example.com   # or http://localhost:8080 on a laptop
+export DEMO_API_PORT=8080                            # host port; keep 8080 unless it is taken
+export DEMO_WEB_PORT=3000                            # host port for the web console
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.demo.yml \
   --profile demo up -d --build
 ```

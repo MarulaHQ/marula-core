@@ -36,7 +36,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-API_URL="${DEMO_API_URL:-http://127.0.0.1:8080}"
+API_URL="${DEMO_API_URL:-http://127.0.0.1:${DEMO_API_PORT:-8080}}"
 DEMO_SLUG="marula-demo"
 HOURS=24
 APPLY=0
