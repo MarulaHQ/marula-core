@@ -55,7 +55,8 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 # RUN chown cannot execute here. COPY --chown sets ownership in the layer.
 COPY --chown=1000:1000 --from=build /repo/node_modules /repo/node_modules
 COPY --chown=1000:1000 --from=build /repo/apps/web/.next/standalone /repo/apps/web/.next/standalone
-COPY --chown=1000:1000 --from=build /repo/apps/web/.next/static /repo/apps/web/.next/static
+COPY --chown=1000:1000 --from=build /repo/apps/web/.next/static /repo/apps/web/.next/standalone/.next/static
+COPY --chown=1000:1000 --from=build /repo/apps/web/public /repo/apps/web/.next/standalone/public
 # The image's own node user: uid/gid 1000 (numeric, passwd-verified —
 # runAsNonRoot-verifiable).
 USER 1000:1000
