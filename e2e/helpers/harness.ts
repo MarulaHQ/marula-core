@@ -10,7 +10,7 @@
 // THEME MATRIX: the Playwright project name is the theme ("light" / "dark");
 // every test runs once per theme against the same seeded demo env.
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
-import { API_URL, DEMO_OWNER_EMAIL, DEMO_PASSWORD, apiLogin, type TokenPair } from "./api";
+import { API_URL, DEMO_OWNER_EMAIL, DEMO_PASSWORD, WEB_URL, apiLogin, type TokenPair } from "./api";
 
 export const TOKENS_KEY = "marula-tokens";
 export const TOKENS_EXP_KEY = "marula-tokens-exp";
@@ -55,6 +55,9 @@ export const test = base.extend<Fixtures>({
         ? "high_contrast"
         : null;
     const ctx = await browser.newContext({
+      // Relative page.goto() needs the base the config uses; a context made by
+      // hand does not inherit it from `use`.
+      baseURL: WEB_URL,
       viewport: { width: 1440, height: 900 },
     });
     const page = await ctx.newPage();
