@@ -1,3 +1,7 @@
+---
+description: "Reference pages give you exact endpoints, database view columns, environment variables, and operator runbooks for lookup."
+---
+
 # Reference
 
 Reference pages give you exact endpoints, database view columns, environment variables, and operator runbooks for lookup. For step-by-step lessons, see [Tutorials](../tutorials/index.md). For task checklists, see [How-to guides](../how-to/index.md). For design reasoning, see [Explanation](../explanation/index.md). For the vocabulary the rest of the site assumes, start with the [glossary](glossary.md).

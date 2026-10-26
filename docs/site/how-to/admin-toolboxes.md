@@ -1,3 +1,7 @@
+---
+description: "Settings → Toolboxes & day pack is the config home for toolboxes. It holds the kits themselves, the tools inside them, the mappings the day pack reads, and…"
+---
+
 # How to set up toolboxes and dispatch defaults
 
 > **Audience:** admin — toolboxes and dispatch mappings are organization

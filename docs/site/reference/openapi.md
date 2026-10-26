@@ -1,3 +1,7 @@
+---
+description: "The API contract is pinned twice, and CI enforces that the two are a byte-identical pair:"
+---
+
 # The OpenAPI pin
 
 The API contract is pinned twice, and CI enforces that the two are a

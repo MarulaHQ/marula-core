@@ -1,3 +1,7 @@
+---
+description: "Moving clients, contacts, tickets, or hardware assets from a legacy PSA or spreadsheet shouldn't be a blind leap of faith."
+---
+
 # How to run a dry-run import
 
 > **Audience:** admin — imports are an administrative data-migration
@@ -10,6 +14,10 @@ Moving clients, contacts, tickets, or hardware assets from a legacy PSA or sprea
 - Admin access to **Imports** (`/imports`).
 - A CSV or JSON export from your previous tool. CSV files must include a **header row** so you can map columns in step 2.
 - Your desired conflict rule (the default is `skip-existing` so existing records are not overwritten).
+
+> [!IMPORTANT]
+> A dry-run writes nothing. Read every warning before you commit the batch, and
+> keep the saved column mapping with the source export.
 
 ## The three-step import habit
 

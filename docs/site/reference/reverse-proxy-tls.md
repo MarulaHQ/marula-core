@@ -1,3 +1,7 @@
+---
+description: "This runbook is the front door. It covers what the proxy must serve, the two TLS modes a real deployment runs, the two ways to run the edge one, the…"
+---
+
 # Runbook: reverse proxy and TLS
 
 > **Audience:** site operator / MSP admin — you host Marula yourself and

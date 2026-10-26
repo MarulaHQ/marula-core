@@ -1,3 +1,7 @@
+---
+description: "The embedding model decides what search can match on meaning. It serves the whole install, so a change is a deployment decision, not an organization setting."
+---
+
 # How to change the embedding model
 
 > **Audience:** admin — this page changes what the whole install runs and

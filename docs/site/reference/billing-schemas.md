@@ -1,3 +1,7 @@
+---
+description: "The tables behind work-type categories, billing verification, contract pricing and project milestone billing, and the rules an integrator has to know before…"
+---
+
 # Billing schema reference
 
 The tables behind work-type categories, billing verification, contract pricing

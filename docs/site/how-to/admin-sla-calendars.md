@@ -1,3 +1,7 @@
+---
+description: "When a client has an agreement for a 2-hour response on urgent tickets, you don't want the SLA clock ticking at 3 AM on a Sunday unless they pay for 24/7…"
+---
+
 # How to configure SLA calendars & escalation ladders
 
 > **Audience:** admin — SLA policy is a settings-owner responsibility;

@@ -1,3 +1,7 @@
+---
+description: 'How to work on the Marula docs site: layout, generated pages, publish commands and the licence boundary.'
+---
+
 # Docs site (Diátaxis) — Phase 4
 
 > This page is for people maintaining the docs. If you are looking for product
@@ -71,9 +75,24 @@ node docs/site/scripts/publish.mjs
 ```
 
 Renders the static publication to `dist/` (mirrors this directory tree;
-repo-native references drop to their link text). The Phase-2 website
-consumes `dist/` wholesale — the markdown here stays the only source of
-truth, and these sources are never forked into a publishing format.
+repo-native references drop to their link text). The public website renders
+these Markdown sources directly through its own pipeline (HQ ADR 0035); the
+deterministic publisher remains the GitHub/offline fallback. The markdown here
+stays the only source of truth, and these sources are never forked into a
+publishing format.
+
+## License
+
+Documentation in this directory is licensed under
+[CC BY 4.0](LICENSE). Attribution, a licence link and an indication of changes
+are required; the trademark and code-sample terms are in [`NOTICE`](NOTICE).
+The repository's code licences are unchanged: AGPL-3.0 for Core, Apache-2.0
+for the SDK/plugins. Code examples copied from AGPL code remain AGPL.
+
+Suggested attribution for a mirror or excerpt:
+
+> Documentation © 2026 Marula, licensed CC BY 4.0. Source:
+> https://github.com/marulahq/marula-core/tree/main/docs/site
 
 ## Rules
 

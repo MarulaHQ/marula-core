@@ -1,3 +1,7 @@
+---
+description: "Automation rules let your service desk handle repetitive routing and follow-ups automatically: for example, alerting a manager when a P1 ticket arrives…"
+---
+
 # How to author automation rules
 
 > **Audience:** admin — rule authoring, test-runs, and enable boundaries

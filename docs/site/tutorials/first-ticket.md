@@ -1,3 +1,7 @@
+---
+description: "When a client calls or emails with a problem, you shouldn't have to bounce between a ticket tab, a separate stopwatch popup, and a timecard sheet at 5 PM."
+---
+
 # Tutorial: your first ticket (in the UI)
 
 > **Audience:** both — MSP staff learning the workbench and admins learning

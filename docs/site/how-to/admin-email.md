@@ -1,3 +1,7 @@
+---
+description: "This page covers three jobs in order: routing inbound mail to boards, proving your domain with DNS, and choosing how outbound mail leaves."
+---
+
 # How to configure email
 
 > **Audience:** admin — mail wiring decides who hears from you and whether

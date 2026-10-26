@@ -1,3 +1,7 @@
+---
+description: "Every entry is a page from the public docs site — the same markdown that lives at getmarula.com/docs."
+---
+
 # How to get help inside Marula
 
 > **Audience:** both — every signed-in person gets the same help panel;

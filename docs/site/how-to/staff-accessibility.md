@@ -1,3 +1,7 @@
+---
+description: "Marula is built to be usable without a mouse. You can run a ticket from the keyboard end to end, hear what changes through a screen reader, and pick a theme…"
+---
+
 # How to use Marula with a keyboard, a screen reader, and themes
 
 > **Audience:** both — technicians and admins share the same surfaces, and

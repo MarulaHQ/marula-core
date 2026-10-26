@@ -246,6 +246,29 @@ if (readFileSync(join(site, "reference/upgrade-matrix.md"), "utf8") !== before2)
   }
 }
 
+// Licence boundary (ADR 0025): the legal text, the notice and the README
+// section must all exist; a missing licence file cannot pass silently.
+{
+  const licencePath = join(site, "LICENSE");
+  const noticePath = join(site, "NOTICE");
+  const readme = readFileSync(join(site, "README.md"), "utf8");
+  if (!existsSync(licencePath)) {
+    console.error("LICENSE docs/site/LICENSE is missing");
+    failed++;
+  } else if (!readFileSync(licencePath, "utf8").includes("Creative Commons Attribution 4.0 International")) {
+    console.error("LICENSE docs/site/LICENSE does not carry the CC BY 4.0 legal text");
+    failed++;
+  }
+  if (!existsSync(noticePath)) {
+    console.error("LICENSE docs/site/NOTICE is missing");
+    failed++;
+  }
+  if (!readme.includes("CC BY 4.0")) {
+    console.error("LICENSE docs/site/README.md does not name CC BY 4.0");
+    failed++;
+  }
+}
+
 // Publishing path (ADR 0009): publish twice into disposable dirs and
 // assert the bundle is complete (every md page mirrored to html),
 // byte-deterministic, and free of dead in-bundle hrefs.

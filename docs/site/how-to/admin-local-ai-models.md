@@ -1,3 +1,7 @@
+---
+description: "Marula will call a model runtime you run. The image you already deploy carries no model weights, so the models are a separate opt-in step: start the local…"
+---
+
 # How to run transcription and embeddings on your own hardware
 
 > **Audience:** admin — this page changes AI provider configuration and

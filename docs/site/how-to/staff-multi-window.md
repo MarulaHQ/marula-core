@@ -1,3 +1,7 @@
+---
+description: "How to open a second window on the same work, with a compact shell and the workbar."
+---
+
 # How to use multiple windows
 
 > **Audience:** both — anyone with a second monitor who wants the dispatch

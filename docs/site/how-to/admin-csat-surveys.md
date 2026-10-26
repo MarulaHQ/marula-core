@@ -1,3 +1,7 @@
+---
+description: "Set up satisfaction surveys on ticket resolution, with intervals, link validity and quiet hours."
+---
+
 # How to set up CSAT surveys on resolution
 
 > **Audience:** admin — survey policy is an org-wide decision, and the mail

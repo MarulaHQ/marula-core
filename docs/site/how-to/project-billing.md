@@ -1,3 +1,7 @@
+---
+description: "A ticket traces work to a client. But rollout projects and migrations live in Projects — and until now, project work that skipped tickets had no path to an…"
+---
+
 # How to bill project work — contracts, milestones, fees
 
 > **Audience:** admin (billing setup and runs are an admin + bookkeeper

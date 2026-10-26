@@ -1,3 +1,7 @@
+---
+description: 'The docs coverage ledger: which Core surfaces have a page, which are planned and where each gap is owned.'
+---
+
 # Docs coverage audit & IA plan (Wave 27 lane 1)
 
 Status: audit-only deliverable · Audit basis: Waves 11–26 GA product as of 2026-09-22

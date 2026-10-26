@@ -1,3 +1,7 @@
+---
+description: "The documented read model is a stable, versioned set of SQL views over operational data — the supported interface for direct SQL access and external…"
+---
+
 # Read model view catalog
 
 The documented read model is a stable, versioned set of SQL views over

@@ -1,3 +1,7 @@
+---
+description: "Marula keeps your organization's records in its own database. When you need a copy outside the app, for a migration, a compliance request, or a look at the…"
+---
+
 # How to export your data
 
 > **Audience:** admin — exports are owner/admin-only, and every run is audited.
@@ -14,6 +18,10 @@ Marula keeps your organization's records in its own database. When you need a co
 The export runs on the server for the whole org and writes an entry to the audit log.
 
 ## The signed link
+
+> [!IMPORTANT]
+> A live download link is a bearer secret: anyone holding it can fetch the
+> bundle for 15 minutes. Do not paste it into a ticket or a chat.
 
 The download link is self-contained. Anyone holding it can fetch the bundle for 15 minutes without signing in, and then it expires. Treat a live link like a secret, because that is the whole authorization story.
 

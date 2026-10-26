@@ -12,6 +12,7 @@
 //   5. AUDIENCE every **Audience:** tag starts with a known audience word
 //   6. WAYFIND the site index links the task entry points, the glossary and
 //              troubleshooting, and every start page reaches troubleshooting
+//   7. DESC    every site page has a description between 80 and 160 characters
 //
 // Exit 1 on any failure. Node only: no install, no network.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
@@ -208,6 +209,25 @@ for (const file of siteFiles) {
     fail(
       "AUDIENCE",
       `site/${relSite(file)} — tag starts with "${word}", expected one of ${AUDIENCES.join(", ")}`,
+    );
+  }
+}
+
+// --- 7. descriptions ---------------------------------------------------------
+
+for (const file of siteFiles) {
+  const src = readFileSync(file, "utf8");
+  const frontmatter = src.match(/^---\n([\s\S]*?)\n---\n/);
+  const raw = frontmatter?.[1].match(/^description:\s*(.+)$/m)?.[1]?.trim();
+  const description = raw?.replace(/^["']|["']$/g, "");
+  if (!description) {
+    fail("DESC", `site/${relSite(file)} — missing frontmatter description`);
+    continue;
+  }
+  if (description.length < 80 || description.length > 160) {
+    fail(
+      "DESC",
+      `site/${relSite(file)} — description is ${description.length} chars, expected 80–160`,
     );
   }
 }

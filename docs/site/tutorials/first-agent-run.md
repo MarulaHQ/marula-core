@@ -1,3 +1,7 @@
+---
+description: "In many tools, turning on AI means letting a bot rewrite tickets or email clients behind your back."
+---
+
 # Tutorial: your first agent run
 
 > **Audience:** admin — enrollment and grants are admin settings. The

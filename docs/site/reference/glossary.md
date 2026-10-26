@@ -1,3 +1,7 @@
+---
+description: "The words this documentation assumes. Terms are grouped by where you meet them, not alphabetically, because \"what is a board\" and \"what is an optimistic…"
+---
+
 # Glossary
 
 The words this documentation assumes. Terms are grouped by where you meet them,

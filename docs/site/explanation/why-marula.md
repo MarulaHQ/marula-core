@@ -1,3 +1,7 @@
+---
+description: "Marula's positioning narrative, quoted verbatim: why the PSA was built and what it refuses to repeat."
+---
+
 # Why we're building Marula
 
 > The canonical positioning narrative is [`MANIFESTO.md`](../../../MANIFESTO.md).

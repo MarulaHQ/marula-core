@@ -1,3 +1,7 @@
+---
+description: "The portal is not a theme on the staff product. It is a separate trust zone with its own principals, its own sign-in shell, and its own knowledge gate."
+---
+
 # The portal isolation model
 
 > **Audience:** both — admins provision; clients live inside a boundary

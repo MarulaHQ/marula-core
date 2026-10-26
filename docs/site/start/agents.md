@@ -1,3 +1,7 @@
+---
+description: "Marula separates three things that are easy to blur: what an agent may do (grants), what it did (provenance and audit), and what the platform exposes (API…"
+---
+
 # Agent and automation tasks
 
 > **Audience:** developer or admin building something that acts on Marula — an

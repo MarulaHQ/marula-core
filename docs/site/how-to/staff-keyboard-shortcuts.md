@@ -1,3 +1,7 @@
+---
+description: "You can navigate boards, create tickets, copy record links, and search across Marula without taking your hands off the keyboard."
+---
+
 # How to use the keyboard shortcuts
 
 > **Audience:** both — every signed-in staff member (owners, dispatchers,

@@ -1,3 +1,7 @@
+---
+description: "Marula ships AI deny-by-default: the org switch stays off until grants, caps and credentials make a surface audible."
+---
+
 # AI: deny-by-default and the decision harness
 
 > **Audience:** both — admins decide; every staff member experiences the

@@ -1,3 +1,7 @@
+---
+description: "The Client Portal lets your customers submit support requests, view their invoices, read client-facing help articles, and book appointment slots without…"
+---
+
 # How to set up the portal
 
 > **Audience:** admin — provisioning portal users and deciding exposure is

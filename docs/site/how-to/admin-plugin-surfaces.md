@@ -1,3 +1,7 @@
+---
+description: "The \"Connector?\" column is ADR 0017 decision 3, and the split is by KIND, not by who wrote the plugin."
+---
+
 # How to extend Marula with plugin surfaces
 
 > **Audience:** admin and plugin developers — registering widgets,

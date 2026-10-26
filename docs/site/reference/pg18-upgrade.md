@@ -1,3 +1,7 @@
+---
+description: "Marula runs Postgres 18 + pgvector everywhere since the 2026-09 transition (deploy/docker-compose.yml, the Helm chart, and the desktop test app all pin…"
+---
+
 # Upgrading Postgres 17 to 18
 
 Marula runs Postgres 18 + pgvector everywhere since the 2026-09 transition
@@ -14,6 +18,10 @@ Two paths:
 | `pg_upgrade` in place | seconds of read-only cutover | large clusters where dump time hurts |
 
 ## Before you touch anything
+
+> [!WARNING]
+> Do not start the cutover until a backup has restored once. A backup that has
+> never restored is not a backup.
 
 1. Take a backup that has actually restored once. If you use the backup
    profile, run `deploy/backup/restore.sh` against last night's dump first.

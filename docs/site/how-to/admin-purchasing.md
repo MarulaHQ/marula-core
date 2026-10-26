@@ -1,3 +1,7 @@
+---
+description: "Purchasing lives at Purchasing (/purchasing). A purchase order is the paper trail from \"we need this\" to \"it is on the shelf and the bill is posted\"…"
+---
+
 # How to buy: vendors, purchase orders, receiving, bills
 
 > **Audience:** both — office staff raise and receive orders; admins own

@@ -1,3 +1,7 @@
+---
+description: "Six settings decisions, in a fixed order, all on Settings → AI. The cards on that page sit in the order of the steps below."
+---
+
 # How to bring up AI with your own API keys
 
 > **Audience:** admin — you own the org settings, and you are the one who has

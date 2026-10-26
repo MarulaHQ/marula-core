@@ -1,3 +1,7 @@
+---
+description: "When an owner or service lead asks \"Who changed this client's billing rate?\" or \"Who viewed that domain admin password yesterday?\", you need a straight…"
+---
+
 # Provenance vs audit: two append-only ledgers, different granularity
 
 > **Audience:** both — staff read provenance during disputes; admins own

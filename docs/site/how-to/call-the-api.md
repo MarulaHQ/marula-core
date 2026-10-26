@@ -1,3 +1,7 @@
+---
+description: "Every action in the Marula web app, desktop app, and mobile app goes through the same /api/v1/… REST API."
+---
+
 # How to call the API
 
 > **Audience:** both — developers and self-host operators calling the API directly.

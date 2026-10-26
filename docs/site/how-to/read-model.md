@@ -1,3 +1,7 @@
+---
+description: "Because you own your PostgreSQL database, you can connect Metabase, Grafana, Power BI, or psql directly to Marula for custom reporting."
+---
+
 # How to report against the read model
 
 > **Audience:** both — reporting authors (staff or admin) querying the stable SQL views.

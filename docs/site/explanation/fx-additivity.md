@@ -1,3 +1,7 @@
+---
+description: "Two contracts govern money in multi-currency stacks, and they travel together. The command-side procedure is the FX how-to; this page explains the why they…"
+---
+
 # FX additivity and the append-only rate book
 
 > **Audience:** both — billing practitioners read reconciliation totals

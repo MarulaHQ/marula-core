@@ -1,3 +1,7 @@
+---
+description: "The day pack is the trip preparation panel at the top of Today. It answers three questions before you leave."
+---
+
 # How to work a day pack
 
 > **Audience:** both — technicians run the pack from `/today`, and

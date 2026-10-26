@@ -1,3 +1,7 @@
+---
+description: "Every MSP runs its service desk a little differently: you have your own board column names, custom client fields, SLA rules, and ticket automations."
+---
+
 # Customizations are data, not code
 
 Every MSP runs its service desk a little differently: you have your own board column names, custom client fields, SLA rules, and ticket automations. In Marula, every one of those customizations is stored as structured database rows tied to fixed underlying stages rather than custom scripts. That design choice ([`docs/upgrade-compatibility-policy.md`](../../upgrade-compatibility-policy.md) §5) is why you can customize your workspace freely and still upgrade to new versions without things breaking.

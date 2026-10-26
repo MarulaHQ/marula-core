@@ -1,3 +1,7 @@
+---
+description: "Installing a plugin or external connector in an MSP platform is a high-trust security decision."
+---
+
 # How to configure the plugin consent flow
 
 > **Audience:** admin — plugin installation, consent, and cap grants are

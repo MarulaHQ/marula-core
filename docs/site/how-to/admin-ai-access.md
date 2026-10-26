@@ -1,3 +1,7 @@
+---
+description: "Marula treats AI as an optional tool that you control down to each role and screen."
+---
+
 # How to manage AI access
 
 > **Audience:** admin — the master switch and per-surface grants are

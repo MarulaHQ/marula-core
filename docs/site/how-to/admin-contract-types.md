@@ -1,3 +1,7 @@
+---
+description: "A contract is one client's answer to how do we get paid for this work? The type you pick decides what the engine evaluates."
+---
+
 # How to price a service contract
 
 > **Audience:** admin — the contract editor is a settings-owner surface

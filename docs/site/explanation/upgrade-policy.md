@@ -1,3 +1,7 @@
+---
+description: "Marula asks organizations to bet their operating system on it. That bet is only rational if upgrades are boring. Two commitments define the whole document:"
+---
+
 # The upgrade compatibility policy
 
 > The binding text is

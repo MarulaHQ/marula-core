@@ -1,3 +1,7 @@
+---
+description: "When you launch a fresh Marula install, you create your organization and first administrator account right from the sign-in screen."
+---
+
 # How to bootstrap your first organization
 
 > **Audience:** admin — you are creating the org you will administer.
@@ -8,6 +12,9 @@ When you launch a fresh Marula install, you create your organization and first a
 
 - A reachable Marula server in your browser (or the desktop app — see [Self-host local stack reference](../reference/self-host-local-stack.md)).
 - Each user account belongs to one organization.
+
+> [!NOTE]
+> The first owner account is the recovery path for the org. Use a real mailbox you control, and add a second owner before launch.
 
 ## 1. Switch to Create org on the sign-in page
 

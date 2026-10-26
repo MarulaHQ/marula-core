@@ -1,3 +1,7 @@
+---
+description: "Today is the first screen after sign-in. It reads the same dispatch board the office sees, narrowed to your bookings:"
+---
+
 # How to run a service day from the phone
 
 > **Audience:** both — technicians work the day from this page. Dispatchers read

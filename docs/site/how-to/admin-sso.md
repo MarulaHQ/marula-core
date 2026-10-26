@@ -1,3 +1,7 @@
+---
+description: "Single Sign-On (SSO) lets your staff sign in to Marula through your company's identity provider (such as Google Workspace, Microsoft Entra ID, Okta, or…"
+---
+
 # How to connect an IdP (SSO)
 
 > **Audience:** admin — IdP wiring is a settings-owner decision; every
@@ -17,6 +21,10 @@ Every SSO login follows a three-step redirect handshake:
 1. **Start at Marula's login page:** The staff member clicks your SSO provider on `/login`, and Marula redirects their browser to your IdP. (Bookmarking or opening the internal SSO callback URL directly without starting at login shows `"Missing handoff code"` because no sign-in state was started.)
 2. **Authenticate at your IdP:** Your IdP verifies the user's password or passkey along with corporate MFA policies.
 3. **Return with a one-time handoff code:** Your IdP redirects back to Marula with a short-lived code, which Marula exchanges for a full staff session.
+
+> [!WARNING]
+> Test the full round-trip with a non-owner account before you require SSO for
+> the domain. Keep one recovery path until the test passes.
 
 ## 1. Configure your identity provider
 

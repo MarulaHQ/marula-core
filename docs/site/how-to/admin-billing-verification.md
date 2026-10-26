@@ -1,3 +1,7 @@
+---
+description: "An invoice run prices what it finds. Verification is where a human reads that same window first, decides what each entry really is, lowers the ones that…"
+---
+
 # How to verify a billing period before you invoice it
 
 > **Audience:** admin — the verification workspace is the gate between

@@ -1,3 +1,7 @@
+---
+description: "Stock lives at Stock (/stock). The board reads the same on-hand rows the low-stock alerts use, so the numbers you see here are the numbers automations act on."
+---
+
 # How to run stock and use parts
 
 > **Audience:** both — technicians receive and consume parts at the job;

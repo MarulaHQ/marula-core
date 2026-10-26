@@ -1,3 +1,7 @@
+---
+description: "Pick the row that matches your job. Each page lists tasks in the words people actually use (\"a customer cannot log in\", \"I need to close the month\") and…"
+---
+
 # Start here
 
 Pick the row that matches your job. Each page lists tasks in the words people

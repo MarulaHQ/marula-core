@@ -1,0 +1,158 @@
+{
+  "home": "index",
+  "exclude": ["README", "DOCS-COVERAGE"],
+  "sections": [
+    {
+      "label": "Start here",
+      "items": [
+        "start/index",
+        "start/owners",
+        "start/admins",
+        "start/technicians",
+        "start/operators",
+        "start/agents",
+        "how-to/index"
+      ]
+    },
+    {
+      "label": "Tutorials",
+      "items": [
+        "tutorials/index",
+        "tutorials/first-ticket",
+        "tutorials/first-invoice",
+        "tutorials/first-inventory-sync",
+        "tutorials/first-agent-run",
+        "tutorials/portal-onboarding",
+        "tutorials/first-ticket-api"
+      ]
+    },
+    {
+      "label": "Set up and administer",
+      "items": [
+        "how-to/admin-org-bootstrap",
+        "how-to/admin-users-invites",
+        "how-to/admin-sso",
+        "how-to/admin-email",
+        "how-to/admin-sla-calendars",
+        "how-to/admin-workflow-categories",
+        "how-to/admin-automation-rules",
+        "how-to/admin-labels",
+        "how-to/admin-imports",
+        "how-to/admin-dashboards-reports",
+        "how-to/admin-csat-surveys",
+        "how-to/admin-toolboxes",
+        "how-to/admin-reply-snippets",
+        "how-to/admin-purchasing"
+      ]
+    },
+    {
+      "label": "Tickets, time and field work",
+      "items": [
+        "how-to/staff-work-a-ticket",
+        "how-to/staff-time-categories",
+        "how-to/staff-day-pack",
+        "how-to/staff-multi-window",
+        "how-to/staff-keyboard-shortcuts",
+        "how-to/staff-accessibility",
+        "how-to/staff-email-signature",
+        "how-to/staff-scanning",
+        "how-to/staff-stock-and-parts",
+        "how-to/staff-tools-and-loans",
+        "how-to/staff-dispatch",
+        "how-to/admin-routing-travel",
+        "how-to/technician-service-day",
+        "how-to/technician-field-ops",
+        "how-to/technician-mobile-app",
+        "how-to/technician-tools-and-parts"
+      ]
+    },
+    {
+      "label": "Billing and contracts",
+      "items": [
+        "how-to/project-billing",
+        "how-to/admin-billing-verification",
+        "how-to/admin-contract-types",
+        "how-to/admin-fx-rates"
+      ]
+    },
+    {
+      "label": "Client portal",
+      "items": [
+        "how-to/admin-portal-setup",
+        "how-to/client-portal-tasks",
+        "how-to/client-quote-approval"
+      ]
+    },
+    {
+      "label": "Automation, API and agents",
+      "items": [
+        "how-to/call-the-api",
+        "how-to/read-model",
+        "how-to/admin-api-keys",
+        "how-to/admin-ai-bringup",
+        "how-to/admin-ai-access",
+        "how-to/admin-local-ai-models",
+        "how-to/admin-plugin-surfaces",
+        "how-to/admin-plugin-consent",
+        "how-to/customize"
+      ]
+    },
+    {
+      "label": "Self-host and operate",
+      "items": [
+        "how-to/upgrade",
+        "how-to/export-data",
+        "how-to/local-demo-stack",
+        "how-to/operator-embedding-model",
+        "how-to/operator-retrieval-mode",
+        "how-to/admin-self-host-services"
+      ]
+    },
+    {
+      "label": "Reference",
+      "items": [
+        "reference/index",
+        "reference/api",
+        "reference/openapi",
+        "reference/glossary",
+        "reference/billing-schemas",
+        "reference/read-model",
+        "reference/routing",
+        "reference/backup-restore",
+        "reference/self-host-local-stack",
+        "reference/self-host-local-ai",
+        "reference/self-host-observability",
+        "reference/reverse-proxy-tls",
+        "reference/db-observability",
+        "reference/pg18-upgrade",
+        "reference/upgrade-matrix",
+        "reference/embedding-model-catalogue"
+      ]
+    },
+    {
+      "label": "Explanation",
+      "items": [
+        "explanation/index",
+        "explanation/why-marula",
+        "explanation/instant-first",
+        "explanation/ai-deny-by-default",
+        "explanation/customizations-are-data",
+        "explanation/provenance-vs-audit",
+        "explanation/billing-corrections",
+        "explanation/contract-relationship-types",
+        "explanation/fx-additivity",
+        "explanation/kb-class-categories",
+        "explanation/portal-isolation",
+        "explanation/upgrade-policy"
+      ]
+    },
+    {
+      "label": "Troubleshooting",
+      "items": ["troubleshooting"]
+    },
+    {
+      "label": "Get help",
+      "items": ["how-to/get-help"]
+    }
+  ]
+}

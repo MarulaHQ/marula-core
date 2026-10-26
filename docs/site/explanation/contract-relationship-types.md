@@ -1,3 +1,7 @@
+---
+description: "A Marula contract is the commercial answer to one question: how does this client pay for this work?"
+---
+
 # Contracts: one shape per client relationship
 
 > **Audience:** both. Admins own contract setup. Staff see the type on

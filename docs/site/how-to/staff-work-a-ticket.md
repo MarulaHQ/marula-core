@@ -1,3 +1,7 @@
+---
+description: "Working a ticket in Marula happens on one screen so you don't lose your place switching between notes, your stopwatch, and client documentation."
+---
+
 # How to work a ticket
 
 > **Audience:** both — this is the daily loop for MSP staff; admins run it

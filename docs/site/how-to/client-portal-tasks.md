@@ -1,3 +1,7 @@
+---
+description: "The Client Portal gives you a single place to open support requests, check the status of ongoing work, review invoices, read help guides written for your…"
+---
+
 # How to use the portal (client-side tasks)
 
 > **Audience:** both — the steps are yours as a client. Your service

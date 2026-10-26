@@ -1,3 +1,7 @@
+---
+description: "When an external script, monitoring tool, or custom integration needs to call Marula's API without a human signing in, you issue a scoped API key under…"
+---
+
 # How to manage API keys
 
 > **Audience:** admin — machine credentials are settings-owner work.
