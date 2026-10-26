@@ -88,7 +88,7 @@ for the SDK/plugins. Code examples copied from AGPL code remain AGPL.
 Suggested attribution for a mirror or excerpt:
 
 > Documentation © 2026 Marula, licensed CC BY 4.0. Source:
-> https://github.com/marulahq/marula/tree/main/docs/site
+> https://github.com/marulahq/marula-core/tree/main/docs/site
 
 ## Rules
 

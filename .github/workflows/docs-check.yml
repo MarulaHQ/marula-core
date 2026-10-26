@@ -1,0 +1,24 @@
+name: Docs check
+
+on:
+  pull_request:
+    paths:
+      - "docs/site/**"
+      - "docs/adr/**"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - ".github/workflows/docs-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node docs/site/scripts/check-docs-site.mjs
+      - run: node docs/site/scripts/check-docs-ia.mjs
