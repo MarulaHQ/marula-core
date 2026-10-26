@@ -37,7 +37,7 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Badge, Button, EmptyState, Spinner } from "@marula-core/ui";
+import { Badge, Button, EmptyState, Spinner, useFocusTrap } from "@marula-core/ui";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -822,6 +822,12 @@ function LibraryPanel({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const libRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  // Dialog contract, one implementation: focus moves in (the search
+  // field, not the first button), Tab cycles inside, Escape dismisses,
+  // focus returns to the opener on close.
+  useFocusTrap(libRef, true, onClose, searchRef);
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = palette.filter(
@@ -835,7 +841,7 @@ function LibraryPanel({
   }, [palette, query]);
 
   return (
-    <div className="wf-lib" role="dialog" aria-label="Add a step">
+    <div ref={libRef} className="wf-lib" role="dialog" aria-modal="true" aria-label="Add a step">
       <div className="wf-lib-h">
         <div className="wf-lib-hrow">
           <b className="wf-lib-title">Add a step</b>
@@ -845,12 +851,12 @@ function LibraryPanel({
           </Button>
         </div>
         <input
+          ref={searchRef}
           className="wf-fi wf-fi-search"
           placeholder="Search steps"
           aria-label="Search steps"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          autoFocus
         />
       </div>
       <div className="wf-lib-b">

@@ -110,8 +110,11 @@ pub fn filter_granted(tools: Vec<Tool>, granted_namespaces: &HashSet<String>) ->
         .collect()
 }
 
-/// Interpolates `{param}` path templates from the call arguments; a
-/// missing path parameter is a validation error.
+/// Interpolates `{param}` template segments from the call arguments; a
+/// missing path parameter is a validation error. Every value is
+/// percent-encoded before substitution: an argument can never add a path
+/// segment (`/`), open a query (`?`), or close the path (`#`) — the
+/// proxied request lands on exactly the endpoint the tool declared.
 pub fn resolve_path(tool: &Tool, args: &Value) -> Result<String, String> {
     let mut out = tool.path.clone();
     for seg in tool.path.split('/') {
@@ -120,7 +123,7 @@ pub fn resolve_path(tool: &Tool, args: &Value) -> Result<String, String> {
                 .get(name)
                 .and_then(Value::as_str)
                 .ok_or_else(|| format!("missing path parameter: {name}"))?;
-            out = out.replace(seg, value);
+            out = out.replace(seg, &urlencoded(value));
         }
     }
     Ok(out)
@@ -227,6 +230,20 @@ mod tests {
             "/api/clients/abc"
         );
         assert!(resolve_path(one, &json!({})).is_err());
+    }
+
+    /// An argument can never reshape the proxied URL: `/` is encoded so a
+    /// value cannot add segments (traversal onto another endpoint), and
+    /// `?`/`#` cannot open a query or close the path.
+    #[test]
+    fn resolve_path_percent_encodes_reshaping_characters() {
+        let tools = build_catalog(&sample_spec());
+        let one = tools.iter().find(|t| t.name == "clients_get_one").unwrap();
+        let path = resolve_path(one, &json!({"id": "../api/v1/audit-events"})).unwrap();
+        assert_eq!(path, "/api/clients/..%2Fapi%2Fv1%2Faudit-events");
+        assert!(!path.contains("/../"), "no literal traversal segment");
+        let path = resolve_path(one, &json!({"id": "x?admin=1#y"})).unwrap();
+        assert_eq!(path, "/api/clients/x%3Fadmin%3D1%23y");
     }
 
     #[test]

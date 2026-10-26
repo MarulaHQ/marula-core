@@ -320,6 +320,19 @@ export default function TicketWorkbenchPage() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // The overlay drawer (narrow + mid widths only — the wide layout's
+  // panel is persistent and must not vanish on a stray Escape) closes on
+  // Escape wherever focus sits: the scrim div itself is rarely
+  // focusable, so the window is the reliable layer.
+  useEffect(() => {
+    if (!contextOpen || (!narrow && !midWidth)) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setContextOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [contextOpen, narrow, midWidth]);
+
   // Day-pack pins for this ticket (best-effort; the strip hides on a
   // refused read and the pin action still writes).
   useEffect(() => {
@@ -1516,7 +1529,15 @@ async function changeStatus(statusId: string): Promise<void> {
 
       {/* Drawer overlays (narrow + mid widths) */}
       {(narrow || midWidth) && contextOpen && !showContext && (
-        <div className="fixed inset-0 z-40 flex" style={{ background: "var(--m-scrim)" }} onClick={() => setContextOpen(false)}>
+        <div
+          className="fixed inset-0 z-40 flex"
+          style={{ background: "var(--m-scrim)" }}
+          role="presentation"
+          onClick={() => setContextOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setContextOpen(false);
+          }}
+        >
           <div className="h-full" style={{ width: 300, background: "var(--m-surface)" }} onClick={(e) => e.stopPropagation()}>
             <WbContextPanel
               clientId={ticket?.client_id ?? null}
