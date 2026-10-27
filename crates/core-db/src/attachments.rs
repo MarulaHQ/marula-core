@@ -320,13 +320,45 @@ pub async fn delete(
 /// holds. A table added to the declaration without a decision here still makes
 /// the sweep claim it, which is the safe direction; the test closes the unsafe
 /// one.
-pub const ATTACHMENT_REF_TABLES: &[(&str, &str)] = &[
-    (
-        "attachments",
-        "0024 — ticket, ticket-comment and inbound-email files",
-    ),
-    ("documents_attachments", "0089 — document files"),
+pub const ATTACHMENT_REF_TABLES: &[AttachmentRefTable] = &[
+    AttachmentRefTable {
+        table: "attachments",
+        why: "0024 — ticket, ticket-comment and inbound-email files",
+        ticket_id: "t.ticket_id",
+        uploaded_by: "t.uploaded_by_user_id",
+        uploaded_by_portal_user: "t.uploaded_by_portal_user_id",
+    },
+    AttachmentRefTable {
+        table: "documents_attachments",
+        why: "0089 — document files",
+        ticket_id: "NULL::uuid",
+        uploaded_by: "t.uploaded_by",
+        uploaded_by_portal_user: "NULL::uuid",
+    },
 ];
+
+/// One table in [`ATTACHMENT_REF_TABLES`], with the columns the unverdict view
+/// reads from it.
+///
+/// The refcount only needs the table name. The unverdict view needs the same
+/// rows in one shape: a document attachment has no ticket and names its
+/// uploader in `uploaded_by`, a ticket attachment names it in
+/// `uploaded_by_user_id`. Those differences are declared once, here, so the
+/// query is generated from the list instead of being a hand-written union that
+/// a new table never reaches (F74).
+#[derive(Debug, Clone, Copy)]
+pub struct AttachmentRefTable {
+    /// Table holding the rows.
+    pub table: &'static str,
+    /// Why the table is in the list, in the migration's words.
+    pub why: &'static str,
+    /// The ticket column, or a `NULL::uuid` expression when it has none.
+    pub ticket_id: &'static str,
+    /// The uploader column, aliased as `t`.
+    pub uploaded_by: &'static str,
+    /// The portal-uploader column, or a `NULL::uuid` expression.
+    pub uploaded_by_portal_user: &'static str,
+}
 
 /// Tables that hold an attachment object's key and must NOT keep it alive,
 /// each with the reason it is excluded from [`ATTACHMENT_REF_TABLES`].
@@ -374,12 +406,12 @@ pub const ATTACHMENT_KEY_TABLES_NOT_REFERENCES: &[(&str, &str)] = &[
 #[must_use]
 pub fn other_refs_sql() -> String {
     let mut sql = String::from("SELECT count(*) FROM (");
-    for (i, (table, _why)) in ATTACHMENT_REF_TABLES.iter().enumerate() {
+    for (i, entry) in ATTACHMENT_REF_TABLES.iter().enumerate() {
         if i > 0 {
             sql.push_str(" UNION ALL ");
         }
         sql.push_str("SELECT 1 FROM ");
-        sql.push_str(table);
+        sql.push_str(entry.table);
         sql.push_str(" WHERE org_id = $1 AND storage_key = $2 AND id <> $3");
     }
     sql.push_str(") refs");
@@ -518,20 +550,28 @@ pub struct UnverdictObject {
 /// tables is one object and must produce one verdict — hence `DISTINCT ON`,
 /// oldest row first. `$1` narrows the walk to one org; NULL means every org,
 /// which is why the operator command needs a connection that bypasses RLS.
-const UNVERDICT_OBJECTS: &str = r#"
-WITH objects AS (
-    SELECT a.org_id, a.sha256, a.storage_key, a.content_type, a.filename,
-           a.size_bytes, a.ticket_id, a.uploaded_by_user_id,
-           a.uploaded_by_portal_user_id, a.created_at
-      FROM attachments a
-     WHERE ($1::uuid IS NULL OR a.org_id = $1)
-    UNION ALL
-    SELECT d.org_id, d.sha256, d.storage_key, d.content_type, d.filename,
-           d.size_bytes, NULL::uuid, d.uploaded_by,
-           NULL::uuid, d.created_at
-      FROM documents_attachments d
-     WHERE ($1::uuid IS NULL OR d.org_id = $1)
-), missing AS (
+fn unverdict_objects_sql() -> String {
+    let mut arms = String::new();
+    for (i, entry) in ATTACHMENT_REF_TABLES.iter().enumerate() {
+        if i > 0 {
+            arms.push_str(" UNION ALL\n");
+        }
+        arms.push_str(&format!(
+            "    SELECT t.org_id, t.sha256, t.storage_key, t.content_type, t.filename,
+                    t.size_bytes, {ticket}, {uploader},
+                    {portal}, t.created_at
+               FROM {table} t
+              WHERE ($1::uuid IS NULL OR t.org_id = $1)
+",
+            ticket = entry.ticket_id,
+            uploader = entry.uploaded_by,
+            portal = entry.uploaded_by_portal_user,
+            table = entry.table,
+        ));
+    }
+    format!(
+        r#"WITH objects AS (
+{arms}), missing AS (
     SELECT DISTINCT ON (o.org_id, o.sha256)
            o.org_id, o.sha256, o.storage_key, o.content_type, o.filename,
            o.size_bytes, o.ticket_id, o.uploaded_by_user_id,
@@ -542,7 +582,9 @@ WITH objects AS (
                 WHERE s.org_id = o.org_id AND s.sha256 = o.sha256)
      ORDER BY o.org_id, o.sha256, o.created_at
 )
-"#;
+"#
+    )
+}
 
 /// One page of objects missing a verdict, past a `(org_id, sha256)` keyset
 /// cursor and ordered by it.
@@ -563,14 +605,15 @@ where
 {
     let (after_org, after_sha) = after.unwrap_or((Uuid::nil(), String::new()));
     let rows = sqlx::query_as::<_, UnverdictObject>(&format!(
-        r#"{UNVERDICT_OBJECTS}
+        r#"{}
            SELECT org_id, sha256, storage_key, content_type, filename,
                   size_bytes, ticket_id, uploaded_by_user_id,
                   uploaded_by_portal_user_id
              FROM missing
             WHERE (org_id, sha256) > ($2::uuid, $3::text)
             ORDER BY org_id, sha256
-            LIMIT $4"#
+            LIMIT $4"#,
+        unverdict_objects_sql()
     ))
     .bind(org_id)
     .bind(after_org)
@@ -591,8 +634,9 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rows = sqlx::query_as::<_, (Uuid, i64)>(&format!(
-        r#"{UNVERDICT_OBJECTS}
-           SELECT org_id, count(*)::bigint FROM missing GROUP BY org_id ORDER BY org_id"#
+        r#"{}
+           SELECT org_id, count(*)::bigint FROM missing GROUP BY org_id ORDER BY org_id"#,
+        unverdict_objects_sql()
     ))
     .bind(org_id)
     .fetch_all(executor)
@@ -648,7 +692,8 @@ mod tests {
             sql.starts_with("SELECT count(*) FROM ("),
             "one statement over one UNION ALL set: {sql}"
         );
-        for (table, _why) in ATTACHMENT_REF_TABLES {
+        for entry in ATTACHMENT_REF_TABLES {
+            let table = entry.table;
             assert!(
                 sql.contains(&format!(
                     "FROM {table} WHERE org_id = $1 AND storage_key = $2 AND id <> $3"
@@ -674,6 +719,30 @@ mod tests {
         }
     }
 
+    /// The unverdict view is generated from the same list the refcount counts,
+    /// so a table that owns attachment objects cannot be missing from one reader
+    /// and present in the other (F74).
+    #[test]
+    fn the_unverdict_view_asks_every_owner_table() {
+        let sql = unverdict_objects_sql();
+        for entry in ATTACHMENT_REF_TABLES {
+            assert!(
+                sql.contains(&format!("FROM {} t", entry.table)),
+                "{} owns attachment objects but the unverdict view does not ask it: {sql}",
+                entry.table
+            );
+        }
+        assert_eq!(
+            sql.matches("UNION ALL").count(),
+            ATTACHMENT_REF_TABLES.len() - 1,
+            "one UNION ALL per extra table: {sql}"
+        );
+        assert!(
+            sql.contains("attachment_scans"),
+            "the verdict join is missing: {sql}"
+        );
+    }
+
     /// The exclusion list carries a reason for every table, because the reason
     /// is what stops a future reader from "fixing" the omission.
     #[test]
@@ -684,7 +753,7 @@ mod tests {
                 "{table} is excluded without a reason"
             );
             assert!(
-                !ATTACHMENT_REF_TABLES.iter().any(|(t, _)| t == table),
+                !ATTACHMENT_REF_TABLES.iter().any(|e| e.table == *table),
                 "{table} is in both lists, so the inventory disagrees with itself"
             );
         }
@@ -700,7 +769,7 @@ mod tests {
             .iter()
             .map(|entry| entry.table)
             .collect();
-        let listed: Vec<&str> = ATTACHMENT_REF_TABLES.iter().map(|(t, _)| *t).collect();
+        let listed: Vec<&str> = ATTACHMENT_REF_TABLES.iter().map(|e| e.table).collect();
         for table in &declared {
             assert!(
                 listed.contains(table),

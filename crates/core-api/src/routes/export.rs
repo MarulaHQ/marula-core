@@ -57,13 +57,6 @@ use uuid::Uuid;
 /// its own without any revocation machinery.
 const DOWNLOAD_TTL_SECS: i64 = 15 * 60;
 
-/// The canonical ObjectStore key for an org's export bundle. Content is
-/// identified by the export id, namespaced per org — keys stay opaque.
-#[must_use]
-fn export_key(org_id: Uuid, export_id: Uuid) -> String {
-    format!("org/{org_id}/exports/{export_id}/bundle.json")
-}
-
 /// The exact signing message for a download token. Keep in ONE place so
 /// sign and verify can never drift.
 fn signing_message(org_id: Uuid, export_id: Uuid, expires: i64) -> Vec<u8> {
@@ -120,7 +113,7 @@ pub async fn create(
     let body = serde_json::to_vec_pretty(&bundle)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("bundle serialize: {e}")))?;
     let sha256 = hex::encode(Sha256::digest(&body));
-    let key = export_key(org_id, export_id);
+    let key = core_store::export_bundle_key(org_id, export_id);
     let meta = state
         .store
         .put(&key, "application/json", bytes::Bytes::from(body))
@@ -205,7 +198,7 @@ pub async fn download(
 
     let obj = state
         .store
-        .get(&export_key(org_id, export_id))
+        .get(&core_store::export_bundle_key(org_id, export_id))
         .await
         .map_err(crate::routes::attachments::store_error)?;
     Response::builder()

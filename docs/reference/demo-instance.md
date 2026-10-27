@@ -41,7 +41,7 @@ export MARULA_SECRET_KEY=$(openssl rand -hex 32)
 export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
 export POSTGRES_PASSWORD=$(openssl rand -hex 32)
-export MARULA_APP_PASSWORD=marula_app
+export MARULA_APP_PASSWORD=$(openssl rand -hex 32)
 export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
 export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
 

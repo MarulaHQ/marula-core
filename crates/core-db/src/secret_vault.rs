@@ -852,28 +852,50 @@ pub async fn set_file_pointer(
     get_record(conn, org_id, id).await
 }
 
-/// Counts other document records in the org pointing at the same storage
-/// key (content-addressed ciphertext dedup — safe object deletion check).
+/// The tables whose rows can reference one vault ciphertext object.
+///
+/// The vault is its own key space (`org/<org>/secrets/<ciphertext sha256>`), so
+/// it has its own refcount rather than borrowing the attachment one. It is a
+/// CHECKED PROJECTION of [`crate::object_inventory::ENTRIES`]: the entries whose
+/// key column is `object_key` are exactly this list, and
+/// `vault_refcount_is_the_declarations_vault_projection` fails when the two
+/// disagree. Wave 59 recorded this as a hand-written one-table refcount (F75);
+/// the projection is what makes a second vault-referencing table fail a test
+/// instead of leaking ciphertext a reveal still needs.
+pub const VAULT_REF_TABLES: &[&str] = &["secret_records"];
+
+/// The refcount statement: `COUNT(*)` over one `UNION ALL` arm per table in
+/// [`VAULT_REF_TABLES`], with the org-or-client scope every vault row uses.
+#[must_use]
+pub fn vault_refs_sql() -> String {
+    let mut sql = String::from("SELECT COUNT(*) FROM (");
+    for (i, table) in VAULT_REF_TABLES.iter().enumerate() {
+        if i > 0 {
+            sql.push_str(" UNION ALL ");
+        }
+        sql.push_str(&format!(
+            "SELECT 1 FROM {table} sr WHERE {} AND sr.object_key = $2 AND sr.id <> $3",
+            in_org_scope("sr", 1)
+        ));
+    }
+    sql.push_str(") refs");
+    sql
+}
+
+/// Counts other rows pointing at the same vault ciphertext (content-addressed
+/// dedup — the safe object deletion check).
 pub async fn count_other_file_refs(
     conn: &mut PgConnection,
     org_id: Uuid,
     object_key: &str,
     exclude_record: Uuid,
 ) -> DbResult<i64> {
-    let refs_scope = in_org_scope("sr", 1);
-    let n: i64 = sqlx::query_scalar(
-        ("SELECT COUNT(*) FROM secret_records sr
-         WHERE "
-            .to_string()
-            + &refs_scope
-            + " AND sr.object_key = $2 AND sr.id <> $3")
-            .as_str(),
-    )
-    .bind(org_id)
-    .bind(object_key)
-    .bind(exclude_record)
-    .fetch_one(&mut *conn)
-    .await?;
+    let n: i64 = sqlx::query_scalar(&vault_refs_sql())
+        .bind(org_id)
+        .bind(object_key)
+        .bind(exclude_record)
+        .fetch_one(&mut *conn)
+        .await?;
     Ok(n)
 }
 
@@ -1059,7 +1081,7 @@ pub async fn folder_access(
 
 #[cfg(test)]
 mod restricted_defaults_tests {
-    use super::PRESET_ROLE_RESTRICTED_DEFAULTS;
+    use super::{vault_refs_sql, PRESET_ROLE_RESTRICTED_DEFAULTS, VAULT_REF_TABLES};
 
     /// The Wave 19 lane 2 PRODUCT DECISION, as a cheap code gate: exactly
     /// owner/admin default into restricted chains (read+edit); every
@@ -1075,5 +1097,39 @@ mod restricted_defaults_tests {
         for (_b, read, edit) in PRESET_ROLE_RESTRICTED_DEFAULTS {
             assert!(read && edit, "owner/admin grants carry read AND edit");
         }
+    }
+
+    /// The vault refcount is the declaration's vault projection, not a second
+    /// list. The vault key space is the `object_key` column in
+    /// `object_inventory`; a table that starts referencing vault ciphertext has
+    /// to be declared there with that column, and this test then fails until it
+    /// is counted here too (F75).
+    #[test]
+    fn vault_refcount_is_the_declarations_vault_projection() {
+        let declared: Vec<&'static str> = crate::object_inventory::ENTRIES
+            .iter()
+            .filter(|entry| entry.column == "object_key")
+            .map(|entry| entry.table)
+            .collect();
+        assert_eq!(
+            VAULT_REF_TABLES,
+            declared.as_slice(),
+            "the vault refcount and the object declaration disagree"
+        );
+        let sql = vault_refs_sql();
+        for table in VAULT_REF_TABLES {
+            assert!(
+                sql.contains(&format!("FROM {table} sr")),
+                "the refcount does not ask {table}: {sql}"
+            );
+        }
+        assert!(
+            sql.contains("sr.object_key = $2"),
+            "the key is not bound: {sql}"
+        );
+        assert!(
+            sql.contains("sr.id <> $3"),
+            "the caller's own row is not excluded: {sql}"
+        );
     }
 }

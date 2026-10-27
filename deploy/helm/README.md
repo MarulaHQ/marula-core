@@ -16,7 +16,14 @@ provenance attestations (`.github/workflows/release.yml`).
 Validate locally (helm 3.14+):
 
     helm lint marula
-    helm template marula --set digestPinningEnforced=false
+    helm template marula --set digestPinningEnforced=false \
+      --set postgresql.ownerPassword=local-owner \
+      --set postgresql.appPassword=local-app
+
+The two passwords are required whenever the chart mints its own Secret
+(`existingSecret` unset and `postgresql.deploy` true). A render without them
+fails on purpose: the chart used to fall back to `changeme-*` placeholders,
+which is a credential a careless install would keep.
 
 Non-purpose: not an operator dashboard; no cross-env secret management
 beyond documented values (set `existingSecret` for production secret

@@ -664,11 +664,11 @@ fn profiles() -> Vec<Profile> {
         sets: BTreeMap::from([
             (
                 "DATABASE_URL",
-                "postgres://marula_app:marula_app@pgbouncer:6432/marula",
+                "postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula",
             ),
             (
                 "MARULA_LISTEN_DATABASE_URL",
-                "postgres://marula_app:marula_app@postgres:5432/marula",
+                "postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula",
             ),
             ("MARULA_DB_STATEMENT_CACHE", "0"),
             ("MARULA_REPORTING_POOL_MAX", "8"),
@@ -3305,12 +3305,12 @@ mod tests {
         // that make it safe are part of the profile rather than prose.
         assert_eq!(
             p.sets.get("DATABASE_URL"),
-            Some(&"postgres://marula_app:marula_app@pgbouncer:6432/marula"),
-            "split dials the pooler"
+            Some(&"postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula"),
+            "split dials the pooler, and carries no credential of its own"
         );
         assert_eq!(
             p.sets.get("MARULA_LISTEN_DATABASE_URL"),
-            Some(&"postgres://marula_app:marula_app@postgres:5432/marula"),
+            Some(&"postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula"),
             "the LISTEN connection bypasses the pooler"
         );
         assert_eq!(p.sets.get("MARULA_DB_STATEMENT_CACHE"), Some(&"0"));

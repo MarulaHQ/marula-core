@@ -344,6 +344,10 @@ ingress:
   className: nginx
   host: marula.example.com
   tlsSecretName: marula-tls
+postgresql:
+  # The chart mints its Secret for this render, so both passwords are required.
+  ownerPassword: edge-check-owner
+  appPassword: edge-check-app
 coreApi:
   trustedProxies: "173.245.48.0/20,104.16.0.0/13"
 web:
