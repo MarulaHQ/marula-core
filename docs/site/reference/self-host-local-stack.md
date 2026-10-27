@@ -80,7 +80,9 @@ worker's outbox relay must read every organization's rows and therefore
 bypasses row-level security. The API connects as `marula_app`
 (RLS-constrained) so tenant isolation is enforced first by the database
 itself, with the application as the second line. `marula_app` and its
-grants are provisioned by migration 0001. Do not collapse the two roles.
+grants are provisioned by migration 0114 (which renamed the role from its
+pre-rebrand name), and its password is applied from `MARULA_APP_PASSWORD` on
+every bring-up. Do not collapse the two roles.
 
 ## Secrets
 
@@ -91,14 +93,18 @@ core-api must match, or sealed webhook secrets become undecryptable),
 `MARULA_APP_PASSWORD`, `GARAGE_RPC_SECRET` and `GLITCHTIP_SECRET_KEY`.
 Generate each one (`openssl rand -hex 32`) before the first boot, and keep
 them somewhere the host can read at teardown time — `down` interpolates the
-same file. Two are not simply generated: `POSTGRES_PASSWORD` is applied by
+same file. One is not simply generated: `POSTGRES_PASSWORD` is applied by
 initdb on the volume's first boot, so an existing volume keeps the password
-it was initialised with; and `MARULA_APP_PASSWORD` must match the
-`marula_app` role, which migration 0114 creates with the literal
-`marula_app`. A laptop stack can take the repository's published dev values
-instead (`--env-file deploy/dev.env`), which the stack warns about at every
-boot. Set `EMAIL_INBOUND_HMAC_SECRET` from the start as well: the inbound webhook
-mail path stays disabled until it is.
+it was initialised with. `MARULA_APP_PASSWORD` is generated like the others and
+applied to the `marula_app` role by the `app-role-password` one-shot on every
+bring-up — after migrations, before core-api — so a fresh volume ends with
+your value rather than the literal migration 0114 mints, and a rotation is an
+env change plus `up` (`deploy/README.md`, "Rotating the app role password").
+PgBouncer's auth file is rendered from those two values when the pooler
+starts, so no database password is checked in for it. A laptop stack can take
+the repository's published dev values instead (`--env-file deploy/dev.env`),
+which the stack warns about at every boot. Set `EMAIL_INBOUND_HMAC_SECRET` from
+the start as well: the inbound webhook mail path stays disabled until it is.
 
 Optional: asymmetric access-token signing. Set
 `MARULA_JWT_EDDSA_PRIVATE_KEY` and `MARULA_JWT_EDDSA_PUBLIC_KEY` (PEM

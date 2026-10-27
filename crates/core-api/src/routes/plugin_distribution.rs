@@ -142,6 +142,110 @@ fn capability_or_refuse(key: &str) -> ApiResult<PluginCapability> {
     })
 }
 
+// --- the digest-only rule (migration 0172) -----------------------------------
+
+/// The rule, in one place, for every surface that adopts a catalog version:
+/// **a manifest nobody signed is adoptable by the org that staged it, and by
+/// nobody else.**
+///
+/// `plugin_versions.manifest_authenticated` is `false` for a GitHub pull, a
+/// local archive, a legacy digest-only registry statement and a declarative
+/// publish — all of which are honest outcomes of their own path. Migration 0167
+/// recorded that verdict on the staged row and it died there, so a version whose
+/// manifest nobody signed was installable by any org through
+/// `POST /api/plugins/installed`, which resolves a SERVER-WIDE slug. This is the
+/// refusal that keeps the weaker claim from travelling.
+///
+/// What it does not block, and must not: the staging org's own adoption (it read
+/// the consent screen; `approve_staged` never reaches this function), and any
+/// cross-org adoption of a version a trusted key verified.
+///
+/// An entry with a NULL `origin_org_id` is an operator or seeded row that belongs
+/// to no org, so under this rule it is adoptable by none. "Authentication
+/// unknown" fails closed — the alternative is to read absence as a signature.
+pub(crate) async fn refuse_unauthenticated_cross_org(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    entry: &PluginCatalogEntry,
+    version: &str,
+) -> ApiResult<()> {
+    let authenticated =
+        core_db::plugins::version_manifest_authenticated(&mut *tx, entry.id, version).await?;
+    if authenticated || entry.origin_org_id == Some(org_id) {
+        return Ok(());
+    }
+    Err(ApiError::ManifestUnauthenticated {
+        catalog_id: entry.id,
+        slug: entry.slug.clone(),
+        version: version.to_string(),
+    })
+}
+
+/// The refusal's audit row, written in its OWN transaction after the adopting
+/// transaction rolled back.
+///
+/// It cannot ride the transaction that refused: that transaction rolls back, and
+/// an audit row that rolls back with the refusal is a refusal nobody can review
+/// afterwards. An operator asking "did anyone try to install this unsigned entry
+/// in my org?" has to be able to answer it from the log, not from a proxy metric.
+///
+/// Best-effort on the write itself: the call is already being refused, so a
+/// failed audit write is logged at the error level and never converted into a
+/// second, more confusing failure for the caller. It also never turns a refusal
+/// into an install — nothing here touches `plugin_installs`.
+pub(crate) async fn audit_manifest_refusal(
+    state: &AppState,
+    org_id: Uuid,
+    actor: Uuid,
+    refusal: &ApiError,
+) {
+    let ApiError::ManifestUnauthenticated {
+        catalog_id,
+        slug,
+        version,
+    } = refusal
+    else {
+        return;
+    };
+    let now = chrono::Utc::now();
+    let written = async {
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org(&mut tx, org_id).await?;
+        core_db::audit::insert(
+            &mut *tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "plugin.install_refused".into(),
+                entity_type: Some("plugin_catalog_entry".into()),
+                entity_id: Some(catalog_id.to_string()),
+                detail: serde_json::json!({
+                    "slug": slug,
+                    "version": version,
+                    "reason": "manifest_unauthenticated",
+                }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
+        .await?;
+        tx.commit().await.map_err(ApiError::from)?;
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    if let Err(error) = written {
+        tracing::error!(
+            error = %error,
+            %org_id,
+            %catalog_id,
+            slug = %slug,
+            version = %version,
+            "failed to record the refused cross-org adoption of an unauthenticated manifest"
+        );
+    }
+}
+
 // --- request/response bodies ---------------------------------------------------
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -1147,7 +1251,7 @@ pub async fn approve_staged(
                                     .into(),
                             ));
                         }
-                        core_db::plugins::append_version(
+                        core_db::plugins::append_version_with_manifest_auth(
                             &mut tx.tx,
                             existing.id,
                             &PluginVersion {
@@ -1158,6 +1262,7 @@ pub async fn approve_staged(
                                 module_digest: item.module_digest.clone(),
                                 created_at: now,
                             },
+                            item.manifest_authenticated,
                         )
                         .await?;
                         existing
@@ -1179,7 +1284,7 @@ pub async fn approve_staged(
                             created_at: now,
                             updated_at: now,
                         };
-                        core_db::plugins::create_catalog_entry(
+                        core_db::plugins::create_catalog_entry_with_manifest_auth(
                             &mut tx.tx,
                             &entry,
                             &PluginVersion {
@@ -1190,6 +1295,7 @@ pub async fn approve_staged(
                                 module_digest: item.module_digest.clone(),
                                 created_at: now,
                             },
+                            item.manifest_authenticated,
                         )
                         .await?;
                         entry
@@ -1423,6 +1529,7 @@ pub async fn approve_staged(
                     "artifact_kind": item.artifact_kind.as_str(),
                     "source_kind": item.source_kind.as_str(),
                     "artifact_digest": item.artifact_digest,
+                    "manifest_authenticated": item.manifest_authenticated,
                     "granted_capabilities": granted_keys,
                     "adopted_install_id": adopted_install_id,
                     "adopted_skill_id": adopted_skill_id,
@@ -1570,7 +1677,7 @@ pub async fn propose_update(
         ),
         None => None,
     };
-    org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+    let proposed = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
         let existing = core_db::plugins::get_install(&mut tx.tx, org_id, id).await?;
         if existing.status == PluginInstallStatus::Revoked {
             return Err(ApiError::Conflict(
@@ -1602,6 +1709,13 @@ pub async fn propose_update(
                 .await
                 .map_err(artifact_api)?;
         }
+        // The digest-only rule applies to the update target too (migration
+        // 0172): an install may not move onto a manifest nobody signed when the
+        // org that would run it is not the org that staged it. Without this, an
+        // entry whose 1.0.0 was verified could hand 1.1.0 — a GitHub pull — to
+        // every tenant that installed 1.0.0.
+        let entry = core_db::plugins::get_catalog_entry(&mut tx.tx, &existing.slug).await?;
+        refuse_unauthenticated_cross_org(&mut tx.tx, org_id, &entry, req.version.trim()).await?;
         let new_caps: Vec<String> = match &requested_caps {
             Some(caps) => {
                 for cap in caps {
@@ -1706,7 +1820,11 @@ pub async fn propose_update(
         .await?;
         Ok((tx, ()))
     })
-    .await?;
+    .await;
+    if let Err(refusal) = &proposed {
+        audit_manifest_refusal(&state, org_id, actor, refusal).await;
+    }
+    proposed?;
     get_update_view(&state, org_id, id).await
 }
 

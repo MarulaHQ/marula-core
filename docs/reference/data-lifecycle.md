@@ -202,16 +202,43 @@ are content addresses: re-uploading the same file stores the same key, and the
 next pass clears the mark and closes the finding. Nothing pretends to reconstruct
 bytes from nothing.
 
-Store keys are `org/<org uuid>/attachments/<sha256>`,
-`org/<org uuid>/quarantine/<sha256>` and one key per export. The pass compares
-the store's listing against the tables whose rows claim a `storage_key`
-(`attachments`, `documents_attachments`, `attachment_scans`, `org_exports`). A
-table missing from that list would have its objects deleted, so the list is a
-constant in one module with a test, not a query. `object_integrity_findings`
-holds a `storage_key` as well and is deliberately not a source: it records what a
-past pass saw, so counting it would keep a deleted object's key alive. The list
-shares its key space with the attachment refcount, which counts owners only, and
-a parity test holds the sweep's list to a superset of it.
+The bucket holds five key spaces, all under `org/<org uuid>/`: `attachments/<sha256>`
+(ticket, comment, email and document files), `quarantine/<sha256>` (bytes an
+admission gate refused), `exports/<id>/bundle.json`, `secrets/<ciphertext sha256>`
+(sealed vault documents) and `plugins/<module digest>`. The pass compares the
+store's listing against every row that can name one of them. That set is a single
+declaration, `crates/core-db/src/object_inventory.rs`, and each reader derives its
+own projection from it:
+
+| Reader | Question it asks | Projection |
+|---|---|---|
+| Attachment refcount | May this row's delete reclaim the object? | owners in the attachment space |
+| Orphan sweep | Is this object in the bucket garbage? | every row that names a key, in every space |
+| Tenant erasure | Which keys must the caller remove? | the same set, narrowed to one tenant |
+
+The declaration exists because the three readers ask different questions but must
+agree about the world. A table can be an owner of attachment bytes, a mere claim
+on them (a scan verdict, an export bundle), a claim in another space (a vault
+record, a plugin module) or evidence about a key that is already gone, and each
+answer is written down once with its reason.
+
+`object_integrity_findings` holds a `storage_key` and counts for nobody: it
+records what a past pass saw, so counting it would keep a deleted object's key
+alive and protect a later upload at that address from ever being reclaimed.
+`email_messages.raw_ref` is not a key here at all — it is a provider-side pointer
+to a raw MIME payload.
+
+Two checks keep the declaration honest. `tests/object_inventory_parity.rs` reads
+the database's own catalogue for every key column (`storage_key`, `object_key`,
+`module_digest`, `previous_module_digest`) and fails when a table holds one the
+declaration never decided; the same suite seeds a row in every key space and
+asserts exactly which keys the erasure collects. `tests/attachment_refcount.rs`
+keeps the older, narrower gate for the `storage_key` columns alone.
+
+One limit is worth stating: the catalogue scan knows those four column names. A
+migration that invents a new name for a key column is invisible to it until the
+name joins the list, so add the name in the same change that adds the column, and
+run the pass in `dry_run` on a real bucket before turning it on.
 
 ### The volume this used to be missing
 
@@ -237,7 +264,8 @@ a receipt, not a button.
 | Surface | What happens | Notes |
 |---|---|---|
 | Every table with an `org_id` | Deleted by the `orgs` cascade | Includes the audit trail, the search index and the RAG vectors: those rows contain the tenant's personal data, so erasing them is the requirement, not a casualty |
-| Object store | Every key under `org/<org uuid>/` is deleted | Includes orphans under the prefix, which a row-driven delete would leave behind |
+| Object store | Every key under `org/<org uuid>/` is deleted | Includes orphans under the prefix, which a row-driven delete would leave behind. This covers all five key spaces, so a vault document's ciphertext and a plugin's module go with the tenant |
+| Collected keys (the count) | `erasure::object_keys` names the keys the rows claim | Derived from the same declaration as the sweep, so it counts the vault and plugin spaces too. A CLIENT-scoped vault record carries a NULL `org_id`, so the collection follows its client into the org |
 | Search index | Deleted by the cascade | `search_index.org_id` is a foreign key |
 | RAG embeddings and deletion receipts | Deleted by the cascade | A per-source DSAR receipt inside the tenant is the tenant's, not the platform's |
 | Event stream (Valkey) | **Not addressed per tenant** | Entries carry an org id but expire by stream length, not by erasure. A tenant's events can survive in the stream until it trims. The lever is `MARULA_EVENT_STREAM_MAXLEN` |
@@ -254,6 +282,16 @@ a receipt, not a button.
 Rows first, bytes second: a crash between them leaves orphaned bytes, which the
 integrity pass finds and reclaims. The reverse order would leave rows advertising
 bytes that cannot be recovered.
+
+The byte step deletes what the store lists under the org prefix, not the keys the
+rows named in step 1. That is deliberate: the prefix is the tenant's whole
+namespace, so an object no row claims any more still goes, and so does an
+abandoned upload or a staged module whose row was refused. Step 1 is the
+cross-check the operator reads before confirming: the dry run prints how many
+objects the prefix holds against how many keys the rows claim, and the receipt
+records what the delete actually removed. A table missing from the collection
+therefore cannot leave bytes behind or free another tenant's; it makes the report
+wrong, which is why the collection is derived and tested rather than typed out.
 
 ### Backups: the part no one likes
 

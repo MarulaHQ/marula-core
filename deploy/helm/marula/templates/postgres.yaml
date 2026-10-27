@@ -126,8 +126,14 @@ spec:
           requests:
             storage: {{ .Values.postgresql.storage.size }}
 ---
-{{/* The migration 0001 role bootstrap: create marula_app (RLS role) if
-the owner bootstrapped without it. Idempotent DO block. */}}
+{{/* The role bootstrap: create marula_app (RLS role) if the owner
+bootstrapped without it, and set its password from the Secret. Both steps
+are idempotent, which is what makes the pre-upgrade half useful: a rotated
+POSTGRES_APP_PASSWORD reaches the role on the next `helm upgrade`, because
+the ALTER ROLE runs again and reads the Secret as it is at that moment.
+Pre-install alone left a rotated Secret in the cluster and the old password
+on the role (F65). Weights keep the order: Service/StatefulSet -5, this -4,
+migrations 0. */}}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -135,7 +141,7 @@ metadata:
   labels:
     {{- include "marula.labels" . | nindent 4 }}
   annotations:
-    helm.sh/hook: pre-install
+    helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-4"
     helm.sh/hook-delete-policy: before-hook-creation
 spec:
@@ -169,5 +175,10 @@ spec:
               # psql :'var' interpolation does NOT expand inside a DO block
               # (dollar-quoted body) — interpolate via the shell instead.
               psql -h {{ include "marula.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ .Values.postgresql.appUser }}') THEN CREATE ROLE {{ .Values.postgresql.appUser }} LOGIN; END IF; END \$\$;"
-              psql -h {{ include "marula.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -v ON_ERROR_STOP=1 -c "ALTER ROLE {{ .Values.postgresql.appUser }} WITH LOGIN PASSWORD '$APP_PASSWORD'"
+              # Outside the DO block psql can quote the value itself (:'pw'),
+              # so the password never becomes part of the SQL text: one with a
+              # quote or a backslash in it used to end the literal and fail
+              # the ALTER mid-install.
+              printf '%s\n' "ALTER ROLE {{ .Values.postgresql.appUser }} WITH LOGIN PASSWORD :'pw';" \
+                | psql -h {{ include "marula.fullname" . }}-postgres -U {{ .Values.postgresql.ownerUser }} -d {{ .Values.postgresql.database }} -v ON_ERROR_STOP=1 -v pw="$APP_PASSWORD"
 {{- end }}

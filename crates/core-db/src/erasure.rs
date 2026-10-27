@@ -27,12 +27,12 @@
 //! a tenant, by design), and no anonymisation mode (a request to keep the rows
 //! without the person is a different operation with a different receipt).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::DbResult;
+use crate::{object_inventory, DbResult};
 
 /// What an operator needs to see before they delete the wrong tenant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,20 +101,55 @@ pub async fn surface_counts(pool: &PgPool, org_id: Uuid) -> DbResult<BTreeMap<St
 
 /// Every object key the tenant's rows claim, collected BEFORE the delete so the
 /// caller can remove the bytes afterwards.
+///
+/// Derived from [`crate::object_inventory`] — the one declaration of every
+/// column that names an object — so a key space added there is collected here in
+/// the same change. It used to be a hand-written `UNION` over four tables, which
+/// silently missed the sealed vault ciphertext (`secret_records.object_key`) and
+/// every plugin module (`plugin_installs.module_digest`, its rollback target, and
+/// the staged digest). Those rows cascade with the tenant, so only the collection
+/// can name their bytes.
+///
+/// Two statements, not one per table: the tables whose column holds the key
+/// outright share one `UNION`, and the digest-addressed plugin entries are asked
+/// separately because their key is rebuilt in Rust by `core-store`'s builder
+/// rather than spelled in SQL. The set is deduplicated and ordered, which is what
+/// the old `UNION` did too: one object shared by two rows is one key.
 pub async fn object_keys(pool: &PgPool, org_id: Uuid) -> DbResult<Vec<String>> {
-    let keys: Vec<String> = sqlx::query_scalar(
-        r#"SELECT storage_key FROM attachments WHERE org_id = $1
-           UNION
-           SELECT storage_key FROM documents_attachments WHERE org_id = $1
-           UNION
-           SELECT storage_key FROM attachment_scans WHERE org_id = $1
-           UNION
-           SELECT storage_key FROM org_exports WHERE org_id = $1"#,
-    )
-    .bind(org_id)
-    .fetch_all(pool)
-    .await?;
-    Ok(keys)
+    let entries = object_inventory::claimed();
+    let mut keys: BTreeSet<String> = BTreeSet::new();
+
+    let stored: Vec<&object_inventory::KeyEntry> = entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.shape == object_inventory::KeyShape::Stored)
+        .collect();
+    if !stored.is_empty() {
+        let rows: Vec<String> = sqlx::query_scalar(&object_inventory::stored_union(&stored, 1))
+            .bind(org_id)
+            .fetch_all(pool)
+            .await?;
+        keys.extend(rows.into_iter().filter(|key| !key.is_empty()));
+    }
+
+    for entry in object_inventory::digest_entries_in(&entries) {
+        for (key, _org) in entry.keys_for_org(pool, org_id).await? {
+            keys.insert(key);
+        }
+    }
+
+    Ok(keys.into_iter().collect())
+}
+
+/// The tables [`object_keys`] asks, in declaration order — the erasure's key
+/// space as a list, so a test can hold it against the refcount's owners and the
+/// sweep's claims instead of trusting a hand-written `UNION`.
+#[must_use]
+pub fn object_key_tables() -> Vec<&'static str> {
+    object_inventory::claimed()
+        .iter()
+        .map(|entry| entry.table)
+        .collect()
 }
 
 /// Deletes the org row, and every row the schema cascades from it. Returns the
@@ -193,6 +228,7 @@ pub async fn insert_receipt(pool: &PgPool, receipt: &Receipt) -> DbResult<Uuid> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object_inventory::{KeyEntry, KeyShape, ENTRIES};
 
     #[test]
     fn outcome_tokens_match_the_migrations_check_constraint() {
@@ -200,6 +236,103 @@ mod tests {
         assert_eq!(
             ErasureOutcome::ObjectsIncomplete.as_str(),
             "objects_incomplete"
+        );
+    }
+
+    fn entry(table: &str, column: &str) -> &'static KeyEntry {
+        ENTRIES
+            .iter()
+            .find(|entry| entry.table == table && entry.column == column)
+            .unwrap_or_else(|| panic!("{table}.{column} is not in the declaration"))
+    }
+
+    /// Every table that claims bytes for a tenant is asked by the erasure. A key
+    /// space that the sweep protects and the erasure forgets is a tenant whose
+    /// receipt under-reports what it left behind.
+    #[test]
+    fn the_erasure_asks_every_table_that_claims_bytes() {
+        let erased = object_key_tables();
+        for claim in object_inventory::claimed() {
+            assert!(
+                erased.contains(&claim.table),
+                "{} claims bytes ({}) and the erasure does not collect them",
+                claim.table,
+                claim.why
+            );
+        }
+    }
+
+    /// The stored half of the collection is one statement, and it names each
+    /// stored claim's own column and table. A rewrite that spells a literal list
+    /// instead of the projection fails here.
+    #[test]
+    fn the_stored_union_names_every_stored_claim_by_its_own_column() {
+        let entries = object_inventory::claimed();
+        let sql = object_inventory::stored_union(&entries, 1);
+        for claim in entries
+            .iter()
+            .filter(|claim| claim.shape == KeyShape::Stored)
+        {
+            assert!(
+                sql.contains(&format!(
+                    "SELECT {} FROM {} WHERE",
+                    claim.column, claim.table
+                )),
+                "the erasure statement does not ask {}.{}: {sql}",
+                claim.table,
+                claim.column
+            );
+        }
+        for claim in entries
+            .iter()
+            .filter(|claim| claim.shape == KeyShape::PluginDigest)
+        {
+            assert!(
+                !sql.contains(claim.table),
+                "{} is digest-addressed and does not belong in the stored union; \
+                 its key is rebuilt in Rust: {sql}",
+                claim.table
+            );
+        }
+    }
+
+    /// A vault record may be client-scoped: `org_id` NULL and `client_id` set.
+    /// The cascade deletes those rows through `clients`, so a collection that
+    /// filters on `org_id = $1` alone would leave their ciphertext behind.
+    #[test]
+    fn a_client_scoped_vault_record_is_still_collected() {
+        let sql = entry("secret_records", "object_key").union_arm_sql(1);
+        assert!(
+            sql.contains("object_key") && sql.contains("FROM secret_records"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("client_id IN (SELECT id FROM clients WHERE org_id = $1)"),
+            "the vault's scope is org-or-client, so a client-scoped record must be \
+             collected through its client's org: {sql}"
+        );
+        assert!(sql.contains("object_key <> ''"), "{sql}");
+    }
+
+    /// A plugin module's key is rebuilt, not stored: the erasure asks the digest
+    /// column and `core-store` builds the address, so the format stays in one
+    /// place.
+    #[test]
+    fn a_plugin_module_is_collected_through_its_digest() {
+        let install = entry("plugin_installs", "module_digest");
+        assert_eq!(install.shape, KeyShape::PluginDigest);
+        let key = install
+            .build_key(&"b".repeat(64), Some(Uuid::nil()))
+            .expect("a digest and an org make a key");
+        assert_eq!(
+            key,
+            core_store::plugin_artifact_key(Uuid::nil(), &"b".repeat(64))
+        );
+        assert!(
+            entry("plugin_installs", "previous_module_digest")
+                .select_sql(Some(1))
+                .contains("previous_module_digest <> ''"),
+            "a rollback target's bytes are live, so the erasure must collect them"
         );
     }
 }

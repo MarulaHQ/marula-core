@@ -50,6 +50,7 @@ column as **manifest signed** or **manifest unsigned**.
 | Marketplace registry, legacy v1 statement | `false` | The signature covers the artifact digest alone. The entry is still accepted, because refusing it would strand plugins already published, and the staged row carries the weaker claim. |
 | GitHub repository pull | `false` | A repository carries no publisher signature. The pinned tag and the artifact digest say which bytes were fetched and that they have not changed since; they say nothing about who published them. |
 | Local zip or manual upload | `false` | There is no publisher claim to verify. |
+| Declarative publish (`POST /api/plugins/catalog`) | `false` | The manifest arrives as a JSON body on an authenticated admin call. No artifact bytes and no publisher statement pass through that route, so there is nothing to verify and the row records the weaker claim. |
 
 A registry document ingested with no trusted signing key configured is
 structural-only and lands `false` whatever it claims.
@@ -59,3 +60,25 @@ repository for the pull path to verify, so `false` is the intended end state for
 that source, and the pull path does not grow a signature it cannot check.
 Verifying the bytes it fetched is what the tag and digest are for; claiming a
 publisher is not a thing that path can honestly do.
+
+## What the verdict decides
+
+The column decides who may adopt the version, not only what the consent screen
+says. The catalog is server-wide while the verdict belongs to the workspace that
+staged the row:
+
+| Verdict | Who may install it |
+|---|---|
+| `true` | Any workspace. The manifest a trusted key verified is the manifest every installer receives. |
+| `false`, entry owned by an org | Only that org. This is the rule that stops one workspace's digest-only pull from arriving in another workspace's install looking publisher-signed. |
+| `false`, entry owned by no org (a seeded entry) | Nobody. An entry with no staging org has nobody who read the consent screen, so unknown authentication fails closed rather than open. |
+
+A refusal is a `409` whose `reason` is `manifest_unauthenticated`, naming the
+entry, its slug and the version. It leaves a `plugin.install_refused` audit row
+in the workspace that tried, and it writes no install.
+
+What the rule deliberately does not do: it does not block the staging org's own
+adoption, it does not revoke an install that already exists (that is the revoke
+and disable surfaces), and it does not apply to a version a trusted key
+verified. The same check runs when an update proposal names a version, because
+an update re-pins the manifest and would otherwise be the way across.
