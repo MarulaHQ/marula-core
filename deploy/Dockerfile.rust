@@ -39,8 +39,11 @@ COPY desktop/build.rs /src/desktop/build.rs
 COPY desktop/src /src/desktop/src
 # sqlx offline query cache (macros resolve without a database at build).
 COPY .sqlx /src/.sqlx
-# core-api includes the generated OpenAPI pins from packages/sdk.
+# core-api includes two generated artifacts from packages/sdk at compile time:
+# the OpenAPI pins (chat_runner) and the MCP catalog (mcp_catalog). Both must be
+# present or the build fails on include_str!, so they are copied together.
 COPY packages/sdk/openapi.json /src/packages/sdk/openapi.json
+COPY packages/sdk/mcp-catalog.json /src/packages/sdk/mcp-catalog.json
 # BuildKit cache mounts: the cargo registry and target dir persist across
 # image builds on the same builder, so lockfile-only changes don't trigger
 # a full re-download/recompile. The binary is copied out of the mount in
