@@ -73,6 +73,20 @@ jobs:
       MARULA_EMBEDDING_TIER: minimal
     steps:
       - uses: actions/checkout@v4
+      # The image ships SDKs this job never touches, and the sweep links ~97
+      # core-api test binaries into target/debug. Without reclaiming the space
+      # the run dies mid-link — GitHub logs its own warning ("Free space left:
+      # 0 MB"), rustc reports "IO failure on output stream: No space left on
+      # device", and the linker dies with a Bus error that reads like a
+      # compiler crash (run 40533170070). Roughly 20 GB comes back.
+      - name: Reclaim runner disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          echo "--- after reclaim ---"
+          df -h /
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
