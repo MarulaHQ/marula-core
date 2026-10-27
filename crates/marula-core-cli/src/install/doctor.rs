@@ -93,8 +93,9 @@ pub fn run_default(
     profile: &Profile,
     facts: &HostFacts,
     env: &BTreeMap<String, String>,
+    expect_free_ports: bool,
 ) -> Vec<Check> {
-    run(desc, profile, facts, env, probe_port)
+    run(desc, profile, facts, env, probe_port, expect_free_ports)
 }
 
 /// Runs every check, with the port probe supplied by the caller.
@@ -108,6 +109,7 @@ pub fn run(
     facts: &HostFacts,
     env: &BTreeMap<String, String>,
     probe: PortProbe,
+    expect_free_ports: bool,
 ) -> Vec<Check> {
     let mut checks = Vec::new();
 
@@ -161,14 +163,24 @@ pub fn run(
         )
     });
 
-    for port in profile_ports(profile) {
-        checks.push(match probe(port) {
-            Ok(()) => Check::pass(format!("port {port}"), "free"),
-            Err(reason) => Check::fail(
-                format!("port {port}"),
-                format!("{reason}; stop it or choose another host"),
-            ),
-        });
+    // Ports are a PREFLIGHT question. Against a running install they belong to
+    // that install, so the check would fail the thing it is meant to confirm.
+    // The caller says which question it is asking.
+    if expect_free_ports {
+        for port in profile_ports(profile) {
+            checks.push(match probe(port) {
+                Ok(()) => Check::pass(format!("port {port}"), "free"),
+                Err(reason) => Check::fail(
+                    format!("port {port}"),
+                    format!("{reason}; stop it or choose another host"),
+                ),
+            });
+        }
+    } else {
+        checks.push(Check::pass(
+            "ports",
+            "held by the running install, which is what they are for",
+        ));
     }
 
     checks.push(if embedding_fits(profile, facts) {
@@ -251,6 +263,7 @@ mod tests {
             &facts(8, 16384, true),
             &env_with_required(),
             |_| Ok(()),
+            true,
         );
         assert!(
             all_ok(&checks),
@@ -270,6 +283,7 @@ mod tests {
             &facts(8, 16384, true),
             &env,
             |_| Ok(()),
+            true,
         );
         let failed = checks.iter().find(|check| !check.ok).expect("a failure");
         assert!(
@@ -288,6 +302,7 @@ mod tests {
             &facts(8, 16384, true),
             &env_with_required(),
             |port| Err(format!("held by test ({port})")),
+            true,
         );
         let port = checks
             .iter()
@@ -295,6 +310,25 @@ mod tests {
             .expect("the 8080 check");
         assert!(!port.ok);
         assert!(port.detail.contains("stop it or choose another host"));
+    }
+
+    #[test]
+    fn a_running_install_does_not_fail_on_its_own_ports() {
+        let desc = deploy::descriptor();
+        let checks = run(
+            &desc,
+            &profile("all-in-one"),
+            &facts(8, 16384, true),
+            &env_with_required(),
+            |_| Err("held by this install".to_string()),
+            false,
+        );
+        assert!(
+            checks.iter().all(|check| check.ok),
+            "a healthy running install must pass: {:?}",
+            checks.iter().filter(|check| !check.ok).collect::<Vec<_>>()
+        );
+        assert!(checks.iter().any(|check| check.name == "ports"));
     }
 
     #[test]
@@ -306,6 +340,7 @@ mod tests {
             &facts(2, 1024, true),
             &env_with_required(),
             |_| Ok(()),
+            true,
         );
         let floors = checks
             .iter()
@@ -324,6 +359,7 @@ mod tests {
             &facts(8, 16384, false),
             &env_with_required(),
             |_| Ok(()),
+            true,
         );
         let docker = checks
             .iter()

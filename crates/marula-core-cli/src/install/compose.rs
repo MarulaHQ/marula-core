@@ -22,6 +22,10 @@ pub struct ComposeTarget {
     pub descriptor: DeployDescriptor,
     /// The compose file this target runs.
     pub compose_file: PathBuf,
+    /// The env file an install wrote, when one exists. Compose refuses to
+    /// interpolate without it, so `status` needs it for the same reason
+    /// `apply` does.
+    pub env_file: Option<PathBuf>,
 }
 
 impl ComposeTarget {
@@ -30,7 +34,15 @@ impl ComposeTarget {
         Self {
             descriptor,
             compose_file: compose_file.into(),
+            env_file: None,
         }
+    }
+
+    /// Points the target at the env file an install wrote.
+    #[must_use]
+    pub fn with_env_file(mut self, env_file: impl Into<PathBuf>) -> Self {
+        self.env_file = Some(env_file.into());
+        self
     }
 
     /// The compose overlays a profile needs beyond the base file.
@@ -257,16 +269,17 @@ impl DeploymentTarget for ComposeTarget {
     }
 
     fn status(&self) -> Status {
-        let output = Command::new("docker")
-            .args([
-                "compose",
-                "-f",
-                &self.compose_file.display().to_string(),
-                "ps",
-                "--format",
-                "{{.Service}} {{.State}}",
-            ])
-            .output();
+        let mut args: Vec<String> = vec!["compose".to_string()];
+        if let Some(env_file) = &self.env_file {
+            args.push("--env-file".to_string());
+            args.push(env_file.display().to_string());
+        }
+        args.push("-f".to_string());
+        args.push(self.compose_file.display().to_string());
+        args.push("ps".to_string());
+        args.push("--format".to_string());
+        args.push("{{.Service}} {{.State}}".to_string());
+        let output = Command::new("docker").args(&args).output();
         match output {
             Ok(output) if output.status.success() => {
                 let services: Vec<String> = String::from_utf8_lossy(&output.stdout)

@@ -597,14 +597,19 @@ fn doctor_command(
         ),
     };
 
+    // The compose status answers first: it decides whether the port question is
+    // "is this free" (no install running) or "does this install own it".
+    use install::DeploymentTarget as _;
+    let target = install::ComposeTarget::new(deploy::descriptor(), compose_file)
+        .with_env_file(dir.join("marula.env"));
+    let status = target.status();
+    let running = !status.services.is_empty();
+
     println!("marula doctor — profile {name}, values from {source}\n");
-    let checks = install::doctor::run_default(&descriptor, chosen, &facts, &env);
+    let checks = install::doctor::run_default(&descriptor, chosen, &facts, &env, !running);
     for check in &checks {
         println!("{}", check.render());
     }
-    use install::DeploymentTarget as _;
-    let target = install::ComposeTarget::new(deploy::descriptor(), compose_file);
-    let status = target.status();
     println!("\nservices ({} target):", status.target);
     match status.error {
         Some(error) => println!("  {error}"),
