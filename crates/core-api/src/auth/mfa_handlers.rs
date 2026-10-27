@@ -33,6 +33,7 @@ use crate::state::AppState;
 use axum::{
     extract::{Extension, Path, State},
     http::Extensions,
+    response::IntoResponse,
     Json,
 };
 use core_domain::entities::{Actor, AuditEvent};
@@ -259,6 +260,202 @@ async fn org_tx(state: &AppState, org_id: Uuid) -> ApiResult<Tx> {
         .await
         .map_err(ApiError::from)?;
     Ok(tx)
+}
+
+// ---------------------------------------------------------------------------
+// Factor proofs: what has to be hashed, and the slot that bounds it
+// ---------------------------------------------------------------------------
+//
+// A factor change proves two things — the account password and a live second
+// factor — and both are argon2id work nobody has bounded for a signed-in
+// caller. The shape below splits the request into three parts so the CPU work
+// is not paid for with a pooled connection: read what the hashes need, close
+// the transaction, hash under the process's one admission slot, then reopen a
+// transaction for the effects the proof authorizes.
+
+/// What a factor proof needs from the database, read through ONE short
+/// transaction that is closed before any hash runs.
+struct ProofMaterial {
+    password_hash: String,
+    /// The user's TOTP row, confirmed or pending. Encrypted: decryption is
+    /// local work and needs no connection.
+    totp: Option<core_db::mfa::TotpSecretRow>,
+    /// Unused recovery codes as `(row id, argon2id hash)` — a candidate per
+    /// unused code, one verify each.
+    recovery: Vec<(Uuid, String)>,
+}
+
+/// Closes a read-only transaction, handing its connection back to the pool
+/// before the caller does anything expensive with the rows it returned.
+async fn end_read(tx: Tx) -> ApiResult<()> {
+    tx.rollback()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    Ok(())
+}
+
+/// Reads everything a password-plus-factor proof hashes, and gives the
+/// connection back before the first verify.
+///
+/// `purpose` is threaded into the re-enrolment refusal, so the typed answer a
+/// reset account gets still names what it was trying to do.
+async fn read_proof_material(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+    email: &str,
+    purpose: &str,
+) -> ApiResult<ProofMaterial> {
+    let mut tx = org_tx(state, org_id).await?;
+    refuse_when_reenrolling(&mut tx, user_id, purpose).await?;
+    let creds = core_db::users::find_credentials_by_email(&mut *tx, email).await?;
+    let totp = core_db::mfa::find_totp(&mut *tx, user_id).await?;
+    let recovery = core_db::mfa::unused_recovery_hashes(&mut *tx, user_id).await?;
+    end_read(tx).await?;
+    Ok(ProofMaterial {
+        password_hash: creds.password_hash,
+        totp,
+        recovery,
+    })
+}
+
+/// The password-only form of [`read_proof_material`], for the doors that prove
+/// a factor some other way (a passkey removal proves a stored step-up).
+async fn read_password_hash(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+    email: &str,
+    purpose: &str,
+) -> ApiResult<String> {
+    let mut tx = org_tx(state, org_id).await?;
+    refuse_when_reenrolling(&mut tx, user_id, purpose).await?;
+    let creds = core_db::users::find_credentials_by_email(&mut *tx, email).await?;
+    end_read(tx).await?;
+    Ok(creds.password_hash)
+}
+
+/// Which factor proved possession, established with no connection held and
+/// spent later, inside the transaction that owns the change it authorizes.
+enum FactorProof {
+    Totp { step: i64 },
+    RecoveryCode { id: Uuid },
+}
+
+/// Runs every hash a request owes — the password, then each unused recovery
+/// code until one matches — and reports the factor that proved possession.
+///
+/// The admission slot is a PARAMETER rather than something this function
+/// takes itself: the caller acquires it at the point of need, so a slow read
+/// earlier in the handler never holds one hostage, and making it a parameter
+/// is what stops a later edit from reaching argon2 without a slot (Wave 58
+/// lane `p58-hashing`). This function owns the permit, so every return path
+/// — including both `?` errors — hands the slot back before the caller's next
+/// database call.
+///
+/// One slot covers the whole section. A request owes at most one password
+/// verify plus one verify per unused recovery code, and those run in sequence:
+/// the slot bounds how many requests hash at once, not how many hashes a
+/// single honest request needs to try.
+async fn prove_factor(
+    state: &AppState,
+    material: &ProofMaterial,
+    password: &str,
+    email: &str,
+    code: &str,
+    permit: tokio::sync::SemaphorePermit<'static>,
+) -> ApiResult<FactorProof> {
+    let proof =
+        if !password::verify_async(password.to_string(), material.password_hash.clone()).await {
+            Err(ApiError::Unauthorized("invalid credentials".into()))
+        } else {
+            // TOTP is an HMAC over a sealed secret, not argon2: it rides the slot
+            // this request already holds and costs nothing worth bounding.
+            match matching_totp_step(state, material.totp.as_ref(), email, code)? {
+                Some(step) => Ok(FactorProof::Totp { step }),
+                None => match match_recovery_hash(&material.recovery, code).await {
+                    Some(id) => Ok(FactorProof::RecoveryCode { id }),
+                    None => Err(ApiError::Unauthorized("invalid code".into())),
+                },
+            }
+        };
+    // The slot is for the hashes and nothing else: hand it back before the
+    // caller opens the transaction that spends this proof.
+    drop(permit);
+    proof
+}
+
+/// The TOTP half of a proof: unseal the secret, check the code in the drift
+/// window, and report the matched timestep. Local work only.
+fn matching_totp_step(
+    state: &AppState,
+    row: Option<&core_db::mfa::TotpSecretRow>,
+    email: &str,
+    code: &str,
+) -> ApiResult<Option<i64>> {
+    let Some(row) = row.filter(|row| row.confirmed) else {
+        return Ok(None);
+    };
+    let b32 = String::from_utf8(
+        crate::crypto::open(&state.config.secret_key, &row.secret_enc)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?,
+    )
+    .map_err(|_| ApiError::Internal(anyhow::anyhow!("stored secret not utf8")))?;
+    totp_service::verify_code(
+        &b32,
+        email,
+        code,
+        chrono::Utc::now().timestamp().unsigned_abs(),
+    )
+    .map_err(ApiError::Validation)
+}
+
+/// The recovery-code half of a proof: one argon2id verify per unused code,
+/// stopping at the first match. Bounded by the batch size and run against
+/// hashes read out of the transaction, so no connection is held here.
+async fn match_recovery_hash(candidates: &[(Uuid, String)], presented: &str) -> Option<Uuid> {
+    for (code_id, hash) in candidates {
+        if password::verify_async(presented.to_string(), hash.clone()).await {
+            return Some(*code_id);
+        }
+    }
+    None
+}
+
+/// Spends the proof inside the transaction that owns the change it authorized:
+/// the TOTP watermark advance, or the recovery-code row.
+///
+/// Zero rows updated means someone already spent it — a replay — and the
+/// answer is the same uniform 401 a wrong code gets.
+async fn consume_factor_proof(
+    state: &AppState,
+    tx: &mut Tx,
+    org_id: Uuid,
+    user_id: Uuid,
+    proof: &FactorProof,
+) -> ApiResult<SecondFactor> {
+    match *proof {
+        FactorProof::Totp { step } => {
+            if core_db::mfa::consume_totp_step(&mut **tx, user_id, step).await? == 0 {
+                audit_mfa_failure(state, org_id, user_id, "totp_replay").await;
+                return Err(ApiError::Unauthorized("invalid code".into()));
+            }
+            Ok(SecondFactor {
+                method: "totp",
+                factor_ref: None,
+            })
+        }
+        FactorProof::RecoveryCode { id } => {
+            if core_db::mfa::consume_recovery_code(&mut **tx, id).await? == 0 {
+                audit_mfa_failure(state, org_id, user_id, "replay").await;
+                return Err(ApiError::Unauthorized("invalid code".into()));
+            }
+            Ok(SecondFactor {
+                method: "recovery_code",
+                factor_ref: Some(id.to_string()),
+            })
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -496,12 +693,10 @@ async fn audit_in_tx(
     Ok(())
 }
 
-/// Generates + persists a fresh hashed batch; returns PLAINTEXT once.
-async fn generate_recovery_codes(
-    tx: &mut Tx,
-    org_id: Uuid,
-    user_id: Uuid,
-) -> ApiResult<Vec<String>> {
+/// Mints the plaintext batch and the row ids it will be stored under. No
+/// hashing, no database: the caller decides when and under which slot the
+/// batch gets hashed.
+fn mint_recovery_codes() -> (Vec<String>, Vec<Uuid>) {
     use rand::Rng;
     const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
     let mut plain = Vec::with_capacity(RECOVERY_CODE_COUNT);
@@ -513,7 +708,33 @@ async fn generate_recovery_codes(
         plain.push(format!("{}-{}", &raw[..5], &raw[5..]));
         ids.push(Uuid::now_v7());
     }
-    // Hash the whole batch off the async runtime (Wave 49 lane R3): ten
+    (plain, ids)
+}
+
+/// Hashes a freshly minted batch with the caller's admission slot.
+///
+/// Recovery codes are argon2id secrets like any other, so the batch owes the
+/// same slot the password does. Passing the permit in is deliberate: the
+/// batch cannot be hashed without one.
+async fn hash_recovery_batch(
+    plain: &[String],
+    permit: tokio::sync::SemaphorePermit<'static>,
+) -> ApiResult<Vec<String>> {
+    let hashes = password::hash_many_async(plain.to_vec())
+        .await
+        .map_err(ApiError::Internal)?;
+    drop(permit);
+    Ok(hashes)
+}
+
+/// Generates + persists a fresh hashed batch; returns PLAINTEXT once.
+async fn generate_recovery_codes(
+    tx: &mut Tx,
+    org_id: Uuid,
+    user_id: Uuid,
+) -> ApiResult<Vec<String>> {
+    let (plain, ids) = mint_recovery_codes();
+    // Hash the whole batch off the async runtime (Wave 49 lane R3): eight
     // argon2id hashes on a worker thread is the worst single-request block
     // in the app.
     let hashes = password::hash_many_async(plain.clone())
@@ -544,26 +765,34 @@ pub async fn totp_disable(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<TotpDisableRequest>,
-) -> ApiResult<axum::http::StatusCode> {
+) -> ApiResult<axum::response::Response> {
     let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
     let user = &authed.principal.user;
 
-    let mut tx = org_tx(&state, user.org_id).await?;
-    refuse_when_reenrolling(&mut tx, user.id, "turning MFA off").await?;
-    let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
-    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
-        return Err(ApiError::Unauthorized("invalid credentials".into()));
-    }
-
-    let proved = verify_any_second_factor(
+    // Read what the proof hashes, then give the connection back: the password
+    // verify and any recovery-code verify below run with no transaction open.
+    let material =
+        read_proof_material(&state, user.org_id, user.id, &user.email, "turning MFA off").await?;
+    // The same admission bound the login doors take (Wave 59 lane
+    // `p59-mfa-hash`): the slot is taken at the point of need, released when
+    // the proof returns, and a caller that cannot get one inside the queue wait
+    // gets the typed 503 with `Retry-After` instead of spending the hash.
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
+    let proof = prove_factor(
         &state,
-        &mut tx,
-        user.org_id,
-        user.id,
-        user.email.clone(),
+        &material,
+        &req.password,
+        &user.email,
         &req.code,
+        permit,
     )
     .await?;
+
+    let mut tx = org_tx(&state, user.org_id).await?;
+    let proved = consume_factor_proof(&state, &mut tx, user.org_id, user.id, &proof).await?;
     stamp_step_up(&mut tx, &authed, &proved).await?;
 
     core_db::mfa::delete_totp(&mut *tx, user.id).await?;
@@ -579,7 +808,7 @@ pub async fn totp_disable(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    Ok(axum::http::StatusCode::NO_CONTENT)
+    Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -598,42 +827,62 @@ pub async fn regenerate_recovery_codes(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<RegenerateRecoveryRequest>,
-) -> ApiResult<Json<RecoveryCodesResponse>> {
+) -> ApiResult<axum::response::Response> {
     let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
     let user = &authed.principal.user;
 
-    let mut tx = org_tx(&state, user.org_id).await?;
-    refuse_when_reenrolling(&mut tx, user.id, "regenerating recovery codes").await?;
-    let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
-    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
-        return Err(ApiError::Unauthorized("invalid credentials".into()));
-    }
-    let proved = verify_any_second_factor(
+    let material = read_proof_material(
         &state,
-        &mut tx,
         user.org_id,
         user.id,
-        user.email.clone(),
-        &req.code,
+        &user.email,
+        "regenerating recovery codes",
     )
     .await?;
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
+    let proof = prove_factor(
+        &state,
+        &material,
+        &req.password,
+        &user.email,
+        &req.code,
+        permit,
+    )
+    .await?;
+
+    // The replacement batch is hashed before the transaction that stores it
+    // opens, under its own slot: eight argon2id hashes is the largest cost any
+    // request in this module pays, and none of it needs a connection.
+    let (plain, ids) = mint_recovery_codes();
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
+    let hashes = hash_recovery_batch(&plain, permit).await?;
+
+    let mut tx = org_tx(&state, user.org_id).await?;
+    let proved = consume_factor_proof(&state, &mut tx, user.org_id, user.id, &proof).await?;
     stamp_step_up(&mut tx, &authed, &proved).await?;
 
-    let codes = generate_recovery_codes(&mut tx, user.org_id, user.id).await?;
+    core_db::mfa::replace_recovery_codes(&mut *tx, user.org_id, user.id, &hashes, &ids).await?;
     audit_in_tx(
         &mut tx,
         user.org_id,
         user.id,
         "auth.mfa_recovery_regenerated",
-        serde_json::json!({ "count": codes.len(), "authorized_by": proved.method }),
+        serde_json::json!({ "count": plain.len(), "authorized_by": proved.method }),
     )
     .await?;
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
     Ok(Json(RecoveryCodesResponse {
-        recovery_codes: codes,
-    }))
+        recovery_codes: plain,
+    })
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -678,7 +927,7 @@ pub async fn step_up(
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
     extensions: Extensions,
     Json(req): Json<MfaStepUpRequest>,
-) -> ApiResult<Json<MfaStepUpResponse>> {
+) -> ApiResult<axum::response::Response> {
     let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
     let user = &authed.principal.user;
     let Some(session_id) = authed.session_id else {
@@ -698,33 +947,40 @@ pub async fn step_up(
     )
     .await?;
 
-    let mut tx = org_tx(&state, user.org_id).await?;
     // After an admin reset there is no factor to prove; the typed answer names
-    // enrolment instead of asking for a code that cannot exist.
-    refuse_when_reenrolling(&mut tx, user.id, "stepping up").await?;
-
-    let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
-    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
-        let _ = record_failure(
-            &state,
-            crate::auth::hardening::kinds::MFA_VERIFY,
-            &client_ip,
-            GateSubject::User(user.id),
-        )
-        .await;
-        return Err(ApiError::Unauthorized("invalid credentials".into()));
-    }
-
-    let proved = match verify_any_second_factor(
+    // enrolment instead of asking for a code that cannot exist. Read here, so
+    // a reset account never pays for a hash.
+    let material =
+        read_proof_material(&state, user.org_id, user.id, &user.email, "stepping up").await?;
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
+    let proof = match prove_factor(
         &state,
-        &mut tx,
-        user.org_id,
-        user.id,
-        user.email.clone(),
+        &material,
+        &req.password,
+        &user.email,
         &req.code,
+        permit,
     )
     .await
     {
+        Ok(proof) => proof,
+        Err(error) => {
+            let _ = record_failure(
+                &state,
+                crate::auth::hardening::kinds::MFA_VERIFY,
+                &client_ip,
+                GateSubject::User(user.id),
+            )
+            .await;
+            return Err(error);
+        }
+    };
+
+    let mut tx = org_tx(&state, user.org_id).await?;
+    let proved = match consume_factor_proof(&state, &mut tx, user.org_id, user.id, &proof).await {
         Ok(proved) => proved,
         Err(error) => {
             let _ = record_failure(
@@ -783,7 +1039,8 @@ pub async fn step_up(
         ttl_secs: STEP_UP_TTL_SECS,
         verified_at,
         expires_at,
-    }))
+    })
+    .into_response())
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,39 +1290,6 @@ async fn audit_mfa_failure(state: &AppState, org_id: Uuid, user_id: Uuid, reason
     .await;
 }
 
-/// Verifies EITHER factor for sensitive operations (disable/regenerate).
-/// A recovery code used here is CONSUMED, mirroring login semantics.
-///
-/// Returns which factor proved possession, so the audit row can name it and
-/// the caller can stamp a step-up.
-async fn verify_any_second_factor(
-    state: &AppState,
-    tx: &mut Tx,
-    org_id: Uuid,
-    user_id: Uuid,
-    email: String,
-    code: &str,
-) -> ApiResult<SecondFactor> {
-    if try_totp(state, tx, org_id, user_id, email, code)
-        .await?
-        .is_some()
-    {
-        return Ok(SecondFactor {
-            method: "totp",
-            factor_ref: None,
-        });
-    }
-    match match_recovery_code(tx, user_id, code).await? {
-        Some(id) if core_db::mfa::consume_recovery_code(&mut **tx, id).await? > 0 => {
-            Ok(SecondFactor {
-                method: "recovery_code",
-                factor_ref: Some(id.to_string()),
-            })
-        }
-        _ => Err(ApiError::Unauthorized("invalid code".into())),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // WebAuthn / passkeys
 // ---------------------------------------------------------------------------
@@ -1281,16 +1505,32 @@ pub async fn webauthn_credential_remove(
     extensions: Extensions,
     axum::extract::Path(cred_row_id): axum::extract::Path<Uuid>,
     Json(req): Json<WebauthnRemoveRequest>,
-) -> ApiResult<axum::http::StatusCode> {
+) -> ApiResult<axum::response::Response> {
     let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
     let user = &authed.principal.user;
-    let mut tx = org_tx(&state, user.org_id).await?;
-    refuse_when_reenrolling(&mut tx, user.id, "removing a passkey").await?;
-    let creds = core_db::users::find_credentials_by_email(&mut *tx, &user.email).await?;
-    if !password::verify_async(req.password.clone(), creds.password_hash.clone()).await {
+
+    // This door proves the password plus a step-up recorded earlier, so the
+    // only hash it owes is the password verify — and that runs with the
+    // connection already given back.
+    let password_hash = read_password_hash(
+        &state,
+        user.org_id,
+        user.id,
+        &user.email,
+        "removing a passkey",
+    )
+    .await?;
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
+    let matched = password::verify_async(req.password.clone(), password_hash).await;
+    drop(permit);
+    if !matched {
         return Err(ApiError::Unauthorized("invalid credentials".into()));
     }
 
+    let mut tx = org_tx(&state, user.org_id).await?;
     let step = require_fresh_step_up(
         &mut tx,
         &authed,
@@ -1354,7 +1594,7 @@ pub async fn webauthn_credential_remove(
     tx.commit()
         .await
         .map_err(|e| ApiError::Internal(e.into()))?;
-    Ok(axum::http::StatusCode::NO_CONTENT)
+    Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }
 
 // --- login-side WebAuthn (completes an mfa_pending bridge) ------------------
