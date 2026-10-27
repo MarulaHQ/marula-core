@@ -42,7 +42,23 @@
 include = [{ path = ".cargo/p13-fast.local.toml", optional = true }]
 
 [build]
-target-dir = "/Users/iordn/Documents/GitHub/Marula/marula-core/.kilo/target-shared"
+# Relative to this file's directory — the checkout — which is how cargo
+# resolves it and how `scripts/lane-target-guard.py` resolves it too. It was
+# an absolute path to one machine's checkout until 2026-10-27, and that made
+# every other clone and every CI runner fail before the first compilation
+# with `failed to create directory .../Users/<name>/...: Permission denied`.
+#
+# Consequence, stated because it is a real change: each checkout (each
+# worktree) now compiles into its OWN `.kilo/target-shared` instead of
+# sharing the main checkout's. That costs disk and removes the cross-checkout
+# artifact reuse the DX6 note below was written for, and it also removes the
+# stale-rmeta class this file's provenance guard exists to catch (a sibling
+# lane overwriting `libcore_domain-<hash>.rmeta`, 2026-10-22).
+#
+# A machine that wants the old one-dir-for-every-worktree behaviour sets it
+# back in the environment, which cargo ranks above this file:
+#   export CARGO_TARGET_DIR="$HOME/.../marula-core/.kilo/target-shared"
+target-dir = ".kilo/target-shared"
 
 # DX6b disk guardrail (2026-09-17): cargo has no GC for incremental sessions —
 # every re-run of a test cycle left another full session behind (132 sessions,

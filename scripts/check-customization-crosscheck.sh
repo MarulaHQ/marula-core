@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 # U9 — customization-aware migration cross-check (Wave 19 lane 4, policy §4.5).
 #
 # Fails when a migration modifies a construct referenced by customization
