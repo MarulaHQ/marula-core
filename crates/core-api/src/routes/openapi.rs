@@ -23,7 +23,12 @@ use utoipa::OpenApi;
 
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "Marula Core API", version = "0.1.0",
+    // The document's version is the release it was built from, so a consumer
+    // pinning a tag can compare the two. It used to be the literal "0.1.0",
+    // which no release ever matched — utoipa's own default reads
+    // CARGO_PKG_VERSION at macro-expansion time, which is utoipa's version,
+    // so the version is always stated here explicitly.
+    info(title = "Marula Core API", version = env!("CARGO_PKG_VERSION"),
          description = "The single write surface for Project Marula. \
                         All mutations flow through this API and emit domain events."),
     paths(

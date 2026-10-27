@@ -13,6 +13,14 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-27
+
+### Fixed
+
+- The published API document reports the release it was built from. It used to
+  carry a version string no release ever matched, which left a client pinning a
+  release with two version identities to reconcile.
+
 ## [0.3.0] - 2026-10-27
 
 The working product: a ticket workbench built for daily use, AI assistance
@@ -138,7 +146,8 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 - Dispatch with SLA awareness and scheduling.
 - The client portal with tickets, invoices, and the knowledge base.
 
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/MarulaHQ/marula-core/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MarulaHQ/marula-core/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/MarulaHQ/marula-core/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/MarulaHQ/marula-core/releases/tag/v0.1.0
