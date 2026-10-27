@@ -7,6 +7,15 @@
 //! link flow whose email claim matches the linking user; JIT requires an
 //! org-level opt-in AND a verified email claim. Provider secrets are
 //! decrypted in-memory for the exchange and never returned after write.
+//!
+//! Transaction shape of the callback (Wave 59 lane `p59-oidc-tx`): it is
+//! anonymous, so no pooled connection may be held while an identity provider
+//! is being waited on. The provider row is read in a short committed
+//! transaction, the discovery/token/JWKS round trips run with no transaction
+//! open, and a second transaction — opened after the last round trip — re-reads
+//! the row, refuses if it changed, and carries the single decision and its
+//! writes. `provision_jit_user` keeps its transaction on purpose (the orphan
+//! argument is in its doc comment).
 
 use crate::auth::federation::denial_reasons;
 use crate::auth::handlers::issue_tokens;
@@ -375,6 +384,45 @@ struct ResolvedProvider {
     client_id: String,
 }
 
+/// What a provider row looked like when one login attempt started.
+///
+/// The callback spends a provider row on three identity-provider round trips
+/// and only then decides. Those round trips run with no transaction open, so
+/// the row is read a second time — inside the decision transaction — and this
+/// comparison decides whether the answer still describes the configuration the
+/// id_token was verified against. A refusal forces a fresh login, which is the
+/// cheap side of the trade: the alternative is a decision, and a JWT audience,
+/// built from a client the admin has already replaced.
+///
+/// `client_secret_enc` is compared as ciphertext, so a rotated secret is caught
+/// without a second decryption. Re-saving a provider with the SAME secret
+/// re-encrypts under a fresh nonce and therefore also fails this comparison;
+/// the cost is one extra login, and it is stated in the lane review.
+#[derive(PartialEq, Eq)]
+struct ProviderSnapshot {
+    client_id: String,
+    client_secret_enc: Vec<u8>,
+    issuer: String,
+    discovery_url: String,
+    enabled: bool,
+    preset: Option<String>,
+    jit_provisioning: bool,
+}
+
+impl ProviderSnapshot {
+    fn of(row: &core_db::oidc::OidcProviderRow) -> Self {
+        Self {
+            client_id: row.client_id.clone(),
+            client_secret_enc: row.client_secret_enc.clone(),
+            issuer: row.issuer.clone(),
+            discovery_url: row.discovery_url.clone(),
+            enabled: row.enabled,
+            preset: row.preset.clone(),
+            jit_provisioning: row.jit_provisioning,
+        }
+    }
+}
+
 /// SECURITY DEFINER bridge: resolves an enabled provider pre-authentication.
 async fn resolve_provider_by_name(
     pool: &sqlx::PgPool,
@@ -495,17 +543,26 @@ pub async fn callback(
         return Ok(fail("provider_mismatch"));
     }
 
+    // --- provider read: one short transaction, committed before any I/O ----
+    // Everything below this block talks to the identity provider, and the
+    // caller is anonymous: a transaction left open here parks a pooled
+    // connection for as long as the provider can be made to wait.
     let mut tx = org_tx(&state, provider.org_id).await?;
     let full =
         core_db::oidc::find_provider_with_secret(&mut *tx, provider.org_id, provider.provider_id)
             .await
             .map_err(|_| ApiError::NotFound)?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::Internal(e.into()))?;
+    let snapshot = ProviderSnapshot::of(&full);
     let secret = String::from_utf8(
         crate::crypto::open(&state.config.secret_key, &full.client_secret_enc)
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?,
     )
     .map_err(|_| ApiError::Internal(anyhow::anyhow!("stored secret not utf8")))?;
 
+    // --- identity-provider round trips: NO transaction open ----------------
     let discovery = state
         .oidc
         .discover(&full.discovery_url, &full.issuer)
@@ -562,6 +619,31 @@ pub async fn callback(
     }
 
     // --- decision ---------------------------------------------------------
+    // ONE transaction from the freshness re-read to the last write, and no
+    // identity-provider call inside it. What it carries: the JIT arm's user,
+    // role, verified-email stamp, link and audit row land together or not at
+    // all; `UNIQUE (provider_id, subject)` on `oidc_accounts` is what turns two
+    // concurrent callbacks for one identity into one account, the loser's
+    // transaction rolling its provisioned user back instead of orphaning it.
+    let mut tx = org_tx(&state, provider.org_id).await?;
+    match core_db::oidc::find_provider_with_secret(&mut *tx, provider.org_id, provider.provider_id)
+        .await
+    {
+        Ok(current) if ProviderSnapshot::of(&current) == snapshot => {}
+        Ok(_) | Err(core_db::DbError::NotFound) => {
+            tx.rollback()
+                .await
+                .map_err(|e| ApiError::Internal(e.into()))?;
+            audit_sso_failed(&state, provider.org_id, "provider_changed");
+            return Ok(fail("provider_changed"));
+        }
+        Err(e) => return Err(ApiError::from(e)),
+    }
+    // Past the comparison every field of `full` that the decision reads
+    // (`jit_provisioning`) and every field already spent on the round trips
+    // (client_id, issuer, preset, secret) is known equal to the row this
+    // transaction just read. `full` is therefore fresh, not cached.
+
     enum Path_ {
         TokensFor(Uuid, Option<&'static str>),
         LinkCreated(Uuid),
@@ -637,7 +719,10 @@ pub async fn callback(
                 // pooled connection — already open. Taking the slot at the
                 // point of need, rather than at the top of the callback, keeps
                 // a slow identity provider from holding password slots
-                // hostage: it is only held for this one hash.
+                // hostage: it is only held for this one hash. Wave 59 lane
+                // `p59-oidc-tx` moved the transaction this runs in to AFTER the
+                // provider round trips, so the hash is now the only slow step
+                // that ever holds one.
                 let permit = match state.config.auth_hash_gate().admit().await {
                     Ok(permit) => permit,
                     Err(refused) => {
@@ -786,6 +871,12 @@ pub async fn callback(
 /// So the bound here is a concurrency cap on the hash itself (at most one
 /// pooled connection per slot can be parked in argon2), not the full
 /// connection-free shape the login path gets by committing its read first.
+///
+/// Since Wave 59 lane `p59-oidc-tx` the callback DOES get that shape for
+/// everything else: its provider read commits before the identity-provider
+/// round trips, and this transaction is opened after the last one. The hash is
+/// therefore the only slow step in the callback that holds a connection, and
+/// the slot cap is what bounds it.
 pub(crate) async fn provision_jit_user(
     tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
     org_id: Uuid,
