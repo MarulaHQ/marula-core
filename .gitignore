@@ -195,11 +195,11 @@ apps/web/.harness/in.css
 # write design/qa-<lane>/, which is local scratch a run rewrites and never a
 # record this repository ships. One ignore rule covers both uses.
 /design/*
-!/design/qa-*/
-# Lane evidence still lands in design/qa-<lane>/ and is tracked, because the convention
-# predates the extraction and the publish filter excludes design/ entirely. The negation
-# works only because the parent is /design/* rather than /design/ — a fully excluded
-# directory cannot have a child re-included.
+# No negation for design/qa-<lane>/. Lane evidence is company material: it is copied to
+# ../internal/design/qa-<lane>/ and committed there, never here. The old negation tracked
+# it in the product repo, which the repository-boundary rule forbids — and a lane that ran
+# `git add -A` after a capture wrote exactly that file into a product worktree (Wave 52
+# group 3's follow-up). An ignore rule is the only mechanism that holds against that.
 /website/
 /meridian-ci/
 /.claude/
