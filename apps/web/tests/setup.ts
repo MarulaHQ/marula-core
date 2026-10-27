@@ -3,8 +3,15 @@
 // pointer capture, matchMedia).
 import "@testing-library/jest-dom/vitest";
 import { afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { routedFetch } from "./helpers/fetch-router";
+
+// The async helpers (`findBy*`, `waitFor`) give up after 1s by default. A page
+// suite that mounts a whole surface can take longer than that to settle on a
+// 2-core runner, which is the shape of the failures this raises the ceiling
+// for: elements that exist, queried before the surface finished rendering.
+// The deadline moves; no assertion changes.
+configure({ asyncUtilTimeout: 5_000 });
 
 // Auto-unmount between tests. Manual end-of-test cleanup() calls never run
 // when an assertion throws mid-test, so one failing test leaked its DOM into
