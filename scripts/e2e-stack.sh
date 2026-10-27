@@ -652,26 +652,40 @@ echo "[e2e-stack] service logs: $LOG_DIR/{core-api,worker}.log"
 # tree, then `mark`s the dir after the builds. Release is explicit on purpose:
 # `cargo clean -p …` WITHOUT `--release` does not clear a poisoned release
 # artifact (proven 2026-10-16, .trail/learnings/).
+# Profile of the core-api (and plugin-runtime worker) build. Release is the
+# default because E2E latency is part of what the stack measures. `debug` is for
+# the one case that needs a dev-only compile-time branch: the loopback egress
+# allowance (F64) exists only in a debug build, so the calendar feed spec cannot
+# run against a release binary. Nothing else changes — same ports, same DB,
+# same seed.
+API_PROFILE="${E2E_API_PROFILE:-release}"
+case "$API_PROFILE" in
+  release|debug) ;;
+  *) die "E2E_API_PROFILE must be release or debug (got '$API_PROFILE')" ;;
+esac
+API_CARGO_FLAGS=""
+[ "$API_PROFILE" = "release" ] && API_CARGO_FLAGS="--release"
+
 if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
-  run_stage "shared-target guard (release)" \
-    "python3 scripts/lane-target-guard.py check --profile release --fix" \
+  run_stage "shared-target guard (${API_PROFILE})" \
+    "python3 scripts/lane-target-guard.py check --profile ${API_PROFILE} --fix" \
     || die "shared-target guard refused this build — read its reason above, run the fix it prints, or set MARULA_LANE_GUARD=0 to override deliberately"
 fi
 
 # The release builds are the slow part of a boot; cargo runs un-quiet here so
 # its compile lines stream and the wait is visible.
-run_stage "build core-api (release — E2E latency needs the optimized build)" \
-  'cargo build -p core-api --release'
+run_stage "build core-api (${API_PROFILE} — E2E latency wants the optimized build; debug is opt-in)" \
+  "cargo build -p core-api ${API_CARGO_FLAGS}"
 BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
-  'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/core-api"
+  'import json,sys; print(json.load(sys.stdin)["target_directory"])')/${API_PROFILE}/core-api"
 # The plugin runtime's worker is a bin target inside `plugin-host`, and
 # `PluginPool` resolves it as a sibling of the core-api binary (`ENV_WORKER_BIN`
 # overrides that). A stack that builds only core-api and worker therefore makes
 # every module-bearing plugin invocation refuse with `plugin_worker_failed` —
 # correct behaviour for a missing binary, and indistinguishable in a run from a
 # plugin that is genuinely broken. Built here for the same reason `worker` is.
-run_stage "build marula-plugin-worker (release)" \
-  'cargo build -p plugin-host --bin marula-plugin-worker --release'
+run_stage "build marula-plugin-worker (${API_PROFILE})" \
+  "cargo build -p plugin-host --bin marula-plugin-worker ${API_CARGO_FLAGS}"
 echo "[e2e-stack] boot core-api on ${BIND_ADDR}"
 "$BIN" >"$LOG_DIR/core-api.log" 2>&1 </dev/null &
 API_PID=$!
@@ -679,8 +693,8 @@ disown "$API_PID" 2>/dev/null || true
 # The core-api release binary is now built from THIS tree's sources: claim the
 # shared dir so the next lane's guard sees whose artifacts these are.
 if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
-  run_stage "mark the shared target (release provenance)" \
-    "python3 scripts/lane-target-guard.py mark --profile release --note e2e-stack:core-api"
+  run_stage "mark the shared target (${API_PROFILE} provenance)" \
+    "python3 scripts/lane-target-guard.py mark --profile ${API_PROFILE} --note e2e-stack:core-api"
 fi
 
 API_HOST="$(echo "$BIND_ADDR" | sed 's/^[0-9]*://; s/^0\.0\.0\.0/localhost/')"
