@@ -167,16 +167,13 @@ fn sweep_entries() -> Vec<(&'static str, &'static str)> {
 }
 
 fn owner_tables() -> Vec<&'static str> {
-    ATTACHMENT_REF_TABLES
-        .iter()
-        .map(|(table, _)| *table)
-        .collect()
+    ATTACHMENT_REF_TABLES.iter().map(|e| e.table).collect()
 }
 
 fn excluded_tables() -> Vec<&'static str> {
     ATTACHMENT_KEY_TABLES_NOT_REFERENCES
         .iter()
-        .map(|(table, _)| *table)
+        .map(|(table, _why)| *table)
         .collect()
 }
 

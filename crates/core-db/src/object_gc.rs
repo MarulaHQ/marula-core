@@ -77,10 +77,10 @@ pub async fn mark_missing(pool: &PgPool, keys: &[String]) -> DbResult<u64> {
         return Ok(0);
     }
     let mut updated = 0;
-    for table in MISSING_TABLES {
+    for (table, column) in MISSING_TABLES {
         updated += sqlx::query(&format!(
             "UPDATE {table} SET missing_since = now() \
-             WHERE storage_key = ANY($1) AND missing_since IS NULL"
+             WHERE {column} = ANY($1) AND missing_since IS NULL"
         ))
         .bind(keys)
         .execute(pool)
@@ -98,10 +98,10 @@ pub async fn clear_missing(pool: &PgPool, keys: &[String]) -> DbResult<u64> {
         return Ok(0);
     }
     let mut updated = 0;
-    for table in MISSING_TABLES {
+    for (table, column) in MISSING_TABLES {
         updated += sqlx::query(&format!(
             "UPDATE {table} SET missing_since = NULL \
-             WHERE storage_key = ANY($1) AND missing_since IS NOT NULL"
+             WHERE {column} = ANY($1) AND missing_since IS NOT NULL"
         ))
         .bind(keys)
         .execute(pool)
@@ -145,8 +145,24 @@ pub fn sources() -> Vec<&'static object_inventory::KeyEntry> {
     object_inventory::claimed()
 }
 
-/// The tables whose rows can say their bytes are gone.
-const MISSING_TABLES: [&str; 2] = ["attachments", "documents_attachments"];
+/// The tables whose rows can say their bytes are gone, with the column that
+/// names the key.
+///
+/// One entry per key space the bucket holds and whose rows own bytes: the two
+/// attachment tables (one key space), and the vault (its own). A CHECKED
+/// PROJECTION of [`crate::object_inventory`] — owners, plus the vault column —
+/// and `every_owning_key_space_can_say_its_bytes_are_gone` fails when the two
+/// disagree, so a new owning table either arrives here or fails a test.
+///
+/// Plugin bytes are deliberately absent: their column holds a digest and the
+/// key is rebuilt in Rust, so a store key cannot be turned back into the row
+/// without carrying the raw column through the pass. That is a signature
+/// change, recorded rather than guessed.
+pub const MISSING_TABLES: &[(&str, &str)] = &[
+    ("attachments", "storage_key"),
+    ("documents_attachments", "storage_key"),
+    ("secret_records", "object_key"),
+];
 
 /// One finding, ready to insert.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -275,14 +291,35 @@ mod tests {
     #[test]
     fn every_refcount_owner_is_a_gc_source() {
         let sources = source_columns();
-        for (table, why) in ATTACHMENT_REF_TABLES {
+        for entry in ATTACHMENT_REF_TABLES {
+            let (table, why) = (entry.table, entry.why);
             assert!(
-                sources.iter().any(|(source, _)| source == table),
+                sources.iter().any(|(source, _)| *source == table),
                 "{table} is an attachment refcount owner ({why}) but the orphan \
                  sweep does not ask it, so the sweep would delete its live objects. \
                  Add it to object_inventory::ENTRIES as an Owner."
             );
         }
+    }
+
+    /// Every key space whose rows own bytes can say its bytes are gone. The
+    /// vault used to be the exception: a reveal of ciphertext that had vanished
+    /// had no row-level answer, only whatever the store adapter said (F76).
+    #[test]
+    fn every_owning_key_space_can_say_its_bytes_are_gone() {
+        let declared: Vec<(&str, &str)> = object_inventory::ENTRIES
+            .iter()
+            .filter(|entry| {
+                entry.role == object_inventory::KeyRole::Owner || entry.column == "object_key"
+            })
+            .map(|entry| (entry.table, entry.column))
+            .collect();
+        assert_eq!(
+            MISSING_TABLES,
+            declared.as_slice(),
+            "an owning key space cannot mark its bytes missing, or MISSING_TABLES \
+             names a table that owns nothing"
+        );
     }
 
     /// The other direction: a source the refcount has never decided about means
@@ -292,7 +329,7 @@ mod tests {
     /// required to be decided there.
     #[test]
     fn every_storage_key_gc_source_is_in_the_refcounts_universe() {
-        let mut decided: Vec<&str> = ATTACHMENT_REF_TABLES.iter().map(|(t, _)| *t).collect();
+        let mut decided: Vec<&str> = ATTACHMENT_REF_TABLES.iter().map(|e| e.table).collect();
         decided.extend(ATTACHMENT_KEY_TABLES_NOT_REFERENCES.iter().map(|(t, _)| *t));
         for entry in sources() {
             if entry.column != "storage_key" {
