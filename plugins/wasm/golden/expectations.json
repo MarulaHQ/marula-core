@@ -1,0 +1,172 @@
+{
+  "readme": "plugins/wasm/golden/README.md explains this file. Every module here is run by crates/plugin-host/tests/conformance.rs through the sandbox and, when it loads, through a real worker process; a module whose verdict drifts from this table fails the battery.",
+  "abi_version": 1,
+  "modules": [
+    {
+      "name": "noop",
+      "file": "src/noop.wat",
+      "claim": "The smallest conformant guest loads and answers an empty payload.",
+      "expect": { "outcome": "ok", "output_absent": true, "log_lines": 0 }
+    },
+    {
+      "name": "echo",
+      "file": "src/echo.wat",
+      "claim": "A 32 KiB payload crosses the boundary in and back out unchanged.",
+      "payload": { "fill": 122, "len": 32768 },
+      "expect": { "outcome": "ok", "output_equals_payload": true }
+    },
+    {
+      "name": "log-fill",
+      "file": "src/log-fill.wat",
+      "claim": "100 log lines is the documented budget and every one is captured.",
+      "expect": { "outcome": "ok", "log_lines": 100 }
+    },
+    {
+      "name": "log-overflow",
+      "file": "src/log-overflow.wat",
+      "claim": "The 101st log line is dropped, has no in-band channel, and does not fail the invocation.",
+      "expect": { "outcome": "ok", "log_lines": 100 }
+    },
+    {
+      "name": "log-over-line",
+      "file": "src/log-over-line.wat",
+      "claim": "A 4097-byte line is over the 4 KiB cap and is dropped whole, not truncated.",
+      "expect": { "outcome": "ok", "log_lines": 0 }
+    },
+    {
+      "name": "now",
+      "file": "src/now.wat",
+      "claim": "The clock reads forward inside one invocation and the guest has no other time source.",
+      "expect": { "outcome": "ok", "output_text": "now" }
+    },
+    {
+      "name": "spin",
+      "file": "src/spin.wat",
+      "claim": "A tight loop is stopped by the invocation's allowance; fuel or the clock binds first depending on instruction throughput, and the row names which.",
+      "expect": {
+        "outcome": "refused",
+        "reason_any_of": ["plugin_fuel_exhausted", "plugin_wall_clock_exceeded"],
+        "fuel_used_present": true
+      }
+    },
+    {
+      "name": "memory-bomb",
+      "file": "src/memory-bomb.wat",
+      "claim": "Growth past the 64 MiB instance cap traps instead of returning -1 the guest could ignore.",
+      "expect": { "outcome": "refused", "reason": "plugin_guest_trap" }
+    },
+    {
+      "name": "stack-overflow",
+      "file": "src/stack-overflow.wat",
+      "claim": "Unbounded recursion is a trap, not a host crash.",
+      "expect": { "outcome": "refused", "reason": "plugin_guest_trap" }
+    },
+    {
+      "name": "trap",
+      "file": "src/trap.wat",
+      "claim": "An explicit trap is a guest trap and reaches no budget.",
+      "expect": { "outcome": "refused", "reason": "plugin_guest_trap" }
+    },
+    {
+      "name": "output-bomb",
+      "file": "src/output-bomb.wat",
+      "claim": "A claimed length of u32::MAX is refused before a byte is copied.",
+      "expect": { "outcome": "refused", "reason": "plugin_output_too_large" }
+    },
+    {
+      "name": "output-over-cap",
+      "file": "src/output-over-cap.wat",
+      "claim": "One byte over the 1 MiB output cap is refused for the length alone.",
+      "expect": { "outcome": "refused", "reason": "plugin_output_too_large" }
+    },
+    {
+      "name": "null-output",
+      "file": "src/null-output.wat",
+      "claim": "The zero word means no output, and the invocation is not a refusal.",
+      "expect": { "outcome": "ok", "output_absent": true }
+    },
+    {
+      "name": "bad-alloc",
+      "file": "src/bad-alloc.wat",
+      "claim": "A negative allocator answer is a frame refusal, never a write at a wrapped address.",
+      "expect": { "outcome": "refused", "reason": "plugin_abi_frame_invalid" }
+    },
+    {
+      "name": "undeclared-import",
+      "file": "src/undeclared-import.wat",
+      "claim": "An entry the ABI does not declare is refused at load, not per call.",
+      "expect": { "load_rejected_contains": "does not declare" }
+    },
+    {
+      "name": "wasi-import",
+      "file": "src/wasi-import.wat",
+      "claim": "WASI is not importable by name.",
+      "expect": { "load_rejected_contains": "only importable namespace" }
+    },
+    {
+      "name": "missing-export",
+      "file": "src/missing-export.wat",
+      "claim": "A module missing one of the three exports does not load.",
+      "expect": { "load_rejected_contains": "no `marula_free` export" }
+    },
+    {
+      "name": "bad-export-type",
+      "file": "src/bad-export-type.wat",
+      "claim": "An entry with the wrong result type does not load, and the refusal names the type.",
+      "expect": { "load_rejected_contains": "the ABI fixes" }
+    },
+    {
+      "name": "kv-namespace",
+      "file": "src/kv-namespace.wat",
+      "claim": "A path-shaped KV namespace label is refused with plugin_kv_namespace_denied, in band.",
+      "expect": { "outcome": "ok", "output_bytes": [1, 3, 0, 0, 0] }
+    },
+    {
+      "name": "http-ungranted",
+      "file": "src/http-ungranted.wat",
+      "claim": "Egress with no network capability is refused before the profile is read.",
+      "expect": { "outcome": "ok", "output_bytes": [1, 1, 0, 0, 0] }
+    },
+    {
+      "name": "http-unconsented",
+      "file": "src/http-unconsented.wat",
+      "grants": ["automation.reads"],
+      "claim": "Egress with the capability but no consented profile is refused, not attempted.",
+      "expect": { "outcome": "ok", "output_bytes": [1, 6, 0, 0, 0] }
+    },
+    {
+      "name": "event-undeclared",
+      "file": "src/event-undeclared.wat",
+      "grants": ["events.emit"],
+      "claim": "An event type the manifest does not declare is refused even with the capability.",
+      "expect": { "outcome": "ok", "output_bytes": [10] }
+    },
+    {
+      "name": "event-deferred",
+      "file": "src/event-deferred.wat",
+      "grants": ["events.emit"],
+      "declared_events": ["ticket.updated"],
+      "claim": "A fully gated emit is a typed not-implemented today, not a fake success.",
+      "expect": { "outcome": "ok", "output_bytes": [13] }
+    },
+    {
+      "name": "query-unknown",
+      "file": "src/query-unknown.wat",
+      "claim": "An id outside the closed query table is refused before the capability question.",
+      "expect": { "outcome": "ok", "output_bytes": [1, 11, 0, 0, 0] }
+    },
+    {
+      "name": "query-ungranted",
+      "file": "src/query-ungranted.wat",
+      "claim": "A known query with no read capability is refused.",
+      "expect": { "outcome": "ok", "output_bytes": [1, 1, 0, 0, 0] }
+    },
+    {
+      "name": "query-deferred",
+      "file": "src/query-deferred.wat",
+      "grants": ["tickets.read"],
+      "claim": "A fully gated model read is a typed not-implemented today, not fabricated rows.",
+      "expect": { "outcome": "ok", "output_bytes": [1, 13, 0, 0, 0] }
+    }
+  ]
+}
