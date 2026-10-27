@@ -67,10 +67,11 @@ WORKER_PORT=8082
 WEB_PORT=3000
 
 DB_OWNER="postgres://marula:marula@localhost:${PG_PORT}/marula"
-# The role is minted by migration 0114 with this literal, so the demo keeps
-# working out of the box; an operator who rotated it (see deploy/README.md)
-# still gets a working demo by exporting the new value.
-DB_APP="postgres://marula_app:${MARULA_APP_PASSWORD:-marula_app}@localhost:${PG_PORT}/marula"
+# The app-role password lives in deploy/dev.env (the laptop value) and is
+# exported by anyone who rotated it (see deploy/README.md). Read it from there
+# rather than restating a credential in this script.
+DEV_ENV_APP_PASSWORD=$(sed -n 's/^MARULA_APP_PASSWORD=//p' "$REPO_ROOT/deploy/dev.env" | tail -1)
+DB_APP="postgres://marula_app:${MARULA_APP_PASSWORD:-${DEV_ENV_APP_PASSWORD:?MARULA_APP_PASSWORD is missing from deploy/dev.env}}@localhost:${PG_PORT}/marula"
 REDIS_URL="redis://localhost:${REDIS_PORT}/0"
 API_LOCAL="http://127.0.0.1:${API_PORT}"
 API_BROWSER="http://localhost:${API_PORT}"
