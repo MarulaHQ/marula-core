@@ -85,6 +85,20 @@ a dirty demo org:
 3. **If a test asserts a row-level consequence, it must also be able to
    CREATE that row.** A test that only reads whatever the environment happens
    to contain is a flake in a shared org.
+4. **A saved surface preference is user state, not spec state.** Default tab,
+   filter and density are restored from `appearance.data_surfaces`
+   (`apps/web/lib/data-surface-prefs.ts`) on mount, so a case that ends on
+   "Approved" changes what the next case sees — and case order differs between
+   the light and dark projects. `05-approvals` went red on exactly that. The
+   fixture resets the document per case (`e2e/helpers/prefs.ts`,
+   `resetSurfacePrefs`); a flow that deliberately sets a saved view resets it
+   itself before it ends.
+5. **Always request `ownerTokens` for API staging, never assume it matches the
+   page session.** `authedPage` owns one login through the browser context and
+   seeds that same pair; `ownerTokens` is a separate bearer session for
+   `authedFetch`. Before Wave 62 the fixture seeded localStorage from a second
+   login while the cookie jar held a different session, which armed the
+   escalating refresh gate and turned unrelated specs red.
 
 ## Evidence writes stay inside the lane that writes them
 

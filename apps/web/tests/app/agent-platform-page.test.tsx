@@ -83,7 +83,12 @@ function setupApi(): MockApi {
   mock.on(
     "DELETE",
     `/api/v1/mcp/capabilities/${"clients:read"}`,
-    () => ({ json: {} }),
+    () => {
+      // A DELETE that answered 200 while leaving the server-side list intact made
+      // the reconcile put the row straight back, so the revoke leg could never pass.
+      grants.length = 0;
+      return { json: {} };
+    },
   );
   mock.on("POST", `/api/v1/agent-proposals/${PROPOSAL_ID}/decline`, () => {
     const row = proposals.find((p) => p.id === PROPOSAL_ID);
@@ -136,8 +141,16 @@ describe("/settings/agent-platform integration", () => {
     // The catalog table above badges every capability it lists, so the grant
     // itself has to be found in the registry region rather than anywhere on
     // the page. `findByText` alone matches the catalog badge too.
-    const registry = screen.getByTestId("mcp-capability-registry");
-    await within(registry).findByText("clients:read");
+    const registry = () => within(screen.getByTestId("mcp-capability-registry"));
+    await registry().findByText("clients:read");
+    expect(screen.queryByText(/No capabilities granted/)).not.toBeInTheDocument();
+
+    await user.click(registry().getByRole("button", { name: "Revoke" }));
+    await waitFor(() =>
+      expect(mock.callsTo("DELETE", "/api/v1/mcp/capabilities/clients:read").length).toBe(1),
+    );
+    await screen.findByText(/No capabilities granted/);
+    expect(registry().queryByText("clients:read")).not.toBeInTheDocument();
     cleanup();
   });
 

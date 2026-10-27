@@ -11,6 +11,7 @@
 // every test runs once per theme against the same seeded demo env.
 import { test as base, expect, type BrowserContext, type Page } from "@playwright/test";
 import { API_URL, DEMO_OWNER_EMAIL, DEMO_PASSWORD, WEB_URL, apiLogin, type TokenPair } from "./api";
+import { resetSurfacePrefs } from "./prefs";
 
 export const TOKENS_KEY = "marula-tokens";
 export const TOKENS_EXP_KEY = "marula-tokens-exp";
@@ -41,7 +42,7 @@ export const test = base.extend<Fixtures>({
     await use(await apiLogin());
   },
 
-  authedPage: async ({ browser, ownerTokens }, use, testInfo) => {
+  authedPage: async ({ browser }, use, testInfo) => {
     // The base projects are named exactly `light` / `dark`; the preset
     // projects suffix them (`warm-preset-dark`). Both shapes must resolve
     // the theme, or the `dark` project silently runs light.
@@ -65,7 +66,16 @@ export const test = base.extend<Fixtures>({
     // the httpOnly session cookie, so the browser context must OWN the
     // session — log in through the context's request jar (shares the cookie
     // store with pages) instead of seeding localStorage.
-    await loginContext(ctx);
+    //
+    // ONE session, not two (Wave 62 lane `p62-gate-truth`). This used to log
+    // in twice — `apiLogin()` for `ownerTokens`, then `loginContext(ctx)` —
+    // and seed localStorage from the FIRST pair while the cookie jar held the
+    // SECOND. The app then presented a token the server had already rotated,
+    // which arms the escalating refresh gate and turns unrelated specs red.
+    // The pair this fixture seeds is now the pair the cookie jar owns, and
+    // `ownerTokens` is requested only by the tests that stage data through the
+    // API (it is a separate, non-rotating bearer session).
+    const tokens = await loginContext(ctx);
     // Order-independence (p37 doctrine): the demo stack resets per-user
     // tours rows at boot, so the FIRST data-flow spec to visit a surface
     // gets the modal onboarding tour over its content and every later one
@@ -75,12 +85,34 @@ export const test = base.extend<Fixtures>({
     // tour modal blocked flow 02's board.)
     await ctx.request.put(`${API_URL}/api/v1/settings/user`, {
       data: { key: "tours.disabled", value: true },
-      headers: { authorization: `Bearer ${ownerTokens.access_token}` },
+      headers: { authorization: `Bearer ${tokens.access_token}` },
     });
-    await seedAuth(page, ownerTokens, theme, preset);
+    // Saved surface preferences are per-user state, not spec state: a case that
+    // ends on a filtered tab changes what the next case sees (e2e/README.md
+    // rule 4). Reset per case, before the page reads them.
+    await resetSurfacePrefs(tokens.access_token);
+    await seedAuth(page, tokens, theme, preset);
     await use(page);
     await ctx.close();
   },
+});
+
+/**
+ * A failed test that ended on the sign-in page is almost always the durable
+ * auth gate, not a broken surface: an earlier flow's deliberate refusal shut
+ * every password login for the window, and the app cannot rotate, so it
+ * bounces to `/login`. The capture then shows a page the test never navigated
+ * to, which reads as "the surface broke". Annotate it so the report says what
+ * happened (Wave 47 lane A26's row, closed here as `p62-gate-truth`).
+ */
+test.afterEach(async ({ page }, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  if (!page.url().includes("/login")) return;
+  testInfo.annotations.push({
+    type: "auth-gate-window",
+    description:
+      "the test ended on /login: the durable auth gate denies logins for a window after a deliberate refusal (e2e/README.md rule 1)",
+  });
 });
 
 /** Log the demo owner in through the context's cookie jar (the Set-Cookie
@@ -104,8 +136,7 @@ export async function loginContext(ctx: BrowserContext): Promise<TokenPair> {
 }
 
 /** Seed the token pair + expiry hint + theme preset into a page's
- * localStorage (the project determines both). */
-export async function seedAuth(
+ * localStorage (the project determines both). */export async function seedAuth(
   page: Page,
   tokens: TokenPair,
   theme?: Theme,

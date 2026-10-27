@@ -10,6 +10,7 @@
 // (`crates/core-api/src/routes/approvals.rs:360-396`), so the owner sees it.
 import { expect, test } from "../helpers/harness";
 import { authedFetch, apiLogin, DEMO_PASSWORD, DEMO_SERVICE_DESK_BOARD_ID } from "../helpers/api";
+import { resetSurfacePrefs } from "../helpers/prefs";
 
 /** The demo technician (`scripts/demo-up.sh:350`). The entry is THEIRS, so the
  *  owner's queue renders it actionable — the other half of the transaction. */
@@ -49,28 +50,6 @@ async function stageSubmittedEntry(notes: string, minutes: number): Promise<Time
   return entry;
 }
 
-/** Put the saved surface views back to their fresh-account state.
- *
- *  The approvals tab is a SAVED user preference (`appearance.data_surfaces`,
- *  apps/web/lib/data-surface-prefs.ts:30) and `useSavedChoice` restores it when
- *  the page mounts. A case that ends on Approved therefore changes what the
- *  NEXT case sees, and the case order differs between the light and dark
- *  projects, so this flow's second case opened on a tab where its submitted row
- *  cannot exist and waited out the timeout against a page that was working
- *  correctly. Saved views landed in wave 51 (103776c59), after the last sweep
- *  that ran this flow, which is why the assumption only broke now.
- *
- *  An empty document is exactly what a fresh account has; `parseDocument` drops
- *  entries without `columns`, so every surface falls back to its own default
- *  tab. Awaited before `goto` so the page's preferences read can never return
- *  the value we are about to replace. */
-async function resetSavedViews(token: string): Promise<void> {
-  await authedFetch(token)("/settings/user", {
-    method: "PUT",
-    body: { key: "appearance.data_surfaces", value: "{}" },
-  });
-}
-
 test("submit a draft entry, bulk-approve it from the queue, see the trail", async ({
   authedPage,
   ownerTokens,
@@ -80,7 +59,7 @@ test("submit a draft entry, bulk-approve it from the queue, see the trail", asyn
   const entry = await stageSubmittedEntry(`E2E approvals ${Date.now() % 100000}`, 60);
 
   // The owner's queue lists it — and it is actionable, because it is not theirs.
-  await resetSavedViews(ownerTokens.access_token);
+  await resetSurfacePrefs(ownerTokens.access_token);
   await authedPage.goto("/approvals");
   await authedPage.getByRole("radio", { name: /^Queue/ }).click();
   const row = authedPage.getByTestId(`approval-row-${entry.id}`);
@@ -113,7 +92,7 @@ test("submit a draft entry, bulk-approve it from the queue, see the trail", asyn
 test("rejection requires a typed reason code", async ({ authedPage, ownerTokens }) => {
   const entry = await stageSubmittedEntry(`E2E reject ${Date.now() % 100000}`, 30);
 
-  await resetSavedViews(ownerTokens.access_token);
+  await resetSurfacePrefs(ownerTokens.access_token);
   await authedPage.goto("/approvals");
   // This row is submitted, so it lives in Queue only. Saved views are reset
   // above; selecting the tab is the belt to that braces.

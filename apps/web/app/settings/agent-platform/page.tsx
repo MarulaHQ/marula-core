@@ -33,7 +33,7 @@ import {
 } from "@marula-core/ui";
 import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { resultErrorText } from "../../../lib/error-copy";
@@ -93,7 +93,13 @@ export default function AgentPlatformPage() {
   const [decisionNote, setDecisionNote] = useState("");
   const [openDiffId, setOpenDiffId] = useState<string | null>(null);
 
+  // Latest-wins guard. The effect can start a refresh before a mutation has
+  // landed, and that older read resolves after the mutation's own refresh with
+  // the pre-mutation snapshot — which would quietly undo a grant the user just
+  // made. Only the newest refresh may write state.
+  const refreshSeq = useRef(0);
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     const [cap, sk, pr] = await Promise.all([
       api.api.GET("/api/v1/mcp/capabilities"),
       api.api.GET("/api/v1/agent-skills"),
@@ -101,6 +107,7 @@ export default function AgentPlatformPage() {
         params: { query: { status: proposalFilter } },
       }),
     ]);
+    if (seq !== refreshSeq.current) return;
     if (cap.error !== undefined || sk.error !== undefined || pr.error !== undefined) {
       setLoadError("Failed to load the agent platform surfaces.");
       return;

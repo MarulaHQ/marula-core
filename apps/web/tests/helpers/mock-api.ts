@@ -76,11 +76,16 @@ export class MockApi {
       url.searchParams.forEach((v, k) => {
         query[k] = v;
       });
-      self.calls.push({ method, path: url.pathname, query, body: parsedBody });
+      // Routes are registered in their readable form (`/capabilities/clients:read`),
+      // but openapi-fetch percent-encodes path parameters (`clients%3Aread`). Matching
+      // the raw path silently missed every colon-bearing route and answered 500, which
+      // reads as a rejected mutation rather than a broken test. Decode once, here.
+      const path = decodeURIComponent(url.pathname);
+      self.calls.push({ method, path, query, body: parsedBody });
 
-      const handler = self.routes.get(`${method} ${url.pathname}`);
+      const handler = self.routes.get(`${method} ${path}`);
       if (handler === undefined) {
-        return makeJsonResponse({ error: { message: `unmatched ${method} ${url.pathname}` } }, 500);
+        return makeJsonResponse({ error: { message: `unmatched ${method} ${path}` } }, 500);
       }
       try {
         const out = handler({ query, body: parsedBody });

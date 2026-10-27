@@ -82,10 +82,14 @@ include = [{ path = "p13-fast.local.toml", optional = true }]
 # ignored, so incremental stayed ON and the caches kept regrowing). The
 # correct `build.incremental` key is used below.
 #
-# Kept off by P13. The disk argument has not changed, and the case incremental
-# was carrying — the second build after a small edit — is what sccache covers
-# without leaving 12GB of session state behind. A developer on a private
-# target dir can still opt in with CARGO_INCREMENTAL=1 for one command.
+# Kept off by P13. The disk argument has not changed. sccache may cover the
+# case incremental was carrying — the second build after a small edit — but
+# that is UNMEASURED on the reference host: `sccache` and `cargo-nextest` are
+# not installed there, and the linker leg measured slower (64.1s stock against
+# 77.3s with ld64.lld on a cold three-crate build). The overlay is therefore
+# opt-in and promises nothing: enable it where the tool exists, then measure
+# before believing it. A developer on a private target dir can still opt in to
+# incremental with CARGO_INCREMENTAL=1 for one command.
 incremental = false
 
 [env]
