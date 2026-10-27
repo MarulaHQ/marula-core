@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 # RLS pool-read gate (Wave 13 lane 3, the private build tracker RLS-scope audit item).
 #
 # The unscoped-GUC 500 class: a route handler that reads tenant rows straight

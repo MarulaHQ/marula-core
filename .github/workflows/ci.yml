@@ -18,7 +18,12 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Keyed on the branch, not `github.ref`: on a pull_request that ref is
+  # `refs/pull/<n>/merge`, which changes whenever the base branch moves, so a
+  # rebase started a SECOND full matrix while the superseded one ran to the
+  # end. `head_ref` is the PR's own branch and stays put, so a rebase now
+  # cancels the run it replaced.
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -94,9 +99,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here on purpose: package.json's `packageManager`
+      # (pnpm@9.0.0) is the single source of truth, and naming a version in
+      # both places makes this action fail with "Multiple versions of pnpm
+      # specified" before the first step of the job.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22

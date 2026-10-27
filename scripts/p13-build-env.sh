@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 # p13-build-env.sh — write, inspect or remove the machine-local build overlay.
 #
-# The committed .cargo/config.toml includes `.cargo/p13-fast.local.toml` with
+# The committed .cargo/config.toml includes `p13-fast.local.toml` (cargo resolves
+# include paths from the config file's own directory, i.e. .cargo/) with
 # `optional = true`. This script is the only thing that writes that file, and it
 # writes only levers this host can actually run:
 #
-#   linker   ld64.lld (macOS), lld or mold (Linux)   -> link time
-#   sccache   local disk, beside the shared target   -> recompile time
+#   linker       ld64.lld (macOS), lld or mold (Linux)   -> link time
+#   sccache       local disk, beside the shared target   -> recompile time
+#   share-target  one target dir for every worktree      -> no rebuild per lane
+#
+# share-target is the only lever that is not an accelerator: it writes an
+# absolute `build.target-dir` into the overlay so every worktree on this machine
+# compiles into the main checkout's `.kilo/target-shared`. It has to live here
+# because cargo ranks the including file above the included one — a target-dir
+# in the tracked .cargo/config.toml would win, and would then ship to CI, where
+# that path does not exist. That is exactly the failure it replaces.
 #
 # Nothing here is required. No overlay means stock cargo; `disable` restores
 # that state by deleting the file. See design/qa-p52-build-throughput/REVIEW.md
@@ -15,6 +24,15 @@
 # Usage
 #   scripts/p13-build-env.sh info        what this host can accelerate with (default)
 #   scripts/p13-build-env.sh enable      write the overlay for the tools present
+#   scripts/p13-build-env.sh enable --share-target
+#                                        ...and point target-dir at the main
+#                                        checkout's .kilo/target-shared
+#   scripts/p13-build-env.sh enable --no-share-target
+#                                        ...and drop that line again
+#   scripts/p13-build-env.sh enable --share-target --no-accelerators
+#                                        ...sharing only: no linker, no sccache,
+#                                        so turning it on does not invalidate
+#                                        every artifact already built
 #   scripts/p13-build-env.sh disable     delete the overlay
 #   scripts/p13-build-env.sh check       exit 1 when the overlay disagrees with this host
 #   scripts/p13-build-env.sh selftest    prove the generate/disable/check paths
@@ -28,10 +46,20 @@
 #   P13_HOST_OS      override `uname -s` (Darwin|Linux)
 #   P13_OVERLAY_PATH override the overlay path (default .cargo/p13-fast.local.toml)
 #   P13_TARGET_DIR   override the target dir used to place the sccache dir
+#   P13_SHARE_TARGET absolute target dir, or `auto` (the main worktree's
+#                    .kilo/target-shared), or `off`; unset inherits the overlay
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OVERLAY="${P13_OVERLAY_PATH:-$ROOT/.cargo/p13-fast.local.toml}"
+TRACKED_CONFIG="${P13_TRACKED_CONFIG:-$ROOT/.cargo/config.toml}"
+
+# A flagless run inherits the target dir the overlay already carries, so
+# `check` reports drift only for real drift, and `enable` never silently
+# un-shares a machine that had sharing on.
+if [ -z "${P13_SHARE_TARGET:-}" ] && [ -f "$OVERLAY" ]; then
+  P13_SHARE_TARGET="$(sed -n 's/^[[:space:]]*target-dir[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' "$OVERLAY" | head -1)"
+fi
 
 # Remote sccache backends. The provenance guard cannot see artifacts a remote
 # cache returns, which is why nothing here writes one; exported by hand is
@@ -53,6 +81,29 @@ have() {
 }
 
 host_os() { printf '%s' "${P13_HOST_OS:-$(uname -s)}"; }
+
+# The main worktree is the one that owns `.git`; `git worktree list` prints it
+# first from any linked worktree, which is what makes `auto` mean the same
+# directory wherever it runs.
+main_worktree() {
+  git -C "$ROOT" worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p'
+}
+
+# share_target_path — the absolute target dir to write, or empty for "leave
+# cargo's default alone". `off` is how `--no-share-target` reaches here.
+share_target_path() {
+  local v="${P13_SHARE_TARGET:-}"
+  case "$v" in
+    ""|off|none) return 0 ;;
+    auto|1)
+      local main; main="$(main_worktree)"
+      [ -n "$main" ] || main="$ROOT"
+      printf '%s/.kilo/target-shared' "$main"
+      ;;
+    /*) printf '%s' "$v" ;;
+    *) die "P13_SHARE_TARGET must be an absolute path, 'auto' or 'off': $v" ;;
+  esac
+}
 
 # ---------------------------------------------------------------------------
 # detection
@@ -127,18 +178,21 @@ remote_cache_vars() {
 
 # sccache_dir — one cache per machine, not one per worktree.
 #
-# The shared target dir is an absolute path in .cargo/config.toml (usually the
-# main checkout's .kilo/target-shared). Putting the cache beside it keeps one
-# copy for every checkout and keeps disk accounting in the place
-# scripts/dev-clean.sh already looks. When target-dir is not absolute, sccache's
-# own default wins and this returns nothing.
+# The cache sits beside the shared target dir, so it keeps one copy for every
+# checkout and keeps disk accounting in the place scripts/dev-clean.sh already
+# looks. The target dir comes from the overlay this script writes (share-target)
+# and, failing that, from the tracked config; when neither names an absolute
+# path, sccache's own default wins and this returns nothing.
 sccache_dir() {
   local td=""
   if [ -n "${P13_TARGET_DIR:-}" ]; then
     td="$P13_TARGET_DIR"
   else
-    td="$(sed -n 's/^[[:space:]]*target-dir[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
-          "$ROOT/.cargo/config.toml" 2>/dev/null | head -1)"
+    td="$(share_target_path)"
+    if [ -z "$td" ]; then
+      td="$(sed -n 's/^[[:space:]]*target-dir[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
+            "$ROOT/.cargo/config.toml" 2>/dev/null | head -1)"
+    fi
   fi
   case "$td" in
     /*) printf '%s/sccache' "$(dirname "$td")" ;;
@@ -162,13 +216,13 @@ render_overlay() {
 # identical fingerprints, no lane invalidating another's artifacts.
 EOF
   say "# host: $(host_os) $(uname -m)  rustc: $(rustc -V 2>/dev/null | cut -d' ' -f2)"
+  [ "$NO_ACCEL" = 1 ] && say "# accelerators: off (written with --no-accelerators)"
 
-  if [ "$HAVE_SCCACHE" = 1 ]; then
-    cat <<'EOF'
-
-[build]
-rustc-wrapper = "sccache"
-EOF
+  local share; share="$(share_target_path)"
+  if [ "$HAVE_SCCACHE" = 1 ] || [ -n "$share" ]; then
+    printf '\n[build]\n'
+    [ "$HAVE_SCCACHE" = 1 ] && printf 'rustc-wrapper = "sccache"\n'
+    [ -n "$share" ] && printf 'target-dir = "%s"\n' "$share"
   fi
 
   if [ "$HAVE_SCCACHE" = 1 ] && [ -n "$dir" ]; then
@@ -194,11 +248,24 @@ EOF
 }
 
 overlay_would_be_empty() {
-  [ "$HAVE_SCCACHE" = 0 ] && [ -z "$LINKER_FLAG" ]
+  [ "$HAVE_SCCACHE" = 0 ] && [ -z "$LINKER_FLAG" ] && [ -z "$(share_target_path)" ]
 }
 
 overlay_effective() {  # settings only, so the check ignores comment churn
   grep -v '^[[:space:]]*#' "$1" 2>/dev/null | grep -v '^[[:space:]]*$'
+}
+
+# overlay_is_wired — is the tracked config actually including this file?
+#
+# Cargo resolves `include` paths from the config file's OWN directory (.cargo/),
+# so an entry spelled ".cargo/p13-fast.local.toml" resolves to .cargo/.cargo/...
+# and, with `optional = true`, fails silently: the overlay exists, cargo ignores
+# it, and every setting in it looks applied but is not. That is not hypothetical
+# — it was the state of this file from Wave 52 until 2026-10-27.
+overlay_is_wired() {
+  [ "$(basename "$OVERLAY")" = "p13-fast.local.toml" ] || return 0
+  local cfg="${P13_TRACKED_CONFIG:-$TRACKED_CONFIG}"
+  grep -q "path = \"p13-fast.local.toml\"" "$cfg" 2>/dev/null
 }
 
 # render_to <file> — the overlay text, so comparisons never read /dev/stdin
@@ -208,7 +275,14 @@ render_to() { render_overlay > "$1"; }
 # ---------------------------------------------------------------------------
 # commands
 # ---------------------------------------------------------------------------
-probe() { detect_linker; detect_sccache; detect_nextest; }
+probe() {
+  detect_linker; detect_sccache; detect_nextest
+  # `--no-accelerators`: report the host truthfully in `info`, but leave the
+  # compiler pipeline alone. A linker or wrapper change invalidates every
+  # fingerprint in the shared target dir, which is a full rebuild — not
+  # something a lane should trigger to gain a shared directory.
+  if [ "$NO_ACCEL" = 1 ]; then HAVE_SCCACHE=0; LINKER_FLAG=""; fi
+}
 
 cmd_info() {
   probe
@@ -233,6 +307,7 @@ cmd_info() {
     say "sccache dir   ${dir:-sccache default}"
   fi
   say "nextest       $([ "$HAVE_NEXTEST" = 1 ] && echo yes || echo 'no  (cargo binstall cargo-nextest)')"
+  say "target dir    $(share_target_path | sed 's/^$/cargo default (target\/)/')"
   say "overlay       $OVERLAY"
   say "              $([ -f "$OVERLAY" ] && echo present || echo 'absent — stock cargo')"
   if [ -n "$remote" ]; then
@@ -244,8 +319,8 @@ cmd_info() {
   fi
   if overlay_would_be_empty; then
     say ""
-    say "No accelerator on this host, so \`enable\` writes nothing. That is the"
-    say "documented fallback: stock cargo, no overlay, no build change."
+    say "No accelerator on this host, so \`enable\` writes nothing (and removes a"
+    say "stale overlay). That is the documented fallback: stock cargo, no build"
   fi
   return 0
 }
@@ -253,10 +328,18 @@ cmd_info() {
 cmd_enable() {
   probe
   if overlay_would_be_empty; then
+    # Nothing belongs in the overlay on this host, so a file that is there is
+    # stale — either its tools went away or `--no-share-target` just took the
+    # last setting out. Leaving it would keep applying a target-dir this run
+    # was asked to drop.
+    if [ -f "$OVERLAY" ] && [ "${DRY_RUN:-0}" != 1 ]; then
+      rm -f "$OVERLAY"
+      say "p13-build-env: removed $OVERLAY — nothing on this host belongs in it."
+      return 0
+    fi
     say "p13-build-env: no accelerator present — nothing to enable."
     say "  linker: ${LINKER_ALT:-none}"
     say "  sccache: not installed"
-    [ -f "$OVERLAY" ] && say "  note: a stale overlay exists at $OVERLAY; run \`disable\` to remove it."
     return 0
   fi
 
@@ -278,6 +361,8 @@ cmd_enable() {
   say "p13-build-env: wrote $OVERLAY"
   say "  linker: ${LINKER_KIND:-none}"
   say "  sccache: $([ "$HAVE_SCCACHE" = 1 ] && echo yes || echo no)"
+  local share; share="$(share_target_path)"
+  [ -n "$share" ] && say "  target: $share  (shared by every worktree on this machine)"
   say "  The next cargo command on this machine relinks (and, with sccache,"
   say "  fills the cache once). Nothing else in the tree changed."
   return 0
@@ -294,6 +379,12 @@ cmd_disable() {
 }
 
 cmd_check() {
+  # An overlay written with --no-accelerators must not read as drift on the
+  # next flagless check; the marker is a comment, so it never enters the
+  # effective-settings comparison.
+  if [ "$NO_ACCEL" = 0 ] && grep -q '^# accelerators: off' "$OVERLAY" 2>/dev/null; then
+    NO_ACCEL=1
+  fi
   probe
   local rc=0 detail="ok"
   if overlay_would_be_empty && [ -f "$OVERLAY" ]; then
@@ -301,6 +392,9 @@ cmd_check() {
     rc=1
   elif ! overlay_would_be_empty && [ ! -f "$OVERLAY" ]; then
     detail="overlay missing: this host has ${LINKER_KIND:-no linker}/$( [ "$HAVE_SCCACHE" = 1 ] && echo sccache || echo no-sccache )"
+    rc=1
+  elif [ -f "$OVERLAY" ] && ! overlay_is_wired; then
+    detail="the tracked config does not include $(basename "$OVERLAY") at a path cargo can resolve from .cargo/ — the overlay is inert"
     rc=1
   elif [ -f "$OVERLAY" ]; then
     local cand; cand="$(mktemp)"; render_to "$cand"
@@ -337,6 +431,8 @@ cmd_selftest() {
   export P13_OVERLAY_PATH="$tmp/overlay.toml"
   OVERLAY="$P13_OVERLAY_PATH"
   export P13_TARGET_DIR="$tmp/shared/target"
+  # Hermetic: never inherit a developer's real share-target setting.
+  export P13_SHARE_TARGET=off
 
   # 1. a machine with nothing: enable writes nothing, check is clean
   mkdir -p "$tmp/empty"
@@ -383,11 +479,48 @@ cmd_selftest() {
   cmd_disable >/dev/null; expect "disable is idempotent" "$?" "0"
   cmd_check >/dev/null; expect "stock after disable -> check clean" "$?" "0"
 
+  # 7. share-target alone writes an overlay even with no accelerator, because
+  #    the tracked config cannot carry this key (the including file wins).
+  export P13_SHARE_TARGET="$tmp/shared/joined" P13_BIN_ROOT="$tmp/empty"
+  cmd_enable >/dev/null
+  expect "share-target alone -> overlay written" "$([ -f "$OVERLAY" ] && echo yes || echo no)" "yes"
+  expect "share-target -> target-dir line" \
+    "$(grep -c "target-dir = \"$tmp/shared/joined\"" "$OVERLAY")" "1"
+  expect "share-target -> one [build] table" "$(grep -c '^\[build\]' "$OVERLAY")" "1"
+  cmd_check >/dev/null; expect "share-target -> check clean" "$?" "0"
+
+  # 8. with sccache present the cache lands beside the shared target, and the
+  #    overlay still carries a single [build] table (TOML forbids two).
+  unset P13_TARGET_DIR
+  export P13_BIN_ROOT="$tmp/mac"
+  cmd_enable >/dev/null
+  expect "share + sccache -> cache beside target" \
+    "$(grep -c "SCCACHE_DIR = \"$tmp/shared/sccache\"" "$OVERLAY")" "1"
+  expect "share + sccache -> one [build] table" "$(grep -c '^\[build\]' "$OVERLAY")" "1"
+
+  # 9. turning sharing off drops the line; with no other lever the file goes
+  export P13_BIN_ROOT="$tmp/empty"
+  P13_SHARE_TARGET=off cmd_enable >/dev/null
+  expect "share off -> no target-dir" \
+    "$([ -f "$OVERLAY" ] && grep -c 'target-dir' "$OVERLAY" || echo 0)" "0"
+  expect "share off, no tool -> overlay removed" "$([ -f "$OVERLAY" ] && echo yes || echo no)" "no"
+
+  # 10. the include spelling is checked, not trusted: the nested spelling
+  #     (.cargo/x.toml) resolves to .cargo/.cargo/x.toml and loads nothing.
+  OVERLAY="$tmp/p13-fast.local.toml"
+  printf '[build]\ntarget-dir = "x"\n' > "$OVERLAY"
+  printf 'include = [{ path = "p13-fast.local.toml", optional = true }]\n' > "$tmp/tracked.toml"
+  export P13_TRACKED_CONFIG="$tmp/tracked.toml"
+  expect "wired include -> ok" "$(overlay_is_wired && echo yes || echo no)" "yes"
+  printf 'include = [{ path = ".cargo/p13-fast.local.toml", optional = true }]\n' > "$tmp/tracked.toml"
+  expect "nested include -> not wired" "$(overlay_is_wired && echo yes || echo no)" "no"
+  unset P13_TRACKED_CONFIG
+
   # restore the caller's environment
   OVERLAY="$saved_overlay"
   if [ -n "$saved_root" ]; then export P13_BIN_ROOT="$saved_root"; else unset P13_BIN_ROOT; fi
   if [ -n "$saved_os" ]; then export P13_HOST_OS="$saved_os"; else unset P13_HOST_OS; fi
-  unset P13_OVERLAY_PATH P13_TARGET_DIR
+  unset P13_OVERLAY_PATH P13_TARGET_DIR P13_SHARE_TARGET
 
   if [ "$fails" -gt 0 ]; then
     say "p13-build-env selftest: $fails of $checks failed"
@@ -404,12 +537,17 @@ CMD=info
 JSON=0
 DRY_RUN=0
 FORCE=0
+NO_ACCEL=0
 for arg in "$@"; do
   case "$arg" in
     info|enable|disable|check|selftest) CMD="$arg" ;;
     --json) JSON=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --force) FORCE=1 ;;
+    --share-target) P13_SHARE_TARGET=auto ;;
+    --share-target=*) P13_SHARE_TARGET="${arg#*=}" ;;
+    --no-share-target) P13_SHARE_TARGET=off ;;
+    --no-accelerators) NO_ACCEL=1 ;;
     -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $arg (try --help)" ;;
   esac

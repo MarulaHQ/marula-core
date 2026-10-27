@@ -105,7 +105,9 @@ evidence:check` runs it.
 
 ## The shared cargo target dir has a provenance guard
 
-Every checkout compiles into `.kilo/target-shared` (disk guardrails DX6), and
+On a machine that ran `scripts/p13-build-env.sh enable --share-target`, every
+checkout compiles into the main checkout's `.kilo/target-shared` (disk guardrails
+DX6); without it each checkout uses its own `target/`. Where the dir is shared,
 cargo records dep-info paths relative to the workspace root — so an artifact a
 peer worktree built from different sources can pass this tree's freshness check
 and get linked, producing a phantom `cannot find value …` or a

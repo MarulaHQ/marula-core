@@ -5,9 +5,14 @@ Wave 47 lane A17 (`p47-lane-env-hygiene`).  Read this before changing it.
 
 WHY THIS EXISTS
 ---------------
-`.cargo/config.toml` pins `build.target-dir` at `.kilo/target-shared`, so every
-worktree and the main checkout compile into ONE directory (disk guardrails DX6;
+A machine that turns on `share-target` (`.cargo/config.toml` cannot carry it —
+cargo ranks the including file above the included overlay, so the key lives in
+`.cargo/p13-fast.local.toml`, written by `scripts/p13-build-env.sh enable
+--share-target`) makes every worktree and the main checkout compile into ONE
+directory, the main checkout's `.kilo/target-shared` (disk guardrails DX6;
 lane-local target dirs duplicated 36GB for two lanes in 2026-09 and are barred).
+Without it — CI, a fresh clone — cargo's default `target/` is used and there is
+nothing shared to guard, which this script reports rather than assumes.
 Cargo's dep-info records paths RELATIVE to the workspace root, so an artifact a
 peer worktree built from a different source state resolves to the CURRENT tree's
 files and passes cargo's mtime freshness check.  Cargo then links an artifact
@@ -117,7 +122,8 @@ depends on WHY the dir was flagged:
 CROSS-SESSION ARBITRATION (Wave 47 A20 D, do not regress this)
 --------------------------------------------------------------
 The reset above is right for one session and destructive across two.  Two
-sessions on one machine write into the same `.kilo/target-shared`, so when the
+sessions on one machine write into the same `.kilo/target-shared` (with
+share-target on), so when the
 stamp names another worktree the "clean the members and rebuild" rule wipes
 artifacts a PEER session may still be building — and a whole-profile clean takes
 the whole debug dir (21.5GiB here) out from under it.
@@ -183,24 +189,63 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _target_dir_in(cfg: Path) -> str | None:
+    if not cfg.is_file():
+        return None
+    try:
+        import tomllib
+
+        data = tomllib.loads(cfg.read_text())
+        value = data.get("build", {}).get("target-dir")
+        if value:
+            return str(value)
+        return None
+    except Exception:
+        # A tolerant fallback: the key lives in [build] and never spans lines.
+        for line in cfg.read_text().splitlines():
+            m = re.match(r'\s*target-dir\s*=\s*"([^"]+)"', line)
+            if m:
+                return m.group(1)
+    return None
+
+
+def _included_configs(cfg: Path) -> list[Path]:
+    """The `include` entries of one config file, resolved like cargo does:
+    relative to that config file's own directory. Optional paths may be
+    absent; a malformed file yields no entries rather than an error."""
+    try:
+        import tomllib
+
+        data = tomllib.loads(cfg.read_text())
+    except Exception:
+        return []
+    out: list[Path] = []
+    for entry in data.get("include", []) or []:
+        path = entry.get("path") if isinstance(entry, dict) else None
+        if isinstance(path, str) and path:
+            out.append((cfg.parent / path).resolve())
+    return out
+
+
 def read_target_dir_config(repo: Path) -> str | None:
+    """The configured `build.target-dir`, resolved the way cargo merges config.
+
+    The including file wins over everything it includes, so its own key is
+    authoritative; only when it names none do the includes get a say, in the
+    order they are listed. This machine has exactly one include — the
+    machine-local overlay that carries `share-target` — and CI has none.
+    """
     for name in (".cargo/config.toml", ".cargo/config"):
         cfg = repo / name
         if not cfg.is_file():
             continue
-        try:
-            import tomllib
-
-            data = tomllib.loads(cfg.read_text())
-            value = data.get("build", {}).get("target-dir")
+        value = _target_dir_in(cfg)
+        if value:
+            return value
+        for included in _included_configs(cfg):
+            value = _target_dir_in(included)
             if value:
-                return str(value)
-        except Exception:
-            # A tolerant fallback: the key lives in [build] and never spans lines.
-            for line in cfg.read_text().splitlines():
-                m = re.match(r'\s*target-dir\s*=\s*"([^"]+)"', line)
-                if m:
-                    return m.group(1)
+                return value
     return None
 
 
@@ -919,6 +964,11 @@ def cmd_reset(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     repo = Path(args.repo).resolve()
     target = resolve_target_dir(repo)
+    if getattr(args, "print_target", False):
+        # Machine-readable form for scripts (dev-clean.sh is the caller): the
+        # one line they need, resolved the same way cargo and `check` do.
+        print(target)
+        return 0
     stamp = load_stamp(target)
     packages = workspace_packages(repo)
     renamed = [p for p in packages if p["name"] != Path(p["member"]).name]
@@ -1024,6 +1074,20 @@ def self_test() -> int:
         os.environ["CARGO_TARGET_DIR"] = str(root / "env-target")
         expect("target-dir from env", resolve_target_dir(root), root / "env-target")
         del os.environ["CARGO_TARGET_DIR"]
+
+        # share-target: the key rides in the include, because cargo ranks the
+        # including file above it. Resolve the chain the way cargo merges it.
+        (root / ".cargo/config.toml").write_text(
+            'include = [{ path = "overlay.toml", optional = true }]\n'
+        )
+        expect("no key, no overlay -> cargo default", resolve_target_dir(root), root / "target")
+        (root / ".cargo/overlay.toml").write_text('[build]\ntarget-dir = "joined"\n')
+        expect("target-dir from the include", resolve_target_dir(root), root / "joined")
+        (root / ".cargo/config.toml").write_text(
+            'include = [{ path = ".cargo/overlay.toml", optional = true }]\n'
+            '[build]\ntarget-dir = "shared-target"\n'
+        )
+        expect("including file beats the include", resolve_target_dir(root), root / "shared-target")
 
         target = root / "shared-target"
         (target / "release/.fingerprint").mkdir(parents=True)
@@ -1416,6 +1480,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     st = sub.add_parser("status", help="show the stamp and what this tree would see")
     st.add_argument("--repo", default=str(repo_root()))
+    st.add_argument(
+        "--print-target",
+        action="store_true",
+        help="print only the resolved target dir (for scripts)",
+    )
     st.set_defaults(func=cmd_status)
 
     sst = sub.add_parser("self-test", help="run the guard's own checks (no cargo)")

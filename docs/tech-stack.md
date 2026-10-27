@@ -21,7 +21,11 @@ Rust is pinned to `stable` with `rustfmt` and `clippy` (`rust-toolchain.toml`).
 
 The `[profile.desktop]`, `[profile.dev]`, and `[profile.test]` blocks in the root
 `Cargo.toml` are not tuning for speed. They cap debuginfo so parallel lanes can share
-one build cache at `.kilo/target-shared` without filling the disk.
+one build cache at `.kilo/target-shared` without filling the disk. That sharing is a
+machine setting, not a repository one: `scripts/p13-build-env.sh enable --share-target`
+writes it into the untracked `.cargo/p13-fast.local.toml`, because cargo ranks the
+tracked `.cargo/config.toml` above anything it includes. Without the overlay — CI, a
+fresh clone — cargo's default `target/` is used.
 
 ## 2. Web app — `apps/web`
 

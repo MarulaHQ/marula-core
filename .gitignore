@@ -222,3 +222,7 @@ apps/web/.harness/in.css
 /docs/adr/0012-internal-org-asset-scope.md
 /docs/adr/0013-connector-tiers-and-marketplace.md
 /scripts/check-brand-assets.mjs
+
+# Python bytecode (lane tooling imports repo modules by path)
+__pycache__/
+*.pyc
