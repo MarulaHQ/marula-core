@@ -1464,6 +1464,22 @@ fn params() -> Vec<Param> {
             "How long an MFA challenge stays valid.",
         ),
         param(
+            "MARULA_AUTH_HASH_MAX_CONCURRENCY",
+            "auth",
+            Integer,
+            Some("0"),
+            false,
+            "Password hashes this process runs at once. 0 resolves at boot to cores × slots-per-core, floor 2; each in-flight slot holds ~19 MiB of scratch.",
+        ),
+        param(
+            "MARULA_AUTH_HASH_QUEUE_WAIT_MS",
+            "auth",
+            Integer,
+            Some("250"),
+            false,
+            "How long an unauthenticated password request waits for a hash slot before the 503 with Retry-After, in milliseconds.",
+        ),
+        param(
             "MARULA_DECISION_BOT_USER_ID",
             "auth",
             String,
@@ -2677,14 +2693,23 @@ mod tests {
     fn only_the_boot_critical_secrets_are_required() {
         // `required` means the process refuses to boot without it. Most secrets
         // are conditional on the feature they configure (an S3 key, a Postmark
-        // token), so they are not required here. The two boot-critical secrets
-        // are, and neither may carry a default.
+        // token), so they are not required here. Four are boot-critical — the
+        // two signing keys and the two internal tokens — and none may carry a
+        // default.
         let required: Vec<&str> = params()
             .iter()
             .filter(|p| p.required)
             .map(|p| p.name)
             .collect();
-        assert_eq!(required, vec!["JWT_SECRET", "MARULA_SECRET_KEY"]);
+        assert_eq!(
+            required,
+            vec![
+                "JWT_SECRET",
+                "MARULA_SECRET_KEY",
+                "MARULA_INTERNAL_TOKEN",
+                "EMAIL_INTERNAL_TOKEN"
+            ]
+        );
         for p in params() {
             if p.required {
                 assert!(

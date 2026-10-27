@@ -31,7 +31,10 @@ use uuid::Uuid;
 /// models: no `org_id` seam, and the default-deny and column contracts below do
 /// not apply to them. `ops.query_tail` is created only where
 /// pg_stat_statements is available, so it is deliberately not listed.
-const OPERATOR_VIEWS: &[&str] = &["db_signals"]; // 0145 database observability
+// 0145 database observability: the signal rollup and the per-statement query
+// tail. Both are operator views rather than v1 slices, and both are
+// `security_invoker`, which the reloptions sweep below checks.
+const OPERATOR_VIEWS: &[&str] = &["db_signals", "query_tail"];
 
 const EXPECTED_V1_VIEWS: &[&str] = &[
     // 0026 reports slice

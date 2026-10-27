@@ -483,11 +483,11 @@ use core_domain::events::{
     CreditNoteRefunded, DirectoryGroupCreated, DirectoryGroupDeleted, DirectoryGroupMemberAdded,
     DirectoryGroupMemberRemoved, DirectoryGroupRoleMapped, DirectoryGroupRoleUnmapped,
     DirectoryGroupUpdated, DispatchQueueUpdated, DispatchStatusUpdated, DocumentAttachmentAdded,
-    DocumentAttachmentDeleted, FxBaseCurrencyChanged, FxRateRecorded, IdentityBundleInstalled,
-    IdentityBundleRevoked, IdentityBundleUpdated, ImportBatchFinished, ImportBatchStarted,
-    InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded, InvoiceRunCompleted,
-    InvoiceVoided, LabelTemplateCreated, LabelTemplateUpdated, LoanIssued, LoanReturned,
-    MeetingTypeDeleted, MigrationPushSessionFinished, MigrationPushSessionStarted,
+    DocumentAttachmentDeleted, EmailSenderBindingDecided, FxBaseCurrencyChanged, FxRateRecorded,
+    IdentityBundleInstalled, IdentityBundleRevoked, IdentityBundleUpdated, ImportBatchFinished,
+    ImportBatchStarted, InvoiceCreated, InvoiceDunningChanged, InvoicePaymentRecorded,
+    InvoiceRunCompleted, InvoiceVoided, LabelTemplateCreated, LabelTemplateUpdated, LoanIssued,
+    LoanReturned, MeetingTypeDeleted, MigrationPushSessionFinished, MigrationPushSessionStarted,
     NotificationCreated, OnCallChanged, PipelineDealCreated, PipelineDealStageChanged,
     PipelineDealUpdated, PipelineStageCreated, PipelineStageUpdated, PluginCatalogEntryCreated,
     PluginInstallRevoked, PluginInstallUpdated, PluginInstalled, PluginPublisherRevoked,
@@ -1737,6 +1737,23 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
                 "ticket_id": su(1).to_string(),
                 "comment_id": serde_json::Value::Null,
             })
+        ),
+    },
+    PublishedEvent {
+        event_type: types::EMAIL_SENDER_BINDING_DECIDED,
+        entity: "email_message",
+        variant: "default",
+        shape: typed_shape!(
+            EmailSenderBindingDecided,
+            EmailSenderBindingDecided {
+                message_id: su(24),
+                rfc_message_id: "<CAF=fixture@mail.example.test>".into(),
+                decision: "accepted".into(),
+                source: "engine".into(),
+                level: "auto".into(),
+                ticket_id: Some(su(1)),
+                comment_id: None,
+            }
         ),
     },
     // -- SLA & automations --------------------------------------------------

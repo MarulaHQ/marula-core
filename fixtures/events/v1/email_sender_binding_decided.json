@@ -1,0 +1,16 @@
+{
+  "event_type": "email.sender_binding_decided",
+  "entity": "email_message",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.3.0",
+  "payload": {
+    "comment_id": null,
+    "decision": "accepted",
+    "level": "auto",
+    "message_id": "00000000-0000-0000-0000-000000000018",
+    "rfc_message_id": "<CAF=fixture@mail.example.test>",
+    "source": "engine",
+    "ticket_id": "00000000-0000-0000-0000-000000000001"
+  }
+}
