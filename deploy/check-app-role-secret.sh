@@ -122,6 +122,7 @@ PY
 		--set digestPinningEnforced=false \
 		--set nonMarulaDigestPinningEnforced=false \
 		--set postgresql.appPassword="$SENTINEL" \
+		--set postgresql.ownerPassword="$SENTINEL-owner" \
 		> "$RENDER" 2>&1; then
 		python3 - "$RENDER" "$SENTINEL" <<'PY' || FAIL=$((FAIL + 1))
 import sys, pathlib
@@ -231,6 +232,15 @@ PY
 		bad "a file under deploy/ still holds the published app-role password"
 	else
 		ok "no file under deploy/ holds the literal marula_app password"
+	fi
+	# The same credential inside a URL is the shape that survived the first
+	# check: `postgres://marula_app:marula_app@…` in a generated profile is
+	# the literal, not a pair of YAML scalars. dev.env is the laptop file and
+	# keeps its value on purpose (existing volumes already have it).
+	if grep -rq --exclude=check-app-role-secret.sh --exclude=dev.env 'marula_app:marula_app' "$ROOT/deploy"; then
+		bad "a deploy/ file embeds the published app-role password in a URL"
+	else
+		ok "no deploy/ file embeds the app-role password in a URL"
 	fi
 else
 	skip "docker compose or python3 not available"

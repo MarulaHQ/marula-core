@@ -748,3 +748,151 @@ async fn a_burst_on_passkey_removal_admits_a_bounded_number_and_refuses_the_rest
         "a drained gate admits again"
     );
 }
+
+// --- the login-side doors (F72, F73) ---------------------------------------
+
+/// F72: completing an MFA login with a recovery code takes the process slot,
+/// and a caller that cannot get one keeps its code.
+///
+/// Before this lane the loop ran inside the login transaction with no slot, so
+/// a saturated process still spent eight argon2 verifies per attempt and a
+/// failed one left the connection held for the duration.
+#[tokio::test]
+#[serial_test::serial]
+async fn login_verify_refuses_at_the_bound_and_keeps_the_code() {
+    let state = test_state().await;
+    let app = core_api::router(state.clone());
+    let _ = one_slot_gate();
+    let slug = format!("bound-login-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, &slug).await;
+    let org_id = id_of(&owner, "org_id");
+    let user_id = id_of(&owner, "user_id");
+    let email = owner["email"].as_str().expect("email").to_string();
+    let bearer = owner["access_token"].as_str().expect("bearer").to_string();
+    let (_secret, codes) = enroll_totp(&app, &bearer).await;
+    assert_eq!(
+        unused_recovery_hashes(&state, org_id, user_id).await.len(),
+        8
+    );
+
+    let login = body_json(
+        send(
+            &app,
+            Method::POST,
+            "/api/auth/login",
+            None,
+            Some(json!({ "email": email, "password": PASSWORD })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(login["mfa_required"], true, "login must ask for a factor");
+    let mfa_token = login["mfa_token"]
+        .as_str()
+        .expect("the mfa_pending bridge token")
+        .to_string();
+
+    let held = drain_slots().await;
+    let refused = send(
+        &app,
+        Method::POST,
+        "/api/auth/mfa/verify",
+        None,
+        Some(json!({ "mfa_token": mfa_token, "code": codes[0] })),
+    )
+    .await;
+    assert_saturated_503(refused).await;
+    assert_eq!(
+        unused_recovery_hashes(&state, org_id, user_id).await.len(),
+        8,
+        "a caller refused for lack of a slot must not spend a code"
+    );
+    drop(held);
+
+    let accepted = send(
+        &app,
+        Method::POST,
+        "/api/auth/mfa/verify",
+        None,
+        Some(json!({ "mfa_token": mfa_token, "code": codes[0] })),
+    )
+    .await;
+    assert_eq!(
+        accepted.status(),
+        StatusCode::OK,
+        "the same code completes the login once a slot is free"
+    );
+    assert_eq!(
+        unused_recovery_hashes(&state, org_id, user_id).await.len(),
+        7
+    );
+}
+
+/// F73: confirming an enrollment hashes the fresh batch of eight recovery codes
+/// under one slot, and a saturated caller leaves the factor pending with no
+/// codes minted.
+#[tokio::test]
+#[serial_test::serial]
+async fn enrollment_refuses_at_the_bound_and_leaves_the_factor_pending() {
+    let state = test_state().await;
+    let app = core_api::router(state.clone());
+    let _ = one_slot_gate();
+    let slug = format!("bound-enroll-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, &slug).await;
+    let org_id = id_of(&owner, "org_id");
+    let user_id = id_of(&owner, "user_id");
+    let bearer = owner["access_token"].as_str().expect("bearer").to_string();
+
+    let began = send(
+        &app,
+        Method::POST,
+        "/api/auth/mfa/totp/enroll-begin",
+        Some(&bearer),
+        None,
+    )
+    .await;
+    assert_eq!(began.status(), StatusCode::OK);
+    let secret = body_json(began).await["secret_base32"]
+        .as_str()
+        .expect("secret")
+        .to_string();
+    let code = totp_code(&secret, 0);
+
+    let held = drain_slots().await;
+    let refused = send(
+        &app,
+        Method::POST,
+        "/api/auth/mfa/totp/enroll-verify",
+        Some(&bearer),
+        Some(json!({ "code": code })),
+    )
+    .await;
+    assert_saturated_503(refused).await;
+    assert_eq!(
+        db_count(&state, org_id, TOTP_CONFIRMED, user_id).await,
+        0,
+        "a refused enrollment must not confirm the factor"
+    );
+    assert_eq!(
+        db_count(&state, org_id, UNUSED_CODES, user_id).await,
+        0,
+        "a refused enrollment must not mint a batch"
+    );
+    drop(held);
+
+    let accepted = send(
+        &app,
+        Method::POST,
+        "/api/auth/mfa/totp/enroll-verify",
+        Some(&bearer),
+        Some(json!({ "code": code })),
+    )
+    .await;
+    assert_eq!(
+        accepted.status(),
+        StatusCode::OK,
+        "the same code confirms once a slot is free"
+    );
+    assert_eq!(db_count(&state, org_id, TOTP_CONFIRMED, user_id).await, 1);
+    assert_eq!(db_count(&state, org_id, UNUSED_CODES, user_id).await, 8);
+}

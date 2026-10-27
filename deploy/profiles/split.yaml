@@ -18,7 +18,7 @@ services:
     ports: [8082]
     needs: [postgres, redis, pgbouncer]
 sets:
-  DATABASE_URL: "postgres://marula_app:marula_app@pgbouncer:6432/marula"
+  DATABASE_URL: "postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula"
   MARULA_DB_STATEMENT_CACHE: "0"
-  MARULA_LISTEN_DATABASE_URL: "postgres://marula_app:marula_app@postgres:5432/marula"
+  MARULA_LISTEN_DATABASE_URL: "postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula"
   MARULA_REPORTING_POOL_MAX: "8"

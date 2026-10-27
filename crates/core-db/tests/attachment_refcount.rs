@@ -441,7 +441,7 @@ async fn the_refcount_inventory_matches_every_table_that_holds_a_key() {
 
     let mut classified: Vec<String> = attachments::ATTACHMENT_REF_TABLES
         .iter()
-        .map(|(table, _why)| (*table).to_string())
+        .map(|e| e.table.to_string())
         .collect();
     classified.extend(
         attachments::ATTACHMENT_KEY_TABLES_NOT_REFERENCES
@@ -473,7 +473,8 @@ async fn the_refcount_inventory_matches_every_table_that_holds_a_key() {
 #[tokio::test]
 async fn every_referencing_table_has_the_columns_the_refcount_binds() {
     let db = test_db().await;
-    for (table, _why) in attachments::ATTACHMENT_REF_TABLES {
+    for entry in attachments::ATTACHMENT_REF_TABLES {
+        let table = entry.table;
         let columns: Vec<String> = sqlx::query_scalar(
             "SELECT column_name::text FROM information_schema.columns \
              WHERE table_schema = 'public' AND table_name = $1",

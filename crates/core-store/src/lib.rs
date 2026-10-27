@@ -195,6 +195,19 @@ pub fn plugin_artifact_key(org_id: uuid::Uuid, sha256_hex: &str) -> String {
     format!("org/{org_id}/plugins/{sha256_hex}")
 }
 
+/// Builds the key for one org's export bundle: identified by the export id,
+/// namespaced per org, and deliberately not content-addressed.
+///
+/// The bundle is built once per export and its bytes never change, so the id is
+/// the address. It lives here beside the other three builders because it is the
+/// same kind of fact — where an object in this bucket lives — and because a
+/// second copy in the route is how a key format and its inventory entry drift
+/// apart.
+#[must_use]
+pub fn export_bundle_key(org_id: uuid::Uuid, export_id: uuid::Uuid) -> String {
+    format!("org/{org_id}/exports/{export_id}/bundle.json")
+}
+
 /// Which backend a process should use. Parsed from config; unknown values
 /// degrade to the documented none mode rather than failing boot.
 #[derive(Debug, Clone, PartialEq, Eq)]

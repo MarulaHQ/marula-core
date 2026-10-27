@@ -396,8 +396,22 @@ fn matching_totp_step(
     let Some(row) = row.filter(|row| row.confirmed) else {
         return Ok(None);
     };
+    verify_sealed_totp(state, &row.secret_enc, email, code)
+}
+
+/// Verifies one code against a sealed TOTP secret.
+///
+/// Split out because enrollment verifies a PENDING row (one the confirmed-only
+/// filter above would skip), and both callers must unseal and check the same
+/// way. Still local work: no transaction, no slot, no connection.
+fn verify_sealed_totp(
+    state: &AppState,
+    secret_enc: &[u8],
+    email: &str,
+    code: &str,
+) -> ApiResult<Option<i64>> {
     let b32 = String::from_utf8(
-        crate::crypto::open(&state.config.secret_key, &row.secret_enc)
+        crate::crypto::open(&state.config.secret_key, secret_enc)
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?,
     )
     .map_err(|_| ApiError::Internal(anyhow::anyhow!("stored secret not utf8")))?;
@@ -614,10 +628,14 @@ pub async fn totp_enroll_verify(
     State(state): State<AppState>,
     extensions: Extensions,
     Json(req): Json<TotpEnrollVerifyRequest>,
-) -> ApiResult<Json<RecoveryCodesResponse>> {
+) -> ApiResult<axum::response::Response> {
     let authed = crate::auth::middleware::authed::<AuthedUser>(&extensions)?;
     let user = &authed.principal.user;
 
+    // Read the pending enrollment and the re-enrolment flag, then give the
+    // connection back. Everything after this point is local work or a hash, and
+    // Wave 59 left this door doing eight argon2 hashes with the transaction open
+    // and no admission slot (F73).
     let mut tx = org_tx(&state, user.org_id).await?;
     let row = core_db::mfa::find_totp(&mut *tx, user.id)
         .await?
@@ -626,21 +644,26 @@ pub async fn totp_enroll_verify(
         return Err(ApiError::Conflict("totp already enabled".into()));
     }
     let reenrolling = core_db::mfa::user_mfa_reenroll_required(&mut *tx, user.id).await?;
-    let b32 = String::from_utf8(
-        crate::crypto::open(&state.config.secret_key, &row.secret_enc)
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?,
-    )
-    .map_err(|_| ApiError::Internal(anyhow::anyhow!("stored secret not utf8")))?;
+    end_read(tx).await?;
 
-    let matched = totp_service::verify_code(
-        &b32,
-        &user.email,
-        &req.code,
-        chrono::Utc::now().timestamp().unsigned_abs(),
-    )
-    .map_err(ApiError::Validation)?
-    .ok_or_else(|| ApiError::Unauthorized("invalid code".into()))?;
+    // The row is pending, so the confirmed-only helper would skip it; unseal and
+    // check it directly. Still no transaction open.
+    let matched = verify_sealed_totp(&state, &row.secret_enc, &user.email, &req.code)?
+        .ok_or_else(|| ApiError::Unauthorized("invalid code".into()))?;
 
+    // Mint and hash the batch under the process's one admission slot, with no
+    // connection held. The batch is the same argon2 work the password does, so
+    // it owes the same bound; a caller that cannot get a slot inside the queue
+    // wait gets the typed 503 with `Retry-After`.
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
+    let (codes, ids) = mint_recovery_codes();
+    let hashes = hash_recovery_batch(&codes, permit).await?;
+
+    // Spend the enrollment in one transaction.
+    let mut tx = org_tx(&state, user.org_id).await?;
     let confirmed = core_db::mfa::confirm_totp(&mut *tx, user.id, matched).await?;
     if confirmed == 0 {
         // Lost a race (another tab confirmed); treat idempotently.
@@ -650,7 +673,7 @@ pub async fn totp_enroll_verify(
     if reenrolling {
         core_db::mfa::clear_mfa_reenroll_required(&mut *tx, user.id).await?;
     }
-    let codes = generate_recovery_codes(&mut tx, user.org_id, user.id).await?;
+    core_db::mfa::replace_recovery_codes(&mut *tx, user.org_id, user.id, &hashes, &ids).await?;
     audit_in_tx(
         &mut tx,
         user.org_id,
@@ -665,7 +688,8 @@ pub async fn totp_enroll_verify(
 
     Ok(Json(RecoveryCodesResponse {
         recovery_codes: codes,
-    }))
+    })
+    .into_response())
 }
 
 async fn audit_in_tx(
@@ -725,23 +749,6 @@ async fn hash_recovery_batch(
         .map_err(ApiError::Internal)?;
     drop(permit);
     Ok(hashes)
-}
-
-/// Generates + persists a fresh hashed batch; returns PLAINTEXT once.
-async fn generate_recovery_codes(
-    tx: &mut Tx,
-    org_id: Uuid,
-    user_id: Uuid,
-) -> ApiResult<Vec<String>> {
-    let (plain, ids) = mint_recovery_codes();
-    // Hash the whole batch off the async runtime (Wave 49 lane R3): eight
-    // argon2id hashes on a worker thread is the worst single-request block
-    // in the app.
-    let hashes = password::hash_many_async(plain.clone())
-        .await
-        .map_err(ApiError::Internal)?;
-    core_db::mfa::replace_recovery_codes(&mut **tx, org_id, user_id, &hashes, &ids).await?;
-    Ok(plain)
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -1099,75 +1106,89 @@ pub async fn mfa_verify(
     )
     .await?;
 
+    // Read what the proof needs, then give the connection back. The recovery
+    // half below is up to eight argon2 verifies, and Wave 59 left this door
+    // running them inside the login transaction with no admission slot (F72).
     let mut tx = org_tx(&state, org_id).await?;
     let user = core_db::users::get_user(&mut *tx, org_id, user_id).await?;
+    let totp = core_db::mfa::find_totp(&mut *tx, user_id).await?;
+    let recovery = core_db::mfa::unused_recovery_hashes(&mut *tx, user_id).await?;
+    end_read(tx).await?;
 
-    match try_totp(
-        &state,
-        &mut tx,
-        org_id,
-        user_id,
-        user.email.clone(),
-        &req.code,
-    )
-    .await?
-    {
-        Some(step) => {
-            finish_mfa_login(tx, &state, org_id, user_id, "totp", step, refresh_ttl_secs).await
+    // TOTP is an HMAC over a sealed secret, not argon2: it needs no slot, and a
+    // match is spent by advancing the watermark in its own transaction. Zero
+    // rows advanced is a replay and answers the same uniform 401 as a bad code.
+    if let Some(step) = matching_totp_step(&state, totp.as_ref(), &user.email, &req.code)? {
+        let mut tx = org_tx(&state, org_id).await?;
+        if core_db::mfa::consume_totp_step(&mut *tx, user_id, step).await? == 0 {
+            audit_mfa_failure(&state, org_id, user_id, "totp_replay").await;
+            return Err(ApiError::Unauthorized("invalid code".into()));
         }
-        None => match match_recovery_code(&mut tx, user_id, req.code.trim()).await? {
-            Some(code_id) => {
-                // Single-use is enforced atomically in SQL.
-                let consumed = core_db::mfa::consume_recovery_code(&mut *tx, code_id).await?;
-                if consumed == 0 {
-                    audit_mfa_failure(&state, org_id, user_id, "replay").await;
-                    return Err(ApiError::Unauthorized("invalid code".into()));
-                }
-                audit_in_tx(
-                    &mut tx,
-                    org_id,
-                    user_id,
-                    "auth.mfa_login_success",
-                    serde_json::json!({ "method": "recovery_code" }),
-                )
-                .await?;
-                tx.commit()
+        return finish_mfa_login(tx, &state, org_id, user_id, "totp", step, refresh_ttl_secs).await;
+    }
+
+    // The recovery half takes the same admission bound the login doors use: the
+    // slot is held for the verifies and handed back before a transaction opens.
+    let permit = match state.config.auth_hash_gate().admit().await {
+        Ok(permit) => permit,
+        Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
+    };
+    let matched = match_recovery_hash(&recovery, req.code.trim()).await;
+    drop(permit);
+
+    match matched {
+        Some(code_id) => {
+            let mut tx = org_tx(&state, org_id).await?;
+            // Single-use is enforced atomically in SQL.
+            let consumed = core_db::mfa::consume_recovery_code(&mut *tx, code_id).await?;
+            if consumed == 0 {
+                audit_mfa_failure(&state, org_id, user_id, "replay").await;
+                return Err(ApiError::Unauthorized("invalid code".into()));
+            }
+            audit_in_tx(
+                &mut tx,
+                org_id,
+                user_id,
+                "auth.mfa_login_success",
+                serde_json::json!({ "method": "recovery_code" }),
+            )
+            .await?;
+            tx.commit()
+                .await
+                .map_err(|e| ApiError::Internal(e.into()))?;
+            let _ = record_success(
+                &state,
+                crate::auth::hardening::kinds::MFA_VERIFY,
+                &client_ip,
+                GateSubject::User(user_id),
+            )
+            .await;
+            let tokens =
+                issue_tokens_with_refresh_ttl(&state, user_id, org_id, None, refresh_ttl_secs)
+                    .await?;
+            let factor = SecondFactor {
+                method: "recovery_code",
+                factor_ref: Some(code_id.to_string()),
+            };
+            if let Err(error) =
+                record_step_up_for_session(&state, org_id, user_id, tokens.session_id, &factor)
                     .await
-                    .map_err(|e| ApiError::Internal(e.into()))?;
-                let _ = record_success(
-                    &state,
-                    crate::auth::hardening::kinds::MFA_VERIFY,
-                    &client_ip,
-                    GateSubject::User(user_id),
-                )
-                .await;
-                let tokens =
-                    issue_tokens_with_refresh_ttl(&state, user_id, org_id, None, refresh_ttl_secs)
-                        .await?;
-                let factor = SecondFactor {
-                    method: "recovery_code",
-                    factor_ref: Some(code_id.to_string()),
-                };
-                if let Err(error) =
-                    record_step_up_for_session(&state, org_id, user_id, tokens.session_id, &factor)
-                        .await
-                {
-                    tracing::warn!(%error, "mfa login: step-up stamp failed; the session must prove a factor again to change one");
-                }
-                Ok(mfa_tokens_response(&state, tokens))
+            {
+                tracing::warn!(%error, "mfa login: step-up stamp failed; the session must prove a factor again to change one");
             }
-            None => {
-                audit_mfa_failure(&state, org_id, user_id, "bad_code").await;
-                let _ = record_failure(
-                    &state,
-                    crate::auth::hardening::kinds::MFA_VERIFY,
-                    &client_ip,
-                    GateSubject::User(user_id),
-                )
-                .await;
-                Err(ApiError::Unauthorized("invalid code".into()))
-            }
-        },
+            Ok(mfa_tokens_response(&state, tokens))
+        }
+        None => {
+            audit_mfa_failure(&state, org_id, user_id, "bad_code").await;
+            let _ = record_failure(
+                &state,
+                crate::auth::hardening::kinds::MFA_VERIFY,
+                &client_ip,
+                GateSubject::User(user_id),
+            )
+            .await;
+            Err(ApiError::Unauthorized("invalid code".into()))
+        }
     }
 }
 
@@ -1214,67 +1235,6 @@ async fn finish_mfa_login(
 /// `headers::Mark` for the memory-only access token stays in the client).
 fn mfa_tokens_response(state: &AppState, tokens: TokenPair) -> axum::response::Response {
     crate::auth::handlers::mfa_cookie_response(state, tokens)
-}
-
-async fn match_recovery_code(
-    tx: &mut Tx,
-    user_id: Uuid,
-    presented: &str,
-) -> ApiResult<Option<Uuid>> {
-    let candidates = core_db::mfa::unused_recovery_hashes(&mut **tx, user_id).await?;
-    for (code_id, hash) in candidates {
-        // Each candidate is a full argon2 verification. Run them off the
-        // async runtime (Wave 49 lane R3); the count is bounded by the
-        // number of unused recovery codes.
-        if password::verify_async(presented.to_string(), hash).await {
-            return Ok(Some(code_id));
-        }
-    }
-    Ok(None)
-}
-
-/// Attempts TOTP verification; on match advances the watermark (0 rows ⇒
-/// replay ⇒ rejected outright). Returns the matched step when verified.
-async fn try_totp(
-    state: &AppState,
-    tx: &mut Tx,
-    org_id: Uuid,
-    user_id: Uuid,
-    email: String,
-    code: &str,
-) -> ApiResult<Option<i64>> {
-    let row = match core_db::mfa::find_totp(&mut **tx, user_id).await? {
-        Some(row) if row.confirmed => row,
-        _ => return Ok(None),
-    };
-    let b32 = String::from_utf8(
-        crate::crypto::open(&state.config.secret_key, &row.secret_enc)
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("{e}")))?,
-    )
-    .map_err(|_| ApiError::Internal(anyhow::anyhow!("stored secret not utf8")))?;
-
-    let matched = totp_service::verify_code(
-        &b32,
-        &email,
-        code,
-        chrono::Utc::now().timestamp().unsigned_abs(),
-    )
-    .map_err(ApiError::Validation)?;
-
-    match matched {
-        Some(step) => {
-            let advanced = core_db::mfa::consume_totp_step(&mut **tx, user_id, step).await?;
-            if advanced == 0 {
-                // Replay within/across windows — reject even though the
-                // code itself is cryptographically valid right now.
-                audit_mfa_failure(state, org_id, user_id, "totp_replay").await;
-                Err(ApiError::Unauthorized("invalid code".into()))
-            } else {
-                Ok(Some(step))
-            }
-        }
-        None => Ok(None),
-    }
 }
 
 async fn audit_mfa_failure(state: &AppState, org_id: Uuid, user_id: Uuid, reason: &str) {
