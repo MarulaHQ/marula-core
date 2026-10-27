@@ -17,6 +17,7 @@ use tokio::sync::watch;
 mod attachments;
 mod data;
 mod deploy;
+mod deploy_check;
 mod fixture;
 mod upgrade;
 

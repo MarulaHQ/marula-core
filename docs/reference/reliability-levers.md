@@ -19,7 +19,7 @@ check. Second, a default in the table is the value the process uses when nothing
 the variable; a profile can preset a different one, and the profiles are listed in
 `docs/deploy-descriptor.md`.
 
-Counts at this commit: 178 levers in 14 groups, and
+Counts at this commit: 180 levers in 14 groups, and
 28 retry budgets (7 subsystems across
 4 presets).
 
@@ -73,7 +73,7 @@ policy has to opt into replaying one.
 Grouped the way the descriptor groups them. **Required** means the process refuses to
 boot without a value and there is no default. **Secret** means a consumer rendering a
 form must mask it; most secrets are conditional on the feature they configure, which is
-why only two are required.
+why only four are required.
 
 ### topology (15)
 
@@ -180,7 +180,7 @@ why only two are required.
 | `EMAIL_LEASE_SECS` | integer | `300` | Lease seconds asked of the claim endpoint. |
 | `DELIVERY_CLAIM_BATCH` | integer | `20` | Scheduled-delivery rows claimed per sweep. |
 
-### auth (6)
+### auth (8)
 
 | Lever | Kind | Default | Notes |
 |---|---|---|---|
@@ -188,6 +188,8 @@ why only two are required.
 | `WEBAUTHN_RP_ORIGIN` | url | `http://localhost:3000` | WebAuthn relying-party origin. |
 | `ACCESS_TTL_SECS` | integer | `900` | Access-token TTL. |
 | `REFRESH_TTL_SECS` | integer | `2592000` | Refresh-token TTL. |
+| `MARULA_AUTH_HASH_MAX_CONCURRENCY` | integer | `0` | Concurrent argon2id hashes this process will run. 0 resolves at boot to two slots per available core. |
+| `MARULA_AUTH_HASH_QUEUE_WAIT_MS` | integer | `250` | How long a password request waits for a hash slot before the 503 with Retry-After. |
 | `MFA_PENDING_TTL_SECS` | integer | `300` | How long an MFA challenge stays valid. |
 | `MARULA_DECISION_BOT_USER_ID` | string | none | Real member id decision runs are attributed to. Unset disables the decision subsystem. |
 
