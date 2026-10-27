@@ -19,6 +19,7 @@ mod data;
 mod deploy;
 mod deploy_check;
 mod fixture;
+mod install;
 mod upgrade;
 
 /// Database URL default mirroring `core_api::config::Config` so bare
@@ -100,6 +101,49 @@ enum Command {
     Attachments {
         #[command(subcommand)]
         action: AttachmentAction,
+    },
+    /// Install Marula on this machine (Wave 60 lane W60-2). Prints the plan by
+    /// default; `--apply` writes the env file and starts the stack, and returns
+    /// only when the profile's healthchecks pass.
+    Install {
+        /// Profile to install. Default: the shape this host fits.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Print the plan and write nothing (the default).
+        #[arg(long)]
+        dry_run: bool,
+        /// Execute the plan.
+        #[arg(long)]
+        apply: bool,
+        /// Where the deployment's files go.
+        #[arg(long, default_value = ".")]
+        dir: std::path::PathBuf,
+        /// Override a lever: NAME=value (repeatable).
+        #[arg(long = "set", value_name = "NAME=value")]
+        set: Vec<String>,
+        /// Compose file to run.
+        #[arg(long, default_value = "deploy/docker-compose.yml")]
+        compose_file: std::path::PathBuf,
+        /// Declare this host's memory when the platform publishes no reading
+        /// (the same value MARULA_HOST_MEMORY_MB carries).
+        #[arg(long)]
+        memory_mb: Option<u32>,
+    },
+    /// Check this machine and the install on it against the descriptor (Wave
+    /// 60 lane W60-2). Exits non-zero when a check fails.
+    Doctor {
+        /// Profile the install claims to be. Default: the shape this host fits.
+        #[arg(long)]
+        profile: Option<String>,
+        /// Directory holding `marula.env`.
+        #[arg(long, default_value = ".")]
+        dir: std::path::PathBuf,
+        /// Compose file the install runs, for the running-services line.
+        #[arg(long, default_value = "deploy/docker-compose.yml")]
+        compose_file: std::path::PathBuf,
+        /// Declare this host's memory when the platform publishes no reading.
+        #[arg(long)]
+        memory_mb: Option<u32>,
     },
 }
 
@@ -272,6 +316,21 @@ async fn main() -> anyhow::Result<()> {
         Command::Deploy { action } => deploy_command(action).await,
         Command::Data { action } => data_command(action).await,
         Command::Attachments { action } => attachments_command(action).await,
+        Command::Install {
+            profile,
+            dry_run,
+            apply,
+            dir,
+            set,
+            compose_file,
+            memory_mb,
+        } => install_command(profile, dry_run, apply, dir, set, compose_file, memory_mb),
+        Command::Doctor {
+            profile,
+            dir,
+            compose_file,
+            memory_mb,
+        } => doctor_command(profile, dir, compose_file, memory_mb),
     }
 }
 
@@ -381,6 +440,188 @@ async fn deploy_command(action: DeployAction) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// `marula install` (Wave 60 lane W60-2): the recommendation, the plan, and,
+/// with `--apply`, the execution. ADR 0026: one target per host, and `--apply`
+/// runs exactly the steps the dry run printed.
+fn install_command(
+    profile: Option<String>,
+    dry_run: bool,
+    apply: bool,
+    dir: std::path::PathBuf,
+    set: Vec<String>,
+    compose_file: std::path::PathBuf,
+    memory_mb: Option<u32>,
+) -> anyhow::Result<()> {
+    use install::DeploymentTarget as _;
+
+    anyhow::ensure!(
+        !(dry_run && apply),
+        "--dry-run prints the plan; --apply executes it. Pick one."
+    );
+
+    let descriptor = deploy::descriptor();
+    let facts = install::HostFacts::detect(&dir).with_declared_memory(memory_mb);
+    let recommendation = install::recommend(&descriptor, &facts);
+
+    let chosen = match profile.clone().or_else(|| recommendation.profile.clone()) {
+        Some(name) => name,
+        None => {
+            let mut out =
+                String::from("no shipped profile fits this host. What each one needs beyond it:\n");
+            for shipped in &descriptor.profiles {
+                let missing = install::plan::missing_for(shipped, &facts);
+                if !missing.is_empty() {
+                    out.push_str(&format!("  {}: {}\n", shipped.name, missing.join("; ")));
+                }
+            }
+            if facts.ram_mb.is_none() {
+                out.push_str(
+                    "\nThis platform publishes no memory reading, so every profile was \
+                     refused on memory. Declare it with --memory-mb or \
+                     MARULA_HOST_MEMORY_MB, and the same host can be scored again.\n",
+                );
+            }
+            out.push_str(
+                "A smaller box can still run `all-in-one` with cloud embeddings: set \
+                 MARULA_EMBEDDING_PROVIDER=openai and MARULA_EMBEDDING_API_KEY, then \
+                 name a host that meets its cores and disk floors.",
+            );
+            anyhow::bail!("{out}");
+        }
+    };
+
+    let mut selection = install::Selection::new(chosen.clone(), &dir);
+    for assignment in &set {
+        selection.set(assignment)?;
+    }
+
+    let target = install::ComposeTarget::new(descriptor, compose_file);
+    let plan = target.plan(&facts, &selection)?;
+    println!("{}", plan.render());
+
+    if profile.is_none() {
+        println!("recommendation for this host:");
+        for line in &recommendation.why {
+            println!("  - {line}");
+        }
+        if let Some(shortfall) = &recommendation.shortfall {
+            println!(
+                "  - {} would also need: {}",
+                shortfall.profile,
+                shortfall.needs.join("; ")
+            );
+        }
+    }
+    if !recommendation.embedding_fits {
+        println!(
+            "\nthe profile's local embedding model does not fit this host. Set \
+             MARULA_EMBEDDING_PROVIDER=openai and MARULA_EMBEDDING_API_KEY, or the \
+             process will refuse to boot (R14: cloud is the default when no local \
+             model fits)."
+        );
+    }
+
+    if !apply {
+        println!(
+            "\nnothing was written. Run again with --apply to execute these steps, \
+             or keep this output as the plan."
+        );
+        return Ok(());
+    }
+
+    target.available(&facts)?;
+    let applied = target.apply(&plan);
+    for line in &applied.done {
+        println!("  + {line}");
+    }
+    if let Some(failed) = &applied.failed {
+        for item in &applied.manual {
+            println!("  manual: {item}");
+        }
+        anyhow::bail!("install stopped: {failed}");
+    }
+    println!("\ninstall applied. Still yours to do:");
+    for item in &applied.manual {
+        println!("  - {item}");
+    }
+    println!("\nRun `marula doctor` to check the result.");
+    Ok(())
+}
+
+/// `marula doctor` (Wave 60 lane W60-2): the planner's facts, read back as a
+/// verdict. Reads `<dir>/marula.env` when it exists, and the process
+/// environment otherwise, so it answers for an install it did not create.
+fn doctor_command(
+    profile: Option<String>,
+    dir: std::path::PathBuf,
+    compose_file: std::path::PathBuf,
+    memory_mb: Option<u32>,
+) -> anyhow::Result<()> {
+    let descriptor = deploy::descriptor();
+    let facts = install::HostFacts::detect(&dir).with_declared_memory(memory_mb);
+    let recommendation = install::recommend(&descriptor, &facts);
+    let name = profile
+        .or_else(|| recommendation.profile.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "no shipped profile fits this host; name one with --profile to check it anyway"
+            )
+        })?;
+    let chosen = descriptor
+        .profiles
+        .iter()
+        .find(|candidate| candidate.name == name)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown profile {name:?} — known: {}",
+                descriptor
+                    .profiles
+                    .iter()
+                    .map(|profile| profile.name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?;
+
+    let env_path = dir.join("marula.env");
+    let (env, source) = match std::fs::read_to_string(&env_path) {
+        Ok(text) => (
+            install::doctor::parse_env_file(&text),
+            env_path.display().to_string(),
+        ),
+        Err(_) => (
+            std::env::vars().collect(),
+            "the process environment (no marula.env here)".to_string(),
+        ),
+    };
+
+    println!("marula doctor — profile {name}, values from {source}\n");
+    let checks = install::doctor::run_default(&descriptor, chosen, &facts, &env);
+    for check in &checks {
+        println!("{}", check.render());
+    }
+    use install::DeploymentTarget as _;
+    let target = install::ComposeTarget::new(deploy::descriptor(), compose_file);
+    let status = target.status();
+    println!("\nservices ({} target):", status.target);
+    match status.error {
+        Some(error) => println!("  {error}"),
+        None if status.services.is_empty() => println!("  nothing running"),
+        None => {
+            for service in &status.services {
+                println!("  {service}");
+            }
+        }
+    }
+
+    if install::doctor::all_ok(&checks) {
+        println!("\nall {} checks passed", checks.len());
+        return Ok(());
+    }
+    let failed = checks.iter().filter(|check| !check.ok).count();
+    anyhow::bail!("{failed} of {} checks failed", checks.len());
 }
 
 /// Connects with the same env contract as core-api (`DATABASE_URL`) and
