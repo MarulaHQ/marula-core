@@ -4,9 +4,10 @@
 # One command = update the app:
 #   1. pnpm web build (Next standalone bundle)
 #   2. stage the standalone server into desktop/resources/web
-#   3. cargo build via tauri (custom profile "desktop", SHARED target dir
-#      .kilo/target-shared via .cargo/config.toml — never a worktree-local
-#      CARGO_TARGET_DIR, DX6), then assemble Marula.app by hand
+#   3. cargo build via tauri (custom profile "desktop", the shared target dir
+#      `.kilo/target-shared`, which `scripts/p13-build-env.sh enable
+#      --share-target` points at on a developer machine, DX6), then assemble
+#      Marula.app by hand
 #      (the Tauri npm CLI has no --profile flag and its bundler globs skip
 #      hidden dirs, so the script owns the bundle layout)
 #

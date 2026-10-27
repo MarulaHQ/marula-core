@@ -18,7 +18,12 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Keyed on the branch, not `github.ref`: on a pull_request that ref is
+  # `refs/pull/<n>/merge`, which changes whenever the base branch moves, so a
+  # rebase started a SECOND full matrix while the superseded one ran to the
+  # end. `head_ref` is the PR's own branch and stays put, so a rebase now
+  # cancels the run it replaced.
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:

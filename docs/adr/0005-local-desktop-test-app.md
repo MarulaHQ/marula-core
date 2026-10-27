@@ -97,8 +97,10 @@ Marula.app
 2. Stage the standalone server into `desktop/resources/web` (symlinks
    rewritten to absolute repo paths — see Deviations)
 3. `cargo tauri build --no-bundle -- --profile desktop` on the **shared**
-   target dir (`.kilo/target-shared` via `.cargo/config.toml`, DX6 — never a
-   worktree-local `CARGO_TARGET_DIR`), then assemble + ad-hoc sign
+   target dir (`.kilo/target-shared`, turned on per machine by
+   `scripts/p13-build-env.sh enable --share-target` — DX6; a build that does not
+   need the shared cache can still pass its own `CARGO_TARGET_DIR`), then
+   assemble + ad-hoc sign
    `Marula.app` (the Tauri npm CLI has no `--profile` flag and its bundler
    globs skip hidden dirs, so the script owns the bundle layout)
 

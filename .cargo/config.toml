@@ -39,26 +39,39 @@
 # content is derived from the host alone, so every worktree on one machine
 # writes byte-identical fingerprints and no lane invalidates another's
 # artifacts in the shared target dir.
-include = [{ path = ".cargo/p13-fast.local.toml", optional = true }]
+include = [{ path = "p13-fast.local.toml", optional = true }]
+# ^ Relative to THIS file's directory, which is how cargo resolves include
+# paths: the overlay lives beside this file in .cargo/. The previous spelling
+# (".cargo/p13-fast.local.toml") resolved to .cargo/.cargo/..., never existed,
+# and `optional = true` turned that into silence — so the linker/sccache
+# overlay has never actually loaded since it was written (proved 2026-10-27
+# against cargo 1.95 with the two spellings side by side).
 
 [build]
-# Relative to this file's directory — the checkout — which is how cargo
-# resolves it and how `scripts/lane-target-guard.py` resolves it too. It was
-# an absolute path to one machine's checkout until 2026-10-27, and that made
-# every other clone and every CI runner fail before the first compilation
-# with `failed to create directory .../Users/<name>/...: Permission denied`.
+# NO `target-dir` here, on purpose.
 #
-# Consequence, stated because it is a real change: each checkout (each
-# worktree) now compiles into its OWN `.kilo/target-shared` instead of
-# sharing the main checkout's. That costs disk and removes the cross-checkout
-# artifact reuse the DX6 note below was written for, and it also removes the
-# stale-rmeta class this file's provenance guard exists to catch (a sibling
-# lane overwriting `libcore_domain-<hash>.rmeta`, 2026-10-22).
+# Cargo ranks the including config above the included one, so a key written
+# here cannot be overridden by the machine-local overlay below. That left one
+# file carrying two contradictory jobs: this tracked file decides what CI and
+# every fresh clone do, and it used to name one machine's absolute checkout
+# path (`/Users/<name>/...`), which made every other clone and every runner
+# fail before the first compile with `failed to create directory ...
+# Permission denied`.
 #
-# A machine that wants the old one-dir-for-every-worktree behaviour sets it
-# back in the environment, which cargo ranks above this file:
-#   export CARGO_TARGET_DIR="$HOME/.../marula-core/.kilo/target-shared"
-target-dir = ".kilo/target-shared"
+# So the key lives where the decision belongs:
+#   - absent (CI, a fresh clone): cargo's default `target/`, which is also the
+#     path `Swatinem/rust-cache` caches without any configuration — no wasted
+#     runner minutes on a cache it cannot find;
+#   - present (a developer machine that wants ONE cache across every worktree):
+#     written into `.cargo/p13-fast.local.toml` by
+#         scripts/p13-build-env.sh enable --share-target
+#     which points it at the main checkout's `.kilo/target-shared`.
+#
+# One consequence worth knowing: a shared dir means a sibling worktree's
+# artifact can satisfy this tree's build (cargo records dep-info paths relative
+# to the workspace root). That is the 2026-10-22 stale-rmeta class, and
+# `scripts/lane-target-guard.py` is the answer to it — run its `check` before a
+# release build, as `scripts/e2e-stack.sh` already does.
 
 # DX6b disk guardrail (2026-09-17): cargo has no GC for incremental sessions —
 # every re-run of a test cycle left another full session behind (132 sessions,

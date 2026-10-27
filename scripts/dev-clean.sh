@@ -200,9 +200,17 @@ fi
 
 before=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')
 
+# The shared target dir is a per-machine setting (`scripts/p13-build-env.sh
+# enable --share-target`), and from a worktree it resolves to the MAIN
+# checkout's .kilo — so ask the same resolver cargo and the provenance guard
+# use instead of assuming this checkout owns it.
+target_dir="$(python3 "$ROOT/scripts/lane-target-guard.py" status --print-target --repo "$ROOT" 2>/dev/null)"
+[[ -n $target_dir ]] || target_dir="$ROOT/.kilo/target-shared"
+
 targets=(
   # cargo incremental state — the single biggest silent grower (DX5)
-  ".kilo/target-shared/debug/incremental"
+  # (the shared target dir is listed separately below: it may live outside
+  #  this checkout, so it cannot ride the ROOT-relative patterns)
   ".kilo/worktrees/*/target/debug/incremental"
   ".kilo/target-shared-*/debug/incremental"
   ".kilo/target-*/debug/incremental"
@@ -213,6 +221,12 @@ targets=(
 )
 
 echo "== dev-clean $( [[ $GO -eq 1 ]] && echo '(applying)' || echo '(dry run — pass --go to apply)' ) =="
+
+for dir in "$target_dir"/debug/incremental(N); do
+  size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+  echo "  $size  $dir"
+  [[ $GO -eq 1 ]] && rm -rf "$dir"
+done
 
 for pattern in $targets; do
   for dir in $(eval ls -d "$ROOT/$pattern" 2>/dev/null); do
@@ -267,7 +281,7 @@ fi
 # is safe outside an active build: cargo rebuilds what it needs on demand.
 if [[ $DEEP -eq 1 ]]; then
   echo "== deep sweep =="
-  deep_dirs=("$ROOT"/.kilo/target-shared/debug(N) "$ROOT"/.kilo/worktrees/*/target(N) "$ROOT"/.kilo/worktrees/*/target-*(N) "$ROOT"/.kilo/target-shared-*(N) "$ROOT"/.kilo/target-*(N))
+  deep_dirs=("$target_dir"/debug(N) "$ROOT"/.kilo/worktrees/*/target(N) "$ROOT"/.kilo/worktrees/*/target-*(N) "$ROOT"/.kilo/target-shared-*(N) "$ROOT"/.kilo/target-*(N))
   for dir in $deep_dirs; do
     echo "  $(du -sh "$dir" 2>/dev/null | cut -f1)  $dir"
   done
@@ -295,7 +309,7 @@ fi
 # current tree no longer references while preserving today's warm cache.
 if [[ $STALE -eq 1 ]]; then
   echo "== stale sweep (older than ${STALE_DAYS}d) =="
-  stale_before=$(du -sh "$ROOT/.kilo/target-shared" 2>/dev/null | cut -f1)
+  stale_before=$(du -sh "$target_dir" 2>/dev/null | cut -f1)
   # deletion under an active build just fails — wait for a gap (15 min)
   if [[ $GO -eq 1 ]]; then
     i=0
@@ -313,7 +327,7 @@ if [[ $STALE -eq 1 ]]; then
   # dies anyway with incremental disabled (DX6b).
   cutoff=$(date -v -"${STALE_DAYS}"d '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
     || date -d "$STALE_DAYS days ago" '+%Y-%m-%d %H:%M:%S')
-  found=$(find "$ROOT/.kilo/target-shared" ! -newermt "$cutoff" \
+  found=$(find "$target_dir" ! -newermt "$cutoff" \
     ! -path '*/debug/incremental/*' ! -path '*/.rustc_info.json' \
     ! -path '*/debug/.fingerprint*' 2>/dev/null || true)
   total=0

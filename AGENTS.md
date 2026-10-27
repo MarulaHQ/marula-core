@@ -168,9 +168,12 @@ references), stripe-best-practices (for the future PaymentProvider adapter),
 insecure-defaults (Trail of Bits; audit command + pattern catalogs for the
 Phase-4 security pass). Backend lanes: load rust-best-practices for all Rust
 work, postgres-best-practices when writing migrations/queries/RLS policies.
-Builds share `.kilo/target-shared` via `.cargo/config.toml` + `.kilo/setup-script`
-(disk guardrails DX6) — never build into a worktree-local `target/`; disk
-housekeeping is `scripts/dev-clean.sh` (dry-run default, `--go` applies).
+Builds share one target dir per machine (`.kilo/target-shared`, disk guardrails DX6)
+when the checkout ran `scripts/p13-build-env.sh enable --share-target`; the key cannot
+live in the tracked `.cargo/config.toml`, because cargo ranks that file above its own
+includes, so it lives in the untracked `.cargo/p13-fast.local.toml`. CI and a fresh
+clone get cargo's default `target/`. Disk housekeeping is `scripts/dev-clean.sh`
+(dry-run default, `--go` applies).
 
 ## Prose must pass SlopMonster (BINDING, all agents)
 
