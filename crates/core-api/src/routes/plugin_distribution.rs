@@ -115,7 +115,7 @@ fn lifecycle_api(error: LifecycleRefusal) -> ApiError {
 /// while the registry is empty (the operator runbook migrates env keys
 /// INTO the registry, then the env set goes away). Verified-by-named-key_id
 /// and by-trust-set semantics live in the distribution adapters.
-async fn trusted_signing_keys(
+pub(crate) async fn trusted_signing_keys(
     state: &AppState,
     tx: &mut sqlx::PgConnection,
 ) -> Vec<plugin_host::distribution::TrustedSigningKey> {

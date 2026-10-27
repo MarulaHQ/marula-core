@@ -308,6 +308,11 @@ pub mod types {
     /// lane 6): the admin per-RBAC matrix moved from device-local panel
     /// state to the org store (`org_pod_visibility`, migration 0064).
     pub const POD_VISIBILITY_UPDATED: &str = "org.pod_visibility_updated";
+    /// An org adopted a signed entitlement artifact (RFC 0023): Core verified
+    /// the issuer's signature, stored the revision and reported it. The
+    /// payload names which revision landed and its digest, never what the
+    /// artifact entitles — core does not interpret it, and nothing gates on it.
+    pub const ENTITLEMENT_ADOPTED: &str = "org.entitlement_adopted";
     /// Board organization + board-level RBAC (the private build tracker 2.11).
     pub const BOARD_GROUP_CREATED: &str = "board.group_created";
     pub const BOARD_GROUP_UPDATED: &str = "board.group_updated";
@@ -1310,6 +1315,23 @@ pub struct PodVisibilityUpdated {
     pub config: serde_json::Value,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub updated_by: Option<uuid::Uuid>,
+}
+
+/// An org adopted a signed entitlement artifact (RFC 0023).
+///
+/// The event carries the revision and its digest — the facts a consumer can
+/// act on. It deliberately does NOT carry the artifact payload: core does not
+/// interpret it, and republishing a commercial document onto the event stream
+/// would widen a distribution surface for no operational gain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct EntitlementAdopted {
+    /// The issuing side's monotonic revision, now held by the org.
+    pub revision: i64,
+    /// sha256 of the canonical payload the artifact carried.
+    pub payload_sha256: String,
+    /// The trust identity whose key verified the artifact.
+    pub key_id: Option<String>,
 }
 
 /// A board group's name/position changed.

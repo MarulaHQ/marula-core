@@ -1,0 +1,12 @@
+{
+  "event_type": "org.entitlement_adopted",
+  "entity": "org",
+  "variant": "default",
+  "payload_schema_ref": "core-domain/v1",
+  "pinned_in": "0.3.1",
+  "payload": {
+    "key_id": "ops-1",
+    "payload_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "revision": 7
+  }
+}

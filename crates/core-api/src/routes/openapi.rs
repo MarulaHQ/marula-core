@@ -325,6 +325,8 @@ use utoipa::OpenApi;
         // rule lives in build_router).
         crate::routes::org_usage::get_org_usage,
         crate::routes::org_usage::get_org_quotas,
+        crate::routes::entitlements::get_entitlement,
+        crate::routes::entitlements::adopt_entitlement,
         // per-org custom domain + generic DNS verification (Wave 47 lane A8):
         // the domain-management API Core owns, vendor-agnostic by construction.
         crate::routes::org_custom_domain::get_custom_domain,
