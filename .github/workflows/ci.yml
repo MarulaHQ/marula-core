@@ -41,7 +41,7 @@ jobs:
         run: ./scripts/check-boundary.sh
 
   rust:
-    name: Rust — fmt · clippy · test · sqlx offline cache
+    name: Rust — fmt · clippy · sqlx offline cache
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -109,12 +109,7 @@ jobs:
       - run: cargo clippy --workspace --exclude marula-desktop --all-targets -- -D warnings
         env:
           SQLX_OFFLINE: "true"
-      # The sweep. Every test target in the workspace runs here, including the
-      # RLS-coverage assertion and the deprecation clock; the dedicated jobs
-      # below re-run three of them by name so one red does not hide the rest.
-      - run: cargo test --workspace --exclude marula-desktop
-        env:
-          SQLX_OFFLINE: "true"
+      # The sweep lives in the three `rust-tests-*` jobs below, not here.
       # Trap this step closes: a `query!` edit without `cargo sqlx prepare`
       # passes a DB-online test run and then breaks every offline consumer
       # (developer builds, the Docker image build). `prepare --check` compares
@@ -151,6 +146,135 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run lint typecheck test
+
+  # The sweep, split across runners. `core-api` alone declares 115 integration
+  # targets, the rest of the workspace 84, and every binary statically links the
+  # whole graph (wasmtime, cranelift, OpenSSL, webauthn, sqlx). One job's target
+  # dir passed 37 GB — after the reclaim step above had already freed 22 GB —
+  # and the linker died mid-write: GitHub logged "Free space left: 0 MB", rustc
+  # reported "IO failure on output stream", and the linker aborted with a Bus
+  # error that reads like a compiler crash (runs 40533170070, 40548490372).
+  #
+  # Two shards for the heavy crate and one job for the rest keeps each runner
+  # well inside its disk, and runs the suite in parallel rather than serially.
+  # Shard membership is computed from the test files present, so a new
+  # integration test lands in a shard without anyone editing this file.
+  rust-tests-core-api:
+    name: Rust tests — core-api shard ${{ matrix.shard }}/2
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    services:
+      postgres:
+        # pgvector/pgvector:pg18 — the same major the compose files and
+        # scripts/e2e-stack.sh run (PostgreSQL 18, pgvector 0.8). core-db
+        # integration tests attach to THIS container through DATABASE_URL, so
+        # no Docker-in-Docker is needed on the runner.
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marula_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        # valkey/valkey:8-alpine — the tag scripts/e2e-stack.sh uses, so the
+        # service container and a local stack are the same image.
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
+      REDIS_URL: redis://localhost:6379
+      # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
+      # and `Config::from_env_allow_dev_fallback` refuses to start rather than
+      # silently under-provision the model — its own message names this lever.
+      # Without it every test that builds a config panics before it asserts
+      # anything (api_versioning: 5 tests at line 69).
+      MARULA_EMBEDDING_TIER: minimal
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reclaim runner disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          echo "--- after reclaim ---"
+          df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: core-api tests (shard ${{ matrix.shard }} of 2)
+        env:
+          SQLX_OFFLINE: "true"
+        run: |
+          mapfile -t targets < <(cd crates/core-api/tests && ls *.rs | sed 's/\.rs$//' | sort)
+          args=()
+          for i in "${!targets[@]}"; do
+            if [ $((i % 2)) -eq $(( ${{ matrix.shard }} - 1)) ]; then
+              args+=(--test "${targets[$i]}")
+            fi
+          done
+          echo "shard ${{ matrix.shard }}/2: ${#args[@]} of ${#targets[@]} integration targets"
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            cargo test -p core-api --lib "${args[@]}"
+          else
+            cargo test -p core-api "${args[@]}"
+          fi
+
+  rust-tests-rest:
+    name: Rust tests — workspace except core-api
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector/pgvector:pg18 — the same major the compose files and
+        # scripts/e2e-stack.sh run (PostgreSQL 18, pgvector 0.8). core-db
+        # integration tests attach to THIS container through DATABASE_URL, so
+        # no Docker-in-Docker is needed on the runner.
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marula_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        # valkey/valkey:8-alpine — the tag scripts/e2e-stack.sh uses, so the
+        # service container and a local stack are the same image.
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
+      REDIS_URL: redis://localhost:6379
+      # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
+      # and `Config::from_env_allow_dev_fallback` refuses to start rather than
+      # silently under-provision the model — its own message names this lever.
+      # Without it every test that builds a config panics before it asserts
+      # anything (api_versioning: 5 tests at line 69).
+      MARULA_EMBEDDING_TIER: minimal
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reclaim runner disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          echo "--- after reclaim ---"
+          df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --exclude marula-desktop --exclude core-api --tests
+        env:
+          SQLX_OFFLINE: "true"
+      # Doc tests compile and run one snippet at a time, so they never pile up
+      # binaries the way the integration targets do.
+      - run: cargo test --workspace --exclude marula-desktop --doc
+        env:
+          SQLX_OFFLINE: "true"
 
   ui-gates:
     name: UI ratchets — shared chrome · theme packs · evidence writes
