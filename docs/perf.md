@@ -86,6 +86,21 @@ header, and the mix's 10% deep-page share then rides
 `?limit=50&cursor=<that>` (falling back to the legacy offset URL against
 a pre-keyset server — the runner stays usable across versions).
 
+### Which build to measure
+
+Budgets and baselines in this document are taken on a release build. That
+build now strips symbols and runs thin LTO, which leaves timing unchanged and
+profiling impossible: sampled frames come back as addresses. To read a
+flamegraph, build the same optimised code with the symbol table kept.
+
+```sh
+cargo build --profile profiling -p core-api
+```
+
+The `profiling` profile inherits `release` and overrides `strip` alone, so the
+two builds differ only in that table. Profile with `profiling`, and report
+budgets from `release`.
+
 ## 3. Measured baselines (2026-09-13, lane 8)
 
 Environment: local dev machine (Apple Silicon, macOS), Postgres 17

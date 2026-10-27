@@ -59,6 +59,35 @@ members = [
     "plugins/connectors/cloudflare",
 ]
 
+# Shipped server binaries (core-api, worker, marula-core-cli) build with this
+# profile and land in the deploy/ images, so anything left in the artifact is
+# paid for on every pull. Release defaults keep the symbol table. Measured on
+# one tree with thin LTO on both sides: core-api goes from 111,211,608 bytes to
+# 91,348,656, so the symbols alone are 19.9 MB of a shipped artifact (17.9%).
+# Thin LTO rides along for cross-crate codegen; its own size effect is not
+# measured here, only that benefit.
+#
+# Two things are deliberately left alone. opt-level stays at the default 3,
+# because core-api is a hot request path and `s`/`z` need a run through the
+# harness in docs/perf.md before the saving can be called free. panic stays
+# `unwind`, because `abort` would break catch_unwind in the tower/tokio stack.
+# Neither belongs in a change that is otherwise a build-flag edit.
+#
+# Backtraces from these images resolve to addresses, not names. That is the
+# trade `profile.desktop` already makes below, for the same reason.
+[profile.release]
+strip = "symbols"
+lto = "thin"
+
+# Profiling keeps the symbols. docs/perf.md measures release-built core-api, and
+# a flamegraph without function names answers nothing, so the workflow that
+# needs them gets a profile that differs from release by exactly that one key:
+# same codegen, same LTO, names intact. Profile with it; measure budgets on
+# release, as docs/perf.md does.
+[profile.profiling]
+inherits = "release"
+strip = "none"
+
 # Desktop lane (2026-09-13, ADR 0005): lighter release profile for the
 # double-clickable Marula test app. opt-level=2 + thin LTO instead of
 # the default release settings keeps link times and .app size down —
