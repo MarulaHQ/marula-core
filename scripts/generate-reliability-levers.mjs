@@ -353,7 +353,7 @@ function render(params, retry) {
     "Grouped the way the descriptor groups them. **Required** means the process refuses to",
     "boot without a value and there is no default. **Secret** means a consumer rendering a",
     "form must mask it; most secrets are conditional on the feature they configure, which is",
-    "why only two are required.",
+    "why only four are required.",
   );
   lines.push("");
   for (const group of groups) {

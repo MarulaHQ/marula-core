@@ -26,7 +26,7 @@ Versioning is two fields:
 
 ```
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "core_version": "0.1.0",
   "image": {
     "name": "marula-core",
@@ -38,16 +38,19 @@ Versioning is two fields:
     {
       "name": "all-in-one",
       "title": "...", "description": "...",
+      "sets": { "MARULA_ALL_IN_ONE": "1", "...": "..." },
+      "floors": { "cores": 4, "ram_mb": 8192, "disk_gb": 30 },
       "services": [{ "name": "core-api", "role": "core-api",
                      "ports": [8080, 8082],
-                     "needs": ["postgres", "redis"] }],
-      "sets": { "MARULA_ALL_IN_ONE": "1", "...": "..." }
+                     "needs": ["postgres", "redis"] }]
     }
   ],
   "params": [
     { "name": "JWT_SECRET", "group": "secrets", "kind": "secret",
       "required": true, "default": null, "secret": true,
-      "description": "..." }
+      "description": "...",
+      "consequence": "...", "default_rationale": null,
+      "requires": [], "conflicts": [] }
   ]
 }
 ```
@@ -58,13 +61,28 @@ deployment builds or pulls the image once and runs each role as a process.
 `profiles` are the named deployment shapes. `split` runs core-api and
 worker as separate processes. `all-in-one` runs one core-api that hosts the
 worker loops and serves the SSE live-push stream, and `sets` carries the presets that make it
-so plus the small-install cadence profile.
+so plus the small-install cadence profile. `floors` is the machine the shape
+needs: cores, mebibytes of RAM and gibibytes of free disk. It is a lower bound,
+and it is checked against the profile's own presets — a profile that presets a
+local embedding model its floors cannot host is a contradiction the descriptor
+check refuses.
 
 `params` is the runtime surface: every env var a deployment may set, its group,
 its kind (`string`, `integer`, `boolean`, `url`, `secret`), whether the process
 refuses to boot without it (`required`), its default when it has one, and
-whether a consumer must mask it (`secret`). Flatten the active profile's `sets`
-over these defaults and the result is the environment to run.
+whether a consumer must mask it (`secret`). Each one also carries:
+
+- `consequence` — what changes for the operator when the lever moves, in plain
+  language. This is the sentence a wizard renders, and a consumer must not write
+  a second explanation.
+- `default_rationale` — why the default is that value. `null` only when the
+  lever has no default.
+- `requires` — other levers that must be set alongside this one when it is in
+  use. Empty for a lever that stands alone.
+- `conflicts` — levers that must not be set at the same time.
+
+Flatten the active profile's `sets` over these defaults and the result is the
+environment to run.
 
 Three sections carry decisions that are more than a default value:
 
@@ -76,9 +94,29 @@ Three sections carry decisions that are more than a default value:
   requirement each mode adds, the measured consequence of each, and the
   per-tenant embedding distribution. `resolved.mode` is what this environment
   selects and `resolved.refusal` is the sentence the boot would print when that
-  mode cannot run. When a database is reachable the section carries a live probe;
-  when it is not, `resolved.probe` says `not_run` rather than claiming the mode
+  mode cannot run. When a database is reachable the section carries a live probe.
+  When it is not, `resolved.probe` says `not_run` rather than claiming the mode
   can run.
+
+## The self-check
+
+The descriptor is checked before it is published. `check` in
+`crates/marula-core-cli/src/deploy_check.rs` refuses:
+
+- a parameter with no `consequence`, one shorter than eight words, or one that
+  merely restates `description`.
+- a default with no `default_rationale`.
+- a `requires` or `conflicts` entry naming a lever the descriptor does not
+  publish, a lever naming itself, a conflict only one side declares, or a lever
+  that both requires and conflicts with the same name.
+- a profile that declares no floors, or whose presets select a local embedding
+  model its own floors cannot host (a cloud model carries no local floor, so it
+  is always allowed).
+
+`marula deploy describe --json` refuses to print a descriptor that fails the
+check, and `marula deploy profiles --write` refuses to write one. The
+human summary prints the violations instead of failing, so an operator staring
+at a broken build still sees what is wrong.
 
 ## Regenerating the profiles
 
@@ -94,6 +132,6 @@ fall behind, so the human-readable copy cannot disagree with the JSON.
 
 ## What this is not
 
-marula-core states the interface; it makes no rendering decisions and holds no
+marula-core states the interface. It makes no rendering decisions and holds no
 hq logic. How a parameter is presented, which are grouped into a form, and how
 a profile is chosen are all on the consumer's side.
