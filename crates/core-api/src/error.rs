@@ -269,6 +269,25 @@ pub enum ApiError {
         /// Fixed human-readable message for the client.
         message: &'static str,
     },
+    /// Typed 409 for a cross-org adoption of a version whose manifest nobody
+    /// signed (Wave 59 lane `p59-digest-only`, migration 0172).
+    ///
+    /// `manifest_authenticated = false` is the honest verdict for a GitHub pull,
+    /// a local archive, a legacy digest-only registry statement and a declarative
+    /// publish. What it must never be is a licence to hand that manifest to
+    /// another tenant as publisher-signed — the catalog is server-wide, so an
+    /// install by slug reaches any publisher's entry. The org that staged the row
+    /// is the one that read the consent screen and may still adopt it, so the
+    /// refusal names the entry and the version, not the caller's permission.
+    #[error("this version's manifest is not signed by a publisher")]
+    ManifestUnauthenticated {
+        /// The catalog entry that was the target of the adoption.
+        catalog_id: Uuid,
+        /// Its slug, as the client asked for it.
+        slug: String,
+        /// The pinned version whose manifest carries the weaker claim.
+        version: String,
+    },
     /// Typed 401 for a federation (bundle) login refusal (Wave 13 lane
     /// 7): auth failures carry a registry reason code, not prose to
     /// parse. `reason` is the machine code clients branch on;
@@ -817,6 +836,26 @@ impl IntoResponse for ApiError {
                 message.clone(),
                 None,
             ),
+            // Wave 59 (digest-only): the manifest signature verdict is the
+            // reason a distribution refusal carries, so a client can tell
+            // "nobody signed this" from "you lack the grant" without parsing
+            // prose.
+            ApiError::ManifestUnauthenticated {
+                catalog_id,
+                slug,
+                version,
+            } => (
+                StatusCode::CONFLICT,
+                "manifest_unauthenticated",
+                "this version's manifest is not signed by a publisher; only the \
+                 organization that staged it may adopt it"
+                    .to_string(),
+                Some(json!({
+                    "catalog_id": catalog_id,
+                    "slug": slug,
+                    "version": version,
+                })),
+            ),
             ApiError::MigrationCursorMismatch { expected, provided } => (
                 StatusCode::CONFLICT,
                 "migration_cursor_mismatch",
@@ -1062,6 +1101,14 @@ mod tests {
                 "run_retry_refused",
             ),
             (ApiError::SlugTaken { suggestion: None }, "org_slug_taken"),
+            (
+                ApiError::ManifestUnauthenticated {
+                    catalog_id: Uuid::now_v7(),
+                    slug: "ticket-summarizer".into(),
+                    version: "1.0.0".into(),
+                },
+                "manifest_unauthenticated",
+            ),
             (
                 ApiError::UniqueConflict {
                     kind: "user_email_taken",

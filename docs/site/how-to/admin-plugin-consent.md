@@ -30,6 +30,8 @@ Open **Settings → Plugins**:
 
 A GitHub import always shows **manifest unsigned** on its consent screen. That is deliberate: the pinned tag and the SHA-256 digest record which bytes were fetched and that they have not changed, but a repository carries no publisher signature over its manifest, so there is no publisher claim to show. The [plugin runtime reference](../../reference/plugin-runtime.md#manifest-authentication-by-source) lists which sources can show **manifest signed**.
 
+An unsigned manifest also stays home. The workspace that imported it can install and run it, and no other workspace can: asking to install that version from another workspace is refused with `manifest_unauthenticated`, because the registry would otherwise pass your import off as publisher-signed. If you mean to distribute an internal plugin, publish it deliberately rather than relying on an import.
+
 ## 2. Newly installed plugins start Disabled
 
 When you import or install a plugin, it lands in a **Disabled** state (or **Staged** if uploaded by a non-admin team member). A disabled plugin cannot run background jobs, receive webhooks, or display widgets until an administrator explicitly consents and enables it.

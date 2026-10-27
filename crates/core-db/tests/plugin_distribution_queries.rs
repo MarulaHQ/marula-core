@@ -692,7 +692,10 @@ async fn agent_skills_should_append_versions_and_default_to_disabled() {
 async fn manifest_authentication_round_trips_on_the_staged_row() {
     let db = pool().await;
     let (org, _roles) = seed_org_at(&db, 6950, "dist-manifest-auth").await;
-    let uploader = fixed_uuid(6971);
+    // 6992, not 6971: `staged_lifecycle_should_mint_disabled_adoption_with_provenance`
+    // already claims 6971 as its member, and both tests commit the row, so the
+    // suite raced on `users_pkey` whichever order it ran in.
+    let uploader = fixed_uuid(6992);
     let mut tx = org_tx(&db.admin, org).await;
     users::create_user(
         &mut *tx,
@@ -748,4 +751,108 @@ async fn manifest_authentication_round_trips_on_the_staged_row() {
         "a digest-only entry reads back as the weaker claim"
     );
     tx.commit().await.expect("commit");
+}
+
+/// Wave 59 (`p59-digest-only`, migration 0172): the authentication verdict the
+/// staged row recorded has to survive onto the REGISTRY row, because the staged
+/// item belongs to the uploading org and the catalog is server-wide. Before this
+/// hop, `manifest_authenticated` died with the staged row and nothing could tell
+/// another tenant's adoption that nobody signed the manifest it was adopting.
+///
+/// The write path decides: a staged approval passes the adapter's verdict, and a
+/// declarative publish — which carries no bytes and no statement to verify —
+/// records the weaker claim rather than an assumed `true`.
+#[tokio::test]
+async fn a_version_carries_the_manifest_authentication_its_writer_recorded() {
+    let db = pool().await;
+    let (org, _roles) = seed_org_at(&db, 6960, "dist-version-auth").await;
+
+    let signed_entry = registry_entry(6961, "signed-plugin", Some(org), "1.1.0");
+    let signed_first = registry_version(6962, signed_entry.id, "1.0.0");
+    // The same entry's second version arrives as a digest-only pull: the verdict
+    // is per VERSION, not per entry, which is the whole reason for the column.
+    let signed_second = registry_version(6963, signed_entry.id, "1.1.0");
+    let declared_entry = registry_entry(6964, "declared-plugin", Some(org), "1.0.0");
+    let declared_first = registry_version(6965, declared_entry.id, "1.0.0");
+
+    let mut tx = org_tx(&db.admin, org).await;
+    plugins::create_catalog_entry_with_manifest_auth(&mut tx, &signed_entry, &signed_first, true)
+        .await
+        .expect("signed entry");
+    plugins::append_version_with_manifest_auth(&mut tx, signed_entry.id, &signed_second, false)
+        .await
+        .expect("digest-only append");
+    plugins::create_catalog_entry(&mut tx, &declared_entry, &declared_first)
+        .await
+        .expect("declarative entry");
+    tx.commit().await.expect("commit");
+
+    let mut tx = org_tx(&db.admin, org).await;
+    assert!(
+        plugins::version_manifest_authenticated(&mut tx, signed_entry.id, "1.0.0")
+            .await
+            .expect("signed read"),
+        "the adoption's verdict is on the registry row"
+    );
+    assert!(
+        !plugins::version_manifest_authenticated(&mut tx, signed_entry.id, "1.1.0")
+            .await
+            .expect("digest-only read"),
+        "a digest-only append stays the weaker claim on the same entry"
+    );
+    assert!(
+        !plugins::version_manifest_authenticated(&mut tx, declared_entry.id, "1.0.0")
+            .await
+            .expect("declarative read"),
+        "a declarative publish carries no statement, so it is not authenticated"
+    );
+    tx.commit().await.expect("commit");
+}
+
+fn registry_entry(
+    slot: u64,
+    slug: &str,
+    origin_org_id: Option<Uuid>,
+    latest_version: &str,
+) -> core_domain::entities::PluginCatalogEntry {
+    let now = chrono::Utc::now();
+    core_domain::entities::PluginCatalogEntry {
+        id: fixed_uuid(slot),
+        slug: slug.to_string(),
+        name: slug.to_string(),
+        description: "d".into(),
+        publisher: "staged-import".into(),
+        origin_org_id,
+        latest_version: Some(latest_version.to_string()),
+        interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
+        revoked_at: None,
+        revoked_reason: None,
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+fn registry_version(
+    slot: u64,
+    catalog_id: Uuid,
+    version: &str,
+) -> core_domain::entities::PluginVersion {
+    core_domain::entities::PluginVersion {
+        id: fixed_uuid(slot),
+        catalog_id,
+        version: version.to_string(),
+        manifest: core_domain::entities::PluginManifestV2 {
+            name: "registry-plugin".into(),
+            version: version.to_string(),
+            interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
+            description: "d".into(),
+            capabilities: vec!["tickets.read".into()],
+            settings_schema: None,
+            artifact_kind: None,
+            connector_profile: None,
+            surface_profile: None,
+        },
+        module_digest: String::new(),
+        created_at: chrono::Utc::now(),
+    }
 }

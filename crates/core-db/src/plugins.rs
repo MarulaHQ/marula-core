@@ -113,10 +113,31 @@ pub async fn validate_declared_event_types(
 /// Publishes a catalog entry plus its first version snapshot.
 /// Caller generates ids/timestamps; the entry's `latest_version` is
 /// written from the version row.
+///
+/// The version's manifest lands UNAUTHENTICATED. This is the declarative
+/// publish shape: the manifest arrives as a JSON body on an authenticated admin
+/// call, so there are no artifact bytes and no publisher statement for anyone to
+/// verify. Recording `true` here would claim a signature that does not exist
+/// (migration 0172's header). A caller that DOES hold a verdict — the staged
+/// approval path, which carries the adapter's answer on the staged row — uses
+/// [`create_catalog_entry_with_manifest_auth`].
 pub async fn create_catalog_entry(
     tx: &mut PgConnection,
     entry: &PluginCatalogEntry,
     version: &PluginVersion,
+) -> DbResult<()> {
+    create_catalog_entry_with_manifest_auth(tx, entry, version, false).await
+}
+
+/// [`create_catalog_entry`] for a caller that holds the adapter's
+/// manifest-authentication verdict (`plugin_staged_items.manifest_authenticated`,
+/// 0167) and needs it to travel onto the registry row that other orgs install
+/// from. Without this hop the weaker claim died with the staged item.
+pub async fn create_catalog_entry_with_manifest_auth(
+    tx: &mut PgConnection,
+    entry: &PluginCatalogEntry,
+    version: &PluginVersion,
+    manifest_authenticated: bool,
 ) -> DbResult<()> {
     sqlx::query!(
         r#"INSERT INTO plugin_catalog (id, slug, name, description, publisher,
@@ -133,23 +154,30 @@ pub async fn create_catalog_entry(
     )
     .execute(&mut *tx)
     .await?;
-    insert_version(tx, version).await
+    insert_version(tx, version, manifest_authenticated).await
 }
 
-pub async fn insert_version(tx: &mut PgConnection, version: &PluginVersion) -> DbResult<()> {
+pub async fn insert_version(
+    tx: &mut PgConnection,
+    version: &PluginVersion,
+    manifest_authenticated: bool,
+) -> DbResult<()> {
     let manifest = serde_json::to_value(&version.manifest)
         .map_err(|e| DbError::Conflict(format!("manifest does not serialize: {e}")))?;
-    // `query()` because the column list gained `module_digest` in 0156 and a
-    // changed `query!` needs a refreshed offline cache (a group-gate action).
+    // `query()` because the column list gained `module_digest` in 0156 (and
+    // `manifest_authenticated` in 0172) and a changed `query!` needs a refreshed
+    // offline cache (a group-gate action).
     sqlx::query(
-        r#"INSERT INTO plugin_versions (id, catalog_id, version, manifest, module_digest)
-           VALUES ($1, $2, $3, $4, $5)"#,
+        r#"INSERT INTO plugin_versions (id, catalog_id, version, manifest, module_digest,
+                                       manifest_authenticated)
+           VALUES ($1, $2, $3, $4, $5, $6)"#,
     )
     .bind(version.id)
     .bind(version.catalog_id)
     .bind(&version.version)
     .bind(manifest)
     .bind(&version.module_digest)
+    .bind(manifest_authenticated)
     .execute(&mut *tx)
     .await?;
     Ok(())
@@ -158,10 +186,25 @@ pub async fn insert_version(tx: &mut PgConnection, version: &PluginVersion) -> D
 /// Appends a new version to a LIVE entry and moves `latest_version`.
 /// Unknown entries are NotFound; revoked entries accept no new
 /// versions (the row lock makes the check race-free).
+///
+/// Unauthenticated, for the same reason [`create_catalog_entry`] is: the
+/// declarative append carries no statement to verify. The staged path uses
+/// [`append_version_with_manifest_auth`].
 pub async fn append_version(
     tx: &mut PgConnection,
     catalog_id: Uuid,
     version: &PluginVersion,
+) -> DbResult<()> {
+    append_version_with_manifest_auth(tx, catalog_id, version, false).await
+}
+
+/// [`append_version`] carrying the adapter's manifest-authentication verdict, so
+/// a version appended from a staged import keeps the claim the staged row made.
+pub async fn append_version_with_manifest_auth(
+    tx: &mut PgConnection,
+    catalog_id: Uuid,
+    version: &PluginVersion,
+    manifest_authenticated: bool,
 ) -> DbResult<()> {
     let revoked_at: Option<chrono::DateTime<chrono::Utc>> =
         sqlx::query_scalar("SELECT revoked_at FROM plugin_catalog WHERE id = $1 FOR UPDATE")
@@ -174,7 +217,7 @@ pub async fn append_version(
             "revoked catalog entries accept no new versions".into(),
         ));
     }
-    insert_version(tx, version).await?;
+    insert_version(tx, version, manifest_authenticated).await?;
     sqlx::query!(
         "UPDATE plugin_catalog SET latest_version = $2, updated_at = now() WHERE id = $1",
         catalog_id,
@@ -302,6 +345,29 @@ pub async fn get_version(
     .fetch_one(executor)
     .await?;
     manifest_from_row(&row)
+}
+
+/// Whether a signature the operator's trust set verified covers THIS version's
+/// manifest (migration 0172), not just its artifact bytes.
+///
+/// Read on its own rather than carried on [`PluginVersion`] because the entity is
+/// the declarative manifest and its pin, and the only caller that needs the
+/// verdict is the cross-org adoption guard in core-api. `false` is the honest
+/// default for every row the backfill could not prove: unknown is treated as
+/// unauthenticated (fail closed), never the other way round.
+pub async fn version_manifest_authenticated(
+    executor: &mut PgConnection,
+    catalog_id: Uuid,
+    version: &str,
+) -> DbResult<bool> {
+    let authenticated: bool = sqlx::query_scalar(
+        "SELECT manifest_authenticated FROM plugin_versions WHERE catalog_id = $1 AND version = $2",
+    )
+    .bind(catalog_id)
+    .bind(version)
+    .fetch_one(executor)
+    .await?;
+    Ok(authenticated)
 }
 
 pub async fn list_versions(

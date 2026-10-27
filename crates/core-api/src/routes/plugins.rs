@@ -719,6 +719,14 @@ pub async fn create_install(
             })?,
         };
         let pinned = core_db::plugins::get_version(&mut tx.tx, entry.id, &version).await?;
+        // Migration 0172: an entry whose manifest nobody signed travels no
+        // further than the org that staged it, and the catalog is server-wide —
+        // this slug may be another tenant's. Refused before any install row
+        // exists, so nothing is left behind but the audited refusal.
+        crate::routes::plugin_distribution::refuse_unauthenticated_cross_org(
+            &mut tx.tx, org_id, &entry, &version,
+        )
+        .await?;
         validate_grants_against_manifest(&pinned.manifest, &requested)?;
         // The pin: a version that ships a module installs only if this org
         // holds the bytes. An install that names bytes it cannot load would
@@ -836,7 +844,14 @@ pub async fn create_install(
             InstallView::from_install(install, entry.name, &pinned.manifest, Vec::new()),
         ))
     })
-    .await?;
+    .await;
+    // The refusal above rolls its transaction back, so its audit row is written
+    // after the fact in its own transaction. Nothing was installed either way.
+    if let Err(refusal) = &view {
+        crate::routes::plugin_distribution::audit_manifest_refusal(&state, org_id, actor, refusal)
+            .await;
+    }
+    let view = view?;
     Ok((StatusCode::CREATED, Json(view)))
 }
 
