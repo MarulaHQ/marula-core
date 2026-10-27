@@ -1628,9 +1628,8 @@ pub async fn receive(
     let (kind, _currency) = item_kind(&state, &extensions, req.item_id).await?;
     let serialized = kind == "serialized";
 
-    let qty_milli;
     let mut serial_number: Option<String> = None;
-    if serialized {
+    let qty_milli = if serialized {
         serial_number = Some(as_serial_number(req.serial_numbers.clone()).ok_or_else(|| {
             ApiError::Validation("a serialized receive must carry one serial".into())
         })?);
@@ -1639,15 +1638,15 @@ pub async fn receive(
                 "pass exactly one serial per serialized receive".into(),
             ));
         }
-        qty_milli = 1000;
+        1000
     } else {
         if req.serial_numbers.is_some() {
             return Err(ApiError::Validation(
                 "a consumable receive must not carry serials".into(),
             ));
         }
-        qty_milli = req.qty_milli;
-    }
+        req.qty_milli
+    };
     if let Some(cost) = req.unit_cost_minor {
         if cost < 0 {
             return Err(ApiError::Validation(
