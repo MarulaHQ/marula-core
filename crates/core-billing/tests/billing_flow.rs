@@ -580,7 +580,7 @@ async fn contract_crud_instant_first_envelope() {
     .await;
     assert_eq!(response.status(), 200);
     let removed = body_json(response).await;
-    assert_eq!(removed["id"], json!(contract_id));
+    assert_eq!(removed["contract_id"], json!(contract_id));
     let response = send(
         &app,
         axum::http::Method::GET,
