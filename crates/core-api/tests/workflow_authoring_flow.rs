@@ -363,8 +363,10 @@ async fn ai_admission_is_the_existing_path() {
 }
 
 /// The deterministic measurement evidence (spec E). Runs two corpora through
-/// the REAL registry validation and writes the report under
-/// `internal/design/qa-p43-workflow-ai-authoring/measurement.json`.
+/// the REAL registry validation and, when a lane names its evidence directory in
+/// `MARULA_EVIDENCE_DIR`, writes the report beneath it. Without that variable it
+/// writes nothing: the report is lane evidence, which is company material and
+/// must never land in this public tree.
 #[tokio::test]
 async fn measurement_report_is_recorded() {
     let realistic = vec![
@@ -468,13 +470,13 @@ async fn measurement_report_is_recorded() {
                  malformations (the boundary must reject each). This measures \
                  the boundary and the prompt footprint, not a live model's rate.",
     });
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../internal/design/qa-p43-workflow-ai-authoring/measurement.json"
-    );
-    if let Some(parent) = std::path::Path::new(path).parent() {
+    let Some(dir) = std::env::var_os("MARULA_EVIDENCE_DIR") else {
+        return;
+    };
+    let path = std::path::Path::new(&dir).join("qa-p43-workflow-ai-authoring/measurement.json");
+    if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("evidence dir");
     }
-    std::fs::write(path, serde_json::to_string_pretty(&report).unwrap())
+    std::fs::write(&path, serde_json::to_string_pretty(&report).unwrap())
         .expect("write measurement");
 }
