@@ -121,22 +121,23 @@ async fn register_owner(app: &axum::Router, slug: &str) -> (String, Uuid, Uuid, 
 }
 
 fn totp_code(secret_base32: &str, offset_steps: i64) -> String {
-    use totp_rs::{Algorithm, TOTP};
+    use totp_rs::{Algorithm, Builder};
     let bytes = data_encoding::BASE32_NOPAD
         .decode(secret_base32.to_ascii_uppercase().as_bytes())
         .expect("stored secret is base32");
-    let totp = TOTP::new(
-        Algorithm::SHA1,
-        6,
-        1,
-        30,
-        bytes,
-        Some("Marula".to_string()),
-        "gate@enroll.test".to_string(),
-    )
-    .expect("totp");
+    let totp = Builder::new()
+        .with_algorithm(Algorithm::SHA1)
+        .with_digits(6)
+        .with_skew(1)
+        .with_step_duration(30)
+        .with_secret(bytes)
+        .with_issuer(Some("Marula"))
+        .with_account_name("gate@enroll.test")
+        .build()
+        .expect("totp");
     let step = (chrono::Utc::now().timestamp() / 30) + offset_steps;
     totp.generate(u64::try_from(step).expect("positive step") * 30)
+        .to_string()
 }
 
 /// Enrols TOTP over HTTP the way a client does.

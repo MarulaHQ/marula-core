@@ -6,7 +6,7 @@
 //! Non-purpose: persistence (core-db/mfa) and HTTP concerns.
 
 use rand::RngCore;
-use totp_rs::{Algorithm, TOTP};
+use totp_rs::{Algorithm, Builder, Totp};
 
 pub const STEP_SECONDS: u64 = 30;
 /// Accept one step of clock drift in each direction (industry standard).
@@ -29,24 +29,24 @@ pub fn new_enrollment(account_email: &str, issuer: &str) -> Result<Enrollment, S
     Ok(Enrollment {
         secret_bytes: bytes,
         secret_base32: b32,
-        otpauth_url: totp.get_url(),
+        otpauth_url: totp.to_url().map_err(|e| e.to_string())?,
     })
 }
 
-fn build_totp(secret_bytes: &[u8], account_name: &str, issuer: &str) -> Result<TOTP, String> {
-    TOTP::new(
-        Algorithm::SHA1,
-        6,
-        u8::try_from(DRIFT_STEPS).unwrap_or(1),
-        STEP_SECONDS,
-        secret_bytes.to_vec(),
-        Some(issuer.to_string()),
-        account_name.to_string(),
-    )
-    .map_err(|e| e.to_string())
+fn build_totp(secret_bytes: &[u8], account_name: &str, issuer: &str) -> Result<Totp, String> {
+    Builder::new()
+        .with_algorithm(Algorithm::SHA1)
+        .with_digits(6)
+        .with_skew(u16::try_from(DRIFT_STEPS).unwrap_or(1))
+        .with_step_duration(STEP_SECONDS)
+        .with_secret(secret_bytes.to_vec())
+        .with_issuer(Some(issuer))
+        .with_account_name(account_name)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
-fn instance_for_verification(secret_base32: &str, account_name: &str) -> Result<TOTP, String> {
+fn instance_for_verification(secret_base32: &str, account_name: &str) -> Result<Totp, String> {
     let bytes = data_encoding::BASE32_NOPAD
         .decode(secret_base32.to_ascii_uppercase().as_bytes())
         .map_err(|_| "stored secret is not valid base32".to_string())?;
@@ -73,7 +73,11 @@ pub fn verify_code(
     let current_step = (now_unix / STEP_SECONDS) as i64;
     for delta in -DRIFT_STEPS..=DRIFT_STEPS {
         let step = current_step + delta;
-        let candidate = totp.generate((step.unsigned_abs()) * STEP_SECONDS);
+        // `generate` yields a `Token` (Display only, `as_bytes` is gone);
+        // flatten to digits so the compare stays over equal-length bytes.
+        let candidate = totp
+            .generate((step.unsigned_abs()) * STEP_SECONDS)
+            .to_string();
         // Constant-time comparison of equal-length digit strings.
         if subtle_ct_eq(candidate.as_bytes(), trimmed.as_bytes()) {
             return Ok(Some(step));
@@ -103,17 +107,21 @@ mod tests {
         let secret = data_encoding::BASE32_NOPAD
             .decode(RFC_SEED_B32.as_bytes())
             .unwrap();
-        let totp = TOTP::new(
-            Algorithm::SHA1,
-            8,
-            0,
-            STEP_SECONDS,
-            secret,
-            None,
-            "rfc6238@test".to_string(),
-        )
-        .unwrap();
-        totp.generate(unix)
+        reference_totp(8, secret).generate(unix).to_string()
+    }
+
+    /// A `Totp` built the reference way (no skew, 30 s steps) for the RFC
+    /// vectors and for codes minted one window ahead.
+    fn reference_totp(digits: u8, secret: Vec<u8>) -> Totp {
+        Builder::new()
+            .with_algorithm(Algorithm::SHA1)
+            .with_digits(digits)
+            .with_skew(0)
+            .with_step_duration(STEP_SECONDS)
+            .with_secret(secret)
+            .with_account_name("rfc6238@test")
+            .build()
+            .expect("reference totp")
     }
 
     #[test]
@@ -145,18 +153,8 @@ mod tests {
             let secret = data_encoding::BASE32_NOPAD
                 .decode(RFC_SEED_B32.as_bytes())
                 .unwrap();
-            let t = TOTP::new(
-                Algorithm::SHA1,
-                6,
-                0,
-                STEP_SECONDS,
-                secret,
-                None,
-                "rfc6238@test".to_string(),
-            )
-            .unwrap();
             let _ = full;
-            t.generate(unix)
+            reference_totp(6, secret).generate(unix).to_string()
         };
         let got = verify_code(RFC_SEED_B32, RFC_ACCOUNT, &expected6, unix)
             .unwrap()
@@ -170,17 +168,9 @@ mod tests {
         let secret = data_encoding::BASE32_NOPAD
             .decode(RFC_SEED_B32.as_bytes())
             .unwrap();
-        let t = TOTP::new(
-            Algorithm::SHA1,
-            6,
-            0,
-            STEP_SECONDS,
-            secret,
-            None,
-            "rfc6238@test".to_string(),
-        )
-        .unwrap();
-        let next_window = t.generate(unix + STEP_SECONDS);
+        let next_window = reference_totp(6, secret)
+            .generate(unix + STEP_SECONDS)
+            .to_string();
         // Verifying one window ahead of the token's own step must succeed.
         let got = verify_code(RFC_SEED_B32, RFC_ACCOUNT, &next_window, unix)
             .unwrap()

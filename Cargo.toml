@@ -145,21 +145,27 @@ thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-opentelemetry = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs"] }
-opentelemetry_sdk = { version = "0.32", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "metrics", "logs"] }
 # NOTE: `reqwest-blocking-client`, not `reqwest-client` — the SDK's default
 # batch processors export via futures_executor::block_on on their own
 # threads, where the ASYNC reqwest client panics ("no reactor running").
 # The blocking client is the documented pairing for BatchSpanProcessor /
 # PeriodicReader (open-telemetry-rust#2673, #3125).
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
-opentelemetry-appender-tracing = "0.32"
-tracing-opentelemetry = "0.33"
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics", "logs"] }
+opentelemetry-appender-tracing = "0.33"
+# 0.34 is the release that upgraded to OpenTelemetry 0.33, so this line and the
+# four above move together: a lone 0.34 pulls a second otel copy (0.33) beside
+# the SDK the tracer provider comes from (0.32) and the layer stops accepting it.
+tracing-opentelemetry = "0.34"
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-argon2 = "0.5"
-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+argon2 = "0.6"
+# 11 still needs the backend named explicitly (its default features carry
+# `use_pem` only). `rust_crypto` keeps the pure-Rust path the 10.x migration
+# chose; `aws_lc_rs` would add a C toolchain to every build.
+jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 rand = "0.8"
@@ -171,7 +177,7 @@ subtle = "2"
 futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
 serde_urlencoded = "0.7"
-totp-rs = { version = "5", default-features = false, features = ["otpauth"] }
+totp-rs = { version = "6", default-features = false, features = ["otpauth"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 webauthn-rs-core = "0.5"
 aes-gcm = "0.10"

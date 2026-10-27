@@ -5811,11 +5811,9 @@ fn seal(key: &[u8; 32], plaintext: &[u8]) -> DemoResult<Vec<u8>> {
 /// Argon2id hash of the shared demo password (fresh salt per run is fine —
 /// the PHC string is self-describing and verification is per-login).
 fn hash_demo_password() -> DemoResult<String> {
-    use argon2::password_hash::{rand_core::OsRng, SaltString};
     use argon2::{Argon2, PasswordHasher};
-    let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
-        .hash_password(DEMO_PASSWORD.as_bytes(), &salt)
+        .hash_password(DEMO_PASSWORD.as_bytes())
         .map(|hash| hash.to_string())
         .map_err(|e| DemoError::Crypto(e.to_string()))
 }
