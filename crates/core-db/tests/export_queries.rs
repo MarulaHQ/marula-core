@@ -306,7 +306,7 @@ async fn full_org_bundle_carries_every_section_in_canonical_order() {
 
     // Org profile round-trips identity, never volatile counters.
     assert_eq!(sections["org"]["name"], "Export Co");
-    assert_eq!(sections["org"]["slug"], json!(format!("export-195")));
+    assert_eq!(sections["org"]["slug"], json!("export-195"));
     assert_eq!(sections["org"]["ticket_prefix"], "EXP");
     assert!(sections["org"].get("ticket_sequence").is_none());
 
