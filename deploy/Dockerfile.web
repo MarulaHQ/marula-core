@@ -39,11 +39,11 @@ ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY deploy/web-standalone-remap.cjs /remap.cjs
 COPY deploy/prune-pnpm-store.cjs /prune.cjs
-# Prune the store after the remap: the remap makes the standalone links
-# absolute, then the prune deletes every store entry those links never reach.
-RUN pnpm --filter @marula-core/web build \
- && node /remap.cjs \
- && node /prune.cjs
+RUN pnpm --filter @marula-core/web build && node /remap.cjs
+# Prune in its own step: the report gets its own log section instead of
+# sitting behind the build's lint output, and editing the script no longer
+# re-runs the Next build.
+RUN node /prune.cjs
 
 FROM dhi.io/node:22@sha256:7390ab11306fa78b4e3f47acaa08bddcaaabac850a01996d153a2e805360a741 AS run
 WORKDIR /repo/apps/web/.next/standalone
