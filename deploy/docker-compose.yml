@@ -25,7 +25,7 @@
 #   export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)   # worker machine seam
 #   export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)    # email seam
 #   export POSTGRES_PASSWORD=$(openssl rand -hex 32)       # marula owner role (set at first boot)
-#   export MARULA_APP_PASSWORD=marula_app                  # marula_app role (see below)
+#   export MARULA_APP_PASSWORD=$(openssl rand -hex 32)     # marula_app role (applied on every up)
 #   export GARAGE_RPC_SECRET=$(openssl rand -hex 32)       # stage2 Garage RPC secret
 #   export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)    # observability GlitchTip
 #   docker compose -f deploy/docker-compose.yml up --build
@@ -57,12 +57,12 @@
 #     the live server and change this value together. Keep it hex: the value is
 #     interpolated into connection URLs, so `@`, `:` or `/` would need
 #     percent-encoding.
-#   * MARULA_APP_PASSWORD names the `marula_app` role's password. That password
-#     is minted by migration 0114 (the literal `marula_app`) and this file
-#     cannot change it, so a fresh install sets this to `marula_app` — a
-#     generated value here locks the API out. It is still required rather than
-#     defaulted: the value has to be stated, and rotating it is a migration
-#     follow-up, not a compose edit.
+#   * MARULA_APP_PASSWORD names the `marula_app` role's password. The
+#     `app-role-password` one-shot below applies it to the role as the owner on
+#     every bring-up (F65): after migrations have created the role and before
+#     core-api starts. A fresh volume therefore ends with this value rather
+#     than the literal migration 0114 mints, and a generated value is correct
+#     here — unlike POSTGRES_PASSWORD, no volume state has to agree with it.
 #
 # Compose interpolates the whole file, so the profile-only credentials
 # (GARAGE_RPC_SECRET, GLITCHTIP_SECRET_KEY) must be set even when the stage2
@@ -77,10 +77,11 @@
 # safe on a laptop says so in its own boot logs — exactly what the desktop
 # debug build does at launch.
 #
-# The pgbouncer password file (deploy/pooler/userlist.txt) is static, cannot be
-# interpolated, and holds the published dev values. If you change either
-# Postgres password, rewrite that file to match — the pooler is not a secret
-# store, and its comment-free format is why the note lives in its README.
+# PgBouncer's auth file is generated, not shipped (F65). The `pooler-auth`
+# one-shot renders it from POSTGRES_PASSWORD and MARULA_APP_PASSWORD into a
+# volume the pooler mounts read-only, because the pooler cannot read the
+# environment itself. Nothing in this repository holds a copy of either
+# password for it to authenticate with.
 #
 # Teardown note: `down` interpolates this file too, so a stack whose
 # variables are no longer exported needs the same `--env-file` (or exports)
@@ -262,6 +263,45 @@ services:
       timeout: 3s
       retries: 20
 
+  # PgBouncer's auth file, rendered from the environment (F65). It used to be
+  # a checked-in file holding both database passwords; a credential in git is
+  # a credential anyone who has read the repository can use, and the file
+  # could not follow a changed password without a hand edit. PgBouncer's own
+  # image cannot do this itself (DHI ships the binary and no shell), so one
+  # short-lived container writes the file the pooler mounts.
+  #
+  # EXEMPTION (root): a fresh named volume arrives root-owned, and the file
+  # has to be created in it — a non-root uid cannot write at that path. The
+  # file is mode 644 because chown needs CAP_CHOWN, which the baseline
+  # deliberately drops; it is readable by the pooler's uid and by nothing
+  # outside these two containers. The rootfs is read-only and the only write
+  # anywhere is that one file.
+  pooler-auth:
+    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    mem_limit: 32m
+    cpus: 0.5
+    restart: "no"
+    logging: *default-logging
+    <<: *cap-common
+    read_only: true
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      # Both roles the pooler serves, from the same variables every other
+      # service reads. Required here for the same reason they are required in
+      # core-api's URL: a pooler with a missing password is a pooler that
+      # refuses every client.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - the marula owner role's password}"
+      MARULA_APP_PASSWORD: "${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password}"
+    command:
+      - |
+        sh /pooler/render-userlist.sh /auth/userlist.txt
+    volumes:
+      # The renderer is the same script an operator runs for a pooler that
+      # compose does not start (deploy/pooler/README.md).
+      - ./pooler/render-userlist.sh:/pooler/render-userlist.sh:ro
+      - poolerauth:/auth
+
   # Transaction pooler (Wave 52 lane P9). Every application pool dials this,
   # not Postgres: one instance opens 54 client connections and two instances
   # took the fleet past Postgres's default `max_connections = 100`
@@ -301,7 +341,9 @@ services:
       - /run/pgbouncer
     volumes:
       - ./pooler/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
-      - ./pooler/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+      # Written by `pooler-auth` above and read here; the pooler has no
+      # credential of its own anywhere else.
+      - poolerauth:/auth:ro
     # Reachable from the host for SHOW POOLS / SHOW STATS during triage, and
     # only on loopback. Postgres keeps the published 15432.
     ports:
@@ -309,6 +351,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      pooler-auth:
+        condition: service_completed_successfully
 
   # The dev marker's megaphone (Wave 56 p56-deploy-posture). The desktop
   # debug build warns at launch that it trusts the repository's published
@@ -422,6 +466,55 @@ services:
       postgres:
         condition: service_healthy
 
+  # The app role's password, applied from the environment on every bring-up
+  # (F65). Migration 0114 creates `marula_app` with the literal `marula_app`,
+  # and a migration cannot read the environment — so before this one-shot the
+  # only password the role ever had was one published in this repository.
+  #
+  # It runs as the OWNER, after migrations (the role does not exist until
+  # 0114 has run) and before core-api, which is what makes a fresh volume end
+  # with MARULA_APP_PASSWORD instead of the literal. The ALTER is
+  # unconditional, so a changed value reaches the role on the next `up` too;
+  # it is also why no password has to match what the volume already holds.
+  #
+  # Nothing here generates a value: the environment is the only source. A
+  # generated password would be pointless (it has to reach core-api as well)
+  # and a fallback would be the defect this service exists to remove.
+  app-role-password:
+    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    mem_limit: 64m
+    cpus: 0.5
+    restart: "no"
+    logging: *default-logging
+    <<: *cap-common
+    # A psql client and /tmp: no writes to disk, no capabilities, and the
+    # same nobody uid the dev-posture one-shot uses with this image.
+    read_only: true
+    user: "65534:65534"
+    entrypoint: ["/bin/sh", "-c"]
+    environment:
+      PGHOST: postgres
+      PGUSER: marula
+      PGDATABASE: marula
+      PGPASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required - the marula owner role's password; this one-shot connects as the owner to set the app role's password}"
+      MARULA_APP_PASSWORD: "${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password, applied to the role on every bring-up}"
+    command:
+      - |
+        until pg_isready -q; do echo "waiting for postgres"; sleep 2; done
+        if [ "$$(psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'marula_app'")" != 1 ]; then
+          psql -v ON_ERROR_STOP=1 -c "CREATE ROLE marula_app LOGIN"
+        fi
+        # psql quotes the value itself (:'pw'), so a password with a quote or
+        # a backslash in it cannot end the SQL literal early.
+        printf '%s\n' "ALTER ROLE marula_app WITH LOGIN PASSWORD :'pw';" \
+          | psql -v ON_ERROR_STOP=1 -v pw="$$MARULA_APP_PASSWORD"
+        echo "applied MARULA_APP_PASSWORD to the marula_app role" >&2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   core-api:
     mem_limit: 512m
     cpus: 2.0
@@ -449,7 +542,7 @@ services:
       # transaction pooler, not Postgres. Override with
       # MARULA_APP_DATABASE_URL to go direct — and then raise
       # MARULA_DB_STATEMENT_CACHE and accept the connection ceiling back.
-      DATABASE_URL: "${MARULA_APP_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password. Migration 0114 mints it as the literal marula_app, so a fresh install sets MARULA_APP_PASSWORD=marula_app; generating a random value here locks the API out. Laptop stack: --env-file deploy/dev.env}@pgbouncer:6432/marula}"
+      DATABASE_URL: "${MARULA_APP_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password, applied to the role by the app-role-password one-shot (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}@pgbouncer:6432/marula}"
       # The ONE LISTEN connection goes straight to Postgres: a subscription
       # cannot ride a connection the pooler hands to the next client.
       MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula}
@@ -549,6 +642,11 @@ services:
       - objectdata:/data/objects
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      # The role's password is set from the environment by this one-shot; the
+      # API connecting before it completes would authenticate with the
+      # migration's literal (or with nothing, on a fresh volume).
+      app-role-password:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
@@ -1144,6 +1242,11 @@ volumes:
   # `down`, is snapshotted by the backup runner, and is visible to the worker's
   # integrity pass — three things a directory inside the container cannot be.
   objectdata:
+  # PgBouncer's rendered auth file (F65): written by the `pooler-auth`
+  # one-shot and read by the pooler. A volume, not a bind mount, so the file
+  # is never a checked-in credential and a password change lands on the next
+  # `up`.
+  poolerauth:
   garagedata:
   garagemeta:
   clamavdata:

@@ -8,7 +8,7 @@
 #   export MARULA_INTERNAL_TOKEN=$(openssl rand -hex 32)
 #   export EMAIL_INTERNAL_TOKEN=$(openssl rand -hex 32)
 #   export POSTGRES_PASSWORD=$(openssl rand -hex 32)
-#   export MARULA_APP_PASSWORD=marula_app
+#   export MARULA_APP_PASSWORD=$(openssl rand -hex 32)   # applied to the role by app-role-password
 #   export GARAGE_RPC_SECRET=$(openssl rand -hex 32)
 #   export GLITCHTIP_SECRET_KEY=$(openssl rand -hex 32)
 #   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.demo.yml \
@@ -66,9 +66,9 @@ services:
     environment:
       MARULA_DEV_TOOLS: "1"
       MARULA_DEMO_MODE: "1"
-      # The pooler ships a static userlist (deploy/pooler/userlist.txt), so a
-      # demo with a generated owner password cannot authenticate through it.
-      # Go direct: the database is on the same compose network.
+      # Direct Postgres, not the pooler: a demo is one host, and the extra
+      # hop buys nothing a demo needs. (The pooler is no longer a reason:
+      # its auth file is rendered from these same variables now, F65.)
       DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required}@postgres:5432/marula
       MARULA_LISTEN_DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required}@postgres:5432/marula
       MARULA_EMBEDDING_TIER: minimal
@@ -91,8 +91,8 @@ services:
     environment:
       MARULA_DEV_TOOLS: "1"
       MARULA_DEMO_MODE: "1"
-      # Direct Postgres, for the same reason core-api is: the pooler userlist is
-      # static and the demo's owner password is generated.
+      # Direct Postgres, for the same reason core-api is: one host, and the
+      # pooler adds a hop a demo does not use.
       DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/marula
       MARULA_LISTEN_DATABASE_URL: postgres://marula:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/marula
       MARULA_EMBEDDING_TIER: minimal
