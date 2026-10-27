@@ -91,8 +91,12 @@ async function sdkRequest(
     // loop: the op stays queued and the next reconnect retries it. (A
     // raced timer instead of an AbortSignal: the signal rides Request
     // construction, which some embedded fetch stubs reject.)
-    const opts = { body } as unknown as Parameters<typeof api.api.POST>[1];
-    const call = api.api[method] as (
+    // `Parameters<typeof api.api.POST>[1]` used to name this shape; on
+    // openapi-fetch 0.17 the per-path overload union is deep enough that
+    // instantiating it trips TS2589, and the call below widens to a plain
+    // (path, options) signature anyway.
+    const opts: { body: unknown } = { body };
+    const call = api.api[method] as unknown as (
       p: string,
       o: typeof opts,
     ) => Promise<RawResult>;

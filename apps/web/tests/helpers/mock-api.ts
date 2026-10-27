@@ -103,12 +103,20 @@ export class MockApi {
 
 /** Minimal fetch-Response stand-in openapi-fetch relies on (ok/status/json/text). */
 function makeJsonResponse(json: unknown, status: number): Response {
+  const body = JSON.stringify(json) ?? "";
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: new Headers({ "content-type": "application/json" }),
+    headers: new Headers({
+      "content-type": "application/json",
+      // A real response states its length. Without it, openapi-fetch parses
+      // through `text()` and hands back a parsed copy instead of the fixture
+      // object, so a suite that mutates a fixture array and expects the page
+      // to observe it sees the old contents (openapi-fetch >= 0.15.2).
+      "content-length": String(new TextEncoder().encode(body).length),
+    }),
     json: async () => json,
-    text: async () => JSON.stringify(json),
+    text: async () => body,
   } as unknown as Response;
 }
 
