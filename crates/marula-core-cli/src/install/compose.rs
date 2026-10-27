@@ -33,6 +33,20 @@ impl ComposeTarget {
         }
     }
 
+    /// The compose overlays a profile needs beyond the base file.
+    ///
+    /// `all-in-one` is one process rather than two, and the repository ships
+    /// that shape as an override (`deploy/docker-compose.all-in-one.yml`). A
+    /// plan that started only the base file would run the split topology under
+    /// an `MARULA_ALL_IN_ONE=1` environment, which is neither shape.
+    fn overlays(&self, profile: &Profile) -> Vec<PathBuf> {
+        let base = self.compose_file.parent().unwrap_or_else(|| Path::new("."));
+        match profile.name {
+            "all-in-one" => vec![base.join("docker-compose.all-in-one.yml")],
+            _ => Vec::new(),
+        }
+    }
+
     /// The profile the selection names, or a typed refusal.
     fn profile(&self, selection: &Selection) -> Result<&Profile, PlanError> {
         self.descriptor
@@ -122,19 +136,24 @@ impl DeploymentTarget for ComposeTarget {
             reason: "the environment every service reads: the profile's presets, your overrides, and the four values the process refuses to boot without".to_string(),
             source: format!("profiles.{}.sets, params.*", profile.name),
         }];
+        let mut args = vec![
+            "compose".to_string(),
+            "--env-file".to_string(),
+            env_path.display().to_string(),
+            "-f".to_string(),
+            self.compose_file.display().to_string(),
+        ];
+        for overlay in self.overlays(profile) {
+            if overlay.exists() {
+                args.push("-f".to_string());
+                args.push(overlay.display().to_string());
+            }
+        }
+        args.extend(["up".to_string(), "-d".to_string(), "--wait".to_string()]);
         steps.push(Step {
             kind: StepKind::Run {
                 program: "docker".to_string(),
-                args: vec![
-                    "compose".to_string(),
-                    "--env-file".to_string(),
-                    env_path.display().to_string(),
-                    "-f".to_string(),
-                    self.compose_file.display().to_string(),
-                    "up".to_string(),
-                    "-d".to_string(),
-                    "--wait".to_string(),
-                ],
+                args,
             },
             reason: "starts the profile's services and returns only when their healthchecks pass"
                 .to_string(),
@@ -358,6 +377,54 @@ mod tests {
             "apply waits for health"
         );
         assert!(run.contains(&"--env-file".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_all_in_one_plan_names_its_overlay_and_a_split_plan_does_not() {
+        let dir = std::env::temp_dir().join(format!("marula-plan-{}", uuid::Uuid::now_v7()));
+        let target = target(&dir);
+        // The overlay ships beside the base file; the test creates the same
+        // shape so the plan's existence rule is what decides.
+        std::fs::write(dir.join("docker-compose.all-in-one.yml"), "services: {}\n")
+            .expect("overlay");
+
+        let all_in_one = target
+            .plan(
+                &facts(8, 16384, 100, true),
+                &Selection::new("all-in-one", &dir),
+            )
+            .expect("a plan");
+        let args = all_in_one
+            .steps
+            .iter()
+            .find_map(|step| match &step.kind {
+                StepKind::Run { args, .. } => Some(args.clone()),
+                StepKind::WriteFile { .. } => None,
+            })
+            .expect("a run step");
+        assert!(
+            args.iter()
+                .any(|arg| arg.ends_with("docker-compose.all-in-one.yml")),
+            "the all-in-one plan must run its overlay: {args:?}"
+        );
+
+        let split = target
+            .plan(&facts(8, 16384, 100, true), &Selection::new("split", &dir))
+            .expect("a plan");
+        let split_args = split
+            .steps
+            .iter()
+            .find_map(|step| match &step.kind {
+                StepKind::Run { args, .. } => Some(args.clone()),
+                StepKind::WriteFile { .. } => None,
+            })
+            .expect("a run step");
+        assert_eq!(
+            split_args.iter().filter(|arg| *arg == "-f").count(),
+            1,
+            "split runs the base file only: {split_args:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
