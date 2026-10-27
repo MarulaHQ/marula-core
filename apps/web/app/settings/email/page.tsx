@@ -130,7 +130,13 @@ interface LedgerRow {
 
 interface LedgerView {
   rows: LedgerRow[];
-  counts: { queued: number; sending: number; sent: number; dead: number };
+  counts: {
+    queued: number;
+    sending: number;
+    sent: number;
+    dead: number;
+    cancelled: number;
+  };
   next_cursor: string | null;
   transport_configured: boolean;
 }
@@ -181,6 +187,8 @@ function statusTone(status: string): "success" | "warning" | "danger" | "neutral
       return "neutral";
     case "dead":
       return "danger";
+    case "cancelled":
+      return "neutral";
     default:
       return "neutral";
   }
@@ -1242,6 +1250,7 @@ function LedgerCard({
                 <SelectItem value="sending">Sending</SelectItem>
                 <SelectItem value="sent">Sent</SelectItem>
                 <SelectItem value="dead">Dead</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="secondary" onClick={onRefresh}>
@@ -1253,7 +1262,7 @@ function LedgerCard({
       <CardContent>
             <div className="grid gap-3">
         <div className="flex flex-wrap gap-2 text-[12px]">
-          {(["queued", "sending", "sent", "dead"] as const).map((status) => (
+          {(["queued", "sending", "sent", "dead", "cancelled"] as const).map((status) => (
             <span key={status} className="flex items-center gap-1.5">
               <Badge tone={statusTone(status)}>{counts[status]}</Badge>
               <span style={{ color: "var(--m-text-secondary)" }}>{status}</span>

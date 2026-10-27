@@ -25,6 +25,11 @@ use tokio::sync::watch;
 
 /// The consumer group this leg owns, and its page size.
 const CONSUMER_GROUP: &str = "notifier";
+/// A peer that accepts the connection and then never answers must not hold the
+/// notification loop: the caller retries on the ledger's backoff, so failing
+/// fast is the correct shape (Wave 62 lane `p62-loop-transport`).
+const NOTIFY_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const NOTIFY_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 const COUNT: usize = 100;
 const SPEC: ConsumerSpec = ConsumerSpec::new(CONSUMER_GROUP, COUNT);
 
@@ -47,8 +52,15 @@ pub struct HttpNotificationSink {
 impl HttpNotificationSink {
     #[must_use]
     pub fn new(core_api_url: String, internal_token: Option<String>) -> Self {
+        // Built, not `new()`: `Client::new()` carries no timeout at all, so a
+        // hung core-api parked this loop indefinitely.
+        let client = reqwest::Client::builder()
+            .connect_timeout(NOTIFY_CONNECT_TIMEOUT)
+            .timeout(NOTIFY_REQUEST_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
-            client: reqwest::Client::new(),
+            client,
             core_api_url,
             internal_token,
         }

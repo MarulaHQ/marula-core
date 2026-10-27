@@ -1289,6 +1289,9 @@ pub struct DeliveryCounts {
     pub sending: i64,
     pub sent: i64,
     pub dead: i64,
+    /// Operator-cancelled rows (0174). Their own bucket, so a dead count can
+    /// clear once nobody will retry the row.
+    pub cancelled: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1420,6 +1423,7 @@ pub async fn get_delivery_ledger(
             sending: count_of("sending"),
             sent: count_of("sent"),
             dead: count_of("dead"),
+            cancelled: count_of("cancelled"),
         },
         next_cursor,
         transport_configured: transport != "none",

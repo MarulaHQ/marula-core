@@ -78,9 +78,29 @@ pub async fn run_queue<S: DeliverySink, E: EffectApi>(
         if *shutdown.borrow() {
             return;
         }
+        // The in-flight tick is NOT abandoned on shutdown. Dropping it mid-pass
+        // released nothing: the claim stayed in the table until `reclaim_stale`
+        // picked it up five minutes later, while the drain reported "drained".
+        // So shutdown stops STARTING ticks and lets the current one settle.
+        let in_flight = tick(
+            &pool,
+            &effects,
+            &sink,
+            webhook_secret_key,
+            batch,
+            stale_after_secs,
+            &counters,
+            &worker,
+        );
+        tokio::pin!(in_flight);
         tokio::select! {
-            _ = shutdown.changed() => return,
-            result = tick(&pool, &effects, &sink, webhook_secret_key, batch, stale_after_secs, &counters, &worker) => {
+            _ = shutdown.changed() => {
+                if let Err(error) = (&mut in_flight).await {
+                    tracing::error!(%error, "in-flight queue tick failed during drain");
+                }
+                return;
+            }
+            result = &mut in_flight => {
                 match result {
                     Ok(claimed) => {
                         if claimed == 0 {

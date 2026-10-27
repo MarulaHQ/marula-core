@@ -189,12 +189,21 @@ async fn live_stream_past_the_daemon_limit_is_refused_never_clean() {
         .scan_bytes(&payload)
         .await
         .expect_err("a size-limit reply is not a verdict");
-    let core_mail::ScanError::Unavailable(detail) = err;
-    println!("adapter error: {detail}");
-    assert!(
-        detail.contains("size limit") || detail.starts_with("write:"),
-        "either the reply is parsed or the write is refused; both fail closed: {detail}"
-    );
+    match err {
+        core_mail::ScanError::Unavailable(detail) => {
+            println!("adapter error: {detail}");
+            assert!(
+                detail.contains("size limit") || detail.starts_with("write:"),
+                "either the reply is parsed or the write is refused; both fail closed: {detail}"
+            );
+        }
+        core_mail::ScanError::TooLarge { limit_bytes, .. } => {
+            // Also a pass: the adapter refused before streaming, which is the
+            // outcome the cap exists for. A daemon tuned above this line is the
+            // only way to reach the reply-parsing branch above.
+            println!("adapter refused at its own {limit_bytes}-byte cap");
+        }
+    }
 }
 
 /// An empty stream is `stream: OK`, not an error: a zero-byte attachment is

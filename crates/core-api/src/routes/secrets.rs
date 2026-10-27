@@ -1195,6 +1195,42 @@ pub async fn put_record_file(
         if !allowed {
             return Err(ApiError::Forbidden("category locked to your role".into()));
         }
+        // Admission first. A digest the table already calls infected, with no
+        // operator release, is refused BEFORE the sealed bytes are written —
+        // so the refusal leaves nothing stored to clean up afterwards.
+        // First-wins is kept for every other case (Wave 62 lane
+        // `p62-attachment-verdicts`).
+        if let core_db::attachment_scans::Admission::RefusedInfected(scan) =
+            core_db::attachment_scans::admit(
+                &mut ctx.tx,
+                core_db::attachment_scans::NewScan {
+                    org_id,
+                    sha256: &plain_sha256,
+                    status: scan_status,
+                    detail: scan_detail.as_deref(),
+                    scanner: scanner_name,
+                    size_bytes: plain_len,
+                    content_type: "application/octet-stream",
+                    filename: &filename,
+                    storage_key: &storage_key,
+                    // A vault document belongs to no ticket.
+                    ticket_id: None,
+                    uploaded_by_user_id: Some(user_id),
+                    uploaded_by_portal_user_id: None,
+                },
+            )
+            .await?
+        {
+            return Err(ApiError::UploadQuarantined {
+                sha256: scan.sha256,
+                filename: scan.filename,
+                scanner: scan.scanner,
+                detail: Some(
+                    scan.detail
+                        .unwrap_or_else(|| "this digest is already held as infected".to_string()),
+                ),
+            });
+        }
         // Store first (content-addressed, last-writer-wins on identical
         // bytes is a no-op), then pin the pointer in-commit.
         store
@@ -1216,32 +1252,6 @@ pub async fn put_record_file(
         )
         .await
         .map_err(ApiError::from)?;
-        // The verdict belongs to the PLAINTEXT, keyed by (org_id, sha256) on
-        // the same table every other door writes, so "was this checked?" has
-        // one answer per object. `storage_key` is where this upload's sealed
-        // copy lives; the vault binds ciphertext to the record's AAD, so the
-        // same plaintext on two records is two keys and this column keeps the
-        // first admission's. First-wins: a second sighting does not rewrite
-        // what the first scan said.
-        core_db::attachment_scans::record_admitted(
-            &mut ctx.tx,
-            core_db::attachment_scans::NewScan {
-                org_id,
-                sha256: &plain_sha256,
-                status: scan_status,
-                detail: scan_detail.as_deref(),
-                scanner: scanner_name,
-                size_bytes: plain_len,
-                content_type: "application/octet-stream",
-                filename: &filename,
-                storage_key: &storage_key,
-                // A vault document belongs to no ticket.
-                ticket_id: None,
-                uploaded_by_user_id: Some(user_id),
-                uploaded_by_portal_user_id: None,
-            },
-        )
-        .await?;
         ctx.emit(
             types::SECRET_RECORD_UPDATED,
             "secret_record",

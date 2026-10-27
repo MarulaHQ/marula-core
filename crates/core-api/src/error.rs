@@ -63,6 +63,15 @@ pub enum ApiError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// A body past the malware scanner's stream limit (Wave 62 lane
+    /// `p62-attachment-verdicts`). Its own reason because the honest answer is
+    /// "too large to scan", not "the scanner is unavailable": the first is the
+    /// user's to act on and the second is the operator's.
+    #[error("too large to scan: {limit_bytes} bytes is the scanner's limit")]
+    UploadTooLarge {
+        /// The configured stream cap, echoed so a client can size its retry.
+        limit_bytes: u64,
+    },
     /// Wave 22 typed 409 for PSP declines (the error-envelope follow-up):
     /// reason stays `payment_declined`, the TYPED decline code rides the
     /// extra field, and the provider's raw decline text is preserved
@@ -909,6 +918,15 @@ impl IntoResponse for ApiError {
                     // retry of the same file is pointless.
                     "held_for_operator": true,
                 })),
+            ),
+            ApiError::UploadTooLarge { limit_bytes } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "upload_too_large_to_scan",
+                format!(
+                    "the file is too large to scan: this deployment accepts up to \
+                     {limit_bytes} bytes for a scanned upload; nothing was stored"
+                ),
+                Some(json!({ "limit_bytes": limit_bytes, "held_for_operator": false })),
             ),
             ApiError::UploadRefused {
                 sha256,

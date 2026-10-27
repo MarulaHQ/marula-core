@@ -43,6 +43,15 @@ const REASON_COPY: Readonly<Record<string, string>> = {
     "Some details are missing or invalid. Check the form and try again.",
   conflict:
     "This conflicts with an existing change. Refresh, then try again with an updated value.",
+  // Two scanner refusals, one vocabulary (Wave 62 lane `p62-attachment-verdicts`).
+  // Both used to fall through to a generic rejection, so a user could not tell
+  // "we are holding this file for an operator" from "nothing was stored".
+  upload_quarantined:
+    "The malware scanner rejected this file and it is held for an operator — retrying the same file will not change the answer.",
+  upload_refused:
+    "The malware scanner rejected this file. Nothing was stored.",
+  upload_too_large_to_scan:
+    "This file is larger than this deployment will scan, so nothing was stored.",
   org_slug_taken: "That workspace address is already taken.",
   time_entry_locked:
     "This time entry is locked — it's already on an invoice, so it can't be changed.",
@@ -167,6 +176,16 @@ export function reasonCopy(reason: string, details?: unknown): string {
   }
   if (reason === "dispatch_move_conflict" && typeof det.blocker_title === "string" && det.blocker_title !== "") {
     return `${base} Blocking booking: “${det.blocker_title}”.`;
+  }
+  if (reason === "upload_quarantined" || reason === "upload_refused") {
+    const name = typeof det.filename === "string" ? det.filename : "";
+    const scanner = typeof det.scanner === "string" ? det.scanner : "";
+    const detail = typeof det.detail === "string" ? det.detail.trim() : "";
+    const parts = [base];
+    if (name !== "") parts.push(`File: ${name}.`);
+    if (scanner !== "" && scanner !== "none") parts.push(`Scanner: ${scanner}.`);
+    if (detail !== "") parts.push(`Detail: ${detail}.`);
+    return parts.join(" ");
   }
   return base;
 }

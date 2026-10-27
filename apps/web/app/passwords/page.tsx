@@ -22,7 +22,7 @@
 "use client";
 
 import { rejectionText } from "../../lib/error-copy";
-import { friendlyMutationError } from "../../lib/error-copy";
+import { friendlyMutationError, resultErrorText } from "../../lib/error-copy";
 import {
   Badge,
   Button,
@@ -1691,16 +1691,22 @@ function DocumentFilePanel({
     setUploadNote(null);
     try {
       const bytes = await file.arrayBuffer();
-      const { data, response } = await api.api.PUT("/api/v1/secrets/records/{id}/file", {
-        params: { path: { id: record.id } },
-        body: bytes as unknown as string,
-        headers: { "content-type": "application/octet-stream" },
-      });
+      const { data, error, response } = await api.api.PUT(
+        "/api/v1/secrets/records/{id}/file",
+        {
+          params: { path: { id: record.id } },
+          body: bytes as unknown as string,
+          headers: { "content-type": "application/octet-stream" },
+        },
+      );
       if (response.status !== 200 || data === undefined) {
         setFileError(
           response.status === 403
             ? "Uploading the stored file requires secrets:edit (and a category edit grant on restricted chains)."
-            : "The file upload was rejected.",
+            // Both scanner refusals carry sha256, filename, scanner, detail and
+            // held_for_operator; the old fixed sentence told a user nothing about
+            // which one happened (Wave 62 lane `p62-attachment-verdicts`).
+            : resultErrorText({ error }, "The file upload was rejected."),
         );
         return;
       }

@@ -476,7 +476,7 @@ fn batch_statement(table: &str) -> Option<Batch> {
         "email_outbound" => Batch::Delete(
             r#"DELETE FROM email_outbound WHERE ctid IN (
                  SELECT ctid FROM email_outbound
-                  WHERE status IN ('sent', 'dead')
+                  WHERE status IN ('sent', 'dead', 'cancelled')
                     AND updated_at < now() - make_interval(days => $1)
                   ORDER BY updated_at
                   LIMIT $2

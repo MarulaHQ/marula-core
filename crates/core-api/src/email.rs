@@ -68,7 +68,10 @@ impl MailStack {
         };
         let scanner: Arc<dyn ScanProvider> = match config.scan_choice() {
             crate::config::ScanChoice::None => Arc::new(NoopScan::new()),
-            crate::config::ScanChoice::Clamd(addr) => Arc::new(core_mail::ClamdScan::new(addr)),
+            crate::config::ScanChoice::Clamd(addr) => Arc::new(
+                core_mail::ClamdScan::new(addr)
+                    .with_max_stream_bytes(u64::try_from(config.max_upload_bytes).unwrap_or(0)),
+            ),
         };
         Self {
             transport,

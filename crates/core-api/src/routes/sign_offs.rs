@@ -422,24 +422,39 @@ pub async fn create(
                 // object, or a later surface has to scan the same bytes again
                 // to answer "was this checked?".
                 if let Some(verdict) = verdict.as_ref() {
-                    core_db::attachment_scans::record_admitted(
-                        &mut ctx.tx,
-                        core_db::attachment_scans::NewScan {
-                            org_id,
-                            sha256: &sha256_hex,
-                            status: verdict.status,
-                            detail: verdict.detail.as_deref(),
-                            scanner: verdict.scanner,
-                            size_bytes: payload_size,
-                            content_type: &content_type,
-                            filename: &filename,
-                            storage_key: &storage_key,
-                            ticket_id: Some(id),
-                            uploaded_by_user_id: Some(user_id),
-                            uploaded_by_portal_user_id: None,
-                        },
-                    )
-                    .await?;
+                    // An infected digest no operator released is refused here
+                    // too: this is the third door into the shared key space,
+                    // and first-wins was being read as "admit anyway" (Wave 62
+                    // lane `p62-attachment-verdicts`).
+                    if let core_db::attachment_scans::Admission::RefusedInfected(scan) =
+                        core_db::attachment_scans::admit(
+                            &mut ctx.tx,
+                            core_db::attachment_scans::NewScan {
+                                org_id,
+                                sha256: &sha256_hex,
+                                status: verdict.status,
+                                detail: verdict.detail.as_deref(),
+                                scanner: verdict.scanner,
+                                size_bytes: payload_size,
+                                content_type: &content_type,
+                                filename: &filename,
+                                storage_key: &storage_key,
+                                ticket_id: Some(id),
+                                uploaded_by_user_id: Some(user_id),
+                                uploaded_by_portal_user_id: None,
+                            },
+                        )
+                        .await?
+                    {
+                        return Err(ApiError::UploadQuarantined {
+                            sha256: scan.sha256,
+                            filename: scan.filename,
+                            scanner: scan.scanner,
+                            detail: Some(scan.detail.unwrap_or_else(|| {
+                                "this digest is already held as infected".to_string()
+                            })),
+                        });
+                    }
                 }
 
                 let attachment_id = Uuid::now_v7();

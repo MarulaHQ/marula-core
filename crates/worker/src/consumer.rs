@@ -966,6 +966,13 @@ pub async fn run<L: DeliveryLedger, H: EntryHandler>(
                 Harness::new(spec, &name, ledger, handler)
                     .follow(&mut stream, shutdown)
                     .await;
+                // `follow` returns on shutdown as well as on a dropped
+                // connection. The first is a drain, not a fault: a rolling
+                // deploy logged one WARN per consumer and read as an outage.
+                if *shutdown.borrow() {
+                    tracing::debug!(group = spec.group, %name, "stream closed on shutdown");
+                    return;
+                }
                 tracing::warn!(group = spec.group, %name, "stream connection ended; reconnecting");
             }
             Err(error) => {
