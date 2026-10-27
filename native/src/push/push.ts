@@ -13,6 +13,7 @@
 // lane owns the endpoint + APNs/FCM transport.
 
 import * as Notifications from "expo-notifications";
+import { AndroidImportance } from "expo-notifications";
 import { router } from "expo-router";
 import { useEffect } from "react";
 import { Platform } from "react-native";
@@ -50,7 +51,7 @@ export async function registerForPush(projectId: string): Promise<PushState> {
     if (Platform.OS === "android") {
       await Notifications.setNotificationChannelAsync("default", {
         name: "Marula",
-        importance: Notifications.AndroidImportance.DEFAULT,
+        importance: AndroidImportance.DEFAULT,
         lightColor: lightTokens.primary,
       });
     }

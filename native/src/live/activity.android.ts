@@ -2,7 +2,7 @@
 // foreground-service module (an ongoing notification with a chronometer is
 // Android's equivalent of a Live Activity).
 
-import { requireOptionalNativeModule } from "expo-modules-core";
+import { requireOptionalNativeModule } from "expo";
 
 import { liveTimerPayload, type LiveTimerSnapshot } from "./timer-snapshot";
 

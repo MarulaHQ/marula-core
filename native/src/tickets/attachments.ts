@@ -34,6 +34,11 @@ export const SAMPLE_PHOTO = require("../../assets/sample-site-photo.png") as num
 
 export function samplePhoto(): PickedPhoto {
   const asset = Image.resolveAssetSource(SAMPLE_PHOTO);
+  if (!asset) {
+    // A bundled require always registers an asset; if it has not, the
+    // bundler dropped it and the attachment path has nothing to upload.
+    throw new Error("bundled sample photo is not registered");
+  }
   return {
     uri: asset.uri,
     name: "site-panel.png",
