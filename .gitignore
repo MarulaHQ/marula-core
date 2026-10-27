@@ -19,6 +19,13 @@ coverage/
 # real files are never tracked. (.env does not match wal-g.env.)
 deploy/backup/wal-g.env
 deploy/backup/restic.env
+
+# Infisical project config (the CLI writes these beside the checkout). They hold
+# an internal project id and environment name — not a credential, but
+# infrastructure detail this public repository has no reason to name, so they are
+# ignored here and never committed. The dev machine keeps its copy on disk.
+.infisical.yaml
+.infisical.json
 deploy/backup/restic.pass
 RUNBOOK-DEV.local.md
 dev-up.local.sh
