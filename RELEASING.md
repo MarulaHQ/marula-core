@@ -12,15 +12,40 @@ the `--breaking` flag and fails CI without it (see `CONTRIBUTING.md`).
 `vX.Y.Z` — annotated **and signed**. Not a lightweight tag.
 
 - **Tagger identity:** `Marula Core <releases@getmarula.com>`, not a personal key.
-- **Signing:** GPG or SSH key belonging to that identity. The public key and its
-  fingerprint are listed below so a downloader can verify.
+- **Signing:** an SSH signing key, or a GPG key, belonging to that identity. The release
+  key and its fingerprint are below, and `release-keys/allowed_signers` carries the same
+  binding so a clean clone can verify a tag without local setup.
 - **Immutability:** the `v*` ruleset blocks tag updates and deletions. A published tag
   is a promise; if a release is wrong, publish the next one.
 
+### The release key
+
+SSH signing key, created for this purpose and used for nothing else:
+
 ```
-# Publish the fingerprint, once, when the key is created:
-# signing key fingerprint: <FILL IN>
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPuWqdR8jNK5L2C43uoNj54g9f+2LIHIUnpv77S2F6GZ releases@getmarula.com
+fingerprint: SHA256:W22zWCSxlEKdet+b3gdc14HtUtdQ+Hol7F3ccRR67H8 (ED25519)
 ```
+
+Sign a tag, with the key loaded in the agent or a passphrase prompt to answer:
+
+```
+GIT_COMMITTER_NAME="Marula Core" GIT_COMMITTER_EMAIL="releases@getmarula.com" \
+  git -c user.signingkey=~/.ssh/marula-release.pub tag -s vX.Y.Z -m "Marula Core vX.Y.Z"
+```
+
+Verify one in any clone:
+
+```
+git -c gpg.ssh.allowedSignersFile=release-keys/allowed_signers verify-tag vX.Y.Z
+```
+
+An SSH key is not cryptographically bound to an address, so the identity above is asserted
+twice: by the tagger fields on the tag, and by the binding in `release-keys/allowed_signers`.
+
+Treat it as a release credential: it signs tags and nothing else, it is registered on GitHub
+as a signing key rather than an authentication key, and its private half never enters the
+repository. A signature proves which key signed, not who held it.
 
 ## Steps
 
