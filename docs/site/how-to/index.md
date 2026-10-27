@@ -71,6 +71,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 - [Choose the retrieval mode](operator-retrieval-mode.md) — Run the exact scan, pgvector's iterative HNSW walk, or VectorChord's prefiltered index, and read the refusal when the database cannot run your choice.
 - [Configure the plugin consent flow](admin-plugin-consent.md) — Install digest-verified plugins and review capability permissions before enabling them.
 - [Extend Marula with plugin surfaces](admin-plugin-surfaces.md) — Register declarative dashboard widgets, automation triggers, read nodes, action steps, and custom field validators.
+- [Write and build a plugin](write-a-plugin.md) — Take a handler from an empty crate to a bundle an admin can install: the module contract, the manifest, the build step, the signing statement, and the audit row that tells you what happened.
 - [Manage API keys](admin-api-keys.md) — Create narrowly scoped bearer tokens for external scripts and rotate keys without downtime.
 - [Call the API](call-the-api.md) — Authenticate, read paged collections, handle optimistic write envelopes, and use `@marula-core/sdk`.
 - [Report against the read model](read-model.md) — Connect your BI tool or SQL client to the stable `ops.v1_*` reporting views.

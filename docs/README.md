@@ -57,7 +57,13 @@ upgrade and observability.
 | [`10-agent-platform.md`](10-agent-platform.md) | The agent harness: decision model, grants, run ledger |
 | [`auth-hardening.md`](auth-hardening.md) | MFA, SSO, refresh-token reuse detection and audit completion |
 | [`reference/auth-provider-contract.md`](reference/auth-provider-contract.md) | What an auth provider may implement |
-| [`reference/plugin-runtime.md`](reference/plugin-runtime.md) | The plugin host and its capability model, plus the distribution contract |
+| [`reference/plugin-runtime.md`](reference/plugin-runtime.md) | The plugin host in one page: what runs, what refuses, and the map to the rest |
+| [`reference/plugin-pdk.md`](reference/plugin-pdk.md) | Writing a plugin: the module contract, the handler, the manifest, build, sign, install |
+| [`reference/plugin-host-functions.md`](reference/plugin-host-functions.md) | The nine ABI entries: signatures, gates, in-band refusals, limits and the 25-code vocabulary |
+| [`reference/plugin-capabilities.md`](reference/plugin-capabilities.md) | All thirty-five capability keys, the permission each resolves to, and the surface each licenses |
+| [`reference/plugin-security-model.md`](reference/plugin-security-model.md) | The trust boundaries, the limits, what a hostile guest can do, and what cannot happen |
+| [`reference/plugin-operator-runbook.md`](reference/plugin-operator-runbook.md) | Install, grant, quarantine, roll back, revoke, and triage by symptom |
+| [`reference/plugin-agent-guide.md`](reference/plugin-agent-guide.md) | What an agent sees of a plugin, what it may invoke, and what an author owes it |
 | [`reference/connection-pooling.md`](reference/connection-pooling.md) | PgBouncer in transaction mode: the connection ceiling, the two settings that make it safe, and the cross-tenant probe that verifies RLS through it |
 | [`reference/workflow-node-catalogue.md`](reference/workflow-node-catalogue.md) | Every workflow node the builder offers |
 | [`reference/read-model.md`](reference/read-model.md) | The reporting view contract, with per-view pages in [`reference/read-model/`](reference/read-model/) |
