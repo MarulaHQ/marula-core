@@ -1017,3 +1017,357 @@ async fn a_second_org_cannot_mutate_another_publishers_catalog_entry() {
         "the publishing org still revokes its own entry"
     );
 }
+
+// --- Wave 59 lane `p59-digest-only`: the digest-only consequence ---------------
+
+/// The org id behind a slug `register_org` minted, so a test can seed registry
+/// rows owned by one org and then act as another.
+async fn org_id_of(pool: &PgPool, slug: &str) -> Uuid {
+    sqlx::query_scalar::<_, Uuid>("SELECT id FROM orgs WHERE slug = $1")
+        .bind(slug)
+        .fetch_one(pool)
+        .await
+        .expect("org row")
+}
+
+/// Seeds one catalog entry owned by `origin` plus one version row at the given
+/// authentication verdict (`None` leaves 0172's default in place, which is the
+/// "nobody knows" case).
+///
+/// Seeded at SQL rather than through the staging routes because those need a
+/// network fetch or a real archive, and what this lane changed is how the ROWS
+/// are read at adoption time, not how they arrived.
+async fn seed_catalog_version(
+    pool: &PgPool,
+    origin: Uuid,
+    slug: &str,
+    version: &str,
+    manifest_authenticated: Option<bool>,
+) -> Uuid {
+    let catalog_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO plugin_catalog (id, slug, name, description, publisher, origin_org_id,
+                                     latest_version, interface_version)
+         VALUES ($1, $2, $3, 'digest-only fixture', 'staged-import', $4, $5, 1)",
+    )
+    .bind(catalog_id)
+    .bind(slug)
+    .bind(format!("Digest-only {slug}"))
+    .bind(origin)
+    .bind(version)
+    .execute(pool)
+    .await
+    .expect("catalog entry");
+
+    let manifest = json!({
+        "name": slug,
+        "version": version,
+        "interface_version": 1,
+        "description": "digest-only fixture",
+        "capabilities": ["tickets.read"],
+    });
+    match manifest_authenticated {
+        Some(authenticated) => sqlx::query(
+            "INSERT INTO plugin_versions (id, catalog_id, version, manifest,
+                                          manifest_authenticated)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(catalog_id)
+        .bind(version)
+        .bind(manifest)
+        .bind(authenticated)
+        .execute(pool)
+        .await
+        .expect("version row"),
+        None => sqlx::query(
+            "INSERT INTO plugin_versions (id, catalog_id, version, manifest)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(catalog_id)
+        .bind(version)
+        .bind(manifest)
+        .execute(pool)
+        .await
+        .expect("version row"),
+    };
+    catalog_id
+}
+
+async fn add_catalog_version(
+    pool: &PgPool,
+    catalog_id: Uuid,
+    slug: &str,
+    version: &str,
+    manifest_authenticated: Option<bool>,
+) {
+    let manifest = json!({
+        "name": slug,
+        "version": version,
+        "interface_version": 1,
+        "description": "digest-only fixture",
+        "capabilities": ["tickets.read"],
+    });
+    let inserted = match manifest_authenticated {
+        Some(authenticated) => sqlx::query(
+            "INSERT INTO plugin_versions (id, catalog_id, version, manifest, manifest_authenticated)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(catalog_id)
+        .bind(version)
+        .bind(manifest)
+        .bind(authenticated)
+        .execute(pool)
+        .await,
+        None => sqlx::query(
+            "INSERT INTO plugin_versions (id, catalog_id, version, manifest)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(catalog_id)
+        .bind(version)
+        .bind(manifest)
+        .execute(pool)
+        .await,
+    };
+    inserted.expect("version row");
+}
+
+/// Installs `slug@version` as the bearer's org and returns the raw response.
+async fn install_as(
+    app: &Router,
+    bearer: &str,
+    slug: &str,
+    version: &str,
+) -> axum::response::Response {
+    send(
+        app,
+        axum::http::Method::POST,
+        "/api/plugins/installed",
+        Some(bearer),
+        Some(json!({
+            "slug": slug,
+            "version": version,
+            "granted_capabilities": ["tickets.read"],
+        })),
+    )
+    .await
+}
+
+/// F49 / migration 0172. A manifest nobody signed is adoptable by the org that
+/// staged it and by nobody else: the catalog is server-wide, so before this rule
+/// `POST /api/plugins/installed` handed any org's admin another tenant's
+/// digest-only entry as if a publisher had signed it. A version a trusted key
+/// verified still crosses, and a row whose authentication nobody recorded is
+/// read as unauthenticated (fail closed).
+#[tokio::test]
+async fn an_unauthenticated_manifest_never_crosses_an_org_boundary() {
+    let (state, _router) = test_state().await;
+    let pool = state.pool.clone();
+    let app = core_api::routes::build_router(state);
+
+    let slug_a = format!("dist-a-{}", Uuid::now_v7().simple());
+    let slug_b = format!("dist-b-{}", Uuid::now_v7().simple());
+    let owner_a = register_org(&app, slug_a.clone()).await;
+    let owner_b = register_org(&app, slug_b.clone()).await;
+    let org_a = org_id_of(&pool, &slug_a).await;
+    let org_b = org_id_of(&pool, &slug_b).await;
+
+    let entry_slug = format!("digest-only-{}", Uuid::now_v7().simple());
+    // 1.0.0 is what a GitHub pull or a local zip leaves behind: the verdict
+    // migration 0167 writes at ingest, now travelling on the registry row.
+    let catalog_id = seed_catalog_version(&pool, org_a, &entry_slug, "1.0.0", Some(false)).await;
+    // 2.0.0 stands in for a registry statement a trusted key verified.
+    add_catalog_version(&pool, catalog_id, &entry_slug, "2.0.0", Some(true)).await;
+    // 3.0.0 records no verdict at all (0172's default), which must read as the
+    // weaker claim rather than as a blank cheque.
+    add_catalog_version(&pool, catalog_id, &entry_slug, "3.0.0", None).await;
+
+    // --- another org: refused, typed, and nothing installed -----------------
+    let refused = install_as(&app, &owner_b, &entry_slug, "1.0.0").await;
+    assert_eq!(
+        refused.status(),
+        409,
+        "an unsigned manifest must not install into another tenant"
+    );
+    let body = body_json(refused).await;
+    assert_eq!(
+        body["error"]["reason"], "manifest_unauthenticated",
+        "the refusal names its reason: {body}"
+    );
+    assert_eq!(body["error"]["slug"], entry_slug, "{body}");
+    assert_eq!(body["error"]["version"], "1.0.0", "{body}");
+    let installed_in_b: i64 = sqlx::query_scalar(
+        "SELECT count(*)::int8 FROM plugin_installs WHERE org_id = $1 AND catalog_id = $2",
+    )
+    .bind(org_b)
+    .bind(catalog_id)
+    .fetch_one(&pool)
+    .await
+    .expect("install count");
+    assert_eq!(installed_in_b, 0, "a refusal writes no install row");
+
+    // --- the staging org still adopts its own entry -------------------------
+    let own = install_as(&app, &owner_a, &entry_slug, "1.0.0").await;
+    assert_eq!(
+        own.status(),
+        201,
+        "the org that staged the row may still adopt it"
+    );
+    let own = body_json(own).await;
+    assert_eq!(own["version"], "1.0.0");
+    assert_eq!(
+        own["status"], "disabled",
+        "adoption is still deny-by-default"
+    );
+
+    // --- a publisher-signed version still installs across orgs --------------
+    let cross = install_as(&app, &owner_b, &entry_slug, "2.0.0").await;
+    assert_eq!(
+        cross.status(),
+        201,
+        "an authenticated manifest distributes across orgs as before"
+    );
+    let cross = body_json(cross).await;
+    assert_eq!(cross["version"], "2.0.0");
+
+    // --- unknown authentication reads as unauthenticated --------------------
+    let unknown = install_as(&app, &owner_b, &entry_slug, "3.0.0").await;
+    assert_eq!(
+        unknown.status(),
+        409,
+        "a version with no recorded verdict fails closed"
+    );
+    let body = body_json(unknown).await;
+    assert_eq!(
+        body["error"]["reason"], "manifest_unauthenticated",
+        "{body}"
+    );
+
+    // --- the refusal is audited, in the org that tried ----------------------
+    let audited: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT action, detail FROM audit_events
+         WHERE org_id = $1 AND action = 'plugin.install_refused'
+         ORDER BY occurred_at",
+    )
+    .bind(org_b)
+    .fetch_all(&pool)
+    .await
+    .expect("audit rows");
+    assert_eq!(
+        audited.len(),
+        2,
+        "each refused adoption leaves one audit row"
+    );
+    assert_eq!(audited[0].0, "plugin.install_refused");
+    assert_eq!(audited[0].1["slug"], entry_slug);
+    assert_eq!(audited[0].1["version"], "1.0.0");
+    assert_eq!(audited[0].1["reason"], "manifest_unauthenticated");
+    let audited_in_a: i64 = sqlx::query_scalar(
+        "SELECT count(*)::int8 FROM audit_events
+         WHERE org_id = $1 AND action = 'plugin.install_refused'",
+    )
+    .bind(org_a)
+    .fetch_one(&pool)
+    .await
+    .expect("audit count");
+    assert_eq!(
+        audited_in_a, 0,
+        "the owning org's own adoption is not a refusal"
+    );
+}
+
+/// The same rule on the other adoption surface. An install that legitimately
+/// took a signed 1.0.0 from another org must not be updatable onto that entry's
+/// unsigned 1.1.0 — the update path re-pins the manifest, so it is an adoption
+/// too. The owning org keeps its own update.
+#[tokio::test]
+async fn an_update_may_not_pin_an_unsigned_manifest_across_orgs() {
+    let (state, _router) = test_state().await;
+    let pool = state.pool.clone();
+    let app = core_api::routes::build_router(state);
+
+    let slug_a = format!("upd-a-{}", Uuid::now_v7().simple());
+    let slug_b = format!("upd-b-{}", Uuid::now_v7().simple());
+    let owner_a = register_org(&app, slug_a.clone()).await;
+    let owner_b = register_org(&app, slug_b.clone()).await;
+    let org_a = org_id_of(&pool, &slug_a).await;
+    let org_b = org_id_of(&pool, &slug_b).await;
+
+    let entry_slug = format!("mixed-{}", Uuid::now_v7().simple());
+    // 1.0.0 signed, 1.1.0 a repository pull the registry cannot vouch for.
+    let catalog_id = seed_catalog_version(&pool, org_a, &entry_slug, "1.0.0", Some(true)).await;
+    add_catalog_version(&pool, catalog_id, &entry_slug, "1.1.0", Some(false)).await;
+
+    let install_b = install_as(&app, &owner_b, &entry_slug, "1.0.0").await;
+    assert_eq!(install_b.status(), 201, "the signed version installs");
+    let install_b = body_json(install_b).await;
+    let b_install_id = install_b["id"].as_str().expect("install id").to_string();
+
+    let refused = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/plugins/installed/{b_install_id}/update"),
+        Some(&owner_b),
+        Some(json!({ "version": "1.1.0" })),
+    )
+    .await;
+    assert_eq!(
+        refused.status(),
+        409,
+        "an update may not re-pin another org's unsigned manifest"
+    );
+    let body = body_json(refused).await;
+    assert_eq!(
+        body["error"]["reason"], "manifest_unauthenticated",
+        "{body}"
+    );
+    // Nothing moved: the pending columns stay clear, so the consent surface has
+    // nothing to commit.
+    let pending: Option<String> =
+        sqlx::query_scalar("SELECT pending_version FROM plugin_installs WHERE id = $1::uuid")
+            .bind(&b_install_id)
+            .fetch_one(&pool)
+            .await
+            .expect("install row");
+    assert_eq!(pending, None, "a refused proposal parks nothing");
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*)::int8 FROM audit_events
+         WHERE org_id = $1 AND action = 'plugin.install_refused'",
+    )
+    .bind(org_b)
+    .fetch_one(&pool)
+    .await
+    .expect("audit count");
+    assert_eq!(audited, 1, "the refused proposal is audited");
+
+    // The owning org's own move onto the same version is legitimate.
+    let install_a = install_as(&app, &owner_a, &entry_slug, "1.0.0").await;
+    assert_eq!(install_a.status(), 201);
+    let install_a = body_json(install_a).await;
+    let a_install_id = install_a["id"].as_str().expect("install id");
+    let own = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/plugins/installed/{a_install_id}/update"),
+        Some(&owner_a),
+        Some(json!({ "version": "1.1.0" })),
+    )
+    .await;
+    assert_eq!(
+        own.status(),
+        200,
+        "the org that staged the unsigned version may still propose it"
+    );
+    let audited_in_a: i64 = sqlx::query_scalar(
+        "SELECT count(*)::int8 FROM audit_events
+         WHERE org_id = $1 AND action = 'plugin.install_refused'",
+    )
+    .bind(org_a)
+    .fetch_one(&pool)
+    .await
+    .expect("audit count");
+    assert_eq!(audited_in_a, 0, "the owning org is never refused");
+}
