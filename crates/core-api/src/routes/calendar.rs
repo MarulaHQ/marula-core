@@ -249,7 +249,7 @@ pub async fn calendar_team(
         .map_err(ApiError::from)?;
     let members = core_db::users::list_users(&mut *tx, org_id).await?;
     let ids: Vec<Uuid> = members.iter().map(|u| u.id).collect();
-    let to_default = q.from.map_or(Utc::now(), |f| f) + Duration::days(8);
+    let to_default = q.from.unwrap_or(Utc::now()) + Duration::days(8);
     let from = q.from.unwrap_or_else(|| Utc::now() - Duration::days(1));
     let to = q.to.unwrap_or(to_default);
     if to <= from || to - from > Duration::days(62) {
@@ -351,7 +351,7 @@ pub async fn deadlines(
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, sched(Action::View))?;
     let org_id = authed.principal.user.org_id;
-    let to_default = q.from.map_or(Utc::now(), |f| f) + Duration::days(8);
+    let to_default = q.from.unwrap_or(Utc::now()) + Duration::days(8);
     let from = q.from.unwrap_or_else(|| Utc::now() - Duration::days(1));
     let to = q.to.unwrap_or(to_default);
     if to <= from || to - from > Duration::days(62) {

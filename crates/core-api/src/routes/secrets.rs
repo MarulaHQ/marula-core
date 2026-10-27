@@ -1364,9 +1364,7 @@ pub async fn get_record_file(
                 .map_err(store_error_fn)?
                 .unwrap_or_default();
             let base_aad = file_aad(org_id, id);
-            let body;
-            let plain_len;
-            if first.len() >= 5 && first[..5] == crypto::STREAM_MAGIC {
+            let (plain_len, body) = if first.len() >= 5 && first[..5] == crypto::STREAM_MAGIC {
                 // Framed `[MRDV2]`: the 25-byte header is the head of
                 // `first`. Its plaintext_len is authenticated per-chunk
                 // when decryption arrives; here it only pre-sizes the
@@ -1385,16 +1383,19 @@ pub async fn get_record_file(
                         }
                     }
                 }
-                plain_len = u64::from_be_bytes(
+                let plain_len = u64::from_be_bytes(
                     leftover[13..21]
                         .try_into()
                         .map_err(|_| ApiError::Validation("framed file malformed".into()))?,
                 );
-                body = FileBody::Framed {
-                    decryptor: crypto::OpenStream::new(unseal_key, base_aad),
-                    tail: leftover,
-                    stream,
-                };
+                (
+                    plain_len,
+                    FileBody::Framed {
+                        decryptor: crypto::OpenStream::new(unseal_key, base_aad),
+                        tail: leftover,
+                        stream,
+                    },
+                )
             } else {
                 // Legacy single-envelope: buffer + decrypt wholescale
                 // (the Wave 16 posture exactly, unchanged).
@@ -1406,9 +1407,8 @@ pub async fn get_record_file(
                     crypto::open_with_aad(&unseal_key, &ciphertext, &base_aad).map_err(|e| {
                         ApiError::Internal(anyhow::anyhow!("file unsealing failed: {e}"))
                     })?;
-                plain_len = plain.len() as u64;
-                body = FileBody::Legacy(plain);
-            }
+                (plain.len() as u64, FileBody::Legacy(plain))
+            };
             let i64_len = i64::try_from(plain_len).unwrap_or(i64::MAX);
             Ok((ctx, (body, file_sha256, i64_len)))
         })

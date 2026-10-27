@@ -65,6 +65,12 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
+      # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
+      # and `Config::from_env_allow_dev_fallback` refuses to start rather than
+      # silently under-provision the model — its own message names this lever.
+      # Without it every test that builds a config panics before it asserts
+      # anything (api_versioning: 5 tests at line 69).
+      MARULA_EMBEDDING_TIER: minimal
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -81,13 +87,18 @@ jobs:
       # costume of a broken crate. The last step of this job is what keeps the
       # metadata honest: `cargo sqlx prepare --check` regenerates it from the
       # migrated schema and fails when it has drifted.
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      # `marula-desktop` is a Tauri shell: on Linux it needs GTK headers the
+      # runner does not carry (`glib-sys` dies in its build script), and it
+      # ships as a macOS app built by `scripts/build-desktop.sh` (ADR 0005), so
+      # it is not a Linux build target. Excluded by name rather than left to
+      # fail the workspace, and still covered by `cargo fmt --all`.
+      - run: cargo clippy --workspace --exclude marula-desktop --all-targets -- -D warnings
         env:
           SQLX_OFFLINE: "true"
       # The sweep. Every test target in the workspace runs here, including the
       # RLS-coverage assertion and the deprecation clock; the dedicated jobs
       # below re-run three of them by name so one red does not hide the rest.
-      - run: cargo test --workspace
+      - run: cargo test --workspace --exclude marula-desktop
         env:
           SQLX_OFFLINE: "true"
       # Trap this step closes: a `query!` edit without `cargo sqlx prepare`
@@ -105,7 +116,10 @@ jobs:
       - name: sqlx offline metadata is current
         run: |
           cargo sqlx migrate run --source crates/core-db/migrations
-          cargo sqlx prepare --check --workspace -- --all-targets
+          # The args after `--` go straight to `cargo check`, so the exclusion
+          # has to be repeated there — and `--exclude` is only legal beside
+          # `--workspace` at that level, which is why it appears twice.
+          cargo sqlx prepare --check --workspace -- --workspace --all-targets --exclude marula-desktop
 
   frontend:
     name: Web — lint · types · test
@@ -278,6 +292,12 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
+      # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
+      # and `Config::from_env_allow_dev_fallback` refuses to start rather than
+      # silently under-provision the model — its own message names this lever.
+      # Without it every test that builds a config panics before it asserts
+      # anything (api_versioning: 5 tests at line 69).
+      MARULA_EMBEDDING_TIER: minimal
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
