@@ -47,6 +47,33 @@ impl ComposeTarget {
         }
     }
 
+    /// The services this profile starts, by name.
+    ///
+    /// The profile's own services, the infrastructure each one declares it
+    /// needs, and the two compose services every install runs: `migrate` (the
+    /// schema one-shot) and `web` (the browser client). Naming them is not a
+    /// convenience: `all-in-one` replaces the split worker with loops inside
+    /// core-api, so starting the merged file's `worker` as well gives two
+    /// processes fighting for port 8082. The override's own header says to
+    /// start only its listed services, and this is that list.
+    fn service_list(&self, profile: &Profile) -> Vec<String> {
+        let mut services: Vec<String> = Vec::new();
+        let mut push = |name: &str| {
+            if !services.iter().any(|kept| kept == name) {
+                services.push(name.to_string());
+            }
+        };
+        for service in &profile.services {
+            push(service.name);
+            for need in &service.needs {
+                push(need);
+            }
+        }
+        push("migrate");
+        push("web");
+        services
+    }
+
     /// The profile the selection names, or a typed refusal.
     fn profile(&self, selection: &Selection) -> Result<&Profile, PlanError> {
         self.descriptor
@@ -150,6 +177,7 @@ impl DeploymentTarget for ComposeTarget {
             }
         }
         args.extend(["up".to_string(), "-d".to_string(), "--wait".to_string()]);
+        args.extend(self.service_list(profile));
         steps.push(Step {
             kind: StepKind::Run {
                 program: "docker".to_string(),
@@ -425,6 +453,55 @@ mod tests {
             1,
             "split runs the base file only: {split_args:?}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_all_in_one_plan_starts_the_services_that_override_names() {
+        let dir = std::env::temp_dir().join(format!("marula-plan-{}", uuid::Uuid::now_v7()));
+        let target = target(&dir);
+        let plan = target
+            .plan(
+                &facts(8, 16384, 100, true),
+                &Selection::new("all-in-one", &dir),
+            )
+            .expect("a plan");
+        let args = plan
+            .steps
+            .iter()
+            .find_map(|step| match &step.kind {
+                StepKind::Run { args, .. } => Some(args.clone()),
+                StepKind::WriteFile { .. } => None,
+            })
+            .expect("a run step");
+        assert!(
+            !args.iter().any(|arg| arg == "worker"),
+            "all-in-one must not start the split worker: the loops live in core-api: {args:?}"
+        );
+        for named in ["core-api", "postgres", "redis", "migrate", "web"] {
+            assert!(
+                args.iter().any(|arg| arg == named),
+                "{named} is missing: {args:?}"
+            );
+        }
+
+        let split = target
+            .plan(&facts(8, 16384, 100, true), &Selection::new("split", &dir))
+            .expect("a plan");
+        let split_args = split
+            .steps
+            .iter()
+            .find_map(|step| match &step.kind {
+                StepKind::Run { args, .. } => Some(args.clone()),
+                StepKind::WriteFile { .. } => None,
+            })
+            .expect("a run step");
+        for named in ["core-api", "worker", "pgbouncer", "migrate", "web"] {
+            assert!(
+                split_args.iter().any(|arg| arg == named),
+                "{named} is missing from the split plan: {split_args:?}"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
