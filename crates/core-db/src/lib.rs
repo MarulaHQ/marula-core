@@ -70,6 +70,7 @@ pub mod node_registry;
 pub mod note_drafts;
 pub mod notifications;
 pub mod object_gc;
+pub mod object_inventory;
 pub mod oidc;
 pub mod onboarding;
 pub mod org_config;

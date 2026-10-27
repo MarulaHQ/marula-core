@@ -306,13 +306,20 @@ pub async fn delete(
 /// when a table holding a `storage_key` column is in neither list, so a new
 /// referencing table cannot be forgotten quietly.
 ///
-/// The orphan sweep keeps a second list for the same key space
-/// (`core_db::object_gc::SOURCES`), and it must stay a SUPERSET of this one: a
-/// table it forgets does not leak, it lets the sweep delete that table's
-/// objects. A table added here belongs there in the same change — the parity is
-/// mechanical, not a review habit: `object_gc::tests` fails on a missing source
-/// and `tests/object_inventory_parity.rs` fails when the database's catalogue
-/// has a key-holding table that either inventory has not decided about.
+/// It is a CHECKED PROJECTION of [`crate::object_inventory::ENTRIES`], not a
+/// second authority: `owners()` there filters the declaration, and
+/// `attachments::tests` fails when this constant and that projection stop
+/// naming the same tables. The why-strings are the refcount's own wording; the
+/// declaration carries the longer one. It stays a const because it is published
+/// API, and a const cannot be built from an iterator at compile time — the
+/// equality test is what makes the projection mechanical.
+///
+/// The orphan sweep claims a wider set from the same declaration
+/// ([`crate::object_gc::sources`]): every table here, plus every table that
+/// merely names a key in this bucket and every other key space the bucket
+/// holds. A table added to the declaration without a decision here still makes
+/// the sweep claim it, which is the safe direction; the test closes the unsafe
+/// one.
 pub const ATTACHMENT_REF_TABLES: &[(&str, &str)] = &[
     (
         "attachments",
@@ -328,6 +335,14 @@ pub const ATTACHMENT_REF_TABLES: &[(&str, &str)] = &[
 /// a different key space. Letting them hold the bytes hostage would leak
 /// objects instead of protecting them, which is why the exclusion is stated
 /// rather than left to a `WHERE` clause nobody can read.
+///
+/// Like the owner list this is a checked projection of
+/// [`crate::object_inventory::ENTRIES`] — specifically its `storage_key` columns
+/// that are not owners. Columns of another shape (`secret_records.object_key`,
+/// `plugin_installs.module_digest`, …) are outside this list by construction:
+/// the refcount binds a key that a `storage_key` row holds outright, so a vault
+/// key or a plugin digest can never match an arm here. The sweep is the reader
+/// that must claim those, and it does, from the same declaration.
 pub const ATTACHMENT_KEY_TABLES_NOT_REFERENCES: &[(&str, &str)] = &[
     (
         "attachment_scans",
@@ -337,8 +352,8 @@ pub const ATTACHMENT_KEY_TABLES_NOT_REFERENCES: &[(&str, &str)] = &[
     ),
     (
         "org_exports",
-        "0089 — a different key space (`core_store::export_key`, \
-         `org/<org>/exports/…`); its digest names an export bundle, never an \
+        "0089 — a different key space (`org/<org>/exports/<id>/bundle.json`, built \
+         by the export route); its digest names an export bundle, never an \
          attachment object",
     ),
     (
@@ -671,6 +686,65 @@ mod tests {
             assert!(
                 !ATTACHMENT_REF_TABLES.iter().any(|(t, _)| t == table),
                 "{table} is in both lists, so the inventory disagrees with itself"
+            );
+        }
+    }
+
+    /// The owner list is a PROJECTION of the one declaration, not a second
+    /// authority. Adding a key space there without adding it here (or the
+    /// reverse) fails: the unsafe half would let a delete reclaim bytes a
+    /// sibling table still holds.
+    #[test]
+    fn the_owner_list_is_the_declarations_owning_projection() {
+        let declared: Vec<&str> = crate::object_inventory::owners()
+            .iter()
+            .map(|entry| entry.table)
+            .collect();
+        let listed: Vec<&str> = ATTACHMENT_REF_TABLES.iter().map(|(t, _)| *t).collect();
+        for table in &declared {
+            assert!(
+                listed.contains(table),
+                "{table} owns attachment bytes in object_inventory::ENTRIES but the \
+                 refcount does not count it, so a delete can reclaim bytes it still \
+                 holds. Add it to ATTACHMENT_REF_TABLES."
+            );
+        }
+        for table in &listed {
+            assert!(
+                declared.contains(table),
+                "ATTACHMENT_REF_TABLES counts {table} and the declaration does not \
+                 call its rows owners. Decide it in object_inventory::ENTRIES first."
+            );
+        }
+    }
+
+    /// The same for the excluded list: it must be exactly the declaration's
+    /// uncounted `storage_key` columns, so a table that stops holding a key
+    /// cannot linger here as a stale reason.
+    #[test]
+    fn the_excluded_list_is_the_declarations_uncounted_projection() {
+        let declared: Vec<&str> = crate::object_inventory::storage_key_uncounted()
+            .iter()
+            .map(|entry| entry.table)
+            .collect();
+        let listed: Vec<&str> = ATTACHMENT_KEY_TABLES_NOT_REFERENCES
+            .iter()
+            .map(|(t, _)| *t)
+            .collect();
+        for table in &declared {
+            assert!(
+                listed.contains(table),
+                "{table} holds a storage_key and the declaration does not count it as \
+                 an owner, but the refcount does not exclude it either. Exclude it \
+                 with the reason, or the next reader cannot tell which question it \
+                 belongs to."
+            );
+        }
+        for table in &listed {
+            assert!(
+                declared.contains(table),
+                "ATTACHMENT_KEY_TABLES_NOT_REFERENCES excludes {table}, which the \
+                 declaration does not list among its uncounted storage_key columns."
             );
         }
     }

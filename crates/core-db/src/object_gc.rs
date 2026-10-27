@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::DbResult;
+use crate::{object_inventory, DbResult};
 
 /// One row's claim on one object.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,25 +42,26 @@ pub struct ObjectReference {
 
 /// Every object key any row currently claims.
 ///
-/// Correctness of the orphan direction depends on [`SOURCES`] being COMPLETE: a
-/// table missing there does not leak, it deletes the objects of a table it
+/// Correctness of the orphan direction depends on the claim set being COMPLETE:
+/// a table missing there does not leak, it deletes the objects of a table it
 /// forgot, which is why the sweep refuses to run when a source reports an error
 /// rather than treating it as "no references".
+///
+/// The set is a projection of [`crate::object_inventory`] — the one declaration
+/// of every column that can name an object — so a new key space is one edit, not
+/// one edit per reader. A vault document's sealed ciphertext and a plugin's
+/// module bytes are in this same bucket; a sweep that did not claim them would
+/// free them a day after the last write while rows still pointed at them.
 pub async fn referenced_keys(pool: &PgPool) -> DbResult<Vec<ObjectReference>> {
     let mut out = Vec::new();
-    for (table, label, _why) in SOURCES {
-        let rows: Vec<(String, Option<Uuid>)> =
-            sqlx::query_as(&format!("SELECT storage_key, org_id FROM {table}"))
-                .fetch_all(pool)
-                .await?;
-        out.extend(
-            rows.into_iter()
-                .map(|(storage_key, org_id)| ObjectReference {
-                    storage_key,
-                    source_table: label,
-                    org_id,
-                }),
-        );
+    for entry in object_inventory::claimed() {
+        for (storage_key, org_id) in entry.keys(pool).await? {
+            out.push(ObjectReference {
+                storage_key,
+                source_table: entry.table,
+                org_id,
+            });
+        }
     }
     Ok(out)
 }
@@ -117,63 +118,32 @@ pub async fn clear_missing(pool: &PgPool, keys: &[String]) -> DbResult<u64> {
     Ok(updated)
 }
 
-/// The tables whose rows claim an object key, with the label a finding records
-/// and the reason the table is a source at all.
+/// The tables whose rows claim an object key — [`crate::object_inventory`]'s
+/// claim set, which is what "does any row reference this key" means.
 ///
-/// This is the second inventory over one storage-key space. The first is the
-/// attachment refcount ([`crate::attachments::ATTACHMENT_REF_TABLES`] and its
-/// exclusion list), and the two answer different questions:
+/// The relation between the two readers is one-way and mechanical:
 ///
 /// * the refcount asks "does any row still OWN these bytes", to decide whether a
 ///   row's delete may remove the object. It counts owners only.
 /// * this list asks "does any row CLAIM this key", to decide whether an object
 ///   found in the store is an orphan. It must count owners and every other row
 ///   that names a key in this bucket, including tables that merely record a fact
-///   about the bytes.
+///   about the bytes, and every other key space the bucket holds.
 ///
-/// So the relation is one-way and mechanical: this list must be a SUPERSET of
-/// the refcount's owners, and every extra entry must belong to the refcount's
-/// exclusion list. `object_gc::tests` and `tests/object_inventory_parity.rs`
-/// enforce both halves, so a key-holding table that is added to one inventory
-/// and not the other fails a test instead of leaking or reclaiming silently.
+/// So this list must be a SUPERSET of the refcount's owners, and each extra
+/// entry must state why the refcount does not count it.
+/// [`crate::object_inventory`] holds both projections over one declaration, and
+/// `object_gc::tests` plus `tests/object_inventory_parity.rs` enforce both halves,
+/// so a key-holding table that is added to one reader and not the other fails a
+/// test instead of leaking or reclaiming silently.
 ///
-/// `object_integrity_findings` holds a `storage_key` too, and is deliberately
-/// absent: a finding records that a key was seen in a past pass (0146), so
-/// counting it would keep a deleted object's key alive forever and protect any
-/// later upload at the same address from ever being reclaimed.
-///
-/// `email_messages.raw_ref` is absent for the same class of reason: it is a
-/// provider-side pointer to a raw MIME payload, not a key in this store.
-pub const SOURCES: &[(&str, &str, &str)] = &[
-    (
-        "attachments",
-        "attachments",
-        "0024 — ticket, ticket-comment and inbound-email files; counted by the \
-         attachment refcount as an owner",
-    ),
-    (
-        "documents_attachments",
-        "documents_attachments",
-        "0089 — document files, on the same content-addressed key; counted by the \
-         attachment refcount as an owner",
-    ),
-    (
-        "attachment_scans",
-        "attachment_scans",
-        "0139 — the scan verdict's `storage_key` is the admission key for \
-         clean/skipped bytes and the quarantine key for infected ones, so these \
-         rows name objects in this bucket. Not an owner (the refcount excludes \
-         it), which makes this entry the conservative half of the pair: a \
-         verdict row keeps the bytes it names from being reclaimed",
-    ),
-    (
-        "org_exports",
-        "org_exports",
-        "0089 — export bundles under a different key space; not an attachment, so \
-         the refcount excludes it, but the bundle is stored in this bucket and the \
-         sweep lists the whole bucket",
-    ),
-];
+/// `email_messages.raw_ref` is absent from the declaration for the same class of
+/// reason `object_integrity_findings` is: it is a provider-side pointer to a raw
+/// MIME payload, not a key in this store.
+#[must_use]
+pub fn sources() -> Vec<&'static object_inventory::KeyEntry> {
+    object_inventory::claimed()
+}
 
 /// The tables whose rows can say their bytes are gone.
 const MISSING_TABLES: [&str; 2] = ["attachments", "documents_attachments"];
@@ -274,17 +244,11 @@ pub async fn reference_index(
     if keys.is_empty() {
         return Ok(index);
     }
-    for (table, label, _why) in SOURCES {
-        let rows: Vec<(String, Option<Uuid>)> = sqlx::query_as(&format!(
-            "SELECT storage_key, org_id FROM {table} WHERE storage_key = ANY($1)"
-        ))
-        .bind(keys)
-        .fetch_all(pool)
-        .await?;
-        for (storage_key, org_id) in rows {
+    for entry in object_inventory::claimed() {
+        for (storage_key, org_id) in entry.rows_naming(pool, keys).await? {
             index.entry(storage_key.clone()).or_insert(ObjectReference {
                 storage_key,
-                source_table: label,
+                source_table: entry.table,
                 org_id,
             });
         }
@@ -296,9 +260,13 @@ pub async fn reference_index(
 mod tests {
     use super::*;
     use crate::attachments::{ATTACHMENT_KEY_TABLES_NOT_REFERENCES, ATTACHMENT_REF_TABLES};
+    use crate::object_inventory::KeyShape;
 
-    fn source_tables() -> Vec<&'static str> {
-        SOURCES.iter().map(|(table, _, _)| *table).collect()
+    fn source_columns() -> Vec<(&'static str, &'static str)> {
+        sources()
+            .iter()
+            .map(|entry| (entry.table, entry.column))
+            .collect()
     }
 
     /// The direction that loses bytes: a table the refcount counts as an owner
@@ -306,31 +274,38 @@ mod tests {
     /// orphans and deletes while rows still advertise them.
     #[test]
     fn every_refcount_owner_is_a_gc_source() {
-        let sources = source_tables();
+        let sources = source_columns();
         for (table, why) in ATTACHMENT_REF_TABLES {
             assert!(
-                sources.contains(table),
+                sources.iter().any(|(source, _)| source == table),
                 "{table} is an attachment refcount owner ({why}) but the orphan \
                  sweep does not ask it, so the sweep would delete its live objects. \
-                 Add it to object_gc::SOURCES."
+                 Add it to object_inventory::ENTRIES as an Owner."
             );
         }
     }
 
     /// The other direction: a source the refcount has never decided about means
-    /// one of the two inventories is missing a table, and the next reader cannot
-    /// tell which question it belongs to.
+    /// one of the two readers is missing a table, and the next reader cannot
+    /// tell which question it belongs to. A column of another shape is outside
+    /// the refcount's universe by construction, so only `storage_key` claims are
+    /// required to be decided there.
     #[test]
-    fn every_gc_source_is_in_the_refcounts_universe() {
+    fn every_storage_key_gc_source_is_in_the_refcounts_universe() {
         let mut decided: Vec<&str> = ATTACHMENT_REF_TABLES.iter().map(|(t, _)| *t).collect();
         decided.extend(ATTACHMENT_KEY_TABLES_NOT_REFERENCES.iter().map(|(t, _)| *t));
-        for (table, _, why) in SOURCES {
+        for entry in sources() {
+            if entry.column != "storage_key" {
+                continue;
+            }
             assert!(
-                decided.contains(table),
-                "{table} is an orphan-sweep source ({why}) that the attachment \
-                 refcount neither counts nor excludes. Decide it there first: \
+                decided.contains(&entry.table),
+                "{} is an orphan-sweep source ({}) that the attachment refcount \
+                 neither counts nor excludes. Decide it there first: \
                  ATTACHMENT_REF_TABLES if its rows own attachment bytes, \
-                 ATTACHMENT_KEY_TABLES_NOT_REFERENCES with the reason they do not."
+                 ATTACHMENT_KEY_TABLES_NOT_REFERENCES with the reason they do not.",
+                entry.table,
+                entry.why
             );
         }
     }
@@ -339,24 +314,63 @@ mod tests {
     /// the list because it looks redundant with the attachment owners.
     #[test]
     fn every_gc_source_states_why_it_claims_the_key() {
-        for (table, label, why) in SOURCES {
-            assert!(!why.trim().is_empty(), "{table} claims keys with no reason");
-            assert!(!label.trim().is_empty(), "{table} has no finding label");
+        for entry in sources() {
+            assert!(
+                !entry.why.trim().is_empty(),
+                "{} claims keys with no reason",
+                entry.table
+            );
         }
     }
 
-    /// Two entries for one table would query it twice and report two findings
-    /// for one object; one entry per table is what makes the list reviewable.
+    /// Two entries for one column would query it twice and report two findings
+    /// for one object; one entry per column is what makes the list reviewable.
+    /// A table can legitimately appear twice when it holds two key columns.
     #[test]
-    fn no_table_is_a_source_twice() {
-        let sources = source_tables();
+    fn no_column_is_a_source_twice() {
+        let sources = source_columns();
         let mut seen = sources.clone();
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(
             seen.len(),
             sources.len(),
-            "SOURCES names a table twice: {sources:?}"
+            "the claim set names a column twice: {sources:?}"
         );
+    }
+
+    /// A key rebuilt from a digest must land inside the same org prefix every
+    /// other claim lives under: that prefix is what makes a store listing
+    /// attributable to a tenant, and the erasure deletes by it. A stored key is
+    /// already a key, so the entry returns it unchanged.
+    #[test]
+    fn a_rebuilt_key_lands_inside_the_org_prefix() {
+        let org = Uuid::nil();
+        let digest = "a".repeat(64);
+        for entry in sources() {
+            let key = entry
+                .build_key(&digest, Some(org))
+                .expect("a claim builds a key");
+            match entry.shape {
+                KeyShape::Stored => assert_eq!(
+                    key, digest,
+                    "{} must not rewrite a key it holds outright",
+                    entry.table
+                ),
+                KeyShape::PluginDigest => {
+                    assert_eq!(
+                        key,
+                        core_store::plugin_artifact_key(org, &digest),
+                        "{} must build the plugin key through core-store",
+                        entry.table
+                    );
+                    assert!(
+                        key.starts_with(&format!("org/{org}/plugins/")),
+                        "{} builds {key}, outside its own org namespace",
+                        entry.table
+                    );
+                }
+            }
+        }
     }
 }
