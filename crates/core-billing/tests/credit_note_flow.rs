@@ -422,8 +422,10 @@ async fn apply_moves_real_money_and_guards() {
         "one receipt per apply"
     );
 
-    // Apply the rest of the credit: the invoice shows 40k paid (still
-    // issued — the credit is smaller than the invoice).
+    // One note settles one invoice once: the receipt carries the note number
+    // as its provider reference, and 0165 makes that reference unique per
+    // invoice so a replayed settlement cannot apply the same money twice. A
+    // second application to this invoice is the fence answering, not a drain.
     let response = send(
         &app,
         axum::http::Method::POST,
@@ -432,12 +434,41 @@ async fn apply_moves_real_money_and_guards() {
         Some(json!({ "invoice_id": invoice_id, "amount_minor": 10_000 })),
     )
     .await;
-    assert_eq!(response.status(), 200, "final apply must succeed: {}", {
-        String::new()
-    });
+    assert_eq!(response.status(), 409, "one note settles one invoice once");
+    let refused = body_json(response).await;
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("provider reference"),
+        "the refusal must name the settlement fence: {refused}"
+    );
+
+    // The remainder goes to the client's other invoice, which is the split the
+    // constraint's own reasoning describes.
+    let other = issue_invoice(&app, &org, client_id, 25_000).await;
+    let other_invoice_id: Uuid = other["invoice"]["id"]
+        .as_str()
+        .or(other["id"].as_str())
+        .expect("invoice id")
+        .parse()
+        .unwrap();
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/credit-notes/{note_id}/apply"),
+        Some(&org.token),
+        Some(json!({ "invoice_id": other_invoice_id, "amount_minor": 10_000 })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "the remainder applies to the other invoice"
+    );
     let settled = body_json(response).await;
     assert_eq!(settled["applied_minor"], 40_000);
-    assert_eq!(settled["invoice"]["total_paid_minor"], 40_000);
+    assert_eq!(settled["invoice"]["total_paid_minor"], 10_000);
     assert_eq!(settled["invoice"]["status"], "issued");
 
     // The credit is drained; a further allocation is a typed 409.
