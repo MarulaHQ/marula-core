@@ -2,7 +2,7 @@
 // capability registry (grant + revoke), the skills list, and the
 // proposal approval queue with before/after diff and decline semantics.
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AuthProvider } from "../../lib/api";
 import AgentPlatformPage from "../../app/settings/agent-platform/page";
@@ -133,7 +133,11 @@ describe("/settings/agent-platform integration", () => {
       capability: "clients:read",
       mode: "proposed",
     });
-    await screen.findByText("clients:read");
+    // The catalog table above badges every capability it lists, so the grant
+    // itself has to be found in the registry region rather than anywhere on
+    // the page. `findByText` alone matches the catalog badge too.
+    const registry = screen.getByTestId("mcp-capability-registry");
+    await within(registry).findByText("clients:read");
     cleanup();
   });
 

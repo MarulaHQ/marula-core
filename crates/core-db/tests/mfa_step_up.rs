@@ -133,18 +133,30 @@ async fn a_step_up_is_fresh_inside_its_window_and_stale_after_it() {
         "another session must not see this chain's proof"
     );
 
-    mfa::record_step_up(
-        &mut *tx,
-        mfa::StepUpRecord {
-            id: Uuid::now_v7(),
-            org_id: org,
-            user_id: user,
-            session_id: session,
-            method: "recovery_code",
-            factor_ref: Some("code-row"),
-            expires_at: chrono::Utc::now() - chrono::Duration::seconds(1),
-        },
+    // `record_step_up` cannot write a proof that is born expired: 0161's
+    // `mfa_step_ups_window_positive` requires `expires_at > verified_at`.
+    // The stale branch is still reachable the way production reaches it — a
+    // proof whose window ran out after it was written — so the row goes in
+    // with a window in the past, which the constraint admits. The fresh proof
+    // above has to go first, or the read returns it: it sorts ahead of any row
+    // whose window has already closed.
+    sqlx::query("DELETE FROM mfa_step_ups WHERE session_id = $1")
+        .bind(session)
+        .execute(&mut *tx)
+        .await
+        .expect("clear the fresh proof");
+    sqlx::query(
+        "INSERT INTO mfa_step_ups \
+           (id, org_id, user_id, session_id, chain_id, verified_at, expires_at, method, factor_ref) \
+         SELECT $1, $2, $3, a.id, a.chain_id, now() - interval '10 minutes', \
+                now() - interval '5 minutes', 'recovery_code', 'code-row' \
+           FROM auth_sessions a WHERE a.id = $4",
     )
+    .bind(Uuid::now_v7())
+    .bind(org)
+    .bind(user)
+    .bind(session)
+    .execute(&mut *tx)
     .await
     .expect("record stale");
 

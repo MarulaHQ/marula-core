@@ -621,7 +621,12 @@ async fn chain_revocation_kills_every_descendant() {
     let killed = users::revoke_chain(&mut *tx, parent.chain_id)
         .await
         .expect("chain kill");
-    assert_eq!(killed, 1);
+    // `revoke_chain` returns the rows the statement touched, and it re-marks
+    // the ancestors that rotation retired: their access tokens are what reuse
+    // detection is cutting off too. So three rows are marked — the two rotated
+    // ancestors and the live leaf — and the assertions below prove none of
+    // them is still active.
+    assert_eq!(killed, 3);
     for hash in &hashes {
         let active: Vec<sqlx::postgres::PgRow> = sqlx::query(
             "SELECT id FROM auth_sessions WHERE refresh_token_hash = $1 AND revoked_at IS NULL",

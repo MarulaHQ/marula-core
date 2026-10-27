@@ -1114,6 +1114,10 @@ export interface paths {
          *     bridge), verifies the argon2 hash under RLS scope. When any second
          *     factor is enrolled, returns a short-lived `mfa_pending` bridge instead
          *     of tokens; POST /api/auth/mfa/verify completes it.
+         * @description Answers 503 with `Retry-After` when the process's password-hash slots are
+         *     saturated (Wave 56 lane `p56-auth-bounds`) — backpressure under a burst,
+         *     never a 500. Left out of the `utoipa` response list for the reason given
+         *     on [`register`].
          */
         post: operations["handlers_login"];
         delete?: never;
@@ -1152,6 +1156,8 @@ export interface paths {
          * POST /api/auth/magic-link/confirm — consumes the link and issues a
          *     full session through the SAME machinery as password login. STAFF
          *     family only (the portal is NOT included — see the threat model).
+         *     An account with an enrolled second factor answers a typed
+         *     `mfa_required` refusal — the link proves the mailbox, not the factor.
          */
         post: operations["auth_magic_link_confirm"];
         delete?: never;
@@ -1659,6 +1665,13 @@ export interface paths {
          * POST /api/auth/register — creates the org, its default roles/board/SLA
          *     policy, and the first user as Owner. One transaction: a half-created org
          *     can never exist.
+         * @description Answers 503 with `Retry-After` when the process's password-hash slots are
+         *     saturated (Wave 56 lane `p56-auth-bounds`). The 503 is deliberately NOT in
+         *     the `utoipa` response list: every route can answer it from the middleware
+         *     layer (draining, database unreachable), the pinned OpenAPI document is
+         *     regenerated only by `scripts/regen-openapi-pins.sh` against a live API, and
+         *     adding one description here would leave both committed pins stale for a
+         *     status the whole surface already shares.
          */
         post: operations["handlers_register"];
         delete?: never;
@@ -5441,6 +5454,22 @@ export interface paths {
          *     and only subject-agnostic effects (notifications) run — every
          *     ticket-writing effect skips with a warn, never fails the batch, so one
          *     bad rule can never wedge the queue.
+         *
+         *     # The batch runs as the rule's author (Wave 58 lane `p58-effects-seam`)
+         *
+         *     The token is one deployment-wide bearer, so before this lane the request's
+         *     `org_id` was both the RLS scope and the actor: the holder of the token could
+         *     name any org and write there with no permission check. The principal is now
+         *     the author recorded on `automation_rules.created_by`, resolved into a full
+         *     [`Principal`] exactly as a session builds one, and the grant a manual write
+         *     would need is applied before dispatch ([`effects_authority`]). A rule with
+         *     no author is refused rather than attributed: the remedy is an admin
+         *     re-saving it, which records the editor as the author. The batch's action
+         *     list must be the rule's own, so a rule id authorises that rule's effects and
+         *     not the author's whole authority. Every refusal is a
+         *     typed 4xx with an `automation.effects_denied` audit row, and nothing the
+         *     batch asked to write survives: the identity and matrix gates refuse before
+         *     the write transaction opens, and a board denial rolls it back.
          */
         post: operations["internal_effects"];
         delete?: never;
@@ -20019,7 +20048,14 @@ export interface components {
             board_id?: string | null;
             /** Format: uuid */
             org_id: string;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description The rule whose effects these are. Required in practice: the rule's
+             *     recorded author is the principal the batch runs as (Wave 58 lane
+             *     `p58-effects-seam`), so a call that names no rule is refused. Optional
+             *     in the wire shape so "no rule" is expressible and refusable rather than
+             *     a sentinel the seam guesses at.
+             */
             rule_id?: string | null;
             /**
              * Format: uuid
@@ -23583,6 +23619,9 @@ export interface components {
             /**
              * Format: uuid
              * @description `Some(None)` clears; `Some(Some(v))` sets; `None` = no change.
+             *     `deserialize_with` is what keeps the first two apart: serde's own
+             *     `Option` layer reads a JSON `null` as `None`, which is the absent
+             *     shape, so without it a demotion was indistinguishable from a rename.
              */
             client_id?: string | null;
             /** Format: int32 */

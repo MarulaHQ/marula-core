@@ -16,7 +16,7 @@ body:
     attributes:
       label: Version or commit
       description: The release tag, image tag, or commit SHA you are running.
-      placeholder: v0.2.0 — or 3f2a1b9
+      placeholder: v0.3.0 — or 3f2a1b9
     validations:
       required: true
 

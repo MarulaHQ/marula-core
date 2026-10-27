@@ -13,6 +13,12 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-27
+
+The working product: a ticket workbench built for daily use, AI assistance
+with consent and an audit trail, an ecosystem layer, and a plugin runtime
+that runs untrusted code inside limits.
+
 ### Added
 
 - A ticket workbench built for real work: three panes with inline notes,
@@ -55,6 +61,14 @@ Every change lands as a reviewed pull request. Contributions follow
   is tagged by audience and link-checked.
 - A public roadmap and changelog that both build from the files in the
   repository, with an RSS feed for the changelog.
+
+- A plugin runtime: each plugin runs in an isolated worker where its spend is
+  bounded, keeps its own data in a per-install key/value store, and reaches the
+  network only through hosts its manifest declares and an admin consented to.
+  Installs start disabled, a grant can never exceed what the manifest asks for,
+  three worker failures in a row quarantine the install until an operator
+  clears it, and every attempt lands one audit row whether it ran or was
+  refused.
 
 ### Changed
 
@@ -124,6 +138,7 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 - Dispatch with SLA awareness and scheduling.
 - The client portal with tickets, invoices, and the knowledge base.
 
-[Unreleased]: https://github.com/Marlin-Hofmeyer/meridian/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/Marlin-Hofmeyer/meridian/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/Marlin-Hofmeyer/meridian/releases/tag/v0.1.0
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/MarulaHQ/marula-core/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/MarulaHQ/marula-core/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/MarulaHQ/marula-core/releases/tag/v0.1.0

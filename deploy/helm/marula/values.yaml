@@ -48,19 +48,19 @@ images:
   pullPolicy: IfNotPresent
   coreApi:
     repository: marula-core-api
-    tag: "v0.2.0"
+    tag: "v0.3.0"
     digest: ""
   worker:
     repository: marula-worker
-    tag: "v0.2.0"
+    tag: "v0.3.0"
     digest: ""
   cli:
     repository: marula-core-cli
-    tag: "v0.2.0"
+    tag: "v0.3.0"
     digest: ""
   web:
     repository: marula-web
-    tag: "v0.2.0"
+    tag: "v0.3.0"
     digest: ""
 
 # ---------------------------------------------------------------- database --

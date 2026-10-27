@@ -126,7 +126,7 @@ debug = false
 debug = false
 
 [workspace.package]
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/MarulaHQ/marula-core"

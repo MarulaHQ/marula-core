@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "core-api"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "adapters-core",
  "aes-gcm",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "core-billing"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "core-db"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "core-decision"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "core-documents"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "core-domain",
@@ -1229,7 +1229,7 @@ dependencies = [
 
 [[package]]
 name = "core-domain"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1250,7 +1250,7 @@ dependencies = [
 
 [[package]]
 name = "core-events"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "core-db",
@@ -1318,7 +1318,7 @@ dependencies = [
 
 [[package]]
 name = "core-kb"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "core-domain",
@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "core-mail"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "core-otel"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "opentelemetry",
  "opentelemetry-appender-tracing",
@@ -1371,7 +1371,7 @@ dependencies = [
 
 [[package]]
 name = "core-projects"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "core-db",
@@ -1387,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "core-reports"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1400,7 +1400,7 @@ dependencies = [
 
 [[package]]
 name = "core-routing"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "axum 0.8.9",
@@ -1415,7 +1415,7 @@ dependencies = [
 
 [[package]]
 name = "core-store"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4070,7 +4070,7 @@ dependencies = [
 
 [[package]]
 name = "marula-core-cli"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4095,7 +4095,7 @@ dependencies = [
 
 [[package]]
 name = "marula-desktop"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
@@ -4143,7 +4143,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mcp-server"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
@@ -5072,7 +5072,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "perf-harness"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5242,7 +5242,7 @@ dependencies = [
 
 [[package]]
 name = "plugin-host"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -9841,7 +9841,7 @@ dependencies = [
 
 [[package]]
 name = "worker"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
