@@ -72,11 +72,24 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
+      # Compile against the committed .sqlx metadata, not the service
+      # container. The container's schema is empty until a step migrates it,
+      # and the tests migrate at runtime through `sqlx::migrate!`, so a
+      # compile that dials DATABASE_URL sees no tables: every `query!` macro
+      # expanded to an error and the crate reported 1804 of them ("relation
+      # mcp_capability_grants does not exist") — a missing schema wearing the
+      # costume of a broken crate. The last step of this job is what keeps the
+      # metadata honest: `cargo sqlx prepare --check` regenerates it from the
+      # migrated schema and fails when it has drifted.
       - run: cargo clippy --workspace --all-targets -- -D warnings
+        env:
+          SQLX_OFFLINE: "true"
       # The sweep. Every test target in the workspace runs here, including the
       # RLS-coverage assertion and the deprecation clock; the dedicated jobs
       # below re-run three of them by name so one red does not hide the rest.
       - run: cargo test --workspace
+        env:
+          SQLX_OFFLINE: "true"
       # Trap this step closes: a `query!` edit without `cargo sqlx prepare`
       # passes a DB-online test run and then breaks every offline consumer
       # (developer builds, the Docker image build). `prepare --check` compares
@@ -236,7 +249,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # Compile-time schema comes from .sqlx; this test migrates the container
+      # itself before asserting, so runtime is unaffected.
       - run: cargo test -p core-db --test rls_coverage
+        env:
+          SQLX_OFFLINE: "true"
 
   rust-contract:
     name: Rust contract — deprecation clock · API conformance · golden OpenAPI
@@ -270,12 +287,16 @@ jobs:
       # Gate plus self-tests, no database.
       - name: Deprecation clock
         run: cargo test -p core-events --test deprecation_clock
+        env:
+          SQLX_OFFLINE: "true"
       # Contract probes generated from the COMMITTED pin: every path+method in
       # fixtures/openapi/v1/openapi.json is probed against the real router
       # (auth posture, versioning parity, existence sentinels). Drift in either
       # direction fails.
       - name: API contract probes from the pinned OpenAPI
         run: cargo test -q -p core-api --test api_versioning
+        env:
+          SQLX_OFFLINE: "true"
       # Two of the three golden layers: the spec derived from the compiled
       # handlers equals the pin, and packages/sdk/openapi.json equals the pin.
       # The third layer compares a RUNNING server's served spec and boots a
@@ -283,3 +304,5 @@ jobs:
       # `api-live-conformance` job, not this one.
       - name: Golden OpenAPI conformance (derived + SDK snapshot vs pin)
         run: cargo test -q -p marula-core-cli --test golden_openapi
+        env:
+          SQLX_OFFLINE: "true"

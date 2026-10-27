@@ -8,6 +8,7 @@
 // no backend contract testing — that lives in Rust integration tests.
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { availableParallelism } from "node:os";
 
 // Time-zone pinning (Wave 50 lane T1). A suite that formats in whatever zone
 // the machine happens to run in passes in one checkout and fails in another —
@@ -48,6 +49,18 @@ export default defineConfig({
     // 4 keeps the suite roughly 4x serial throughput while cutting the
     // contested workers by more than half; on a 2-core CI runner it degrades
     // to the core count rather than oversubscribing.
-    maxWorkers: 4,
+    //
+    // 2ea4c17 (2026-10-27): the cap was a flat 4, which is right for the
+    // 10-core machine the audit measured and an oversubscription on the 2-core
+    // GitHub runner — four workers per package while turbo runs four packages
+    // at once. Read the core count instead, so a small runner stops fighting
+    // itself.
+    maxWorkers: Math.max(1, Math.min(4, availableParallelism())),
+    // Deadline, not a correctness knob. These page suites render whole surfaces
+    // through jsdom: the same tree took 26s for the web package locally and
+    // 291s on the runner, where six files blew the 5s default while passing
+    // everywhere else. A slow machine should make the suite slower, not red.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });
