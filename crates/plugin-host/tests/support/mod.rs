@@ -35,7 +35,6 @@ pub struct Seed {
     pub entry_label: String,
     pub definition: Value,
     pub status: PluginInstallStatus,
-    pub revoked: bool,
     pub artifact: ModuleArtifact,
 }
 
@@ -55,7 +54,6 @@ impl Seed {
             entry_label: "Probe".to_string(),
             definition: json!({ "slot": "ticket_pane", "kind": "list" }),
             status: PluginInstallStatus::Enabled,
-            revoked: false,
             artifact: artifact.clone(),
         }
     }
@@ -82,11 +80,6 @@ impl Seed {
 
     pub fn disabled(mut self) -> Self {
         self.status = PluginInstallStatus::Disabled;
-        self
-    }
-
-    pub fn revoked(mut self) -> Self {
-        self.revoked = true;
         self
     }
 }
@@ -198,10 +191,12 @@ pub async fn seed_install(pool: &PgPool, store: &dyn ObjectStore, seed: &Seed) -
         origin_org_id: Some(org_id),
         latest_version: Some("1.0.0".into()),
         interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
-        revoked_at: seed.revoked.then(Utc::now),
-        revoked_reason: seed
-            .revoked
-            .then(|| "withdrawn by its publisher".to_string()),
+        // Creation never inserts a revocation: `create_catalog_entry` has no
+        // column for it, and a revocation is a later verb. A test that wants one
+        // calls `revoke_catalog_entry` (the product's own function) or flips the
+        // column directly to build the lag shape.
+        revoked_at: None,
+        revoked_reason: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -310,23 +305,42 @@ pub async fn seed_ticket(pool: &PgPool, org_id: Uuid) -> Uuid {
     ticket_id
 }
 
+/// Serialises worker boots inside one test binary.
+///
+/// Measured, not guessed: three concurrent cold starts of the 52 MB debug worker
+/// exceeded the pool's two-second hello window (`LOAD_TIMEOUT`) and the third
+/// boot failed with `WorkerUnavailable { detail: "no hello frame" }`. A release
+/// worker starts in milliseconds, so this is a harness contention problem, not
+/// a claim that the boot window is wrong for a deployment — it is recorded as a
+/// runtime finding in the lane's REVIEW rather than fixed here, because
+/// `runtime.rs` belongs to the lane that owns the pool.
+static POOL_BOOT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Takes the boot lock. A test that starts a pool calls this first.
+pub async fn boot_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    POOL_BOOT.lock().await
+}
+
 /// The pool slot a caller owns, wired to the worker binary this package builds
 /// and to the database the quarantine rows live in.
 pub async fn pool_slot(pool: &PgPool, workers: usize) -> plugin_host::exec::PoolSlot {
     use plugin_host::exec::PoolSlot;
     let slot = PoolSlot::new();
-    slot.get_with(|| async move {
-        PluginPool::start(PoolConfig {
-            mode: IsolationMode::Pool,
-            workers,
-            worker_bin: Some(env!("CARGO_BIN_EXE_marula-plugin-worker").into()),
-            health: Some(pool.clone()),
-            sandbox_limits: Default::default(),
+    let guard = boot_lock().await;
+    let started = slot
+        .get_with(|| async move {
+            PluginPool::start(PoolConfig {
+                mode: IsolationMode::Pool,
+                workers,
+                worker_bin: Some(env!("CARGO_BIN_EXE_marula-plugin-worker").into()),
+                health: Some(pool.clone()),
+                sandbox_limits: Default::default(),
+            })
+            .await
         })
-        .await
-    })
-    .await
-    .expect("the pool starts from this package's worker binary");
+        .await;
+    drop(guard);
+    started.expect("the pool starts from this package's worker binary");
     slot
 }
 

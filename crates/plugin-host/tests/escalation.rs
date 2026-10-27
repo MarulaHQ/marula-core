@@ -155,11 +155,19 @@ async fn an_action_the_install_has_no_grant_for_is_refused_before_a_worker_runs(
     );
 }
 
-/// A disabled install is refused at the admin gate even though it holds the
-/// grant. The grant is not the authority; the install's state is part of it.
+/// What a disabled install answers, and why it is this answer.
+///
+/// The caller never sees `plugin_install_disabled` here. The registry lookup is
+/// the executor's first gate and it already requires `i.status = 'enabled' AND
+/// i.revoked_at IS NULL` (`core_db::plugin_surface::get_entry_by_key`), so a
+/// disabled install has no visible surface entry and the attempt stops as
+/// `plugin_entry_unavailable`. The more specific denial is reachable only if the
+/// install flips between the lookup and the install read, and it is unit-tested
+/// in `lib.rs`. Recording the composed answer is the point: an operator reading
+/// the audit trail should not be surprised by which of the two strings appears.
 #[tokio::test]
 #[ignore = "needs Postgres via MARULA_TEST_DATABASE_URL or DATABASE_URL; run with --ignored at the gate"]
-async fn a_disabled_install_never_reaches_a_worker() {
+async fn a_disabled_install_hides_its_surface_entry_and_refuses() {
     let pool = admin_pool(5).await;
     let store = MemoryStore::new();
     let seed = Seed::action(
@@ -167,60 +175,153 @@ async fn a_disabled_install_never_reaches_a_worker() {
         &artifact(NOOP),
         &[PluginCapability::AutomationActions],
         "add_internal_comment",
-    )
-    .disabled();
-    let Seeded {
-        org_id, entry_key, ..
-    } = seed_install(&pool, &store, &seed).await;
+    );
+    let seeded = seed_install(&pool, &store, &seed).await;
     let slot = support::pool_slot(&pool, 1).await;
+
+    // The admin switch, as the lifecycle verb applies it. The surface rows stay
+    // in place; what changes is the install's status.
+    let mut tx = pool.begin().await.expect("transaction");
+    core_db::set_org(&mut tx, seeded.org_id)
+        .await
+        .expect("org scope");
+    sqlx::query("UPDATE plugin_installs SET status = 'disabled' WHERE id = $1")
+        .bind(seeded.install.id)
+        .execute(&mut *tx)
+        .await
+        .expect("disable");
+    tx.commit().await.expect("disable commits");
 
     let params = json!({ "body": "blocked" });
     let outcome = attempt(
         &pool,
         &store,
         &slot,
-        &call(org_id, &entry_key, &params, None),
+        &call(seeded.org_id, &seeded.entry_key, &params, None),
     )
     .await;
 
     assert_eq!(outcome.outcome, InvocationOutcome::Refused);
-    assert_eq!(outcome.reason, Some("plugin_install_disabled"));
-    let detail = last_audit(&pool, org_id).await;
-    assert_eq!(detail["reason"], "plugin_install_disabled");
+    assert_eq!(outcome.reason, Some("plugin_entry_unavailable"));
+
+    let detail = last_audit(&pool, seeded.org_id).await;
+    assert_eq!(detail["reason"], "plugin_entry_unavailable");
+    assert_eq!(
+        detail["worker"],
+        Value::Null,
+        "the refusal happens before a worker is reached"
+    );
 }
 
-/// A revoked catalog entry is terminal: the install keeps its grant and still
-/// does not run.
+/// A catalog row revoked while the install row still says enabled: the lag
+/// shape a replica sees between the revoke and the install flush, and what a
+/// refusal outside the product's own verb produces. Here the execution reaches
+/// the authorization gate and answers with its own code.
 #[tokio::test]
 #[ignore = "needs Postgres via MARULA_TEST_DATABASE_URL or DATABASE_URL; run with --ignored at the gate"]
-async fn a_revoked_catalog_entry_is_terminal() {
+async fn a_catalog_revoked_without_the_install_flip_is_refused_as_revoked() {
     let pool = admin_pool(5).await;
     let store = MemoryStore::new();
     let seed = Seed::action(
-        &format!("revoked-{}", Uuid::now_v7().simple()),
+        &format!("catalog-revoked-{}", Uuid::now_v7().simple()),
         &artifact(NOOP),
         &[PluginCapability::AutomationActions],
         "add_internal_comment",
-    )
-    .revoked();
-    let Seeded {
-        org_id, entry_key, ..
-    } = seed_install(&pool, &store, &seed).await;
+    );
+    let seeded = seed_install(&pool, &store, &seed).await;
     let slot = support::pool_slot(&pool, 1).await;
+
+    let mut tx = pool.begin().await.expect("transaction");
+    core_db::set_org(&mut tx, seeded.org_id)
+        .await
+        .expect("org scope");
+    sqlx::query(
+        "UPDATE plugin_catalog SET revoked_at = now(), revoked_reason = 'withdrawn'
+          WHERE id = $1",
+    )
+    .bind(seeded.catalog_id)
+    .execute(&mut *tx)
+    .await
+    .expect("catalog revocation");
+    tx.commit().await.expect("revocation commits");
 
     let params = json!({ "body": "blocked" });
     let outcome = attempt(
         &pool,
         &store,
         &slot,
-        &call(org_id, &entry_key, &params, None),
+        &call(seeded.org_id, &seeded.entry_key, &params, None),
     )
     .await;
 
     assert_eq!(outcome.outcome, InvocationOutcome::Refused);
     assert_eq!(outcome.reason, Some("plugin_entry_revoked"));
-    let detail = last_audit(&pool, org_id).await;
+    let detail = last_audit(&pool, seeded.org_id).await;
     assert_eq!(detail["reason"], "plugin_entry_revoked");
+}
+
+/// The product's own revoke: it flips the catalog AND every install of it in one
+/// transaction, so the surface row disappears and the caller sees the registry
+/// answer. Both rows are asserted, because a test that only checked the reason
+/// would pass even if the revoke had done nothing and the entry were missing for
+/// an unrelated reason.
+#[tokio::test]
+#[ignore = "needs Postgres via MARULA_TEST_DATABASE_URL or DATABASE_URL; run with --ignored at the gate"]
+async fn the_product_revoke_reaches_the_install_and_the_caller_sees_entry_unavailable() {
+    let pool = admin_pool(5).await;
+    let store = MemoryStore::new();
+    let seed = Seed::action(
+        &format!("product-revoke-{}", Uuid::now_v7().simple()),
+        &artifact(NOOP),
+        &[PluginCapability::AutomationActions],
+        "add_internal_comment",
+    );
+    let seeded = seed_install(&pool, &store, &seed).await;
+    let slot = support::pool_slot(&pool, 1).await;
+
+    let mut tx = pool.begin().await.expect("transaction");
+    core_db::set_org(&mut tx, seeded.org_id)
+        .await
+        .expect("org scope");
+    let revoked = core_db::plugins::revoke_catalog_entry(
+        &mut tx,
+        seeded.catalog_id,
+        "withdrawn by its publisher",
+        chrono::Utc::now(),
+    )
+    .await
+    .expect("the revoke commits");
+    tx.commit().await.expect("revoke commits");
+    assert_eq!(
+        revoked.len(),
+        1,
+        "the revoke reached exactly one install, which is this org's"
+    );
+
+    let mut tx = pool.begin().await.expect("transaction");
+    core_db::set_org(&mut tx, seeded.org_id)
+        .await
+        .expect("org scope");
+    let (status, revoked_at): (String, Option<chrono::DateTime<chrono::Utc>>) =
+        sqlx::query_as("SELECT status::text, revoked_at FROM plugin_installs WHERE id = $1")
+            .bind(seeded.install.id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("the install row");
+    tx.commit().await.expect("read");
+    assert_eq!(status, "revoked", "the install is revoked too");
+    assert!(revoked_at.is_some());
+
+    let params = json!({ "body": "blocked" });
+    let outcome = attempt(
+        &pool,
+        &store,
+        &slot,
+        &call(seeded.org_id, &seeded.entry_key, &params, None),
+    )
+    .await;
+    assert_eq!(outcome.outcome, InvocationOutcome::Refused);
+    assert_eq!(outcome.reason, Some("plugin_entry_unavailable"));
 }
 
 /// The payload is bytes. A guest that puts a capability list in the task input

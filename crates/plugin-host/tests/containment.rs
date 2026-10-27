@@ -11,10 +11,15 @@
 //!   panics on one input must not be able to stop its own install for every
 //!   caller, and an operator must not be paged for a bug the plugin caused.
 //!
-//! The workers a pool owns are this test process's direct children, so a strike
-//! is produced by killing exactly those pids. Nothing here signals a process the
-//! test did not spawn, which matters on a machine where other lanes may be
-//! running their own stacks.
+//! ## Why this binary runs its tests one at a time
+//!
+//! A strike is produced by killing this process's worker children, and the pool
+//! replaces a dead member lazily at the next checkout. Two tests doing that at
+//! once would each find the other's children, so the whole test holds
+//! [`SERIAL`]. The same lock keeps worker boots apart: three concurrent cold
+//! starts of the 52 MB debug binary exceeded the pool's two-second hello window
+//! in this lane's gate run, which is written up in `REVIEW.md` as a runtime
+//! finding rather than papered over here.
 //!
 //! ```text
 //! cargo test -p plugin-host --test containment -- --ignored
@@ -27,9 +32,13 @@ use std::time::Duration;
 use core_domain::entities::plugins::PluginCapability;
 use core_store::memory::MemoryStore;
 use plugin_host::abi::{InvocationOutcome, InvocationRequest, Refusal};
+use plugin_host::isolation::ModuleArtifact;
 use plugin_host::runtime::{IsolationMode, PluginPool, PoolConfig, QUARANTINE_AFTER_FAILURES};
 use support::{admin_pool, artifact, seed_install, Seed};
 use uuid::Uuid;
+
+/// Held for the duration of each test in this binary.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const NOOP: &str = r#"
     (module
@@ -50,6 +59,19 @@ const TRAP: &str = r#"
         (i64.const 0)))
 "#;
 
+/// A guest that burns its whole allowance in a tight loop, so a test has a
+/// window in which to kill the worker that is running it. That is what "the
+/// plugin takes its worker down on every call" looks like from outside.
+const SPIN: &str = r#"
+    (module
+      (memory (export "memory") 1)
+      (func (export "marula_alloc") (param i32) (result i32) (i32.const 1024))
+      (func (export "marula_free") (param i32) (param i32))
+      (func (export "marula_entry") (param i32) (param i32) (result i64)
+        (loop $spin (br $spin))
+        (i64.const 0)))
+"#;
+
 fn request(org_id: Uuid, install_id: Uuid) -> InvocationRequest {
     InvocationRequest {
         invocation_id: Uuid::now_v7(),
@@ -64,25 +86,45 @@ fn request(org_id: Uuid, install_id: Uuid) -> InvocationRequest {
 }
 
 /// The pids of this process's worker children.
+///
+/// `pgrep -P` is the portable way to ask (macOS `ps` has no parent flag), and
+/// each candidate is confirmed by its command line before it is a target. A
+/// zombie (empty command line) is skipped: the pool already killed that member
+/// and has not reaped it, so it is a corpse rather than a target.
 fn worker_children() -> Vec<u32> {
     let me = std::process::id().to_string();
-    let output = std::process::Command::new("ps")
-        .args(["-o", "pid=,comm=", "-P", &me])
+    let output = std::process::Command::new("pgrep")
+        .args(["-P", &me])
         .output()
-        .expect("ps runs");
-    String::from_utf8_lossy(&output.stdout)
+        .expect("pgrep runs");
+    let mut workers = Vec::new();
+    for pid in String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter(|line| line.contains("marula-plugin-worker"))
-        .filter_map(|line| line.split_whitespace().next()?.parse().ok())
-        .collect()
+        .filter_map(|line| line.trim().parse::<u32>().ok())
+    {
+        let comm = std::process::Command::new("ps")
+            .args(["-o", "comm=", "-p", &pid.to_string()])
+            .output()
+            .expect("ps runs");
+        let comm = String::from_utf8_lossy(&comm.stdout).trim().to_string();
+        if comm.is_empty() {
+            continue;
+        }
+        assert!(
+            comm.contains("plugin-worker"),
+            "child {pid} ({comm}) is not a plugin worker; refusing to signal it"
+        );
+        workers.push(pid);
+    }
+    workers
 }
 
-/// Kills every worker this pool owns, as a crashed child would die.
+/// Kills every worker this process owns, as a crashed child would die.
 fn kill_workers() {
     let pids = worker_children();
     assert!(
         !pids.is_empty(),
-        "the pool owns no worker child to kill; the test cannot simulate a crash"
+        "the pool owns no live worker child to kill; the test cannot simulate a crash"
     );
     for pid in pids {
         let status = std::process::Command::new("kill")
@@ -91,10 +133,47 @@ fn kill_workers() {
             .expect("kill runs");
         assert!(status.success(), "kill -9 {pid} failed");
     }
-    // The supervisor has to observe the exit before the next invocation asks
-    // for a member, or it would hand out a corpse and the failure would land on
-    // the wrong attempt.
+    // The supervisor has to observe the exit before the next invocation asks for
+    // a member, or it would hand out a corpse and the failure would land on the
+    // wrong attempt.
     std::thread::sleep(Duration::from_millis(50));
+}
+
+/// Runs one invocation and kills its worker while the guest is inside it.
+///
+/// This is the only way to produce a *consecutive* failure series: the pool
+/// replaces a dead member lazily, at the next checkout, so killing an idle
+/// child yields one failure and then nothing to kill. Killing mid-flight yields
+/// one failure per attempt.
+async fn invoke_and_kill(
+    pool: &std::sync::Arc<PluginPool>,
+    request: &InvocationRequest,
+    artifact: &ModuleArtifact,
+) -> plugin_host::InvocationResult {
+    let task = {
+        let pool = std::sync::Arc::clone(pool);
+        let request = request.clone();
+        let artifact = artifact.clone();
+        tokio::spawn(async move { pool.invoke(&request, &artifact).await })
+    };
+
+    // Wait for the replacement to exist before killing anything: the spawn
+    // happens at checkout, inside the invocation this task just started.
+    let mut waited = 0;
+    while worker_children().is_empty() {
+        assert!(
+            waited < 2_000,
+            "no worker child appeared within two seconds"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        waited += 5;
+    }
+    // Let the frame reach the guest, so the death is mid-invocation rather than
+    // a member that died before it was asked anything.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    kill_workers();
+
+    task.await.expect("the invocation task")
 }
 
 async fn pooled(pool: &sqlx::PgPool) -> std::sync::Arc<PluginPool> {
@@ -114,6 +193,7 @@ async fn pooled(pool: &sqlx::PgPool) -> std::sync::Arc<PluginPool> {
 #[tokio::test]
 #[ignore = "needs Postgres via MARULA_TEST_DATABASE_URL or DATABASE_URL; run with --ignored at the gate"]
 async fn a_dead_worker_is_one_failed_invocation_and_a_success_clears_the_strike() {
+    let _serial = SERIAL.lock().await;
     let admin = admin_pool(5).await;
     let store = MemoryStore::new();
     let module = artifact(NOOP);
@@ -176,6 +256,7 @@ async fn a_dead_worker_is_one_failed_invocation_and_a_success_clears_the_strike(
 #[tokio::test]
 #[ignore = "needs Postgres via MARULA_TEST_DATABASE_URL or DATABASE_URL; run with --ignored at the gate"]
 async fn three_consecutive_worker_deaths_quarantine_and_an_operator_clear_lifts_it() {
+    let _serial = SERIAL.lock().await;
     let admin = admin_pool(5).await;
     let store = MemoryStore::new();
     let module = artifact(NOOP);
@@ -190,15 +271,12 @@ async fn three_consecutive_worker_deaths_quarantine_and_an_operator_clear_lifts_
     let request = request(org_id, install_id);
 
     let pool = pooled(&admin).await;
-    // Warm one worker so the pool owns a child before the first kill.
-    let first = pool.invoke(&request, &module).await;
-    assert_eq!(first.reply.outcome, InvocationOutcome::Ok);
+    // Each attempt is killed while the guest is inside it, so the failures are
+    // consecutive by construction and no success ever resets the counter.
+    let spinner = artifact(SPIN);
 
     for strike in 1..=QUARANTINE_AFTER_FAILURES {
-        // No successful call between kills: three consecutive failures is the
-        // rule, and an interleaved success would (correctly) reset it.
-        kill_workers();
-        let failed = pool.invoke(&request, &module).await;
+        let failed = invoke_and_kill(&pool, &request, &spinner).await;
         assert_eq!(
             failed.reply.outcome,
             InvocationOutcome::WorkerFailed,
@@ -282,6 +360,7 @@ async fn three_consecutive_worker_deaths_quarantine_and_an_operator_clear_lifts_
 #[tokio::test]
 #[ignore = "needs Postgres via MARULA_TEST_DATABASE_URL or DATABASE_URL; run with --ignored at the gate"]
 async fn a_trapping_guest_is_a_refusal_and_never_a_strike() {
+    let _serial = SERIAL.lock().await;
     let admin = admin_pool(5).await;
     let store = MemoryStore::new();
     let module = artifact(TRAP);

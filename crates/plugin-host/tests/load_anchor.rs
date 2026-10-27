@@ -211,6 +211,42 @@ async fn cells_for(pool: &PgPool, store: &Arc<MemoryStore>, count: usize) -> Vec
     cells
 }
 
+/// The contact time of one invocation with no queue: fifty calls, one caller.
+///
+/// Printed before the load run so the numbers can be read together. If contact
+/// time is a few milliseconds and the paced run achieves a fraction of the
+/// target, the ceiling is the queueing resource, not the executor — and a reader
+/// of the evidence can tell a slow host from a slow path without re-running it.
+async fn contact_time(
+    pool: &PgPool,
+    store: &Arc<MemoryStore>,
+    slot: &PoolSlot,
+    cell: &Cell,
+) -> f64 {
+    let mut samples = Vec::new();
+    for _ in 0..50 {
+        let mut tx = pool.begin().await.expect("transaction");
+        core_db::set_org(&mut tx, cell.org_id)
+            .await
+            .expect("org scope");
+        let params = json!({});
+        let call = SurfaceCall {
+            org_id: cell.org_id,
+            entry_key: &cell.entry_key,
+            surface: SurfaceKind::Widget,
+            params: &params,
+            ticket_id: None,
+        };
+        let started = Instant::now();
+        let outcome = invoke_surface(&mut tx, &pool, &**store, slot, &call).await;
+        samples.push(started.elapsed().as_micros() as u64);
+        let _ = tx.rollback().await;
+        outcome.expect("the probe invocation answers");
+    }
+    samples.sort_unstable();
+    percentile(&samples, 0.50)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 #[ignore = "needs Postgres via MARULA_TEST_DATABASE_URL or DATABASE_URL; run with --ignored --nocapture at the gate"]
 async fn the_anchor_rate_is_served_inside_the_guardrail() {
@@ -228,6 +264,11 @@ async fn the_anchor_rate_is_served_inside_the_guardrail() {
 
     let cells = cells_for(&pool, &store, installs).await;
     let slot = support::pool_slot(&pool, 8).await;
+
+    println!(
+        "contact time (one caller, p50): {:.1} µs",
+        contact_time(&pool, &store, &slot, &cells[0]).await
+    );
 
     let mut results = Vec::new();
     for mode in ["in_process", "pool"] {
