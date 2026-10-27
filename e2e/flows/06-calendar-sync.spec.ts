@@ -5,7 +5,7 @@
 // HTTP server — the provider seam's first-party iCal path parses and counts
 // events, so the outcome counters are deterministic, never mocked.
 import { expect, test } from "../helpers/harness";
-import { authedFetch } from "../helpers/api";
+import { API_PROFILE, authedFetch } from "../helpers/api";
 import http from "node:http";
 
 interface Connection {
@@ -102,12 +102,18 @@ test("connect an outbound feed, see connection health + one-time feed URL", asyn
 // The feed below is a loopback server. The guard admits it only under the two
 // dev locks — a debug build AND MARULA_DEV_TOOLS=1 — and even then loopback is
 // the whole allowance: RFC1918, link-local and the metadata endpoint stay
-// refused. That is why this case can run in the E2E stack (a debug build the
-// stack boots with the marker set) without weakening the control.
+// refused. The default stack is a RELEASE build (`E2E_API_PROFILE=release`),
+// where the marker can never widen the rule, so the case states the condition
+// instead of failing the gate or going quietly `fixme`: boot with
+// `E2E_API_PROFILE=debug` and it runs for real.
 test("sync-now against a real local iCal feed reports outcome counters", async ({
   authedPage,
   ownerTokens,
 }) => {
+  test.skip(
+    API_PROFILE !== "debug",
+    `the loopback feed needs the dev allowance, which a release build refuses (stack profile: ${API_PROFILE}; boot E2E_API_PROFILE=debug to run this case)`,
+  );
   await cleanConnections(ownerTokens.access_token);
 
   await authedPage.goto("/calendar");

@@ -36,6 +36,11 @@ function loadStackEnv(): Record<string, string> {
   }
 }
 const STACK_ENV = loadStackEnv();
+// The config is the only reader of the stack file, but `helpers/api.ts` and
+// `global-setup.ts` read `process.env` directly — so without this they dial the
+// historical :8080 while the config points the webServer at the booted stack.
+// Publish what was resolved; an explicit variable still wins.
+for (const [key, value] of Object.entries(STACK_ENV)) process.env[key] ??= value;
 
 const API_URL = STACK_ENV.E2E_API_URL ?? process.env.E2E_API_URL ?? "http://localhost:8080";
 const WEB_PORT = STACK_ENV.E2E_WEB_PORT ?? process.env.E2E_WEB_PORT ?? "3000";

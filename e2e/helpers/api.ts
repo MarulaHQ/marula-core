@@ -9,6 +9,14 @@
 // env, run Playwright) works with no hand-editing (Wave 32 lane 6).
 export const API_URL = (process.env.E2E_API_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 export const WEB_URL = process.env.E2E_WEB_URL ?? "http://localhost:3000";
+/**
+ * The profile the stack was built with (`release` unless the boot said
+ * otherwise). One thing depends on it: the outbound-URL guard admits loopback
+ * only when the build is debug AND `MARULA_DEV_TOOLS=1`, so a flow that serves
+ * its own loopback feed can only run on a debug stack. Stating that beats a
+ * silent `fixme` or a red gate.
+ */
+export const API_PROFILE = process.env.E2E_API_PROFILE ?? "release";
 
 export const DEMO_OWNER_EMAIL = "owner@demo.local";
 export const DEMO_PASSWORD = "demo-password-123";

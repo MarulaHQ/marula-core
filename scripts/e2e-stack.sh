@@ -745,6 +745,7 @@ echo "[e2e-stack] worker healthy — workflows can trigger and execute on this s
 # ########## env file for Playwright (kills NEXT_PUBLIC_API_URL drift) ##########
 cat > "$ENV_FILE" <<EOF
 MARULA_RUN_ID=$RUN_ID
+E2E_API_PROFILE=$API_PROFILE
 E2E_API_URL=http://${API_HOST}/
 E2E_API_PORT=$API_PORT
 E2E_WEB_PORT=$WEB_PORT
