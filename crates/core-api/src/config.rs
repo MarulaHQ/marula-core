@@ -515,6 +515,45 @@ impl Config {
         !release_build
     }
 
+    /// Does this process admit a loopback destination on a product fetch?
+    ///
+    /// Two locks, both required, the same shape [`Config::local_dev_tools`]
+    /// has: the build is not a release build, and the dev marker is exactly
+    /// `1`. The decision is pure — the marker is an argument, not a read — so a
+    /// unit test can ask for the release answer *with the marker set*, which a
+    /// debug test binary cannot observe any other way.
+    ///
+    /// The allowance this unlocks is loopback only: `127.0.0.0/8` and `::1`.
+    /// See [`core_domain::egress::AddressPolicy`].
+    #[must_use]
+    pub fn dev_allow_loopback(release_build: bool, dev_tools_env: Option<&str>) -> bool {
+        core_domain::egress::AddressPolicy::dev_gated(release_build, dev_tools_env)
+            .is_dev_loopback()
+    }
+
+    /// The address policy this process's product fetches run under.
+    ///
+    /// [`Config::dev_allow_loopback`] applied to this process: the
+    /// compile-time build posture and the live `MARULA_DEV_TOOLS` marker. The
+    /// marker is read here, never inside `core-domain`, which stays free of
+    /// environment reads.
+    ///
+    /// `dev_tools` must hold too. It is this process's dev-surface decision,
+    /// and two paths set it without the marker — `from_env_allow_dev_fallback`
+    /// (the explicit test alias) and the desktop local profile's `from_local`
+    /// (which derives it from the build profile) — so neither may hand out the
+    /// allowance on its own. In the server profile `from_env_inner` sets it
+    /// from the marker, which makes the two agree.
+    #[must_use]
+    pub fn egress_policy(&self) -> core_domain::egress::AddressPolicy {
+        let marker = std::env::var("MARULA_DEV_TOOLS").ok();
+        if self.dev_tools && Self::dev_allow_loopback(!cfg!(debug_assertions), marker.as_deref()) {
+            core_domain::egress::AddressPolicy::DevLoopback
+        } else {
+            core_domain::egress::AddressPolicy::PublicOnly
+        }
+    }
+
     /// Local/desktop profile (desktop crate, ADR 0005): a clean
     /// constructor for the double-clickable test app — every external
     /// integration is off (no SMTP/Postmark, no inbound webhook, no
@@ -1814,6 +1853,81 @@ mod hardening_tests {
             Some(Config::DEV_INTERNAL_TOKEN)
         );
         assert!(cfg.validate_machine_seam().is_ok());
+    }
+
+    /// The egress loopback allowance needs BOTH locks (F64). A release build
+    /// refuses with the dev marker set in the process environment — the case a
+    /// debug test binary cannot otherwise observe, because `cfg!` is decided at
+    /// compile time — and a debug build refuses every value that is not
+    /// exactly `1`.
+    ///
+    /// The environment is read by the TEST and passed to the pure constructor,
+    /// so the constructor stays free of environment reads and the assertion is
+    /// about the decision rather than about the harness.
+    #[test]
+    fn a_release_build_refuses_loopback_even_with_the_dev_marker_in_the_environment() {
+        let _guard = CleanEnv::snapshot();
+        std::env::set_var("MARULA_DEV_TOOLS", "1");
+        let marker = std::env::var("MARULA_DEV_TOOLS").ok();
+        assert_eq!(
+            marker.as_deref(),
+            Some("1"),
+            "the marker really is set in this process"
+        );
+
+        assert!(
+            !Config::dev_allow_loopback(true, marker.as_deref()),
+            "a release build must refuse a loopback fetch with MARULA_DEV_TOOLS=1 set"
+        );
+        assert!(
+            Config::dev_allow_loopback(false, marker.as_deref()),
+            "a debug build with the marker is the one admitted case"
+        );
+
+        std::env::remove_var("MARULA_DEV_TOOLS");
+        assert!(
+            !Config::dev_allow_loopback(false, None),
+            "the debug build alone is not enough"
+        );
+        for value in ["0", "", "true", "yes", " 1"] {
+            assert!(
+                !Config::dev_allow_loopback(false, Some(value)),
+                "{value:?} is not the dev marker"
+            );
+        }
+    }
+
+    /// `egress_policy` is the profile question, not the marker alone: the test
+    /// alias and the desktop local profile both turn on `dev_tools` without the
+    /// marker, and neither may hand out the allowance.
+    #[test]
+    fn the_egress_policy_needs_the_dev_surface_and_the_marker() {
+        let _guard = CleanEnv::snapshot();
+        std::env::remove_var("MARULA_DEV_TOOLS");
+        let mut cfg = Config::test_with_secret("egress-policy-test");
+
+        cfg.dev_tools = false;
+        std::env::set_var("MARULA_DEV_TOOLS", "1");
+        assert_eq!(
+            cfg.egress_policy(),
+            core_domain::egress::AddressPolicy::PublicOnly,
+            "the marker without the dev surface is not enough"
+        );
+
+        cfg.dev_tools = true;
+        std::env::remove_var("MARULA_DEV_TOOLS");
+        assert_eq!(
+            cfg.egress_policy(),
+            core_domain::egress::AddressPolicy::PublicOnly,
+            "the dev surface without the marker is not enough"
+        );
+
+        std::env::set_var("MARULA_DEV_TOOLS", "1");
+        assert_eq!(
+            cfg.egress_policy(),
+            core_domain::egress::AddressPolicy::DevLoopback,
+            "both locks in a debug test binary is the admitted case"
+        );
     }
 
     /// The profile table (ADR 0005 amendment 2026-10-25, extended to the

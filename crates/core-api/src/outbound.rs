@@ -23,7 +23,10 @@
 //!    reaches a socket. The scheme and the port are left to the product surface
 //!    on purpose: a public `http` link and a calendar feed on `:8443` are not
 //!    SSRF, and the plugin seam's https-only/no-port rule is the consent shape
-//!    of an allowlist entry, not the address rule.
+//!    of an allowlist entry, not the address rule. The address rule itself is
+//!    [`AddressPolicy::PublicOnly`] for every caller except [`guard_under`],
+//!    whose only user is the dev-gated calendar poll (loopback, and nothing
+//!    else).
 //! 2. **Resolve once** and judge every answer with [`egress::check_resolved`].
 //!    A name that resolves to one public and one private address is refused:
 //!    the private one is still reachable. An empty answer is a refusal.
@@ -40,7 +43,7 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
-use core_domain::egress::{self, EgressDenial, EgressTarget};
+use core_domain::egress::{self, AddressPolicy, EgressDenial, EgressTarget};
 use reqwest::redirect::Policy;
 
 /// A URL the guard accepted, with the addresses its host resolved to.
@@ -103,6 +106,30 @@ pub async fn guard_with<F>(raw: &str, screen: F) -> Result<Guarded, EgressDenial
 where
     F: FnOnce(&str) -> Result<EgressTarget, EgressDenial>,
 {
+    guard_shaped(raw, AddressPolicy::PublicOnly, screen).await
+}
+
+/// [`guard`] under an explicit address policy: the dev-gated loopback
+/// allowance, and nothing else.
+///
+/// The whole sequence is unchanged — screen, resolve once, judge every answer,
+/// pin, refuse redirects — and the policy only moves the address line the
+/// screen and the resolver judge. The caller that passes a wider policy is the
+/// calendar-sync poll, whose policy comes from the dev-gated config
+/// (`Config::egress_policy`); the plugin seams keep [`guard`] and
+/// [`guard_with`], which are public-only by construction.
+pub async fn guard_under(raw: &str, policy: AddressPolicy) -> Result<Guarded, EgressDenial> {
+    guard_shaped(raw, policy, |url| egress::screen_fetch_under(url, policy)).await
+}
+
+async fn guard_shaped<F>(
+    raw: &str,
+    policy: AddressPolicy,
+    screen: F,
+) -> Result<Guarded, EgressDenial>
+where
+    F: FnOnce(&str) -> Result<EgressTarget, EgressDenial>,
+{
     let target = screen(raw)?;
     if target.is_ip_literal() {
         return Ok(Guarded {
@@ -114,18 +141,28 @@ where
         .await
         .map_err(|_| EgressDenial::Unresolved)?
         .collect();
-    judged(target, addrs)
+    judged_under(target, addrs, policy)
 }
 
-/// Judges one resolution answer and pins it.
+/// Judges one resolution answer and pins it under the default policy.
 ///
 /// Split from the lookup so the decision is testable without a resolver: the
 /// addresses are the input, and one private answer refuses the whole name
 /// before a client exists. `check_resolved` also refuses an empty answer, so a
-/// name that resolves to nothing is a refusal rather than a retry.
+/// name that resolves to nothing is a refusal rather than a retry. Test-only:
+/// production goes through [`judged_under`] with the caller's policy.
+#[cfg(test)]
 fn judged(target: EgressTarget, addrs: Vec<SocketAddr>) -> Result<Guarded, EgressDenial> {
+    judged_under(target, addrs, AddressPolicy::PublicOnly)
+}
+
+fn judged_under(
+    target: EgressTarget,
+    addrs: Vec<SocketAddr>,
+    policy: AddressPolicy,
+) -> Result<Guarded, EgressDenial> {
     let ips: Vec<IpAddr> = addrs.iter().map(SocketAddr::ip).collect();
-    egress::check_resolved(&ips)?;
+    egress::check_resolved_under(&ips, policy)?;
     Ok(Guarded { target, addrs })
 }
 
