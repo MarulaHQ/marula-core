@@ -22,7 +22,9 @@ leaves the backup target unset is the install nobody finishes: the TLS
 certificate and hostname, the backup destination, an alert receiver.
 
 `--apply` writes one file, `marula.env`, and runs
-`docker compose --env-file … up -d --wait`. It returns when the profile's
+`docker compose --env-file … -f … up -d --wait`, adding the profile's override
+file when it has one (`all-in-one` runs `docker-compose.all-in-one.yml` over the
+base file, because that shape is one process rather than two). It returns when the profile's
 healthchecks pass, so "the command finished" and "the install works" are the
 same event. The compose file, the pooler config and the images come from the
 release; this target only supplies the environment that binds them.
@@ -41,6 +43,27 @@ Only the profile's presets, your overrides and the four values the process
 refuses to boot without are written. Every other lever keeps the descriptor's
 default, so the file stays a deployment description instead of a transcript of
 one release.
+
+## The eight values it generates
+
+The compose stack refuses to render without eight values. Four are parameters
+the descriptor describes (the two signing keys and the two seam tokens); four are
+infrastructure the descriptor does not (the owner and app database passwords, the
+object store's RPC secret and the error tracker's key).
+
+`--apply` resolves all eight in this order: your `--set` value, then what an
+existing `marula.env` already holds, then a freshly generated 32-byte hex value.
+The order matters. A re-run must not rotate a signing key, which signs everyone
+out, or the database password the running volume was initialised with. The same
+file is therefore safe to apply twice.
+
+The values are written resolved, never as templates. Compose expands variables in
+the YAML but not in `--env-file` values, so a `postgres://…:${MARULA_APP_PASSWORD}@…`
+left in the file would reach Postgres as a literal password.
+
+`--dry-run` prints the whole file with every secret masked as `****`, including
+where one appears inside a URL. A key in a scrollback or a CI log is a leaked
+key.
 
 ## Choosing a profile
 
