@@ -106,10 +106,18 @@ impl DeploymentTarget for ComposeTarget {
         }
 
         let env_path = selection.dir.join("marula.env");
+        // Reuse what an earlier apply wrote. Rotating a signing key or the
+        // database password on a re-run would be a different, worse operation
+        // than the one the operator asked for.
+        let existing = std::fs::read_to_string(&env_path)
+            .map(|text| crate::install::doctor::parse_env_file(&text))
+            .unwrap_or_default();
+        let resolved =
+            crate::install::plan::resolve_required(&self.descriptor, selection, &existing);
         let mut steps = vec![Step {
             kind: StepKind::WriteFile {
                 path: env_path.clone(),
-                contents: render_env(&self.descriptor, profile, selection),
+                contents: render_env(&self.descriptor, profile, selection, &resolved),
             },
             reason: "the environment every service reads: the profile's presets, your overrides, and the four values the process refuses to boot without".to_string(),
             source: format!("profiles.{}.sets, params.*", profile.name),
@@ -139,6 +147,7 @@ impl DeploymentTarget for ComposeTarget {
             facts: host.clone(),
             steps,
             manual: manual_items(profile),
+            secret_names: secret_names(&self.descriptor),
         })
     }
 
@@ -236,6 +245,24 @@ impl DeploymentTarget for ComposeTarget {
             },
         }
     }
+}
+
+/// Every name whose value is a credential: the descriptor's secrets and the
+/// values the process refuses to boot without, plus the four infrastructure
+/// values the compose file requires.
+fn secret_names(descriptor: &DeployDescriptor) -> Vec<String> {
+    let mut names: Vec<String> = descriptor
+        .params
+        .iter()
+        .filter(|param| param.secret || param.required)
+        .map(|param| param.name.to_string())
+        .collect();
+    names.extend(
+        crate::install::plan::infra_requirements()
+            .iter()
+            .map(|(name, _)| (*name).to_string()),
+    );
+    names
 }
 
 fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
