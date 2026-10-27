@@ -38,7 +38,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY deploy/web-standalone-remap.cjs /remap.cjs
-RUN pnpm --filter @marula-core/web build && node /remap.cjs
+COPY deploy/prune-pnpm-store.cjs /prune.cjs
+# Prune the store after the remap: the remap makes the standalone links
+# absolute, then the prune deletes every store entry those links never reach.
+RUN pnpm --filter @marula-core/web build \
+ && node /remap.cjs \
+ && node /prune.cjs
 
 FROM dhi.io/node:22@sha256:7390ab11306fa78b4e3f47acaa08bddcaaabac850a01996d153a2e805360a741 AS run
 WORKDIR /repo/apps/web/.next/standalone
@@ -46,11 +51,13 @@ WORKDIR /repo/apps/web/.next/standalone
 # escalation. The image USER is 1000:1000; compose/k8s restate it so the
 # deployment config is the visible source of truth.
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
-# The standalone tree's node_modules entries are pnpm symlinks whose
-# relative targets resolve only against the ORIGINAL /repo workspace shape
-# (same trick the desktop bundler uses in scripts/build-desktop.sh). Keep
-# the run stage rooted exactly there instead of dereferencing — a flat
-# re-location breaks every ../../../node_modules/.pnpm link.
+# The standalone tree's node_modules entries are pnpm symlinks aimed at the
+# root store at /repo/node_modules/.pnpm (deploy/web-standalone-remap.cjs makes
+# them absolute). Keep the run stage rooted exactly there instead of
+# dereferencing; a flat re-location breaks every link.
+# The store is pruned to the packages those links reach
+# (deploy/prune-pnpm-store.cjs), so this COPY carries the runtime closure and
+# not the build toolchain.
 # The runtime image is the stripped dhi node image: it has no shell, so a
 # RUN chown cannot execute here. COPY --chown sets ownership in the layer.
 COPY --chown=1000:1000 --from=build /repo/node_modules /repo/node_modules
