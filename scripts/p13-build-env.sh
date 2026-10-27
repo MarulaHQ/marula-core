@@ -237,12 +237,20 @@ EOF
   if [ -n "$LINKER_FLAG" ]; then
     local key="macos"
     [ "$(host_os)" = "Linux" ] && key="linux"
+    # rustc takes `-C` and its option as SEPARATE argv entries. One array
+    # element holding "-C link-arg=…" reaches the driver as `-C` plus a token it
+    # does not recognise, which is the `unknown codegen option` that made every
+    # cargo command fail the moment this overlay was enabled on macOS (Wave 62
+    # group B found it: the gate's first check would not run).
+    local flags
+    flags="$(printf '%s' "$LINKER_FLAG" | sed 's/-C //g' | tr ' ' '\n' |
+      sed 's/.*/"-C", "&"/' | paste -sd, -)"
     cat <<EOF
 
 # LINKER: $LINKER_KIND. Drop the overlay (or set RUSTFLAGS in the shell, which
 # takes precedence over this table) if a system-framework link rejects it.
 [target.'cfg(target_os = "$key")']
-rustflags = ["$(printf '%s' "$LINKER_FLAG" | sed 's/ -C /", "-C /g')"]
+rustflags = [$flags]
 EOF
   fi
 }

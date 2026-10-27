@@ -7,6 +7,13 @@
 -- dead bucket. An alert that can never clear is worse than no alert (Wave 62
 -- lane `p62-data-truth`, ruling 2026-10-27).
 --
+-- Data impact: none is destroyed. The CHECK is widened (never narrowed) and the
+-- backfill rewrites `status` on rows an operator had already cancelled, from
+-- `dead` to `cancelled`. The constraint is dropped and re-added only because
+-- PostgreSQL cannot alter a CHECK in place, which is why the filename carries
+-- `--breaking`: the checker is mechanical and a human should read this before it
+-- runs on a production ledger.
+--
 -- The backfill matters as much as the constraint: rows cancelled before this
 -- migration carry their decision only in `dead_work_cancellations`, and leaving
 -- them `dead` would keep the old lie in the historical counts.
