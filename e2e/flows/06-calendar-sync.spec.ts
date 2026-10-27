@@ -99,13 +99,12 @@ test("connect an outbound feed, see connection health + one-time feed URL", asyn
   await expect(authedPage.getByTestId("one-time-feed-url")).toBeVisible();
 });
 
-// Blocked by the egress private-address screen (Wave 55). The feed below is a
-// loopback server, and the guard refuses a private address before a socket
-// exists, which is the guard working as designed. Running this offline needs a
-// dev-gated transport allowance, not a relaxed screen; until that is ruled on,
-// the case is `fixme` so the gap shows in the report instead of vanishing like
-// a `skip` would.
-test.fixme("sync-now against a real local iCal feed reports outcome counters", async ({
+// The feed below is a loopback server. The guard admits it only under the two
+// dev locks — a debug build AND MARULA_DEV_TOOLS=1 — and even then loopback is
+// the whole allowance: RFC1918, link-local and the metadata endpoint stay
+// refused. That is why this case can run in the E2E stack (a debug build the
+// stack boots with the marker set) without weakening the control.
+test("sync-now against a real local iCal feed reports outcome counters", async ({
   authedPage,
   ownerTokens,
 }) => {

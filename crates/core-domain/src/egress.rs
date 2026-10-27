@@ -35,6 +35,23 @@
 //! vocabulary: `plugin-host` onto `plugin_egress_*`, `core-api` onto a
 //! validation error. This module names no plugin, no request type and no
 //! database row, which is what lets Wave 54's connector egress consume it.
+//!
+//! ## The one allowance, and what it admits
+//!
+//! [`AddressPolicy`] is the only axis on which a caller may widen the address
+//! rule. Its default, [`AddressPolicy::PublicOnly`], is what every shipped path
+//! uses; [`AddressPolicy::DevLoopback`] additionally admits the loopback
+//! literals `127.0.0.0/8` and `::1`, so a calendar E2E can serve an iCal feed
+//! on its own machine — the only feed a test can serve offline. It admits
+//! nothing else: RFC1918, link-local, CGNAT, ULA, and every metadata endpoint
+//! stay refused, and the screen never exempts a name's spelling, because a
+//! name's answer can change between the screen and the connect.
+//!
+//! [`AddressPolicy::dev_gated`] is the only constructor of that variant: it
+//! returns [`AddressPolicy::DevLoopback`] only for a non-release build with the
+//! dev marker set, and it reads no environment itself (the marker is an
+//! argument). A release binary therefore cannot reach the wider policy at all,
+//! whatever its environment says.
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -55,6 +72,74 @@ pub const DEFAULT_HTTPS_PORT: u16 = 443;
 /// consented to, so following one would launder an allowlist decision through
 /// the remote server.
 pub const MAX_REDIRECTS: u32 = 0;
+
+/// Which destination addresses a caller admits beyond the publicly routable set.
+///
+/// The default is the whole rule: private, loopback, link-local, CGNAT, ULA,
+/// metadata and every other special-use range are refused. [`Self::DevLoopback`]
+/// is the single, deliberately narrow exception, and only the dev-gated
+/// constructor [`Self::dev_gated`] builds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AddressPolicy {
+    /// Every address that is not publicly routable is refused. The default, and
+    /// what every shipped path uses.
+    #[default]
+    PublicOnly,
+    /// [`Self::PublicOnly`] plus the loopback literals `127.0.0.0/8` and `::1`.
+    ///
+    /// Built only by [`Self::dev_gated`], for the test/E2E path. It is not a
+    /// "private ranges are fine" switch: RFC1918, link-local (where cloud
+    /// metadata lives), CGNAT and ULA stay refused, and the screen never
+    /// exempts a name's spelling — the exemption is an address class, judged
+    /// where a literal is read and again where a name's answers arrive.
+    DevLoopback,
+}
+
+impl AddressPolicy {
+    /// The pure two-lock decision, and the only constructor of
+    /// [`Self::DevLoopback`].
+    ///
+    /// `release_build` is the compile-time posture and `dev_tools_env` is the
+    /// `MARULA_DEV_TOOLS` value the caller read (this function reads no
+    /// environment). Both must hold: a release build refuses whatever the
+    /// environment says, and a debug build refuses unless the marker is exactly
+    /// `1`.
+    pub fn dev_gated(release_build: bool, dev_tools_env: Option<&str>) -> Self {
+        if !release_build && dev_tools_env == Some("1") {
+            Self::DevLoopback
+        } else {
+            Self::PublicOnly
+        }
+    }
+
+    /// Whether this policy admits `addr`.
+    ///
+    /// A public address is admitted by every policy. Loopback is admitted only
+    /// by [`Self::DevLoopback`], and any other non-public address by none.
+    pub fn admits(self, addr: IpAddr) -> bool {
+        if address_is_public(addr) {
+            return true;
+        }
+        if self == Self::PublicOnly {
+            return false;
+        }
+        match addr {
+            IpAddr::V4(v4) => v4.is_loopback(),
+            // `::1` is the loopback; the IPv4-mapped spelling of `127.0.0.1`
+            // is the same address to the kernel, so it is the same exception.
+            IpAddr::V6(v6) => {
+                v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+            }
+        }
+    }
+
+    /// Whether this is the dev loopback allowance. A caller that wants to log
+    /// or assert the posture asks this rather than matching the variant, so the
+    /// set can grow without touching every caller.
+    pub const fn is_dev_loopback(self) -> bool {
+        matches!(self, Self::DevLoopback)
+    }
+}
 
 /// Why a URL, an allowlist entry or a resolved address set was refused.
 ///
@@ -158,7 +243,7 @@ impl EgressScope {
                 return Err(EgressDenial::ScopeMalformed);
             }
         }
-        if host_is_denied(&host) {
+        if host_is_denied(&host, AddressPolicy::PublicOnly) {
             return Err(EgressDenial::PrivateAddress);
         }
         let host = canonical_host(&parsed).ok_or(EgressDenial::ScopeMalformed)?;
@@ -285,7 +370,7 @@ impl Shapes {
 /// `https`, userinfo, a non-default port, and a host that is not publicly
 /// routable.
 pub fn screen(raw: &str) -> Result<EgressTarget, EgressDenial> {
-    screen_with(raw, Shapes::ConsentedHttps)
+    screen_with(raw, Shapes::ConsentedHttps, AddressPolicy::PublicOnly)
 }
 
 /// Screens one URL a product fetches on a user's or an operator's behalf: a KB
@@ -298,10 +383,26 @@ pub fn screen(raw: &str) -> Result<EgressTarget, EgressDenial> {
 /// neither is a calendar feed on `:8443`; refusing them would be the wrong
 /// answer to the wrong question.
 pub fn screen_fetch(raw: &str) -> Result<EgressTarget, EgressDenial> {
-    screen_with(raw, Shapes::ProductFetch)
+    screen_fetch_under(raw, AddressPolicy::PublicOnly)
 }
 
-fn screen_with(raw: &str, shapes: Shapes) -> Result<EgressTarget, EgressDenial> {
+/// [`screen_fetch`] under an explicit address policy.
+///
+/// The product-fetch shape with the caller's [`AddressPolicy`] instead of the
+/// default. The only caller that passes anything but
+/// [`AddressPolicy::PublicOnly`] is the calendar-sync poll, whose policy comes
+/// from the dev-gated config — never from a row, a request body or a plugin.
+/// The consent shape is unchanged: `http` or `https`, an explicit port, no
+/// userinfo.
+pub fn screen_fetch_under(raw: &str, policy: AddressPolicy) -> Result<EgressTarget, EgressDenial> {
+    screen_with(raw, Shapes::ProductFetch, policy)
+}
+
+fn screen_with(
+    raw: &str,
+    shapes: Shapes,
+    policy: AddressPolicy,
+) -> Result<EgressTarget, EgressDenial> {
     if raw.is_empty() {
         return Err(EgressDenial::MalformedUrl);
     }
@@ -319,7 +420,7 @@ fn screen_with(raw: &str, shapes: Shapes) -> Result<EgressTarget, EgressDenial> 
         return Err(EgressDenial::PortDenied);
     }
     let host = parsed.host().ok_or(EgressDenial::MalformedUrl)?;
-    if host_is_denied(&host) {
+    if host_is_denied(&host, policy) {
         return Err(EgressDenial::PrivateAddress);
     }
     // `api.example.com.` and `api.example.com` are one host. Strip the dot so
@@ -398,10 +499,19 @@ pub fn authorize_strings(raw: &str, allowlist: &[String]) -> Result<EgressTarget
 /// a name that resolves to a public and a private address is a name that can
 /// reach the private one.
 pub fn check_resolved(addrs: &[IpAddr]) -> Result<(), EgressDenial> {
+    check_resolved_under(addrs, AddressPolicy::PublicOnly)
+}
+
+/// [`check_resolved`] under an explicit address policy.
+///
+/// The same rule, applied through the caller's policy rather than the default:
+/// an empty answer is still [`EgressDenial::Unresolved`], and one address the
+/// policy refuses still poisons the whole name.
+pub fn check_resolved_under(addrs: &[IpAddr], policy: AddressPolicy) -> Result<(), EgressDenial> {
     if addrs.is_empty() {
         return Err(EgressDenial::Unresolved);
     }
-    if addrs.iter().any(|addr| !address_is_public(*addr)) {
+    if addrs.iter().any(|addr| !policy.admits(*addr)) {
         return Err(EgressDenial::PrivateAddress);
     }
     Ok(())
@@ -483,10 +593,14 @@ fn canonical_host(url: &Url) -> Option<String> {
     }
 }
 
-fn host_is_denied(host: &Host<&str>) -> bool {
+fn host_is_denied(host: &Host<&str>, policy: AddressPolicy) -> bool {
     match host {
-        Host::Ipv4(ip) => !ipv4_is_public(*ip),
-        Host::Ipv6(ip) => !ipv6_is_public(*ip),
+        Host::Ipv4(ip) => !policy.admits(IpAddr::V4(*ip)),
+        Host::Ipv6(ip) => !policy.admits(IpAddr::V6(*ip)),
+        // A name is judged by its spelling, never by the policy: a name the
+        // parser would send to a search domain or a local suffix is refused
+        // whatever the policy says. The policy judges addresses, at this step
+        // and again at the resolution step.
         Host::Domain(name) => domain_is_denied(name),
     }
 }
@@ -853,6 +967,128 @@ mod tests {
             screen("https://localhost./v1"),
             Err(EgressDenial::PrivateAddress)
         );
+    }
+
+    /// The dev allowance, both halves. Without it a loopback calendar feed is
+    /// the refusal it always was; with it the same URL screens, because a
+    /// loopback feed is the only feed a test can serve offline.
+    #[test]
+    fn a_loopback_feed_is_refused_without_the_allowance_and_admitted_with_it() {
+        for url in [
+            "http://127.0.0.1:9099/feed.ics",
+            "http://127.0.0.53:8443/feed.ics",
+            "http://[::1]:9099/feed.ics",
+            "https://127.0.0.1/feed.ics",
+        ] {
+            assert_eq!(
+                screen_fetch(url),
+                Err(EgressDenial::PrivateAddress),
+                "{url} is refused with no allowance"
+            );
+            let admitted = screen_fetch_under(url, AddressPolicy::DevLoopback)
+                .unwrap_or_else(|denial| panic!("{url} under the dev allowance: {denial}"));
+            assert!(
+                admitted
+                    .host()
+                    .parse::<IpAddr>()
+                    .expect("a literal host")
+                    .is_loopback(),
+                "{url} screens as a loopback target, got {}",
+                admitted.host()
+            );
+        }
+        // The consonant half: the plugin/distribution screen never takes the
+        // allowance, so the same literal stays refused there.
+        assert_eq!(
+            screen("https://127.0.0.1/feed.ics"),
+            Err(EgressDenial::PrivateAddress)
+        );
+    }
+
+    /// The allowance is loopback and nothing else: no RFC1918, no CGNAT, no
+    /// link-local, no metadata, no ULA, and no name that would resolve to any
+    /// of them.
+    #[test]
+    fn the_dev_allowance_admits_loopback_and_nothing_else() {
+        let policy = AddressPolicy::DevLoopback;
+        for url in [
+            "http://10.0.0.1/feed.ics",
+            "http://172.16.4.4/feed.ics",
+            "http://172.31.255.255/feed.ics",
+            "http://192.168.1.1/feed.ics",
+            "http://100.64.0.1/feed.ics",
+            "http://0.0.0.0/feed.ics",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[fd00:ec2::254]/latest/meta-data/",
+            "http://[fe80::1]/feed.ics",
+            "http://[fc00::1]/feed.ics",
+            "http://localhost/feed.ics",
+            "http://feed.localhost/feed.ics",
+            "http://feed.local/feed.ics",
+            "http://metadata.google.internal/computeMetadata/v1/",
+        ] {
+            assert_eq!(
+                screen_fetch_under(url, policy),
+                Err(EgressDenial::PrivateAddress),
+                "{url} stays refused even with the allowance"
+            );
+        }
+
+        // The same rule once a name has an answer: loopback is admitted, one
+        // private answer still poisons the whole name.
+        let loopback: IpAddr = "127.0.0.1".parse().unwrap();
+        let public: IpAddr = "93.184.216.34".parse().unwrap();
+        let metadata: IpAddr = "169.254.169.254".parse().unwrap();
+        assert_eq!(check_resolved_under(&[loopback], policy), Ok(()));
+        assert_eq!(
+            check_resolved_under(&[public, loopback], policy),
+            Ok(()),
+            "every answer is one the policy admits"
+        );
+        assert_eq!(
+            check_resolved_under(&[public, metadata], policy),
+            Err(EgressDenial::PrivateAddress)
+        );
+        assert_eq!(
+            check_resolved(&[loopback]),
+            Err(EgressDenial::PrivateAddress),
+            "the default policy still refuses it"
+        );
+    }
+
+    /// Two locks, proven without a build: a release bit refuses with the marker
+    /// set, and a debug bit refuses anything but the exact marker.
+    #[test]
+    fn the_dev_allowance_needs_both_locks() {
+        assert_eq!(
+            AddressPolicy::dev_gated(true, Some("1")),
+            AddressPolicy::PublicOnly,
+            "a release build refuses whatever the environment says"
+        );
+        assert!(!AddressPolicy::dev_gated(true, Some("1")).is_dev_loopback());
+        assert_eq!(
+            AddressPolicy::dev_gated(false, Some("1")),
+            AddressPolicy::DevLoopback
+        );
+        assert!(AddressPolicy::dev_gated(false, Some("1")).is_dev_loopback());
+        for env in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("true"),
+            Some("yes"),
+            Some(" 1"),
+        ] {
+            assert_eq!(
+                AddressPolicy::dev_gated(false, env),
+                AddressPolicy::PublicOnly,
+                "{env:?} is not the dev marker"
+            );
+            assert_eq!(
+                AddressPolicy::dev_gated(true, env),
+                AddressPolicy::PublicOnly
+            );
+        }
     }
 
     #[test]

@@ -99,9 +99,17 @@ pub trait CalendarSyncProvider: Send + Sync {
 /// Unknown providers fail closed (they cannot exist today — the DB CHECK
 /// admits only 'ical' — but a future migration adding a provider must
 /// add its seam arm here in the same change).
-fn provider_for(connection: &CalendarSyncConnection) -> ApiResult<Box<dyn CalendarSyncProvider>> {
+///
+/// `policy` is the process's egress address policy (`Config::egress_policy`):
+/// [`core_domain::egress::AddressPolicy::PublicOnly`] everywhere except a debug
+/// build with `MARULA_DEV_TOOLS=1`, where a loopback iCal feed is the only thing
+/// a test can serve offline. It reaches the `ical` provider and no other.
+fn provider_for(
+    connection: &CalendarSyncConnection,
+    policy: core_domain::egress::AddressPolicy,
+) -> ApiResult<Box<dyn CalendarSyncProvider>> {
     match connection.provider.as_str() {
-        "ical" => Ok(Box::new(ICalProvider)),
+        "ical" => Ok(Box::new(ICalProvider { policy })),
         // Delegated-OAuth providers. Both read a DATE WINDOW rather than a
         // delta: the seam's contract is a normalised FULL SNAPSHOT, and an
         // invalidated delta token makes a vendor return 410 with FEWER
@@ -125,8 +133,15 @@ pub use providers::{GoogleCalendarProvider, MicrosoftGraphProvider};
 // --- first-party iCal provider ----------------------------------------------------
 
 /// The first-party provider: plain HTTP GET of an iCalendar resource.
-#[derive(Debug, Clone, Default)]
-pub struct ICalProvider;
+///
+/// `policy` is fixed when the provider is built, so one poll cannot consult a
+/// different address rule from the one its caller chose.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ICalProvider {
+    /// [`core_domain::egress::AddressPolicy::PublicOnly`] by default: a provider
+    /// built without an explicit policy is the shipped rule, not the dev one.
+    policy: core_domain::egress::AddressPolicy,
+}
 
 #[async_trait::async_trait]
 impl CalendarSyncProvider for ICalProvider {
@@ -144,17 +159,22 @@ impl CalendarSyncProvider for ICalProvider {
             .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
             .ok_or(ProviderError::Unreachable)?;
         // The feed URL is org data pointing at a third party, so it is screened
-        // by the shared egress guard before a socket exists: https only, a
-        // publicly routable host, and every address the host resolves to judged
-        // before the poll connects. The resolution is per poll — a cached answer
-        // is what a rebinding attacker needs.
-        let guarded = crate::outbound::guard(raw).await.map_err(|denial| {
-            tracing::warn!(
-                reason = denial.as_str(),
-                "calendar-sync feed refused before the request"
-            );
-            ProviderError::Unreachable
-        })?;
+        // by the shared egress guard before a socket exists: http or https, any
+        // port, and a publicly routable host whose every resolved address is
+        // judged before the poll connects. The resolution is per poll — a cached
+        // answer is what a rebinding attacker needs. The address rule is the
+        // process's policy: public-only, except on a debug build with
+        // MARULA_DEV_TOOLS=1, where a loopback feed (and only loopback) is
+        // admitted so the calendar E2E can serve one offline.
+        let guarded = crate::outbound::guard_under(raw, self.policy)
+            .await
+            .map_err(|denial| {
+                tracing::warn!(
+                    reason = denial.as_str(),
+                    "calendar-sync feed refused before the request"
+                );
+                ProviderError::Unreachable
+            })?;
         let client = guarded
             .client(std::time::Duration::from_secs(20))
             .map_err(|_| ProviderError::Unreachable)?;
@@ -1017,7 +1037,7 @@ pub async fn run_sync(
             "only inbound and two-way connections poll an external feed".into(),
         ));
     }
-    let provider = provider_for(&connection)?;
+    let provider = provider_for(&connection, state.config.egress_policy())?;
     let response =
         sync_with_provider(&state, org_id, actor, &connection, provider.as_ref()).await?;
     Ok(Json(response))
