@@ -20,7 +20,9 @@ Per tagged release `X.Y.Z`:
 
 ## Capture procedure (AT TAG TIME — old snapshots cannot be reconstructed)
 
-Run against a scratch Postgres (prod-parity `pgvector/pgvector:pg17`):
+Run against a scratch Postgres (`pgvector/pgvector:pg18` — the image
+`scripts/e2e-stack.sh` and the CI services run, so the capture and its
+consumer are the same major):
 
 1. `marula migrate` with `DATABASE_URL` pointing at the scratch DB, from a
    tree at exactly the tag being released.

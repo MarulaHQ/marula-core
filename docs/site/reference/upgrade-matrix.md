@@ -7,11 +7,12 @@ description: "Every tagged Marula release and the N−2 upgrade paths proven in 
 
 Every tagged release ships with a CI-proven upgrade path from each of the two previous tagged releases (the **N−2 rule**, [policy](../../upgrade-compatibility-policy.md) §1/§8). CI restores each fixture snapshot (a production-like seeded org exercising every customization surface), migrates to HEAD, and runs the API/event conformance suites.
 
-**Latest fixture anchor: `v0.2.0`.** Capture happens at tag time — old snapshots cannot be reconstructed (see [fixtures/upgrades/README.md](../../../fixtures/upgrades/README.md)).
+**Latest fixture anchor: `v0.3.0`.** Capture happens at tag time — old snapshots cannot be reconstructed (see [fixtures/upgrades/README.md](../../../fixtures/upgrades/README.md)).
 
 | Fixture | Org anchor | Captured | Seed dump | Seed source | Customization surfaces covered (count) |
 |---|---|---|---|---|---|
 | `v0.2.0` | `00000000-0000-4000-8000-000000000001` | 2026-09-03 | ✓ `v0.2.0.seed.sql.gz` | ✓ | custom_fields (7), boards (2), automation_rules (3), webhooks (2), api_keys (2), settings (4), sla (1), report_definitions (3) |
+| `v0.3.0` | `00000000-0000-4000-8000-000000000001` | 2026-10-27 | ✓ `v0.3.0.seed.sql.gz` | ✓ | custom_fields (7), boards (2), automation_rules (3), webhooks (2), api_keys (2), settings (4), sla (1), report_definitions (3), taxonomy (1), client_workflow_overrides (0), roles (1) |
 
 ## Notes
 
