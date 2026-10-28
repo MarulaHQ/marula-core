@@ -13,6 +13,13 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+### Added
+
+- An install can accept a signed entitlement file from the provider that sells
+  you a hosted plan. Marula verifies the signature, stores the document and
+  reports the revision it holds, so the two sides can agree on what was bought.
+  Marula does not read the file to decide what a screen may do.
+
 ## [0.3.1] - 2026-10-27
 
 ### Fixed

@@ -77,6 +77,7 @@ pub mod document_attachments;
 pub mod documents;
 pub mod edge;
 pub mod email_admin;
+pub mod entitlements;
 pub mod entity_dedupe;
 pub mod events;
 pub mod export;
@@ -1674,6 +1675,14 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // `org_usage.read` plugin capability resolves onto.
         .route(&rp("/orgs/{org_id}/usage"), get(org_usage::get_org_usage))
         .route(&rp("/orgs/{org_id}/quotas"), get(org_usage::get_org_quotas))
+        // Signed entitlement artifact adoption (RFC 0023, migration 0174).
+        // Core verifies, stores and reports; it never interprets the payload
+        // and nothing in core gates on it. Both verbs are admin surfaces: the
+        // artifact is the org's commercial fact, not a member-readable setting.
+        .route(
+            &rp("/orgs/{org_id}/entitlements"),
+            get(entitlements::get_entitlement).put(entitlements::adopt_entitlement),
+        )
         // Per-org custom domain + generic DNS verification (Wave 47 lane A8,
         // migration 0135). Core stores the verified domain and runs the TXT
         // verification through the system resolver; it never terminates TLS

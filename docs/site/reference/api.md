@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.3.1** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**657 paths · 878 operations · 1379 schemas.**
+**658 paths · 880 operations · 1385 schemas.**
 
 ## admin
 
@@ -740,6 +740,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `GET` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_get"></a> | `GET /api/v1/orgs/{org_id}/custom-domain` — current state + verification status + provider-plugin availability. | — |
 | `POST` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_set"></a> | `POST /api/v1/orgs/{org_id}/custom-domain` — claim a domain. | [SetCustomDomainRequest](#schema-setcustomdomainrequest) |
 | `POST` | `/api/v1/orgs/{org_id}/custom-domain/verify` <a id="org_custom_domain_verify"></a> | `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS verification (the private build tracker A8 (C)). The TXT token is the authority; the A/CNAME leg is plausibility only. | — |
+| `GET` | `/api/v1/orgs/{org_id}/entitlements` <a id="org_entitlement_get"></a> | GET /api/v1/orgs/{org_id}/entitlements — the artifact the org holds. | — |
+| `PUT` | `/api/v1/orgs/{org_id}/entitlements` <a id="org_entitlement_put"></a> | PUT /api/v1/orgs/{org_id}/entitlements — adopt a signed artifact. | [AdoptEntitlementRequest](#schema-adoptentitlementrequest) |
 | `GET` | `/api/v1/orgs/{org_id}/quotas` <a id="org_quotas_get"></a> | GET /api/v1/orgs/{org_id}/quotas — usage beside configured limits. | — |
 | `GET` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_list"></a> | GET /orgs/{org_id}/service-accounts — admin listing with derived cert status. | — |
 | `POST` | `/api/v1/orgs/{org_id}/service-accounts` <a id="service_accounts_create"></a> | POST /orgs/{org_id}/service-accounts — enroll a service account by pinning a certificate fingerprint with permission grants and an optional expiry. | [CreateServiceAccountRequest](#schema-createserviceaccountrequest) |
@@ -1460,6 +1462,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-addmemberrequest"></a>`AddMemberRequest` | composite |  |
 | <a id="schema-addorderlinerequest"></a>`AddOrderLineRequest` | composite | POST /purchase-orders/{id}/lines body: the line plus IF1 params. |
 | <a id="schema-adjustrequest"></a>`AdjustRequest` | composite |  |
+| <a id="schema-adoptentitlementrequest"></a>`AdoptEntitlementRequest` | object | The adoption request: the signed document, verbatim, plus its signature. |
+| <a id="schema-adoptentitlementview"></a>`AdoptEntitlementView` | object | The write answer: what the org now holds, and whether this call changed it. |
 | <a id="schema-agentproposalpage"></a>`AgentProposalPage` | object | GET /api/agent-proposals envelope. |
 | <a id="schema-agentproposalview"></a>`AgentProposalView` | object | One IF8 proposal with the full snapshot the approval decision needs. |
 | <a id="schema-agentskilllist"></a>`AgentSkillList` | object |  |
@@ -1914,6 +1918,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-emailverifyrequest"></a>`EmailVerifyRequest` | object |  |
 | <a id="schema-embedmutationresponse"></a>`EmbedMutationResponse` | composite |  |
 | <a id="schema-embedresolution"></a>`EmbedResolution` | object | The allowlist decision plus (optionally) the provider's own oEmbed embed HTML, fetched server-side. `html` is present only when `fetch=true` and the provider endpoint answers 2xx. |
+| <a id="schema-entitlementheld"></a>`EntitlementHeld` | object | The artifact an org holds. |
+| <a id="schema-entitlementoutcome"></a>`EntitlementOutcome` | string | What an adoption did. `Unchanged` means the artifact presented is the one already held (same revision, same payload digest): a retry that must not be recorded as a second adoption. |
+| <a id="schema-entitlementsignature"></a>`EntitlementSignature` | object | The signature block. `key_id` is advisory — it says which identity the issuer believes signed — while verification runs against the whole trust set. `key_id` in the response is the key that actually v |
+| <a id="schema-entitlementview"></a>`EntitlementView` | object | The read answer. `entitlement` is null when the org never adopted one, which is different from "adopted zero" — there is no zero revision. |
 | <a id="schema-entitybatchoutcome"></a>`EntityBatchOutcome` | object |  |
 | <a id="schema-entitybatchrequest"></a>`EntityBatchRequest` | object |  |
 | <a id="schema-entitybatchresponse"></a>`EntityBatchResponse` | object |  |
@@ -2831,4 +2839,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1379 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1385 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

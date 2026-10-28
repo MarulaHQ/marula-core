@@ -1146,6 +1146,7 @@ dependencies = [
  "core-routing",
  "core-store",
  "data-encoding",
+ "ed25519-dalek",
  "futures-util",
  "hex",
  "hickory-resolver",
