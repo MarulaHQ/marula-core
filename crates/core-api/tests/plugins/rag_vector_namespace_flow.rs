@@ -21,87 +21,19 @@
 //!    plus `GET /api/v1/rag/deletion-receipts/{id}`, and machine API-key access
 //!    with `rag:read` / `rag:write` scopes.
 
+use crate::common::{auth as bearer, body_json, send_headers as send, state_with};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use core_domain::SEARCH_EMBEDDING_DIM;
-use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
+use serde_json::json;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("rag flow needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    config.secret_key = core_api::config::SecretKey([45; 32]);
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    }
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    headers: &[(&str, String)],
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    for (name, value) in headers {
-        builder = builder.header(*name, value.clone());
-    }
-    let request = match body {
-        Some(value) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(value.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone()
-        .oneshot(request)
-        .await
-        .expect("infallible router")
-}
-
-fn bearer(token: &str) -> (&'static str, String) {
-    ("authorization", format!("Bearer {token}"))
+    state_with(|config| config.secret_key = core_api::config::SecretKey([45; 32])).await
 }
 
 fn api_key_header(key: &str) -> (&'static str, String) {
     ("x-api-key", key.to_string())
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
-        .await
-        .expect("body bytes");
-    serde_json::from_slice(&bytes).expect("json body")
 }
 
 async fn register_org(app: &Router, state: &AppState, slug: &str) -> (String, Uuid) {
