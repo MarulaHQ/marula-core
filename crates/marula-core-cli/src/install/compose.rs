@@ -147,13 +147,21 @@ impl DeploymentTarget for ComposeTarget {
                 missing,
             });
         }
+        // A lever is either published in the catalogue or named as an
+        // infrastructure requirement. The second set is real surface — the
+        // compose file demands those eight values and the plan generates them —
+        // so an operator who wants to pin the database password must be able to,
+        // and a name that is neither is still refused.
         for name in selection.overrides.keys() {
-            if !self
+            let published = self
                 .descriptor
                 .params
                 .iter()
-                .any(|param| param.name == name)
-            {
+                .any(|param| param.name == name);
+            let infrastructure = crate::install::plan::infra_requirements()
+                .iter()
+                .any(|(infra, _)| infra == name);
+            if !published && !infrastructure {
                 return Err(PlanError::UnknownLever { name: name.clone() });
             }
         }

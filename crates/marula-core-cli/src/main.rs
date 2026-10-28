@@ -12,15 +12,8 @@
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
+use marula_core_cli::{attachments, data, deploy, fixture, install, upgrade};
 use tokio::sync::watch;
-
-mod attachments;
-mod data;
-mod deploy;
-mod deploy_check;
-mod fixture;
-mod install;
-mod upgrade;
 
 /// Database URL default mirroring `core_api::config::Config` so bare
 /// `marula migrate` works against the dev compose stack.
@@ -128,6 +121,20 @@ enum Command {
         /// (the same value MARULA_HOST_MEMORY_MB carries).
         #[arg(long)]
         memory_mb: Option<u32>,
+        /// Serve the wizard over loopback instead of printing the plan. This is
+        /// the browser fallback; the native installer app is the primary, and
+        /// both render the same front-end (ADR 0027).
+        #[arg(long)]
+        ui: bool,
+        /// Port the wizard binds. `0` asks the OS for a free one.
+        #[arg(long, default_value_t = 0)]
+        port: u16,
+        /// The built front-end the wizard serves.
+        #[arg(long, default_value = "apps/installer/dist")]
+        ui_dir: std::path::PathBuf,
+        /// Do not open a browser when `--ui` starts.
+        #[arg(long)]
+        no_open: bool,
     },
     /// Check this machine and the install on it against the descriptor (Wave
     /// 60 lane W60-2). Exits non-zero when a check fails.
@@ -324,7 +331,23 @@ async fn main() -> anyhow::Result<()> {
             set,
             compose_file,
             memory_mb,
-        } => install_command(profile, dry_run, apply, dir, set, compose_file, memory_mb),
+            ui,
+            port,
+            ui_dir,
+            no_open,
+        } => {
+            install_command(
+                profile,
+                dry_run,
+                apply,
+                dir,
+                set,
+                compose_file,
+                memory_mb,
+                (ui, port, ui_dir, no_open),
+            )
+            .await
+        }
         Command::Doctor {
             profile,
             dir,
@@ -445,7 +468,8 @@ async fn deploy_command(action: DeployAction) -> anyhow::Result<()> {
 /// `marula install` (Wave 60 lane W60-2): the recommendation, the plan, and,
 /// with `--apply`, the execution. ADR 0026: one target per host, and `--apply`
 /// runs exactly the steps the dry run printed.
-fn install_command(
+#[allow(clippy::too_many_arguments)]
+async fn install_command(
     profile: Option<String>,
     dry_run: bool,
     apply: bool,
@@ -453,6 +477,7 @@ fn install_command(
     set: Vec<String>,
     compose_file: std::path::PathBuf,
     memory_mb: Option<u32>,
+    wizard: (bool, u16, std::path::PathBuf, bool),
 ) -> anyhow::Result<()> {
     use install::DeploymentTarget as _;
 
@@ -460,6 +485,24 @@ fn install_command(
         !(dry_run && apply),
         "--dry-run prints the plan; --apply executes it. Pick one."
     );
+
+    let (ui, port, ui_dir, no_open) = wizard;
+    if ui {
+        anyhow::ensure!(
+            !dry_run && !apply && set.is_empty() && profile.is_none(),
+            "--ui serves the wizard, which plans and applies on its own. Drop --dry-run, \
+             --apply, --set and --profile; the wizard asks for the same things."
+        );
+        return install::server::serve(install::server::Options {
+            dir,
+            compose_file,
+            memory_mb,
+            port,
+            ui_dir,
+            open: !no_open,
+        })
+        .await;
+    }
 
     let descriptor = deploy::descriptor();
     let facts = install::HostFacts::detect(&dir).with_declared_memory(memory_mb);

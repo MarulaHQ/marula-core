@@ -19,17 +19,21 @@
 //!   same trait.
 //! * [`doctor`] answers "is this install healthy" from the same facts.
 //!
-//! Non-purpose: no UI (W60-3), no artifact packaging (W60-4), no updates
-//! (W60-5). This module produces a plan and applies it, and says what it could
-//! not do.
+//! Non-purpose: no artifact packaging (W60-4), no updates (W60-5). This module
+//! produces a plan and applies it, and says what it could not do. The UI half
+//! ([`view`] plus the two hosts at the crate root) is W60-3 and renders this
+//! module's answers without adding decisions of its own.
 
 pub mod compose;
 pub mod doctor;
 pub mod host;
 pub mod plan;
+pub mod server;
 pub mod target;
+pub mod view;
 
 pub use compose::ComposeTarget;
 pub use host::HostFacts;
 pub use plan::{recommend, Selection};
 pub use target::DeploymentTarget;
+pub use view::Session;
