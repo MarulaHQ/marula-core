@@ -343,6 +343,21 @@ if [[ $STALE -eq 1 ]]; then
   fi
 fi
 
+# The cache's real growth is stale artifact GENERATIONS, which cargo never
+# collects and which the default mode does not touch. A lane that ran `--go` and
+# saw 0B has not cleaned the cache; say so once, with the command that does it.
+if [[ $STALE -eq 0 && $DEEP -eq 0 ]]; then
+  cache_kb=$(du -sk "$target_dir" 2>/dev/null | cut -f1)
+  cache_kb=${cache_kb:-0}
+  if [[ $cache_kb -gt 12582912 ]]; then
+    echo "  note: the cache at $target_dir holds $(( cache_kb / 1048576 ))GB of artifacts."
+    echo "        Cargo never collects old generations, and this mode does not touch"
+    echo "        them. Reclaim them with: scripts/dev-clean.sh --go --stale 2"
+    echo "        A worktree with its own target/ pays for a second copy of all of it;"
+    echo "        scripts/p13-build-env.sh enable --share-target points it at the shared one."
+  fi
+fi
+
 after=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')
 echo "== free space: ${before}Gi -> ${after}Gi =="
 [[ $GO -eq 0 ]] && echo "(dry run — run scripts/dev-clean.sh --go to apply)"
