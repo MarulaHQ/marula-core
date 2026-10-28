@@ -153,9 +153,13 @@ enum Command {
         /// Detached signature over the manifest's bytes (hex).
         #[arg(long)]
         signature: Option<std::path::PathBuf>,
-        /// Trusted ed25519 public key (64 hex chars, repeatable).
+        /// Trust material: an `allowed_signers` file for an OpenSSH signature,
+        /// or an ed25519 public key in hex (repeatable).
         #[arg(long = "key")]
         key: Vec<std::path::PathBuf>,
+        /// The identity line an OpenSSH signature names.
+        #[arg(long, default_value = "releases@getmarula.com")]
+        identity: String,
         /// Directory holding the install.
         #[arg(long, default_value = ".")]
         dir: std::path::PathBuf,
@@ -414,9 +418,22 @@ async fn main() -> anyhow::Result<()> {
             manifest,
             signature,
             key,
+            identity,
             dir,
             compose_file,
-        } => update_command(check, apply, manifest, signature, key, dir, compose_file).await,
+        } => {
+            update_command(
+                check,
+                apply,
+                manifest,
+                signature,
+                key,
+                identity,
+                dir,
+                compose_file,
+            )
+            .await
+        }
         Command::Artifact { action } => artifact_command(action),
         Command::Doctor {
             profile,
@@ -438,6 +455,7 @@ async fn update_command(
     manifest: std::path::PathBuf,
     signature: Option<std::path::PathBuf>,
     keys: Vec<std::path::PathBuf>,
+    identity: String,
     dir: std::path::PathBuf,
     compose_file: std::path::PathBuf,
 ) -> anyhow::Result<()> {
@@ -452,15 +470,30 @@ async fn update_command(
     let text = std::fs::read_to_string(&manifest)
         .with_context(|| format!("reading the manifest at {}", manifest.display()))?;
 
-    let trusted = keys
-        .iter()
-        .map(|path| update::read_public_key(path))
-        .collect::<Result<Vec<_>, _>>()?;
     let verified = match &signature {
         Some(path) => {
             let detached = std::fs::read_to_string(path)
                 .with_context(|| format!("reading the signature at {}", path.display()))?;
-            update::verify_signature(&trusted, text.as_bytes(), &detached)?;
+            // One rule for the whole command family: an OpenSSH signature is
+            // verified by the tool that made it, a hex signature by the
+            // ed25519 verifier. A manifest signed by the release pipeline is
+            // the former, and refusing it as "not hex" was the W60-5 gap this
+            // lane found.
+            if update::artifact::is_ssh_signature(&detached) {
+                let anchor = keys.first().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "an OpenSSH signature needs --key <allowed_signers>; trust is a file the \
+                         operator names"
+                    )
+                })?;
+                update::artifact::verify_ssh_signature(&manifest, path, anchor, &identity)?;
+            } else {
+                let trusted = keys
+                    .iter()
+                    .map(|path| update::read_public_key(path))
+                    .collect::<Result<Vec<_>, _>>()?;
+                update::verify_signature(&trusted, text.as_bytes(), &detached)?;
+            }
             true
         }
         None => false,
