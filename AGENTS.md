@@ -302,6 +302,34 @@ once and waits for the user before running heavy verification (user directive
   whose branch is unmerged, whose tree is dirty, or that hosts a stack registered
   in `scripts/dev-status.sh`.
 
+### Cheap gates: the arithmetic, and the three commands
+
+Added 2026-10-28 after a lane reported that the suite had become too big to run,
+when the disk was the problem. It was neither. One full `core-api` cycle is about
+116 integration binaries at 14–28 MB each, roughly 2–3 GB per generation, and
+`[profile.test]` already carries no debug info (DX6d). What grows without bound is
+the cache: cargo never collects old artifact generations, and this repository's
+own record found eleven `libcore_api` generations alive at once. A 26 GB
+"core-api" was sixteen generations, not one build.
+
+So a lane gate is three commands, cheapest first:
+
+- **Touched targets only** — `scripts/p13-test.sh -p <pkg> --test <flow>` builds
+  one binary instead of every target. This is the default for a lane.
+- **Sweep before a heavy run** — `scripts/p13-test.sh --sweep 2 -p <pkg>` collects
+  artifact generations older than two days first, so the run starts from one
+  generation instead of many.
+- **Batch a full package on a tight disk** —
+  `scripts/p13-test.sh --batch 12 -p core-api` runs the targets in chunks and
+  collects the package's artifacts between them, so peak disk is one chunk.
+  `--print-plan` shows the chunks and runs nothing.
+
+The workspace sweep stays an integration-owner act, not a per-lane one. A
+worktree that builds into its own `target/` pays for a second copy of every
+dependency; `scripts/p13-build-env.sh enable --share-target` is what makes lanes
+share one cache, and `scripts/dev-clean.sh` now names the directory it measured
+when the cache is large.
+
 ## Every commit is reviewed before it is made (BINDING, all agents)
 
 Added 2026-10-22 by user directive. The gate set proves that a merged tree builds
