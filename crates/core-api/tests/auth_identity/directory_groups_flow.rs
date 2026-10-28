@@ -26,79 +26,16 @@
 //! (`MARULA_TEST_DATABASE_URL` or `DATABASE_URL`), the same requirement every
 //! suite in this directory carries.
 
+use crate::common::{body_json, register, send_with_api_key, test_state as boot_state};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("directory-groups e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url.clone();
-    let reporting_url = admin_url;
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    }
+    boot_state().await
 }
 
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-/// One request, with the header a caller of this surface actually presents: a
-/// human bearer token or a machine key. Both mounts are exercised elsewhere;
-/// these cases speak the legacy `/api` form the rest of the suites use.
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    auth: Auth<'_>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    match auth {
-        Auth::None => {}
-        Auth::Bearer(token) => {
-            builder = builder.header("authorization", format!("Bearer {token}"));
-        }
-        Auth::ApiKey(key) => {
-            builder = builder.header("x-api-key", key);
-        }
-    }
-    let request = match body {
-        Some(value) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(value.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-#[derive(Clone, Copy)]
 enum Auth<'a> {
     /// No credential at all (registration, invite redemption).
     None,
@@ -106,13 +43,18 @@ enum Auth<'a> {
     ApiKey(&'a str),
 }
 
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
+async fn send(
+    app: &Router,
+    method: axum::http::Method,
+    uri: &str,
+    auth: Auth<'_>,
+    body: Option<Value>,
+) -> axum::response::Response {
+    match auth {
+        Auth::None => crate::common::send(app, method, uri, None, body).await,
+        Auth::Bearer(token) => crate::common::send(app, method, uri, Some(token), body).await,
+        Auth::ApiKey(key) => send_with_api_key(app, method, uri, key, body).await,
+    }
 }
 
 fn slug(prefix: &str) -> String {
@@ -121,22 +63,17 @@ fn slug(prefix: &str) -> String {
 
 /// Registers a fresh org; returns the owner's access token.
 async fn register_org(app: &Router, slug: &str) -> String {
-    let response = send(
+    let body = register(
         app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        Auth::None,
-        Some(json!({
+        json!({
             "org_name": "Directory Ceiling Co",
             "org_slug": slug,
             "email": format!("owner@{slug}.test"),
             "password": "correct-horse-battery",
             "display_name": "Owner",
-        })),
+        }),
     )
     .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    let body = body_json(response).await;
     body["access_token"].as_str().expect("access token").into()
 }
 

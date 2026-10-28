@@ -13,88 +13,24 @@
 //!    SameSite=Lax, Path=/api, Max-Age; the double-submit csrf value is
 //!    present and non-httpOnly (A2).
 
+use crate::common::caller::fresh_caller_ip;
+use crate::common::{
+    body_json, register, rls_state, send_with_headers as send, state_on, test_state_on,
+};
 use axum::http::Method;
 use core_api::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
 use core_api::error::ApiError;
-use core_api::{config::Config, state::AppState};
+use core_api::state::AppState;
 use core_db::hardening::gate_kind;
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
-use tower::ServiceExt;
 use uuid::Uuid;
-
-#[path = "support/caller.rs"]
-mod caller;
-
-use caller::fresh_caller_ip;
 
 // --- harness ----------------------------------------------------------------
 
 async fn test_state(admin_url: &str) -> AppState {
-    let pool: PgPool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(admin_url)
-        .await
-        .expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    state_on(pool, admin_url)
-}
-
-/// An `AppState` over a pool this call owns, so a test can pin the pool's
-/// shape (one connection, a probe-able `application_name`, or the
-/// RLS-constrained role) without disturbing the shared `test_state` pool.
-fn state_on(pool: PgPool, admin_url: &str) -> AppState {
-    let mut config = Config::from_env_allow_dev_fallback().expect("config");
-    config.database_url = admin_url.to_string();
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config),
-        oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(
-            &Config::from_env_allow_dev_fallback().expect("config"),
-        )),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(admin_url)
-            .expect("lazy reporting pool"),
-    }
-}
-
-/// Rewrites owner credentials to the RLS-constrained application role — the
-/// role a deployed core-api connects as, and the only one where a policy can
-/// swallow a write.
-fn app_role_url(admin_url: &str) -> String {
-    let (scheme, rest) = admin_url
-        .split_once("://")
-        .unwrap_or(("postgres", admin_url));
-    match rest.split_once('@') {
-        Some((_, host)) => format!("{scheme}://marula_app:marula_app@{host}"),
-        None => format!("{scheme}://marula_app:marula_app@{rest}"),
-    }
-}
-
-/// `test_state`, but the API connects as `marula_app` so every handler
-/// statement runs under RLS exactly as it does in a deployed instance.
-/// Migrations run first as the owner: the app role owns nothing and cannot
-/// run DDL.
-async fn rls_state(admin_url: &str) -> AppState {
-    let owner: PgPool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(admin_url)
-        .await
-        .expect("owner pool");
-    core_db::run_migrations(&owner).await.expect("migrations");
-    let pool: PgPool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(&app_role_url(admin_url))
-        .await
-        .expect("app-role pool");
-    state_on(pool, admin_url)
+    test_state_on(admin_url).await
 }
 
 /// `test_state`, but the pool holds ONE connection and carries `tag` as its
@@ -114,62 +50,16 @@ async fn racer_state(admin_url: &str, tag: &str) -> AppState {
     state_on(pool, admin_url)
 }
 
-async fn send(
-    app: &axum::Router,
-    method: Method,
-    uri: &str,
-    bearer: Option<&str>,
-    extra_headers: &[(&'static str, &str)],
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    for (key, value) in extra_headers {
-        builder = builder.header(*key, *value);
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    // A caller of its own unless the case named one: the lockout rows are
-    // durable and per-IP, and a headerless `oneshot` request resolves to the
-    // shared `unknown` bucket, which is how one case's lock used to refuse
-    // another case's sign-in (Wave 54 follow-up F7).
-    let request = fresh_caller_ip().stamp(request);
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
-}
-
 async fn register_org(app: &axum::Router, slug: &str) -> Value {
-    let tokens = body_json(
-        send(
-            app,
-            Method::POST,
-            "/api/auth/register",
-            None,
-            &[],
-            Some(json!({
-                "org_name": "Hard Co",
-                "org_slug": slug,
-                "email": format!("owner@{slug}.test"),
-                "password": "correct-horse-battery-11",
-                "display_name": "Owner",
-            })),
-        )
-        .await,
+    let tokens = register(
+        app,
+        json!({
+            "org_name": "Hard Co",
+            "org_slug": slug,
+            "email": format!("owner@{slug}.test"),
+            "password": "correct-horse-battery-11",
+            "display_name": "Owner",
+        }),
     )
     .await;
     let bearer: String = tokens["access_token"]
@@ -185,11 +75,6 @@ async fn register_org(app: &axum::Router, slug: &str) -> Value {
         "org_id": me["org_id"],
     })
 }
-
-// ---------------------------------------------------------------------------
-// (1)(2) lockout: IP rotation cannot bypass the account lock, and the
-// throttled login answer is shape-identical to a wrong-password answer.
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn ip_rotation_cannot_bypass_the_account_lock() {

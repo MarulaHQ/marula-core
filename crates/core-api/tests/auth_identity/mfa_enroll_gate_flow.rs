@@ -11,98 +11,30 @@
 //! - magic-link sign-in refuses tokens to an account with an enrolled
 //!   factor: the link proves the mailbox, never the factor.
 
+use crate::common::{body_json, database_url, register, send, test_state_on};
 use axum::http::{Method, StatusCode};
-use core_api::{config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
 use sha2::Digest;
 use sqlx::PgPool;
-use std::{sync::Arc, time::Duration};
-use tower::ServiceExt;
 use uuid::Uuid;
 
 const PASSWORD: &str = "correct-horse-battery-11";
 
-// --- harness (same shape as mfa_step_up_flow) --------------------------------
-
-fn database_url() -> String {
-    std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL")
-}
-
 async fn test_state(admin_url: &str) -> AppState {
-    let pool: PgPool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(admin_url)
-        .await
-        .expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("config");
-    config.database_url = admin_url.to_string();
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config),
-        oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(
-            &Config::from_env_allow_dev_fallback().expect("config"),
-        )),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(admin_url)
-            .expect("lazy reporting pool"),
-    }
+    test_state_on(admin_url).await
 }
 
-async fn send(
-    app: &axum::Router,
-    method: Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
-}
-
-/// Registers an org and returns its owner's bearer token plus the identity
-/// triple (`user_id`, `org_id`, `session_id`) resolved from /api/me.
 async fn register_owner(app: &axum::Router, slug: &str) -> (String, Uuid, Uuid, Uuid) {
-    let tokens = body_json(
-        send(
-            app,
-            Method::POST,
-            "/api/auth/register",
-            None,
-            Some(json!({
-                "org_name": "Enroll Gate Co",
-                "org_slug": slug,
-                "email": format!("owner@{slug}.test"),
-                "password": PASSWORD,
-                "display_name": "Owner",
-            })),
-        )
-        .await,
+    let tokens = register(
+        app,
+        json!({
+            "org_name": "Enroll Gate Co",
+            "org_slug": slug,
+            "email": format!("owner@{slug}.test"),
+            "password": PASSWORD,
+            "display_name": "Owner",
+        }),
     )
     .await;
     let bearer = tokens["access_token"].as_str().expect("token").to_string();

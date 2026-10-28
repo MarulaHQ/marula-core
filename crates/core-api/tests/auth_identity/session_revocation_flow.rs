@@ -11,68 +11,16 @@
 //!    same link signs in once the factor is gone.
 //! 4. A slug collision names a suffix that is actually free.
 
+use crate::common::{
+    app_role_url, body_json, connect, database_url as admin_url, owner_pool,
+    register as common_register, send_stamped as send, state_on, unique_slug,
+};
 use axum::http::{Method, StatusCode};
-use core_api::{config::Config, state::AppState};
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use std::{sync::Arc, time::Duration};
-use tower::ServiceExt;
 use uuid::Uuid;
 
-#[path = "support/caller.rs"]
-mod caller;
-
-use caller::fresh_caller_ip;
-
 // --- harness ----------------------------------------------------------------
-
-fn admin_url() -> String {
-    std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL")
-}
-
-async fn owner_pool(url: &str) -> PgPool {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(url)
-        .await
-        .expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    pool
-}
-
-/// Rewrites owner credentials to the RLS-constrained application role — the
-/// role a deployed core-api connects as, so the SECURITY DEFINER grants this
-/// lane added are exercised the way a deployment exercises them.
-fn app_role_url(admin_url: &str) -> String {
-    let (scheme, rest) = admin_url
-        .split_once("://")
-        .unwrap_or(("postgres", admin_url));
-    match rest.split_once('@') {
-        Some((_, host)) => format!("{scheme}://marula_app:marula_app@{host}"),
-        None => format!("{scheme}://marula_app:marula_app@{rest}"),
-    }
-}
-
-fn state_on(pool: PgPool, url: &str) -> AppState {
-    let mut config = Config::from_env_allow_dev_fallback().expect("config");
-    config.database_url = url.to_string();
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config),
-        oidc: core_api::auth::oidc_client::OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(
-            &Config::from_env_allow_dev_fallback().expect("config"),
-        )),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(url)
-            .expect("lazy reporting pool"),
-    }
-}
 
 /// Owner pool: most cases do not need RLS in the way, and the owner can read
 /// the rows the assertions are about.
@@ -83,67 +31,22 @@ async fn plain_app(url: &str) -> axum::Router {
 /// App-role pool: the one case that proves the new bridge's grant.
 async fn rls_app(url: &str) -> axum::Router {
     let _owner = owner_pool(url).await;
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(10))
-        .connect(&app_role_url(url))
-        .await
-        .expect("app-role pool");
+    let pool = connect(&app_role_url(url)).await.expect("app-role pool");
     core_api::router(state_on(pool, url))
 }
 
-async fn send(
-    app: &axum::Router,
-    method: Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    let request = fresh_caller_ip().stamp(request);
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
-}
-
-fn unique_slug(prefix: &str) -> String {
-    format!("{prefix}-{}", Uuid::now_v7().simple())
-}
-
 async fn register(app: &axum::Router, slug: &str, email: &str) -> Value {
-    let response = send(
+    common_register(
         app,
-        Method::POST,
-        "/api/auth/register",
-        None,
-        Some(json!({
+        json!({
             "org_name": "Sweep Co",
             "org_slug": slug,
             "email": email,
             "password": "correct-horse-battery-11",
             "display_name": "Owner",
-        })),
+        }),
     )
-    .await;
-    assert_eq!(response.status(), StatusCode::OK, "registration");
-    body_json(response).await
+    .await
 }
 
 async fn me(app: &axum::Router, access: &str) -> StatusCode {
