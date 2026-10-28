@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The installer window: the six IPC commands it declares, and none of Tauri's own filesystem or shell surface. The engine it calls lives in this process, not behind a shell plugin.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

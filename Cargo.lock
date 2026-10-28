@@ -4087,6 +4087,7 @@ name = "marula-core-cli"
 version = "0.3.1"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "chrono",
  "clap",
  "core-api",
@@ -4103,6 +4104,7 @@ dependencies = [
  "sqlx 0.8.6",
  "thiserror 2.0.21",
  "tokio",
+ "tower",
  "tracing",
  "uuid",
  "worker",
@@ -4133,6 +4135,17 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "marula-installer"
+version = "0.3.1"
+dependencies = [
+ "marula-core-cli",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
 ]
 
 [[package]]

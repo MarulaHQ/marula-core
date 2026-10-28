@@ -1,0 +1,71 @@
+/*
+ * The installer's stylesheet. Almost nothing is declared here.
+ *
+ * The palette, type, radii, density and motion come from the design system the
+ * product ships (`tokens.css` + `theme.css`), and every component is the
+ * canonical kit (`@marula-core/ui/kit`). This file exists for two things a
+ * component library cannot own: the font faces, which are vendored woff2 files
+ * so the installer renders offline, and the window's own grid.
+ */
+
+@import "tailwindcss";
+@import "@marula-core/ui/tokens.css";
+@import "@marula-core/ui/theme.css";
+@import "@marula-core/ui/components.css";
+
+@source "../../../packages/ui/src";
+
+@font-face {
+  font-family: "Figtree";
+  src: url("../../../LEGAL/fonts/figtree/Figtree-variable-latin.woff2") format("woff2");
+  font-weight: 300 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Fraunces";
+  src: url("../../../LEGAL/fonts/fraunces/Fraunces-variable-latin.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../../../LEGAL/fonts/jetbrains-mono/JetBrainsMono-variable-latin.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The one place a long list may grow without pushing the window: the values. */
+.value-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}

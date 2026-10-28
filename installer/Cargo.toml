@@ -1,0 +1,15 @@
+[package]
+name = "marula-installer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The native Marula installer: host detection, a plan, and the doctor's verdict"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2" }
+marula-core-cli = { path = "../crates/marula-core-cli" }
+serde = { workspace = true }
+serde_json = { workspace = true }

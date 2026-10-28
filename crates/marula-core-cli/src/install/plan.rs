@@ -271,6 +271,46 @@ impl Step {
     }
 }
 
+/// What a secret reads as in every rendering: the terminal's dry run, the
+/// wizard's config panel, a copied plan. One mask, so an operator cannot mistake
+/// the UI's mark for a value the CLI would print.
+pub const MASK: &str = "****";
+
+/// The secret values an env text contains, longest first.
+///
+/// Purpose: a credential can appear somewhere other than its own assignment —
+/// `DATABASE_URL` carries the application password inside the URL — so masking
+/// only the line named `MARULA_APP_PASSWORD` leaves the password on screen. Both
+/// renderings (the plan's text and the wizard's table) mask by value.
+///
+/// Short values are skipped: a password of one or two characters would otherwise
+/// replace every matching character in the document.
+#[must_use]
+pub fn secret_values(secret_names: &[String], contents: &str) -> Vec<String> {
+    let mut values: Vec<String> = contents
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .filter(|(name, value)| {
+            !value.trim().is_empty() && secret_names.iter().any(|secret| secret == name.trim())
+        })
+        .map(|(_, value)| value.trim().to_string())
+        .filter(|value| value.len() >= 8)
+        .collect();
+    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    values.dedup();
+    values
+}
+
+/// Replaces every known secret value inside `text` with [`MASK`].
+#[must_use]
+pub fn mask_secrets(text: &str, secrets: &[String]) -> String {
+    let mut masked = text.to_string();
+    for secret in secrets {
+        masked = masked.replace(secret, MASK);
+    }
+    masked
+}
+
 /// A complete plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
@@ -335,28 +375,16 @@ impl Plan {
     /// the URL has not hidden anything.
     #[must_use]
     pub fn redact(&self, contents: &str) -> String {
-        let secrets: Vec<&str> = contents
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .filter(|(name, value)| {
-                !value.trim().is_empty()
-                    && self.secret_names.iter().any(|secret| secret == name.trim())
-            })
-            .map(|(_, value)| value.trim())
-            .collect();
+        let secrets = secret_values(&self.secret_names, contents);
         contents
             .lines()
             .map(|line| {
                 if let Some((name, _)) = line.split_once('=') {
                     if self.secret_names.iter().any(|secret| secret == name.trim()) {
-                        return format!("{name}=****");
+                        return format!("{name}={MASK}");
                     }
                 }
-                let mut redacted = line.to_string();
-                for secret in &secrets {
-                    redacted = redacted.replace(secret, "****");
-                }
-                redacted
+                mask_secrets(line, &secrets)
             })
             .collect::<Vec<_>>()
             .join("\n")
