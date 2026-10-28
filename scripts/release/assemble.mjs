@@ -263,6 +263,10 @@ export function assemble(options) {
     });
     cpSync(license, join(staging, "LICENSE"));
     cpSync(readme, join(staging, "README.md"));
+    for (const extra of options.extra ?? []) {
+      const file = requireFile(resolve(extra), `the extra file ${extra}`);
+      cpSync(file, join(staging, basename(file)));
+    }
 
     const manifest = {
       schema: "marula.release/1",
@@ -603,6 +607,12 @@ function parseArgs(argv) {
         break;
       case "--commit":
         options.commit = value();
+        break;
+      case "--extra":
+        // A file the binary needs beside it that the workspace does not build:
+        // on Windows the OpenSSL DLLs the CLI links against. Repeatable, and it
+        // lands in the checksum list like every other file.
+        options.extra = [...(options.extra ?? []), value()];
         break;
       case "--no-archive":
         options.archive = false;

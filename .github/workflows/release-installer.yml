@@ -345,6 +345,18 @@ jobs:
           fi
           node "$CLI" "${ARGS[@]}"
 
+      # The CLI links OpenSSL through `webauthn-rs-core`, which has no feature to
+      # turn that off, and no Windows runner ships OpenSSL. vcpkg's dynamic
+      # triplet is what `openssl-sys` finds without OPENSSL_DIR, and its DLLs are
+      # what the binary needs beside it at run time.
+      - name: Install OpenSSL on Windows
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          vcpkg install openssl:x64-windows
+          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
+          echo "ASSEMBLE_EXTRA=--extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libcrypto-3-x64.dll --extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libssl-3-x64.dll" >> "$GITHUB_ENV"
+
       - name: Assemble the release directory
         shell: bash
         run: |
@@ -353,7 +365,20 @@ jobs:
             --os "${{ matrix.os }}" \
             --arch "${{ matrix.arch }}" \
             --commit "$GITHUB_SHA" \
-            --out dist/release
+            --out dist/release \
+            ${ASSEMBLE_EXTRA:-}
+
+      # A green link is not a working binary: on Windows the OpenSSL DLLs have to
+      # be found at run time, and a bundle that only compiled is a bundle that
+      # fails on the user's machine. Running --version here is the cheapest test
+      # that can tell the difference.
+      - name: The binary starts
+        shell: bash
+        run: |
+          DIR=$(ls -d dist/release/marula-*-${{ matrix.os }}-${{ matrix.arch }} | head -1)
+          if [ "${{ matrix.os }}" = "windows" ]; then BIN="$DIR/marula.exe"; else BIN="$DIR/marula"; fi
+          "$BIN" --version
+
 
       # The assembler computes the checksums; the CLI independently recomputes
       # one of them. Two implementations agreeing is the cheapest proof that
