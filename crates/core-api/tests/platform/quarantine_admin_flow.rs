@@ -13,14 +13,19 @@
 //! Database selection follows settings_flow's contract:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
+use crate::common::boot_with_parts;
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use core_store::ObjectStore;
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+async fn test_state() -> (AppState, Arc<core_store::memory::MemoryStore>) {
+    let (state, _app, store) = boot_with_parts(|_| {}, Some(Arc::new(GateScan))).await;
+    (state, store)
+}
 
 /// Two valid PDFs whose bytes carry the marker the scripted scanner reads as
 /// a malware signature. The allowlist gate must admit them (real PDF header)
@@ -58,49 +63,6 @@ impl core_mail::ScanProvider for GateScan {
             detail: None,
         })
     }
-}
-
-async fn test_state() -> (AppState, Arc<core_store::memory::MemoryStore>) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("quarantine admin e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    let store = Arc::new(core_store::memory::MemoryStore::new());
-    let scanner: Arc<dyn core_mail::ScanProvider> = Arc::new(GateScan);
-    let mail = Arc::new(core_api::email::MailStack {
-        transport: Arc::new(core_mail::NoopTransport),
-        scanner,
-        from_address: config.email_from_address.clone(),
-        from_name: config.email_from_name.clone(),
-    });
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail,
-        store: std::sync::Arc::clone(&store) as Arc<dyn core_store::ObjectStore>,
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    };
-    (state, store)
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
 }
 
 async fn send_raw(

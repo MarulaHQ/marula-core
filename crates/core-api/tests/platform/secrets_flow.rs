@@ -18,17 +18,29 @@
 //! store (covered by the core-store adapters' own suites; the route
 //! logic is a thin seal→put / get→open seam), UI.
 
+use crate::common::{body_json, boot_with_parts, send};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
-use sqlx::{PgPool, Row};
+use sqlx::Row;
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn test_state() -> (AppState, Router) {
-    let (state, app, _store) = test_state_with_store(None).await;
+    let (state, app, _store) = boot_with_parts(|_| {}, None).await;
     (state, app)
+}
+
+/// Same state, with a chosen scan provider and the object store handed back.
+async fn test_state_with_store(
+    scanner: Option<std::sync::Arc<dyn core_mail::ScanProvider>>,
+) -> (
+    AppState,
+    Router,
+    std::sync::Arc<core_store::memory::MemoryStore>,
+) {
+    boot_with_parts(|_| {}, scanner).await
 }
 
 /// Same state, with a chosen scan provider and the object store handed back.
@@ -36,84 +48,6 @@ async fn test_state() -> (AppState, Router) {
 /// pre-gate test in this file runs against. The Wave 52 P6d gate tests inject
 /// a scripted scanner so a verdict can be forced, and keep the store so they
 /// can assert on what was (not) written.
-async fn test_state_with_store(
-    scanner: Option<Arc<dyn core_mail::ScanProvider>>,
-) -> (AppState, Router, Arc<core_store::memory::MemoryStore>) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("secrets e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect_admin(&admin_url).await.expect("admin pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    let store = Arc::new(core_store::memory::MemoryStore::new());
-    let mail = match scanner {
-        Some(scanner) => Arc::new(core_api::email::MailStack {
-            transport: Arc::new(core_mail::NoopTransport),
-            scanner,
-            from_address: config.email_from_address.clone(),
-            from_name: config.email_from_name.clone(),
-        }),
-        None => Arc::new(core_api::email::MailStack::from_config(&config)),
-    };
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail,
-        store: Arc::clone(&store) as Arc<dyn core_store::ObjectStore>,
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    };
-    let app = core_api::routes::build_router(state.clone());
-    (state, app, store)
-}
-
-async fn connect_admin(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder()
-        .method(method.clone())
-        .uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let bytes = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024)
-        .await
-        .unwrap();
-    serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
-
 async fn register_org(app: &Router, slug: String) -> Value {
     let response = send(
         app,
