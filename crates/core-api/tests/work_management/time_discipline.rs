@@ -11,107 +11,22 @@
 //! Non-purpose: live-stream delivery (the SSE suite in `realtime_flow.rs`)
 //! and pure domain rules (core-domain unit/proptest suites).
 
+use crate::common::{
+    body_json, register_org as common_register_org, send_internal as send, test_state_with,
+};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
 const TOKEN: &str = "time-e2e-internal-token";
 
 async fn test_state() -> (AppState, Router) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("time e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect_admin(&admin_url).await.expect("admin pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url.clone();
-    let reporting_url = admin_url;
-    config.email_internal_token = Some(TOKEN.into());
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    };
-    let app = core_api::routes::build_router(state.clone());
-    (state, app)
-}
-
-async fn connect_admin(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    internal_token: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder()
-        .method(method.clone())
-        .uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    if let Some(token) = internal_token {
-        builder = builder.header("X-Internal-Token", token);
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-        panic!("body_json parse failed ({e}); last SEND lines above identify the endpoint")
-    })
+    test_state_with(|config| config.email_internal_token = Some(TOKEN.into())).await
 }
 
 async fn register_org(app: &Router, slug: &str) -> Value {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        None,
-        None,
-        Some(json!({
-            "org_name": "Time Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    body_json(response).await
+    common_register_org(app, "Time Co", slug).await
 }
 
 #[tokio::test]

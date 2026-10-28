@@ -21,77 +21,14 @@
 //! 6. Note-draft hit is per (ticket, user): another user sees `draft:
 //!    null` (RLS scope guarantees, not 404s).
 
+use crate::common::{as_json, register, send, test_state_with};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
-use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
+use core_api::state::AppState;
+use serde_json::json;
 use uuid::Uuid;
 
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
 async fn test_state() -> (AppState, Router) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("workbar flow needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url;
-    config.dev_tools = false;
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
-            .expect("reporting pool"),
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-    };
-    let app = core_api::routes::build_router(state.clone());
-    (state, app)
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    token: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("content-type", "application/json");
-    if let Some(token) = token {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder.body(axum::body::Body::from(v.to_string())).unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn as_json(response: axum::response::Response) -> (u16, Value) {
-    let status = response.status().as_u16();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    (status, serde_json::from_slice(&bytes).expect("JSON body"))
+    test_state_with(|config| config.dev_tools = false).await
 }
 
 struct Org {
@@ -99,22 +36,17 @@ struct Org {
 }
 
 async fn register_org(app: &Router, slug: String) -> Org {
-    let response = send(
+    let v = register(
         app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        None,
-        Some(json!({
+        json!({
             "org_name": "Workbar Co",
             "org_slug": slug,
             "email": format!("owner@{slug}.test"),
             "password": "correct-horse-battery",
             "display_name": "Jordan Reyes",
-        })),
+        }),
     )
     .await;
-    let (status, v) = as_json(response).await;
-    assert_eq!(status, 200, "register must succeed");
     Org {
         token: v["access_token"].as_str().unwrap().to_string(),
     }
