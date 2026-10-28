@@ -498,16 +498,20 @@ jobs:
           trap 'rm -f "$KEY"' EXIT
 
           cd dist/release
-          for sums in SHA256SUMS-* SHA256SUMS; do
-            case "$sums" in
+          # The manifest is signed on its own, not only through the checksum
+          # list: `marula update` verifies a signature over release.json's bytes,
+          # so a release whose manifest had no .sig could be installed and never
+          # updated.
+          for target in SHA256SUMS-* SHA256SUMS release.json; do
+            case "$target" in
               *.sig) continue ;;
             esac
-            [ -f "$sums" ] || continue
-            ssh-keygen -Y sign -f "$KEY" -n file "$sums"
+            [ -f "$target" ] || { echo "::error::$target is missing, so it cannot be signed"; exit 1; }
+            ssh-keygen -Y sign -f "$KEY" -n file "$target"
             ssh-keygen -Y verify \
               -f "$ANCHOR" \
-              -I releases@getmarula.com -n file -s "$sums.sig" < "$sums" >/dev/null
-            echo "signed and re-verified $sums.sig"
+              -I releases@getmarula.com -n file -s "$target.sig" < "$target" >/dev/null
+            echo "signed and re-verified $target.sig"
           done
 
       - name: Verify the signed list the way a user would
@@ -517,6 +521,8 @@ jobs:
           sha256sum -c SHA256SUMS
           ssh-keygen -Y verify -f "$GITHUB_WORKSPACE/release-keys/allowed_signers" \
             -I releases@getmarula.com -n file -s SHA256SUMS.sig < SHA256SUMS
+          ssh-keygen -Y verify -f "$GITHUB_WORKSPACE/release-keys/allowed_signers" \
+            -I releases@getmarula.com -n file -s release.json.sig < release.json
 
       - name: Summarise what is on this run
         run: |
