@@ -307,6 +307,13 @@ jobs:
       # three other lanes (Wave 47 lane `p47-lane-env-hygiene`).
       - name: Evidence writes stay lane-local
         run: node scripts/check-evidence-writes.mjs
+      # The desktop updater's trust anchor: a placeholder key, a key that is not
+      # a minisign document, or a plaintext endpoint. Each one fails on the
+      # user's machine after the release is out, which is too late to catch.
+      - name: Desktop updater trust anchor
+        run: |
+          node scripts/check-desktop-trust.mjs --self-test
+          node scripts/check-desktop-trust.mjs
 
   token-conformance:
     name: Token conformance — no colours outside the Marula token set

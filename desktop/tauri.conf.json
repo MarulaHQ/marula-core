@@ -30,7 +30,7 @@
   "plugins": {
     "updater": {
       "endpoints": ["https://updates.getmarula.com/desktop/{{target}}/{{arch}}/{{current_version}}"],
-      "pubkey": "REPLACE_AT_RELEASE_TIME: generate with `pnpm tauri signer generate ~/.tauri/marula.key` and paste the minisign PUBLIC key here — never commit the private key"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhENEYzNjA4NjQ5RThFRTEKUldUaGpwNWtDRFpQalU0VjAxZ1FTeE9MOGVPOXYyRkphbmdTVWpLWEovNkNxRFlXNEc4ZXlibXIK"
     }
   }
 }
