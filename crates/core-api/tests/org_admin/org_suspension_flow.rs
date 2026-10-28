@@ -26,77 +26,13 @@
 //! Database selection follows the documented contract: MARULA_TEST_DATABASE_URL
 //! or DATABASE_URL (no schema reset).
 
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
-use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
+use crate::common::{body_json, register_org_with_state, send_headers as send, test_state_with};
+use core_api::state::AppState;
+use serde_json::json;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("suspension flow needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    config.secret_key = core_api::config::SecretKey([43; 32]);
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    }
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
-        .await
-        .expect("body");
-    serde_json::from_slice(&bytes).expect("json body")
-}
-
-async fn send(
-    app: &axum::Router,
-    method: axum::http::Method,
-    uri: &str,
-    headers: &[(&str, String)],
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    for (name, value) in headers {
-        builder = builder.header(*name, value.clone());
-    }
-    let request = match body {
-        Some(value) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(value.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone()
-        .oneshot(request)
-        .await
-        .expect("infallible router")
+    test_state_with(|config| config.secret_key = core_api::config::SecretKey([43; 32])).await
 }
 
 fn bearer(token: &str) -> Vec<(&'static str, String)> {
@@ -104,33 +40,8 @@ fn bearer(token: &str) -> Vec<(&'static str, String)> {
 }
 
 async fn register_org(app: &axum::Router, state: &AppState, slug: &str) -> (String, Uuid) {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        &[],
-        Some(json!({
-            "org_name": "Notice Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    let token = body_json(response).await["access_token"]
-        .as_str()
-        .expect("access token")
-        .to_string();
-    let org_id: Uuid = sqlx::query_scalar("SELECT id FROM orgs WHERE slug = $1")
-        .bind(slug)
-        .fetch_one(&state.pool)
-        .await
-        .expect("org id");
-    (token, org_id)
+    register_org_with_state(app, state, "Notice Co", slug).await
 }
-
 #[tokio::test]
 async fn suspension_notice_lifecycle_and_no_enforcement() {
     let state = test_state().await;

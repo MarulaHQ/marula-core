@@ -17,50 +17,14 @@
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL, migrations run in-process, no
 //! schema reset (each test namespaces its own rows).
 
+use crate::common::{auth, send_headers as send, test_state_with};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("settings gaps e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    config.secret_key = core_api::config::SecretKey([23; 32]);
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: AppState::reporting_pool_lazy(&reporting_url).expect("lazy reporting pool"),
-    }
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-fn auth(token: &str) -> (&str, String) {
-    ("authorization", format!("Bearer {token}"))
+    test_state_with(|config| config.secret_key = core_api::config::SecretKey([23; 32])).await
 }
 
 async fn body_json(response: axum::response::Response) -> Value {
@@ -68,29 +32,6 @@ async fn body_json(response: axum::response::Response) -> Value {
         .await
         .expect("body");
     serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    headers: &[(&str, String)],
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    for (name, value) in headers {
-        builder = builder.header(*name, value.clone());
-    }
-    let request = match body {
-        Some(json_body) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(
-                serde_json::to_vec(&json_body).unwrap(),
-            ))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.expect("response")
 }
 
 /// Bootstraps an org (registration provisions a default board) and returns an
