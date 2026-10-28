@@ -12,7 +12,7 @@
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
-use marula_core_cli::{attachments, data, deploy, fixture, install, upgrade};
+use marula_core_cli::{attachments, data, deploy, fixture, install, update, upgrade};
 use tokio::sync::watch;
 
 /// Database URL default mirroring `core_api::config::Config` so bare
@@ -136,6 +136,39 @@ enum Command {
         #[arg(long)]
         no_open: bool,
     },
+    /// Update Marula from a signed manifest (Wave 60 lane W60-5). `--check`
+    /// prints whether a newer release exists and what it fixes; `--apply`
+    /// backs the install up, applies through the same target, verifies, and
+    /// rolls the files back if either step fails.
+    Update {
+        /// Ask what is available; change nothing.
+        #[arg(long)]
+        check: bool,
+        /// Apply the update. Refused without a signature and a trusted key.
+        #[arg(long)]
+        apply: bool,
+        /// The signed manifest, as published by the release.
+        #[arg(long)]
+        manifest: std::path::PathBuf,
+        /// Detached signature over the manifest's bytes (hex).
+        #[arg(long)]
+        signature: Option<std::path::PathBuf>,
+        /// Trusted ed25519 public key (64 hex chars, repeatable).
+        #[arg(long = "key")]
+        key: Vec<std::path::PathBuf>,
+        /// Directory holding the install.
+        #[arg(long, default_value = ".")]
+        dir: std::path::PathBuf,
+        /// Compose file the install runs.
+        #[arg(long, default_value = "deploy/docker-compose.yml")]
+        compose_file: std::path::PathBuf,
+    },
+    /// Verify a release bundle before anything executes it (Wave 60 lane
+    /// W60-5).
+    Artifact {
+        #[command(subcommand)]
+        action: ArtifactAction,
+    },
     /// Check this machine and the install on it against the descriptor (Wave
     /// 60 lane W60-2). Exits non-zero when a check fails.
     Doctor {
@@ -152,6 +185,28 @@ enum Command {
         #[arg(long)]
         memory_mb: Option<u32>,
     },
+}
+
+/// Artifact verification verbs.
+#[derive(Debug, Subcommand)]
+enum ArtifactAction {
+    /// Verify a signed `SHA256SUMS` and every file it names.
+    Verify {
+        /// The checksum file shipped beside the bundle.
+        #[arg(long)]
+        sums: std::path::PathBuf,
+        /// Detached signature over the sums file (hex).
+        #[arg(long)]
+        signature: Option<std::path::PathBuf>,
+        /// Trusted ed25519 public key (repeatable).
+        #[arg(long = "key")]
+        key: Vec<std::path::PathBuf>,
+        /// Directory the checksum paths are relative to.
+        #[arg(long, default_value = ".")]
+        root: std::path::PathBuf,
+    },
+    /// Print the SHA-256 of one file, as `SHA256SUMS` writes it.
+    Checksum { file: std::path::PathBuf },
 }
 
 /// Data-lifecycle verbs.
@@ -348,12 +403,189 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        Command::Update {
+            check,
+            apply,
+            manifest,
+            signature,
+            key,
+            dir,
+            compose_file,
+        } => update_command(check, apply, manifest, signature, key, dir, compose_file).await,
+        Command::Artifact { action } => artifact_command(action),
         Command::Doctor {
             profile,
             dir,
             compose_file,
             memory_mb,
         } => doctor_command(profile, dir, compose_file, memory_mb),
+    }
+}
+
+/// `marula update` (Wave 60 lane W60-5). Reads a signed manifest, says what is
+/// available, and — only with a verified signature — backs the install up,
+/// applies through the same target the installer used, verifies the result and
+/// rolls the files back on failure.
+#[allow(clippy::too_many_arguments)]
+async fn update_command(
+    check: bool,
+    apply: bool,
+    manifest: std::path::PathBuf,
+    signature: Option<std::path::PathBuf>,
+    keys: Vec<std::path::PathBuf>,
+    dir: std::path::PathBuf,
+    compose_file: std::path::PathBuf,
+) -> anyhow::Result<()> {
+    use install::DeploymentTarget as _;
+
+    anyhow::ensure!(
+        !(check && apply),
+        "--check asks what is available; --apply changes the install. Pick one."
+    );
+    anyhow::ensure!(check || apply, "pick --check or --apply.");
+
+    let text = std::fs::read_to_string(&manifest)
+        .with_context(|| format!("reading the manifest at {}", manifest.display()))?;
+
+    let trusted = keys
+        .iter()
+        .map(|path| update::read_public_key(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let verified = match &signature {
+        Some(path) => {
+            let detached = std::fs::read_to_string(path)
+                .with_context(|| format!("reading the signature at {}", path.display()))?;
+            update::verify_signature(&trusted, text.as_bytes(), &detached)?;
+            true
+        }
+        None => false,
+    };
+
+    if apply && !verified {
+        anyhow::bail!(
+            "--apply needs --signature and at least one --key. An unsigned manifest is a \
+             suggestion, not an instruction."
+        );
+    }
+    if !verified {
+        eprintln!(
+            "warning: no --signature/--key in this run, so the manifest is read but not trusted. \
+             --apply refuses this."
+        );
+    }
+
+    let manifest = update::Manifest::parse(&text)?;
+    let (os, arch) = update::platform();
+    let installed = update::installed_version(&dir);
+    let report = update::check(&manifest, &installed, os, arch);
+    println!("{}", report.sentence());
+    for advisory in &report.advisories {
+        println!(
+            "  {} [{}] {} (fixed in {})",
+            advisory.id,
+            advisory.severity.word(),
+            advisory.summary,
+            advisory.fixed_in
+        );
+    }
+
+    if check {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        report.availability == update::Availability::Available,
+        "nothing to apply: {} is current.",
+        installed
+    );
+
+    let env_text = std::fs::read_to_string(dir.join("marula.env")).ok();
+    let env = env_text
+        .map(|text| install::doctor::parse_env_file(&text))
+        .unwrap_or_default();
+    let profile = match env.get("MARULA_ALL_IN_ONE").map(String::as_str) {
+        Some("1") | Some("true") => "all-in-one".to_string(),
+        _ => "split".to_string(),
+    };
+
+    let session = install::Session::new(dir.clone(), compose_file.clone(), None);
+    let target = install::ComposeTarget::new(deploy::descriptor(), compose_file.clone())
+        .with_env_file(dir.join("marula.env"));
+    let facts = install::HostFacts::detect(&dir);
+    let selection = install::Selection::new(profile.clone(), &dir);
+    let plan = target.plan(&facts, &selection)?;
+    let backup = update::backup(&dir, &installed)?;
+    println!(
+        "backed up {} file(s) to {}",
+        backup.files().len(),
+        backup.dir.display()
+    );
+    let outcome = update::run(&target, &plan, &backup, || match session.doctor(&profile) {
+        Ok(verdict) if verdict.ok => Ok(()),
+        Ok(verdict) => Err(format!(
+            "the doctor reports the install is not healthy after the update ({} checks failed)",
+            verdict.checks.iter().filter(|check| !check.ok).count()
+        )),
+        Err(reason) => Err(reason),
+    });
+
+    for line in &outcome.applied.done {
+        println!("  ok  {line}");
+    }
+    if let Some(reason) = &outcome.rolled_back {
+        eprintln!(
+            "update rolled back: {reason}\nthe files were restored from {}: {}",
+            backup.dir.display(),
+            outcome.restored.join(", ")
+        );
+        anyhow::bail!("the update did not take");
+    }
+    println!(
+        "updated to {} ({} steps). Still yours to do: {}",
+        report.latest.as_deref().unwrap_or("the new release"),
+        outcome.applied.done.len(),
+        outcome.manual.join("; ")
+    );
+    Ok(())
+}
+
+/// `marula artifact verify|checksum` (Wave 60 lane W60-5). The verification a
+/// release bootstrap runs before it executes anything.
+fn artifact_command(action: ArtifactAction) -> anyhow::Result<()> {
+    match action {
+        ArtifactAction::Checksum { file } => {
+            println!("{}  {}", update::checksum_file(&file)?, file.display());
+            Ok(())
+        }
+        ArtifactAction::Verify {
+            sums,
+            signature,
+            key,
+            root,
+        } => {
+            let bytes =
+                std::fs::read(&sums).with_context(|| format!("reading {}", sums.display()))?;
+            match signature {
+                Some(path) => {
+                    let keys = key
+                        .iter()
+                        .map(|key| update::read_public_key(key))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let detached = std::fs::read_to_string(&path)
+                        .with_context(|| format!("reading the signature at {}", path.display()))?;
+                    update::verify_signature(&keys, &bytes, &detached)?;
+                    println!("signature verified against {} key(s)", keys.len());
+                }
+                None => eprintln!(
+                    "warning: no --signature/--key, so only the checksums are verified. A checksum \
+                     proves the bytes arrived intact, not who published them."
+                ),
+            }
+            let text = std::str::from_utf8(&bytes)
+                .map_err(|error| anyhow::anyhow!("{} is not UTF-8: {error}", sums.display()))?;
+            let count = update::verify_sums(text, &root)?;
+            println!("verified {count} file(s) under {}", root.display());
+            Ok(())
+        }
     }
 }
 
