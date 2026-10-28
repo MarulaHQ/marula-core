@@ -41,6 +41,8 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | [`reference/reliability-levers.md`](reference/reliability-levers.md) | Every descriptor lever and the retry budget each preset resolves to (generated) |
 | [`perf.md`](perf.md) | Budgets, the measurement harness, the recorded baselines |
 | [`upgrade-compatibility-policy.md`](upgrade-compatibility-policy.md) | The N−2 support window and the expand-then-contract migration rule |
+| [`release.md`](release.md) | Cut a release, verify a download, and install one on a host with no network |
+| [`update.md`](update.md) | `marula update`: a signed manifest, the sentence a check prints, and what a rollback restores |
 | [`desktop-release.md`](desktop-release.md) | Desktop packaging, signing and the auto-update path |
 | [`security/staging-runbook.md`](security/staging-runbook.md) | Deploy, seed, rotate, collect evidence for, and tear down the alpha-tester and penetration-test staging instance |
 | [`security/pentest-known-issues.md`](security/pentest-known-issues.md) | What the audit already owns, written for testers so they do not report it again |
@@ -63,7 +65,7 @@ upgrade and observability.
 | [`reference/plugin-host-functions.md`](reference/plugin-host-functions.md) | The nine ABI entries: signatures, gates, in-band refusals, limits and the 25-code vocabulary |
 | [`reference/plugin-capabilities.md`](reference/plugin-capabilities.md) | All thirty-five capability keys, the permission each resolves to, and the surface each licenses |
 | [`reference/plugin-security-model.md`](reference/plugin-security-model.md) | The trust boundaries, the limits, what a hostile guest can do, and what cannot happen |
-| [`reference/plugin-operator-runbook.md`](reference/plugin-operator-runbook.md) | Install, grant, quarantine, roll back, revoke, and triage by symptom |
+| [`reference/plugin-operator-runbook.md`](reference/plugin-operator-runbook.md) | Install, grant, quarantine, roll back and revoke, then triage by symptom |
 | [`reference/plugin-agent-guide.md`](reference/plugin-agent-guide.md) | What an agent sees of a plugin, what it may invoke, and what an author owes it |
 | [`reference/connection-pooling.md`](reference/connection-pooling.md) | PgBouncer in transaction mode: the connection ceiling, the two settings that make it safe, and the cross-tenant probe that verifies RLS through it |
 | [`reference/workflow-node-catalogue.md`](reference/workflow-node-catalogue.md) | Every workflow node the builder offers |

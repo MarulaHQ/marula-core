@@ -16,4 +16,5 @@ pub mod deploy;
 pub mod deploy_check;
 pub mod fixture;
 pub mod install;
+pub mod update;
 pub mod upgrade;

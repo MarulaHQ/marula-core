@@ -1,0 +1,536 @@
+# Release installer — the per-platform release artifacts.
+#
+# Wave 60 lane W60-4 (`p60-installer-artifact`). Five legs build the two things
+# a release ships (the `marula` CLI and the installer app), assemble one
+# directory per platform with `scripts/release/assemble.mjs`, and upload it.
+# A final job writes the manifest, checksums everything, and signs the
+# checksums with the release key.
+#
+# What this file deliberately does NOT do: create a GitHub Release, push to a
+# registry, or publish anything to a host. That is a publishing decision (the
+# same reason `release.yml.disabled` stays disabled): the artifacts land on the
+# workflow run, and attaching them to a release page, a CDN or a docs site is a
+# person's call. docs/release.md says what to do with them.
+#
+# Every secret this file reads lives OUTSIDE this repository, in the
+# repository's Actions secrets. No key, password or certificate is committed,
+# and none is inlined here. The names are the ones the Tauri ecosystem uses,
+# so an operator moving from a Tauri-only pipeline recognises them:
+#
+#   macOS code signing + notarisation
+#     APPLE_CERTIFICATE              base64 of the Developer ID Application .p12
+#     APPLE_CERTIFICATE_PASSWORD     the .p12 password
+#     APPLE_SIGNING_IDENTITY         "Developer ID Application: <Org> (<TEAMID>)"
+#     APPLE_ID                       the Apple account that submits the notarisation
+#     APPLE_PASSWORD                 that account's app-specific password
+#     APPLE_TEAM_ID                  the Apple Developer team id
+#
+#   Windows Authenticode
+#     WINDOWS_CERTIFICATE            base64 of the .pfx
+#     WINDOWS_CERTIFICATE_PASSWORD   the .pfx password
+#     WINDOWS_TIMESTAMP_URL          the RFC 3161 timestamp endpoint your CA
+#                                    publishes (left empty means no timestamp)
+#
+#   Checksum signing (all platforms)
+#     MARULA_CHECKSUM_SIGNING_KEY    the private half of the release SSH key
+#                                    whose public half is in
+#                                    release-keys/allowed_signers
+#
+#   Tauri's updater channel key, used only when the bundle is configured to
+#   emit updater artifacts. This release config does not enable them (the
+#   installer ships no updater endpoint, and inventing one would be a promise
+#   nothing keeps), so the key is not required here:
+#     TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#
+# The signing gate is FAIL CLOSED: on a `v*.*.*` tag, a missing secret fails the
+# leg and names what is missing. On a pull request or a branch push, signing
+# steps are skipped with a `::notice::` that says so, because a fork cannot
+# read the secrets and a pull request must not need them.
+
+name: Release installer
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  pull_request:
+    paths:
+      - "installer/**"
+      - "crates/marula-core-cli/**"
+      - "apps/installer/**"
+      - "deploy/**"
+      - "scripts/release/**"
+      - ".github/workflows/release-installer.yml"
+  workflow_dispatch:
+    inputs:
+      offline:
+        description: "Build the air-gapped bundle too (slow: builds every image)"
+        type: boolean
+        default: false
+      sign:
+        description: Require signing secrets (as a tagged release does)
+        type: boolean
+        default: false
+
+# Least privilege at the top, per job below (the p38 rule this repository
+# already follows).
+permissions: {}
+
+# A release run must never be cancelled half way through a signing step.
+concurrency:
+  group: release-installer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # The version every later job names its files with. On a tag it is the tag;
+  # anywhere else it is the workspace version, which is what a PR build is
+  # really testing.
+  version:
+    name: Resolve version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tagged: ${{ steps.version.outputs.tagged }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            TAGGED=true
+          else
+            VERSION=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' Cargo.toml | head -n 1)
+            TAGGED=false
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::could not resolve a semver version (got '$VERSION')"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tagged=$TAGGED" >> "$GITHUB_OUTPUT"
+          echo "release version $VERSION (tagged=$TAGGED)"
+
+  # The scripts are cheap to check and are the part a PR can get wrong, so
+  # they are checked on every run, before any runner spends minutes building.
+  scripts:
+    name: Release scripts — syntax, lint, assembler self-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Syntax and shellcheck
+        run: |
+          bash -n scripts/release/*.sh
+          shellcheck -S warning scripts/release/*.sh
+      - name: Assembler syntax and self-test
+        run: |
+          node --check scripts/release/assemble.mjs
+          node scripts/release/assemble.mjs --self-test
+
+  build:
+    name: Build — ${{ matrix.os }} ${{ matrix.arch }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos
+            arch: arm64
+            runner: macos-14 # arm64
+          - os: macos
+            arch: x64
+            runner: macos-15-intel
+          - os: linux
+            arch: x64
+            runner: ubuntu-24.04
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: windows
+            arch: x64
+            runner: windows-2025
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAGGED: ${{ needs.version.outputs.tagged }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-installer-${{ matrix.os }}-${{ matrix.arch }}
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the CLI
+        run: cargo build --release -p marula-core-cli
+
+      - name: Build the installer front-end
+        run: pnpm --dir apps/installer build
+
+      - name: Build the installer app
+        run: cargo build --release --manifest-path installer/Cargo.toml
+
+      # ── signing gate: fail closed on a tag, notice everywhere else ──────
+      - name: Signing prerequisites
+        id: signing
+        shell: bash
+        run: |
+          set -u
+          required=()
+          case "${RUNNER_OS}" in
+            macOS)
+              required=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+              ;;
+            Windows)
+              required=(WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD)
+              ;;
+            *)
+              required=()
+              ;;
+          esac
+
+          if [ "${TAGGED}" != "true" ]; then
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Not a tagged release, so this leg bundles unsigned. Signing and notarisation are required on a v*.*.* tag."
+            exit 0
+          fi
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.sign }}" != "true" ]; then
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::workflow_dispatch without sign=true, so this leg bundles unsigned."
+            exit 0
+          fi
+
+          missing=()
+          for name in "${required[@]}"; do
+            if [ -z "$(printenv "$name" || true)" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::This is a tagged release and these signing secrets are missing: %s\n' "${missing[*]}"
+            printf 'An unsigned release is not a release: the platform refuses to run it without a warning,\n'
+            printf 'and a warning trains users to click through the one dialog that matters.\n'
+            exit 1
+          fi
+          echo "sign=true" >> "$GITHUB_OUTPUT"
+          echo "signing prerequisites are present for ${RUNNER_OS}"
+
+      # macOS: import the Developer ID certificate into a throwaway keychain.
+      # The keychain password is generated here; it protects a temporary file
+      # on an ephemeral runner and is not a secret anyone has to keep.
+      - name: Import the macOS signing certificate
+        if: matrix.os == 'macos' && steps.signing.outputs.sign == 'true'
+        shell: bash
+        run: |
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 20)
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+      # Windows: import the .pfx and hand Tauri its thumbprint. Tauri signs with
+      # a certificate in the store; the certificate itself never becomes a file
+      # in the repository or an artifact.
+      - name: Import the Windows signing certificate
+        id: wincert
+        if: matrix.os == 'windows' && steps.signing.outputs.sign == 'true'
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $path -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $path
+          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+          Write-Output "imported a signing certificate into Cert:\CurrentUser\My"
+
+      # `tauri bundle` packages the binary `cargo build` just produced. The
+      # CLI is invoked through the file pnpm installed, with the working
+      # directory set to `installer/`, because the CLI resolves
+      # `installer/tauri.conf.json` (and, on top of it, the platform-specific
+      # `tauri.<os>.conf.json` that names this platform's bundle targets) from
+      # the directory it runs in.
+      - name: Bundle the installer
+        shell: bash
+        working-directory: installer
+        env:
+          SIGN: ${{ steps.signing.outputs.sign }}
+          THUMBPRINT: ${{ steps.wincert.outputs.thumbprint }}
+        run: |
+          set -euo pipefail
+          ARGS=(bundle --ci)
+          if [ "${SIGN}" != "true" ]; then
+            ARGS+=(--no-sign)
+          fi
+          case "${RUNNER_OS}" in
+            Windows)
+              if [ -n "${THUMBPRINT:-}" ]; then
+                TS=""
+                if [ -n "${WINDOWS_TIMESTAMP_URL:-}" ]; then
+                  TS=$(printf ',"timestampUrl":"%s"' "${WINDOWS_TIMESTAMP_URL}")
+                fi
+                CONFIG=$(printf '{"bundle":{"windows":{"certificateThumbprint":"%s","digestAlgorithm":"sha256"%s}}}' \
+                  "${THUMBPRINT}" "${TS}")
+                ARGS+=(--config "$CONFIG")
+              fi
+              ;;
+            Linux)
+              # The .deb is the Linux bundle (see tauri.conf.json: the base
+              # config names `deb` and no other target needs a tool the runner
+              # does not have).
+              ;;
+          esac
+          CLI=../node_modules/@tauri-apps/cli/tauri.js
+          if [ ! -f "$CLI" ]; then
+            echo "::error::$CLI is not here; pnpm did not install @tauri-apps/cli. Run 'pnpm install --frozen-lockfile' first."
+            exit 1
+          fi
+          node "$CLI" "${ARGS[@]}"
+
+      - name: Assemble the release directory
+        shell: bash
+        run: |
+          node scripts/release/assemble.mjs \
+            --version "$VERSION" \
+            --os "${{ matrix.os }}" \
+            --arch "${{ matrix.arch }}" \
+            --commit "$GITHUB_SHA" \
+            --out dist/release
+
+      # The assembler computes the checksums; the CLI independently recomputes
+      # one of them. Two implementations agreeing is the cheapest proof that
+      # `marula artifact verify` will accept what a user downloads.
+      - name: The release binary agrees with the assembler's checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="dist/release/marula-$VERSION-${{ matrix.os }}-${{ matrix.arch }}"
+          BIN="$DIR/marula"
+          [ -f "$BIN" ] || BIN="$DIR/marula.exe"
+          FILE="$DIR/release.json"
+          for path in "$BIN" "$FILE" "$DIR/SHA256SUMS"; do
+            [ -f "$path" ] || { echo "::error::$path is missing from the assembled release"; exit 1; }
+          done
+          expected=$(awk -v name="release.json" '$2 == name { print $1; exit }' "$DIR/SHA256SUMS")
+          actual=$("$BIN" artifact checksum "$FILE" | awk '{ print $1 }')
+          if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+            echo "::error::the assembler and the CLI disagree about release.json (assembler: '$expected', CLI: '$actual')"
+            echo "If the CLI has no 'artifact checksum' subcommand yet, this step is the integration point that is missing."
+            exit 1
+          fi
+          echo "both implementations agree: $actual"
+
+      - name: Upload this platform's release
+        uses: actions/upload-artifact@v7
+        with:
+          name: marula-${{ needs.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/release/marula-${{ needs.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}/
+            dist/release/marula-${{ needs.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+            dist/release/SHA256SUMS-${{ matrix.os }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 14
+
+  # The air-gapped bundle. It builds every image the compose file references,
+  # which is a full container build of the workspace per arch, so it runs on
+  # the Linux legs only (the stack is a Linux-host story) and only when the
+  # run is a release or someone asked for it.
+  offline:
+    name: Offline bundle — linux ${{ matrix.arch }}
+    needs: [version, build]
+    if: needs.version.outputs.tagged == 'true' || github.event.inputs.offline == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install zstd
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends zstd
+
+      # The assembled directory comes back from the build leg rather than
+      # being rebuilt here: the offline bundle carries the same bytes the
+      # online release ships.
+      - name: Fetch the assembled release for this arch
+        uses: actions/download-artifact@v8
+        with:
+          name: marula-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}
+          path: dist/release
+
+      - name: Sanity-check the downloaded tree
+        run: |
+          set -euo pipefail
+          DIR="dist/release/marula-$VERSION-linux-${{ matrix.arch }}"
+          if [ ! -d "$DIR" ]; then
+            echo "::error::$DIR did not come back from the build leg"
+            exit 1
+          fi
+          (cd "$DIR" && sha256sum -c SHA256SUMS)
+
+      - name: Assemble the offline bundle
+        run: |
+          scripts/release/offline-bundle.sh \
+            --version "$VERSION" \
+            --os linux \
+            --arch "${{ matrix.arch }}" \
+            --release-dir "dist/release/marula-$VERSION-linux-${{ matrix.arch }}" \
+            --out dist/release
+
+      - name: Upload the offline bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: marula-${{ needs.version.outputs.version }}-offline-linux-${{ matrix.arch }}
+          path: dist/release/marula-${{ needs.version.outputs.version }}-offline-linux-${{ matrix.arch }}.tar.zst
+          if-no-files-found: error
+          retention-days: 14
+
+  # One manifest, one combined checksum list, and a signature over the
+  # per-platform lists. This is the only job that reads the release key, and it
+  # fails closed: a tag without the key produces no signature, and an unsigned
+  # checksum list is not something the bootstrap will accept.
+  publish:
+    name: Manifest and signatures
+    needs: [version, build, offline]
+    # `always()` plus explicit result checks, because `needs:` alone would skip
+    # this job whenever the offline job was skipped (a manual run that did not
+    # ask for the offline bundle still gets a manifest and a signature).
+    if: ${{ always() && needs.build.result == 'success' && (needs.offline.result == 'success' || needs.offline.result == 'skipped') && (needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sign == 'true')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Fetch every platform's artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: marula-*
+          path: dist/release
+          merge-multiple: true
+
+      - name: Write the manifest and the combined checksum list
+        run: |
+          node scripts/release/assemble.mjs --manifest \
+            --version "${{ needs.version.outputs.version }}" \
+            --commit "$GITHUB_SHA" \
+            --out dist/release
+
+      - name: Sign the checksum lists with the release key
+        env:
+          MARULA_CHECKSUM_SIGNING_KEY: ${{ secrets.MARULA_CHECKSUM_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MARULA_CHECKSUM_SIGNING_KEY}" ]; then
+            echo "::error::MARULA_CHECKSUM_SIGNING_KEY is missing. A release whose checksums are not signed cannot be verified, so nothing is published."
+            exit 1
+          fi
+          ANCHOR="$GITHUB_WORKSPACE/release-keys/allowed_signers"
+          if ! grep -Eq '^[[:space:]]*[^#[:space:]]' "$ANCHOR" 2>/dev/null; then
+            echo "::error::release-keys/allowed_signers carries no release key, so the signature this job produces could not be verified by anyone. Add the maintainer's public key line first; RELEASING.md names the command. Nothing is published until then."
+            exit 1
+          fi
+          umask 077
+          KEY="$RUNNER_TEMP/release-key"
+          printf '%s\n' "$MARULA_CHECKSUM_SIGNING_KEY" > "$KEY"
+          trap 'rm -f "$KEY"' EXIT
+
+          cd dist/release
+          for sums in SHA256SUMS-* SHA256SUMS; do
+            case "$sums" in
+              *.sig) continue ;;
+            esac
+            [ -f "$sums" ] || continue
+            ssh-keygen -Y sign -f "$KEY" -n file "$sums"
+            ssh-keygen -Y verify \
+              -f "$ANCHOR" \
+              -I releases@getmarula.com -n file -s "$sums.sig" < "$sums" >/dev/null
+            echo "signed and re-verified $sums.sig"
+          done
+
+      - name: Verify the signed list the way a user would
+        run: |
+          set -euo pipefail
+          cd dist/release
+          sha256sum -c SHA256SUMS
+          ssh-keygen -Y verify -f "$GITHUB_WORKSPACE/release-keys/allowed_signers" \
+            -I releases@getmarula.com -n file -s SHA256SUMS.sig < SHA256SUMS
+
+      - name: Summarise what is on this run
+        run: |
+          {
+            echo "## Marula ${{ needs.version.outputs.version }}"
+            echo
+            echo "| file | bytes |"
+            echo "| --- | --- |"
+            find dist/release -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tar.zst' -o -name '*.sig' -o -name 'SHA256SUMS*' -o -name 'release.json' \) \
+              -exec ls -l {} \; | awk '{ printf "| %s | %s |\n", $9, $5 }' | sort
+            echo
+            echo "Attaching these to a release page (and publishing the base URL the"
+            echo "docs print) is a maintainer decision, not a step of this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release set
+        uses: actions/upload-artifact@v7
+        with:
+          name: marula-${{ needs.version.outputs.version }}-release
+          path: dist/release
+          if-no-files-found: error
+          retention-days: 30

@@ -18,6 +18,8 @@ core-store = { path = "../core-store" }
 worker = { path = "../worker" }
 anyhow = { workspace = true }
 axum = { workspace = true }
+plugin-host = { path = "../plugin-host" }
+sha2 = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 hex = { workspace = true }
@@ -31,6 +33,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+ed25519-dalek = { workspace = true }
 reqwest = { workspace = true }
 tower = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

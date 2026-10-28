@@ -1,1 +1,15 @@
-releases@getmarula.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPuWqdR8jNK5L2C43uoNj54g9f+2LIHIUnpv77S2F6GZ releases@getmarula.com
+# The release key's public half goes here, one line, as
+#
+#   releases@getmarula.com ssh-ed25519 AAAAC3Nza...the-public-key...
+#
+# It is the trust anchor for two things: verifying a signed release tag in a
+# clean clone, and verifying the signature over a release's SHA256SUMS with
+# `ssh-keygen -Y verify` or `marula artifact verify`.
+#
+# It is deliberately empty in the repository. A committed placeholder key is a
+# key somebody is told to trust and nobody holds, so the signing job refuses to
+# publish until a real line is added here. RELEASING.md carries the command that
+# produces it.
+#
+# Rotation: add the new line, keep the old one for one release so artifacts
+# signed before the rotation still verify, then remove it.
