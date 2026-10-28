@@ -19,14 +19,11 @@
 //! scan gate (`email_attachments`), the settings registry's own validation
 //! (`core-domain` unit tests).
 
+use crate::common::{body_json, send, state_with};
 use axum::Router;
-use core_api::email::MailStack;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use core_mail::inbound::InboundEmail;
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
 /// The real router, plus this lane's triage group mounted the way
@@ -52,28 +49,7 @@ struct Fixture {
 }
 
 async fn fixture() -> Fixture {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("sender-binding e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url.clone();
-    let reporting_url = admin_url.clone();
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: AppState::reporting_pool_lazy(&reporting_url).expect("lazy reporting pool"),
-    };
+    let state = state_with(|_| {}).await;
     let app = app_with_triage(&state);
 
     // A tenant per test run: the inbound address below is globally unique,
@@ -140,44 +116,6 @@ async fn fixture() -> Fixture {
         address,
         board_id,
     }
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    token: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = token {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
 }
 
 impl Fixture {
