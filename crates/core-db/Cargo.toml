@@ -7,6 +7,10 @@ license.workspace = true
 [dependencies]
 core-domain = { path = "../core-domain", features = ["sqlx"] }
 sqlx = { workspace = true }
+# One bounded retry, when a pool cannot open its first connection: see
+# `connect_with`. Bounded so a host that swallows packets cannot turn a
+# diagnosable refusal into a hang.
+tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
