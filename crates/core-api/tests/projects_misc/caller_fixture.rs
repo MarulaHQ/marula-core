@@ -6,7 +6,7 @@
 //! headerless `oneshot` requests share one bucket — is asserted against the
 //! resolver itself, which is pure.
 
-#[path = "support/caller.rs"]
+#[path = "../support/caller.rs"]
 mod caller;
 
 use caller::{fresh_caller_ip, CallerIp};
