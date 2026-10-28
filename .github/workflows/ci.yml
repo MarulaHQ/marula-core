@@ -211,25 +211,18 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
         run: |
-          # Two target shapes live here: `tests/<name>.rs` is one target per
-          # file, and `tests/<dir>/main.rs` is one target named `<dir>`. Listing
-          # only `*.rs` dropped the second shape from both shards, so a grouped
-          # suite would have been built by nothing and run by nobody.
-          mapfile -t targets < <(
-            cd crates/core-api/tests
-            {
-              ls *.rs | sed 's/\.rs$//'
-              find . -mindepth 2 -maxdepth 2 -name main.rs |
-                sed -e 's|^\./||' -e 's|/main\.rs$||'
-            } | sort
-          )
+          # The target set has ONE owner: scripts/check-test-targets.mjs. A
+          # hand-rolled `ls *.rs` here once dropped `tests/<dir>/main.rs` targets
+          # from both shards, so a grouped suite would have been built by
+          # nothing and run by nobody. The verify line below fails the build on
+          # an unreachable or ambiguous target before the split happens.
+          node scripts/check-test-targets.mjs
+          mapfile -t targets < <(node scripts/check-test-targets.mjs --shard "${{ matrix.shard }}" --shards 2)
           args=()
-          for i in "${!targets[@]}"; do
-            if [ $((i % 2)) -eq $(( ${{ matrix.shard }} - 1)) ]; then
-              args+=(--test "${targets[$i]}")
-            fi
+          for target in "${targets[@]}"; do
+            args+=(--test "$target")
           done
-          echo "shard ${{ matrix.shard }}/2: ${#args[@]} of ${#targets[@]} integration targets"
+          echo "shard ${{ matrix.shard }}/2: ${#targets[@]} integration targets"
           if [ "${{ matrix.shard }}" = "1" ]; then
             cargo test -p core-api --lib "${args[@]}"
           else
