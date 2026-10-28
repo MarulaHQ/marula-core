@@ -508,6 +508,13 @@ services:
         # a backslash in it cannot end the SQL literal early.
         printf '%s\n' "ALTER ROLE marula_app WITH LOGIN PASSWORD :'pw';" \
           | psql -v ON_ERROR_STOP=1 -v pw="$$MARULA_APP_PASSWORD"
+        # The retrieval probe reads shared_preload_libraries at boot to decide
+        # whether the selected mode can run, and that setting is superuser-only.
+        # Without the grant core-api refuses to start with "permission denied to
+        # examine shared_preload_libraries", which reads as a broken install
+        # rather than a missing privilege. The demo overlay granted this; the
+        # base stack never did.
+        psql -v ON_ERROR_STOP=1 -c "GRANT pg_read_all_settings TO marula_app"
         echo "applied MARULA_APP_PASSWORD to the marula_app role" >&2
     depends_on:
       postgres:
@@ -516,8 +523,14 @@ services:
         condition: service_completed_successfully
 
   core-api:
-    mem_limit: 512m
-    cpus: 2.0
+    # The embedding floor is the floor here, not a preference. R13 made
+    # EmbeddingGemma 2 the default model and it needs four cores and 768 MB
+    # resident (measured: 508 MB plus one batch), so a 512m/2-cpu container
+    # refuses to boot with the shipped tier; core-api fails the same check the
+    # installer runs, and the install looks broken rather than refused. One
+    # gigabyte leaves the process its own room above the model.
+    mem_limit: 1g
+    cpus: 4.0
     logging: *default-logging
     <<: *cap-common
     # Supervisor policy (lane R5). `unless-stopped` restarts a crashed process
