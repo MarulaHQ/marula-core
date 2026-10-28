@@ -123,7 +123,13 @@ async fn register_org(app: &Router, state: &AppState) -> (String, Uuid) {
 /// Adds a verification key to the operator registry — the same table the CLI
 /// writes — and returns the signing half.
 async fn trust_key(state: &AppState, key_id: &str) -> ed25519_dalek::SigningKey {
-    let signing = ed25519_dalek::SigningKey::from_bytes(&[0x5a; 32]);
+    // Unique key material per run. A fixed seed would put the SAME public key
+    // in the registry under a new id on every run, which makes "which key
+    // verified" depend on row order instead of on this run's key.
+    let mut seed = [0_u8; 32];
+    seed[..16].copy_from_slice(Uuid::now_v7().as_bytes());
+    seed[16..].copy_from_slice(Uuid::now_v7().as_bytes());
+    let signing = ed25519_dalek::SigningKey::from_bytes(&seed);
     sqlx::query(
         "INSERT INTO plugin_signing_keys (id, key_id, public_key, label)
          VALUES ($1, $2, $3, 'entitlement e2e')

@@ -209,7 +209,12 @@ pub fn verify_artifact(
     let artifact_sha256 = plugin_host::distribution::manifest_sha256(artifact)
         .map_err(|_| ArtifactRefusal::Malformed)?;
 
-    let key = verify_against_trust_set(trusted, &artifact_sha256, &signature.sig)?;
+    let key = verify_against_trust_set(
+        trusted,
+        &artifact_sha256,
+        &signature.sig,
+        signature.key_id.as_deref(),
+    )?;
 
     Ok(VerifiedArtifact {
         org_id: artifact_org,
@@ -222,7 +227,13 @@ pub fn verify_artifact(
     })
 }
 
-/// Tries every trusted key and names the one that verified.
+/// Tries the trusted keys and names the one that verified.
+///
+/// The identity the issuer names is tried FIRST, and only orders the
+/// candidates: it is never trusted. An operator rotating keys wants the
+/// answered identity to be the one the issuer said, not whichever row the
+/// registry happens to return first, and a claim that does not verify simply
+/// falls through to the rest of the set.
 ///
 /// An empty trust set is [`ArtifactRefusal::NoTrustedKeys`], never a pass: an
 /// install that has configured no key is an install that cannot verify, and
@@ -231,22 +242,30 @@ fn verify_against_trust_set<'a>(
     trusted: &'a [plugin_host::distribution::TrustedSigningKey],
     artifact_sha256: &str,
     signature_hex: &str,
+    claimed_key_id: Option<&str>,
 ) -> Result<&'a plugin_host::distribution::TrustedSigningKey, ArtifactRefusal> {
     if trusted.is_empty() {
         return Err(ArtifactRefusal::NoTrustedKeys);
     }
-    for key in trusted {
-        if plugin_host::distribution::verify_artifact_signature(
+    let verifies = |key: &plugin_host::distribution::TrustedSigningKey| {
+        plugin_host::distribution::verify_artifact_signature(
             &key.public_key,
             artifact_sha256,
             signature_hex,
         )
         .is_ok()
-        {
-            return Ok(key);
+    };
+    if let Some(claimed) = claimed_key_id {
+        if let Some(key) = trusted.iter().find(|key| key.key_id == claimed) {
+            if verifies(key) {
+                return Ok(key);
+            }
         }
     }
-    Err(ArtifactRefusal::BadSignature)
+    trusted
+        .iter()
+        .find(|key| verifies(key))
+        .ok_or(ArtifactRefusal::BadSignature)
 }
 
 fn artifact_refusal(refusal: ArtifactRefusal) -> ApiError {
@@ -686,6 +705,40 @@ mod tests {
             artifact_sha256: "c".repeat(64),
             key_id: "ops-1".into(),
         }
+    }
+
+    #[test]
+    fn the_claimed_identity_is_tried_first_but_never_trusted() {
+        // Two trust identities share one public key, which is what an operator
+        // naming a key does when they import the same material under a label.
+        // The issuer names the second; the answer must be the second, even
+        // though the first would also verify.
+        let key = signing_key(11);
+        let keys = vec![trusted("first", &key), trusted("second", &key)];
+        let mut request = signed_request(ORG, 1, serde_json::json!({ "seats": 1 }), &key);
+        request.signature.key_id = Some("second".into());
+        assert_eq!(
+            verify(&request, &keys, ORG).expect("accepted").key_id,
+            "second"
+        );
+
+        // A claim that names nothing trusted changes nothing: the set still
+        // decides, and a claim cannot make an unverifiable key verify.
+        request.signature.key_id = Some("absent".into());
+        assert_eq!(
+            verify(&request, &keys, ORG).expect("accepted").key_id,
+            "first"
+        );
+
+        // And naming a trusted identity whose key does not match the signature
+        // refuses rather than falling back to a pass.
+        let stranger = signing_key(13);
+        let mut wrong = signed_request(ORG, 1, serde_json::json!({ "seats": 1 }), &stranger);
+        wrong.signature.key_id = Some("first".into());
+        assert_eq!(
+            verify(&wrong, &keys, ORG),
+            Err(ArtifactRefusal::BadSignature)
+        );
     }
 
     #[test]
