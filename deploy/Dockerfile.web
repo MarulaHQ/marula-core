@@ -23,6 +23,12 @@
 # run never disagree about the runtime.
 FROM dhi.io/node:22-dev@sha256:76403e2f1692d94caaf2bc2fafdac8ec97fd0133cc3c77477e97974de22cc778 AS build
 WORKDIR /repo
+# Corepack bundled with Node 22 (0.34.x) cannot install pnpm 12: its installer
+# fetches bin/pnpm.cjs, a path pnpm 12 replaced with a native launcher, and dies
+# with MODULE_NOT_FOUND. Corepack 0.36 downloads the platform binary instead.
+# `corepack enable pnpm` still reads the version from package.json, so the pin
+# stays declared in exactly one place.
+RUN npm install --global corepack@0.36.0
 RUN corepack enable pnpm
 # Workspace manifests first so dependency install caches independently of source.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

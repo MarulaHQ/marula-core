@@ -1,7 +1,7 @@
 {
   "name": "marula-core",
   "private": true,
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@12.16.1",
   "scripts": {
     "theme:check": "node scripts/check-theme-packs.mjs",
     "dev": "turbo run dev",

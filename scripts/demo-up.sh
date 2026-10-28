@@ -136,7 +136,7 @@ preflight() {
   local missing=()
   command -v docker  >/dev/null 2>&1 || missing+=("docker (https://docs.docker.com/get-docker/)")
   command -v cargo   >/dev/null 2>&1 || missing+=("cargo (https://rustup.rs)")
-  command -v pnpm    >/dev/null 2>&1 || missing+=("pnpm (corepack enable pnpm)")
+  command -v pnpm    >/dev/null 2>&1 || missing+=("pnpm 12 (npm install -g pnpm@12)")
   command -v lsof    >/dev/null 2>&1 || missing+=("lsof")
   command -v python3 >/dev/null 2>&1 || missing+=("python3")
   if [ "${#missing[@]}" -gt 0 ]; then
