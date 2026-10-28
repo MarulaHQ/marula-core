@@ -162,6 +162,25 @@ to. It uses the `marula` already on `PATH` (`--verifier` names another). With
 none present it stops and prints the by-hand command above. It also refuses to
 run when its own source is a pipe, so `curl … | sh` fails rather than working.
 
+## Platform signatures: unsigned for now
+
+macOS and Windows artifacts ship **unsigned and unnotarised** until the trust
+chain exists. This is a decision, not an oversight:
+
+- macOS: `signingIdentity` stays `null`, so Gatekeeper warns on first open and the
+  app is not notarised. A user has to allow it in System Settings.
+- Windows: no Authenticode certificate, so SmartScreen warns on first run.
+
+What is still true while they are unsigned: the archive's checksum is signed with
+the release key, `marula artifact verify` refuses a tampered file, and the update
+manifest refuses an unsigned signature. The trust anchor covers the bytes; what
+the platform signatures add is an operating system saying so without the user
+having to run a verifier.
+
+Turning them on is a configuration change plus credentials, not a code change:
+`TAURI_SIGNING_PRIVATE_KEY` and `APPLE_*` for macOS, `WINDOWS_CERTIFICATE` for
+Windows. The `sign` input on the workflow already gates them.
+
 ## The offline bundle
 
 `marula-<version>-offline-<os>-<arch>.tar.zst` is built for a Linux host that

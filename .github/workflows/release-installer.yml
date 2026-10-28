@@ -448,6 +448,11 @@ jobs:
     # this job whenever the offline job was skipped (a manual run that did not
     # ask for the offline bundle still gets a manifest and a signature).
     if: ${{ always() && needs.build.result == 'success' && (needs.offline.result == 'success' || needs.offline.result == 'skipped') && (needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sign == 'true')) }}
+    # The signing secret is an ENVIRONMENT secret, so this job declares the
+    # environment that holds it. The environment carries required reviewers and a
+    # tag-only deployment policy; without this line the secret resolves as empty
+    # and the job fails closed, which is the right failure but a confusing one.
+    environment: release
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
