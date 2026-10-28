@@ -16,20 +16,31 @@ CI secrets injected as environment variables.
 | Updater plugin (channel endpoint + pubkey) | `desktop/tauri.conf.json` `plugins.updater` + `desktop/src/main.rs` registration |
 | Dev/test build (no bundle, `desktop` profile, shared target dir) | `scripts/build-desktop.sh` |
 
-## 1. One-time: generate the signing keypair
+## 1. The signing keypair
 
-Tauri's updater uses minisign signatures (`TAURI_SIGNING_PRIVATE_KEY`).
+Tauri's updater uses minisign signatures (`TAURI_SIGNING_PRIVATE_KEY`), a
+different key from the SSH key that signs release artifacts. The pair already
+exists:
+
+| Half | Where |
+|---|---|
+| Public key | committed in `desktop/tauri.conf.json` → `plugins.updater.pubkey` |
+| Private key | `~/.tauri/marula-desktop-updater.key` (0600), to be held in the release secret store |
+
+Store the private key before the first desktop release, and never in the repo:
 
 ```sh
-pnpm tauri signer generate ~/.tauri/marula.key
+infisical secrets set TAURI_SIGNING_PRIVATE_KEY --env prod --path /release
+# paste the file's contents at the prompt, not `$(cat …)`, so the key
+# does not land in your shell history
 ```
 
-- Keep the **private key** + its password in your password manager / CI
-  secrets (`TAURI_SIGNING_PRIVATE_KEY` = file contents or path,
-  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`).
-- Paste the printed **public key** into `desktop/tauri.conf.json`
-  → `plugins.updater.pubkey`, replacing the `REPLACE_AT_RELEASE_TIME`
-  placeholder. This is the ONLY key material that is committed.
+Then delete the local copy once the secret store holds it. To rotate, generate a
+new pair (`pnpm tauri signer generate -w ~/.tauri/marula-desktop-updater.key`),
+commit the new public key, store the new private key, and say in the release
+notes that clients older than the rotation will not accept updates until they
+are reinstalled. `scripts/check-desktop-trust.mjs` refuses a placeholder, a key
+that is not a minisign document, and a plaintext endpoint.
 
 ## 2. Build a signed bundle
 
@@ -50,9 +61,9 @@ pnpm tauri build            # Tauri codesigns (--options runtime --timestamp) + 
 Notes:
 - `scripts/build-desktop.sh` (the dev/test path) uses `tauri build --no-bundle`
   and stays ad-hoc signed — it never needs any of the secrets above.
-- With `createUpdaterArtifacts: true` and a placeholder/missing key, a full
-  `pnpm tauri build` fails loudly instead of shipping unsigned update
-  artifacts — that is deliberate.
+- With `createUpdaterArtifacts: true`, a full `pnpm tauri build` needs
+  `TAURI_SIGNING_PRIVATE_KEY`. Without it the bundle step fails rather than
+  shipping update artifacts nothing can verify: that is deliberate.
 
 ## 3. Publish the update channel
 
