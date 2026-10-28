@@ -44,6 +44,9 @@ test-results/
 playwright-report/
 # Per-run stack env + PID registry + service logs (p37-env-orchestration)
 e2e/.e2e-stack.env
+# gate-db.sh writes these per run and `bash scripts/gate-db.sh down` removes
+# them; they carry the run's database URL, so they are never committed.
+.kilo/gate-db*.env
 .kilo/dev-registry/
 .kilo/e2e-logs/
 # Vector ANN benchmark output (lane P10): run dumps are machine-local and the
