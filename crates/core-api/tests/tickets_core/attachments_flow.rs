@@ -23,11 +23,13 @@
 //! Database selection follows settings_flow's contract:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
+use crate::common::{
+    body_bytes, body_json, send as send_json, test_state_scanned as test_state_with,
+};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use core_store::ObjectStore as _;
 use serde_json::{json, Value};
-use sqlx::PgPool;
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -92,56 +94,6 @@ async fn test_state() -> (AppState, Arc<core_store::memory::MemoryStore>) {
     test_state_with(None).await
 }
 
-/// Builds the app state with a chosen scanner. `None` keeps the config-built
-/// edge (none mode), which is what every pre-gate test here exercises; the
-/// gate tests inject [`GateScan`] so a verdict can be forced.
-async fn test_state_with(
-    scanner: Option<Arc<dyn core_mail::ScanProvider>>,
-) -> (AppState, Arc<core_store::memory::MemoryStore>) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("attachments e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    let store = Arc::new(core_store::memory::MemoryStore::new());
-    let mail = match scanner {
-        Some(scanner) => Arc::new(core_api::email::MailStack {
-            transport: Arc::new(core_mail::NoopTransport),
-            scanner,
-            from_address: config.email_from_address.clone(),
-            from_name: config.email_from_name.clone(),
-        }),
-        None => Arc::new(core_api::email::MailStack::from_config(&config)),
-    };
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail,
-        store: std::sync::Arc::clone(&store) as Arc<dyn core_store::ObjectStore>,
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    };
-    (state, store)
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
 /// Raw-body request helper for uploads and downloads.
 async fn send_raw(
     app: &Router,
@@ -168,46 +120,6 @@ async fn send_raw(
     app.clone().oneshot(request).await.unwrap()
 }
 
-async fn send_json(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_bytes(response: axum::response::Response) -> Vec<u8> {
-    axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap()
-        .to_vec()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let status = response.status();
-    let bytes = body_bytes(response).await;
-    match serde_json::from_slice(&bytes) {
-        Ok(v) => v,
-        Err(e) => panic!(
-            "non-JSON body ({status}): {} :: {e}",
-            String::from_utf8_lossy(&bytes)
-        ),
-    }
-}
-
 struct Org {
     token: String,
     ticket_a: String,
@@ -217,25 +129,7 @@ struct Org {
 /// Registers one org + one client-facing ticket on the default board.
 async fn seed_org(app: &Router, tag: &str) -> Org {
     let slug = format!("attach-flow-{tag}-{}", Uuid::now_v7().simple());
-    let response = send_json(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        None,
-        Some(json!({
-            "org_name": "Attach Flow Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    let token = body_json(response).await["access_token"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let token = crate::common::register_org_token(app, "Attach Flow Co", &slug).await;
 
     let boards = body_json(
         send_json(
