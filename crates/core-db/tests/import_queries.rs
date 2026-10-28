@@ -8,6 +8,7 @@
 
 mod common;
 
+use chrono::SubsecRound;
 use common::{fixed_uuid, org_tx, test_db};
 use core_db::{audit, clients, imports, orgs};
 use core_domain::entities::Actor;
@@ -413,7 +414,13 @@ async fn audit_writes_actor_import_rows_after_writer_extension() {
         entity_id: Some(Uuid::now_v7().to_string()),
         detail: serde_json::json!({ "label": "qbo-migration" }),
         ip: None,
-        occurred_at: chrono::Utc::now(),
+        // `timestamptz` keeps microseconds, and Linux's clock returns
+        // nanoseconds, so a raw `now()` can never round-trip equal — this
+        // passed on macOS (whose clock is microsecond-resolution) and failed
+        // on the Linux runner. Truncate to the column's resolution: the test is
+        // about the actor descriptor surviving as a whole row, not about
+        // sub-microsecond time.
+        occurred_at: chrono::Utc::now().trunc_subsecs(6),
     };
     {
         let mut tx = org_tx(&db.app, org).await;
