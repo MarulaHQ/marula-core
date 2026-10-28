@@ -590,6 +590,15 @@ async fn update_command(
         Err(reason) => Err(reason),
     });
 
+    // Record the version only when the update held. A rollback restored the
+    // files, including a VERSION that was never overwritten, so writing it
+    // unconditionally would claim a version the install does not have.
+    if outcome.rolled_back.is_none() {
+        if let Some(version) = &report.latest {
+            update::record_version(&dir, version)?;
+        }
+    }
+
     for line in &outcome.applied.done {
         println!("  ok  {line}");
     }

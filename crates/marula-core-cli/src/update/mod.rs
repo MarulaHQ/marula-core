@@ -174,6 +174,21 @@ pub fn installed_version(dir: &Path) -> String {
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string())
 }
 
+/// Records the version an update applied.
+///
+/// Without this the next `--check` compares the manifest against the *binary's*
+/// own version, so a successful upgrade keeps offering itself: the W60-6 gate
+/// read "a security update is available: 0.4.0 (from 0.3.1)" immediately after
+/// applying 0.4.0. The file lands beside `marula.env`, is included in the
+/// backup, and is restored if the update rolls back.
+pub fn record_version(dir: &Path, version: &str) -> Result<(), UpdateError> {
+    let path = dir.join("VERSION");
+    std::fs::write(&path, format!("{version}\n")).map_err(|error| UpdateError::Io {
+        path,
+        error: error.to_string(),
+    })
+}
+
 /// What a backup holds: the files an install owns, and where each came from.
 #[derive(Debug, Clone)]
 pub struct Backup {
@@ -368,6 +383,27 @@ mod tests {
         std::fs::write(dir.join("marula.env"), "MARULA_SECRET_KEY=old\n").expect("env");
         std::fs::write(dir.join("VERSION"), "0.9.0\n").expect("version");
         dir
+    }
+
+    /// The gate that found this: 0.4.0 applied, doctor green, and `--check`
+    /// still said "0.4.0 (from 0.3.1)" because no VERSION was ever written.
+    #[test]
+    fn the_version_an_update_applied_is_the_one_the_next_check_reads() {
+        let dir = scratch();
+        assert_eq!(installed_version(&dir), "0.9.0");
+        record_version(&dir, "1.2.3").expect("record");
+        assert_eq!(installed_version(&dir), "1.2.3");
+    }
+
+    /// A rollback restores the files it backed up, so the version it restored
+    /// must be the one the install had, not the one the update wanted.
+    #[test]
+    fn a_rolled_back_update_keeps_the_version_the_backup_holds() {
+        let dir = scratch();
+        let backup = backup(&dir, "1.2.3").expect("backup");
+        record_version(&dir, "1.2.3").expect("record");
+        restore(&backup).expect("restore");
+        assert_eq!(installed_version(&dir), "0.9.0");
     }
 
     fn plan() -> Plan {
