@@ -174,6 +174,83 @@ pub fn read_public_key(path: &Path) -> Result<TrustedSigningKey, UpdateError> {
     })
 }
 
+/// Whether this signature is an OpenSSH signature block rather than raw hex.
+///
+/// The release pipeline signs with `ssh-keygen -Y sign`, because every runner
+/// has it and the maintainer's release key is an SSH key. A hex ed25519
+/// signature is still accepted, so a caller with a plain key is not forced to
+/// install OpenSSH, but the pipeline's format is the one that must work.
+#[must_use]
+pub fn is_ssh_signature(text: &str) -> bool {
+    text.trim_start()
+        .starts_with("-----BEGIN SSH SIGNATURE-----")
+}
+
+/// Verifies an OpenSSH signature over a file, through `ssh-keygen`.
+///
+/// Purpose: `ssh-keygen -Y verify` implements the SSHSIG format, including the
+/// namespace and the identity line. Re-implementing that parser here would be a
+/// second implementation of a format whose bugs are signature bypasses.
+///
+/// Non-purpose: it does not decide who to trust. `allowed_signers` is the trust
+/// anchor and it belongs to the caller, because a key compiled into this binary
+/// is a key that can be changed by a pull request.
+///
+/// A missing `ssh-keygen` is reported with the exact command a person can run by
+/// hand, rather than as "verification failed", which would be untrue.
+pub fn verify_ssh_signature(
+    sums: &Path,
+    signature: &Path,
+    allowed_signers: &Path,
+    identity: &str,
+) -> Result<(), UpdateError> {
+    if !allowed_signers.is_file() {
+        return Err(UpdateError::Signature(format!(
+            "{} is not an allowed-signers file, so there is nobody to trust",
+            allowed_signers.display()
+        )));
+    }
+    let sums_file = std::fs::File::open(sums).map_err(|error| UpdateError::Io {
+        path: sums.to_path_buf(),
+        error: error.to_string(),
+    })?;
+
+    let output = std::process::Command::new("ssh-keygen")
+        .arg("-Y")
+        .arg("verify")
+        .arg("-f")
+        .arg(allowed_signers)
+        .arg("-I")
+        .arg(identity)
+        .arg("-n")
+        .arg("file")
+        .arg("-s")
+        .arg(signature)
+        .stdin(std::process::Stdio::from(sums_file))
+        .output();
+
+    match output {
+        Ok(result) if result.status.success() => Ok(()),
+        Ok(result) => {
+            let detail = String::from_utf8_lossy(&result.stderr);
+            Err(UpdateError::Signature(format!(
+                "the OpenSSH signature does not hold: {}",
+                detail.lines().next().unwrap_or("no detail").trim()
+            )))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(UpdateError::Signature(format!(
+                "`ssh-keygen` is not on this machine. Verify by hand with: ssh-keygen -Y verify \
+                 -f {} -I {identity} -n file -s {} < {}",
+                allowed_signers.display(),
+                signature.display(),
+                sums.display()
+            )))
+        }
+        Err(error) => Err(UpdateError::Signature(error.to_string())),
+    }
+}
+
 /// Verifies a signed `SHA256SUMS`: the signature covers the sums file's bytes,
 /// and the sums file covers every artifact.
 pub fn verify_signed_sums(
@@ -279,6 +356,75 @@ mod tests {
         let refused = verify_signed_sums(tampered.as_bytes(), &signature, &trusted)
             .expect_err("a changed sums file is refused");
         assert!(matches!(refused, UpdateError::Signature(_)), "{refused}");
+    }
+
+    #[test]
+    fn an_openssh_signature_is_recognised_and_a_hex_one_is_not() {
+        assert!(is_ssh_signature("-----BEGIN SSH SIGNATURE-----\nabc"));
+        assert!(is_ssh_signature("\n-----BEGIN SSH SIGNATURE-----"));
+        assert!(!is_ssh_signature(&"a".repeat(128)));
+    }
+
+    #[test]
+    fn an_openssh_signature_verifies_and_a_tampered_file_does_not() {
+        // The release pipeline signs with ssh-keygen, so the product's verifier
+        // has to agree with it. Skipped only where OpenSSH is absent.
+        let dir = scratch();
+        let key = dir.join("release-key");
+        let generated = std::process::Command::new("ssh-keygen")
+            .args(["-t", "ed25519", "-N", "", "-f"])
+            .arg(&key)
+            .output();
+        let Ok(generated) = generated else {
+            eprintln!("skipping: ssh-keygen is not on this machine");
+            return;
+        };
+        if !generated.status.success() {
+            eprintln!("skipping: ssh-keygen could not create a key");
+            return;
+        }
+
+        let sums = dir.join("SHA256SUMS");
+        std::fs::write(&sums, format!("{}  marula\n", "0".repeat(64))).expect("sums");
+        let signed = std::process::Command::new("ssh-keygen")
+            .args(["-Y", "sign", "-f"])
+            .arg(&key)
+            .args(["-n", "file"])
+            .arg(&sums)
+            .output()
+            .expect("sign");
+        assert!(signed.status.success(), "{:?}", signed);
+
+        let public = std::process::Command::new("ssh-keygen")
+            .args(["-y", "-f"])
+            .arg(&key)
+            .output()
+            .expect("public key");
+        let allowed = dir.join("allowed_signers");
+        std::fs::write(
+            &allowed,
+            format!(
+                "releases@getmarula.com {}\n",
+                String::from_utf8_lossy(&public.stdout).trim()
+            ),
+        )
+        .expect("allowed signers");
+
+        let signature = sums.with_extension("").with_file_name("SHA256SUMS.sig");
+        let signature = if signature.is_file() {
+            signature
+        } else {
+            dir.join("SHA256SUMS.sig")
+        };
+        assert!(
+            verify_ssh_signature(&sums, &signature, &allowed, "releases@getmarula.com").is_ok()
+        );
+
+        std::fs::write(&sums, format!("{}  marula.sh\n", "0".repeat(64))).expect("tamper");
+        assert!(
+            verify_ssh_signature(&sums, &signature, &allowed, "releases@getmarula.com").is_err()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

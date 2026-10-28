@@ -195,12 +195,17 @@ enum ArtifactAction {
         /// The checksum file shipped beside the bundle.
         #[arg(long)]
         sums: std::path::PathBuf,
-        /// Detached signature over the sums file (hex).
+        /// Detached signature over the sums file: an OpenSSH signature (as the
+        /// release pipeline produces) or hex ed25519.
         #[arg(long)]
         signature: Option<std::path::PathBuf>,
-        /// Trusted ed25519 public key (repeatable).
+        /// Trust material: an `allowed_signers` file for an OpenSSH signature,
+        /// or an ed25519 public key in hex (repeatable).
         #[arg(long = "key")]
         key: Vec<std::path::PathBuf>,
+        /// The identity line an OpenSSH signature names.
+        #[arg(long, default_value = "releases@getmarula.com")]
+        identity: String,
         /// Directory the checksum paths are relative to.
         #[arg(long, default_value = ".")]
         root: std::path::PathBuf,
