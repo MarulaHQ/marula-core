@@ -419,9 +419,9 @@ export interface ShapeChoice {
 
 const RESTART_NOTE: Record<ShapeChoice["restart"], string> = {
   "unless-stopped":
-    "Comes back after a crash and after the Docker daemon restarts. A deliberate stop stays stopped, and it only starts at boot if Docker itself does.",
-  always: "Comes back even after a deliberate stop, which surprises people who ran compose stop.",
-  no: "Stays down when it exits. Right for a box you are working on, wrong for one that serves a team.",
+    "Comes back after a crash and after the Docker daemon restarts. A deliberate stop stays stopped. It only starts at boot if Docker itself does.",
+  always: "Comes back even after a deliberate stop. That surprises people who ran compose stop.",
+  no: "Stays down when it exits. Right for a box you are working on. Wrong for one that serves a team.",
 };
 
 /** The two decisions that are not environment variables: where the images come
@@ -449,8 +449,8 @@ function DeploymentSection({
           </Segmented>
           <p className="m-0 text-[11.5px] leading-[1.5] text-muted-foreground">
             {shape.images === "build"
-              ? "Compiles the four services on this machine. Needs the sources, a Rust toolchain and a Node one; it is what a developer install uses."
-              : "Pulls the release's images pinned by digest and stops Compose building. Needs the digests the release published; the terminal takes them with --image-digest."}
+              ? "Compiles the four services on this machine. It needs the sources, a Rust toolchain and a Node one, so it is the shape a developer install uses."
+              : "Pulls the release's images pinned by digest and stops Compose building. It needs the digests the release published, and the terminal takes them with --image-digest."}
           </p>
         </div>
 
