@@ -16,98 +16,12 @@
 //! `approved` → `billed` leg is a store-level concern), and the SLA-credit
 //! lifecycle.
 
+use crate::common::{body_json, register_org_token, send, test_state};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
-use serde_json::{json, Value};
-use sqlx::PgPool;
+use core_api::state::AppState;
+use serde_json::json;
 use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
-
-async fn test_state() -> (AppState, Router) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("change-order e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect_admin(&admin_url).await.expect("admin pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url.clone();
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&admin_url)
-            .expect("lazy reporting pool"),
-    };
-    let app = core_api::routes::build_router(state.clone());
-    (state, app)
-}
-
-async fn connect_admin(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
-
-async fn register_org(app: &Router, slug: &str) -> String {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        None,
-        Some(json!({
-            "org_name": "Change Order Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    body_json(response).await["access_token"]
-        .as_str()
-        .expect("access token")
-        .to_string()
-}
 
 /// Seeds one client + one active T&M contract; returns (org id, contract id).
 async fn seed_contract(state: &AppState, app: &Router, bearer: &str) -> (Uuid, Uuid) {
@@ -172,7 +86,7 @@ async fn order_status(state: &AppState, order: Uuid) -> String {
 async fn concurrent_approve_and_reject_cannot_both_win() {
     let (state, app) = test_state().await;
     let slug = format!("co-race-{}", Uuid::now_v7().simple());
-    let owner = register_org(&app, &slug).await;
+    let owner = register_org_token(&app, "Change Order Co", &slug).await;
     let (_org, contract) = seed_contract(&state, &app, &owner).await;
     let order = create_draft_order(&app, &owner, contract).await;
     assert_eq!(order_status(&state, order).await, "draft");
@@ -229,7 +143,7 @@ async fn concurrent_approve_and_reject_cannot_both_win() {
 async fn a_transition_from_the_wrong_status_is_refused() {
     let (state, app) = test_state().await;
     let slug = format!("co-wrong-{}", Uuid::now_v7().simple());
-    let owner = register_org(&app, &slug).await;
+    let owner = register_org_token(&app, "Change Order Co", &slug).await;
     let (_org, contract) = seed_contract(&state, &app, &owner).await;
     let order = create_draft_order(&app, &owner, contract).await;
 

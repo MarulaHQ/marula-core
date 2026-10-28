@@ -12,112 +12,26 @@
 //! Non-purpose: managed feeds (Relay bundles on the FxRateProvider
 //! trait), revaluation (never in the core), UI (lane 11).
 
+use crate::common::{body_json, register_org, send, test_state as common_test_state};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
+/// `common::test_state` plus the RLS-coverage precondition this flow carried
+/// as a separate target. Same check, same pool, run before the test body.
 async fn test_state() -> (AppState, Router) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("fx e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect_admin(&admin_url).await.expect("admin pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    core_db::assert_rls_coverage(&pool)
+    let (state, app) = common_test_state().await;
+    core_db::assert_rls_coverage(&state.pool)
         .await
         .expect("RLS coverage holds with fx tables");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    };
-    let app = core_api::routes::build_router(state.clone());
     (state, app)
-}
-
-async fn connect_admin(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder()
-        .method(method.clone())
-        .uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
-        panic!(
-            "body parse failed ({status}): {e}; body: {}",
-            String::from_utf8_lossy(&bytes)
-        )
-    })
-}
-
-async fn register_org(app: &Router, slug: String) -> Value {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        None,
-        Some(json!({
-            "org_name": "FX Co",
-            "org_slug": slug,
-            "email": format!("owner@{}.test", slug),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    body_json(response).await
 }
 
 #[tokio::test]
 async fn fx_rate_book_snapshots_reconciliation_and_governed_base_change() {
     let (_state, app) = test_state().await;
-    let org = register_org(&app, format!("fx1-{}", Uuid::now_v7().simple())).await;
+    let org = register_org(&app, "FX Co", &format!("fx1-{}", Uuid::now_v7().simple())).await;
     let token = org["access_token"].as_str().unwrap().to_string();
 
     // The org's base currency defaults to USD and is visible on /api/org.
