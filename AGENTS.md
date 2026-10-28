@@ -304,13 +304,16 @@ once and waits for the user before running heavy verification (user directive
 
 ### Cheap gates: the arithmetic, and the three commands
 
-Added 2026-10-28 after a lane reported that the suite had become too big to run,
-when the disk was the problem. It was neither. One full `core-api` cycle is about
-116 integration binaries at 14–28 MB each, roughly 2–3 GB per generation, and
-`[profile.test]` already carries no debug info (DX6d). What grows without bound is
-the cache: cargo never collects old artifact generations, and this repository's
-own record found eleven `libcore_api` generations alive at once. A 26 GB
-"core-api" was sixteen generations, not one build.
+Added 2026-10-28 after a lane reported that the suite had become too big to run.
+It is big, and measured: `core-api` has about 116 integration targets, each is its
+own crate that statically links the whole product, and each binary is ~225 MB.
+One complete build is therefore roughly **26 GB** — which is exactly what
+`cargo clean -p core-api` reclaimed when it was measured. `[profile.test]` already
+carries no debug info (DX6d), so that size is the layout, not leftover symbols.
+
+Two things follow. A full suite needs ~26 GB of headroom before it starts, and
+cargo additionally never collects superseded generations, so a cache that has
+run several cycles holds a multiple of that until something sweeps it.
 
 So a lane gate is three commands, cheapest first:
 
@@ -321,8 +324,14 @@ So a lane gate is three commands, cheapest first:
   generation instead of many.
 - **Batch a full package on a tight disk** —
   `scripts/p13-test.sh --batch 12 -p core-api` runs the targets in chunks and
-  collects the package's artifacts between them, so peak disk is one chunk.
-  `--print-plan` shows the chunks and runs nothing.
+  collects the package's artifacts between them, so peak disk is one chunk
+  (~12 × 225 MB) instead of all 116 (~26 GB). `--print-plan` shows the chunks and
+  runs nothing.
+
+The durable fix is fewer binaries, not a bigger disk: collapsing targets that
+carry no process-global state into `tests/<group>/main.rs` cuts both the count
+and the link cost. The `test-binaries` lane measured 4 → 1 as 900.7 MiB → 225.4
+MiB and −77% CPU on the link.
 
 The workspace sweep stays an integration-owner act, not a per-lane one. A
 worktree that builds into its own `target/` pays for a second copy of every
