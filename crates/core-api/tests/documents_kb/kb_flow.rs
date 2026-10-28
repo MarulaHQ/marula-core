@@ -19,110 +19,26 @@
 //! Database selection follows settings_flow's contract:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
+use crate::common::{auth, body_json, register_org_token, send_headers as send, state_with};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
-use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
+use core_api::state::AppState;
+use serde_json::json;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("kb flow needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    config.secret_key = core_api::config::SecretKey([21; 32]);
-    // Enable the internal effect surface so the search-index seeding step
-    // exercises the exact indexer write path (2.16 pattern).
-    config.internal_token = Some("kb-flow-internal-token".to_string());
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    }
+    state_with(|config| {
+        config.secret_key = core_api::config::SecretKey([21; 32]);
+        config.internal_token = Some("kb-flow-internal-token".to_string());
+    })
+    .await
 }
 
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    headers: &[(&str, String)],
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    for (name, value) in headers {
-        builder = builder.header(*name, value.clone());
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
-}
-
-fn auth(token: &str) -> (&'static str, String) {
-    ("authorization", format!("Bearer {token}"))
+async fn register_org(app: &Router, slug: &str) -> String {
+    register_org_token(app, "KB Co", slug).await
 }
 
 fn internal() -> (&'static str, String) {
     ("x-internal-token", "kb-flow-internal-token".to_string())
-}
-
-async fn register_org(app: &Router, slug: &str) -> String {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        &[],
-        Some(json!({
-            "org_name": "KB Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    body_json(response).await["access_token"]
-        .as_str()
-        .expect("access token")
-        .into()
 }
 
 /// Creates a second user with the builtin read_only role (no kb:create)

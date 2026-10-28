@@ -31,12 +31,18 @@
 //! Database selection follows settings_flow's contract:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
+use crate::common::{register_org_token, send, state_with};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
+
+async fn test_state() -> AppState {
+    state_with(|_| {}).await
+}
+
+async fn register_org(app: &Router, slug: &str) -> String {
+    register_org_token(app, "Versioning Co", slug).await
+}
 
 const LEGACY: &str = "/api";
 const CANONICAL: &str = "/api/v1";
@@ -56,60 +62,6 @@ const MACHINE_TAILS: &[&str] = &[
     "/internal/webhook/deliveries",
 ];
 
-async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("versioning e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url;
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
-            .expect("reporting pool"),
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-    }
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
 async fn status_and_body(response: axum::response::Response) -> (u16, Vec<u8>) {
     let status = response.status().as_u16();
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -120,28 +72,6 @@ async fn status_and_body(response: axum::response::Response) -> (u16, Vec<u8>) {
 
 /// Registers a fresh org through the legacy prefix and returns an owner
 /// access token (both prefixes share org state — same handlers, same DB).
-async fn register_org(app: &Router, slug: &str) -> String {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        &format!("{LEGACY}/auth/register"),
-        None,
-        Some(json!({
-            "org_name": "Versioning Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    let (status, body) = status_and_body(response).await;
-    assert_eq!(status, 200);
-    let value: Value = serde_json::from_slice(&body).unwrap();
-    value["access_token"].as_str().expect("access token").into()
-}
-
 /// Replaces every `{param}` template segment with a syntactically valid
 /// placeholder so probes reach route matching rather than pattern failure.
 fn concrete_path(template: &str, prefix: &str) -> String {
