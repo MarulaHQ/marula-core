@@ -13,105 +13,23 @@
 //! Database selection follows settings_flow's contract:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
+use crate::caller::fresh_caller_ip;
+use crate::common::{
+    body_json, send_caller as send, send_caller_headers as send_with_headers, state_with,
+};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
 use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
-#[path = "support/caller.rs"]
-mod caller;
-
-use caller::fresh_caller_ip;
-
 async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("portal e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    let reporting_url = config.database_url.clone();
-    config.database_url = admin_url;
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    }
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    // Every request carries a caller of its own. A `oneshot` request with no
-    // `X-Forwarded-For` collapses into the shared `unknown` gate bucket, so a
-    // failure in one case could refuse a sign-in in another (Wave 54 follow-up
-    // F7). `stamp` respects an explicit header, which is how a case that needs
-    // one stable caller across several requests gets it.
-    let request = fresh_caller_ip().stamp(request);
-    app.clone().oneshot(request).await.unwrap()
+    state_with(|_| {}).await
 }
 
 /// `send` twin for the cookie-session flow: carries request headers (the
 /// browser's Cookie jar plus the echoed x-marula-csrf) and returns the
 /// response with its Set-Cookie heads intact.
-async fn send_with_headers(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    headers: &[(&str, &str)],
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    for (name, value) in headers {
-        builder = builder.header(*name, *value);
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    let request = fresh_caller_ip().stamp(request);
-    app.clone().oneshot(request).await.unwrap()
-}
-
 /// Every Set-Cookie value on a response, in order.
 fn set_cookie_values(response: &axum::response::Response) -> Vec<String> {
     response
@@ -129,20 +47,6 @@ fn cookie_value(set_cookies: &[String], name: &str) -> String {
         .find_map(|c| c.strip_prefix(&format!("{name}=")))
         .map(|c| c.split(';').next().unwrap_or("").to_string())
         .unwrap_or_else(|| panic!("no {name} Set-Cookie among {set_cookies:?}"))
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    let status = response.status();
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    match serde_json::from_slice(&bytes) {
-        Ok(v) => v,
-        Err(e) => panic!(
-            "non-JSON body ({status}): {} :: {e}",
-            String::from_utf8_lossy(&bytes)
-        ),
-    }
 }
 
 struct Org {
