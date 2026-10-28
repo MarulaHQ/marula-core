@@ -13,98 +13,19 @@
 //! Non-purpose: SQL-layer behavior (core-db suites), the chat runner /
 //! tool loop (lane 2), the UI close-out (lane 3).
 
+use crate::common::{body_json, register_org_token, send, state_with};
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
-use serde_json::{json, Value};
+use core_api::state::AppState;
+use serde_json::json;
 use sqlx::PgPool;
-use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("ai policy e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url.clone();
-    let reporting_url = admin_url.clone();
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: core_api::state::AppState::reporting_pool_lazy(&reporting_url)
-            .expect("lazy reporting pool"),
-    }
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
+    state_with(|_| {}).await
 }
 
 async fn register_org(app: &Router, slug: &str) -> String {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        None,
-        Some(json!({
-            "org_name": "AI Policy Flow Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    body_json(response).await["access_token"]
-        .as_str()
-        .unwrap()
-        .into()
+    register_org_token(app, "AI Policy Flow Co", slug).await
 }
 
 async fn invite_member(app: &Router, bearer: &str, email: &str) -> String {
