@@ -6911,6 +6911,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orgs/{org_id}/entitlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/orgs/{org_id}/entitlements — the artifact the org holds.
+         * @description Reads require the Admin:read grant: the payload is the org's commercial
+         *     facts, and every member does not need to know what was bought.
+         */
+        get: operations["org_entitlement_get"];
+        /**
+         * PUT /api/v1/orgs/{org_id}/entitlements — adopt a signed artifact.
+         * @description Verifies against the signing trust set, refuses a stale revision and an
+         *     artifact minted for another org, stores the verified document, and answers
+         *     with the revision now held so the issuer can mark its snapshot acked.
+         */
+        put: operations["org_entitlement_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/orgs/{org_id}/quotas": {
         parameters: {
             query?: never;
@@ -13831,6 +13858,19 @@ export interface components {
              */
             qty_milli: number;
         };
+        /** @description The adoption request: the signed document, verbatim, plus its signature. */
+        AdoptEntitlementRequest: {
+            /** @description The artifact object the signature covers. Stored verbatim once verified. */
+            artifact: Record<string, never>;
+            signature: components["schemas"]["EntitlementSignature"];
+        };
+        /** @description The write answer: what the org now holds, and whether this call changed it. */
+        AdoptEntitlementView: {
+            entitlement: components["schemas"]["EntitlementHeld"];
+            /** Format: uuid */
+            org_id: string;
+            outcome: components["schemas"]["EntitlementOutcome"];
+        };
         /** @description GET /api/agent-proposals envelope. */
         AgentProposalPage: {
             next_cursor?: string | null;
@@ -20205,6 +20245,52 @@ export interface components {
             /** Format: uuid */
             provider_id: string;
             provider_slug: string;
+        };
+        /** @description The artifact an org holds. */
+        EntitlementHeld: {
+            /** Format: date-time */
+            adopted_at: string;
+            /** Format: uuid */
+            adopted_by?: string | null;
+            /** Format: date-time */
+            issued_at?: string | null;
+            /** @description The trust identity that verified the artifact when it was adopted. */
+            key_id?: string | null;
+            /** @description The signed payload, verbatim. Core does not interpret it. */
+            payload: Record<string, never>;
+            payload_sha256: string;
+            /**
+             * Format: int64
+             * @description The issuing side's monotonic revision.
+             */
+            revision: number;
+        };
+        /**
+         * @description What an adoption did. `Unchanged` means the artifact presented is the one
+         *     already held (same revision, same payload digest): a retry that must not be
+         *     recorded as a second adoption.
+         * @enum {string}
+         */
+        EntitlementOutcome: "adopted" | "unchanged";
+        /**
+         * @description The signature block. `key_id` is advisory — it says which identity the
+         *     issuer believes signed — while verification runs against the whole trust
+         *     set. `key_id` in the response is the key that actually verified.
+         */
+        EntitlementSignature: {
+            /** @description The trust identity the issuer says signed it. Advisory only. */
+            key_id?: string | null;
+            /** @description 128 hex characters: ed25519 over sha256(canonical artifact). */
+            sig: string;
+        };
+        /**
+         * @description The read answer. `entitlement` is null when the org never adopted one,
+         *     which is different from "adopted zero" — there is no zero revision.
+         */
+        EntitlementView: {
+            entitlement?: null | components["schemas"]["EntitlementHeld"];
+            /** Format: uuid */
+            org_id: string;
         };
         EntityBatchOutcome: {
             detail?: string | null;
@@ -45318,6 +45404,110 @@ export interface operations {
             };
             /** @description no custom domain is set */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_entitlement_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org to report on; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntitlementView"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description caller lacks the Admin:read grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    org_entitlement_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the org adopting the artifact; must be the caller's own org */
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdoptEntitlementRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdoptEntitlementView"];
+                };
+            };
+            /** @description not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description caller lacks the Admin:edit grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such org for this caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description stale revision, or no signing key is trusted */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the artifact or its signature did not verify */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

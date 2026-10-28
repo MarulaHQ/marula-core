@@ -41,6 +41,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 - [Bill project work](project-billing.md) — Link a project to a client contract, track phase budget burn, release completed milestones into invoice runs, and log project hours without creating a dummy ticket.
 - [Verify a billing period](admin-billing-verification.md) — Review every logged hour in a billing window, categorize or write down entries with a recorded reason, and sign off before issuing invoices.
 - [Buy: vendors, purchase orders, receiving, bills](admin-purchasing.md) — Create vendor records, issue purchase orders, scan arriving goods into stock, and post vendor bills against project budgets.
+- [Install an entitlement file](admin-entitlements.md) — Verify a provider's signed entitlement, read back the revision Marula holds, and understand each refusal.
 - [Record FX rates & read reconciliation](admin-fx-rates.md) — Add exchange rates to the append-only rate book and review multi-currency totals by line type.
 
 ## Workspace setup and administration guides (admins and service desk leads)
