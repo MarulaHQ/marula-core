@@ -19,6 +19,7 @@ import {
   Pill,
   Segmented,
   SegmentedItem,
+  Select,
   Switch,
 } from "@marula-core/ui/kit";
 
@@ -440,12 +441,11 @@ function RecommendedSettings({
                     label={field.label}
                     hint={overridden ? param.consequence : field.hint ?? param.description}
                   >
-                    <Input
-                      value={param.secret && !overridden ? "" : current.value ?? ""}
-                      placeholder={param.secret ? "unchanged" : param.default ?? "not set"}
-                      onChange={(event) => onSet(param.name, event.target.value)}
-                      spellCheck={false}
-                      autoComplete="off"
+                    <ParamControl
+                      param={param}
+                      value={current.value}
+                      overridden={overridden}
+                      onSet={onSet}
                     />
                   </Field>
                   {!overridden && param.default_rationale ? (
@@ -615,6 +615,8 @@ function ParamRow({
   );
 }
 
+/** The control a lever gets: a switch for a boolean, a select for a closed set,
+ *  a text field for everything else. The set comes from the descriptor. */
 function ParamControl({
   param,
   value,
@@ -626,6 +628,32 @@ function ParamControl({
   overridden: boolean;
   onSet: (name: string, value: string) => void;
 }) {
+  if (param.values.length > 0) {
+    const current = value ?? "";
+    const known = param.values.includes(current);
+    return (
+      <div className="flex items-center gap-2">
+        <Select
+          value={known ? current : ""}
+          onChange={(event) => onSet(param.name, event.target.value)}
+          aria-label={param.name}
+        >
+          {known ? null : <option value="">{current ? `${current} (current)` : "choose…"}</option>}
+          {param.values.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </Select>
+        {overridden ? (
+          <Button size="sm" variant="outline" onClick={() => onSet(param.name, "")}>
+            reset
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   if (param.kind === "boolean") {
     const checked = (value ?? "").toLowerCase() === "true" || value === "1";
     return (

@@ -22,6 +22,94 @@ pub struct Selection {
     pub overrides: BTreeMap<String, String>,
     /// Where the deployment's files live.
     pub dir: PathBuf,
+    /// Where the application images come from: this checkout, or a registry.
+    pub images: ImageSource,
+    /// The registry prefix, when `images` is [`ImageSource::Registry`].
+    pub image_base: Option<String>,
+    /// One digest per application service, as `sha256:<hex>`. A registry
+    /// install refuses to plan without one for every service it starts.
+    pub image_digests: BTreeMap<String, String>,
+    /// What the long-running services do after a crash or a daemon restart.
+    pub restart: RestartPolicy,
+}
+
+/// Where the application images come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageSource {
+    /// Build from this checkout. The shape a developer install uses, and the
+    /// only shape that works before a registry has published anything.
+    #[default]
+    Build,
+    /// Pull the release's images by digest. An install that needs no source and
+    /// no Rust toolchain on the target, which is what a release bundle is for.
+    Registry,
+}
+
+impl ImageSource {
+    /// Parses the value an operator types.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "build" => Some(Self::Build),
+            "registry" => Some(Self::Registry),
+            _ => None,
+        }
+    }
+}
+
+/// What Docker does with a service that exits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RestartPolicy {
+    /// Restarts after a crash and after a daemon restart, but a deliberate
+    /// `docker compose stop` stays stopped.
+    #[default]
+    UnlessStopped,
+    /// Restarts even after a deliberate stop.
+    Always,
+    /// Never restarts: a developer install that wants the failure in front of
+    /// it rather than hidden behind a loop.
+    No,
+}
+
+impl RestartPolicy {
+    /// The value Docker understands.
+    #[must_use]
+    pub fn as_compose(self) -> &'static str {
+        match self {
+            RestartPolicy::UnlessStopped => "unless-stopped",
+            RestartPolicy::Always => "always",
+            RestartPolicy::No => "no",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "unless-stopped" => Some(Self::UnlessStopped),
+            "always" => Some(Self::Always),
+            "no" => Some(Self::No),
+            _ => None,
+        }
+    }
+
+    /// The sentence a wizard prints under the choice. The last clause is the
+    /// part operators are surprised by, so it is not left implicit.
+    #[must_use]
+    pub fn consequence(self) -> &'static str {
+        match self {
+            RestartPolicy::UnlessStopped => {
+                "Comes back after a crash and after the Docker daemon restarts. A deliberate stop stays stopped. It only starts at boot if Docker itself does."
+            }
+            RestartPolicy::Always => {
+                "Comes back even after a deliberate stop, which surprises people who ran `compose stop`. It only starts at boot if Docker itself does."
+            }
+            RestartPolicy::No => {
+                "Stays down when it exits. Right for a box you are working on, wrong for one that serves a team."
+            }
+        }
+    }
 }
 
 impl Selection {
@@ -30,6 +118,10 @@ impl Selection {
         Self {
             profile: profile.into(),
             overrides: BTreeMap::new(),
+            images: ImageSource::Build,
+            image_base: None,
+            image_digests: BTreeMap::new(),
+            restart: RestartPolicy::UnlessStopped,
             dir: dir.into(),
         }
     }
@@ -66,6 +158,13 @@ pub enum PlanError {
         profile: String,
         missing: Vec<String>,
     },
+    /// A registry install with no digest for a service it would start. A tag is
+    /// mutable; a digest is what the release signed.
+    ImageDigestMissing {
+        service: String,
+    },
+    /// A registry install with no registry to pull from.
+    ImageBaseMissing,
     /// The detected target cannot do what the selection asks for.
     TargetUnavailable {
         target: &'static str,
@@ -91,6 +190,17 @@ impl std::fmt::Display for PlanError {
                 "profile {profile} needs more machine than this host has: {}",
                 missing.join("; ")
             ),
+            Self::ImageDigestMissing { service } => write!(
+                f,
+                "a registry install needs a digest for {service}: a tag can be moved, and the \
+                 release signs a digest"
+            ),
+            Self::ImageBaseMissing => {
+                write!(
+                    f,
+                    "a registry install needs --image-base, the repository prefix"
+                )
+            }
             Self::TargetUnavailable { target, reason } => {
                 write!(f, "the {target} target cannot run here: {reason}")
             }

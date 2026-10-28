@@ -38,6 +38,7 @@ function param(overrides: Partial<Param> & Pick<Param, "name">): Param {
     requires: [],
     conflicts: [],
     profile_value: null,
+    values: [],
     ...overrides,
   };
 }

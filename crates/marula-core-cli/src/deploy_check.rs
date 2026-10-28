@@ -40,6 +40,15 @@ pub enum Violation {
     ConsequenceEchoesDescription { param: String },
     /// A default with no stated reason.
     NoDefaultRationale { param: String },
+    /// A lever declares a closed set and its default is not in it.
+    ChoiceNotAllowed {
+        param: String,
+        value: String,
+        field: String,
+    },
+    /// A closed set with an empty or repeated entry, which a select cannot
+    /// render honestly.
+    MalformedChoices { param: String, reason: String },
     /// `requires` or `conflicts` names something that is not a lever.
     UnknownLever {
         param: String,
@@ -85,6 +94,16 @@ impl Violation {
             Self::NoDefaultRationale { param } => {
                 format!("{param} has a default and no default_rationale saying why")
             }
+            Self::ChoiceNotAllowed {
+                param,
+                value,
+                field,
+            } => format!(
+                "{param} sets `{value}` in {field}, which is not one of the values it declares"
+            ),
+            Self::MalformedChoices { param, reason } => format!(
+                "{param} declares a closed set of values with {reason}, so a select cannot render it"
+            ),
             Self::UnknownLever {
                 param,
                 field,
@@ -134,12 +153,52 @@ pub fn check(d: &DeployDescriptor) -> Vec<Violation> {
     let mut out = Vec::new();
     let known: std::collections::HashSet<&str> = d.params.iter().map(|p| p.name).collect();
 
+    // A profile preset for a closed lever has to be one of its values, or the
+    // installer writes something the process will not parse.
+    for profile in &d.profiles {
+        for (name, value) in &profile.sets {
+            if let Some(param) = d.params.iter().find(|param| param.name == *name) {
+                if !param.values.is_empty() && !param.values.contains(value) {
+                    out.push(Violation::ChoiceNotAllowed {
+                        param: (*name).to_string(),
+                        value: (*value).to_string(),
+                        field: format!("profiles.{}.sets", profile.name),
+                    });
+                }
+            }
+        }
+    }
+
     for param in &d.params {
         check_consequence(param, &mut out);
         if param.default.is_some() && param.default_rationale.is_none() {
             out.push(Violation::NoDefaultRationale {
                 param: param.name.to_string(),
             });
+        }
+        if let Some(default) = param.default {
+            if !param.values.is_empty() && !param.values.contains(&default) {
+                out.push(Violation::ChoiceNotAllowed {
+                    param: param.name.to_string(),
+                    value: default.to_string(),
+                    field: "default".to_string(),
+                });
+            }
+        }
+        if !param.values.is_empty() {
+            if param.values.iter().any(|value| value.trim().is_empty()) {
+                out.push(Violation::MalformedChoices {
+                    param: param.name.to_string(),
+                    reason: "an empty entry".to_string(),
+                });
+            }
+            let mut seen = std::collections::HashSet::new();
+            if param.values.iter().any(|value| !seen.insert(*value)) {
+                out.push(Violation::MalformedChoices {
+                    param: param.name.to_string(),
+                    reason: "a repeated entry".to_string(),
+                });
+            }
         }
         for (field, levers) in [
             ("requires", param.requires.as_slice()),
@@ -426,5 +485,53 @@ mod tests {
             .insert("MARULA_EMBEDDING_MODEL", "text-embedding-3-small");
         let violations = check(&d);
         assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_value_outside_a_closed_set_is_a_violation() {
+        let mut d = deploy::descriptor();
+        let param = d
+            .params
+            .iter_mut()
+            .find(|param| param.name == "OBJECT_STORE")
+            .expect("the object store lever");
+        param.values = &["local", "s3"];
+        param.default = Some("bucket");
+        let out = check(&d);
+        assert!(
+            out.iter().any(|violation| matches!(
+                violation,
+                Violation::ChoiceNotAllowed { param, .. } if param == "OBJECT_STORE"
+            )),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn the_shipped_descriptor_publishes_the_closed_sets_it_knows() {
+        let d = deploy::descriptor();
+        for name in [
+            "OBJECT_STORE",
+            "EMAIL_TRANSPORT",
+            "MARULA_EMBEDDING_PROVIDER",
+            "MARULA_EMBEDDING_TIER",
+            "MARULA_RETRIEVAL_MODE",
+        ] {
+            let param = d
+                .params
+                .iter()
+                .find(|param| param.name == name)
+                .expect(name);
+            assert!(!param.values.is_empty(), "{name} should publish its values");
+        }
+        let url = d
+            .params
+            .iter()
+            .find(|param| param.name == "DATABASE_URL")
+            .expect("a URL lever");
+        assert!(
+            url.values.is_empty(),
+            "a URL is free text; a select would omit a legal value"
+        );
     }
 }

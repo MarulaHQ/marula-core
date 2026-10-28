@@ -7,7 +7,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Card, CardBody, CardHeader, CardTitle, Icon, Kbd, Pill, Wordmark } from "@marula-core/ui/kit";
+import { Card, CardBody, CardHeader, CardTitle, Icon, Kbd, Pill } from "@marula-core/ui/kit";
+
+import { Brand } from "./brand";
 
 import { errorMessage, transport } from "./api";
 import {
@@ -199,7 +201,7 @@ export function App() {
   if (loadError) {
     return (
       <main className="mx-auto flex max-w-[640px] flex-col gap-4 p-14">
-        <Wordmark size={26} />
+        <Brand className="h-7" />
         <Card>
           <CardHeader>
             <Icon name="alert" size={16} className="text-[var(--mc-attn-fg)]" />
@@ -227,7 +229,7 @@ export function App() {
   if (!state) {
     return (
       <main className="mx-auto flex h-full max-w-[640px] items-center gap-3 p-14 text-muted-foreground">
-        <Wordmark size={24} />
+        <Brand className="h-6" />
         <span>reading this machine…</span>
       </main>
     );
@@ -242,8 +244,8 @@ export function App() {
         className="flex flex-row items-center gap-3 border-b border-border bg-mc-side px-3 py-2.5 lg:flex-col lg:items-stretch lg:border-r lg:border-b-0 lg:px-3 lg:py-4"
       >
         <div className="hidden px-2 lg:block">
-          <Wordmark size={24} />
-          <p className="m-0 mt-0.5 pl-[38px] text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+          <Brand className="h-6" />
+          <p className="m-0 mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
             installer
           </p>
         </div>

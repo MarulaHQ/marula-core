@@ -114,6 +114,9 @@ pub struct ParamView {
     pub conflicts: Vec<String>,
     /// The profile pins this value, so an edit here is an override of a preset.
     pub profile_value: Option<String>,
+    /// The closed set this lever accepts. Empty means free text. A renderer
+    /// shows a select when it is non-empty and never invents its own list.
+    pub values: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -333,6 +336,11 @@ impl Session {
                     .conflicts
                     .iter()
                     .map(|name| (*name).to_string())
+                    .collect(),
+                values: param
+                    .values
+                    .iter()
+                    .map(|value| (*value).to_string())
                     .collect(),
                 profile_value: profiles
                     .iter()

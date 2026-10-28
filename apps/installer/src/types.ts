@@ -65,6 +65,8 @@ export interface Param {
   conflicts: string[];
   /** `"value (profile)"` when a shipped profile pins this lever. */
   profile_value: string | null;
+  /** The closed set this lever accepts. Empty means free text. */
+  values: string[];
 }
 
 export interface ConfigRow {

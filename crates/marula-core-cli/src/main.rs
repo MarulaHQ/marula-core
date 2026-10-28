@@ -121,6 +121,25 @@ enum Command {
         /// (the same value MARULA_HOST_MEMORY_MB carries).
         #[arg(long)]
         memory_mb: Option<u32>,
+        /// Where the application images come from: `build` compiles this
+        /// checkout, `registry` pulls the release's images by digest.
+        #[arg(long, value_name = "build|registry", default_value = "build")]
+        images: String,
+        /// Registry prefix for `--images registry`, e.g.
+        /// `ghcr.io/marulagh/marula`. Each service is `<prefix>-<service>`.
+        #[arg(long)]
+        image_base: Option<String>,
+        /// Pin one service to a digest: `service=sha256:...` (repeatable).
+        #[arg(long = "image-digest", value_name = "service=sha256:...")]
+        image_digest: Vec<String>,
+        /// What the long-running services do after an exit:
+        /// `unless-stopped` (default), `always` or `no`.
+        #[arg(
+            long,
+            value_name = "unless-stopped|always|no",
+            default_value = "unless-stopped"
+        )]
+        restart: String,
         /// Serve the wizard over loopback instead of printing the plan. This is
         /// the browser fallback; the native installer app is the primary, and
         /// both render the same front-end (ADR 0027).
@@ -395,6 +414,10 @@ async fn main() -> anyhow::Result<()> {
             set,
             compose_file,
             memory_mb,
+            images,
+            image_base,
+            image_digest,
+            restart,
             ui,
             port,
             ui_dir,
@@ -409,6 +432,7 @@ async fn main() -> anyhow::Result<()> {
                 compose_file,
                 memory_mb,
                 (ui, port, ui_dir, no_open),
+                (images, image_base, image_digest, restart),
             )
             .await
         }
@@ -763,6 +787,7 @@ async fn install_command(
     compose_file: std::path::PathBuf,
     memory_mb: Option<u32>,
     wizard: (bool, u16, std::path::PathBuf, bool),
+    shape: (String, Option<String>, Vec<String>, String),
 ) -> anyhow::Result<()> {
     use install::DeploymentTarget as _;
 
@@ -824,6 +849,22 @@ async fn install_command(
     for assignment in &set {
         selection.set(assignment)?;
     }
+
+    let (images, image_base, image_digest, restart) = shape;
+    selection.images = install::plan::ImageSource::parse(&images)
+        .ok_or_else(|| anyhow::anyhow!("--images takes `build` or `registry`, not `{images}`"))?;
+    selection.image_base = image_base;
+    for pair in &image_digest {
+        let (service, digest) = pair.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("--image-digest takes `service=sha256:...`, not `{pair}`")
+        })?;
+        selection
+            .image_digests
+            .insert(service.trim().to_string(), digest.trim().to_string());
+    }
+    selection.restart = install::plan::RestartPolicy::parse(&restart).ok_or_else(|| {
+        anyhow::anyhow!("--restart takes `unless-stopped`, `always` or `no`, not `{restart}`")
+    })?;
 
     let target = install::ComposeTarget::new(descriptor, compose_file);
     let plan = target.plan(&facts, &selection)?;

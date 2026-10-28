@@ -118,6 +118,11 @@ pub struct Param {
     /// Levers that must not be set at the same time, because the process reads
     /// one of them and refuses or ignores the other.
     pub conflicts: Vec<&'static str>,
+    /// The values this lever accepts, when the process accepts only a closed
+    /// set. Empty means free text. The check refuses a default or a profile
+    /// preset outside the set, so a wizard can render a select without deciding
+    /// for itself what the process parses.
+    pub values: &'static [&'static str],
 }
 
 impl Param {
@@ -608,7 +613,41 @@ fn param(
         default_rationale: None,
         requires: Vec::new(),
         conflicts: Vec::new(),
+        values: &[],
     }
+}
+
+/// The closed vocabularies this descriptor publishes.
+///
+/// Purpose: a lever whose parser accepts a fixed set is rendered as a select,
+/// and the set is the one the process parses — `minimal | standard | advanced`
+/// from `core_domain::embedding::EmbeddingTier`, `exact | iterative | index`
+/// from `core_domain::retrieval::RetrievalMode`, `local | s3` from
+/// `core_store::StoreChoice`, `none | smtp | postmark | ses` from
+/// `core_mail::TransportKind`, and `ollama | openai` from the embedding
+/// provider. Everything not listed here is a string on purpose: free text with
+/// an example is more honest than a select that omits a legal value.
+///
+/// Non-purpose: it is not a second parser. The default and every profile preset
+/// are checked against these lists, so a value the process would reject cannot
+/// be the one the installer writes.
+fn choices(name: &str) -> &'static [&'static str] {
+    match name {
+        "MARULA_EMBEDDING_PROVIDER" => &["ollama", "openai"],
+        "MARULA_EMBEDDING_TIER" => &["minimal", "standard", "advanced"],
+        "MARULA_RETRIEVAL_MODE" => &["exact", "iterative", "index"],
+        "OBJECT_STORE" => &["local", "s3"],
+        "EMAIL_TRANSPORT" => &["none", "smtp", "postmark", "ses"],
+        _ => &[],
+    }
+}
+
+/// Attaches each lever's closed vocabulary after the catalogue is built.
+fn with_choices(mut params: Vec<Param>) -> Vec<Param> {
+    for param in &mut params {
+        param.values = choices(param.name);
+    }
+    params
 }
 
 /// A parameter the process refuses to boot without. Today that is the four
@@ -641,7 +680,7 @@ pub fn descriptor() -> DeployDescriptor {
             role_arg: "BIN",
         },
         profiles: profiles(),
-        params: params(),
+        params: with_choices(params()),
         retries: retry_spec(),
         embedding: embedding_spec(),
         retrieval: retrieval_spec(),

@@ -88,8 +88,10 @@ certificate and hostname, the backup destination, an alert receiver.
 file when it has one (`all-in-one` runs `docker-compose.all-in-one.yml` over the
 base file, because that shape is one process rather than two). It returns when the profile's
 healthchecks pass, so "the command finished" and "the install works" are the
-same event. The compose file, the pooler config and the images come from the
-release; this target only supplies the environment that binds them.
+same event. The compose file and the pooler config come from the release, and
+this target supplies the environment that binds them. Where the application
+images come from is a decision, and the next section is the honest version of
+it.
 
 Each line of `marula.env` sits under the sentence that explains it, taken from
 the descriptor. Nothing is restated from memory and nothing is invented:
@@ -105,6 +107,51 @@ Only the profile's presets, your overrides and the four values the process
 refuses to boot without are written. Every other lever keeps the descriptor's
 default, so the file stays a deployment description instead of a transcript of
 one release.
+
+## Where the images come from, and what restarts
+
+Two decisions are not environment variables, so they are not in `marula.env`.
+They change the compose invocation, and the plan writes each as a generated file
+beside the env so the install says what it did.
+
+**`--images build|registry`.** The default, `build`, compiles this checkout: the
+compose file's four application services carry a `build:` context, so a first
+install needs the source, a Rust toolchain in the image build, and a Node
+toolchain for the web bundle. It is the shape a developer install uses and the
+only shape that works before a registry has published anything.
+
+`--images registry` stops Compose from building and pins each application image
+to the release's digest:
+
+```yaml
+services:
+  core-api:
+    image: ghcr.io/marulagh/marula-core-api@sha256:…
+    pull_policy: always
+    build: !reset null
+```
+
+`build: !reset null` is what removes the base file's `build:`. Without it Compose
+builds the service and ignores the image. `!reset` needs Compose 2.24 or newer.
+A registry install refuses to plan without a digest for every service it starts
+(`--image-digest core-api=sha256:…`), because a tag can be moved and a digest is
+what the release signed.
+
+Third-party images are already pinned by digest in the compose file, so they are
+pulled either way.
+
+**`--restart unless-stopped|always|no`.** The default follows Docker's usual
+posture: a service comes back after a crash and after the daemon restarts, and a
+deliberate stop stays stopped. `always` also comes back after a deliberate stop,
+which surprises people. `no` leaves the failure in front of you, which is right
+on a box you are working on and wrong on one that serves a team. The plan writes
+`marula.restart.yml` for the long-running services only. A one-shot
+(`migrate`, `app-role-password`) is never given a policy, because restarting it
+repeats work or fails forever.
+
+None of these policies starts anything at boot on its own. A container only
+comes back with the machine if the Docker daemon starts with the machine, which
+is a setting of the host's service manager and not of this installer.
 
 ## The eight values it generates
 
