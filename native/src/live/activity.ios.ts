@@ -6,7 +6,7 @@
 // tests), `requireOptionalNativeModule` returns null and every call reports
 // unsupported instead of throwing.
 
-import { requireOptionalNativeModule } from "expo-modules-core";
+import { requireOptionalNativeModule } from "expo";
 
 import { liveTimerPayload, type LiveTimerSnapshot } from "./timer-snapshot";
 

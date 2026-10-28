@@ -38,8 +38,14 @@ describe("react-native-svg declaration", () => {
 
   it("resolves through the workspace store, so pnpm can actually link it", () => {
     // The lockfile is where the declaration becomes an installed version.
+    // Read the version out of the manifest rather than repeating it here: a
+    // hard-coded string turns every dependency bump into a test failure that
+    // says nothing about whether the two files agree.
+    const declared = readNativePackage().dependencies?.["react-native-svg"] ?? "";
+    const version = declared.replace(/^[~^]/, "");
+    expect(version).toMatch(/^\d+\.\d+\.\d+/);
     const lock = readFileSync(resolve(import.meta.dirname, "..", "..", "pnpm-lock.yaml"), "utf8");
-    expect(lock).toContain("react-native-svg@15.15.5");
+    expect(lock).toContain(`react-native-svg@${version}`);
   });
 
   it("is present in the lockfile as a dependency of the native package", () => {

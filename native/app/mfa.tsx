@@ -7,7 +7,14 @@
 
 import { Redirect, router } from "expo-router";
 import { useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  type TextInputInstance,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { useAuth } from "@/auth/auth-context";
@@ -21,7 +28,7 @@ export default function MfaScreen() {
   const { tokens } = useTheme();
   const [digits, setDigits] = useState<string[]>(Array(CODE_LEN).fill(""));
   const [busy, setBusy] = useState(false);
-  const inputs = useRef<(TextInput | null)[]>([]);
+  const inputs = useRef<(TextInputInstance | null)[]>([]);
 
   if (status === "signedIn") return <Redirect href="/(tabs)" />;
   if (status !== "mfa") return <Redirect href="/login" />;

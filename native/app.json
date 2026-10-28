@@ -6,7 +6,6 @@
     "orientation": "default",
     "scheme": "marula",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "org.marula.app",
@@ -32,7 +31,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2B2A33"
       },
-      "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",

@@ -32,13 +32,13 @@ jobs:
   version:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # No `version:` here on purpose: package.json's `packageManager`
       # (pnpm@9.0.0) is the single source of truth, and naming a version in
       # both places makes this action fail with "Multiple versions of pnpm
       # specified" before the first step of the job.
       - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

@@ -12,7 +12,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { Redirect, Tabs } from "expo-router";
 import { useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, type ColorValue, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/auth/auth-context";
@@ -29,6 +29,15 @@ import { pack } from "@/ui/pack";
 import { chrome, type, useTheme } from "@/ui/tokens";
 
 
+
+/// The tab shell tints every icon with a token hex string. RN 0.88 types the
+/// callback's colour as the full `ColorValue` union (which now admits the
+/// numeric form), while Ionicons' `color` prop takes a string or a platform
+/// colour. Narrow to the string case this shell actually produces; anything
+/// else falls back to the icon's default tint rather than a wrong colour.
+function iconTint(color: ColorValue | null | undefined): string | undefined {
+  return typeof color === "string" ? color : undefined;
+}
 
 export default function TabsLayout() {
   const { status } = useAuth();
@@ -102,7 +111,7 @@ export default function TabsLayout() {
             name="index"
             options={{
               title: "Today",
-              tabBarIcon: ({ color }) => <Ionicons name="today-outline" color={color} size={24} />,
+              tabBarIcon: ({ color }) => <Ionicons name="today-outline" color={iconTint(color)} size={24} />,
             }}
           />
           <Tabs.Screen
@@ -117,7 +126,7 @@ export default function TabsLayout() {
                   color: mode === "dark" ? chrome.ink : chrome.gold,
                 },
               ],
-              tabBarIcon: ({ color }) => <Ionicons name="grid-outline" color={color} size={24} />,
+              tabBarIcon: ({ color }) => <Ionicons name="grid-outline" color={iconTint(color)} size={24} />,
             }}
           />
           <Tabs.Screen
@@ -152,7 +161,7 @@ export default function TabsLayout() {
             name="time"
             options={{
               title: "Time",
-              tabBarIcon: ({ color }) => <Ionicons name="time-outline" color={color} size={24} />,
+              tabBarIcon: ({ color }) => <Ionicons name="time-outline" color={iconTint(color)} size={24} />,
             }}
           />
           <Tabs.Screen
@@ -160,7 +169,7 @@ export default function TabsLayout() {
             options={{
               title: "More",
               tabBarIcon: ({ color }) => (
-                <Ionicons name="ellipsis-horizontal" color={color} size={24} />
+                <Ionicons name="ellipsis-horizontal" color={iconTint(color)} size={24} />
               ),
             }}
           />

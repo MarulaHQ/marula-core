@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "openapi-fetch": "^0.13.4"
+    "openapi-fetch": "^0.17.0"
   },
   "devDependencies": {
     "openapi-typescript": "^7.5.2",

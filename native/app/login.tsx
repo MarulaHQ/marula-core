@@ -10,7 +10,15 @@
 
 import { Redirect } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  type TextInputInstance,
+  View,
+} from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 
 import { useAuth } from "@/auth/auth-context";
@@ -35,7 +43,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
-  const passwordRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
   const [linkNote, setLinkNote] = useState<string | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   // The org's real SSO providers (GET /auth/oidc/providers/public) decide
