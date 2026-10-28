@@ -11,6 +11,7 @@ Docker daemon or a signature database.
 | `nightly.yml.disabled` | schedule 05:30 UTC, manual dispatch | `perf-smoke`, `perf-load-budget`, `perf-scale-100k`, `e2e`, `api-live-conformance`, `upgrade-matrix`, `domain-coverage`, `container-security`, `clamd-live` | parked — the heavy scheduled set, by user direction 2026-10-21: minutes, not doubt |
 | `native.yml.disabled` | schedule 05:45 UTC, manual dispatch | `native-checks`, `maestro-ios` | parked — Maestro drives simulators, so it is a minutes job like the rest of the schedule |
 | `changesets.yml` | push to `main` | `version` | enabled |
+| `release-installer.yml` | `v*.*.*` tag, pull request touching the installer, manual dispatch | `version`, `scripts`, `build` (one leg per platform), `offline` (Linux legs), `publish` | enabled — builds, signs and checksums the release artifacts onto the run; attaching them to a release page is the maintainer's step |
 | `dco.yml` | pull request | `sign-off` | enabled |
 | `preview.yml.disabled` | none | `teardown`, `preview` | disabled — needs a host, DNS, TLS and deploy credentials that no workflow can create |
 | `release.yml.disabled` | none | `images`, `scan`, `chart` | disabled — pushes artifacts to a registry and a release page, which is the maintainer's publishing decision |
@@ -48,3 +49,8 @@ proven by a run, and a run needs a push. Nothing in this repository's history
 proves that `ci.yml` passes: the per-push commands were all executed locally
 against the same commit, which is evidence about the commands and not about the
 runner. The first push answers it.
+
+`release-installer.yml` is in the same position, and further from a run: its
+signing legs read secrets no pull request can see, so the signed path is only
+exercised by a tag. Until a tag is cut, the unsigned path and the scripts are
+what has been checked, and `docs/release.md` says which commands that was.

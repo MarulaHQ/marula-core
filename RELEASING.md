@@ -69,6 +69,10 @@ repository. A signature proves which key signed, not who held it.
    `MarulaHQ`.
 8. **Verify the artefacts** a user would get: pull the image, run the documented
    self-host path, confirm the version endpoint reports `vX.Y.Z`.
+9. **The binary and the installers.** The `v*.*.*` tag runs the
+   `release-installer` workflow, which builds and signs them. `docs/release.md`
+   covers what each file is, how to check a download by hand, and what to do with
+   the artifacts once the run is green.
 
 ## Sign after a history rewrite, never before
 
