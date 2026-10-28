@@ -73,12 +73,13 @@ jobs:
       MARULA_EMBEDDING_TIER: minimal
     steps:
       - uses: actions/checkout@v7
-      # The image ships SDKs this job never touches, and the sweep links ~97
-      # core-api test binaries into target/debug. Without reclaiming the space
-      # the run dies mid-link — GitHub logs its own warning ("Free space left:
-      # 0 MB"), rustc reports "IO failure on output stream: No space left on
-      # device", and the linker dies with a Bus error that reads like a
-      # compiler crash (run 40533170070). Roughly 20 GB comes back.
+      # The image ships SDKs this job never touches, and clippy's artifacts for
+      # the whole graph are large even though nothing is linked here. Reclaimed
+      # up front for the same reason the test jobs do it: the runner's failure
+      # mode is silent until it is loud — GitHub logs its own warning ("Free
+      # space left: 0 MB"), rustc reports "IO failure on output stream: No
+      # space left on device", and the linker dies with a Bus error that reads
+      # like a compiler crash (run 40533170070). Roughly 20 GB comes back.
       - name: Reclaim runner disk
         run: |
           df -h /
