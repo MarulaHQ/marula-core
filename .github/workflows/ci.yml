@@ -211,7 +211,18 @@ jobs:
         env:
           SQLX_OFFLINE: "true"
         run: |
-          mapfile -t targets < <(cd crates/core-api/tests && ls *.rs | sed 's/\.rs$//' | sort)
+          # Two target shapes live here: `tests/<name>.rs` is one target per
+          # file, and `tests/<dir>/main.rs` is one target named `<dir>`. Listing
+          # only `*.rs` dropped the second shape from both shards, so a grouped
+          # suite would have been built by nothing and run by nobody.
+          mapfile -t targets < <(
+            cd crates/core-api/tests
+            {
+              ls *.rs | sed 's/\.rs$//'
+              find . -mindepth 2 -maxdepth 2 -name main.rs |
+                sed -e 's|^\./||' -e 's|/main\.rs$||'
+            } | sort
+          )
           args=()
           for i in "${!targets[@]}"; do
             if [ $((i % 2)) -eq $(( ${{ matrix.shard }} - 1)) ]; then
