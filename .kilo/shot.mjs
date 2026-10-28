@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const [url] = process.argv.slice(2);
+const browser = await chromium.launch({ channel: "chrome" });
+const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark" })).newPage();
+await page.goto(url, { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Use recommended" }).click();
+await page.getByRole("button", { name: "Continue" }).first().click();
+await page.getByRole("button", { name: "Continue" }).first().click();
+await page.waitForTimeout(600);
+await page.screenshot({ path: "/tmp/settings-new.png" });
+console.log("captured");
+await browser.close();

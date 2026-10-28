@@ -237,6 +237,10 @@ pub struct Session {
     /// Every apply in this process is tracked here. One install at a time is
     /// the honest limit: two applies would write the same env file.
     pub apply: ApplyHandle,
+    /// Where the application images come from (Wave 60 W60-3 follow-up).
+    pub images: crate::install::plan::ImageSource,
+    /// What the long-running services do after an exit.
+    pub restart: crate::install::plan::RestartPolicy,
     /// Facts a caller pinned instead of measuring, for a host that is not this
     /// one. The wizard never sets it; a test does, because a suite that reads
     /// the machine's free disk fails the day the disk is full.
@@ -255,8 +259,22 @@ impl Session {
             compose_file: compose_file.into(),
             memory_mb,
             apply: Arc::new(Mutex::new(ApplyView::default())),
+            images: crate::install::plan::ImageSource::Build,
+            restart: crate::install::plan::RestartPolicy::UnlessStopped,
             pinned_facts: None,
         }
+    }
+
+    /// Sets the two compose-shape decisions this request carries.
+    #[must_use]
+    pub fn with_shape(
+        mut self,
+        images: crate::install::plan::ImageSource,
+        restart: crate::install::plan::RestartPolicy,
+    ) -> Self {
+        self.images = images;
+        self.restart = restart;
+        self
     }
 
     /// Scores a stated machine instead of measuring this one.
@@ -524,6 +542,8 @@ impl Session {
 fn selection(session: &Session, profile: &str, overrides: &BTreeMap<String, String>) -> Selection {
     let mut selection = Selection::new(profile, &session.dir);
     selection.overrides = overrides.clone();
+    selection.images = session.images;
+    selection.restart = session.restart;
     selection
 }
 

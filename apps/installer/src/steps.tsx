@@ -389,17 +389,89 @@ export function SettingsStep({
   overrides,
   onSet,
   mode,
+  shape,
+  onShape,
 }: {
   state: State;
   profile: string;
   overrides: Record<string, string>;
   onSet: (name: string, value: string) => void;
   mode: PathMode;
+  shape: ShapeChoice;
+  onShape: (shape: ShapeChoice) => void;
 }) {
-  return mode === "recommended" ? (
-    <RecommendedSettings state={state} profile={profile} overrides={overrides} onSet={onSet} />
-  ) : (
-    <DeveloperSettings state={state} profile={profile} overrides={overrides} onSet={onSet} />
+  return (
+    <div className="flex flex-col gap-7">
+      <DeploymentSection shape={shape} onShape={onShape} />
+      {mode === "recommended" ? (
+        <RecommendedSettings state={state} profile={profile} overrides={overrides} onSet={onSet} />
+      ) : (
+        <DeveloperSettings state={state} profile={profile} overrides={overrides} onSet={onSet} />
+      )}
+    </div>
+  );
+}
+
+export interface ShapeChoice {
+  images: "build" | "registry";
+  restart: "unless-stopped" | "always" | "no";
+}
+
+const RESTART_NOTE: Record<ShapeChoice["restart"], string> = {
+  "unless-stopped":
+    "Comes back after a crash and after the Docker daemon restarts. A deliberate stop stays stopped, and it only starts at boot if Docker itself does.",
+  always: "Comes back even after a deliberate stop, which surprises people who ran compose stop.",
+  no: "Stays down when it exits. Right for a box you are working on, wrong for one that serves a team.",
+};
+
+/** The two decisions that are not environment variables: where the images come
+ *  from, and what Docker does with an exit. */
+function DeploymentSection({
+  shape,
+  onShape,
+}: {
+  shape: ShapeChoice;
+  onShape: (shape: ShapeChoice) => void;
+}) {
+  return (
+    <Section title="Deployment">
+      <div className="flex max-w-[720px] flex-col gap-5">
+        <div className="flex flex-col gap-2">
+          <p className="m-0 text-[13px] font-medium">Where the application images come from</p>
+          <Segmented
+            type="single"
+            value={shape.images}
+            onValueChange={(value) => value && onShape({ ...shape, images: value as ShapeChoice["images"] })}
+            aria-label="Image source"
+          >
+            <SegmentedItem value="build">build from this checkout</SegmentedItem>
+            <SegmentedItem value="registry">the release's images</SegmentedItem>
+          </Segmented>
+          <p className="m-0 text-[11.5px] leading-[1.5] text-muted-foreground">
+            {shape.images === "build"
+              ? "Compiles the four services on this machine. Needs the sources, a Rust toolchain and a Node one; it is what a developer install uses."
+              : "Pulls the release's images pinned by digest and stops Compose building. Needs the digests the release published; the terminal takes them with --image-digest."}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <p className="m-0 text-[13px] font-medium">After a crash or a restart of Docker</p>
+          <Segmented
+            type="single"
+            value={shape.restart}
+            onValueChange={(value) => value && onShape({ ...shape, restart: value as ShapeChoice["restart"] })}
+            aria-label="Restart policy"
+          >
+            <SegmentedItem value="unless-stopped">restart unless stopped</SegmentedItem>
+            <SegmentedItem value="always">always restart</SegmentedItem>
+            <SegmentedItem value="no">stay down</SegmentedItem>
+          </Segmented>
+          <p className="m-0 text-[11.5px] leading-[1.5] text-muted-foreground">
+            {RESTART_NOTE[shape.restart]}
+          </p>
+        </div>
+      </div>
+    </Section>
   );
 }
 

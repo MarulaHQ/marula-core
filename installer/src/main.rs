@@ -37,6 +37,29 @@ struct PlanRequest {
     profile: String,
     #[serde(default)]
     overrides: BTreeMap<String, String>,
+    #[serde(default)]
+    images: Option<String>,
+    #[serde(default)]
+    restart: Option<String>,
+}
+
+impl PlanRequest {
+    fn shaped(&self, session: Session) -> Result<Session, String> {
+        let images = match self.images.as_deref() {
+            None => marula_core_cli::install::plan::ImageSource::Build,
+            Some(value) => marula_core_cli::install::plan::ImageSource::parse(value)
+                .ok_or_else(|| format!("images takes build or registry, not {value}"))?,
+        };
+        let restart = match self.restart.as_deref() {
+            None => marula_core_cli::install::plan::RestartPolicy::UnlessStopped,
+            Some(value) => {
+                marula_core_cli::install::plan::RestartPolicy::parse(value).ok_or_else(|| {
+                    format!("restart takes unless-stopped, always or no, not {value}")
+                })?
+            }
+        };
+        Ok(session.with_shape(images, restart))
+    }
 }
 
 #[tauri::command]
@@ -50,7 +73,7 @@ async fn installer_plan(
     state: tauri::State<'_, AppState>,
     request: PlanRequest,
 ) -> Result<PlanView, String> {
-    let session = state.session.clone();
+    let session = request.shaped(state.session.clone())?;
     blocking(move || session.plan(&request.profile, &request.overrides))
         .await
         .and_then(|result| result)
@@ -61,7 +84,7 @@ async fn installer_apply(
     state: tauri::State<'_, AppState>,
     request: PlanRequest,
 ) -> Result<(), String> {
-    let session = state.session.clone();
+    let session = request.shaped(state.session.clone())?;
     blocking(move || session.start_apply(&request.profile, &request.overrides))
         .await
         .and_then(|result| result)

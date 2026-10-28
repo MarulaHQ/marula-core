@@ -42,6 +42,7 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | [`perf.md`](perf.md) | Budgets, the measurement harness, the recorded baselines |
 | [`upgrade-compatibility-policy.md`](upgrade-compatibility-policy.md) | The N−2 support window and the expand-then-contract migration rule |
 | [`release.md`](release.md) | Cut a release, verify a download, and install one on a host with no network |
+| [`release-images.md`](release-images.md) | The four application images: names, digests, retention, and what the pipeline must publish |
 | [`update.md`](update.md) | `marula update`: a signed manifest, the sentence a check prints, and what a rollback restores |
 | [`desktop-release.md`](desktop-release.md) | Desktop packaging, signing and the auto-update path |
 | [`security/staging-runbook.md`](security/staging-runbook.md) | Deploy, seed, rotate, collect evidence for, and tear down the alpha-tester and penetration-test staging instance |

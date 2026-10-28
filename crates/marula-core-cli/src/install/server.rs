@@ -297,6 +297,35 @@ pub struct PlanRequest {
     pub profile: String,
     #[serde(default)]
     pub overrides: BTreeMap<String, String>,
+    /// `build` or `registry`.
+    #[serde(default)]
+    pub images: Option<String>,
+    /// `unless-stopped`, `always` or `no`.
+    #[serde(default)]
+    pub restart: Option<String>,
+}
+
+impl PlanRequest {
+    /// The session this request runs against, carrying its compose-shape choice.
+    fn shaped(&self, session: Session) -> std::result::Result<Session, Box<Response>> {
+        let images = match self.images.as_deref() {
+            None => crate::install::plan::ImageSource::Build,
+            Some(value) => crate::install::plan::ImageSource::parse(value).ok_or_else(|| {
+                Box::new(refused(&format!(
+                    "--images takes build or registry, not {value}"
+                )))
+            })?,
+        };
+        let restart = match self.restart.as_deref() {
+            None => crate::install::plan::RestartPolicy::UnlessStopped,
+            Some(value) => crate::install::plan::RestartPolicy::parse(value).ok_or_else(|| {
+                Box::new(refused(&format!(
+                    "--restart takes unless-stopped, always or no, not {value}"
+                )))
+            })?,
+        };
+        Ok(session.with_shape(images, restart))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -323,7 +352,10 @@ async fn api_plan(
     if let Some(response) = guard(&app, &headers) {
         return response;
     }
-    let session = app.session.clone();
+    let session = match body.shaped(app.session.clone()) {
+        Ok(session) => session,
+        Err(response) => return *response,
+    };
     let planned =
         tokio::task::spawn_blocking(move || session.plan(&body.profile, &body.overrides)).await;
     match planned {
@@ -341,7 +373,10 @@ async fn api_apply(
     if let Some(response) = guard(&app, &headers) {
         return response;
     }
-    let session = app.session.clone();
+    let session = match body.shaped(app.session.clone()) {
+        Ok(session) => session,
+        Err(response) => return *response,
+    };
     let started =
         tokio::task::spawn_blocking(move || session.start_apply(&body.profile, &body.overrides))
             .await;

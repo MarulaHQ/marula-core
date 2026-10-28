@@ -154,6 +154,10 @@ export interface ApplyState {
 export interface PlanRequest {
   profile: string;
   overrides: Record<string, string>;
+  /** `build` compiles this checkout, `registry` pulls the release's digests. */
+  images?: "build" | "registry";
+  /** What the long-running services do after an exit. */
+  restart?: "unless-stopped" | "always" | "no";
 }
 
 export interface Credentials {

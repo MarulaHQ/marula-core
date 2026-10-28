@@ -7,7 +7,17 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Card, CardBody, CardHeader, CardTitle, Icon, Kbd, Pill } from "@marula-core/ui/kit";
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  CardTitle,
+  Icon,
+  Kbd,
+  Pill,
+  Segmented,
+  SegmentedItem,
+} from "@marula-core/ui/kit";
 
 import { Brand } from "./brand";
 
@@ -21,7 +31,7 @@ import {
   startingProfile,
   type PathMode,
 } from "./lib/model";
-import { MachineStep, PathStep, ReviewStep, SettingsStep, ShapeStep } from "./steps";
+import { MachineStep, PathStep, ReviewStep, SettingsStep, ShapeStep, type ShapeChoice } from "./steps";
 import type { ApplyState, Doctor, Plan, State } from "./types";
 
 type ThemeChoice = "system" | "light" | "dark";
@@ -36,6 +46,7 @@ export function App() {
   const [profile, setProfile] = useState("");
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [declared, setDeclared] = useState("");
+  const [shape, setShape] = useState<ShapeChoice>({ images: "build", restart: "unless-stopped" });
   const [plan, setPlan] = useState<Plan | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [apply, setApply] = useState<ApplyState | null>(null);
@@ -67,7 +78,7 @@ export function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const next = await transport.plan({ profile, overrides });
+        const next = await transport.plan({ profile, overrides, ...shape });
         if (!cancelled) {
           setPlan(next);
           setPlanError(null);
@@ -150,7 +161,7 @@ export function App() {
   const applyPlan = useCallback(async () => {
     setBusy(true);
     try {
-      await transport.apply({ profile, overrides });
+      await transport.apply({ profile, overrides, ...shape });
       setApply({ running: true, done: [], failed: null, manual: [] });
     } catch (error) {
       setApply({ running: false, done: [], failed: errorMessage(error), manual: [] });
@@ -280,21 +291,26 @@ export function App() {
         </ol>
 
         <div className="ml-auto flex flex-col items-end gap-1.5 lg:mt-auto lg:items-start">
-          <div className="flex overflow-hidden rounded-pill border border-border bg-card">
+          {/* The rail is 232px; three items at the control's default padding
+              wrap. Compact items keep the kit's component and the rail's width. */}
+          <Segmented
+            type="single"
+            value={theme}
+            onValueChange={(value) => value && setTheme(value as ThemeChoice)}
+            aria-label="Appearance"
+            className="w-full flex-nowrap gap-0.5"
+          >
             {(["system", "light", "dark"] as const).map((choice) => (
-              <button
+              <SegmentedItem
                 key={choice}
-                type="button"
-                aria-pressed={theme === choice}
-                onClick={() => setTheme(choice)}
-                className={`px-2.5 py-1 text-[10.5px] capitalize ${
-                  theme === choice ? "bg-mc-act font-semibold text-mc-act-fg" : "text-muted-foreground"
-                }`}
+                value={choice}
+                size="sm"
+                className="flex-1 justify-center px-2 text-[11px] capitalize"
               >
                 {choice}
-              </button>
+              </SegmentedItem>
             ))}
-          </div>
+          </Segmented>
           <p className="m-0 hidden text-[10px] text-muted-foreground lg:block">
             {transport.kind === "native" ? "native app" : "loopback fallback"} · no telemetry
           </p>
@@ -409,6 +425,12 @@ export function App() {
               overrides={overrides}
               onSet={setOverride}
               mode={mode}
+              shape={shape}
+              onShape={(next) => {
+                setShape(next);
+                setApply(null);
+                setDoctor(null);
+              }}
             />
             <div className="mt-6 flex items-center justify-end gap-2.5 border-t border-border pt-4">
               <span className="mr-auto flex items-center gap-1 text-[12px] text-muted-foreground">
