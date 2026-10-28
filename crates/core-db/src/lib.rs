@@ -149,6 +149,12 @@ use uuid::Uuid;
 pub enum DbError {
     #[error("database: {0}")]
     Sql(#[from] sqlx::Error),
+    /// A pool that could not open its first connection, with the refusal the
+    /// single attempt underneath it gave. Distinct from [`DbError::Sql`]
+    /// because `PoolTimedOut` carries no source: this variant exists so an
+    /// operator reads "password authentication failed", not "pool timed out".
+    #[error("database: {0}")]
+    Connect(String),
     #[error("migration: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
     #[error("row not found")]
@@ -233,12 +239,59 @@ impl Default for PoolConfig {
 /// makes a cross-transaction statement name unsafe.
 pub async fn connect_with(url: &str, config: PoolConfig) -> DbResult<PgPool> {
     let options = connect_options(url, config.statement_cache_capacity)?;
-    let pool = PgPoolOptions::new()
+    let target = target_of(&options);
+    let attempt = PgPoolOptions::new()
         .max_connections(config.max_connections)
         .acquire_timeout(config.acquire_timeout)
-        .connect_with(options)
-        .await?;
-    Ok(pool)
+        .connect_with(options.clone())
+        .await;
+    match attempt {
+        Ok(pool) => Ok(pool),
+        Err(sqlx::Error::PoolTimedOut) => {
+            // A pool that cannot open its *first* connection reports only that
+            // it ran out of time, and `PoolTimedOut` carries no source. The
+            // refusal underneath — a wrong password, a closed port, a database
+            // that is not there — is the part an operator can act on, so ask
+            // once more without the pool and keep that answer. Wave 60 lane W60-6
+            // spent a run guessing because this line read "pool timed out" with
+            // Postgres healthy beside it.
+            match tokio::time::timeout(
+                config.acquire_timeout,
+                <sqlx::PgConnection as sqlx::Connection>::connect_with(&options),
+            )
+            .await
+            {
+                Ok(Err(refusal)) => Err(DbError::Connect(format!(
+                    "cannot open a connection to {target}: {refusal} \
+                     (the pool waited {}s for its first connection)",
+                    config.acquire_timeout.as_secs()
+                ))),
+                // The single attempt hung or succeeded, so the pool's verdict
+                // is all that is known: report it with the host named, since a
+                // bare timeout in a log is what this arm exists to prevent.
+                _ => Err(DbError::Connect(format!(
+                    "cannot open a connection to {target}: the attempt did not \
+                     answer within {}s",
+                    config.acquire_timeout.as_secs()
+                ))),
+            }
+        }
+        Err(other) => Err(DbError::Sql(other)),
+    }
+}
+
+/// The host and database a connection is being made to, without credentials.
+///
+/// A diagnostic must be safe to paste into a log or an issue: the password and
+/// the user name stay out of it, and the address stays in.
+fn target_of(options: &PgConnectOptions) -> String {
+    let database = options.get_database().unwrap_or("(default)");
+    format!(
+        "{}:{}/{}",
+        options.get_host(),
+        options.get_port(),
+        database
+    )
 }
 
 /// Parses a Postgres URL and applies the statement-cache capacity.
@@ -429,5 +482,34 @@ mod pool_config_tests {
 
         assert_eq!(capacity_of("postgres://u:p@127.0.0.1:1/db", 0), "0");
         assert_eq!(capacity_of("postgres://u:p@127.0.0.1:1/db", 64), "64");
+    }
+
+    /// Port 1 on loopback refuses instantly, so this is a refusal the pool will
+    /// spend its whole acquire timeout retrying. The point of the assertion is
+    /// that the operator is told *why*: `PoolTimedOut` alone is what made Wave
+    /// 60 lane W60-6 guess for a day while Postgres was healthy beside it.
+    #[tokio::test]
+    async fn a_pool_that_cannot_connect_reports_the_refusal_and_the_target() {
+        let config = PoolConfig {
+            max_connections: 1,
+            acquire_timeout: std::time::Duration::from_secs(2),
+            ..PoolConfig::default()
+        };
+        let error = connect_with("postgres://marula:secret@127.0.0.1:1/marula", config)
+            .await
+            .expect_err("nothing listens on port 1");
+        let message = error.to_string();
+        assert!(
+            matches!(error, DbError::Connect(_)),
+            "a connect failure is its own variant, got {message}"
+        );
+        assert!(
+            message.contains("127.0.0.1:1/marula"),
+            "the message names the target: {message}"
+        );
+        assert!(
+            !message.contains("secret") && !message.contains('@'),
+            "the message carries no credential: {message}"
+        );
     }
 }
