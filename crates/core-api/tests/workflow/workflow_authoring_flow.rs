@@ -15,102 +15,22 @@
 //! `MARULA_TEST_DATABASE_URL` (or `DATABASE_URL`) must point at a booted
 //! stack (see `scripts/e2e-stack.sh`).
 
+use crate::common::{body_json, boot_with, register_org_token, send};
 use axum::Router;
 use core_api::routes::chat_runner as ChatRunner;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::routes::workflow_authoring::{self, AuthoringSample};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
-use tower::ServiceExt;
 use uuid::Uuid;
 
-use core_api::routes::workflow_authoring::{self, AuthoringSample};
-
 async fn test_state() -> (PgPool, Router) {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("workflow authoring e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url.clone();
-    let reporting_url = admin_url.clone();
-    let state = AppState {
-        plugin_pool: Default::default(),
-        pool: pool.clone(),
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-        reporting: AppState::reporting_pool_lazy(&reporting_url).expect("lazy reporting pool"),
-    };
-    let app = core_api::routes::build_router(state.clone());
-    (pool, app)
-}
-
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
-async fn send(
-    app: &Router,
-    method: axum::http::Method,
-    uri: &str,
-    bearer: Option<&str>,
-    body: Option<Value>,
-) -> axum::response::Response {
-    let mut builder = axum::http::Request::builder().method(method).uri(uri);
-    if let Some(token) = bearer {
-        builder = builder.header("authorization", format!("Bearer {token}"));
-    }
-    let request = match body {
-        Some(v) => builder
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from(v.to_string()))
-            .unwrap(),
-        None => builder.body(axum::body::Body::empty()).unwrap(),
-    };
-    app.clone().oneshot(request).await.unwrap()
-}
-
-async fn body_json(response: axum::response::Response) -> Value {
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
+    let (state, app) = boot_with(|_| {}).await;
+    (state.pool.clone(), app)
 }
 
 async fn register_org(app: &Router, slug: &str) -> String {
-    let response = send(
-        app,
-        axum::http::Method::POST,
-        "/api/auth/register",
-        None,
-        Some(json!({
-            "org_name": "Workflow AI Co",
-            "org_slug": slug,
-            "email": format!("owner@{slug}.test"),
-            "password": "correct-horse-battery",
-            "display_name": "Owner",
-        })),
-    )
-    .await;
-    assert_eq!(response.status(), 200, "register must succeed");
-    body_json(response).await["access_token"]
-        .as_str()
-        .unwrap()
-        .into()
+    register_org_token(app, "Workflow AI Co", slug).await
 }
 
 async fn me_ids(app: &Router, bearer: &str) -> (Uuid, Uuid) {

@@ -15,45 +15,14 @@
 //! Database contract follows dev_surface/settings_flow:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
 
+use crate::common::state_with;
 use axum::Router;
-use core_api::{auth::oidc_client::OidcHttpClient, config::Config, state::AppState};
+use core_api::state::AppState;
 use serde_json::{json, Value};
-use sqlx::PgPool;
-use std::sync::Arc;
 use tower::ServiceExt;
 
-async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(url)
-        .await
-}
-
 async fn test_state(dev_tools: bool) -> AppState {
-    let _ = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .with_test_writer()
-        .try_init();
-    let admin_url = std::env::var("MARULA_TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("error-envelope e2e needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
-    let pool = connect(&admin_url).await.expect("pool");
-    core_db::run_migrations(&pool).await.expect("migrations");
-    let mut config = Config::from_env_allow_dev_fallback().expect("test config");
-    config.database_url = admin_url;
-    config.dev_tools = dev_tools;
-    AppState {
-        plugin_pool: Default::default(),
-        pool,
-        reporting: core_api::state::AppState::reporting_pool_lazy(&config.database_url)
-            .expect("reporting pool"),
-        config: Arc::new(config.clone()),
-        oidc: OidcHttpClient::new(),
-        mail: Arc::new(core_api::email::MailStack::from_config(&config)),
-        store: Arc::new(core_store::memory::MemoryStore::new()),
-        routing: std::sync::Arc::new(core_routing::RoutingRegistry::new()),
-    }
+    state_with(move |config| config.dev_tools = dev_tools).await
 }
 
 async fn post_json(app: &Router, uri: &str, body: String) -> axum::response::Response {
