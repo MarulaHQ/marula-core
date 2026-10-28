@@ -764,7 +764,8 @@ pub fn detect_host_capacity(lookup: &impl Fn(&str) -> Option<String>) -> HostCap
         .filter(|mb| *mb > 0);
     let ram_mb = declared
         .or_else(read_cgroup_memory_mb)
-        .or_else(read_proc_meminfo_mb);
+        .or_else(read_proc_meminfo_mb)
+        .or_else(read_platform_memory_mb);
     HostCapacity { cores, ram_mb }
 }
 
@@ -783,6 +784,70 @@ fn read_proc_meminfo_mb() -> Option<u32> {
     let line = raw.lines().find(|line| line.starts_with("MemTotal:"))?;
     let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
     Some(u32::try_from(kb / 1024).unwrap_or(u32::MAX))
+}
+
+/// Bytes to mebibytes, refusing a reading no machine could have.
+///
+/// The ceiling is 4 TiB: a parse that picked up a timestamp or a byte count from
+/// the wrong column would otherwise become a host that passes every floor, which
+/// is worse than a host the operator has to declare.
+fn bytes_to_mb(bytes: u64) -> Option<u32> {
+    const CEILING_MB: u64 = 4 * 1024 * 1024;
+    let mb = bytes / (1024 * 1024);
+    if mb == 0 || mb > CEILING_MB {
+        return None;
+    }
+    u32::try_from(mb).ok()
+}
+
+/// The platform reading, for the two platforms that have no `/proc`.
+///
+/// Purpose: until Wave 60 the function below read cgroups and `/proc/meminfo`,
+/// which exist on Linux only, so macOS and Windows reported no memory at all.
+/// The installer then refused every profile on a floor it could not measure, and
+/// the desktop app — the platform this product ships for — could not recommend
+/// anything. Linux keeps its cheap reads; these two ask the OS once.
+///
+/// Non-purpose: no dependency. `sysctl` ships with macOS and PowerShell ships
+/// with Windows, and a crate that reads the same value would be a heavier
+/// replacement for one command.
+#[cfg(target_os = "macos")]
+fn read_platform_memory_mb() -> Option<u32> {
+    let output = std::process::Command::new("sysctl")
+        .args(["-n", "hw.memsize"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    bytes_to_mb(text.trim().parse().ok()?)
+}
+
+/// See [`read_platform_memory_mb`] for macOS. Windows answers in bytes through
+/// the CIM instance, which is present on every supported release; `wmic` is not
+/// (it is removed from current Windows 11 images).
+#[cfg(target_os = "windows")]
+fn read_platform_memory_mb() -> Option<u32> {
+    let output = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    bytes_to_mb(text.trim().parse().ok()?)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn read_platform_memory_mb() -> Option<u32> {
+    None
 }
 
 /// The floor check's failure: every number in the message is a field, so the
@@ -1128,6 +1193,25 @@ mod tests {
                 .count(),
             1,
             "replacement, not a duplicate"
+        );
+    }
+
+    #[test]
+    fn a_byte_reading_becomes_mebibytes_and_a_nonsense_one_is_refused() {
+        assert_eq!(bytes_to_mb(16 * 1024 * 1024 * 1024), Some(16 * 1024));
+        assert_eq!(bytes_to_mb(8 * 1024 * 1024 * 1024), Some(8 * 1024));
+        // Under a mebibyte, or past four tebibytes, is a misread, not a machine.
+        assert_eq!(bytes_to_mb(512 * 1024), None);
+        assert_eq!(bytes_to_mb(8 * 1024 * 1024 * 1024 * 1024), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_reports_its_memory_rather_than_saying_nothing() {
+        let mb = read_platform_memory_mb().expect("sysctl reports hw.memsize on every Mac");
+        assert!(
+            mb > 1024,
+            "a Mac with less than a gibibyte cannot run this product: {mb}"
         );
     }
 
