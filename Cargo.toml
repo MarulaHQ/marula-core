@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "desktop",
+    "installer",
     "crates/core-api",
     "crates/core-billing",
     "crates/core-db",
