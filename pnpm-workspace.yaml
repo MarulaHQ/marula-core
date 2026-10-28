@@ -3,3 +3,27 @@ packages:
   - "packages/*"
   - "native"
   - "website"
+
+# pnpm 10 stopped running dependency lifecycle scripts by default, and pnpm 11
+# made unreviewed builds a hard install failure (strictDepBuilds). Every entry
+# here is a package we actually rely on building, not a blanket opt-in.
+allowBuilds:
+  # esbuild's install script places/verifies its platform binary; two versions
+  # are in the graph (0.21.5 transitively, 0.28.2 via the toolchain).
+  esbuild: true
+  # unrs-resolver links its napi binding at install time.
+  unrs-resolver: true
+
+# @testing-library/jest-dom's `vitest` entry imports `expect` from "vitest"
+# without declaring it as a peer, so the import resolved through pnpm's shared
+# hoist directory — one arbitrary vitest copy for the whole store. The workspace
+# carries vitest 2 (apps/installer) and vitest 5 (web, ui, layout, native), and
+# the major that won the hoist changed with pnpm 12: jest-dom then extended
+# vitest 2's `expect` while the tests ran on vitest 5, losing every matcher at
+# both type-check and run time. Declaring the peer that jest-dom's typings and
+# runtime already assume makes pnpm resolve vitest from the importing project,
+# so each copy of jest-dom binds to the vitest its tests use.
+packageExtensions:
+  "@testing-library/jest-dom":
+    peerDependencies:
+      vitest: "*"
