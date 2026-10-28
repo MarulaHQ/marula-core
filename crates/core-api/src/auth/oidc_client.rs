@@ -110,8 +110,12 @@ pub fn verify_state_token(
     cfg: &crate::config::Config,
     token: &str,
 ) -> Result<OidcStateClaims, OidcStateError> {
-    let mut validation = Validation::default();
-    validation.validate_exp = true;
+    // `validate_exp` is already the default; naming it keeps the state token's
+    // one non-obvious requirement visible at the call site.
+    let validation = Validation {
+        validate_exp: true,
+        ..Default::default()
+    };
     decode::<OidcStateClaims>(
         token,
         &DecodingKey::from_secret(cfg.jwt_secret.as_bytes()),

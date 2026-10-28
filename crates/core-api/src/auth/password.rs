@@ -2,16 +2,15 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use argon2::password_hash::{
-    rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
-};
-use argon2::Argon2;
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 
 /// Hashes a password with argon2id. Returns the PHC string for storage.
+///
+/// argon2 0.6 generates the salt inside `hash_password` (the `getrandom`
+/// feature is on by default), so the salt is no longer ours to build.
 pub fn hash(password: &str) -> Result<String, argon2::password_hash::Error> {
-    let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|h| h.to_string())
 }
 

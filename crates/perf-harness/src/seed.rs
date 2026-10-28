@@ -61,10 +61,9 @@ pub async fn seed(admin: &PgPool, scale: &SeedScale) -> anyhow::Result<SeedRepor
 
     // One shared argon2 hash (fixture-only; login verifies it like any user).
     let password_hash = {
-        use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
-        let salt = SaltString::generate(&mut OsRng);
+        use argon2::PasswordHasher;
         argon2::Argon2::default()
-            .hash_password(PERF_PASSWORD.as_bytes(), &salt)
+            .hash_password(PERF_PASSWORD.as_bytes())
             .map_err(|e| anyhow::anyhow!("hash perf password: {e}"))?
             .to_string()
     };
