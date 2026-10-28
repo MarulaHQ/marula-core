@@ -482,6 +482,11 @@ jobs:
             echo "::error::MARULA_CHECKSUM_SIGNING_KEY is missing. A release whose checksums are not signed cannot be verified, so nothing is published."
             exit 1
           fi
+          ANCHOR="$GITHUB_WORKSPACE/release-keys/allowed_signers"
+          if ! grep -Eq '^[[:space:]]*[^#[:space:]]' "$ANCHOR" 2>/dev/null; then
+            echo "::error::release-keys/allowed_signers carries no release key, so the signature this job produces could not be verified by anyone. Add the maintainer's public key line first; RELEASING.md names the command. Nothing is published until then."
+            exit 1
+          fi
           umask 077
           KEY="$RUNNER_TEMP/release-key"
           printf '%s\n' "$MARULA_CHECKSUM_SIGNING_KEY" > "$KEY"
@@ -495,7 +500,7 @@ jobs:
             [ -f "$sums" ] || continue
             ssh-keygen -Y sign -f "$KEY" -n file "$sums"
             ssh-keygen -Y verify \
-              -f "$GITHUB_WORKSPACE/release-keys/allowed_signers" \
+              -f "$ANCHOR" \
               -I releases@getmarula.com -n file -s "$sums.sig" < "$sums" >/dev/null
             echo "signed and re-verified $sums.sig"
           done

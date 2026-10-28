@@ -565,20 +565,35 @@ fn artifact_command(action: ArtifactAction) -> anyhow::Result<()> {
             sums,
             signature,
             key,
+            identity,
             root,
         } => {
             let bytes =
                 std::fs::read(&sums).with_context(|| format!("reading {}", sums.display()))?;
             match signature {
                 Some(path) => {
-                    let keys = key
-                        .iter()
-                        .map(|key| update::read_public_key(key))
-                        .collect::<Result<Vec<_>, _>>()?;
                     let detached = std::fs::read_to_string(&path)
                         .with_context(|| format!("reading the signature at {}", path.display()))?;
-                    update::verify_signature(&keys, &bytes, &detached)?;
-                    println!("signature verified against {} key(s)", keys.len());
+                    if update::artifact::is_ssh_signature(&detached) {
+                        let anchor = key.first().ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "an OpenSSH signature needs --key <allowed_signers>. Trust is a \
+                                 file the operator names, not a key this binary carries."
+                            )
+                        })?;
+                        update::artifact::verify_ssh_signature(&sums, &path, anchor, &identity)?;
+                        println!(
+                            "OpenSSH signature verified for {identity} against {}",
+                            anchor.display()
+                        );
+                    } else {
+                        let keys = key
+                            .iter()
+                            .map(|key| update::read_public_key(key))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        update::verify_signature(&keys, &bytes, &detached)?;
+                        println!("ed25519 signature verified against {} key(s)", keys.len());
+                    }
                 }
                 None => eprintln!(
                     "warning: no --signature/--key, so only the checksums are verified. A checksum \

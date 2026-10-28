@@ -20,12 +20,26 @@ the `--breaking` flag and fails CI without it (see `CONTRIBUTING.md`).
 
 ### The release key
 
-SSH signing key, created for this purpose and used for nothing else:
+An SSH signing key created for this purpose, used for nothing else, and registered on the
+maintainer's account. **The repository does not carry the key, and it carries no placeholder
+for one.** A public key committed as a stand-in is worse than no key at all: it tells an
+operator which key to trust while being a key nobody holds.
 
+Before the first release, the maintainer creates the key and commits its public half:
+
+```sh
+ssh-keygen -t ed25519 -C releases@getmarula.com -f ~/.ssh/marula-release
+printf 'releases@getmarula.com %s\n' "$(cat ~/.ssh/marula-release.pub)" \
+  >> release-keys/allowed_signers
+ssh-keygen -l -f ~/.ssh/marula-release.pub    # the fingerprint to publish
 ```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPuWqdR8jNK5L2C43uoNj54g9f+2LIHIUnpv77S2F6GZ releases@getmarula.com
-fingerprint: SHA256:W22zWCSxlEKdet+b3gdc14HtUtdQ+Hol7F3ccRR67H8 (ED25519)
-```
+
+`release-keys/allowed_signers` ships with no key line, and the signing job in
+`.github/workflows/release-installer.yml` refuses to publish until one is added. That is the
+intended state: a release nobody can verify is not a release.
+
+The same public line is what a clean clone uses to verify a tag, which is why it is committed
+rather than only published on the release page.
 
 Sign a tag, with the key loaded in the agent or a passphrase prompt to answer:
 

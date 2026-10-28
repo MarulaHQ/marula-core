@@ -39,9 +39,11 @@ person downloads, and its checksum is what a signature covers.
 ## Where the signature comes from
 
 Checksums are signed with the same SSH key that signs release tags. Its public
-half is in `release-keys/allowed_signers`, and `RELEASING.md` carries the
-fingerprint and the tag-signing commands. The private half is held as the
-`MARULA_CHECKSUM_SIGNING_KEY` Actions secret and nowhere else.
+half belongs in `release-keys/allowed_signers`, and that file ships empty: the
+maintainer adds the key before the first release, and the signing job refuses to
+publish until then. `RELEASING.md` carries the command and the tag-signing
+commands. The private half is held as the `MARULA_CHECKSUM_SIGNING_KEY` Actions
+secret and nowhere else.
 
 The signature is an SSH signature in the `file` namespace, which is why
 `ssh-keygen -Y verify` and `marula artifact verify` agree about it. The
