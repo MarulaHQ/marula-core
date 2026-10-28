@@ -30,10 +30,12 @@ use uuid::Uuid;
 /// Views in `ops` that are operator surfaces rather than tenant-scoped read
 /// models: no `org_id` seam, and the default-deny and column contracts below do
 /// not apply to them. `ops.query_tail` is created only where
-/// pg_stat_statements is available, so it is deliberately not listed.
+/// pg_stat_statements is installed and preloaded, so the existence test below
+/// keeps it in the expected set only when the database could create it.
 // 0145 database observability: the signal rollup and the per-statement query
 // tail. Both are operator views rather than v1 slices, and both are
-// `security_invoker`, which the reloptions sweep below checks.
+// `security_invoker`, which the reloptions sweep below checks (it sweeps
+// whatever exists, so it covers the tail where the tail is there).
 const OPERATOR_VIEWS: &[&str] = &["db_signals", "query_tail"];
 
 const EXPECTED_V1_VIEWS: &[&str] = &[
@@ -496,20 +498,44 @@ async fn count_view_where_id(tx: &mut Transaction<'_, Postgres>, view: &str, id:
 
 // --- existence + security_invoker ---------------------------------------------
 
+/// Whether migration 0145 could create `ops.query_tail` here. It needs
+/// `pg_stat_statements` both installed and preloaded, and says so with a notice
+/// when it cannot; the CI service container and `scripts/gate-db.sh` run a
+/// stock image, so the view is legitimately absent from a clean database.
+async fn pg_stat_statements_preloaded(pool: &PgPool) -> bool {
+    let libs: String = sqlx::query_scalar("SELECT current_setting('shared_preload_libraries')")
+        .fetch_one(pool)
+        .await
+        .expect("shared_preload_libraries");
+    libs.split(',').any(|l| l.trim() == "pg_stat_statements")
+}
+
 #[tokio::test]
 async fn every_expected_v1_view_exists_and_is_security_invoker() {
     let db = test_db().await;
     let names = view_names(&db.admin).await;
-    for expected in EXPECTED_V1_VIEWS.iter().chain(OPERATOR_VIEWS) {
+    let conditional = pg_stat_statements_preloaded(&db.admin).await;
+    let expected: Vec<&str> = EXPECTED_V1_VIEWS
+        .iter()
+        .copied()
+        .chain(
+            OPERATOR_VIEWS
+                .iter()
+                .copied()
+                .filter(|v| *v != "query_tail" || conditional),
+        )
+        .collect();
+    for expected_view in &expected {
         assert!(
-            names.iter().any(|n| n == expected),
-            "ops.{expected} missing from the read model (found: {names:?})"
+            names.iter().any(|n| n == expected_view),
+            "ops.{expected_view} missing from the read model (found: {names:?})"
         );
     }
     assert_eq!(
         names.len(),
-        EXPECTED_V1_VIEWS.len() + OPERATOR_VIEWS.len(),
-        "unexpected extra views in schema ops: {names:?}"
+        expected.len(),
+        "unexpected extra views in schema ops: {names:?} \
+         (pg_stat_statements preloaded: {conditional})"
     );
 
     let reloptions: Vec<(String, Option<Vec<String>>)> = sqlx::query_as(
