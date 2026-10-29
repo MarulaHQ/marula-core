@@ -82,7 +82,6 @@ upgrade and observability.
 
 | Task | Command |
 |---|---|
-| Track the public docs site work | [`DOCS-TASKLIST.md`](DOCS-TASKLIST.md) |
 | Read the docs licence and publishing boundary | [`adr/0025-docs-content-license.md`](adr/0025-docs-content-license.md) |
 | Read the site conventions and the generated-page rules | [`site/README.md`](site/README.md) |
 | Verify links, generated pages, the help manifest and the publish path | `node docs/site/scripts/check-docs-site.mjs` |
@@ -95,9 +94,9 @@ the IA checker, so one command covers both.
 
 ## History: read only when tracing a decision
 
-[`STAGE-REPORT.md`](STAGE-REPORT.md) is one section per build stage.
-[`BUILD-PROMPT-VERDICTS.md`](BUILD-PROMPT-VERDICTS.md) scores the original build
-prompt item by item.
+The per-stage build record and the original build-prompt verdict ledger live in
+the private sibling repository, not here. Summaries of what shipped and when
+belong in `CHANGELOG.md` and `ROADMAP.md`.
 
 ## Not for publication
 
