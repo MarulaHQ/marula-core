@@ -361,3 +361,9 @@ fi
 after=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')
 echo "== free space: ${before}Gi -> ${after}Gi =="
 [[ $GO -eq 0 ]] && echo "(dry run — run scripts/dev-clean.sh --go to apply)"
+
+# An applying run that reclaimed nothing still succeeded. Without this the last
+# `[[ ]] && echo` above decides the exit status, so `--go` exited 1 and
+# `scripts/p13-test.sh --sweep N`, which propagates a failed sweep, never ran the
+# suite it was asked to run.
+exit 0
