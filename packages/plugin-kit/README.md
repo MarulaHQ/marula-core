@@ -1,6 +1,6 @@
 # plugin-kit
 
-> **Purpose:** TS Plugin Development Kit + `marula dev` harness glue. Apache-2.0.
+> **Purpose:** Plugin Development Kit — the ABI bindings a plugin is written against, plus the build and signing tooling. Apache-2.0.
 > **Non-purpose:** No host-side runtime code (that is crates/plugin-host).
 
 ## What a plugin is (ADR 0023)
@@ -16,8 +16,8 @@ namespace:
 
 The only import namespace is `marula`, with nine entries: `log`, `kv_get`,
 `kv_put`, `kv_delete`, `kv_list`, `http_request`, `emit_event`,
-`read_model_query`, `now`. The catalogue — names, signatures, gates, limits and
-refusal codes — is **data** in [`abi/host-abi.v1.json`](abi/host-abi.v1.json),
+`read_model_query`, `now`. The catalogue (names, signatures, gates, limits and
+refusal codes) is **data** in [`abi/host-abi.v1.json`](abi/host-abi.v1.json),
 and `crates/plugin-host` has a test that fails if that file and the host
 registry disagree.
 

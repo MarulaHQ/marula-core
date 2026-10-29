@@ -1,7 +1,7 @@
 # Marula Agent Platform (companion spec)
 
-> Cited as binding by `docs/prompts/BUILD-PROMPT.md` §4.9 and the Agent-platform
-> overlay in §7. This file is the expanded normative reference.
+> The normative reference for the agent surfaces. [`instant-first.md`](instant-first.md)
+> carries the interaction rules every agent surface has to obey.
 
 Marula doubles as an **agent harness**: the same domain that serves humans,
 exposed to agents through capability-scoped, audited, consented surfaces.
@@ -48,8 +48,8 @@ settings hub (org settings + user preferences pages).
   classification. Autonomous mode is an explicit, per-capability grant, never a
   global switch. Client-visible or external commitments never bypass a human.
   See [`instant-first.md`](instant-first.md).
-- Untrusted/retrieved content never renders raw and never reaches tools
-  without scoping (§4.8 of BUILD-PROMPT applies to agents doubly).
+- Untrusted or retrieved content never renders raw, and never reaches a tool
+  without scoping. That rule applies to agents twice over.
 
 ## 5. Provenance & audit
 
