@@ -116,6 +116,18 @@ pub async fn gate_with(scanner: &dyn ScanProvider, bytes: &[u8]) -> ApiResult<Ga
             scanner: scanner.name(),
             detail: verdict.detail,
         }),
+        Err(core_mail::ScanError::TooLarge {
+            limit_bytes,
+            len_bytes,
+        }) => {
+            tracing::warn!(
+                scanner = scanner.name(),
+                limit_bytes,
+                len_bytes,
+                "upload is past the scanner's stream limit; refusing it as too large to scan"
+            );
+            Err(ApiError::UploadTooLarge { limit_bytes })
+        }
         Err(core_mail::ScanError::Unavailable(reason)) => {
             tracing::error!(
                 scanner = scanner.name(),

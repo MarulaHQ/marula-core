@@ -63,6 +63,15 @@ pub enum ApiError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// A body past the malware scanner's stream limit (Wave 62 lane
+    /// `p62-attachment-verdicts`). Its own reason because the honest answer is
+    /// "too large to scan", not "the scanner is unavailable": the first is the
+    /// user's to act on and the second is the operator's.
+    #[error("too large to scan: {limit_bytes} bytes is the scanner's limit")]
+    UploadTooLarge {
+        /// The configured stream cap, echoed so a client can size its retry.
+        limit_bytes: u64,
+    },
     /// Wave 22 typed 409 for PSP declines (the error-envelope follow-up):
     /// reason stays `payment_declined`, the TYPED decline code rides the
     /// extra field, and the provider's raw decline text is preserved
@@ -910,6 +919,15 @@ impl IntoResponse for ApiError {
                     "held_for_operator": true,
                 })),
             ),
+            ApiError::UploadTooLarge { limit_bytes } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "upload_too_large_to_scan",
+                format!(
+                    "the file is too large to scan: this deployment accepts up to \
+                     {limit_bytes} bytes for a scanned upload; nothing was stored"
+                ),
+                Some(json!({ "limit_bytes": limit_bytes, "held_for_operator": false })),
+            ),
             ApiError::UploadRefused {
                 sha256,
                 filename,
@@ -1145,6 +1163,10 @@ mod tests {
                 "upload_quarantined",
             ),
             (
+                ApiError::UploadTooLarge { limit_bytes: 1024 },
+                "upload_too_large_to_scan",
+            ),
+            (
                 ApiError::UploadRefused {
                     sha256: "0".repeat(64),
                     filename: "Contract.pdf".into(),
@@ -1170,6 +1192,30 @@ mod tests {
             );
             assert!(v["error"]["message"].is_string(), "message key missing");
         }
+    }
+
+    /// A body past the scanner's cap is a 422 that names the limit, not a 503
+    /// that blames the scanner. The distinction is the whole point of the typed
+    /// variant: an operator reading `service_unavailable` would retry the upload
+    /// forever, while `upload_too_large_to_scan` says the file will never fit.
+    /// Nothing was held, so the payload must not claim an operator has it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn too_large_is_422_and_says_the_limit_and_that_nothing_was_held() {
+        let response = ApiError::UploadTooLarge { limit_bytes: 1024 }.into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let v: Value =
+            serde_json::from_slice(&body_bytes(response).await).expect("envelope is JSON");
+        assert_eq!(v["error"]["reason"], "upload_too_large_to_scan");
+        assert_eq!(v["error"]["limit_bytes"], 1024);
+        assert_eq!(
+            v["error"]["held_for_operator"], false,
+            "a file that never fit was not held, and the error must not say it was"
+        );
+        let message = v["error"]["message"].as_str().expect("message key");
+        assert!(
+            message.contains("1024"),
+            "the message should name the limit a client has to shrink under: {message}"
+        );
     }
 
     /// The constraint registry: every known constraint maps to a distinct

@@ -226,9 +226,22 @@ pub async fn upload(
                 .await
                 .map_err(store_error)?;
         }
-        // The verdict belongs to the object, so a second row for the same
-        // digest keeps the first admission's record rather than re-writing it.
-        core_db::attachment_scans::record_admitted(&mut ctx.tx, new_scan).await?;
+        // First-wins is not "admit anyway": a digest whose row says infected
+        // (and no operator released it) is refused here, so a second door
+        // cannot serve bytes the table still calls bad.
+        if let core_db::attachment_scans::Admission::RefusedInfected(scan) =
+            core_db::attachment_scans::admit(&mut ctx.tx, new_scan).await?
+        {
+            return Err(ApiError::UploadQuarantined {
+                sha256: scan.sha256,
+                filename: scan.filename,
+                scanner: scan.scanner,
+                detail: Some(
+                    scan.detail
+                        .unwrap_or_else(|| "this digest is already held as infected".to_string()),
+                ),
+            });
+        }
 
         let attachment = core_db::attachments::insert(
             &mut ctx.tx,

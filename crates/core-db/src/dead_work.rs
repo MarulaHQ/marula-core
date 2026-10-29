@@ -317,13 +317,11 @@ pub enum CancelOutcome {
 /// * `jobs` — `failed`, a status the queue has always declared and never
 ///   written. The dead counts (`queue::stats`, and the age metric beside it)
 ///   filter on `dead`, so a cancelled job stops firing them.
-/// * `email_outbound` — the status stays `dead`. Its CHECK has no spare
-///   terminal value, and a breaking constraint migration is not worth it for a
-///   word: nobody will retry the row, which is exactly what `dead` means. The
-///   union hides it because the cancellation exists, and the email ledger's
-///   counts keep saying "dead" because it is. This is the one place where
-///   "cancelled" and "dead" are not separate states, and the doc says so rather
-///   than the code implying otherwise.
+/// * `email_outbound` — the status moves to `cancelled` (0175). It used to stay
+///   `dead` for want of a spare terminal value, which meant the operator's
+///   decision never reached a count: the summary strip and any alert over the
+///   dead bucket kept reporting mail nobody will retry (Wave 62 lane
+///   `p62-data-truth`).
 /// * `dead_events` — stays as it is; its redrive belongs to R4.
 ///
 /// The parent rows are not deleted. The audit row is the record that survives
@@ -370,6 +368,16 @@ pub async fn cancel(
         return Ok(CancelOutcome::AlreadyCancelled);
     }
 
+    if matches!(source, DeadWorkSource::Email) {
+        sqlx::query(
+            r#"UPDATE email_outbound SET status = 'cancelled', updated_at = now()
+                WHERE id = $1 AND org_id = $2 AND status = 'dead'"#,
+        )
+        .bind(id)
+        .bind(org_id)
+        .execute(&mut **tx)
+        .await?;
+    }
     if matches!(source, DeadWorkSource::Job | DeadWorkSource::Webhook) {
         sqlx::query(
             r#"UPDATE jobs SET status = 'failed', claimed_at = NULL, claimed_by = NULL,
@@ -383,8 +391,8 @@ pub async fn cancel(
         .execute(&mut **tx)
         .await?;
     }
-    // Email and dead events keep their ledger state; the cancellation row is
-    // the whole record. See the note above.
+    // Dead events keep their ledger state; the cancellation row, plus the
+    // `replayable` column 0176 derives from it, is the whole record.
     Ok(CancelOutcome::Cancelled)
 }
 

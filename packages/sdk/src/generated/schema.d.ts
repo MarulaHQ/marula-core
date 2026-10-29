@@ -19423,6 +19423,12 @@ export interface components {
             response_status?: number | null;
         };
         DeliveryCounts: {
+            /**
+             * Format: int64
+             * @description Operator-cancelled rows (0175). Their own bucket, so a dead count can
+             *     clear once nobody will retry the row.
+             */
+            cancelled: number;
             /** Format: int64 */
             dead: number;
             /** Format: int64 */

@@ -135,6 +135,47 @@ pub async fn record_admitted(conn: &mut PgConnection, s: NewScan<'_>) -> DbResul
     }
 }
 
+/// What a scan door learned when it tried to admit an object.
+///
+/// `record_admitted` already distinguished "I wrote the verdict" from "a verdict
+/// exists", and all four doors dropped the value — so a digest whose existing
+/// row says `infected` was admitted on a new door while the table still called
+/// it infected. [`admit`] carries the third case the doors must refuse, and it
+/// is the only admission path they should use (Wave 62 lane
+/// `p62-attachment-verdicts`, ruling 2026-10-27).
+#[derive(Debug)]
+pub enum Admission {
+    /// No verdict existed; this upload's scan is the record.
+    Recorded(AttachmentScan),
+    /// A verdict existed and an operator released the bytes, or it is not an
+    /// infection. Admission stands on the row that is already there.
+    AlreadyRecorded(AttachmentScan),
+    /// A verdict existed, it says `infected`, and no operator has released it.
+    /// The bytes are held; the answer is not "admitted on a second look".
+    RefusedInfected(AttachmentScan),
+}
+
+/// Admit a scanned object through the shared key space.
+///
+/// First-wins is kept (a second sighting never rewrites what the first scan
+/// said), and the release surface stays the only way an infected digest becomes
+/// servable: a released row is no longer `infected`, so it takes the
+/// [`Admission::AlreadyRecorded`] arm.
+pub async fn admit(conn: &mut PgConnection, s: NewScan<'_>) -> DbResult<Admission> {
+    match record_admitted(conn, s).await? {
+        AdmitOutcome::Recorded(row) => Ok(Admission::Recorded(row)),
+        AdmitOutcome::AlreadyRecorded(row) => {
+            if row.status == core_domain::entities::email::ScanStatus::Infected
+                && row.released_at.is_none()
+            {
+                Ok(Admission::RefusedInfected(row))
+            } else {
+                Ok(Admission::AlreadyRecorded(row))
+            }
+        }
+    }
+}
+
 /// Records an `infected` verdict, escalating an admitted row when the bytes
 /// on file are now known-bad. `storage_key` must be the quarantine key whose
 /// copy the caller has written.

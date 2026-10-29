@@ -34,6 +34,19 @@ pub enum ScanError {
     /// or defer), never treat unknown as clean.
     #[error("scanner unavailable: {0}")]
     Unavailable(String),
+    /// The body is past the size the scanner will stream. Distinct from
+    /// `Unavailable` on purpose: a caller can tell the user "too large to
+    /// scan" instead of blaming a scanner that is working. Before this, the
+    /// daemon's own `INSTREAM size limit exceeded` reply arrived as
+    /// `Unavailable`, so a body the app had accepted looked like an outage
+    /// (Wave 62 lane `p62-attachment-verdicts`).
+    #[error("body is {len_bytes} bytes, past the scanner's {limit_bytes}-byte stream limit")]
+    TooLarge {
+        /// The configured stream cap.
+        limit_bytes: u64,
+        /// What the caller offered.
+        len_bytes: u64,
+    },
 }
 
 /// The single seam for malware scanning. Implementations: clamd TCP,
@@ -96,6 +109,11 @@ impl ScanProvider for NoopScan {
 /// `tests/clamd_live.rs` pins the daemon's actual words.
 #[derive(Debug, Clone)]
 pub struct ClamdScan {
+    /// The cap the adapter refuses above. It is the app's own upload cap by
+    /// default; an operator whose daemon streams less must say so with
+    /// `with_max_stream_bytes`, because sending a body the daemon will refuse
+    /// only produces a misleading `Unavailable`.
+    max_stream_bytes: u64,
     pub addr: String,
     /// Whole-exchange deadline. See [`RESPONSE_TIMEOUT`]; [`Self::with_timeout`]
     /// exists for tests and for a deployment whose scanner is remote.
@@ -114,12 +132,18 @@ const CHUNK_SIZE: usize = 4096;
 /// catch that either, so the bound has to live here.
 const RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The stock `StreamMaxLength` a clamd ships with. The app's upload cap is the
+/// real number; this is the floor the adapter assumes when nobody says
+/// otherwise, and it matches `core_domain::attachments::DEFAULT_MAX_UPLOAD_BYTES`.
+const DEFAULT_STREAM_MAX_BYTES: u64 = 25 * 1024 * 1024;
+
 impl ClamdScan {
     #[must_use]
     pub fn new(addr: impl Into<String>) -> Self {
         Self {
             addr: addr.into(),
             timeout: RESPONSE_TIMEOUT,
+            max_stream_bytes: DEFAULT_STREAM_MAX_BYTES,
         }
     }
 
@@ -127,6 +151,14 @@ impl ClamdScan {
     #[must_use]
     pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// The size this scanner will stream. Set it from the deployment's upload
+    /// cap; the daemon's `StreamMaxLength` must be at least this value.
+    #[must_use]
+    pub fn with_max_stream_bytes(mut self, max_stream_bytes: u64) -> Self {
+        self.max_stream_bytes = max_stream_bytes;
         self
     }
 }
@@ -142,6 +174,12 @@ impl ScanProvider for ClamdScan {
     }
 
     async fn scan_bytes(&self, bytes: &[u8]) -> Result<ScanVerdict, ScanError> {
+        if bytes.len() as u64 > self.max_stream_bytes {
+            return Err(ScanError::TooLarge {
+                limit_bytes: self.max_stream_bytes,
+                len_bytes: bytes.len() as u64,
+            });
+        }
         // ONE deadline over the whole exchange. See `RESPONSE_TIMEOUT`.
         tokio::time::timeout(self.timeout, self.exchange(bytes))
             .await
@@ -311,6 +349,29 @@ mod tests {
         );
     }
 
+    /// The adapter refuses a body past its own cap WITHOUT connecting, so the
+    /// caller hears "too large to scan" instead of a scanner outage. The
+    /// pointer below is a closed port: a connect attempt would surface as
+    /// `Unavailable`, which is the answer this test exists to rule out.
+    #[tokio::test]
+    async fn a_body_past_the_stream_cap_is_too_large_not_unavailable() {
+        let scanner = ClamdScan::new("127.0.0.1:9").with_max_stream_bytes(16);
+        let err = scanner
+            .scan_bytes(&[b'x'; 17])
+            .await
+            .expect_err("must refuse");
+        match err {
+            ScanError::TooLarge {
+                limit_bytes,
+                len_bytes,
+            } => {
+                assert_eq!(limit_bytes, 16);
+                assert_eq!(len_bytes, 17);
+            }
+            other => panic!("expected TooLarge, got {other:?}"),
+        }
+    }
+
     /// A real clamd answers a stream past `StreamMaxLength` with
     /// `INSTREAM size limit exceeded. ERROR` and closes the connection. That
     /// reply ends in neither `OK` nor `FOUND`, so the adapter fails closed —
@@ -351,6 +412,9 @@ mod tests {
         match err {
             ScanError::Unavailable(detail) => {
                 assert!(detail.contains("size limit"), "{detail}");
+            }
+            ScanError::TooLarge { .. } => {
+                panic!("the adapter's own cap did not trip; this is the daemon's reply")
             }
         }
     }

@@ -215,25 +215,39 @@ pub async fn upload(
                 .map_err(crate::routes::attachments::store_error)?;
         }
         // The verdict belongs to the object; the first admission is what
-        // happened, so a second surface's upload does not rewrite it.
-        core_db::attachment_scans::record_admitted(
-            &mut ctx.tx,
-            core_db::attachment_scans::NewScan {
-                org_id,
-                sha256: &sha256_hex,
-                status,
-                detail: detail.as_deref(),
-                scanner: scanner_name,
-                size_bytes: body.len() as i64,
-                content_type: &content_type,
-                filename: &filename,
-                storage_key: &storage_key,
-                ticket_id: None,
-                uploaded_by_user_id: Some(user_id),
-                uploaded_by_portal_user_id: None,
-            },
-        )
-        .await?;
+        // happened, so a second surface's upload does not rewrite it — and an
+        // infected digest no operator released is refused rather than admitted
+        // on a second look (Wave 62 lane `p62-attachment-verdicts`).
+        if let core_db::attachment_scans::Admission::RefusedInfected(scan) =
+            core_db::attachment_scans::admit(
+                &mut ctx.tx,
+                core_db::attachment_scans::NewScan {
+                    org_id,
+                    sha256: &sha256_hex,
+                    status,
+                    detail: detail.as_deref(),
+                    scanner: scanner_name,
+                    size_bytes: body.len() as i64,
+                    content_type: &content_type,
+                    filename: &filename,
+                    storage_key: &storage_key,
+                    ticket_id: None,
+                    uploaded_by_user_id: Some(user_id),
+                    uploaded_by_portal_user_id: None,
+                },
+            )
+            .await?
+        {
+            return Err(ApiError::UploadQuarantined {
+                sha256: scan.sha256,
+                filename: scan.filename,
+                scanner: scan.scanner,
+                detail: Some(
+                    scan.detail
+                        .unwrap_or_else(|| "this digest is already held as infected".to_string()),
+                ),
+            });
+        }
 
         let row = core_db::document_attachments::insert(
             &mut ctx.tx,

@@ -286,12 +286,7 @@ pub async fn connect_with(url: &str, config: PoolConfig) -> DbResult<PgPool> {
 /// the user name stay out of it, and the address stays in.
 fn target_of(options: &PgConnectOptions) -> String {
     let database = options.get_database().unwrap_or("(default)");
-    format!(
-        "{}:{}/{}",
-        options.get_host(),
-        options.get_port(),
-        database
-    )
+    format!("{}:{}/{}", options.get_host(), options.get_port(), database)
 }
 
 /// Parses a Postgres URL and applies the statement-cache capacity.

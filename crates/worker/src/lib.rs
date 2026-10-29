@@ -100,6 +100,21 @@ pub fn install_retry(config: &config::WorkerConfig) {
     core_domain::retry::seed_jitter(seed);
 }
 
+/// Report a worker loop's exit at the level its cause deserves.
+///
+/// A planned drain is INFO. An exit with no shutdown request is ERROR and has
+/// already flipped that loop's health flag, which is what makes the orchestrator
+/// restart the container. Logging a drain as an error made a rolling deploy read
+/// as a fault in the logs an operator was watching (Wave 62 lane
+/// `p62-loop-transport`).
+fn report_loop_exit(shutdown: &watch::Receiver<bool>, label: &str) {
+    if *shutdown.borrow() {
+        tracing::info!(loop_ = label, "loop stopped on shutdown");
+    } else {
+        tracing::error!(loop_ = label, "loop exited; reporting unhealthy");
+    }
+}
+
 pub async fn run(
     config: config::WorkerConfig,
     shutdown: watch::Receiver<bool>,
@@ -415,6 +430,7 @@ pub async fn run(
         let stale = config.queue_stale_after_secs;
         let idle_ms = config.queue_idle_ms;
         let secret_key = config.webhook_secret_key;
+        let seen = shutdown.clone();
         tokio::spawn(async move {
             queue_runner::run_queue(
                 pool,
@@ -429,7 +445,7 @@ pub async fn run(
             )
             .await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("queue loop exited; reporting unhealthy");
+            report_loop_exit(&seen, "queue loop");
         });
     }
 
@@ -439,10 +455,11 @@ pub async fn run(
         let alive = Arc::clone(&sla_alive);
         let pool = pool.clone();
         let shutdown = shutdown.clone();
+        let seen = shutdown.clone();
         tokio::spawn(async move {
             sla_sweep::run_sla_sweep(pool, config.eval_interval_secs, 200, shutdown).await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("sla sweep exited; reporting unhealthy");
+            report_loop_exit(&seen, "sla sweep");
         });
     }
 
@@ -453,10 +470,11 @@ pub async fn run(
         let pool = pool.clone();
         let redis_url = config.redis_url.clone();
         let shutdown = shutdown.clone();
+        let seen = shutdown.clone();
         tokio::spawn(async move {
             automations::run_automations(pool, redis_url, shutdown).await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("automations loop exited; reporting unhealthy");
+            report_loop_exit(&seen, "automations loop");
         });
     }
 
@@ -473,10 +491,11 @@ pub async fn run(
             internal_token: config.internal_token.clone(),
         };
         let shutdown = shutdown.clone();
+        let seen = shutdown.clone();
         tokio::spawn(async move {
             csat::run_csat(pool, redis_url, csat_config, shutdown).await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("csat loop exited; reporting unhealthy");
+            report_loop_exit(&seen, "csat loop");
         });
     }
 
@@ -489,9 +508,10 @@ pub async fn run(
         let pool = pool.clone();
         let redis_url = config.redis_url.clone();
         let shutdown = shutdown.clone();
+        let seen = shutdown.clone();
         tokio::spawn(async move {
             project_billing::run_project_billing(pool, redis_url, shutdown).await;
-            tracing::error!("project_billing loop exited; reporting unhealthy");
+            report_loop_exit(&seen, "project_billing loop");
         });
     }
 
@@ -502,10 +522,11 @@ pub async fn run(
         let alive = Arc::clone(&pm_alive);
         let pm_pool = pool.clone();
         let pm_shutdown = shutdown.clone();
+        let seen = pm_shutdown.clone();
         tokio::spawn(async move {
             pm_sweep::run_pm_sweep(pm_pool, config.eval_interval_secs, pm_shutdown).await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("pm sweep exited; reporting unhealthy");
+            report_loop_exit(&seen, "pm sweep");
         });
     }
 
@@ -522,11 +543,12 @@ pub async fn run(
         let usage_pool = pool.clone();
         let usage_shutdown = shutdown.clone();
         let interval_secs = config.usage_refresh_secs;
+        let seen = usage_shutdown.clone();
         tokio::spawn(async move {
             usage_refresh_sweep::run_usage_refresh_sweep(usage_pool, interval_secs, usage_shutdown)
                 .await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("org usage refresh sweep exited; reporting unhealthy");
+            report_loop_exit(&seen, "org usage refresh sweep");
         });
     }
     // Workflow run-ledger retention (Wave 43 lane 14): one housekeeping pass
@@ -547,11 +569,12 @@ pub async fn run(
         let alive = Arc::clone(&rotation_alive);
         let rot_pool = pool.clone();
         let rot_shutdown = shutdown.clone();
+        let seen = rot_shutdown.clone();
         tokio::spawn(async move {
             rotation_sweep::run_rotation_sweep(rot_pool, config.eval_interval_secs, rot_shutdown)
                 .await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("rotation sweep exited; reporting unhealthy");
+            report_loop_exit(&seen, "rotation sweep");
         });
         // Workflow run-ledger retention (Wave 43 lane 14): one housekeeping
         // pass per interval that prunes each org's finished runs past its
@@ -562,6 +585,7 @@ pub async fn run(
             let retention_pool = pool.clone();
             let retention_shutdown = shutdown.clone();
             let interval_secs = config.retention_sweep_secs;
+            let seen = retention_shutdown.clone();
             tokio::spawn(async move {
                 run_retention_sweep::run_run_retention_sweep(
                     retention_pool,
@@ -570,7 +594,7 @@ pub async fn run(
                 )
                 .await;
                 alive.store(false, Ordering::Relaxed);
-                tracing::error!("run retention sweep exited; reporting unhealthy");
+                report_loop_exit(&seen, "run retention sweep");
             });
         }
 
@@ -582,6 +606,7 @@ pub async fn run(
             let outbox_pool = pool.clone();
             let outbox_shutdown = shutdown.clone();
             let retention = config.outbox_retention;
+            let seen = outbox_shutdown.clone();
             tokio::spawn(async move {
                 outbox_retention_sweep::run_outbox_retention_sweep(
                     outbox_pool,
@@ -590,7 +615,7 @@ pub async fn run(
                 )
                 .await;
                 alive.store(false, Ordering::Relaxed);
-                tracing::error!("outbox retention sweep exited; reporting unhealthy");
+                report_loop_exit(&seen, "outbox retention sweep");
             });
         }
 
@@ -603,6 +628,7 @@ pub async fn run(
             let matrix_pool = pool.clone();
             let matrix_shutdown = shutdown.clone();
             let retention = config.data_retention.clone();
+            let seen = matrix_shutdown.clone();
             tokio::spawn(async move {
                 data_retention_sweep::run_data_retention_sweep(
                     matrix_pool,
@@ -611,7 +637,7 @@ pub async fn run(
                 )
                 .await;
                 alive.store(false, Ordering::Relaxed);
-                tracing::error!("data retention sweep exited; reporting unhealthy");
+                report_loop_exit(&seen, "data retention sweep");
             });
         }
 
@@ -662,10 +688,11 @@ pub async fn run(
             let gc_shutdown = shutdown.clone();
             let gc_config = config.object_gc.clone();
             let store = core_store::build(&config.object_store);
+            let seen = gc_shutdown.clone();
             tokio::spawn(async move {
                 object_gc_sweep::run_object_gc(gc_pool, store, gc_config, gc_shutdown).await;
                 alive.store(false, Ordering::Relaxed);
-                tracing::error!("object integrity pass exited; reporting unhealthy");
+                report_loop_exit(&seen, "object integrity pass");
             });
         }
 
@@ -711,6 +738,7 @@ pub async fn run(
         let reconcile_config = config.reconcile.clone();
         let reconcile_redis = config.redis_url.clone();
         let reconcile_shutdown = shutdown.clone();
+        let seen = reconcile_shutdown.clone();
         tokio::spawn(async move {
             reconcile::run_reconcile(
                 reconcile_pool,
@@ -721,7 +749,7 @@ pub async fn run(
             )
             .await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("reconcile loop exited; reporting unhealthy");
+            report_loop_exit(&seen, "reconcile loop");
         });
     }
 
@@ -775,10 +803,11 @@ pub async fn run(
         let workflow_pool = pool.clone();
         let workflow_redis = config.redis_url.clone();
         let shutdown = shutdown.clone();
+        let seen = shutdown.clone();
         tokio::spawn(async move {
             workflow::run_workflow_stream(workflow_pool, workflow_redis, shutdown).await;
             alive.store(false, Ordering::Relaxed);
-            tracing::error!("workflow loop exited; reporting unhealthy");
+            report_loop_exit(&seen, "workflow loop");
         });
     }
 

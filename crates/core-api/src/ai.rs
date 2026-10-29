@@ -51,6 +51,20 @@ const LOCAL_EMBED_TIMEOUT_SECS: u64 = 300;
 /// broken endpoint rather than a slow one.
 const CLOUD_EMBED_TIMEOUT_SECS: u64 = 30;
 
+/// An HTTP client for a provider endpoint.
+///
+/// A request timeout is set per call (the embedding budget differs between a
+/// local model and a cloud one), so this adds the two things a per-call timeout
+/// cannot: a connect bound, and a default for any call that forgets one. A bare
+/// `Client::new()` has neither (Wave 62 lane `p62-loop-transport`).
+fn provider_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(LOCAL_EMBED_TIMEOUT_SECS))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 /// Which HTTP shape the adapter speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EmbedTransport {
@@ -472,7 +486,7 @@ pub async fn resolve_vector_leg(state: &AppState, org_id: Uuid) -> VectorLeg {
     VectorLeg::Ready {
         space: instance.space_id(),
         provider: OrgCompletionProvider::Embeddings(OpenAiEmbeddings {
-            http: reqwest::Client::new(),
+            http: provider_client(),
             base_url: base_url_for(&instance.provider),
             api_key,
             model: instance.entry.id.to_string(),
@@ -1092,7 +1106,7 @@ mod tests {
     fn the_adapter_carries_the_space_it_writes() {
         let selection = instance(Some("minimal"), None, None);
         let adapter = OpenAiEmbeddings {
-            http: reqwest::Client::new(),
+            http: provider_client(),
             base_url: base_url_for(&selection.provider),
             api_key: None,
             model: selection.entry.id.to_string(),
@@ -1130,7 +1144,7 @@ mod tests {
         // One setting, two shapes: the native endpoint strips the OpenAI
         // compatibility suffix, and a bare host is left alone.
         let with_suffix = OpenAiEmbeddings {
-            http: reqwest::Client::new(),
+            http: provider_client(),
             base_url: "http://localhost:11434/v1".to_string(),
             api_key: None,
             model: "embeddinggemma-2:270m-q8_0-text".to_string(),

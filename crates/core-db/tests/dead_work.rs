@@ -412,6 +412,103 @@ async fn a_cancel_is_recorded_once_and_moves_a_job_out_of_the_dead_set() {
     assert_eq!(job_status(&db, job_id).await.0, "failed");
 }
 
+/// The email leg of the same decision, and the reason it needed a migration.
+/// Before 0175 an operator's cancel moved the row to nothing — the ledger's only
+/// terminal status was `dead`, so the summary strip and any alert over the dead
+/// bucket kept counting mail nobody would ever retry. The decision is now
+/// visible in the row itself, not only in the cancellation table.
+#[tokio::test]
+async fn a_cancelled_email_is_its_own_state_and_leaves_the_dead_set() {
+    let db = test_db().await;
+    let org_id = seed_org(&db.admin).await;
+    let email_id = seed_dead_email(&db.admin, org_id).await;
+    assert_eq!(
+        all_rows(&db, org_id).await.len(),
+        1,
+        "the seeded email starts in the dead bucket"
+    );
+
+    let mut tx = db.app.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("set_org");
+    let first = dead_work::cancel(
+        &mut tx,
+        org_id,
+        DeadWorkSource::Email,
+        email_id,
+        "the customer withdrew the request",
+        None,
+    )
+    .await
+    .expect("cancel email");
+    assert_eq!(first, CancelOutcome::Cancelled);
+    let second = dead_work::cancel(
+        &mut tx,
+        org_id,
+        DeadWorkSource::Email,
+        email_id,
+        "a second operator clicking the same button",
+        None,
+    )
+    .await
+    .expect("cancel email twice");
+    assert_eq!(second, CancelOutcome::AlreadyCancelled);
+    tx.commit().await.expect("commit");
+
+    let (status, attempts) = email_status(&db, email_id).await;
+    assert_eq!(
+        status, "cancelled",
+        "the cancellation must reach the ledger as its own terminal state"
+    );
+    assert_eq!(
+        attempts, 8,
+        "cancelling does not rewrite the attempt history"
+    );
+    assert!(
+        all_rows(&db, org_id).await.is_empty(),
+        "a cancelled email is not in the dead bucket the alert reads"
+    );
+
+    // Asking for cancelled rows still shows the decision, because an operator
+    // who cancels and then wonders what happened needs the record.
+    let mut tx = db.app.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("set_org");
+    let with_cancelled = dead_work::list(
+        &mut tx,
+        org_id,
+        DeadWorkFilter {
+            source: Some(DeadWorkSource::Email),
+            include_cancelled: true,
+            limit: 100,
+            offset: 0,
+        },
+    )
+    .await
+    .expect("list cancelled email");
+    tx.commit().await.expect("commit");
+    let row = with_cancelled
+        .iter()
+        .find(|r| r.id == email_id && r.source == DeadWorkSource::Email)
+        .expect("the cancelled email is visible when cancelled rows are asked for");
+    assert!(
+        row.cancelled_at.is_some(),
+        "the decision time is on the row"
+    );
+    assert!(
+        !row.replayable,
+        "a cancelled email must not offer a redrive the verb would refuse"
+    );
+
+    let mut tx = db.app.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("set_org");
+    assert_eq!(
+        dead_work::redrive(&mut tx, org_id, DeadWorkSource::Email, email_id)
+            .await
+            .expect("redrive cancelled email"),
+        RedriveOutcome::Cancelled
+    );
+    tx.commit().await.expect("commit");
+}
+
 #[tokio::test]
 async fn repeated_failures_pause_a_destination_and_a_resume_clears_it() {
     let db = test_db().await;
