@@ -2,8 +2,9 @@
 
 <p>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/MarulaHQ/marula-core/main/.github/assets/logo/dark.png">
-    <img src="https://raw.githubusercontent.com/MarulaHQ/marula-core/main/.github/assets/logo/light.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo/dark.png">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/logo/light.png">
+    <img src=".github/assets/logo/light.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
   </picture>
 </p>
 
