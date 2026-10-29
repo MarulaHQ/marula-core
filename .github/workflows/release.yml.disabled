@@ -66,15 +66,19 @@ jobs:
           - image: marula-core-api
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=core-api
+            cache_scope: rust
           - image: marula-worker
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=worker
+            cache_scope: rust
           - image: marula-core-cli
             dockerfile: deploy/Dockerfile.rust
             build_args: BIN=marula-core-cli
+            cache_scope: rust
           - image: marula-web
             dockerfile: deploy/Dockerfile.web
             build_args: ""
+            cache_scope: web
     steps:
       - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v6
 
@@ -105,6 +109,17 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           build-args: ${{ matrix.build_args }}
+          # deploy/Dockerfile.rust compiles core-api, worker and marula-core-cli in
+          # ONE builder stage shared by every BIN value, so each rust matrix job
+          # now links all three executables. The shared scope lets a re-run or a
+          # job that starts after a sibling finished reuse that layer, and keeps
+          # the web image's pnpm-install layer warm. It does NOT make a cold
+          # release compile once: the three jobs start together, and the cargo
+          # cache mount is not exported to the gha cache. Building the three
+          # rust images in a single job (one builder, three tags) is the shape
+          # that compiles once.
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}
           provenance: mode=max

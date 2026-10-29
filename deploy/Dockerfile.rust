@@ -58,10 +58,17 @@ COPY packages/sdk/mcp-catalog.json /src/packages/sdk/mcp-catalog.json
 # image builds on the same builder, so lockfile-only changes don't trigger
 # a full re-download/recompile. The binary is copied out of the mount in
 # the same RUN (cache mounts are not visible to later layers).
-# -p scope is required: the workspace root is itself a package
-# (marula-core-cli), so a bare --bin selects the root's default-run set and
-# finds nothing for the member binaries. The CLI's executable is named
-# `marula`, everything else matches its package name.
+#
+# The cache ids are builder-global: every build on a builder shares one target
+# dir whatever branch it came from, and COPY keeps the host's file mtimes. Cargo
+# judges freshness by mtime, so a checkout whose files are OLDER than the cached
+# artifacts can be treated as up to date and link a stale object. This is the
+# same hazard scripts/lane-target-guard.py documents for the shared host target
+# dir; the previous path-keyed mount shared the same way, so this is not new,
+# only now explicit. Escape hatch when it bites: `docker builder prune
+# --filter id=marula-cargo-target`, or key the id on a hash of Cargo.lock
+# (pass it as a build arg and interpolate it into the mount id).
+#
 # --locked: the shipped binary must match the committed Cargo.lock; without it
 # cargo may rewrite the lock inside the build and ship something nobody
 # reviewed. All three packages go in ONE invocation so the shared dependency
