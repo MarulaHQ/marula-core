@@ -14,7 +14,7 @@
   <a href="docs/site/LICENSE"><img src="https://img.shields.io/badge/docs-CC--BY--4.0-7C746A" alt="The documentation in docs/site is licensed under CC BY 4.0" height="20"></a>
 </p>
 
-**The open-source PSA that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base: everything an IT service team runs on, self-hosted, in a database you control.
+**The open-source PSA (professional services automation) that MSPs own.** Tickets, time, clients, dispatch, projects, invoicing, knowledge base: everything an IT service team runs on, self-hosted, in a database you control.
 
 > **Status:** pre-1.0 (0.3.x), built in the open. [`ROADMAP.md`](ROADMAP.md) says what ships today and what is next; [`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.
 
@@ -38,7 +38,7 @@ Whether you run the service desk, coordinate the dispatch board, work tickets in
 
 Every commercial PSA taxes tickets, locks the data, and bends your workflow to its roadmap. We got tired of it.
 
-Marula is complete on its own. Native invoicing, quotes, knowledge base, CSAT surveys, and dispatch scheduling all come built in, with no third-party subscriptions required to run a real MSP.
+Marula is complete on its own: native invoicing, quotes, knowledge base, CSAT surveys and dispatch scheduling come built in, so running an MSP does not need third-party subscriptions.
 
 Some things we care about enough to enforce in CI:
 
@@ -121,7 +121,7 @@ Development runs in stages: foundation → daily driver → commercial engine �
 
 PRs welcome. Changes land trunk-based and squash-merged, with conventional commit subjects and a DCO sign-off. Two approvals are required for `crates/core-domain` and anything touching authz/RLS/payments. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md). Significant changes begin as RFCs in [`docs/rfc/`](docs/rfc/).
 
-Extension authors usually don't need this repo: connectors are ordinary web apps using [`@marula-core/sdk`](packages/sdk/) and receiving signed webhooks. The NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike.
+Extension authors usually don't need this repo: connectors are ordinary web apps using [`@marula-core/sdk`](packages/sdk/) and receiving signed webhooks. The NinjaOne and Hudu connectors are the reference implementations. Beyond the connectors in [`plugins/connectors/`](plugins/connectors/), others publish through the connector marketplace, first-party and community alike.
 
 ## Security
 
