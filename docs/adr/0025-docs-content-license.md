@@ -25,7 +25,9 @@ The AGPL’s network clause is the wrong instrument for prose. It also creates a
 - Add `docs/site/LICENSE` with the full CC BY 4.0 legal code.
 - Add `docs/site/NOTICE` with copyright, source, trademark and code-sample notices.
 - Update `README.md` and `CONTRIBUTING.md` so the docs licence is explicit and future docs contributions are submitted under CC BY 4.0.
-- The website may render, style, index and distribute the docs, including commercially, with attribution. The website’s code and visual layer remain proprietary.
+- The website may render the docs, style them, index them for search, and
+  redistribute them, including commercially, with attribution. The website's
+  code and visual layer remain proprietary.
 - Code examples copied from AGPL code remain AGPL-3.0-or-later and are marked as such. CC BY 4.0 does not override the licence on the code.
 - The Marula name and logo remain trademarks. CC BY 4.0 does not grant trademark rights.
 - The deterministic publisher (`docs/site/scripts/publish.mjs`) remains the GitHub/offline path. Its “website consumes `dist/` wholesale” clause is superseded: the website consumes the Markdown sources through its own renderer.
@@ -38,7 +40,9 @@ CC BY 4.0 is also the pattern used by the projects Marula is most often compared
 
 ## Consequences
 
-- The docs are reusable, mirrorable and translatable with attribution. A competitor may republish them; that is acceptable for documentation and is the cost of the open-source posture.
+- The docs are reusable and mirrorable, and they can be translated with
+  attribution. A competitor may republish them; that is acceptable for
+  documentation and is the cost of the open-source posture.
 - The website must render a visible attribution footer on every docs page and carry the licence into `llms.txt`, `manifest.json`, Markdown twins, JSON-LD and MCP responses.
 - The docs can be edited without touching the AGPL code licence, and the website can style them without a copyleft question.
 - Anyone contributing docs after this ADR submits them under CC BY 4.0. Existing docs contributions are founder and agent lanes; the DCO audit is recorded in the public docs plan.
