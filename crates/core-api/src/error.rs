@@ -1163,6 +1163,10 @@ mod tests {
                 "upload_quarantined",
             ),
             (
+                ApiError::UploadTooLarge { limit_bytes: 1024 },
+                "upload_too_large_to_scan",
+            ),
+            (
                 ApiError::UploadRefused {
                     sha256: "0".repeat(64),
                     filename: "Contract.pdf".into(),
@@ -1188,6 +1192,30 @@ mod tests {
             );
             assert!(v["error"]["message"].is_string(), "message key missing");
         }
+    }
+
+    /// A body past the scanner's cap is a 422 that names the limit, not a 503
+    /// that blames the scanner. The distinction is the whole point of the typed
+    /// variant: an operator reading `service_unavailable` would retry the upload
+    /// forever, while `upload_too_large_to_scan` says the file will never fit.
+    /// Nothing was held, so the payload must not claim an operator has it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn too_large_is_422_and_says_the_limit_and_that_nothing_was_held() {
+        let response = ApiError::UploadTooLarge { limit_bytes: 1024 }.into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let v: Value =
+            serde_json::from_slice(&body_bytes(response).await).expect("envelope is JSON");
+        assert_eq!(v["error"]["reason"], "upload_too_large_to_scan");
+        assert_eq!(v["error"]["limit_bytes"], 1024);
+        assert_eq!(
+            v["error"]["held_for_operator"], false,
+            "a file that never fit was not held, and the error must not say it was"
+        );
+        let message = v["error"]["message"].as_str().expect("message key");
+        assert!(
+            message.contains("1024"),
+            "the message should name the limit a client has to shrink under: {message}"
+        );
     }
 
     /// The constraint registry: every known constraint maps to a distinct
