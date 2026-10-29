@@ -360,10 +360,15 @@ fi
 
 after=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')
 echo "== free space: ${before}Gi -> ${after}Gi =="
-[[ $GO -eq 0 ]] && echo "(dry run — run scripts/dev-clean.sh --go to apply)"
+# An applying run that reclaimed nothing still succeeded. A dry run says so and
+# also succeeds: the note below is an echo, not a verdict; the script's verdicts
+# are its explicit exits (the guarded sweeps' aborts). Without an explicit
+# `exit 0`, the last `[[ ]] && echo` compound decides the status, so `--go`
+# exited 1 and `scripts/p13-test.sh --sweep N`, which propagates a failed
+# sweep, never ran the suite it was asked to run (a finding landed in Wave 48's
+# group gate: 4.4GiB reclaimed, then the gate died before any test output).
+if [[ $GO -eq 0 ]]; then
+  echo "(dry run — run scripts/dev-clean.sh --go to apply)"
+fi
 
-# An applying run that reclaimed nothing still succeeded. Without this the last
-# `[[ ]] && echo` above decides the exit status, so `--go` exited 1 and
-# `scripts/p13-test.sh --sweep N`, which propagates a failed sweep, never ran the
-# suite it was asked to run.
 exit 0

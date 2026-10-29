@@ -47,6 +47,16 @@ describe("SurfaceFooter", () => {
     expect(container.querySelector(".m-surface-footer-count")?.textContent).toBe("1 of 1 client");
   });
 
+  it("pluralises the noun against the denominator, not the shown rows", () => {
+    // "1 of 3 projects" is a sentence; "1 of 3 project" is not. The noun's
+    // number follows the set the count describes, and only a surface without
+    // a total falls back to shown for the number.
+    const { container } = render(<SurfaceFooter shown={1} total={3} noun="project" />);
+    expect(container.querySelector(".m-surface-footer-count")?.textContent).toBe("1 of 3 projects");
+    const { container: noTotal } = render(<SurfaceFooter shown={1} noun="project" />);
+    expect(noTotal.querySelector(".m-surface-footer-count")?.textContent).toBe("1 project");
+  });
+
   it("offers load-more only when the caller can serve another page", async () => {
     const onLoadMore = vi.fn();
     const { rerender } = render(<SurfaceFooter shown={50} total={120} noun="ticket" />);

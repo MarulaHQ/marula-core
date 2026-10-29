@@ -46,6 +46,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { formatInTimeZone } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -54,7 +55,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BlushNote,
   HEAD_CELL_CLASS,
-  LedgerFooter,
   PageFrame,
   SkeletonRows,
   SparkIcon,
@@ -668,10 +668,10 @@ export default function AlertsPage() {
             />
           </div>
 
-          <LedgerFooter
+          <SurfaceFooter
             shown={filteredAlerts.length}
             total={counts.all}
-            noun="alerts"
+            noun="alert"
             density={<DensitySwitch value={density} onChange={applyDensity} />}
           />
           </div>

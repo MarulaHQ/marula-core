@@ -229,62 +229,10 @@ export const HEAD_CELL_CLASS =
   "px-3 py-2 text-left text-[12px] font-semibold uppercase tracking-[0.06em]";
 
 /** The 52px footer: shown-of-total on the left, density and key hints right. */
-export function LedgerFooter({
-  shown,
-  total,
-  noun,
-  density,
-  hints,
-  trailing,
-}: {
-  shown: number;
-  total: number;
-  /** Plural noun for the records, e.g. "articles". */
-  noun: string;
-  density?: ReactNode;
-  hints?: ReactNode;
-  trailing?: ReactNode;
-}): ReactNode {
-  return (
-    <div
-      className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-3 pt-3 text-[13px]"
-      style={{ color: "var(--m-text-secondary)" }}
-    >
-      <span>
-        <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
-          {formatNumber(shown)}
-        </b>{" "}
-        of{" "}
-        <b className="tabular-nums" style={{ color: "var(--m-text)" }}>
-          {formatNumber(total)}
-        </b>{" "}
-        {noun}
-      </span>
-      {trailing}
-      <span className="flex-1" />
-      {hints}
-      {density}
-    </div>
-  );
-}
-
-/** A keyboard hint pair, the way the pack's footer prints them. */
-export function KeyHint({ keys, label }: { keys: string; label: string }): ReactNode {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      {keys.split(" ").map((key, i) => (
-        <kbd
-          key={`${key}-${i}`}
-          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] border px-1 text-[12px] font-semibold leading-none"
-          style={{ borderColor: "var(--m-border)" }}
-        >
-          {key}
-        </kbd>
-      ))}
-      <span>{label}</span>
-    </span>
-  );
-}
+/** (The count strip on these ledgers is the kit's `SurfaceFooter` now — one
+ *  composer for every surface, so the count shape cannot drift again. The kit
+ *  renders the pack's hint chips itself, so the local footer and its hint
+ *  pair went with it.) */
 
 /**
  * Selection replaces the column header, in place, so the layout never jumps

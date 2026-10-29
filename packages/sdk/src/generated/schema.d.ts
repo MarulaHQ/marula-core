@@ -56113,6 +56113,8 @@ export interface operations {
                 headers: {
                     /** @description Opaque keyset cursor for the next page; present when this page is full and the walk may continue */
                     "x-next-cursor"?: string;
+                    /** @description Total tickets matching this call's filter, before pagination — the list footer's N-of-M denominator */
+                    "x-total-count"?: number;
                     [name: string]: unknown;
                 };
                 content: {

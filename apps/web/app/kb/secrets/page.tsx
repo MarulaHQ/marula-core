@@ -54,6 +54,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
@@ -62,7 +63,6 @@ import type { ReactNode } from "react";
 import {
   AlertIcon,
   HEAD_CELL_CLASS,
-  LedgerFooter,
   LockIcon,
   NoMatches,
   PageFrame,
@@ -647,7 +647,7 @@ export default function SecretsVaultPage() {
             )}
           </TableCard>
 
-          <LedgerFooter
+          <SurfaceFooter
             shown={visibleRecords.length}
             total={records?.length ?? 0}
             noun="records"

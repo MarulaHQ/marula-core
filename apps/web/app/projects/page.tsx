@@ -47,6 +47,8 @@ import {
   Th,
   Tr,
   ViewSwitch,
+  SurfaceFooter,
+  DensitySwitch,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
@@ -608,25 +610,23 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-        {/* The count leads, then the "of" clause only when a filter has
-            actually narrowed the list. Printing "1 project · Showing 1 of 1
-            projects" unconditionally said the same number twice and got the
-            plural wrong on one of them. */}
-        <span className="tabular-nums">
-          {filtered === null ? "" : `${filtered.length} project${filtered.length === 1 ? "" : "s"}`}
-        </span>
-        {filtered !== null && projects !== null && filtered.length !== projects.length ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="tabular-nums">of {projects.length} in total</span>
-          </>
-        ) : null}
-        <span className="flex-1" />
-        <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-          At risk is a date coming up. Overdue is a date that has passed.
-        </span>
-      </div>
+      <SurfaceFooter
+        shown={filtered?.length ?? 0}
+        total={
+          filtered !== null && projects !== null && filtered.length !== projects.length
+            ? projects.length
+            : undefined
+        }
+        noun="project"
+        density={
+          <DensitySwitch value={prefs.density} onChange={(step) => void prefs.setDensity(step)} variant="icons" label="Row density" />
+        }
+        trailing={
+          <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+            At risk is a date coming up. Overdue is a date that has passed.
+          </span>
+        }
+      />
     </div>
   );
 }

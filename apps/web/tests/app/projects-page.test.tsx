@@ -135,7 +135,18 @@ describe("ProjectsPage", () => {
       expect(screen.queryByText("Exchange migration")).toBeNull();
     });
     expect(screen.getByText("Onboard Initech")).toBeInTheDocument();
-    expect(screen.getByText("1 project")).toBeInTheDocument();
+    // The kit's SurfaceFooter splits the count across elements (`<b>1</b>
+    // project`), so the sentence is matched on its count element, as the
+    // tickets suite does since Wave 48. Whitespace in the source keeps the
+    // count and the noun on separate lines, so the text is normalised; the
+    // "of" clause appears only when the search has narrowed the list.
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.classList.contains("m-surface-footer-count") === true &&
+          /^1 (of \d+ )?projects$/.test(element.textContent?.replace(/\s+/g, " ").trim() ?? ""),
+      ),
+    ).toBeInTheDocument();
     cleanup();
   });
 });

@@ -46,13 +46,13 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import {
   BlushNote,
   HEAD_CELL_CLASS,
-  LedgerFooter,
   PageFrame,
   PlusIcon,
   SkeletonRows,
@@ -418,10 +418,10 @@ export default function DocumentsPage() {
           )}
         </TableCard>
 
-        <LedgerFooter
+        <SurfaceFooter
           shown={filtered?.length ?? 0}
           total={stats?.total ?? 0}
-          noun="documents"
+          noun="document"
           density={<DensitySwitch value={density} onChange={applyDensity} />}
         />
       </div>

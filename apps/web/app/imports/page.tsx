@@ -38,6 +38,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { formatInTimeZone, formatNumber } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
@@ -45,7 +46,6 @@ import {
   BlushNote,
   HEAD_CELL_CLASS,
   InlineVerdict,
-  LedgerFooter,
   NoMatches,
   PageFrame,
   SkeletonRows,
@@ -822,7 +822,7 @@ export default function ImportsPage() {
               <NoMatches
                 title="No runs match these filters."
                 hint="Try removing one, or switch back to All runs."
-                noun="runs"
+                noun="run"
                 onClear={() => {
                   setHistoryClauses([]);
                   setHistoryView("all");
@@ -904,10 +904,10 @@ export default function ImportsPage() {
           )}
         </TableCard>
 
-        <LedgerFooter
+        <SurfaceFooter
           shown={historyRows.length}
           total={batches?.length ?? 0}
-          noun="runs"
+          noun="run"
           density={<DensitySwitch value={density} onChange={applyDensity} />}
           trailing={
             <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>

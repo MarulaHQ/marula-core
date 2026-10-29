@@ -234,6 +234,14 @@ async fn main() -> anyhow::Result<()> {
                     // lane 5); bearer-mode callers are unaffected.
                     header::HeaderName::from_static("x-marula-csrf"),
                 ])
+                // Custom response headers a browser page reads (the tickets
+                // list's cursor walk and its footer's N-of-M denominator);
+                // headless clients are unaffected, browsers need the expose
+                // rule or these stay opaque cross-origin.
+                .expose_headers([
+                    header::HeaderName::from_static("x-next-cursor"),
+                    header::HeaderName::from_static("x-total-count"),
+                ])
                 // httpOnly refresh cookies ride cross-origin app→API
                 // calls (same-site), so responses must be credentialed.
                 .allow_credentials(true),

@@ -59,6 +59,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { LocalTime } from "../../components/local-time";
 import { AssistantCard } from "@marula-core/ui";
@@ -70,7 +71,6 @@ import {
   BlushNote,
   HEAD_CELL_CLASS,
   InlineVerdict,
-  LedgerFooter,
   NoMatches,
   PageFrame,
   PlusIcon,
@@ -990,7 +990,7 @@ export default function AutomationsPage() {
               <NoMatches
                 title="No rules match these filters."
                 hint="Try removing one. Every rule you have is still here."
-                noun="rules"
+                noun="rule"
                 onClear={() => {
                   setClauses([]);
                   setView("all");
@@ -1168,10 +1168,10 @@ export default function AutomationsPage() {
           ) : null}
         </TableCard>
 
-        <LedgerFooter
+        <SurfaceFooter
           shown={visibleRules.length}
           total={rulesSorted.length}
-          noun="rules"
+          noun="rule"
           density={<DensitySwitch value={density} onChange={applyDensity} />}
         />
       </div>

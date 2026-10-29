@@ -54,6 +54,7 @@ import {
   ViewSwitch,
   applyDensity,
   useDensity,
+  SurfaceFooter,
 } from "@marula-core/ui";
 import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
@@ -65,7 +66,6 @@ import {
   CheckIcon,
   FileIcon,
   HEAD_CELL_CLASS,
-  LedgerFooter,
   NoMatches,
   PageFrame,
   PlusIcon,
@@ -747,7 +747,7 @@ export default function KbPage() {
                           <NoMatches
                             title="No articles match these filters."
                             hint={`Try removing one, or switch back to a view that holds something. Nothing was deleted.`}
-                            noun="articles"
+                            noun="article"
                             onClear={() => { setClauses([]); setView("all"); }}
                           />
                         )}
@@ -759,10 +759,10 @@ export default function KbPage() {
             )}
           </TableCard>
 
-          <LedgerFooter
+          <SurfaceFooter
             shown={visible.length}
             total={articles?.length ?? 0}
-            noun="articles"
+            noun="article"
             density={<DensitySwitch value={density} onChange={applyDensity} />}
           />
         </div>

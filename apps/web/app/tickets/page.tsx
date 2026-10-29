@@ -219,6 +219,10 @@ export default function TicketsListPage() {
    *  from the row count, because a cross-origin response's custom headers are
    *  not readable by the page unless the API exposes them. */
   const [hasMore, setHasMore] = useState(false);
+  /** The endpoint's total for this filter, from `x-total-count`. Null while
+   *  unknown (an older API, or a header a proxy stripped) — the footer then
+   *  prints "N tickets" rather than a guessed denominator. */
+  const [serverTotal, setServerTotal] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   /** The builder's popover, shared by the chips' `+ Add filter` chip and the
    *  toolbar's Filter button — the template draws both, and both open this. */
@@ -293,14 +297,21 @@ export default function TicketsListPage() {
   // (crates/core-api/src/routes/tickets.rs:427) and the app's other ledgers page
   // the same way.
   const fetchPage = useCallback(
-    async (offset: number): Promise<{ rows: TicketRow[]; full: boolean } | null> => {
+    async (offset: number): Promise<{ rows: TicketRow[]; full: boolean; total: number | null } | null> => {
       try {
         const result = await api.api.GET("/api/v1/tickets", {
           params: { query: { limit: PAGE_LIMIT, offset } },
         });
         if (result.error !== undefined || result.data === undefined) return null;
         const rows = result.data as TicketRow[];
-        return { rows, full: rows.length === PAGE_LIMIT };
+        // The endpoint's denominator lives in its header (exposed over CORS
+        // with the cursor), so the footer prints shown N of M instead of
+        // inventing a denominator out of the loaded page count. Optional
+        // chaining keeps a client side without the Response object (an older
+        // SDK node, the suites' mock api) reading as "unknown".
+        const header = result.response?.headers?.get?.("x-total-count") ?? null;
+        const total = header === null ? null : Number(header);
+        return { rows, full: rows.length === PAGE_LIMIT, total: total !== null && Number.isFinite(total) ? total : null };
       } catch {
         // A transport failure (an aborted request, a dropped connection) rejects
         // rather than returning an error field. Without this the surface stayed
@@ -329,6 +340,7 @@ export default function TicketsListPage() {
       return [...(prev ?? []), ...page.rows.filter((r) => !seen.has(r.id))];
     });
     setHasMore(page.full);
+    if (page.total !== null) setServerTotal(page.total);
   }, [fetchPage, hasMore, rows]);
 
   const refresh = useCallback(
@@ -345,6 +357,7 @@ export default function TicketsListPage() {
       const next = [...page.rows].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       setRows(next);
       setHasMore(page.full);
+      setServerTotal(page.total);
     },
     [fetchPage],
   );
@@ -765,7 +778,9 @@ export default function TicketsListPage() {
 
   /** Fold every other selected ticket into the chosen survivor. The endpoint
    *  refuses a board mismatch, a closed survivor or a second merge, so each
-   *  source is sent on its own and a refusal is named rather than swallowed. */
+   *  source is sent on its own and a refusal is named rather than swallowed.
+   *  The notice reads the response's fold summary, so it says what actually
+   *  moved (the pack's §7: state the consequence, before and after). */
   const runMerge = useCallback(async () => {
     const survivorId = mergeSurvivor;
     const sources = mergeableRows.filter((r) => r.id !== survivorId).map((r) => r.id);
@@ -773,6 +788,9 @@ export default function TicketsListPage() {
     setBulkBusy(true);
     setNotice(null);
     let ok = 0;
+    let commentsFolded = 0;
+    let timeFoldedMinutes = 0;
+    let expensesFolded = 0;
     const failed: string[] = [];
     for (const id of sources) {
       try {
@@ -780,8 +798,14 @@ export default function TicketsListPage() {
           params: { path: { id } },
           body: { survivor_id: survivorId, resolve: {} },
         });
-        if (res.error === undefined) ok += 1;
-        else failed.push(numbersById[id] ?? id.slice(0, 8));
+        if (res.data !== undefined) {
+          ok += 1;
+          commentsFolded += res.data.fold.comments_folded;
+          timeFoldedMinutes += res.data.fold.time_minutes_folded;
+          expensesFolded += res.data.fold.expenses_folded;
+        } else {
+          failed.push(mergeRefusalText(id, numbersById, res.error));
+        }
       } catch {
         failed.push(numbersById[id] ?? id.slice(0, 8));
       }
@@ -790,11 +814,20 @@ export default function TicketsListPage() {
     setMergeOpen(false);
     setSelected(new Set());
     const survivor = numbersById[survivorId] ?? "the survivor";
-    setNotice(
-      failed.length === 0
-        ? `Merged ${ok} ${ok === 1 ? "ticket" : "tickets"} into ${survivor}.`
-        : `Merged ${ok} of ${sources.length} into ${survivor}. ${failed.join(", ")} could not merge — already merged, closed, or on another board.`,
-    );
+    if (failed.length !== 0) {
+      setNotice(
+        `Merged ${ok} of ${sources.length} into ${survivor}. ${failed.join(", ")}`,
+      );
+    } else {
+      const parts = [`Merged ${ok} ${ok === 1 ? "ticket" : "tickets"} into ${survivor}`];
+      const folded: string[] = [];
+      if (commentsFolded > 0) folded.push(`${commentsFolded} comment${commentsFolded === 1 ? "" : "s"}`);
+      if (timeFoldedMinutes > 0) folded.push(`${formatFoldedMinutes(timeFoldedMinutes)} of time`);
+      if (expensesFolded > 0) folded.push(`${expensesFolded} expense${expensesFolded === 1 ? "" : "s"}`);
+      if (folded.length > 0) parts.push(` — ${folded.join(" and ")} moved over`);
+      else parts.push(". Nothing moved with them.");
+      setNotice(parts.join(""));
+    }
     setReloadKey((k) => k + 1);
   }, [mergeableRows, mergeSurvivor, numbersById]);
 
@@ -898,7 +931,13 @@ export default function TicketsListPage() {
   const surfaceFooter = (
     <SurfaceFooter
       shown={shown.length}
-      total={viewCounts.all}
+      /* The endpoint's denominator from `x-total-count`: the set the list
+         query answers, before pagination. A narrowed view still reads
+         against it — "3 of 12 tickets" is my queue of the org's tickets,
+         which is how the pack draws the sentence. When the header is absent
+         (an older server builds: the walk was capped at the first page until
+         Wave 48), the footer prints N tickets rather than a guess. */
+      total={serverTotal ?? undefined}
       noun="ticket"
       onLoadMore={hasMore ? () => void loadMore() : undefined}
       loadMoreCount={PAGE_LIMIT}
@@ -1125,6 +1164,10 @@ export default function TicketsListPage() {
                 ? {
                     count: selected.size,
                     onClear: () => setSelected(new Set()),
+                    onMerge: () => {
+                      setMergeSurvivor(mergeableRows[0]?.id ?? "");
+                      setMergeOpen(true);
+                    },
                     children: (
                       <>
                         {/* The pickers each set a value and the button the
@@ -1220,16 +1263,9 @@ export default function TicketsListPage() {
                         <Button
                           size="sm"
                           variant="secondary"
-                          disabled={bulkBusy || mergeableRows.length < 2}
-                          onClick={() => {
-                            setMergeSurvivor(mergeableRows[0]?.id ?? "");
-                            setMergeOpen(true);
-                          }}
-                          data-testid="bulk-merge"
+                          disabled={bulkBusy}
+                          onClick={onExportSelected}
                         >
-                          Merge…
-                        </Button>
-                        <Button size="sm" variant="secondary" disabled={bulkBusy} onClick={onExportSelected}>
                           Export {selected.size}
                         </Button>
                       </>
@@ -1293,6 +1329,40 @@ export default function TicketsListPage() {
 }
 
 // --- one row ---------------------------------------------------------------
+
+/** The merge endpoint's typed 409s (operation `tickets_merge`): each string
+ *  opens with one of these tokens, so a refusal names exactly why. */
+const MERGE_CONFLICT_TOKENS = ["self_merge", "already_merged", "closed_survivor", "board_mismatch"] as const;
+type MergeConflictToken = (typeof MERGE_CONFLICT_TOKENS)[number];
+
+const MERGE_CONFLICT_REASON: Record<MergeConflictToken, string> = {
+  self_merge: "a ticket cannot merge into itself",
+  already_merged: "already merged into another ticket",
+  closed_survivor: "the ticket it should merge into is closed",
+  board_mismatch: "lives on a different board than the survivor",
+};
+
+/** One refusal line: the ticket's human number and the conflict's own kind
+ *  (the typed merge-conflict enum), never a generic "could not merge". */
+function mergeRefusalText(
+  id: string,
+  numbers: Record<string, string>,
+  error: unknown,
+): string {
+  const label = numbers[id] ?? id.slice(0, 8);
+  const message =
+    typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message?: unknown }).message ?? "")
+      : "";
+  const token = MERGE_CONFLICT_TOKENS.find((t) => message.startsWith(t));
+  return token === undefined ? `${label}: the merge did not go through` : `${label}: ${MERGE_CONFLICT_REASON[token]}`;
+}
+
+/** Human minutes for a fold note: whole hours when they are, minutes else. */
+function formatFoldedMinutes(minutes: number): string {
+  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${minutes}m`;
+}
 
 function exportValue(
   row: TicketRow,
