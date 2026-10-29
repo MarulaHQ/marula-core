@@ -20,3 +20,18 @@ docs
 scripts
 .trail
 graphify-out
+# Trees no image in deploy/ reads (verified against the COPY lists in
+# Dockerfile.rust and Dockerfile.web). Both images only need: crates, plugins,
+# desktop, installer, .sqlx, packages/{sdk,ui,layout}, apps/web, LEGAL/fonts and
+# deploy/*.cjs. Keeping these out shrinks the context sent to the daemon on
+# every build. deploy/backup, deploy/edge and deploy/postgres stay: other
+# Dockerfiles COPY from them.
+e2e
+fixtures
+native
+website
+apps/installer
+release-keys
+deploy/helm
+deploy/observability
+deploy/runbooks
