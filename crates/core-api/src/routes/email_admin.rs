@@ -1289,7 +1289,7 @@ pub struct DeliveryCounts {
     pub sending: i64,
     pub sent: i64,
     pub dead: i64,
-    /// Operator-cancelled rows (0174). Their own bucket, so a dead count can
+    /// Operator-cancelled rows (0175). Their own bucket, so a dead count can
     /// clear once nobody will retry the row.
     pub cancelled: i64,
 }
