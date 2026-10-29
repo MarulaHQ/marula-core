@@ -4,6 +4,7 @@
   "packageManager": "pnpm@12.16.1",
   "scripts": {
     "theme:check": "node scripts/check-theme-packs.mjs",
+    "docker:check": "node scripts/check-dockerfile-workspace.mjs --self-test && node scripts/check-dockerfile-workspace.mjs",
     "components:check": "node scripts/check-component-conformance.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
