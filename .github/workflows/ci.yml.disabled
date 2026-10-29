@@ -358,13 +358,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # No job builds these images, so a workspace member the Rust Dockerfile
-      # never COPYs (the `installer` gap) stayed invisible until a clean-context
-      # build. This parses `members` out of Cargo.toml and asserts each one
-      # reaches the build stage; milliseconds, no Docker.
-      - name: Every workspace member reaches the Rust image build
-        run: |
-          node scripts/check-dockerfile-workspace.mjs --self-test
-          node scripts/check-dockerfile-workspace.mjs
+      # never COPYs (the `installer` gap), or a path the narrowed web COPY set
+      # no longer covers, stayed invisible until a clean-context build. The
+      # script checks both Dockerfiles against the tree in milliseconds with no
+      # Docker; `npm run docker:check` runs the same thing by hand (npm is
+      # enough: the script has no dependencies, so no install step).
+      - name: Image build contexts still cover what the builds read
+        run: npm run --silent docker:check
       # `failure-threshold: error` matches what `release.yml` enforces on the
       # same files, and keeps this job honest on day one: Dockerfile.backup
       # carries three warnings (DL3018 twice, DL4006 once, apk pins and a pipe

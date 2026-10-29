@@ -65,9 +65,11 @@ COPY packages/sdk/mcp-catalog.json /src/packages/sdk/mcp-catalog.json
 # artifacts can be treated as up to date and link a stale object. This is the
 # same hazard scripts/lane-target-guard.py documents for the shared host target
 # dir; the previous path-keyed mount shared the same way, so this is not new,
-# only now explicit. Escape hatch when it bites: `docker builder prune
-# --filter id=marula-cargo-target`, or key the id on a hash of Cargo.lock
-# (pass it as a build arg and interpolate it into the mount id).
+# only now explicit. Escape hatches when it bites: recreate the builder
+# (`docker buildx rm <name>`, then create it again), which discards all of its
+# state including both mounts; or key the id on a hash of Cargo.lock (pass it
+# as a build arg and interpolate it into the mount id). Not documented to work
+# per mount id, so there is deliberately no `--filter id=` recipe here.
 #
 # --locked: the shipped binary must match the committed Cargo.lock; without it
 # cargo may rewrite the lock inside the build and ship something nobody
