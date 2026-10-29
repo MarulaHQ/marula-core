@@ -176,6 +176,28 @@ impl DeploymentTarget for ComposeTarget {
         let existing = std::fs::read_to_string(&env_path)
             .map(|text| crate::install::doctor::parse_env_file(&text))
             .unwrap_or_default();
+        // A volume from an earlier install already holds the owner password, and
+        // Postgres never resets it. Writing a second one produces an install
+        // whose API is healthy and whose migrate step fails authentication —
+        // the shape of failure that cost W60-6 a full day. Refuse before
+        // anything is written, and name the volume and the way out.
+        let generates_password = selection
+            .overrides
+            .get("POSTGRES_PASSWORD")
+            .map(|value| value.trim().is_empty())
+            .unwrap_or_else(|| {
+                existing
+                    .get("POSTGRES_PASSWORD")
+                    .map(|value| value.trim().is_empty())
+                    .unwrap_or(true)
+            });
+        let volume = crate::install::plan::postgres_volume();
+        if crate::install::plan::volume_conflicts(
+            generates_password,
+            crate::install::plan::volume_present(&volume),
+        ) {
+            return Err(PlanError::VolumeHoldsAnotherPassword { volume });
+        }
         let resolved =
             crate::install::plan::resolve_required(&self.descriptor, selection, &existing);
         let mut steps = vec![Step {

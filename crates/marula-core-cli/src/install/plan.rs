@@ -170,6 +170,16 @@ pub enum PlanError {
         target: &'static str,
         reason: String,
     },
+    /// A volume from an earlier install already holds the owner role's password,
+    /// and this plan generated a new one.
+    ///
+    /// Postgres sets `POSTGRES_PASSWORD` when it initialises a volume and never
+    /// again, so the stack starts, the API's health check passes, and the migrate
+    /// one-shot dies on authentication. Failing here says which volume and which
+    /// way out; failing there said "pool timed out" for a day (W60-6).
+    VolumeHoldsAnotherPassword {
+        volume: String,
+    },
     /// The descriptor itself is unusable, which should be impossible in a
     /// released binary but is checked rather than assumed.
     Descriptor(String),
@@ -204,6 +214,16 @@ impl std::fmt::Display for PlanError {
             Self::TargetUnavailable { target, reason } => {
                 write!(f, "the {target} target cannot run here: {reason}")
             }
+            Self::VolumeHoldsAnotherPassword { volume } => write!(
+                f,
+                "the docker volume {volume} already holds an owner password from an \
+                 earlier install, and this plan would generate a new one. Postgres sets \
+                 that password once, when it initialises a volume, so the stack would \
+                 come up with the API healthy and the migrate step failing on \
+                 authentication. Either remove the volume if its data is disposable \
+                 (`docker volume rm {volume}`), or pass the password it holds with \
+                 `--set POSTGRES_PASSWORD=<that value>`"
+            ),
             Self::Descriptor(reason) => write!(f, "the deploy descriptor is unusable: {reason}"),
         }
     }
@@ -641,6 +661,47 @@ pub fn infra_requirements() -> &'static [(&'static str, &'static str)] {
     ]
 }
 
+/// The compose project the shipped file declares.
+///
+/// `name:` in `deploy/docker-compose.yml` namespaces every container and volume
+/// the stack creates, so the installer has to know it to recognise a volume an
+/// earlier install left behind. A test reads that file and fails when the two
+/// drift, because a copied constant is exactly the kind of thing that drifts.
+pub const COMPOSE_PROJECT: &str = "marula";
+
+/// The volume Postgres keeps its data in, under the project's namespace.
+#[must_use]
+pub fn postgres_volume() -> String {
+    format!("{COMPOSE_PROJECT}_pgdata")
+}
+
+/// Whether a plan should refuse because it would generate an owner password the
+/// existing volume cannot know.
+///
+/// Two conditions, and both matter: a volume with no generated password is an
+/// ordinary re-apply, which is how an update and a repair work.
+#[must_use]
+pub fn volume_conflicts(generates_password: bool, volume_present: bool) -> bool {
+    generates_password && volume_present
+}
+
+/// Whether docker reports this volume.
+///
+/// A probe that cannot answer — no docker on the path, a daemon that is down —
+/// is not evidence of a volume, so it answers `false` and the install proceeds.
+/// The alternative is refusing every install on a host whose docker socket is
+/// slow to answer, which is a worse failure than the one this check exists for.
+#[must_use]
+pub fn volume_present(name: &str) -> bool {
+    std::process::Command::new("docker")
+        .args(["volume", "inspect", name])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 /// Every required value, with a generated default for any the caller did not
 /// supply.
 ///
@@ -904,5 +965,34 @@ mod tests {
         let rec = recommend(&deploy::descriptor(), &facts(2, Some(4096), Some(30)));
         assert_eq!(rec.profile, None);
         assert!(rec.shortfall.is_some());
+    }
+
+    /// The volume is namespaced by the compose project, so the constant and the
+    /// shipped compose file have to agree. A copy that drifts would make the
+    /// check look at a volume no stack uses, and pass while the install fails.
+    #[test]
+    fn the_project_name_matches_the_shipped_compose_file() {
+        let compose = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../deploy/docker-compose.yml"
+        ))
+        .expect("the base compose file is part of the release");
+        let declared = compose
+            .lines()
+            .find_map(|line| line.strip_prefix("name:"))
+            .map(str::trim)
+            .expect("the base compose file declares a project name");
+        assert_eq!(declared, COMPOSE_PROJECT);
+        assert_eq!(postgres_volume(), "marula_pgdata");
+    }
+
+    /// Only a plan that would *write* a new password conflicts. Re-applying over
+    /// an existing env, or an update, keeps the value the volume already has.
+    #[test]
+    fn only_a_generated_password_conflicts_with_an_existing_volume() {
+        assert!(volume_conflicts(true, true));
+        assert!(!volume_conflicts(true, false));
+        assert!(!volume_conflicts(false, true));
+        assert!(!volume_conflicts(false, false));
     }
 }
