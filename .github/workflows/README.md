@@ -7,7 +7,7 @@ Docker daemon or a signature database.
 
 | File | Trigger | Jobs | State |
 | --- | --- | --- | --- |
-| `ci.yml` | pull request, push to `main` | `boundary`, `rust`, `frontend`, `ui-gates`, `token-conformance`, `migrations`, `openapi-pins`, `container-lint`, `rls-pool-reads`, `rls-coverage`, `rust-contract` | enabled |
+| `ci.yml.disabled` | none | `boundary`, `rust`, `frontend`, `ui-gates`, `token-conformance`, `migrations`, `openapi-pins`, `container-lint`, `rls-pool-reads`, `rls-coverage`, `rust-contract` | **disabled 2026-10-29, temporarily, by user direction.** Renaming the file is the whole switch; rename it back to run the merge-blocking set again. While it is off, nothing on a pull request is red, and the pages that cite it as enforcement (`docs/perf.md`, `docs/theme.md`, `docs/upgrade-compatibility-policy.md`, `docs/tech-stack.md`) describe a gate that is not running |
 | `nightly.yml.disabled` | schedule 05:30 UTC, manual dispatch | `perf-smoke`, `perf-load-budget`, `perf-scale-100k`, `e2e`, `api-live-conformance`, `upgrade-matrix`, `domain-coverage`, `container-security`, `clamd-live` | parked — the heavy scheduled set, by user direction 2026-10-21: minutes, not doubt |
 | `native.yml.disabled` | schedule 05:45 UTC, manual dispatch | `native-checks`, `maestro-ios` | parked — Maestro drives simulators, so it is a minutes job like the rest of the schedule |
 | `changesets.yml` | push to `main` | `version` | enabled |
