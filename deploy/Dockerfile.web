@@ -34,16 +34,33 @@ COPY apps/web/package.json apps/web/
 COPY packages/ui/package.json packages/ui/
 COPY packages/layout/package.json packages/layout/
 COPY packages/sdk/package.json packages/sdk/
-RUN pnpm --filter @marula-core/web... install --frozen-lockfile
+# The pnpm store sits on a cache mount, so a lockfile change re-fetches only the
+# packages that moved. The store and node_modules are different filesystems
+# here, so pnpm copies instead of hard-linking; the result is the same tree.
+RUN --mount=type=cache,id=marula-pnpm-store,target=/pnpm-store,sharing=locked \
+    pnpm --filter @marula-core/web... install --frozen-lockfile --store-dir /pnpm-store
 
-COPY . .
+# Only what the build reads, not `COPY . .`: an edit to e2e/, fixtures/, native/,
+# desktop/, crates/ or deploy/ must not bust this layer and re-run `next build`.
+# LEGAL/fonts is a real input: app/layout.tsx imports the three woff2 files
+# from there, and the build fails without them. Checked by building from a
+# context holding exactly these paths (pnpm install + next build, exit 0).
+COPY apps/web apps/web
+COPY packages/ui packages/ui
+COPY packages/layout packages/layout
+COPY packages/sdk packages/sdk
+COPY LEGAL/fonts LEGAL/fonts
 WORKDIR /repo/apps/web
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL=http://localhost:8080
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 COPY deploy/web-standalone-remap.cjs /remap.cjs
 COPY deploy/prune-pnpm-store.cjs /prune.cjs
-RUN pnpm --filter @marula-core/web build && node /remap.cjs
+# .next/cache is a build cache, not an output: the standalone tree and static
+# assets the run stage copies live elsewhere under .next, so mounting it keeps
+# incremental compiles between builds without changing the image.
+RUN --mount=type=cache,id=marula-next-cache,target=/repo/apps/web/.next/cache,sharing=locked \
+    pnpm --filter @marula-core/web build && node /remap.cjs
 # Prune in its own step: the report gets its own log section instead of
 # sitting behind the build's lint output, and editing the script no longer
 # re-runs the Next build.

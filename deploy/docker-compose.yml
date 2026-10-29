@@ -163,6 +163,9 @@ services:
     cpus: 2.0
     logging: *default-logging
     <<: *cap-common
+    # The apps below restart on a crash; the database they depend on did not,
+    # so a Postgres crash left the whole stack down until someone noticed.
+    restart: unless-stopped
     # DHI pgvector (0.8.x on PG18, debian-13; postgres uid 70). Its
     # entrypoint keeps the chown-based boot: EXEMPTION (read_only)! The
     # official entrypoint chowns/initializes PGDATA and writes unix
@@ -239,6 +242,7 @@ services:
     image: dhi.io/valkey:8.1.10@sha256:3caa5e36670b3eb234fd3d958452431c802c6a8de22a8abf747ec72b532582f2
     logging: *default-logging
     <<: *cap-common
+    restart: unless-stopped
     # Valkey (Redis 7 wire-compatible; DHI 8.1.10). Valkey writes only its
     # RDB/AOF under /data (a volume); the rootfs itself is untouched, so it
     # tolerates a read-only rootfs. Runs as the image's own nonroot user
@@ -332,6 +336,7 @@ services:
     logging: *default-logging
     image: dhi.io/pgbouncer:1.26@sha256:17157120154cd111541281b39e9ad846e567e7fc1ea2e964abdc8c4bf4547fff
     <<: *cap-common
+    restart: unless-stopped
     # DHI nonroot 65532. Config and password file are read-only bind mounts;
     # the pidfile and unix socket are the only writes, and both are tmpfs.
     read_only: true

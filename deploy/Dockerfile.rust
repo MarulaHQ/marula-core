@@ -1,7 +1,8 @@
 # Marula backend image builder.
 #
 # Purpose: one parameterized image for all Rust binaries (core-api,
-# worker, marula-core-cli). Build with --build-arg BIN=<name>.
+# worker, marula-core-cli). Build with --build-arg BIN=<name>; every BIN value
+# shares one builder stage that compiles all three binaries together.
 # Non-purpose: no frontend build here; apps/web gets its own image when
 # it lands.
 #
@@ -15,7 +16,10 @@
 # stand-ins for the official rust images. `-dev` = build stage WITH shell
 # and cargo. 1.95 matches the toolchain the workspace builds with.
 FROM dhi.io/rust:1.95-dev@sha256:f6e61d660495bd925b8e76288b0c5c50c2f70a0d981181eba12c1bca3dff14d3 AS build
-ARG BIN=core-api
+# No `ARG BIN` in this stage on purpose: the three shipped binaries are built
+# together below, so core-api, worker and marula-core-cli all resolve to the
+# SAME builder layer and `docker compose build` compiles the workspace once
+# instead of three times. BIN only picks which binary the runtime stage keeps.
 WORKDIR /src
 # openssl-sys (reachable through the native-TLS stack on Linux) needs
 # pkg-config and the OpenSSL headers at build time. The hardened DHI rust
@@ -37,6 +41,12 @@ COPY plugins ./plugins
 COPY desktop/Cargo.toml /src/desktop/Cargo.toml
 COPY desktop/build.rs /src/desktop/build.rs
 COPY desktop/src /src/desktop/src
+# installer is a workspace member too (root Cargo.toml). Without its manifest
+# cargo stops at "failed to load manifest for workspace member .../installer"
+# before it compiles anything, so a clean-context build could not start.
+COPY installer/Cargo.toml /src/installer/Cargo.toml
+COPY installer/build.rs /src/installer/build.rs
+COPY installer/src /src/installer/src
 # sqlx offline query cache (macros resolve without a database at build).
 COPY .sqlx /src/.sqlx
 # core-api includes two generated artifacts from packages/sdk at compile time:
@@ -52,11 +62,18 @@ COPY packages/sdk/mcp-catalog.json /src/packages/sdk/mcp-catalog.json
 # (marula-core-cli), so a bare --bin selects the root's default-run set and
 # finds nothing for the member binaries. The CLI's executable is named
 # `marula`, everything else matches its package name.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    OUTEXE=$([ "$BIN" = "marula-core-cli" ] && echo marula || echo "$BIN") \
-    && cargo build --release --package ${BIN} \
-    && mkdir -p /out && cp target/release/${OUTEXE} /out/${BIN}
+# --locked: the shipped binary must match the committed Cargo.lock; without it
+# cargo may rewrite the lock inside the build and ship something nobody
+# reviewed. All three packages go in ONE invocation so the shared dependency
+# graph compiles once. The CLI's executable is `marula`; it is stored as
+# /out/marula-core-cli so BIN names the package, as it always has.
+RUN --mount=type=cache,id=marula-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=marula-cargo-target,target=/src/target,sharing=locked \
+    cargo build --release --locked --package core-api --package worker --package marula-core-cli \
+    && mkdir -p /out \
+    && cp target/release/core-api /out/core-api \
+    && cp target/release/worker /out/worker \
+    && cp target/release/marula /out/marula-core-cli
 
 # Minimal hardened runtime: dhi.io/debian-base (Debian 13 trixie, ~80 MB)
 # ships ca-certificates for outbound TLS and its own `nonroot` user
