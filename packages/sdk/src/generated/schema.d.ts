@@ -19425,7 +19425,7 @@ export interface components {
         DeliveryCounts: {
             /**
              * Format: int64
-             * @description Operator-cancelled rows (0174). Their own bucket, so a dead count can
+             * @description Operator-cancelled rows (0175). Their own bucket, so a dead count can
              *     clear once nobody will retry the row.
              */
             cancelled: number;
