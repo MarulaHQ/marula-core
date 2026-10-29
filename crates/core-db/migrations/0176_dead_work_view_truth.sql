@@ -1,4 +1,4 @@
--- 0175 — `ops.dead_work` tells the truth about what can be replayed.
+-- 0176 — `ops.dead_work` tells the truth about what can be replayed.
 --
 -- Why. The view was written before R4's reconciler shipped and hard-coded
 -- `false AS replayable` for the event leg, on the reasoning that re-publishing a
@@ -13,7 +13,7 @@
 -- remaining bound — deaths per (group, event_id) — is a pass parameter, not a
 -- property of the row, so it stays out of the view.
 --
--- The email leg also joins the cancelled set: 0174 gave a cancellation its own
+-- The email leg also joins the cancelled set: 0175 gave a cancellation its own
 -- status, and a row an operator cancelled leaves the dead set without leaving
 -- the ledger. Without this the "include cancelled" filter would show cancelled
 -- jobs but silently drop cancelled mail.

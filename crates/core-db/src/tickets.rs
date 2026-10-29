@@ -662,7 +662,7 @@ where
         })?,
         body: row.body,
         created_at: row.created_at,
-        // The column is NOT NULL since 0176; the entity keeps the optional
+        // The column is NOT NULL since 0177; the entity keeps the optional
         // shape so the payload does not change under clients that already read it.
         updated_at: Some(row.updated_at),
         workflow_meta: row.workflow_meta,
@@ -693,7 +693,7 @@ where
         })?,
         body: row.body,
         created_at: row.created_at,
-        // The column is NOT NULL since 0176; the entity keeps the optional
+        // The column is NOT NULL since 0177; the entity keeps the optional
         // shape so the payload does not change under clients that already read it.
         updated_at: Some(row.updated_at),
         workflow_meta: row.workflow_meta,

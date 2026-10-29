@@ -1,4 +1,4 @@
--- 0174 — a cancelled email is its own terminal state, not a dead one.
+-- 0175 — a cancelled email is its own terminal state, not a dead one.
 --
 -- Why. `email_outbound.status` had four values and no spare terminal state, so
 -- an operator cancellation left the row `dead`. The dead-work list hid it (the

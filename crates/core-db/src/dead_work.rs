@@ -317,7 +317,7 @@ pub enum CancelOutcome {
 /// * `jobs` — `failed`, a status the queue has always declared and never
 ///   written. The dead counts (`queue::stats`, and the age metric beside it)
 ///   filter on `dead`, so a cancelled job stops firing them.
-/// * `email_outbound` — the status moves to `cancelled` (0174). It used to stay
+/// * `email_outbound` — the status moves to `cancelled` (0175). It used to stay
 ///   `dead` for want of a spare terminal value, which meant the operator's
 ///   decision never reached a count: the summary strip and any alert over the
 ///   dead bucket kept reporting mail nobody will retry (Wave 62 lane
@@ -392,7 +392,7 @@ pub async fn cancel(
         .await?;
     }
     // Dead events keep their ledger state; the cancellation row, plus the
-    // `replayable` column 0175 derives from it, is the whole record.
+    // `replayable` column 0176 derives from it, is the whole record.
     Ok(CancelOutcome::Cancelled)
 }
 

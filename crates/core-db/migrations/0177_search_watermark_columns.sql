@@ -1,4 +1,4 @@
--- 0176 — the two tables a source watermark needs now carry a trustworthy
+-- 0177 — the two tables a source watermark needs now carry a trustworthy
 -- `updated_at`, and nothing reads it as a cursor yet.
 --
 -- Why the columns. A per-source watermark for the search backfill needs to ask
