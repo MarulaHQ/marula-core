@@ -30,7 +30,7 @@ Whether you run the service desk, coordinate the dispatch board, work tickets in
 
 - **Technicians** keep a single active timer running, log customer-facing and internal notes, and close out day-end time gaps in a couple of minutes.
 - **Dispatchers and service leads** see real technician capacity on the calendar, spot SLA risk before a ticket breaches, and schedule visits with travel-time estimates.
-- **Office managers and owners** review approved hours against client retainers and project milestones, issue invoices and credit notes directly from the work already logged, and give clients a clean self-service portal.
+- **Office managers and owners** review approved hours against client retainers and project milestones, issue invoices and credit notes from the work already logged, and give clients a self-service portal.
 - **Systems administrators** host the entire stack on standard PostgreSQL and Valkey, control AI and plugin permissions down to individual roles, and inspect an append-only audit trail for every change.
 
 ## Why we're building this
@@ -41,13 +41,13 @@ Marula is complete on its own. Native invoicing, quotes, knowledge base, CSAT su
 
 Some things we care about enough to enforce in CI:
 
-**Workflows that don't break.** Customize boards however your shop works. Every status maps to a core stage underneath (`open`, `in_progress`, `waiting`, or `closed`). SLA timers and billing rules, along with reports and automations, bind to that underlying stage rather than your custom label. Rename any column on your board, and your reports and SLA clocks keep working without a hitch.
+**Workflows that don't break.** Customize boards however your shop works. Every status maps to a core stage underneath (`open`, `in_progress`, `waiting`, or `closed`). SLA timers and billing rules, along with reports and automations, bind to that underlying stage rather than your custom label. Rename any column on your board and your reports and SLA clocks keep working.
 
 **Time that actually gets billed.** One active timer per tech. End-of-day missing-time checks. Approvals before invoices go out. The gap between hours worked and hours billed stops being a mystery.
 
 **Assistants that ask first and leave a paper trail.** Skills are versioned manifests, not prompt spaghetti. Guardrail rules run before every tool call. Assistant-suggested changes to a ticket or record wait as *proposed, awaiting approval*: nothing silently rewrites your team's work, and client-visible or external actions always require a human click. The audit log records who did what, person or assistant, and stays append-only. Answering "who changed this" takes one search. There is an MCP server too, so Claude, DeepSeek, or your own scripts can work inside the PSA under the same rules as everyone else. See [`docs/site/`](docs/site/index.md), [`docs/instant-first.md`](docs/instant-first.md), and [`docs/10-agent-platform.md`](docs/10-agent-platform.md).
 
-**Fast by default, with no Save button to chase.** Ticket list p95 stays under `150 ms` at `50k` tickets — a CI gate, not an aspiration. A committed write reaches other viewers over the live stream in under `100 ms`. Edits save automatically with instant feedback and full undo, so you can press Ctrl/Cmd+Z to step back through changes the server already recorded.
+**Fast by default, with no Save button to chase.** Ticket list p95 stays under `150 ms` at `50k` tickets, and CI fails the build if it slips past. A committed write reaches other viewers over the live stream in under `100 ms`. Edits save as you type, with instant feedback and full undo, so Ctrl/Cmd+Z steps back through changes the server already recorded.
 
 ## Quick start
 
@@ -59,7 +59,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env up -d --bu
 # workspace UI on http://localhost:3000 · API on :8080 · Scalar docs at :8080/docs
 ```
 
-`deploy/dev.env` carries the published development secrets, so that stack prints a warning at every boot and belongs on a machine you own. An install that serves anyone else generates its own eight secrets — [`deploy/README.md`](deploy/README.md) has the list, and [`docs/install.md`](docs/install.md) walks the installer.
+`deploy/dev.env` carries the published development secrets, so the stack warns at every boot and belongs on a machine you own. An install that serves anyone else generates its own eight secrets: [`deploy/README.md`](deploy/README.md) lists them, and [`docs/install.md`](docs/install.md) walks the installer.
 
 Working on the web app instead? Keep the stack up, free port 3000, and run the UI on the host with hot reload:
 
@@ -101,16 +101,16 @@ One writer. Every mutation emits a versioned domain event. REST, the SSE live st
 
 | | |
 |---|---|
-| Install & self-host | [`docs/install.md`](docs/install.md) (the installer, the plan, what stays manual) · [`deploy/README.md`](deploy/README.md) (compose stacks, secrets, runbooks) |
-| Documentation site | [`docs/site/index.md`](docs/site/index.md) — task guides for owners, admins, technicians and operators |
-| Upgrades & compatibility | [`docs/upgrade-compatibility-policy.md`](docs/upgrade-compatibility-policy.md) — support windows, breaking-change rules, what's guaranteed |
-| Interaction contract | [`docs/instant-first.md`](docs/instant-first.md) — autosave/undo, agent approval-by-default, the core's read models |
+| Install & self-host | [`docs/install.md`](docs/install.md): the installer, the plan, what stays manual. [`deploy/README.md`](deploy/README.md): the compose stacks, secrets and runbooks |
+| Documentation site | [`docs/site/index.md`](docs/site/index.md): task guides for owners, admins, technicians and operators |
+| Upgrades & compatibility | [`docs/upgrade-compatibility-policy.md`](docs/upgrade-compatibility-policy.md): support windows, breaking-change rules, what's guaranteed |
+| Interaction contract | [`docs/instant-first.md`](docs/instant-first.md): autosave and undo, agent approval by default, the core's read models |
 | API reference | Generated from OpenAPI (`utoipa` → Scalar UI on `core-api` at `/docs`) |
-| SDK & plugins | [`packages/sdk/`](packages/sdk/) · [`packages/plugin-kit/`](packages/plugin-kit/) · [`plugins/connectors/`](plugins/connectors/) reference implementations |
+| SDK & plugins | [`packages/sdk/`](packages/sdk/) for the typed client, [`packages/plugin-kit/`](packages/plugin-kit/) for the PDK. [`plugins/connectors/`](plugins/connectors/) holds the reference implementations |
 | Architecture decisions | [`docs/adr/`](docs/adr/) |
-| Workflows | [`docs/reference/workflow-node-catalogue.md`](docs/reference/workflow-node-catalogue.md) — every node type a workflow can use, by tier · foundation decided in [ADR 0016](docs/adr/0016-workflow-builder-foundation.md) |
-| Tech stack | [`docs/tech-stack.md`](docs/tech-stack.md) — every layer, with the versions the manifests pin |
-| Visual identity | [`docs/theme.md`](docs/theme.md) — the Marula tokens this repository renders with |
+| Workflows | [`docs/reference/workflow-node-catalogue.md`](docs/reference/workflow-node-catalogue.md): every node type a workflow can use, by tier. The foundation is [ADR 0016](docs/adr/0016-workflow-builder-foundation.md) |
+| Tech stack | [`docs/tech-stack.md`](docs/tech-stack.md): every layer, with the versions the manifests pin |
+| Visual identity | [`docs/theme.md`](docs/theme.md): the token set and motion rules this UI is built from |
 
 ## Roadmap
 
@@ -118,22 +118,22 @@ Development runs in stages: foundation → daily driver → commercial engine �
 
 ## Contributing
 
-PRs welcome — trunk-based, DCO-signed, conventional commits. Two approvals are required for `crates/core-domain` and anything touching authz/RLS/payments. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md); significant changes begin as RFCs in [`docs/rfc/`](docs/rfc/).
+PRs welcome. Changes land trunk-based and squash-merged, with conventional commit subjects and a DCO sign-off. Two approvals are required for `crates/core-domain` and anything touching authz/RLS/payments. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md). Significant changes begin as RFCs in [`docs/rfc/`](docs/rfc/).
 
-Extension authors usually don't need this repo: connectors are ordinary web apps using [`@marula-core/sdk`](packages/sdk/) and receiving signed webhooks — the NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike.
+Extension authors usually don't need this repo: connectors are ordinary web apps using [`@marula-core/sdk`](packages/sdk/) and receiving signed webhooks. The NinjaOne and Hudu connectors are the reference implementations. Beyond the standard set, connectors publish through the connector marketplace, first-party and community alike.
 
 ## Security
 
-Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md). Please do not open public issues for security reports.
+Report vulnerabilities privately through [`SECURITY.md`](SECURITY.md). Please do not open a public issue for a security report.
 
 ## License
 
 - Everything not listed below is [AGPL-3.0](LICENSE): the Rust workspace (`crates/`), both apps (`apps/`), the desktop and mobile shells (`desktop/`, `native/`), the installer (`installer/`), and the UI packages (`packages/ui/`, `packages/ui-native/`, `packages/layout/`)
 - SDK, plugin kit, plugins & connectors: [Apache-2.0](packages/sdk/LICENSE)
-- Documentation (`docs/site/`): [CC BY 4.0](docs/site/LICENSE) — attribution required; see [`docs/site/NOTICE`](docs/site/NOTICE)
+- Documentation (`docs/site/`): [CC BY 4.0](docs/site/LICENSE), with attribution. The terms are in [`docs/site/NOTICE`](docs/site/NOTICE)
 - Third-party: [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md) (fonts OFL, embedded PostgreSQL/pgvector, full npm inventory, vendored tooling)
 
-The Marula name, wordmark and fruit mark are trademarks: [`TRADEMARK.md`](TRADEMARK.md). Neither licence grants trademark rights.
+The Marula name, wordmark and fruit mark are trademarks: [`TRADEMARK.md`](TRADEMARK.md). None of these licences grants trademark rights.
 
 ---
 
@@ -144,7 +144,7 @@ The Marula name, wordmark and fruit mark are trademarks: [`TRADEMARK.md`](TRADEM
 
 ```
 crates/
-├── core-api/         # Axum HTTP API — the ONLY database writer
+├── core-api/         # Axum HTTP API: the only database writer
 ├── core-domain/      # entities, policies, domain services (pure, heavily tested)
 ├── core-db/          # SQLx queries + migrations
 ├── core-events/      # outbox, versioned event envelope, live-stream publisher
@@ -162,12 +162,12 @@ crates/
 ├── plugin-host/      # Extism WASM runtime + connector proxy
 ├── mcp-server/       # MCP protocol adapter over the public API
 ├── perf-harness/     # the measurement harness behind docs/perf.md
-└── marula-core-cli/  # `marula` — install, migrate, upgrade, seed, operator tasks
+└── marula-core-cli/  # `marula`: install, migrate, upgrade, seed, operator tasks
 apps/
 ├── web/              # Next.js app (workspace UI + client portal)
 └── installer/        # the installer wizard UI
 packages/
-├── sdk/              # @marula-core/sdk — typed client generated from OpenAPI (Apache-2.0)
+├── sdk/              # @marula-core/sdk: typed client generated from OpenAPI (Apache-2.0)
 ├── ui/               # Marula design system: tokens + components (AGPL-3.0)
 ├── ui-native/        # the same tokens for the mobile surface (AGPL-3.0)
 ├── layout/           # multi-pane layout engine (AGPL-3.0)
@@ -185,9 +185,9 @@ scripts/              # dev, CI and verification tooling
 .github/              # CI, templates, actions
 ```
 
-Module READMEs state each module's purpose *and its non-purpose* — read
-[`crates/core-api/README.md`](crates/core-api/README.md) or
-[`packages/ui/README.md`](packages/ui/README.md) for the shape.
+Most modules carry a README stating the module's purpose *and its
+non-purpose*. [`crates/core-api/README.md`](crates/core-api/README.md) and
+[`packages/ui/README.md`](packages/ui/README.md) are the two to read first.
 </details>
 
 ## Acknowledgments

@@ -1,7 +1,7 @@
 # Marula Agent Platform (companion spec)
 
 > The normative reference for the agent surfaces. [`instant-first.md`](instant-first.md)
-> carries the interaction rules every agent surface has to obey.
+> carries the interaction rules every agent surface must obey.
 
 Marula doubles as an **agent harness**: the same domain that serves humans,
 exposed to agents through capability-scoped, audited, consented surfaces.

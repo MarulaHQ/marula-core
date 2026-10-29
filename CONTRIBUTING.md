@@ -12,7 +12,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env stop web
 pnpm dev                                              # Next.js on :3000 against the API on :8080, with hot reload
 ```
 
-`deploy/dev.env` carries the published development secrets, so that stack warns at boot and belongs on a machine you own. Without the `stop web` step the container serves the UI on `:3000` and `pnpm dev` has nowhere to bind.
+`deploy/dev.env` carries the published development secrets, so the stack warns at boot and belongs on a machine you own. Without the `stop web` step the container serves the UI on `:3000` and `pnpm dev` has nowhere to bind.
 
 ## Ground rules
 

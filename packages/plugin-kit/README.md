@@ -1,6 +1,6 @@
 # plugin-kit
 
-> **Purpose:** Plugin Development Kit — the ABI bindings a plugin is written against, plus the build and signing tooling. Apache-2.0.
+> **Purpose:** Plugin Development Kit: the ABI bindings a plugin is written against, plus the build and signing tooling. Apache-2.0.
 > **Non-purpose:** No host-side runtime code (that is crates/plugin-host).
 
 ## What a plugin is (ADR 0023)

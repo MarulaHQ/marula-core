@@ -1,8 +1,8 @@
 # Roadmap
 
 Marula is developed in the open: every change lands as a reviewed pull
-request. This file answers the question behind the work: what works today,
-what is being built now, and where the next work goes.
+request. This file says what works today, what is being built now, and where
+the next work goes.
 
 Three columns, no dates we do not own. When something ships, it moves down and
 the [changelog](CHANGELOG.md) records what changed.
