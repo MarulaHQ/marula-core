@@ -97,7 +97,7 @@ same file. One is not simply generated: `POSTGRES_PASSWORD` is applied by
 initdb on the volume's first boot, so an existing volume keeps the password
 it was initialised with. `MARULA_APP_PASSWORD` is generated like the others and
 applied to the `marula_app` role by the `app-role-password` one-shot on every
-bring-up — after migrations, before core-api — so a fresh volume ends with
+bring-up, after migrations and before core-api. A fresh volume ends with
 your value rather than the literal migration 0114 mints, and a rotation is an
 env change plus `up` (`deploy/README.md`, "Rotating the app role password").
 PgBouncer's auth file is rendered from those two values when the pooler
@@ -112,7 +112,7 @@ contents) on core-api to sign with Ed25519 instead of the shared secret.
 `MARULA_JWT_KID` names
 the key (default `m1`). The pair must be complete and parse, or core-api
 refuses to boot. HS256 keeps verifying during a rollout, so you can
-switch without logging anyone out. The authentication threat model (internal documentation) §A4 covers when to retire the
+switch without logging anyone out. The authentication threat model covers when to retire the
 shared secret.
 
 ## Container security posture

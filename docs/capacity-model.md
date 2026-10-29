@@ -54,7 +54,7 @@ perf-harness capacity \
 
 ## Connections
 
-Each instance opens about 54 client connections at the default pool ceilings:
+Each instance opens about 54 connections at the default pool ceilings:
 core-api app 20 and reporting 8, worker 20 and delivery 5, and one direct LISTEN
 connection. That number grows with instances, and it is no longer what Postgres
 sees: PgBouncer runs in transaction mode between the pools and the database and

@@ -4,8 +4,9 @@
 > Binding rules live on the [read-model index](../read-model.md).
 
 One row per ticket: creation → earliest **staff** comment. Portal replies are
-structurally excluded (portal identities are not staff rows — 0021 — so their
-comments always carry `author_id` NULL). Any staff-authored note counts as
+structurally excluded (portal identities are not staff rows: migration 0021
+separated them, so their comments always carry `author_id` NULL). Any
+staff-authored note counts as
 "we reacted".
 
 ## Columns (in contract order)

@@ -14,22 +14,22 @@ Two rules sit above everything below.
    same `Permission` vocabulary. Nothing here is a second authorization system.
 
 Where a point cannot support a pack today, the gap is written down as a gap.
-A gap that is documented is a scheduling problem; a gap that is hidden becomes a
+A gap that is documented is a scheduling problem. A gap that is hidden becomes a
 pack that cannot ship.
 
 ## The matrix
 
 | Point | What a pack may do | What it may not do | Core owner |
 |---|---|---|---|
-| Plugin | Declare capabilities, contribute declarative surfaces, receive grants, emit declared event types | Hold an admin special; ship browser-executed code; run anything the core does not execute | `crates/core-domain/src/entities/plugins.rs` |
-| Connector | Ingest HMAC-signed events; call scoped API paths; declare egress in its manifest | Path-depend on a core crate; read a scope it was not granted; write the audit trail | `crates/core-api/src/routes/webhook_receiver.rs` |
-| Federation bundle | Add an identity source; read the group surface it expands | Mint sessions; hold a capability or scope; become the authority for a role | `crates/core-api/src/auth/federation.rs` |
-| Auth provider | Present assertions through the bundle contract; JIT-provision under org policy | Bypass MFA; create a parallel session store; override the conservative link decision | `docs/reference/auth-provider-contract.md` |
-| Webhook / event | Subscribe to events with a signed delivery ledger; publish declared event types | Invent an event type outside the registry; receive another org's envelope | `crates/core-api/src/routes/webhooks.rs` |
-| Read model | Read the `ops.v1_*` views and the materialized usage row | Define a view of its own inside core; write a read model | `docs/reference/read-model.md` |
-| OTel | Depend on the published metric, log-field and health contract | Write series into core; expect a metrics scrape endpoint | `crates/core-otel/src/contract.rs` |
-| Audit | Export the trail incrementally with a stable cursor | Write, edit or delete an audit row; read past the org scope | `crates/core-api/src/routes/audit.rs` |
-| Usage | Read per-org counts and quota settings; count its own ingest volume | Enforce a quota; attribute another tenant's traffic; add a counter table | `crates/core-api/src/routes/org_usage.rs` |
+| Plugin | Declare capabilities, contribute declarative surfaces, receive grants, emit declared event types | Hold an admin special, ship browser-executed code, run anything the core does not execute | `crates/core-domain/src/entities/plugins.rs` |
+| Connector | Ingest HMAC-signed events, call scoped API paths, declare egress in its manifest | Path-depend on a core crate, read a scope it was not granted, write the audit trail | `crates/core-api/src/routes/webhook_receiver.rs` |
+| Federation bundle | Add an identity source, read the group surface it expands | Mint sessions, hold a capability or scope, become the authority for a role | `crates/core-api/src/auth/federation.rs` |
+| Auth provider | Present assertions through the bundle contract, JIT-provision under org policy | Bypass MFA, create a parallel session store, override the conservative link decision | `docs/reference/auth-provider-contract.md` |
+| Webhook / event | Subscribe to events with a signed delivery ledger, publish declared event types | Invent an event type outside the registry, receive another org's envelope | `crates/core-api/src/routes/webhooks.rs` |
+| Read model | Read the `ops.v1_*` views and the materialized usage row | Define a view of its own inside core, write a read model | `docs/reference/read-model.md` |
+| OTel | Depend on the published metric, log-field and health contract | Write series into core, expect a metrics scrape endpoint | `crates/core-otel/src/contract.rs` |
+| Audit | Export the trail incrementally with a stable cursor | Write, edit or delete an audit row, read past the org scope | `crates/core-api/src/routes/audit.rs` |
+| Usage | Read per-org counts and quota settings, count its own ingest volume | Enforce a quota, attribute another tenant's traffic, add a counter table | `crates/core-api/src/routes/org_usage.rs` |
 
 ## Plugin
 
@@ -90,11 +90,11 @@ The group surface a bundle expands is core's, not the bundle's:
 - `crates/core-db/src/users.rs` returns the effective roles, the additive union
   of direct grants and group grants.
 
-**Refused.** A bundle cannot hold a capability or a scope — ingest refuses both
-by name — and it never becomes the authority for a role. It reads the surface;
-core decides what the surface means.
+**Refused.** A bundle cannot hold a capability or a scope (ingest refuses both
+by name), and it never becomes the authority for a role. It reads the surface.
+Core decides what the surface means.
 
-Until Wave 52 an external identity service could not reach this surface at all.
+Before the machine scopes existed, an external identity service could not reach this surface at all.
 The group routes required `special:manage_users` or `special:manage_roles`, which
 no plugin may hold, so the SCIM connector and the directory-admin plugin had no
 principal that could call them. `/api/directory-groups` now accepts two machine
@@ -102,7 +102,7 @@ scopes: `directory_groups:read` for the list and the detail read, and
 `directory_groups:write` for group, membership and role-mapping writes. The
 connector and the admin plugin are a connector and a plugin, and they hold those
 scopes. A bundle still holds neither a capability nor a scope: it reads the
-functions directly, which is what R12 wired. Role CRUD stays behind
+functions directly. Role CRUD stays behind
 `special:manage_roles`, so a mirror attaches an existing role to a group and
 cannot create, edit or delete one.
 
@@ -169,7 +169,7 @@ past the org. The human grant is `special:view_audit_log`, which a plugin may
 never hold.
 
 **Refused.** No second audit store. A pack that needs its own trail keeps its own
-log; it does not add a column here.
+log, and it does not add a column here.
 
 ## Usage
 
@@ -193,4 +193,4 @@ the metrics store.
 This document is checked, not trusted. `crates/core-otel/tests/extension_point_matrix.rs`
 reads it and fails when a cited core file stops existing or a cited metric name
 leaves the contract. Adding an extension point means adding a row here with a
-citation the test can see; removing one means deleting both in the same change.
+citation the test can see. Removing one means deleting both in the same change.

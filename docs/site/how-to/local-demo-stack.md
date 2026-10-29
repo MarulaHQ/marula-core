@@ -1,5 +1,5 @@
 ---
-description: "Take a fresh clone to a booted, seeded demo with Postgres, Valkey and the sample organization."
+description: "Take a fresh clone to a booted, seeded demo, with its two containers and the sample organization."
 ---
 
 # How to run the local demo stack

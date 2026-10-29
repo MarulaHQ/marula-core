@@ -3,8 +3,8 @@
 > Contract level **v1** · introduced 0026
 > Binding rules live on the [read-model index](../read-model.md).
 
-One row per ticket that carries SLA state: targets, actuals, and attainment
-verdicts (joins carry no duplicates — PKs).
+One row per ticket that carries SLA state: targets, actuals, and the
+attainment verdicts (joins carry no duplicates — PKs).
 
 ## Columns (in contract order)
 

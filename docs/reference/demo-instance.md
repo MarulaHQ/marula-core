@@ -93,7 +93,7 @@ the current counts. `--snapshot-only` backs up BYOK and changes nothing.
 
 The reset never touches the at-rest key and never loses BYOK. If the reset call
 succeeds but a restore fails, the snapshot stays on disk and the script stops
-before time-travel; restore it before running another reset.
+before time-travel. Restore that snapshot before running another reset.
 
 ## Cron or a systemd timer
 
@@ -132,11 +132,12 @@ and outside the repository. A cron entry is the same command with `--apply
 
 ## What not to do
 
-- Do not publish `8080` on `0.0.0.0`. The overlay pins loopback; leave it.
+- Do not publish `8080` on `0.0.0.0`, because the overlay pins loopback already.
+  Leave that pin in place.
 - Do not remove the `/api/dev/*` deny from the edge.
 - Do not rotate `MARULA_SECRET_KEY` during a reset. The restored BYOK rows are
   sealed with it.
 - Do not run `seed-demo --force` directly against a demo with BYOK. It deletes
-  the org and the credentials with it; use `scripts/demo-reset.sh`.
+  the org and the credentials with it, so use `scripts/demo-reset.sh`.
 - Do not reuse `deploy/dev.env` on a box a prospect can reach. It carries the
   repository's published values.

@@ -9,7 +9,7 @@ seams). It exists because "your database" is a promise — but the promise
 attaches to these **views, not to the physical tables**:
 
 - **Reports and external tools read `ops.v1_*` only.** Every column referenced
-  here is stable for the life of `v1`; physical tables are explicitly
+  here is stable for the life of `v1`. Physical tables are explicitly
   **not stable, ever** (policy §2, §9).
 - **Stored reports survive upgrades** because they reference view slugs, not
   physical columns (report definitions store `kind` = `ops.v1_*` slug — 0034).
@@ -40,7 +40,7 @@ the caller had queried the base table:
   `set_config('app.org_id', …)` sees its own org's rows and nothing else.
 - **No binding ⇒ zero rows** (default-deny, like every RLS policy).
 - Every view retains an explicit `org_id` column as the tenancy seam.
-- The table OWNER bypasses RLS (views add no gate of their own); the core-db
+- The table OWNER bypasses RLS (views add no gate of their own). The core-db
   smoke test (`tests/ops_read_model.rs`) proves owner vs app-role scoping.
 
 ### Operator recipe (external BI, zero Marula code — ADR 0001)
@@ -75,7 +75,7 @@ the conscious act. Review per scope before sharing credentials.
 | [`ops.v1_board_statuses`](read-model/v1-board-statuses.md) | board status (workflow customization) | 0059 |
 | [`ops.v1_invoices`](read-model/v1-invoices.md) | invoice document | 0059 |
 | [`ops.v1_invoice_lines`](read-model/v1-invoice-lines.md) | invoice line | 0059 |
-| [`ops.v1_fx_reconciliation`](read-model/v1-fx-reconciliation.md) | cross-currency fact with its immutable conversion snapshot (ADR 0002, five lock moments; NOT additive across `kind`) | 0067 |
+| [`ops.v1_fx_reconciliation`](read-model/v1-fx-reconciliation.md) | cross-currency fact with its immutable conversion snapshot (ADR 0002, five lock moments, NOT additive across `kind`) | 0067 |
 
 ## Related
 

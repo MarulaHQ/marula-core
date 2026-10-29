@@ -112,7 +112,7 @@ values; it is the record of what ran.
 The landing record for a deployment says one of two things:
 
 - **Interim**: images built on a builder host, pushed to the private registry,
-  deployed by digest, with the SBOM, provenance and digest manifest paths.
+  deployed by digest, with the SBOM plus the provenance and digest paths.
 - **GHCR**: the release trigger was re-enabled by the maintainer and the
   workflow pushed and attested the images. The workflow's summary is the
   record.

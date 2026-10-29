@@ -1,6 +1,6 @@
 # Tech stack
 
-What the repo is built with, as of the Wave 41 rebrand. Versions come from the
+What the repo is built with, as of the 2026-09-27 rebrand. Versions come from the
 manifests, so this file goes stale only when a manifest moves. Nothing here is a
 recommendation. Three choices look arbitrary enough to be worth a note in place, and
 those notes sit in §1, §12, and §13.
@@ -24,8 +24,8 @@ The `[profile.desktop]`, `[profile.dev]`, and `[profile.test]` blocks in the roo
 one build cache at `.kilo/target-shared` without filling the disk. That sharing is a
 machine setting, not a repository one: `scripts/p13-build-env.sh enable --share-target`
 writes it into the untracked `.cargo/p13-fast.local.toml`, because cargo ranks the
-tracked `.cargo/config.toml` above anything it includes. Without the overlay — CI, a
-fresh clone — cargo's default `target/` is used.
+tracked `.cargo/config.toml` above anything it includes. Without the overlay
+(CI, a fresh clone), cargo's default `target/` is used.
 
 ## 2. Web app — `apps/web`
 

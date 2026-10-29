@@ -1,7 +1,7 @@
 # Perf program — budgets, harness, baselines
 
-> Established by Wave 13 lane 8 `p13-perf-baseline` (test-infra only: no
-> product code, no migrations). This is the Phase-4 perf program's anchor
+> Established by the original perf-baseline work (test-infra only: no product
+> code, no migrations). This is the Phase-4 perf program's anchor
 > document: the budgets, the tooling that enforces them, and the measured
 > baselines they were set against.
 
@@ -10,8 +10,8 @@
 | Budget | Target | Enforced by |
 |---|---|---|
 | Ticket list (primary reads) | **p95 < 150ms @ 50k tickets/org** | `perf-smoke` CI job (`.github/workflows/ci.yml`) via `measure::assert_budget` |
-| Deep pagination, keyset (`cursor`, depth 40k) | same primary budget — keyset IS budgeted since Wave 15 lane 3 | same smoke (the `deep_page_keyset40k` mix) |
-| Search deep pagination, keyset (`cursor`, depth 40k) | same primary budget — Wave 52 lane P5 | same smoke (the `search_keyset40k` mix) |
+| Deep pagination, keyset (`cursor`, depth 40k) | same primary budget — keyset is in the budget since the 2026-09-16 keyset work | same smoke (the `deep_page_keyset40k` mix) |
+| Search deep pagination, keyset (`cursor`, depth 40k) | same primary budget — set by the 2026-10-19 search-keyset work | same smoke (the `search_keyset40k` mix) |
 | Search deep pagination, legacy `OFFSET 40000` | 400ms regression tripwire (not a product budget) | same smoke (the `search_deep_offset40k` mix) |
 | Deep pagination, legacy `OFFSET 40000` | 400ms regression tripwire (not a product budget) | same smoke. See the finding below |
 | HTTP capacity (saturated closed-loop) | p95 ≤ 150ms @ 50k, concurrency 8, keyset mix | `Nightly perf` job (`.github/workflows/nightly.yml`) via `perf-harness load --budget-ms` |
@@ -43,7 +43,7 @@ Test-infra crate, AGPL, not part of the API surface. Four pieces:
   commit`) through the `marula_app` pool under RLS, over five request
   mixes (page 1, priority p1, assignee, client, deep page), 5 warmups +
   40 timed runs, p50/p95/p99/max per mix, plus `EXPLAIN (ANALYZE,
-  BUFFERS)` for the page-1 mix. Since Wave 52 lane P5 it also runs the search
+  BUFFERS)` for the page-1 mix. Since the 2026-10-19 search-keyset work it also runs the search
   path (`search_page` / `search_page_after`) over three mixes (page 1, the
   legacy deep offset, and the keyset walk at the same depth) against one
   indexed row per seeded ticket. `perf-harness smoke` = seed + measure +
@@ -55,7 +55,7 @@ Test-infra crate, AGPL, not part of the API surface. Four pieces:
   10% deep page. Closed-loop workers (`--concurrency`, default 8),
   end-to-end latency (bearer auth, RLS tx, serialization, axum stack),
   JSON report, exit 1 over budget.
-- **Multi-endpoint session** (`perf-harness journey`, Wave 49 lane R5): the
+- **Multi-endpoint session** (`perf-harness journey`): the
   session-shaped workload a users-per-instance number needs. One shared
   login, then N virtual users each loop a deterministic mixed session over
   the ticket workspace (board list, open ticket, read thread, my-work, SLA,
@@ -69,7 +69,7 @@ Test-infra crate, AGPL, not part of the API surface. Four pieces:
 # CI perf smoke (also: .github/workflows/ci.yml `perf-smoke` job)
 ./scripts/perf-smoke.sh            # DATABASE_URL env or throwaway testcontainer
 
-# Local baseline against a scratch DB (use a port outside the lane range)
+# Local baseline against a scratch DB (use a port outside the dev port range)
 MARULA_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:54399/marula_perf \
   perf-harness seed --tickets 50000
 MARULA_TEST_DATABASE_URL=... perf-harness measure --budget-ms 150
@@ -101,7 +101,7 @@ The `profiling` profile inherits `release` and overrides `strip` alone, so the
 two builds differ only in that table. Profile with `profiling`, and report
 budgets from `release`.
 
-## 3. Measured baselines (2026-09-13, lane 8)
+## 3. Measured baselines (2026-09-13, first measurement)
 
 Environment: local dev machine (Apple Silicon, macOS), Postgres 17
 (pgvector image parity), release build, warm planner/pool cache, seeded
@@ -143,7 +143,7 @@ page). Only OFFSET pagination grows.
 |---|---|---|---|---|
 | 74 rps | 55.0ms | **528.8ms** | 686.1ms | 930.3ms |
 
-### Wave 15 lane 3 (`p15-perf-product`, 2026-09-16) — after keyset pagination
+### After keyset pagination (2026-09-16)
 
 Same environment, same 50k fixture, release build. The keyset mix
 (`deep_page_keyset40k`) resumes at depth 40k from a real cursor. The
@@ -165,7 +165,7 @@ with the keyset deep-page mix in place of the offset leg:
 | 4 | 170 rps | 29.0ms | **32.2ms** | 36.6ms | 123ms |
 | 8 (saturated) | 259 rps | 32.2ms | **49.2ms** | 64.9ms | 184ms |
 
-### Wave 52 lane P5 (`p52-search-keyset`, 2026-10-19) — search after keyset
+### Search after keyset (2026-10-19)
 
 Same 50k fixture (one indexed row per ticket, `network` in every title so a
 deep page is a real deep page), release build, five warmups and forty timed
@@ -191,16 +191,16 @@ The exact count is gone with it: `total` is now a floor capped at 1,000 with
 
 In the same run the ticket mixes held their previous numbers (page 1 at
 34.4ms p95, legacy offset at 135.1ms, keyset at 26.8ms), which is the
-control: this lane changed search only.
+the control: that change touched search only.
 
-## 4. Findings (measure-first output. Product fixes ride later perf lanes)
+## 4. Findings (measure-first output)
 
 - **F1 — Budget holds at the read layer.** The server-side ticket-list
   query path is well under 150ms p95 at 50k (≈30ms) and flat at 100k.
   The budget is realistic.
 - **F2 — OFFSET pagination was the scaling debt. FIXED by keyset.**
   Deep pages cost O(offset) rows scanned + sorted (measured 148–237ms
-  p95 @50k). Wave 15 lane 3 shipped keyset/cursor pagination: the
+  p95 @50k). The 2026-09-16 keyset work shipped keyset/cursor pagination: the
   opaque `cursor` query param resumes the ranked list
   `(priority rank, due_at NULLS LAST, created_at, id)` strictly after
   the anchor row and pages at page-1 cost (`deep_page_keyset40k`
@@ -230,9 +230,8 @@ control: this lane changed search only.
   budget pressure that would justify a new index + its write-path tax
   does not exist today. Revisit when page-1 p95 exceeds ~2/3 budget OR
   whenever the SQL sort plan regresses. The full measured recipe is in
-  the lane landing record (the private build tracker), and the same index
-  can now be tried without building it — `hypopg` and the recipe are in
-  [`docs/site/reference/db-observability.md`](site/reference/db-observability.md).
+  [`docs/site/reference/db-observability.md`](site/reference/db-observability.md),
+  and the same index can now be tried without building it, with `hypopg`.
 
   That trigger is instrumented now, so it fires on evidence instead of
   recollection. `marula.db.page1_p95` carries the measured p95 against the
@@ -247,7 +246,7 @@ control: this lane changed search only.
   until the index ships. See
   `deploy/observability/runbooks/capacity-trigger.md`.
 
-## 5. HTTP capacity decision (Wave 15 lane 3)
+## 5. HTTP capacity decision
 
 The saturated closed-loop point is **concurrency 8** — 8 back-to-back
 workers sharing one bearer token, the documented reproducing
@@ -256,8 +255,8 @@ fix: p95 49.2ms, 259 rps @50k — **the 150ms product budget holds at
 saturation with ~3× headroom**. The pre-keyset 218ms reading was the
 offset deep-page leg, not queueing capacity.
 
-**Pool sizing / connection count (explicit; corrected 2026-10-17 by Wave 49 lane R1,
-resolved 2026-10-21 by Wave 52 lane P9).**
+**Pool sizing / connection count (explicit; corrected 2026-10-17 by the
+pool-knobs work, resolved 2026-10-21 with the PgBouncer profile).**
 A default stack, by process, opens:
 
 | Process | Pool | Ceiling | Env knob |
@@ -268,14 +267,15 @@ A default stack, by process, opens:
 | worker | app (owner role) | 20 | `MARULA_DB_POOL_MAX` |
 | worker | delivery reporting | 5 | `DELIVERY_POOL_MAX` |
 
-That is **54 client connections per instance**, and PgBouncer holds the server
-side at **15 per (database, user) pair**: 30 across the app role and the owner
-role, however many instances are added. The arithmetic that forced this:
+Summed across the five pools in the table, that is **54 database connections
+per instance**, and PgBouncer holds the server side at **15 per (database,
+user) pair**: 30 across the app role and the owner role, however many
+instances are added. The arithmetic that forced this:
 71 per instance meant a second instance asked for 142 against Postgres's default
 `max_connections = 100`, so the pool ceiling was the first limit hit, not the
 last.
 
-Two of those numbers moved in lane P9 and each has its own reason.
+Two of those numbers moved with the PgBouncer profile, and each has its own reason.
 `MARULA_REPORTING_POOL_MAX` was 25, a quarter of the budget spent on reports, a
 surface a user opens occasionally; the hot path saturates at concurrency 8, so
 the reporting ceiling is 8. The LISTEN connection is dialled directly at
@@ -285,7 +285,7 @@ carries the measurements, including the two settings a transaction pooler needs
 (`server_reset_query = DISCARD ALL` after every transaction, and the statement
 cache off) and the cross-tenant probe that verifies RLS still holds through it.
 
-Every production ceiling is an env knob since lane R1; a present-but-invalid
+Every production ceiling has been an env knob since the pool-knobs work; a present-but-invalid
 value (0, non-numeric, or above 1024) refuses boot rather than silently
 reverting to the default, because a wrong pool size is a capacity incident and
 not a cosmetic one. `MARULA_DB_STATEMENT_CACHE` takes 0 (the default, and what
@@ -314,13 +314,13 @@ order-of-magnitude tripwire (capacity observation, not budget).
   Results surface as a step summary + `nightly-load-report` /
   `nightly-scale-report` artifacts. A red nightly is investigated in the
   next session, never shrugged off.
-  - Wave 34 lane 6 repaired this definition before any re-enable: the
+  - A later repair fixed this definition before any re-enable: the
     `perf-load-budget` `services:` block was indented one level too deep
     (the file had never parsed), both Boot steps omitted the explicit
     `JWT_SECRET` / `MARULA_SECRET_KEY` that fail-closed core-api
-    requires since Wave 19, and both inherited the superuser
+    has required since the external-audit hardening (2026-09-22), and both inherited the superuser
     `DATABASE_URL` (RLS bypassed) instead of the app role.
-  - Wave 52 lane `p52-ci-gates-restore` enabled the schedule and moved
+  - The gate-restore work enabled the schedule and moved
     `perf-smoke` here from the per-push set: a p95 budget is a trend, and a
     saturated load loop has no place in a merge gate.
 - Budget overrides are for local triage only: `PERF_SMOKE_BUDGET_MS` /
@@ -328,9 +328,9 @@ order-of-magnitude tripwire (capacity observation, not budget).
   constants). A CI failure is investigated, never shrugged off.
 - No PG port claims: the smoke uses the CI service DB (5432) or a
   testcontainer on a random host port. Local runs use a scratch port
-  outside the lane range (e.g. 54399).
+  outside the dev port range (e.g. 54399).
 
-## 7. Sizing method: users per instance (Wave 49 lane R5)
+## 7. Sizing method: users per instance (the `perf-harness journey` sweep)
 
 The single-endpoint runner answers "how fast is the board list". A
 users-per-instance number needs a session, so `perf-harness journey` drives
@@ -370,9 +370,9 @@ in dataset size (§3), so a rise is the write or deep-read legs.
 ### Measured (2026-10-17)
 
 Apple Silicon dev box, release core-api, scratch Postgres (e2e-stack), the perf
-org freshly seeded @50k, think 500ms, 30s per run, 0 errors in every run. A
-parallel lane's e2e stack was up during the window, so absolute throughput is
-contention-bound. The sweep is internally consistent: each point's
+org freshly seeded @50k, think 500ms, 30s per run, 0 errors in every run. The
+e2e stack of a parallel build was up during the window, so absolute throughput
+is contention-bound. The sweep is internally consistent: each point's
 `users_per_instance` reconstructs its own `users`, which is what a closed loop
 at that pace should do.
 

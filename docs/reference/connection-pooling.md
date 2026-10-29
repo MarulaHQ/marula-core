@@ -15,8 +15,8 @@ Each process opens pools of its own. At the defaults that was 71 connections per
 instance: 20 for the API's app pool, 25 for its reporting pool, one for the
 `LISTEN` connection, 20 for the worker and 5 for the worker's delivery pool.
 Postgres defaults to `max_connections = 100`, so the second instance asks for
-142 against 100 and the fleet stops there — before CPU matters, and long before
-the capacity model's 366 users per instance does.
+142 against 100 and the fleet stops there — before CPU matters, and long before the
+capacity model's 366-user-per-instance ceiling does.
 
 The reporting pool was the second-largest line in that table and the least
 justified. 25 connections for a surface a user opens occasionally, against the
@@ -37,15 +37,15 @@ a cold surface can live on and a number an operator can defend.
 Client connections are what the application opens. What Postgres pays for is the
 server side, and that is the pooler's number now: 15 per (database, user) pair,
 so 30 across the app role and the owner role, however many instances are added.
-Measured: 40 concurrent clients through the shipped config held a peak of 15
-server connections.
+Measured through the shipped config: 40 concurrent sessions held a peak of
+15 server connections.
 
 ## Transaction pooling, not session pooling
 
 A session pooler maps one client connection to one server connection for the
 client's whole life. Our clients are pools that hold their connections open
-permanently, so session pooling would change nothing for the first 15 clients
-and leave the rest queued behind them. Transaction pooling hands the server
+permanently, so session pooling would change nothing for the first 15 of the
+client connections and leave the rest queued behind them. Transaction pooling hands the server
 connection back after every transaction, which is the only shape that
 multiplexes a pool of pools.
 

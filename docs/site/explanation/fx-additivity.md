@@ -1,15 +1,15 @@
 ---
-description: "Two contracts govern money in multi-currency stacks, and they travel together. The command-side procedure is the FX how-to; this page explains the why they…"
+description: "Two contracts govern money in multi-currency stacks, and they travel together. The command-side procedure is the FX how-to. This page explains the why they…"
 ---
 
 # FX additivity and the append-only rate book
 
 > **Audience:** both — billing practitioners read reconciliation totals
-> constantly; admins own the rate book itself.
+> constantly, and admins own the rate book itself.
 
 Two contracts govern money in multi-currency stacks, and they travel
-together. The command-side procedure is the [FX how-to](../how-to/admin-fx-rates.md);
-this page explains the **why** they bind this way.
+together. The command-side procedure is the [FX how-to](../how-to/admin-fx-rates.md).
+This page explains the **why** they bind this way.
 
 ## Contract 1: one base currency, all surfaces reconcile to it
 
@@ -75,7 +75,7 @@ no correction surface:
 
 ## The consequence for every report you build
 
-- Anything that sums across kinds is **not a Marula total**; compute it
+- Anything that sums across kinds is **not a Marula total**. Compute it
   knowingly from per-kind breakdowns — leave the contract unbent and
   the dashboard's honesty intact.
 - The versioned read model (`ops_v1_fx_reconciliation` view) is the

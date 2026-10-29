@@ -1,5 +1,5 @@
 ---
-description: "How a scan resolves to one typed record — ticket, asset or stock item — before Marula acts on it."
+description: "How a scan resolves to one typed record (ticket, asset or stock item) before Marula acts on it."
 ---
 
 # How to scan barcodes and QR codes

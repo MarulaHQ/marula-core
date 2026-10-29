@@ -5,7 +5,7 @@
 
 One row per ticket with the workflow, SLA, and classification truth joined in.
 `category` is the **semantic** category from `board_statuses` (the workflow
-layer is authoritative; `tickets.category` mirrors it by transactional
+layer is authoritative, and `tickets.category` mirrors it by transactional
 update) — renames of boards/statuses never change it (§5 guarantee).
 
 ## Columns (in contract order)
@@ -44,9 +44,9 @@ update) — renames of boards/statuses never change it (§5 guarantee).
 
 ## Contract notes
 
-- Columns 1–23 are the byte-stable 0026 prefix; 24–29 appended in 0059.
-  New columns may only append; order is NOT part of the contract.
-- `category` is the semantic workflow primitive (never a label); the
+- Columns 1–23 are the byte-stable 0026 prefix, and 24–29 were appended in
+  0059. New columns may only append; order is NOT part of the contract.
+- `category` is the semantic workflow primitive, never a label, and the
   `ticket_*` taxonomy columns are classification-only (§5) and never affect
   SLA, billing, or automation behavior.
 
