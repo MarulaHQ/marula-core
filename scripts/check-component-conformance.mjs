@@ -322,15 +322,6 @@ const RESIDUAL_LEDGER = [
     ownedBy: "a follow-up row (place the owner's name here when it is adopted), not Wave 48 lane 3",
     verify: () => someShippedModuleServes("m-skel") || someShippedModuleServes("skeleton"),
   },
-  {
-    id: "x-total-count-header",
-    drawn: "the footer's N of M — shown of total, never an invented denominator",
-    missing:
-      "SurfaceFooter takes `total`, but the list endpoints send no x-total-count, so adopted surfaces print `N {noun}` for want of the denominator — the contract addition re-pins via scripts/regen-openapi-pins.sh",
-    ownedBy: "Wave 48 lane 3 (p48-surface-adoption)",
-    verify: () =>
-      repoHas("packages/sdk/src/client.ts", ["x-total-count"]) || grepTreeHas("x-total-count", "packages/sdk/src/generated"),
-  },
 ];
 
 /* -------------------------------------------------------------------------
