@@ -7,13 +7,12 @@
 // halves are pinned here. Per the isolation-policy spec's own note, this pins
 // live responses rather than a Rust handler's intent.
 import { expect, test } from "../helpers/harness";
-import { API_URL, apiLogin, DEMO_OWNER_EMAIL, DEMO_PASSWORD } from "../helpers/api";
+import { API_URL } from "../helpers/api";
 
 test.describe("tickets list x-total-count", () => {
-  test("the header answers the filter's denominator and CORS exposes it", async ({ request }) => {
-    const tokens = await apiLogin(API_URL, DEMO_OWNER_EMAIL, DEMO_PASSWORD);
+  test("the header answers the filter's denominator and CORS exposes it", async ({ request, ownerTokens }) => {
     const response = await request.get(`${API_URL}/api/v1/tickets?limit=1&offset=0`, {
-      headers: { authorization: `Bearer ${tokens.access_token}` },
+      headers: { authorization: `Bearer ${ownerTokens.access_token}` },
     });
     expect(response.status()).toBe(200);
 
@@ -25,7 +24,7 @@ test.describe("tickets list x-total-count", () => {
     // A bounded filter narrows the denominator; the two headers must agree
     // with each other in direction, not value.
     const filtered = await request.get(`${API_URL}/api/v1/tickets?limit=1&offset=0&priority=p1`, {
-      headers: { authorization: `Bearer ${tokens.access_token}` },
+      headers: { authorization: `Bearer ${ownerTokens.access_token}` },
     });
     expect(filtered.status()).toBe(200);
     const filteredTotal = Number(filtered.headers()["x-total-count"]);
