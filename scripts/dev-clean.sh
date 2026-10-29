@@ -360,4 +360,13 @@ fi
 
 after=$(df -g /System/Volumes/Data | tail -1 | awk '{print $4}')
 echo "== free space: ${before}Gi -> ${after}Gi =="
-[[ $GO -eq 0 ]] && echo "(dry run — run scripts/dev-clean.sh --go to apply)"
+# With --go the dry-run note's guard is false, and bash 3.2 returns that
+# compound's status as the script's exit — a fully successful apply reported
+# exit 1 and the sweep's caller (`p13-test.sh --sweep`) obeyed it and never
+# ran. The note is an echo, not a verdict; the script's own verdicts are its
+# explicit exits above.
+if [[ $GO -eq 0 ]]; then
+  echo "(dry run — run scripts/dev-clean.sh --go to apply)"
+fi
+
+exit 0
