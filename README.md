@@ -2,9 +2,9 @@
 
 <p>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/logo/dark.png">
-    <source media="(prefers-color-scheme: light)" srcset=".github/assets/logo/light.png">
-    <img src=".github/assets/logo/light.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo/light.png">
+    <img src="assets/logo/light.png" height="34" alt="Marula logo lockup" title="Marula logo lockup">
   </picture>
 </p>
 
