@@ -1,0 +1,26 @@
+# The desktop update channel. Deployed as `marula-updates`.
+#
+# The bucket and namespace already exist in the account; their IDs are the
+# binding, not a secret, so they are committed. Credentials are not: deploying
+# needs CLOUDFLARE_API_TOKEN, which this file never reads.
+name = "marula-updates"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# `latest:<target>-<arch>` → the pointer a launch reads. Small, hot, and the
+# only thing that changes when a release is published.
+[[kv_namespaces]]
+binding = "UPDATES"
+id = "e0e29e8523ff4385a983fe4ad3b39a57"
+
+# The artifacts do not travel through the Worker: they are served from
+# artifacts.getmarula.com straight off the bucket, which keeps a 36 MB download
+# out of the request quota and out of the Worker's CPU budget.
+[[r2_buckets]]
+binding = "ARTIFACTS"
+bucket_name = "marula-updates"
+
+# updates.getmarula.com is bound as a Worker Custom Domain in the dashboard or
+# by `scripts/release/updates.mjs`, not by a route here: a route would also need
+# the hostname to resolve through this zone, and a custom domain provisions the
+# certificate.
