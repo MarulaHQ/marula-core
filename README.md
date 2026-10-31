@@ -255,6 +255,10 @@ don't open a public issue for a security report.
   ([`packages/sdk/LICENSE`](packages/sdk/LICENSE))
 - **CC BY 4.0** covers the documentation in `docs/site/`, with attribution
   ([`docs/site/NOTICE`](docs/site/NOTICE))
+- **Brand assets are not open source.** The logo, wordmark, product mockups,
+  screenshots and marketing artwork are © Marula, all rights reserved, and are
+  not licensed under any of the licences above. [`TRADEMARK.md`](TRADEMARK.md)
+  covers their use as marks.
 - Third-party components are listed in
   [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md): fonts (OFL), embedded PostgreSQL
   and pgvector, the full npm inventory, vendored tooling
