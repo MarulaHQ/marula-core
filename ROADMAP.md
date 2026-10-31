@@ -36,6 +36,9 @@ the [changelog](CHANGELOG.md) records what changed.
   task, with guides for installing on your own machine, upgrading, backing
   up, and restoring; every page tags its audience and gets its links checked
   in CI.
+- **The client's vote.** Quote approval from the client portal (same domain
+  guard as the staff legs), satisfaction surveys on resolution, and canned
+  replies with a settings page for the desk.
 - **A guided merge workbench** for client configurations and a Zapier app over
   the webhook catalog.
 
@@ -75,8 +78,6 @@ the [changelog](CHANGELOG.md) records what changed.
   plainly what it could not. Every draft lands in the builders you already use
   as a proposal you edit and approve, under the same per-surface gate as every
   other AI help.
-- **Client-facing finishing holes.** Quote approval from the client portal,
-  satisfaction surveys on resolution, canned replies for ticket work.
 - **More of the plugin surface.** UI widgets, automation steps, and report
   renderers for plugins, with first-party reference plugins in the repo.
 - **Email identities.** Per-board inbound and outbound addresses, a
