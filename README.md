@@ -60,9 +60,9 @@ a proper time entry. The assistant does the mechanical work (surfacing the
 runbook, drafting the note, proposing the fix) and hands it to a person, who
 decides. Anything a client can see waits for a human click, always.
 
-> [TODO: one or two sentences on who maintains Marula and what sustains it.
+<!-- > [TODO: one or two sentences on who maintains Marula and what sustains it.
 > MSPs will ask “what happens if you disappear?”, and a plain answer up front
-> earns trust.]
+> earns trust.] -->
 
 Marula covers invoicing, quotes, the knowledge base, CSAT surveys and dispatch
 scheduling natively, so running a service desk does not mean a stack of add-on
@@ -262,8 +262,7 @@ don't open a public issue for a security report.
 In plain language: running Marula unmodified for your own shop carries no
 extra obligations, and modifying it or running it for others asks you to share
 the source you changed on the same terms. Read the license, or get advice if
-the edge cases matter. (Worth a second look by someone qualified before this
-line is final.)
+the edge cases matter.
 
 The Marula name, wordmark and fruit mark are trademarks:
 [`TRADEMARK.md`](TRADEMARK.md). None of these licences grants trademark
