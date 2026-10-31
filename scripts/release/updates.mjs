@@ -18,6 +18,14 @@
  *   --stage 60      announce, but serve nothing for the first hour
  *   --rollback 0.3.1  re-point at a version already in the bucket
  *   --dry-run       print the commands and write nothing
+ *
+ * Versions are immutable: the object carries a year-long cache and the edge
+ * will serve it. Re-uploading the same version means purging that URL first,
+ * which is a deliberate act rather than a silent overwrite. The first publish
+ * of 0.3.1 hit the other edge of this: the pointer went live before the object
+ * existed, the edge cached the 404, and the URL answered 404 for minutes after
+ * the upload -- which is why the pointer is written last and why a failed
+ * upload leaves the channel saying 204 rather than offering a dead link.
  */
 import { readFileSync, existsSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -117,8 +125,8 @@ function main() {
 
   // The tarball is immutable, so it can be cached forever; a version bump is a
   // new key. The .sig is beside it for anyone checking by hand.
-  run(["r2", "object", "put", `${BUCKET}/${key}`, "--file", args.artifact, "--content-type", "application/octet-stream", "--cache-control", "public, max-age=31536000, immutable"], args.dryRun);
-  run(["r2", "object", "put", `${BUCKET}/${sigKey}`, "--file", signaturePath, "--content-type", "text/plain", "--cache-control", "public, max-age=31536000, immutable"], args.dryRun);
+  run(["r2", "object", "put", `${BUCKET}/${key}`, "--file", args.artifact, "--content-type", "application/octet-stream", "--cache-control", "public, max-age=31536000, immutable", "--remote"], args.dryRun);
+  run(["r2", "object", "put", `${BUCKET}/${sigKey}`, "--file", signaturePath, "--content-type", "text/plain", "--cache-control", "public, max-age=31536000, immutable", "--remote"], args.dryRun);
 
   const signature = readFileSync(signaturePath, "utf8").trim();
   if (!signature) throw new Error(`${signaturePath} is empty`);
