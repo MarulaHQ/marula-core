@@ -192,10 +192,12 @@ impl DeploymentTarget for ComposeTarget {
                     .unwrap_or(true)
             });
         let volume = crate::install::plan::postgres_volume();
-        if crate::install::plan::volume_conflicts(
-            generates_password,
-            crate::install::plan::volume_present(&volume),
-        ) {
+        if selection.probe_volumes
+            && crate::install::plan::volume_conflicts(
+                generates_password,
+                crate::install::plan::volume_present(&volume),
+            )
+        {
             return Err(PlanError::VolumeHoldsAnotherPassword { volume });
         }
         let resolved =

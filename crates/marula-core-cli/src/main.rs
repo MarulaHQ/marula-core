@@ -132,6 +132,11 @@ enum Command {
         /// Pin one service to a digest: `service=sha256:...` (repeatable).
         #[arg(long = "image-digest", value_name = "service=sha256:...")]
         image_digest: Vec<String>,
+        /// The release bundle's `release.json`, whose `images` map carries one
+        /// digest per service. Defaults to `release.json` beside --dir, then the
+        /// working directory, so a released bundle describes itself.
+        #[arg(long, value_name = "release.json")]
+        image_manifest: Option<std::path::PathBuf>,
         /// What the long-running services do after an exit:
         /// `unless-stopped` (default), `always` or `no`.
         #[arg(
@@ -417,6 +422,7 @@ async fn main() -> anyhow::Result<()> {
             images,
             image_base,
             image_digest,
+            image_manifest,
             restart,
             ui,
             port,
@@ -432,7 +438,7 @@ async fn main() -> anyhow::Result<()> {
                 compose_file,
                 memory_mb,
                 (ui, port, ui_dir, no_open),
-                (images, image_base, image_digest, restart),
+                (images, image_base, image_digest, image_manifest, restart),
             )
             .await
         }
@@ -796,7 +802,7 @@ async fn install_command(
     compose_file: std::path::PathBuf,
     memory_mb: Option<u32>,
     wizard: (bool, u16, std::path::PathBuf, bool),
-    shape: (String, Option<String>, Vec<String>, String),
+    shape: (String, Option<String>, Vec<String>, Option<std::path::PathBuf>, String),
 ) -> anyhow::Result<()> {
     use install::DeploymentTarget as _;
 
@@ -855,11 +861,14 @@ async fn install_command(
     };
 
     let mut selection = install::Selection::new(chosen.clone(), &dir);
+    // The `install` command is the one place a real volume matters, so this is
+    // where the plan is allowed to look at the host.
+    selection.probe_volumes = true;
     for assignment in &set {
         selection.set(assignment)?;
     }
 
-    let (images, image_base, image_digest, restart) = shape;
+    let (images, image_base, image_digest, image_manifest, restart) = shape;
     selection.images = install::plan::ImageSource::parse(&images)
         .ok_or_else(|| anyhow::anyhow!("--images takes `build` or `registry`, not `{images}`"))?;
     selection.image_base = image_base;
@@ -871,6 +880,35 @@ async fn install_command(
             .image_digests
             .insert(service.trim().to_string(), digest.trim().to_string());
     }
+    // A released bundle describes its own images. Explicit flags win, because an
+    // operator overriding one service is doing it on purpose; the manifest fills
+    // the rest, which is what removes the hand-copy of four digests out of a
+    // signed document. Only a registry install has anything to fill.
+    if selection.images == install::plan::ImageSource::Registry {
+        let candidate = image_manifest
+            .clone()
+            .or_else(|| {
+                let beside = dir.join("release.json");
+                beside.is_file().then_some(beside)
+            })
+            .or_else(|| {
+                let here = std::path::PathBuf::from("release.json");
+                here.is_file().then_some(here)
+            });
+        if let Some(path) = candidate {
+            let text = std::fs::read_to_string(&path).map_err(|error| {
+                anyhow::anyhow!("reading {}: {error}", path.display())
+            })?;
+            let bundle = install::release::parse(&text).map_err(|reason| anyhow::anyhow!(reason))?;
+            if selection.image_base.is_none() {
+                selection.image_base = Some(bundle.base);
+            }
+            for (service, digest) in bundle.digests {
+                selection.image_digests.entry(service).or_insert(digest);
+            }
+        }
+    }
+
     selection.restart = install::plan::RestartPolicy::parse(&restart).ok_or_else(|| {
         anyhow::anyhow!("--restart takes `unless-stopped`, `always` or `no`, not `{restart}`")
     })?;

@@ -31,6 +31,13 @@ pub struct Selection {
     pub image_digests: BTreeMap<String, String>,
     /// What the long-running services do after a crash or a daemon restart.
     pub restart: RestartPolicy,
+    /// Whether the plan may ask this host about its docker state.
+    ///
+    /// Off by default so a plan stays a pure function of the descriptor and the
+    /// selection: a test that builds a plan must not depend on which volumes the
+    /// machine running it happens to hold. The `install` command turns it on,
+    /// because that is where a real volume matters.
+    pub probe_volumes: bool,
 }
 
 /// Where the application images come from.
@@ -122,6 +129,7 @@ impl Selection {
             image_base: None,
             image_digests: BTreeMap::new(),
             restart: RestartPolicy::UnlessStopped,
+            probe_volumes: false,
             dir: dir.into(),
         }
     }
