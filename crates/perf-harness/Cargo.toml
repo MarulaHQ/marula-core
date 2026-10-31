@@ -21,7 +21,7 @@ md-5 = "0.10"
 clap = { workspace = true }
 
 [dev-dependencies]
-testcontainers = { version = "0.23", features = ["reusable-containers"] }
+testcontainers = { version = "0.28", features = ["reusable-containers"] }
 
 [[bin]]
 name = "perf-harness"

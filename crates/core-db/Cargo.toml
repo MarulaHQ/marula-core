@@ -38,5 +38,4 @@ aes-gcm = { workspace = true }
 core-kb = { path = "../core-kb" }
 tokio = { workspace = true }
 chrono-tz = { workspace = true }
-testcontainers = { version = "0.23", features = ["reusable-containers"] }
-testcontainers-modules = { version = "0.11", features = ["postgres"] }
+testcontainers = { version = "0.28", features = ["reusable-containers"] }
