@@ -17,9 +17,7 @@
 
 > **Status:** pre-1.0 (0.3.x), built in the open. [`ROADMAP.md`](ROADMAP.md) says what ships today and what is next; [`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.
 
-<!-- TODO(ci): CI badges once the pipelines are public. Rendered now, a
-     workflow badge on a repository with no runs reads as "no status", which
-     is worse than no badge.
+<!-- TODO(ci): CI badges once the pipelines are public. 
 ![CI](https://github.com/MarulaHQ/marula-core/actions/workflows/ci.yml/badge.svg) -->
 
 ---
@@ -35,7 +33,7 @@ Whether you run the service desk, coordinate the dispatch board, work tickets in
 
 ## Why we're building this
 
-Every commercial PSA taxes tickets, locks the data, and bends your workflow to its roadmap. We got tired of it.
+It's all laid out here: [`MANIFESTO.md`](MANIFESTO.md)
 
 Marula is complete on its own: native invoicing, quotes, knowledge base, CSAT surveys and dispatch scheduling come built in, so running an MSP does not need third-party subscriptions.
 
