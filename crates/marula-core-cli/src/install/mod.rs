@@ -28,6 +28,7 @@ pub mod compose;
 pub mod doctor;
 pub mod host;
 pub mod plan;
+pub mod release;
 pub mod server;
 pub mod target;
 pub mod view;
