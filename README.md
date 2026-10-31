@@ -103,6 +103,14 @@ Full installation, configuration and upgrade runbooks live in
 
 ## What a day looks like
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/shots/dispatch_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/shots/dispatch_light.png">
+    <img src="assets/shots/dispatch_light.png" width="1100" alt="The dispatch board: six jobs in the unassigned queue with SLA clocks, technician lanes holding the day's work, travel-time strips between on site jobs, and one technician flagged as over capacity" title="The dispatch board">
+  </picture>
+</p>
+
 - **Technicians** run one timer at a time, write customer-facing and internal
   notes in the same place, and close the gaps in their day in a couple of
   minutes.
