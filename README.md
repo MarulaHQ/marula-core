@@ -103,13 +103,6 @@ Full installation, configuration and upgrade runbooks live in
 
 ## What a day looks like
 
-<p align="center">
-  <img src="assets/shots/tickets_board_light.png"
-       width="1100"
-       alt="The tickets board: at-risk and breached SLA counters, priorities and last-activity columns on fifty seeded demo tickets"
-       title="The tickets board">
-</p>
-
 - **Technicians** run one timer at a time, write customer-facing and internal
   notes in the same place, and close the gaps in their day in a couple of
   minutes.
