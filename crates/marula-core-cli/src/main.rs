@@ -802,7 +802,13 @@ async fn install_command(
     compose_file: std::path::PathBuf,
     memory_mb: Option<u32>,
     wizard: (bool, u16, std::path::PathBuf, bool),
-    shape: (String, Option<String>, Vec<String>, Option<std::path::PathBuf>, String),
+    shape: (
+        String,
+        Option<String>,
+        Vec<String>,
+        Option<std::path::PathBuf>,
+        String,
+    ),
 ) -> anyhow::Result<()> {
     use install::DeploymentTarget as _;
 
@@ -896,10 +902,10 @@ async fn install_command(
                 here.is_file().then_some(here)
             });
         if let Some(path) = candidate {
-            let text = std::fs::read_to_string(&path).map_err(|error| {
-                anyhow::anyhow!("reading {}: {error}", path.display())
-            })?;
-            let bundle = install::release::parse(&text).map_err(|reason| anyhow::anyhow!(reason))?;
+            let text = std::fs::read_to_string(&path)
+                .map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?;
+            let bundle =
+                install::release::parse(&text).map_err(|reason| anyhow::anyhow!(reason))?;
             if selection.image_base.is_none() {
                 selection.image_base = Some(bundle.base);
             }
