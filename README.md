@@ -31,8 +31,13 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-<!-- TODO(capture): hero image, two modes. Paths once captured:
-     assets/shot_hero_light.png and assets/shot_hero_dark.png -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/shots/ticket_hero_dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/shots/ticket_hero_light.png">
+    <img src="assets/shots/ticket_hero_light.png" width="1100" alt="One ticket in the workbench: a timer running in the dock, internal notes and a billable time entry in the timeline, and the agent panel recommending the next step with the matching knowledge-base article beside it" title="The ticket workbench — timer, notes, time, agent panel">
+  </picture>
+</p>
 
 > **Status:** pre-1.0 (0.3.x), built in the open. [`ROADMAP.md`](ROADMAP.md) says what ships today and what is next; [`CHANGELOG.md`](CHANGELOG.md) records what changed in each release.
 
@@ -97,6 +102,13 @@ Full installation, configuration and upgrade runbooks live in
 `/docs`.
 
 ## What a day looks like
+
+<p align="center">
+  <img src="assets/shots/tickets_board_light.png"
+       width="1100"
+       alt="The tickets board: at-risk and breached SLA counters, priorities and last-activity columns on fifty seeded demo tickets"
+       title="The tickets board">
+</p>
 
 - **Technicians** run one timer at a time, write customer-facing and internal
   notes in the same place, and close the gaps in their day in a couple of
