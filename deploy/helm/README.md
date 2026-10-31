@@ -35,9 +35,9 @@ plumbing).
 Secret that already exists, keeps `/api/dev/*` off, lowers the app's own rate
 limits per principal, turns on TLS with a placeholder host, and points mail at a
 sink inside the cluster so recovery links can be read without leaving it. The
-operator's sequence is `docs/security/staging-runbook.md`: create the Secret, pin
-the digests, seed one account per tester, rotate a password, collect evidence,
-tear down. Testers read `SECURITY.md` and
+operator's sequence (create the Secret, pin the digests, seed one account per
+tester, rotate a password, collect evidence, tear down) stays with whoever holds
+the cluster and is not published here. Testers read `SECURITY.md` and
 `docs/security/pentest-known-issues.md` instead.
 
 ## The public front door (the private build tracker V2)
