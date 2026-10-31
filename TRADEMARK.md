@@ -39,7 +39,10 @@ restrict it; presenting that service *as* Marula is what needs permission.
 
 The logo files distributed in this repository are provided so the software can display
 its own identity. They are not a brand kit, and this policy grants no right to reuse
-them outside that purpose. Brand questions: **`oss@getmarula.com`**.
+them outside that purpose. Separately from this policy, the logo files, wordmark
+artwork, product mockups and marketing artwork are © Marula, all rights reserved, and
+are not licensed under the AGPL-3.0 or any other licence covering the software.
+Brand questions: **`oss@getmarula.com`**.
 
 ## Status
 
