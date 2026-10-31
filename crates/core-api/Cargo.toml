@@ -9,7 +9,7 @@ license.workspace = true
 http-body-util = "0.1"
 tokio = { workspace = true }
 async-trait = { workspace = true }
-testcontainers = { version = "0.23", features = ["reusable-containers"] }
+testcontainers = { version = "0.28", features = ["reusable-containers"] }
 # Signing an artifact in the entitlement-adoption unit tests:
 # `verify_artifact` is pure and takes a trust set, so the tests mint a real
 # ed25519 signature rather than asserting against a mock there is no seam for.
