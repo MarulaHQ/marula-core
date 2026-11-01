@@ -25,9 +25,10 @@ import {
 import { Avatar, Pill, PriorityChip, type Priority } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { MergeBanner } from "./merge-banner";
 import { useTimeFormat } from "../../lib/use-time-format";
+import { useMediaQuery } from "../../lib/use-media-query";
 import {
   CATEGORY_LABEL,
   relativeTime,
@@ -117,6 +118,41 @@ export function TicketTable({
   /** Offered per row on unassigned rows: the one-click Take it. */
   onTake?: (row: TicketRow) => void;
 }): React.JSX.Element {
+  /* Which columns survive a narrow window.
+
+     Every column is a percentage share of a `table-layout: fixed` table, so
+     nothing is ever cut off — everything shrinks together instead. In a 1080px
+     window that put the STATUS pill on the clipping edge at 92px while CLIENT
+     and LAST ACTIVITY still held 133px and 134px, which is the wrong way round:
+     the two columns nobody acts from kept their room and the two people scan
+     did not.
+
+     Below `xl` the client goes, below `lg` the assignee and last activity go
+     with it. What remains is the operational set — priority, id, title, status,
+     SLA — and each survivor's share is recomputed from the shorter list, so the
+     room the dropped columns held goes to them rather than vanishing. The
+     reader's saved column choice is untouched: this filters the render only. */
+  const belowXl = useMediaQuery("(max-width: 1279px)");
+  const belowLg = useMediaQuery("(max-width: 1023px)");
+  const displayColumns = useMemo(
+    () =>
+      columns.filter((column) => {
+        if (column.key === "client" && belowXl) return false;
+        if ((column.key === "assignee" || column.key === "updated_at") && belowLg) return false;
+        return true;
+      }),
+    [columns, belowXl, belowLg],
+  );
+  /* Reorder reports positions in the list it rendered. With a column dropped
+     those positions no longer match `columns`, so translate back before
+     handing the move to the surface (which persists the full list). */
+  const reorderShown = (from: number, to: number): void => {
+    const moving = displayColumns[from];
+    const target = displayColumns[to];
+    if (moving === undefined || target === undefined) return;
+    onReorderColumns(columns.indexOf(moving), columns.indexOf(target));
+  };
+
   /* A merged row is terminal: its work folded into a survivor, so a bulk
      assign, status or second merge has nothing left to act on. Selection skips
      those rows rather than offering an action the endpoint will refuse. */
@@ -127,118 +163,125 @@ export function TicketTable({
      100% and fill the container instead of adding up to 1182px inside a 1104px
      column, which is what pushed the last header past the viewport at 1280. */
   const selectionWidth = 40;
-  const widthTotal = columns.reduce((sum, column) => sum + (column.width ?? 0), 0);
+  const widthTotal = displayColumns.reduce((sum, column) => sum + (column.width ?? 0), 0);
   const tableTotal = selectionWidth + widthTotal;
   const share = (width: number): string =>
     tableTotal > 0 ? `${((width / tableTotal) * 100).toFixed(4)}%` : "auto";
   return (
     <>
-      <Table className="m-table-fluid">
-        {/* Column widths live on a colgroup, not only on the header cells: the
-            bulk bar REPLACES the header row, and with auto table layout the
-            widths the header carried vanish with it — the columns then share the
-            row equally and every cell wraps. The colgroup keeps the geometry
-            whether or not a row is selected. `fixed` + fractions is what keeps
-            the geometry inside the card. */}
-        <colgroup>
-          <col style={{ width: share(selectionWidth) }} />
-          {columns.map((column) => (
-            <col key={column.key} style={{ width: share(column.width ?? 0) }} />
-          ))}
-        </colgroup>
-        <thead>
-          {bulk !== undefined ? (
-            <BulkHeaderRow
-              columnCount={columns.length + 1}
-              count={bulk.count}
-              noun="ticket"
-              onClear={bulk.onClear}
-              onMerge={bulk.onMerge}
-              testId="ledger-bulk-bar"
-              leading={
-                /* The pack keeps the select column's checkbox on the bar's own
-                   row, so the column does not close up under the pointer. */
-                <Checkbox
-                  checked
-                  onCheckedChange={() => bulk.onClear()}
-                  aria-label="Deselect all tickets"
-                />
-              }
-            >
-              {bulk.children}
-            </BulkHeaderRow>
-          ) : (
-            <tr>
-              <Th className="w-10">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={(on) => {
-                    for (const row of selectableRows) onToggleRow(row.id, on === true);
-                  }}
-                  aria-label={allSelected ? "Clear selection" : `Select all ${selectableRows.length} tickets`}
-                />
-              </Th>
-              {columns.map((column, index) => {
-                const active = sort?.field === column.key;
-                const canSort = column.sortable;
-                return (
-                  <Th
-                    key={column.key}
-                    columnKey={column.key}
-                    width={column.width}
-                    index={index}
-                    columnCount={columns.length}
-                    sortable={canSort}
-                    resizable={column.width !== undefined}
-                    fluid
-                    onReorder={onReorderColumns}
-                    onResize={onResizeColumn}
-                    aria-sort={
-                      canSort
-                        ? active
-                          ? sort?.dir === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                        : undefined
-                    }
-                  >
-                    {canSort ? (
-                      <button type="button" className="m-th-sort" onClick={() => onSort(column.key)}>
-                        {column.label}
-                        <span className="m-th-sort-mark" aria-hidden="true">
-                          {active ? (sort?.dir === "asc" ? "\u25b2" : "\u25bc") : "\u2195"}
-                        </span>
-                      </button>
-                    ) : (
-                      column.label
-                    )}
-                  </Th>
-                );
-              })}
-            </tr>
-          )}
-        </thead>
-        <tbody className="m-enter">
-          {rows.map((row, index) => (
-            <TicketRowView
-              key={row.id}
-              row={row}
-              index={index}
-              columns={columns}
-              sla={sla[row.id] ?? null}
-              people={people}
-              clients={clients}
-              names={names}
-              numbersById={numbersById}
-              myId={myId}
-              selected={selected.has(row.id)}
-              onToggle={(on) => onToggleRow(row.id, on)}
-              onTake={onTake}
-            />
-          ))}
-        </tbody>
-      </Table>
+      {/* The percentages always fit, which is the point at wide widths and the
+          trap at narrow ones: shrinking every column equally is what clipped
+          STATUS. Below `lg` the survivor set is given a floor and the wrapper
+          scrolls, so the operational columns keep readable widths instead of
+          dissolving. */}
+      <div className={belowLg ? "overflow-x-auto" : undefined}>
+        <Table className="m-table-fluid" style={belowLg ? { minWidth: 720 } : undefined}>
+          {/* Column widths live on a colgroup, not only on the header cells: the
+              bulk bar REPLACES the header row, and with auto table layout the
+              widths the header carried vanish with it — the columns then share the
+              row equally and every cell wraps. The colgroup keeps the geometry
+              whether or not a row is selected. `fixed` + fractions is what keeps
+              the geometry inside the card. */}
+          <colgroup>
+            <col style={{ width: share(selectionWidth) }} />
+            {displayColumns.map((column) => (
+              <col key={column.key} style={{ width: share(column.width ?? 0) }} />
+            ))}
+          </colgroup>
+          <thead>
+            {bulk !== undefined ? (
+              <BulkHeaderRow
+                columnCount={displayColumns.length + 1}
+                count={bulk.count}
+                noun="ticket"
+                onClear={bulk.onClear}
+                onMerge={bulk.onMerge}
+                testId="ledger-bulk-bar"
+                leading={
+                  /* The pack keeps the select column's checkbox on the bar's own
+                     row, so the column does not close up under the pointer. */
+                  <Checkbox
+                    checked
+                    onCheckedChange={() => bulk.onClear()}
+                    aria-label="Deselect all tickets"
+                  />
+                }
+              >
+                {bulk.children}
+              </BulkHeaderRow>
+            ) : (
+              <tr>
+                <Th className="w-10">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={(on) => {
+                      for (const row of selectableRows) onToggleRow(row.id, on === true);
+                    }}
+                    aria-label={allSelected ? "Clear selection" : `Select all ${selectableRows.length} tickets`}
+                  />
+                </Th>
+                {displayColumns.map((column, index) => {
+                  const active = sort?.field === column.key;
+                  const canSort = column.sortable;
+                  return (
+                    <Th
+                      key={column.key}
+                      columnKey={column.key}
+                      width={column.width}
+                      index={index}
+                      columnCount={displayColumns.length}
+                      sortable={canSort}
+                      resizable={column.width !== undefined}
+                      fluid
+                      onReorder={reorderShown}
+                      onResize={onResizeColumn}
+                      aria-sort={
+                        canSort
+                          ? active
+                            ? sort?.dir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                          : undefined
+                      }
+                    >
+                      {canSort ? (
+                        <button type="button" className="m-th-sort" onClick={() => onSort(column.key)}>
+                          {column.label}
+                          <span className="m-th-sort-mark" aria-hidden="true">
+                            {active ? (sort?.dir === "asc" ? "\u25b2" : "\u25bc") : "\u2195"}
+                          </span>
+                        </button>
+                      ) : (
+                        column.label
+                      )}
+                    </Th>
+                  );
+                })}
+              </tr>
+            )}
+          </thead>
+          <tbody className="m-enter">
+            {rows.map((row, index) => (
+              <TicketRowView
+                key={row.id}
+                row={row}
+                index={index}
+                columns={displayColumns}
+                sla={sla[row.id] ?? null}
+                people={people}
+                clients={clients}
+                names={names}
+                numbersById={numbersById}
+                myId={myId}
+                selected={selected.has(row.id)}
+                onToggle={(on) => onToggleRow(row.id, on)}
+                onTake={onTake}
+              />
+            ))}
+          </tbody>
+        </Table>
+      </div>
     </>
   );
 }
@@ -364,7 +407,15 @@ export function TicketCell({
         </span>
       );
     case "category":
-      return <Pill tone={PILL_TONE[row.category] ?? "neutral"}>{CATEGORY_LABEL[row.category] ?? row.category}</Pill>;
+      /* The dot is the second signal the kit's Pill contract asks for
+         (`packages/ui/src/kit/ui/pill.tsx:7-9`): colour alone must never carry
+         a status, and the mockup draws one in every pill. `dot` tints from
+         `bg-current`, so it stays in each tone's own pair. */
+      return (
+        <Pill tone={PILL_TONE[row.category] ?? "neutral"} dot>
+          {CATEGORY_LABEL[row.category] ?? row.category}
+        </Pill>
+      );
     case "priority":
       return <PriorityChip level={row.priority.toUpperCase() as Priority} />;
     case "assignee": {
@@ -431,9 +482,12 @@ export function TicketCell({
         const applied = sla?.applied === true;
         return (
           <span className="m-sla-pill" style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}>
+            {/* The mockup's breach mark is an alert inside its circle, not a
+                bare triangle: at 11px the triangle reads as a shape, the
+                circle reads as a warning. */}
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
-              <path d="M12 3 2.5 20h19L12 3Z" strokeLinejoin="round" />
-              <path d="M12 10v4M12 17.2v.1" strokeLinecap="round" />
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7.5v5M12 16v.1" strokeLinecap="round" />
             </svg>
             {applied ? `Breached ${span}` : `Overdue ${span}`}
           </span>
@@ -442,12 +496,17 @@ export function TicketCell({
       if (reading.tone === "warning") {
         return (
           <span className="m-sla-pill" style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}>
+            <ClockMark />
             {reading.label}
           </span>
         );
       }
+      /* Calm keeps the plain surface the design notes ask for, and gains the
+         clock the mockup draws on every live clock: without it a calm row and
+         an empty one looked alike. */
       return (
-        <span className="text-[12.5px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+        <span className="inline-flex items-center gap-1.5 text-[12.5px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+          <ClockMark />
           {reading.label}
         </span>
       );
@@ -507,6 +566,16 @@ const PILL_TONE: Record<string, "new" | "progress" | "waiting" | "resolved"> = {
   waiting: "waiting",
   closed: "resolved",
 };
+
+/** The clock the mockup draws on every live SLA clock, at the pill's own size. */
+function ClockMark(): React.JSX.Element {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5V12l3 1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 /** "Fiona Owner" -> "FO". One token is not an initial; fall back to its first letter. */
 function initialsOf(name: string): string {

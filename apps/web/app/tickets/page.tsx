@@ -110,14 +110,21 @@ const VIEWS: ViewOption[] = [
 
 type ColumnDef = ChoosableColumn & { sortable: boolean };
 
+/* Widths are WEIGHTS, not floors: a fixed-layout table turns them into
+   percentages of whatever width it gets, so one number cannot be "the width"
+   of a column. They were tuned against the narrow case that actually broke —
+   with the client column dropped below `xl`, this set leaves STATUS about
+   120px, which is the 99px pill plus its cell padding. The two columns people
+   scan (STATUS, SLA) are the ones that grew; the title gave up the room because
+   it truncates on purpose. */
 const COLUMN_DEFS: ColumnDef[] = [
-  { key: "priority", label: "P", visible: true, width: 64, sortable: true },
-  { key: "number", label: "ID", visible: true, required: true, width: 104, sortable: true },
-  { key: "title", label: "Ticket", visible: true, required: true, width: 320, sortable: true },
+  { key: "priority", label: "P", visible: true, width: 56, sortable: true },
+  { key: "number", label: "ID", visible: true, required: true, width: 96, sortable: true },
+  { key: "title", label: "Ticket", visible: true, required: true, width: 280, sortable: true },
   { key: "client", label: "Client", visible: true, width: 168, sortable: false },
-  { key: "category", label: "Status", visible: true, width: 116, sortable: true },
-  { key: "sla", label: "SLA", visible: true, width: 116, sortable: true },
-  { key: "assignee", label: "Assignee", visible: true, width: 150, sortable: false },
+  { key: "category", label: "Status", visible: true, width: 124, sortable: true },
+  { key: "sla", label: "SLA", visible: true, width: 124, sortable: true },
+  { key: "assignee", label: "Assignee", visible: true, width: 130, sortable: false },
   /* 170, not 104: the header carries a reorder grip, the label and the sort
      mark in one nowrap line. At 104 the label and mark were clipped once the
      ledger was scaled to its container. The proportions keep the whole table
