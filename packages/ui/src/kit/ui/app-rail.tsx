@@ -78,11 +78,17 @@ export function RailToggle({ icon, className, ...props }: { icon?: React.ReactNo
     <button
       data-slot="rail-toggle"
       type="button"
-      onClick={toggle}
       aria-expanded={expanded}
       aria-label={expanded ? "Collapse navigation" : "Expand navigation"}
       className={cn(tile, tileSize(expanded), "cursor-pointer border-0 bg-transparent", className)}
+      /* `{...props}` first, and the toggle last, because Radix's
+         `TooltipTrigger asChild` injects its own composed `onClick` into these
+         props. Spread after `onClick` it replaced the toggle outright, and the
+         rail's expand/collapse did nothing at all: the button was a Tooltip
+         trigger that owned the rail's only control. The toggle is not a
+         consumer prop (the type above omits `onClick`), so it must win. */
       {...props}
+      onClick={toggle}
     >
       {icon ?? <Icon name="sidebar" size={20} />}
       {expanded ? <span className="flex-1 text-left">Collapse</span> : null}
