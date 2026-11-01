@@ -471,15 +471,27 @@ function GapBar({
         ))}
       </div>
       <div className="relative h-3" aria-hidden="true">
-        {axis.map((h) => (
-          <span
-            key={h}
-            className="absolute text-[9px] tabular-nums"
-            style={{ left: `${((h - startHour) / (endHour - startHour)) * 100}%`, transform: "translateX(-50%)", color: "var(--m-text-muted)" }}
-          >
-            {String(h).padStart(2, "0")}:00
-          </span>
-        ))}
+        {axis.map((h, index) => {
+          /* The bound labels sit INSIDE the bar's ends. Centred on 0% and 100%
+             they lost half their glyphs to the card's edge, so the first two
+             and last two digits read against the border rather than under the
+             hour they name. The middle ticks stay centred. */
+          const first = index === 0;
+          const last = index === axis.length - 1;
+          return (
+            <span
+              key={h}
+              className="absolute text-[9px] tabular-nums"
+              style={{
+                left: `${((h - startHour) / (endHour - startHour)) * 100}%`,
+                transform: first ? "none" : last ? "translateX(-100%)" : "translateX(-50%)",
+                color: "var(--m-text-muted)",
+              }}
+            >
+              {String(h).padStart(2, "0")}:00
+            </span>
+          );
+        })}
       </div>
       <span className="sr-only">{dayIso}</span>
     </div>
