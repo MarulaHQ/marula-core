@@ -144,7 +144,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <div className="flex h-dvh min-h-0">
+    // Two axes, not one. The top bar is the full width of the window and the
+    // rail starts underneath it, which is the composition the mockup draws and
+    // the one the kit documents for `TopBar` ("on every staff surface") beside
+    // `AppRail` ("the shell owns the grid column"): the brand sits over the
+    // rail's column, the search centred on the window, the dock cluster at the
+    // right edge. Nesting the header inside the content column instead made it
+    // start 45px in, so the bar stopped at the rail's edge and the brand sat
+    // next to the first nav icon rather than above it.
+    <div className="flex h-dvh min-h-0 flex-col">
       <AppearanceSync />
       {/* WCAG 2.4.1 bypass block: keyboard users skip the rail + top bar chrome. */}
       <a
@@ -153,12 +161,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         Skip to main content
       </a>
-      <NavRail openCount={openCount} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <AppHeader />
-        <DesktopUpdateStrip />
-        <main id="m-main-content" className="min-h-0 flex-1 overflow-y-auto">{children}</main>
-        <TimerDock />
+      <AppHeader />
+      <div className="flex min-h-0 min-w-0 flex-1">
+        <NavRail openCount={openCount} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <DesktopUpdateStrip />
+          <main id="m-main-content" className="min-h-0 flex-1 overflow-y-auto">{children}</main>
+          <TimerDock />
+        </div>
       </div>
       <TourScheduler />
       <ShortcutLayer authed={auth.status === "authed"} />
