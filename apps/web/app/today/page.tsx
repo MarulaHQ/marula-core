@@ -296,8 +296,15 @@ export default function TodayPage() {
           <BoardNav />
         </div>
         <main
-          className="mx-auto flex w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-auto p-4"
+          className="mx-auto flex w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-auto p-4 [&>*]:shrink-0"
         >
+          {/* `[&>*]:shrink-0` is load-bearing, not tidiness. This column is the
+              page's scroll container (fixed height, `overflow-auto`), so its
+              children must keep their content height and let the column scroll.
+              A `Card` clips its own overflow (`overflow-hidden`), and CSS gives
+              such a flex item an automatic minimum size of zero, so without
+              this the onboarding banner and the rota card collapse to their
+              16px padding and clip everything below their first line. */}
           {/* Pack header: the date over the greeting, New ticket / Quick log
               to the right with their kbd chips. Routed through SurfaceHeader
               at the `hero` step (28px) so the title scale is decided in one
