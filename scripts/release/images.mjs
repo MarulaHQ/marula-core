@@ -50,11 +50,12 @@ function parseArgs(argv) {
       case "--image-base": out.imageBase = value(); break;
       case "--platforms": out.platforms = value(); break;
       case "--manifest": out.manifest = value(); break;
+      case "--digests": out.digests = value(); break;
       case "--context": out.context = value(); break;
       case "--dry-run": out.dryRun = true; break;
       case "-h":
       case "--help":
-        console.log("usage: images.mjs --version X [--image-base ghcr.io/org] [--platforms a,b] [--manifest release.json] [--dry-run]");
+        console.log("usage: images.mjs --version X [--image-base ghcr.io/org] [--platforms a,b] [--manifest release.json] [--digests images.json] [--dry-run]");
         process.exit(0);
         break;
       default: throw new Error(`unknown flag ${flag}`);
@@ -110,6 +111,11 @@ export function withImages(manifest, digests) {
   return { ...manifest, images: digests };
 }
 
+/** The bare `service → reference` map, which `assemble.mjs --images` reads. */
+export function digestsDocument(digests) {
+  return `${JSON.stringify(digests, null, 2)}\n`;
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   for (const spec of SERVICES) {
@@ -130,6 +136,21 @@ function main() {
     const inspected = run(["buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest.Digest}}"], false);
     digests[spec.service] = `${args.imageBase}/${spec.image}@${digestFromInspect(inspected)}`;
     console.log(`  ${spec.service} → ${digests[spec.service]}`);
+  }
+
+  // The bare map exists so the digests can be published before the release
+  // manifest is written: the manifest step signs what it writes, and a digest
+  // added afterwards sits outside that signature.
+  if (args.digests) {
+    if (args.dryRun) {
+      console.log(`would write ${Object.keys(digests).length} digests into ${args.digests}`);
+    } else {
+      if (Object.keys(digests).length !== SERVICES.length) {
+        throw new Error("refusing to write an incomplete image set");
+      }
+      writeFileSync(args.digests, digestsDocument(digests));
+      console.log(`wrote ${Object.keys(digests).length} digests into ${args.digests}`);
+    }
   }
 
   if (args.manifest) {
@@ -183,6 +204,8 @@ export function selfTest() {
   const merged = withImages({ assets: { "linux-x64": {} } }, { "core-api": "x" });
   assert(merged.assets["linux-x64"], "merging keeps what the manifest already had");
   assert(merged.images["core-api"] === "x", "merging adds the digests");
+  const bare = JSON.parse(digestsDocument({ "core-api": "ghcr.io/marulagh/marula-core-api@sha256:" + "a".repeat(64) }));
+  assert(bare["core-api"].endsWith("@sha256:" + "a".repeat(64)), "the bare map is what the manifest step reads");
 
   const compose = readFileSync("deploy/docker-compose.yml", "utf8");
   for (const spec of SERVICES) {
