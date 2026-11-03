@@ -2,8 +2,8 @@ apiVersion: v2
 name: marula
 description: Marula Open PSA — self-hosted PSA core (API, worker, web)
 type: application
-version: 0.3.1
-appVersion: "0.3.1"
+version: 0.3.2
+appVersion: "0.3.2"
 home: https://github.com/MarulaHQ/marula-core
 keywords:
   - psa

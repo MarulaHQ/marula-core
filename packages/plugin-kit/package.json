@@ -1,6 +1,6 @@
 {
   "name": "@marula-core/plugin-kit",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "description": "Marula Plugin Development Kit — validate and build plugin bundles (manifest v2 + WASM artifact).",
   "type": "module",
