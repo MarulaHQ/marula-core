@@ -43,74 +43,95 @@ import type { ApplyState, Check, Doctor, HostFacts, Param, Plan, Profile, State 
 /* ---------------------------------------------------------------- 1. path */
 
 export function PathStep({
-  onChoose,
+  chosen,
+  onSelect,
   paramCount,
 }: {
-  onChoose: (mode: PathMode) => void;
+  chosen: "recommended" | "developer" | null;
+  onSelect: (mode: "recommended" | "developer") => void;
   paramCount: number;
 }) {
   return (
-    <div className="grid max-w-[900px] grid-cols-1 gap-4 md:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle>Recommended</CardTitle>
-          <Pill tone="gold" className="ml-auto">
-            four questions
-          </Pill>
-        </CardHeader>
-        <CardBody className="gap-3">
-          <p className="m-0 text-[13px] leading-[1.55] text-muted-foreground">
-            Everything is decided for you except what only you can know.
-          </p>
-          <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
-            {["This machine, and the shape it can carry", "The address your team opens", "Where search and files live", "Review, then apply"].map(
-              (item) => (
+    <div className="grid max-w-[900px] grid-cols-1 items-stretch gap-4 md:grid-cols-2">
+      <button
+        type="button"
+        onClick={() => onSelect("recommended")}
+        aria-pressed={chosen === "recommended"}
+        className={`rounded-card text-left transition-[box-shadow,transform] duration-100 ${
+          chosen === "recommended"
+            ? "ring-[1.5px] ring-[var(--mc-gold)]"
+            : "ring-1 ring-border hover:ring-muted-foreground"
+        }`}
+      >
+        <Card className="h-full">
+          <CardHeader>
+            <CardTitle>Recommended</CardTitle>
+            <Pill tone="gold" className="ml-auto">
+              few questions
+            </Pill>
+          </CardHeader>
+          <CardBody className="gap-3">
+            <p className="m-0 text-[13px] leading-[1.55] text-muted-foreground">
+              Marula decides everything except what only you can answer.
+            </p>
+            <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
+              {["This machine, and the shape it can carry", "The address your team opens", "Where search and files live", "Review, then apply"].map(
+                (item) => (
+                  <li key={item} className="flex items-start gap-2">
+                    <Icon name="check" size={14} className="mt-0.5 shrink-0 text-[var(--mc-green)]" />
+                    <span>{item}</span>
+                  </li>
+                ),
+              )}
+            </ul>
+            <p className="m-0 mt-auto text-[12.5px] text-muted-foreground">
+              The other <span className="tabular-nums">{Math.max(0, paramCount - 7)}</span> levers keep
+              their defaults, and each one states why.
+            </p>
+          </CardBody>
+        </Card>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onSelect("developer")}
+        aria-pressed={chosen === "developer"}
+        className={`rounded-card text-left transition-[box-shadow,transform] duration-100 ${
+          chosen === "developer"
+            ? "ring-[1.5px] ring-[var(--mc-gold)]"
+            : "ring-1 ring-border hover:ring-muted-foreground"
+        }`}
+      >
+        <Card className="h-full">
+          <CardHeader>
+            <CardTitle>Developer install</CardTitle>
+            <Pill tone="neutral" className="ml-auto">
+              every lever
+            </Pill>
+          </CardHeader>
+          <CardBody className="gap-3">
+            <p className="m-0 text-[13px] leading-[1.55] text-muted-foreground">
+              Every setting, for a deployment you intend to run and maintain.
+            </p>
+            <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
+              {[
+                `All ${paramCount} parameters, searchable by name or by effect`,
+                "What each one requires, and what it cannot be combined with",
+                "The resolved env file before anything is written",
+                "The compose command the apply will run",
+              ].map((item) => (
                 <li key={item} className="flex items-start gap-2">
-                  <Icon name="check" size={14} className="mt-0.5 shrink-0 text-[var(--mc-green)]" />
+                  <Icon name="sliders" size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
                   <span>{item}</span>
                 </li>
-              ),
-            )}
-          </ul>
-          <p className="m-0 mt-1 text-[12.5px] text-muted-foreground">
-            The other <span className="tabular-nums">{Math.max(0, paramCount - 7)}</span> levers keep
-            their defaults, and each one states why.
-          </p>
-          <Button variant="primary" onClick={() => onChoose("recommended")}>
-            Use recommended
-          </Button>
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Developer install</CardTitle>
-          <Pill tone="neutral" className="ml-auto">
-            every lever
-          </Pill>
-        </CardHeader>
-        <CardBody className="gap-3">
-          <p className="m-0 text-[13px] leading-[1.55] text-muted-foreground">
-            The whole surface, for a deployment you intend to run and maintain.
-          </p>
-          <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
-            {[
-              `All ${paramCount} parameters, searchable by name or by effect`,
-              "What each one requires, and what it cannot be combined with",
-              "The resolved env file before anything is written",
-              "The compose command the apply will run",
-            ].map((item) => (
-              <li key={item} className="flex items-start gap-2">
-                <Icon name="sliders" size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-          <Button variant="outline" onClick={() => onChoose("developer")}>
-            Use developer install
-          </Button>
-        </CardBody>
-      </Card>
+              ))}
+            </ul>
+            <p className="m-0 mt-auto text-[12.5px] text-muted-foreground">
+              Built for someone who will run the database, the backups and the upgrades.
+            </p>
+          </CardBody>
+        </Card>
+      </button>
     </div>
   );
 }
