@@ -10,8 +10,39 @@
 
 import { Card, CardBody, CardHeader, CardTitle, Icon, Pill } from "@marula-core/ui/kit";
 
+import { transport } from "./api";
 import { groupValues, humanLabel } from "./lib/model";
 import type { ConfigRow, PlanStep } from "./types";
+
+/**
+ * A link to a published docs page.
+ *
+ * Purpose: the wizard explains a decision in one sentence and the docs page
+ * explains it at length. In the native app there is no address bar and no
+ * browser chrome, so the click goes through the same transport the review
+ * screen uses to open the installed product — which accepts http and https and
+ * nothing else. The browser host opens a tab instead, and both keep the
+ * fallback of a real href if the transport refuses.
+ */
+export function DocsLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      rel="noreferrer"
+      target="_blank"
+      onClick={(event) => {
+        event.preventDefault();
+        void transport.open(href).catch(() => {
+          window.open(href, "_blank", "noopener,noreferrer");
+        });
+      }}
+      className="inline-flex items-center gap-1 text-[12.5px] font-medium text-[var(--mc-gold-fg)] underline decoration-[var(--mc-gold)]/40 underline-offset-2 hover:decoration-[var(--mc-gold)]"
+    >
+      {children}
+      <Icon name="ext" size={12} />
+    </a>
+  );
+}
 
 const SOURCE_LABEL: Record<string, string> = {
   you: "you",

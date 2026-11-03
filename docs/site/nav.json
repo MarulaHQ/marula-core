@@ -1,6 +1,9 @@
 {
   "home": "index",
-  "exclude": ["README", "DOCS-COVERAGE"],
+  "exclude": [
+    "README",
+    "DOCS-COVERAGE"
+  ],
   "sections": [
     {
       "label": "Start here",
@@ -43,7 +46,7 @@
         "how-to/admin-toolboxes",
         "how-to/admin-reply-snippets",
         "how-to/admin-purchasing",
-    "how-to/admin-entitlements"
+        "how-to/admin-entitlements"
       ]
     },
     {
@@ -102,6 +105,8 @@
     {
       "label": "Self-host and operate",
       "items": [
+        "how-to/install-on-a-server",
+        "how-to/install-with-the-app",
         "how-to/upgrade",
         "how-to/export-data",
         "how-to/local-demo-stack",
@@ -121,6 +126,7 @@
         "reference/read-model",
         "reference/routing",
         "reference/backup-restore",
+        "reference/deployment-shapes",
         "reference/self-host-local-stack",
         "reference/self-host-local-ai",
         "reference/self-host-observability",
@@ -150,11 +156,15 @@
     },
     {
       "label": "Troubleshooting",
-      "items": ["troubleshooting"]
+      "items": [
+        "troubleshooting"
+      ]
     },
     {
       "label": "Get help",
-      "items": ["how-to/get-help"]
+      "items": [
+        "how-to/get-help"
+      ]
     }
   ]
 }

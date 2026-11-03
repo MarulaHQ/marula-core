@@ -78,5 +78,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 - [Report against the read model](read-model.md) — Connect your BI tool or SQL client to the stable `ops.v1_*` reporting views.
 - [Watch your self-hosted services](admin-self-host-services.md) — Check container health probes, inspect ClamAV email quarantines, and link out to Grafana or Uptime Kuma.
 - [Run the local demo stack](local-demo-stack.md) — Boot a seeded demo on your own machine with one command, including the BYOK checklist and the desktop alternative that needs no Docker.
+- [Install on a server from the terminal](install-on-a-server.md) — Read the plan, pick a shape the machine can carry, apply it, and check the result with the doctor.
+- [Install with the app](install-with-the-app.md) — Walk the five screens, from measuring the machine to the review that runs the plan.
 - [Upgrade to the latest release](upgrade.md) — Run `marula upgrade --check`, back up PostgreSQL, and upgrade safely within the N-2 support window.
 - Also see the full [Reference section](../reference/index.md) for self-hosting runbooks and schema catalogs.

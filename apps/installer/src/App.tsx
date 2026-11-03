@@ -23,6 +23,7 @@ import { Brand } from "./brand";
 import { Welcome } from "./welcome";
 
 import { errorMessage, transport } from "./api";
+import { DocsLink } from "./ui";
 import {
   STEPS,
   canLeave,
@@ -38,6 +39,17 @@ import type { ApplyState, Doctor, Plan, State } from "./types";
 type ThemeChoice = "system" | "light" | "dark";
 
 const THEME_KEY = "marula.installer.theme";
+
+/**
+ * The published pages this wizard links to.
+ *
+ * They are built from `docs/site/` in this repository, so the screen and the
+ * page cannot drift into describing different products.
+ */
+const DOCS = {
+  shapes: "https://getmarula.com/docs/psa/v0.3/reference/deployment-shapes",
+  settings: "https://getmarula.com/docs/psa/v0.3/how-to/install-with-the-app#the-settings-screen",
+};
 
 export function App() {
   const [state, setState] = useState<State | null>(null);
@@ -377,6 +389,11 @@ export function App() {
                       : null
                     : "The plan as data: each step, why it exists, and the values it writes."}
           </p>
+          {step === 2 ? (
+            <DocsLink href={DOCS.shapes}>What each shape runs, and what it asks of a host</DocsLink>
+          ) : step === 3 ? (
+            <DocsLink href={DOCS.settings}>How to read these settings</DocsLink>
+          ) : null}
         </header>
 
         {step === 0 ? (
