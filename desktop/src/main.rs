@@ -250,13 +250,13 @@ fn next_standalone_dir() -> PathBuf {
         if anc.any(|p| p.file_name().is_some_and(|n| n == "MacOS")) {
             if let Some(resources) = exe.ancestors().nth(2).map(|c| c.join("Resources")) {
                 let bundled = resources.join("resources/web");
-                if bundled.join("server.js").exists() {
+                if bundled.join("apps/web/server.js").exists() {
                     return bundled;
                 }
             }
         }
     }
-    PathBuf::from("../apps/web/.next/standalone")
+    PathBuf::from("../apps/web/.next/standalone/apps/web")
 }
 
 async fn role_exists(pool: &sqlx::PgPool, role: &str) -> anyhow::Result<bool> {
