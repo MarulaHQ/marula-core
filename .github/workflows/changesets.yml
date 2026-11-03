@@ -47,8 +47,19 @@ jobs:
         with:
           # @changesets/cli is invoked via npx: not a root devDependency on
           # purpose (the workspace itself is not a publishable package).
-          version: npx --yes @changesets/cli@2 version
-          commit: "chore(release): version packages"
-          title: "chore(release): version packages"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # v2 validates the CLI version and refuses to run against v2 of the
+          # CLI, so the pin moves with the action — @changesets/cli@3 still
+          # exports `./changelog`, which is what .changeset/config.json names.
+          version-script: npx --yes @changesets/cli@3 version
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
+          # v2 reads the token from this input rather than the environment, and
+          # its default is the workflow token; stated here so the capability the
+          # `permissions:` block grants is visible at the step that uses it.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # v2 creates git tags (and releases) by default whenever a publish
+          # happens. Nothing here publishes — publishing is deliberately off, per
+          # the header — so both are pinned off rather than inherited from a
+          # default whose meaning changed between major versions.
+          push-git-tags: false
+          create-github-releases: false
