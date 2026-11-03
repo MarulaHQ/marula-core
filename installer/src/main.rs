@@ -41,6 +41,9 @@ struct PlanRequest {
     images: Option<String>,
     #[serde(default)]
     restart: Option<String>,
+    /// Developer mode may plan a shape this machine cannot carry.
+    #[serde(default)]
+    allow_unfit: bool,
 }
 
 impl PlanRequest {
@@ -58,7 +61,7 @@ impl PlanRequest {
                 })?
             }
         };
-        Ok(session.with_shape(images, restart))
+        Ok(session.with_shape(images, restart, self.allow_unfit))
     }
 }
 

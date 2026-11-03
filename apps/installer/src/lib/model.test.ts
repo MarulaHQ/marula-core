@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Param, Profile, State } from "../types";
 import {
+  canLeave,
   curatedFields,
   effectiveValue,
   floorRows,
@@ -90,6 +91,20 @@ describe("floorRows", () => {
   it("passes a host that meets every floor", () => {
     const rows = floorRows(profile("all-in-one", true, { cores: 2, ram_mb: 512, disk_gb: 20 }), host);
     expect(rows.every((row) => row.ok)).toBe(true);
+  });
+});
+
+describe("canLeave", () => {
+  it("holds a shape the machine cannot carry in recommended mode", () => {
+    expect(canLeave(2, state(), "split")).toBe(false);
+  });
+
+  it("lets a developer carry the same shape past the shape screen", () => {
+    expect(canLeave(2, state(), "split", true)).toBe(true);
+  });
+
+  it("still refuses a shape that does not exist", () => {
+    expect(canLeave(2, state(), "cluster", true)).toBe(false);
   });
 });
 

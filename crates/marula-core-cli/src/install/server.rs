@@ -303,6 +303,9 @@ pub struct PlanRequest {
     /// `unless-stopped`, `always` or `no`.
     #[serde(default)]
     pub restart: Option<String>,
+    /// Developer mode may plan a shape this machine cannot carry.
+    #[serde(default)]
+    pub allow_unfit: bool,
 }
 
 impl PlanRequest {
@@ -324,7 +327,7 @@ impl PlanRequest {
                 )))
             })?,
         };
-        Ok(session.with_shape(images, restart))
+        Ok(session.with_shape(images, restart, self.allow_unfit))
     }
 }
 

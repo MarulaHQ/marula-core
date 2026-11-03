@@ -81,7 +81,12 @@ export function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const next = await transport.plan({ profile, overrides, ...shape });
+        const next = await transport.plan({
+          profile,
+          overrides,
+          ...shape,
+          allow_unfit: mode === "developer",
+        });
         if (!cancelled) {
           setPlan(next);
           setPlanError(null);
@@ -96,7 +101,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [state, step, profile, overrides]);
+  }, [state, step, profile, overrides, shape, mode]);
 
   const runDoctor = useCallback(async () => {
     setDoctorError(null);
@@ -164,22 +169,27 @@ export function App() {
   const applyPlan = useCallback(async () => {
     setBusy(true);
     try {
-      await transport.apply({ profile, overrides, ...shape });
+      await transport.apply({
+        profile,
+        overrides,
+        ...shape,
+        allow_unfit: mode === "developer",
+      });
       setApply({ running: true, done: [], failed: null, manual: [] });
     } catch (error) {
       setApply({ running: false, done: [], failed: errorMessage(error), manual: [] });
     } finally {
       setBusy(false);
     }
-  }, [profile, overrides]);
+  }, [profile, overrides, shape, mode]);
 
   const goTo = useCallback(
     (next: number) => {
       if (!state) return;
-      if (next > step && !canLeave(step, state, profile)) return;
+      if (next > step && !canLeave(step, state, profile, mode === "developer")) return;
       setStep(Math.max(0, Math.min(STEPS.length - 1, next)));
     },
-    [state, step, profile],
+    [state, step, profile, mode],
   );
 
   const advance = useCallback(() => {

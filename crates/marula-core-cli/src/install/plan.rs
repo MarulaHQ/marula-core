@@ -38,6 +38,15 @@ pub struct Selection {
     /// machine running it happens to hold. The `install` command turns it on,
     /// because that is where a real volume matters.
     pub probe_volumes: bool,
+    /// Whether this plan may run on a host that misses the profile's floors.
+    ///
+    /// Off by default, because the floors are the installer's answer to "will
+    /// this box still be serving a team next month", and a shape that starts on
+    /// a box too small for it fails later, somewhere the operator cannot connect
+    /// back to this decision. A developer install turns it on to plan a shape
+    /// this machine cannot carry; the plan says what it is short of rather than
+    /// pretending the floors were met.
+    pub allow_unfit: bool,
 }
 
 /// Where the application images come from.
@@ -130,6 +139,7 @@ impl Selection {
             image_digests: BTreeMap::new(),
             restart: RestartPolicy::UnlessStopped,
             probe_volumes: false,
+            allow_unfit: false,
             dir: dir.into(),
         }
     }
@@ -819,8 +829,17 @@ mod tests {
         );
 
         assert!(text.contains("MARULA_ALL_IN_ONE=1"));
+        // Read the sentence from the descriptor instead of repeating it here: a
+        // copy edit should not turn into a test failure, and a test that pins
+        // prose it also ships cannot tell the two apart.
+        let consequence = desc
+            .params
+            .iter()
+            .find(|param| param.name == "MARULA_ALL_IN_ONE")
+            .map(|param| param.consequence)
+            .expect("the all-in-one lever publishes a consequence");
         assert!(
-            text.contains("# One container instead of two"),
+            text.contains(consequence),
             "the profile's preset carries the descriptor's consequence: {text}"
         );
         for required in [

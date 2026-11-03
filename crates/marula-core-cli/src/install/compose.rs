@@ -144,7 +144,10 @@ impl DeploymentTarget for ComposeTarget {
         }
         let profile = self.profile(selection)?;
         let missing = missing_for(profile, host);
-        if !missing.is_empty() {
+        // A developer install may plan past the floors. It still gets the list
+        // of what is short, so the review can say what this machine will be
+        // asked to do that it may not manage.
+        if !missing.is_empty() && !selection.allow_unfit {
             return Err(PlanError::FloorsNotMet {
                 profile: profile.name.to_string(),
                 missing,
