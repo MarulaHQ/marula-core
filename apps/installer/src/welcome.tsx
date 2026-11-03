@@ -45,8 +45,8 @@ export function Welcome({ onStart }: { onStart: () => void }) {
         <h1 className="mt-6 mb-0 font-display text-[30px] font-normal leading-[1.15] tracking-[-0.01em]">
           Set up Marula on this machine
         </h1>
-        <p className="mx-auto mt-3 mb-0 max-w-[38ch] text-[13.5px] leading-[1.55] text-muted-foreground">
-          A guided setup. Nothing is written until you review the plan.
+        <p className="mx-auto mt-3 mb-0 max-w-[46ch] text-[13.5px] leading-[1.55] text-muted-foreground">
+          This wizard will guide you through the setup. You can choose between recommended settings to get you up and running quickly, or developer mode which will give you all the options.
         </p>
         <button
           type="button"
