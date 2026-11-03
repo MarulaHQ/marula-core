@@ -271,7 +271,15 @@ export function App() {
     );
   }
 
-  if (!started) return <Welcome onStart={() => setStarted(true)} />;
+  if (!started) {
+    return (
+      <Welcome
+        onStart={() => setStarted(true)}
+        theme={theme}
+        onTheme={setTheme}
+      />
+    );
+  }
 
   const meta = STEPS[step] ?? STEPS[0]!;
 
