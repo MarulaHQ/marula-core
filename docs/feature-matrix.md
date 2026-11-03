@@ -12,7 +12,7 @@ is planned. Every row is checked against the code, not against a plan.
 
 **Surfaces:** Web, Native, Desktop, Portal, API, CLI.
 
-Last checked against `main` on 2026-11-03. The API column counts the documented
+Last checked against `main` on 2026-11-04. The API column counts the documented
 surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 
 ## 1. Service desk
@@ -257,7 +257,7 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | API contract | 658 documented paths, a canonical v1 mount and golden pins | API, CLI | Shipped | `fixtures/openapi/v1/openapi.json` |
 | SDK | A typed client generated from the OpenAPI pin | CLI | Shipped | `packages/sdk` |
 | API reference | An interactive reference served by the API | API | Shipped | `crates/core-api/src/routes/openapi.rs` |
-| Entitlement artifact | A signed file is verified and its revision reported | API | Built | `crates/core-api/src/routes/entitlements.rs` |
+| Entitlement artifact | A signed file is verified and its revision reported | API | Shipped | `crates/core-api/src/routes/entitlements.rs` |
 
 ## 16. Deployment and operations
 
@@ -266,8 +266,8 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | Compose stack | Development, demo, all-in-one and preview shapes | CLI | Shipped | `deploy/docker-compose.yml` |
 | Kubernetes | A Helm chart | CLI | Shipped | `deploy/helm` |
 | Capacity floors | Measured host requirements enforced at boot | CLI | Shipped | `deploy/profiles` |
-| Installer app | Five decisions, a live config preview and a developer path | Desktop, CLI | Built | `apps/installer` |
-| Install wizard | The same flow over loopback, plus a text plan | CLI | Built | `crates/marula-core-cli/src/install` |
+| Installer app | Five decisions, a live config preview and a developer path | Desktop, CLI | Shipped | `apps/installer` |
+| Install wizard | The same flow over loopback, plus a text plan | CLI | Shipped | `crates/marula-core-cli/src/install` |
 | CLI | Install, update, upgrade scan, deploy checks, migrate and seed | CLI | Shipped | `crates/marula-core-cli` |
 | Desktop app | A signed macOS shell with updates, deep links and printing | Desktop | Shipped | `desktop/` |
 | Native app | Auth, offline cache, replay-safe writes, live sync, scan, time and stock | Native | Built | `native/` |
