@@ -129,6 +129,8 @@ export interface Plan {
   manual: string[];
   config: ConfigRow[];
   generated: string[];
+  /** Floors this host misses, when a developer install planned past them. */
+  unmet_floors: string[];
 }
 
 export interface Check {
@@ -158,6 +160,8 @@ export interface PlanRequest {
   images?: "build" | "registry";
   /** What the long-running services do after an exit. */
   restart?: "unless-stopped" | "always" | "no";
+  /** Developer mode may plan a shape this machine cannot carry. */
+  allow_unfit?: boolean;
 }
 
 export interface Credentials {

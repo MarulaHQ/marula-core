@@ -328,12 +328,17 @@ function ShapeCard({
 }) {
   const rows = floorRows(profile, host);
   const oneLine = shapeLine(profile);
+  // A shape this machine cannot carry is not a radio. Keeping the role while
+  // the card only holds a button swallowed that button: the element announced
+  // itself as a disabled option and the thing a developer must press to choose
+  // it never reached the keyboard or the accessibility tree. So an unfit card is
+  // a plain card, and the only way to pick it is the button that says what
+  // picking it costs.
   return (
     <Card
-      role="radio"
-      aria-checked={selected}
-      aria-disabled={!profile.fits}
-      tabIndex={profile.fits ? 0 : -1}
+      role={profile.fits ? "radio" : undefined}
+      aria-checked={profile.fits ? selected : undefined}
+      tabIndex={profile.fits ? 0 : undefined}
       onClick={() => profile.fits && onChoose()}
       onKeyDown={(event) => {
         if ((event.key === "Enter" || event.key === " ") && profile.fits) {
@@ -341,9 +346,9 @@ function ShapeCard({
           onChoose();
         }
       }}
-      className={`flex cursor-pointer flex-col transition-colors ${
+      className={`flex flex-col transition-colors ${
         selected ? "border-[var(--mc-gold)] ring-1 ring-[var(--mc-gold)]" : ""
-      } ${profile.fits ? "" : "cursor-not-allowed opacity-70"}`}
+      } ${profile.fits ? "cursor-pointer" : "border-dashed"}`}
     >
       <CardHeader>
         <CardTitle>{profile.title}</CardTitle>
@@ -405,8 +410,8 @@ function ShapeCard({
               <>
                 <p className="m-0 mt-1.5 text-[12px] leading-[1.5] text-muted-foreground">
                   This shape runs core-api, the worker and PgBouncer as separate containers, and
-                  this machine is short on what it needs. You can open its settings anyway; the
-                  plan still refuses to apply until those numbers are met.
+                  this machine is short on what they need. You can plan it anyway. The review
+                  repeats the missing numbers, and nothing stops you going ahead.
                 </p>
                 <button
                   type="button"
@@ -855,6 +860,17 @@ export function ReviewStep({
         <Banner icon={<Icon name="alert" size={16} />}>
           <strong className="block font-semibold">This plan cannot run as it stands</strong>
           <span className="block font-mono text-[12px]">{planError}</span>
+        </Banner>
+      ) : null}
+
+      {plan && plan.unmet_floors.length > 0 ? (
+        <Banner icon={<Icon name="alert" size={16} />}>
+          <strong className="block font-semibold">This shape does not fit this machine</strong>
+          <span className="block">
+            {plan.unmet_floors.join(" \u00b7 ")}. You opened it in developer mode, so the install
+            runs. Under these floors the services can run out of memory or disk once they carry
+            real work, and the first you see of it is a container that dies.
+          </span>
         </Banner>
       ) : null}
 

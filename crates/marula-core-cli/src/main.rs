@@ -159,6 +159,11 @@ enum Command {
         /// Do not open a browser when `--ui` starts.
         #[arg(long)]
         no_open: bool,
+        /// Plan a shape this machine cannot carry. The plan runs, and it names
+        /// the floors it misses; nothing stops the stack starting and failing
+        /// under load later. A developer install only.
+        #[arg(long)]
+        allow_unfit: bool,
     },
     /// Update Marula from a signed manifest (Wave 60 lane W60-5). `--check`
     /// prints whether a newer release exists and what it fixes; `--apply`
@@ -428,6 +433,7 @@ async fn main() -> anyhow::Result<()> {
             port,
             ui_dir,
             no_open,
+            allow_unfit,
         } => {
             install_command(
                 profile,
@@ -439,6 +445,7 @@ async fn main() -> anyhow::Result<()> {
                 memory_mb,
                 (ui, port, ui_dir, no_open),
                 (images, image_base, image_digest, image_manifest, restart),
+                allow_unfit,
             )
             .await
         }
@@ -809,6 +816,7 @@ async fn install_command(
         Option<std::path::PathBuf>,
         String,
     ),
+    allow_unfit: bool,
 ) -> anyhow::Result<()> {
     use install::DeploymentTarget as _;
 
@@ -918,6 +926,28 @@ async fn install_command(
     selection.restart = install::plan::RestartPolicy::parse(&restart).ok_or_else(|| {
         anyhow::anyhow!("--restart takes `unless-stopped`, `always` or `no`, not `{restart}`")
     })?;
+    selection.allow_unfit = allow_unfit;
+
+    // A plan that clears the floors quietly is a plan that lies about the box.
+    if allow_unfit {
+        if let Some(shipped) = descriptor
+            .profiles
+            .iter()
+            .find(|shipped| shipped.name == selection.profile.as_str())
+        {
+            let missing = install::plan::missing_for(shipped, &facts);
+            if !missing.is_empty() {
+                println!(
+                    "this machine is short of what {} needs:\n  {}\n\
+                     the plan runs anyway, because --allow-unfit says so. A shape that \
+                     starts here can fail under load, and no step of this plan prevents \
+                     that.\n",
+                    shipped.name,
+                    missing.join("\n  ")
+                );
+            }
+        }
+    }
 
     let target = install::ComposeTarget::new(descriptor, compose_file);
     let plan = target.plan(&facts, &selection)?;

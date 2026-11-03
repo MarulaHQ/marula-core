@@ -448,11 +448,19 @@ export function shapeLine(profile: Profile): string {
 }
 
 /** Whether a step can be left. */
-export function canLeave(index: number, state: State, profileName: string): boolean {
+export function canLeave(
+  index: number,
+  state: State,
+  profileName: string,
+  allowUnfit = false,
+): boolean {
   if (index === 0) return true;
   if (index === 2) {
     const profile = state.profiles.find((candidate) => candidate.name === profileName);
-    return Boolean(profile?.fits);
+    // Recommended mode only lets a shape through when the machine carries it.
+    // Developer mode passed the gate on the card, which said what the machine
+    // is short of, so the same answer holds here.
+    return Boolean(profile?.fits) || (allowUnfit && Boolean(profile));
   }
   return true;
 }

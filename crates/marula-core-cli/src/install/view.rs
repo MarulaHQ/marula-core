@@ -200,6 +200,9 @@ pub struct PlanView {
     pub config: Vec<EnvView>,
     /// Secrets this run generates (not reused from an existing file).
     pub generated: Vec<String>,
+    /// Floors this host misses, when a developer install planned past them.
+    /// Empty for a plan that fits, which is every plan in recommended mode.
+    pub unmet_floors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -241,6 +244,9 @@ pub struct Session {
     pub images: crate::install::plan::ImageSource,
     /// What the long-running services do after an exit.
     pub restart: crate::install::plan::RestartPolicy,
+    /// Whether this wizard may plan a shape the machine cannot carry. Set from
+    /// the request, so recommended mode keeps the floors it promises.
+    pub allow_unfit: bool,
     /// Facts a caller pinned instead of measuring, for a host that is not this
     /// one. The wizard never sets it; a test does, because a suite that reads
     /// the machine's free disk fails the day the disk is full.
@@ -261,19 +267,22 @@ impl Session {
             apply: Arc::new(Mutex::new(ApplyView::default())),
             images: crate::install::plan::ImageSource::Build,
             restart: crate::install::plan::RestartPolicy::UnlessStopped,
+            allow_unfit: false,
             pinned_facts: None,
         }
     }
 
-    /// Sets the two compose-shape decisions this request carries.
+    /// Sets the shape decisions this request carries.
     #[must_use]
     pub fn with_shape(
         mut self,
         images: crate::install::plan::ImageSource,
         restart: crate::install::plan::RestartPolicy,
+        allow_unfit: bool,
     ) -> Self {
         self.images = images;
         self.restart = restart;
+        self.allow_unfit = allow_unfit;
         self
     }
 
@@ -434,7 +443,16 @@ impl Session {
         let plan = target
             .plan(&facts, &selection(self, profile, overrides))
             .map_err(|error| error.to_string())?;
-        Ok(plan_view(&descriptor, &plan, &self.env(), overrides))
+        let mut view = plan_view(&descriptor, &plan, &self.env(), overrides);
+        // A plan that ran past the floors has to say so: the numbers are the
+        // only warning between a developer and a stack that dies under load.
+        view.unmet_floors = descriptor
+            .profiles
+            .iter()
+            .find(|shipped| shipped.name == plan.profile.as_str())
+            .map(|shipped| plan::missing_for(shipped, &facts))
+            .unwrap_or_default();
+        Ok(view)
     }
 
     /// Runs every check that needs no network call, against the real ports.
@@ -544,6 +562,7 @@ fn selection(session: &Session, profile: &str, overrides: &BTreeMap<String, Stri
     selection.overrides = overrides.clone();
     selection.images = session.images;
     selection.restart = session.restart;
+    selection.allow_unfit = session.allow_unfit;
     selection
 }
 
@@ -832,6 +851,7 @@ fn plan_view(
         manual: plan.manual.clone(),
         config,
         generated,
+        unmet_floors: Vec::new(),
     }
 }
 
