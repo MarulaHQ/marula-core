@@ -22,6 +22,7 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | Doc | What it settles |
 |---|---|
 | [`tech-stack.md`](tech-stack.md) | Language and database choices, the package layout, and the reason for each |
+| [`feature-matrix.md`](feature-matrix.md) | What ships today, what is built and waiting for a release, and what is planned |
 | [`adr/`](adr/) | Every decision that was expensive to reverse, and what it beat |
 | [`theme.md`](theme.md) | Visual theme tokens (binding) |
 | [`instant-first.md`](instant-first.md) | Interaction rules for optimistic writes and undo (binding) |

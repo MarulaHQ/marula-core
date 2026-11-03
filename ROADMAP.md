@@ -5,22 +5,31 @@ request. This file says what works today, what is being built now, and where
 the next work goes.
 
 Three columns, no dates we do not own. When something ships, it moves down and
-the [changelog](CHANGELOG.md) records what changed.
+the [changelog](CHANGELOG.md) records what changed. The capability breakdown
+behind this page is in the [feature matrix](docs/feature-matrix.md).
+
+Last updated 2026-11-03.
 
 ## Shipped
 
-- **The daily driver.** Tickets, boards with real workflows, inline notes and
-  custom fields, email that opens tickets, one server-authoritative timer per
-  person, missing-time detection, SLA-aware dispatch, scheduling, and the
-  calendar.
-- **The money side.** Contracts, invoicing drawn from recorded time, quotes
-  with a catalog, multi-currency with FX snapshots, the sales pipeline,
-  approval queues, and a Stripe payment provider with typed decline reasons.
+- **The daily driver.** Tickets, boards with real workflows, inline notes,
+  checklists, custom fields, email that opens tickets, one
+  server-authoritative timer per person, missing-time detection, SLA-aware
+  dispatch, scheduling, and the calendar.
+- **The field side.** Stock with locations and a movement ledger, tools and
+  kits with check-out, devices on loan to clients, purchase orders that bill
+  into invoices, label templates printed from the desktop app, keyboard and
+  camera scanning, and a Today day pack that groups stops into trips and names
+  what to grab.
+- **The money side.** Contracts, invoicing drawn from recorded time, credit
+  notes, billing verification, quotes with a catalog, multi-currency with FX
+  snapshots, the sales pipeline, approval queues, and a Stripe payment provider
+  with typed decline reasons.
 - **AI assistance, gated.** AI help, turned on where admins allow it (ticket
   notes, document drafts, email replies), per surface and per role, with your
-  own keys in a sealed
-  credential store, append-only usage accounting, and an agent that reads your
-  tickets through consented tools and proposes changes for a human to approve.
+  own keys in a sealed credential store, append-only usage accounting, and an
+  agent that reads your tickets through consented tools and proposes changes
+  for a human to approve.
 - **Secrets.** The password vault with category RBAC, one-time share links,
   rotation hooks, and streaming decryption for secret files.
 - **Integrations.** NinjaOne, Hudu, Microsoft 365, UniFi, 3CX, Slack and
@@ -29,6 +38,12 @@ the [changelog](CHANGELOG.md) records what changed.
   or contact never forks into duplicates. IT Glue, Auvik, ImmyBot and Zapier are
   the first marketplace connectors, built in their own repos and published
   through the marketplace.
+- **The connector marketplace.** A public catalog for connectors beyond the
+  standard set, with first-party and community listings installed through the
+  same signed, consent-gated lifecycle as every plugin.
+- **Getting started.** A first-run wizard for the org, a short orientation for
+  each new user, help on every surface that opens the matching documentation,
+  guided tours, and one keyboard registry with an overlay and cheat sheet.
 - **A desktop app.** The Tauri 2 macOS shell with signed bundles and automatic
   updates, plus themes (Tangerine, Slate, a high-contrast preset) that ship
   validated from the same tokens as the web app.
@@ -44,20 +59,10 @@ the [changelog](CHANGELOG.md) records what changed.
 
 ## In flight
 
-- **Onboarding.** A first-run wizard for the org and a short orientation for
-  each new user, skippable at every step and switchable off org-wide.
-- **Help, in the product.** A help affordance on every surface, showing the
-  documentation that matches, plus short guided tours on first visit.
-- **A keyboard standard.** One command registry so the same verb carries the
-  same chord on every surface, an overlay and cheat sheet that read it, and a
-  deeper accessibility pass across every shipped surface.
-- **Purchasing and stock.** Purchase orders with reseller deeplinks, stock
-  with locations and a movement ledger, tools with check-out, devices on loan
-  to clients, label printing, keyboard-wedge scanning, and a Today grab list
-  that understands a van run.
-- **The connector marketplace.** A public catalog for connectors beyond the
-  standard set: first-party listings and community ones, installed through
-  the same signed, consent-gated lifecycle as every plugin.
+- **The installer.** A desktop wizard that measures the machine, offers a
+  recommended path or the full surface, shows the configuration it will write,
+  and produces the same `marula.env` as `marula install`. The terminal and
+  loopback paths stay, so a headless machine gets the same plan.
 - **The phone.** A React Native app on the same typed API as the web: field
   ops, camera scanning, live sync, timers, and a proper tablet layout.
 
@@ -78,14 +83,8 @@ the [changelog](CHANGELOG.md) records what changed.
   plainly what it could not. Every draft lands in the builders you already use
   as a proposal you edit and approve, under the same per-surface gate as every
   other AI help.
-- **More of the plugin surface.** UI widgets, automation steps, and report
-  renderers for plugins, with first-party reference plugins in the repo.
-- **Email identities.** Per-board inbound and outbound addresses, a
-  settings surface for the whole mail system, and a branded notification
-  wrapper.
-- **A second wave of product pages on this website.**
-- **A final audit.** Before the milestones above are called done, a
-  full walk of every surface by someone who has not touched it before.
+- **A final audit.** Before the milestones above are called done, a full walk
+  of every surface by someone who has not touched it before.
 
 Maintainers: this page and the [changelog](CHANGELOG.md) are maintained at
 merge time per [CONTRIBUTING.md](CONTRIBUTING.md). The website builds both
