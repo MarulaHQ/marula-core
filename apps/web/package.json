@@ -33,7 +33,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.1",
     "elkjs": "^0.12.1",
-    "next": "^15.5.28",
+    "next": "^16.4.3",
     "openapi-fetch": "^0.17.0",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
