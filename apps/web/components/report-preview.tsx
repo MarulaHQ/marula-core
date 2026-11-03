@@ -73,7 +73,7 @@ export function ReportChart({
     return (
       <figure role="img" aria-label={ariaLabel} className="min-w-0">
         <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-          <PieChart>
+          <PieChart accessibilityLayer={false}>
             <Pie data={pieData} dataKey="value" nameKey="name" isAnimationActive={false} stroke={t.tooltipBorder}>
               {pieData.map((_, i) => {
                 const key = PIE_SHADES[i % PIE_SHADES.length]!;
@@ -92,7 +92,11 @@ export function ReportChart({
     return (
       <figure role="img" aria-label={ariaLabel} className="min-w-0">
         <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-          <LineChart data={data} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+          <LineChart
+            accessibilityLayer={false}
+            data={data}
+            margin={{ top: 4, right: 16, bottom: 4, left: 0 }}
+          >
             <CartesianGrid stroke={t.grid} vertical={false} />
             <XAxis dataKey={xKey} tick={{ fill: t.tick, fontSize: 12 }} stroke={t.grid} />
             <YAxis tick={{ fill: t.tick, fontSize: 12 }} stroke={t.grid} width={56} />
@@ -118,7 +122,11 @@ export function ReportChart({
   return (
     <figure role="img" aria-label={ariaLabel} className="min-w-0">
       <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-        <BarChart data={data} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+        <BarChart
+          accessibilityLayer={false}
+          data={data}
+          margin={{ top: 4, right: 16, bottom: 4, left: 0 }}
+        >
           <CartesianGrid stroke={t.grid} vertical={false} />
           <XAxis dataKey={xKey} tick={{ fill: t.tick, fontSize: 12 }} stroke={t.grid} />
           <YAxis tick={{ fill: t.tick, fontSize: 12 }} stroke={t.grid} width={56} />
