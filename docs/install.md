@@ -10,10 +10,19 @@ The decisions behind the shape are in ADR 0026 (the deployment target and the
 plan) and ADR 0027 (the app, and the fallback). This page is the operator's side
 of them.
 
+Two published guides cover the same ground for someone doing the install:
+[install on a server from the terminal](https://getmarula.com/docs/psa/v0.3/how-to/install-on-a-server)
+and [install with the app](https://getmarula.com/docs/psa/v0.3/how-to/install-with-the-app).
+What each shape runs, and the floors it asks for, is in
+[deployment shapes](https://getmarula.com/docs/psa/v0.3/reference/deployment-shapes).
+This page stays the repository's account of the mechanics; those three are what a
+self-hoster reads first.
+
 ## The app
 
-The installer app is the primary way in. It opens on a choice that sets how much
-you decide:
+The installer app is the primary way in. It opens on a welcome screen that says
+what it is, over one of the brand's four textures picked at launch, and then asks
+a choice that sets how much you decide:
 
 - **Recommended** asks seven questions. Everything else keeps its default, and
   each default states why it is the default.
@@ -31,7 +40,10 @@ Either way the flow is five screens with one decision each:
 3. **Shape.** `split` and `all-in-one` side by side, each with its floors marked
    against this host. A shape the machine cannot carry says which floor it
    misses, in that floor's own units, and the full description of a shape is one
-   disclosure away rather than three lines in the reading path.
+   disclosure away rather than three lines in the reading path. Developer mode
+   adds an override on the short shape: **Open split anyway** takes you into its
+   settings, and the review repeats the numbers at the top. Recommended mode
+   offers only the shapes this machine can carry.
 4. **Settings.** The seven decisions, or the whole catalogue. A field shows the
    default and the reason the default was chosen. A changed field shows what
    changes because of it.
@@ -193,6 +205,11 @@ If the profile's local embedding model does not fit the host, the plan says so
 and names the cloud path: set `MARULA_EMBEDDING_PROVIDER=openai` and
 `MARULA_EMBEDDING_API_KEY`. The installer will not quietly pick a smaller local
 model, because that trades recall for memory without telling you.
+
+`--allow-unfit` plans a shape the host misses anyway, which is what the app's
+developer mode does. The plan runs and prints the floors it missed before the
+steps. Nothing in it prevents the stack failing later, so it is a decision to
+proceed with less than the shape asks for, not a way to make the numbers true.
 
 ## Overrides
 
