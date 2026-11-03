@@ -66,7 +66,7 @@ echo "[audit] run $RUN_ID — api ${E2E_API_URL:-?} web ${E2E_WEB_URL:-?}"
 # The stack boots core-api and worker only; the web bundle is this run's job.
 # Playwright starts it through its own webServer block, but a standalone harness
 # gets nothing for free, and every capture below navigates a browser. Kill by
-# PID: Next renames the process, so `pkill -f standalone/server.js` misses it
+# PID: Next renames the process, so `pkill -f standalone/apps/web/server.js` misses it
 # (recorded by design/qa-p41-ui-clients/LANDING.md:135).
 WEB_PID=""
 # invoked through the step runner; a static check cannot see it
@@ -80,14 +80,14 @@ start_web() {
     echo "[audit] web already answering at $E2E_WEB_URL"
     return 0
   fi
-  if [ ! -f apps/web/.next/standalone/server.js ]; then
+  if [ ! -f apps/web/.next/standalone/apps/web/server.js ]; then
     echo "[audit] no standalone bundle — run scripts/e2e-build-web.sh first" >&2
     return 1
   fi
   echo "[audit] starting the standalone web bundle on :$E2E_WEB_PORT"
   ( cd apps/web && exec env HOSTNAME=127.0.0.1 PORT="$E2E_WEB_PORT" \
       NEXT_PUBLIC_API_URL="${E2E_API_URL:-http://localhost:8080}" \
-      node .next/standalone/server.js ) >"$LOGS/web.log" 2>&1 &
+      node .next/standalone/apps/web/server.js ) >"$LOGS/web.log" 2>&1 &
   WEB_PID=$!
   for _ in $(seq 1 60); do
     if curl -fsS -o /dev/null "$E2E_WEB_URL" 2>/dev/null; then

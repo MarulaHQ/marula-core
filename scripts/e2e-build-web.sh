@@ -18,18 +18,18 @@ export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-${E2E_API_URL:-http://localho
 # No kit pre-build: @marula-core/ui resolves from src and is transpiled by the
 # web build (2026-10-19).
 pnpm --filter @marula-core/web build
-rm -rf apps/web/.next/standalone/.next/static apps/web/.next/standalone/public
-cp -r apps/web/.next/static apps/web/.next/standalone/.next/static
-cp -r apps/web/public apps/web/.next/standalone/public
+rm -rf apps/web/.next/standalone/apps/web/.next/static apps/web/.next/standalone/apps/web/public
+cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+cp -r apps/web/public apps/web/.next/standalone/apps/web/public
 
 # Guard: a standalone tree missing its static assets serves HTML that points at
 # /_next/static files that are not there — every chunk 400s. Fail here instead
 # of letting the suite fail with an unreadable asset error. Same posture as the
 # guard in scripts/build-desktop.sh (which must leave this bundle consistent
 # too — it rebuilds the same .next tree).
-[ -n "$(find apps/web/.next/standalone/.next/static -name '*.js' -print -quit 2>/dev/null)" ] \
+[ -n "$(find apps/web/.next/standalone/apps/web/.next/static -name '*.js' -print -quit 2>/dev/null)" ] \
   || { echo "[e2e-build-web] error: standalone .next/static has no JS after the build" >&2; exit 1; }
-[ -n "$(find apps/web/.next/standalone/.next/static -name '*.css' -print -quit 2>/dev/null)" ] \
+[ -n "$(find apps/web/.next/standalone/apps/web/.next/static -name '*.css' -print -quit 2>/dev/null)" ] \
   || { echo "[e2e-build-web] error: standalone .next/static has no CSS after the build" >&2; exit 1; }
 
 # The standalone tree's node_modules entries are pnpm symlinks whose relative

@@ -11,7 +11,7 @@
  * Usage (from the repo root):
  *   bash scripts/e2e-stack.sh up
  *   bash scripts/e2e-build-web.sh
- *   PORT=3003 node apps/web/.next/standalone/server.js &
+ *   PORT=3003 node apps/web/.next/standalone/apps/web/server.js &
  *   node scripts/p43-signature-web-capture.mjs
  */
 import { mkdir, readFile } from "node:fs/promises";

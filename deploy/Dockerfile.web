@@ -67,7 +67,9 @@ RUN --mount=type=cache,id=marula-next-cache,target=/repo/apps/web/.next/cache,sh
 RUN node /prune.cjs
 
 FROM dhi.io/node:22@sha256:7390ab11306fa78b4e3f47acaa08bddcaaabac850a01996d153a2e805360a741 AS run
-WORKDIR /repo/apps/web/.next/standalone
+# The standalone tree is monorepo-shaped since Next 16: Turbopack resolves
+# packages from the repo root, so the server and its .next live one level down.
+WORKDIR /repo/apps/web/.next/standalone/apps/web
 # Tighten the runtime: dedicated non-root uid/gid and no privilege
 # escalation. The image USER is 1000:1000; compose/k8s restate it so the
 # deployment config is the visible source of truth.
@@ -83,8 +85,8 @@ ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 # RUN chown cannot execute here. COPY --chown sets ownership in the layer.
 COPY --chown=1000:1000 --from=build /repo/node_modules /repo/node_modules
 COPY --chown=1000:1000 --from=build /repo/apps/web/.next/standalone /repo/apps/web/.next/standalone
-COPY --chown=1000:1000 --from=build /repo/apps/web/.next/static /repo/apps/web/.next/standalone/.next/static
-COPY --chown=1000:1000 --from=build /repo/apps/web/public /repo/apps/web/.next/standalone/public
+COPY --chown=1000:1000 --from=build /repo/apps/web/.next/static /repo/apps/web/.next/standalone/apps/web/.next/static
+COPY --chown=1000:1000 --from=build /repo/apps/web/public /repo/apps/web/.next/standalone/apps/web/public
 # The image's own node user: uid/gid 1000 (numeric, passwd-verified —
 # runAsNonRoot-verifiable).
 USER 1000:1000
