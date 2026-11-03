@@ -699,7 +699,7 @@ fn profiles() -> Vec<Profile> {
     let split = Profile {
         name: "split",
         title: "Split services behind a transaction pooler",
-        description: "The default topology: core-api and worker run as separate processes so each scales and restarts on its own, with PgBouncer in transaction mode in front of Postgres. The compose stack ships this shape. Point DATABASE_URL at Postgres directly only when you also set MARULA_DB_STATEMENT_CACHE and accept the connection ceiling that comes back with it. The floors are set by the shipped embedding model, which needs four cores of its own, plus room for Postgres, the pooler and the object store.",
+        description: "The default topology. core-api and worker run as separate processes, so each scales and restarts on its own, with PgBouncer in transaction mode in front of Postgres. The compose stack ships this shape. Pointing DATABASE_URL straight at Postgres works only once you raise MARULA_DB_STATEMENT_CACHE, and it brings back the connection ceiling the pooler was hiding. The floors come from the shipped embedding model, which needs four cores of its own, plus room for Postgres, the pooler and the object store.",
         sets: BTreeMap::from([
             (
                 "DATABASE_URL",
@@ -736,7 +736,7 @@ fn profiles() -> Vec<Profile> {
     let all_in_one = Profile {
         name: "all-in-one",
         title: "All-in-one (demo / one-box)",
-        description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md. Unpooled on purpose: one instance's 54 connections fit inside Postgres's default 100, so the demo box does not need a second moving part. The floors are the shipped embedding model's four cores plus the database and cache it shares the box with; one fewer disk than split because there is no second image copy.",
+        description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md. It runs unpooled on purpose. One instance's 54 connections fit inside the default 100 a stock Postgres allows, so the demo box does not need a second moving part. The floors are the shipped embedding model's four cores, plus the database and cache it shares the box with. The disk floor is one tier smaller than split's because there is no second image copy.",
         floors: ResourceFloors {
             cores: 4,
             ram_mb: 8192,
@@ -785,8 +785,8 @@ fn params() -> Vec<Param> {
             false,
             "Host the worker loops inside core-api.",
         )
-        .consequence("One container instead of two: the background loops share core-api's memory and restart with it, so a fault split would have contained takes the API down too.")
-        .rationale("Split is the default because a stalled worker should restart without interrupting the API a user is talking to.")
+        .consequence("One container runs both roles. The background loops share core-api's memory and restart with it, so a fault the split shape contained now takes the API down too.")
+        .rationale("Split is the default because a stalled worker restarts without interrupting the API a user is talking to.")
         .needs(&["MARULA_WORKER_DATABASE_URL"]),
         param(
             "BIND_ADDR",
@@ -797,7 +797,7 @@ fn params() -> Vec<Param> {
             "core-api HTTP listen address.",
         )
         .consequence("The address and port core-api binds. A loopback-only value is unreachable from a proxy in another container, and a taken port stops the API at boot.")
-        .rationale("0.0.0.0:8080 is what the shipped compose stack and chart target; loopback would break container networking."),
+        .rationale("The shipped compose stack and chart both target 0.0.0.0:8080. A loopback address would break container networking."),
         param(
             "MARULA_WORKER_BIND_ADDR",
             "topology",
@@ -806,8 +806,8 @@ fn params() -> Vec<Param> {
             false,
             "Worker health-endpoint address in all-in-one mode.",
         )
-        .consequence("Where the worker health endpoint answers when the loops run inside core-api. A split deployment never binds it, so changing it there does nothing.")
-        .rationale("8082 is the port the compose health check and the chart probe ask for."),
+        .consequence("Where the worker health endpoint answers when the loops run inside core-api. A split deployment never binds it, so the value changes nothing there.")
+        .rationale("8082 is the port the compose health check and the chart probe both ask for."),
         param(
             "PUBLIC_BASE_URL",
             "topology",
@@ -816,17 +816,17 @@ fn params() -> Vec<Param> {
             false,
             "Public base URL of the API, used to build OIDC redirect URIs.",
         )
-        .consequence("The base for links Marula puts in mail and for OIDC redirect URIs. An address a browser cannot reach turns a successful login into an error page.")
-        .rationale("localhost:8080 is the dev API; a deployment behind a domain must set its public name or invitations carry a link nobody can open."),
+        .consequence("The base for every link Marula puts in mail and for OIDC redirect URIs. An address a browser cannot reach turns a successful login into an error page.")
+        .rationale("localhost:8080 is the dev API. A deployment behind a domain has to set its public name, or invitations carry a link nobody can open."),
         param(
             "WEB_BASE_URL",
             "topology",
             Url,
             Some("http://localhost:3000"),
             false,
-            "Web app base URL; the SSO callback lands the browser here.",
+            "Web app base URL the SSO callback lands the browser on.",
         )
-        .consequence("Where the SSO callback sends the browser after the identity provider answers. The wrong port authenticates the user and then drops them on a dead page.")
+        .consequence("Where the SSO callback sends the browser once the identity provider answers. The wrong port authenticates the user and then drops them on a dead page.")
         .rationale("3000 is the dev web port, and the development identity provider redirects there."),
         param(
             "CORS_ORIGIN",
@@ -836,8 +836,8 @@ fn params() -> Vec<Param> {
             false,
             "Allowed browser origin for the API. Unset disables CORS.",
         )
-        .consequence("The one browser origin allowed to call the API. Unset disables CORS entirely, which a same-origin deployment does not need and a split web host does.")
-        .rationale("Unset by default: an allowlist that ships open is a hole nobody notices until it is found."),
+        .consequence("The one browser origin allowed to call the API. Unset disables CORS entirely, which a same-origin deployment can live with and a split web host cannot.")
+        .rationale("Unset by default, because an allowlist that ships open is a hole nobody notices until someone finds it."),
 
         // database
         param(
@@ -849,7 +849,7 @@ fn params() -> Vec<Param> {
             "RLS-scoped app-role Postgres URL. Set it in production.",
         )
         .consequence("The role every tenant-scoped query rides. A URL for the owner role instead of the app role removes row-level security from the API in one edit.")
-        .rationale("The dev compose database, app role, port 15432; a deployment replaces it rather than relying on it."),
+        .rationale("The dev compose database, on the app role, at port 15432. A deployment replaces it rather than relying on it."),
         param(
             "MARULA_WORKER_DATABASE_URL",
             "database",
@@ -858,8 +858,8 @@ fn params() -> Vec<Param> {
             false,
             "Owner-role Postgres URL for the worker loops. Required when MARULA_ALL_IN_ONE=1.",
         )
-        .consequence("The owner-role connection the background loops use for work no tenant scope can express. All-in-one refuses to start without it; split hands it to the worker.")
-        .rationale("No default on purpose: it carries DDL and cross-tenant work, and guessing an owner URL is how a worker ends up running with the wrong privileges."),
+        .consequence("The owner-role connection the background loops use for work no tenant scope can express. All-in-one refuses to start without it, and split hands it to the worker.")
+        .rationale("No default on purpose. It carries DDL and cross-tenant work, and guessing an owner URL is how a worker ends up running with the wrong privileges."),
         param(
             "MARULA_DB_POOL_MAX",
             "database",
@@ -868,18 +868,18 @@ fn params() -> Vec<Param> {
             false,
             "App-pool ceiling. Sizes both the API app pool and, in all-in-one, the worker pool.",
         )
-        .consequence("Ceiling on the API's application connections. Each connection is a Postgres backend with its own memory, and a pool the database will not accept turns a load spike into refusals.")
-        .rationale("20 is the per-process ceiling the capacity model assumes: four pools add up to 54 connections per instance, which the pooler holds at 15 server side."),
+        .consequence("The ceiling on the API's application connections. Each connection is a Postgres backend with its own memory, and a pool the database will not accept turns a load spike into refusals.")
+        .rationale("20 is the per-process ceiling the capacity model assumes. Four pools add up to 54 connections per instance, which the pooler holds at 15 server side."),
         param(
             "MARULA_REPORTING_POOL_MAX",
             "database",
             Integer,
             Some("8"),
             false,
-            "Reporting-pool ceiling (app role under RLS). Resized 25 to 8 in Wave 52 lane P9: the hot path saturates at concurrency 8 and the reports surface is cold.",
+            "Reporting-pool ceiling (app role under RLS).",
         )
-        .consequence("Ceiling on the reporting pool, which runs under the app role and RLS. Reports queue at the ceiling instead of competing with the hot path for connections.")
-        .rationale("8 is what the hot path saturates at, measured in Wave 52 lane P9; the reports surface is cold, so 25 connections bought nothing."),
+        .consequence("The ceiling on the reporting pool, which runs under the app role and RLS. Reports queue at the ceiling instead of competing with the hot path for connections.")
+        .rationale("8 is what the hot path saturates at, measured in Wave 52 lane P9 and down from 25. The reports surface is cold, so the extra connections bought nothing."),
         param(
             "DELIVERY_POOL_MAX",
             "database",
@@ -888,7 +888,7 @@ fn params() -> Vec<Param> {
             false,
             "Worker delivery reporting-pool ceiling.",
         )
-        .consequence("Ceiling on the worker delivery pool. Too high and a slow delivery sweep starves the database; too low and scheduled reports wait behind each other.")
+        .consequence("The ceiling on the worker delivery pool. Too high and a slow delivery sweep starves the database. Too low and scheduled reports wait behind each other.")
         .rationale("5 matches the measured delivery concurrency: one sweep at a time with a little headroom."),
         param(
             "MARULA_DB_STATEMENT_CACHE",
@@ -896,20 +896,20 @@ fn params() -> Vec<Param> {
             Integer,
             Some("0"),
             false,
-            "sqlx prepared-statement cache capacity per connection. 0 (the default) disables it, which a transaction pooler requires; raise it no higher than the pooler's max_prepared_statements, and only with the pooler's reset query off. See docs/reference/connection-pooling.md.",
+            "sqlx prepared-statement cache capacity per connection. 0 (the default) disables it. See docs/reference/connection-pooling.md.",
         )
-        .consequence("How many prepared statements one connection keeps. Non-zero behind a transaction pooler hands a statement name to a connection that no longer has it, and the failure appears at query time.")
-        .rationale("0 because the shipped pooler runs DISCARD ALL after every transaction, so a cached name cannot survive and the cache would pay for re-parsing twice."),
+        .consequence("How many prepared statements one connection keeps. Non-zero behind a transaction pooler hands a statement name to a connection that no longer has it, and the failure appears at query time. Raise it no higher than the pooler's max_prepared_statements, and only with the pooler's reset query off.")
+        .rationale("0 because the shipped pooler runs DISCARD ALL after every transaction. A cached name cannot survive that, so a cache would pay for re-parsing twice."),
         param(
             "MARULA_LISTEN_DATABASE_URL",
             "database",
             Url,
             None,
             false,
-            "Direct Postgres URL for the process's ONE LISTEN connection. Required when DATABASE_URL names a transaction pooler: a subscription cannot survive a pooled connection. Unset reuses DATABASE_URL.",
+            "Direct Postgres URL for the process's ONE LISTEN connection. Required when DATABASE_URL names a transaction pooler.",
         )
-        .consequence("The direct connection the process holds open for LISTEN. Left unset behind a transaction pooler, live updates stop arriving, and nothing reports an error.")
-        .rationale("No default on purpose: unset means reuse DATABASE_URL, which is correct only when that URL is not pooled."),
+        .consequence("The direct connection the process holds open for LISTEN, which a subscription needs because it cannot ride a pooled connection. Left unset behind a transaction pooler, live updates stop arriving and nothing reports an error.")
+        .rationale("No default on purpose. Unset means reuse DATABASE_URL, which is correct only when that URL is not pooled."),
 
         // cache
         param(
@@ -921,7 +921,7 @@ fn params() -> Vec<Param> {
             "Redis/Valkey URL for the outbox relay and stream consumers.",
         )
         .consequence("Where the outbox relay publishes and the live-push consumers subscribe. A wrong URL stops job dispatch and live updates while the API keeps answering requests.")
-        .rationale("The dev compose Valkey on port 16379; a deployment points at its own instance."),
+        .rationale("The dev compose Valkey on port 16379. A deployment points at its own instance."),
 
         // secrets
         requires(
@@ -932,8 +932,8 @@ fn params() -> Vec<Param> {
             true,
             "64 hex chars. Access/refresh token signing. Boot refuses without it outside dev.",
         )
-        .consequence("Signs access and refresh tokens. Rotating it signs every session out at once; a missing one outside dev stops the API before it serves a request.")
-        .rationale("No default at all: a signing key that ships with the product would be a shared secret across every install."),
+        .consequence("Signs access and refresh tokens. Rotating it signs every session out at once. A missing one outside dev stops the API before it serves a request.")
+        .rationale("No default at all, because a signing key that ships with the product would be a shared secret across every install."),
         requires(
             "MARULA_SECRET_KEY",
             "secrets",
@@ -943,7 +943,7 @@ fn params() -> Vec<Param> {
             "64 hex chars. AES-256 at-rest key for sealed integration secrets.",
         )
         .consequence("Encrypts integration credentials at rest. Rotating it without re-sealing the stored values makes every third-party secret unreadable, and integrations start failing one by one.")
-        .rationale("No default at all: the key that seals customer credentials cannot come from the image."),
+        .rationale("No default at all. The key that seals customer credentials cannot come from the image."),
         requires(
             "MARULA_INTERNAL_TOKEN",
             "secrets",
@@ -952,8 +952,8 @@ fn params() -> Vec<Param> {
             true,
             "Bearer token for /api/internal/* (worker to API machine surface).",
         )
-        .consequence("The bearer the worker presents on the /api/internal surface. It has to match on both sides; a mismatch turns every worker call into a 401 that reads as a broken automation.")
-        .rationale("No default at all: a published bearer token is a published machine surface."),
+        .consequence("The bearer the worker presents on the /api/internal surface. It has to match on both sides. A mismatch turns every worker call into a 401 that reads as a broken automation.")
+        .rationale("No default at all, because a published bearer token is a published machine surface."),
         requires(
             "EMAIL_INTERNAL_TOKEN",
             "secrets",
@@ -963,7 +963,7 @@ fn params() -> Vec<Param> {
             "Shared token for the email claim/report loop.",
         )
         .consequence("The shared token for the email claim and report loop. A mismatch leaves queued mail claimed and never sent, with no error on the API side.")
-        .rationale("No default at all: it guards a seam between two processes, so it must be chosen once and injected on both."),
+        .rationale("No default at all. It guards a seam between two processes, so it has to be chosen once and injected on both."),
         param(
             "EMAIL_INBOUND_HMAC_SECRET",
             "secrets",
@@ -973,7 +973,7 @@ fn params() -> Vec<Param> {
             "HMAC secret for the inbound email webhook. Unset disables it.",
         )
         .consequence("Verifies the inbound email webhook. Unset disables the inbound path entirely, which is the safe state for a deployment that does not accept mail.")
-        .rationale("Unset by default: an inbound webhook nobody configured should not be open."),
+        .rationale("Unset by default, because an inbound webhook nobody configured should not be open."),
         param(
             "MARULA_PLUGIN_SIGNING_KEYS",
             "secrets",
@@ -982,8 +982,8 @@ fn params() -> Vec<Param> {
             false,
             "Trusted plugin-signing public keys (key_id=hex, comma-separated).",
         )
-        .consequence("The public keys whose plugin signatures are trusted, as key_id=hex pairs. Adding a key trusts every plugin that key signed, so this is a trust decision rather than a setting.")
-        .rationale("No default: a trust root that ships with the product would trust anything signed with the shipped key."),
+        .consequence("The public keys whose plugin signatures are trusted, written as key_id=hex pairs. Adding a key trusts every plugin that key signed, so this is a trust decision rather than a setting.")
+        .rationale("No default, because a trust root that ships with the product would trust anything signed with the shipped key."),
 
         // objects
         param(
@@ -994,7 +994,7 @@ fn params() -> Vec<Param> {
             false,
             "Attachment store: local or s3.",
         )
-        .consequence("Where attachment bytes live. Switching local to s3 changes where new uploads go; objects already written stay where they were, so a switch without a copy strands them.")
+        .consequence("Where attachment bytes live. Switching from local to s3 changes where new uploads go, and objects already written stay where they were, so a switch without a copy strands them.")
         .rationale("local is the default because a one-box deployment has a disk and should not need an object service to attach a file to a ticket."),
         param(
             "OBJECT_STORE_LOCAL_DIR",
@@ -1036,8 +1036,8 @@ fn params() -> Vec<Param> {
             false,
             "S3 region.",
         )
-        .consequence("The region the S3 client signs for. A wrong region is a signature error on every request, not a slower path.")
-        .rationale("us-east-1 is the widest-default region; a deployment sets its own.")
+        .consequence("The region the object store signs requests for. A wrong region is a signature error on every request, not a slower path.")
+        .rationale("us-east-1 is the widest default. A deployment sets its own region.")
         .needs(&["OBJECT_STORE"]),
         param(
             "S3_ACCESS_KEY_ID",
@@ -1048,7 +1048,7 @@ fn params() -> Vec<Param> {
             "S3 access key id.",
         )
         .consequence("The credential used for attachment writes. It needs read and write on the one bucket and nothing else.")
-        .rationale("No default: object credentials are per-deployment.")
+        .rationale("No default, because object credentials belong to the deployment's own bucket.")
         .needs(&["OBJECT_STORE"]),
         param(
             "S3_SECRET_ACCESS_KEY",
@@ -1059,7 +1059,7 @@ fn params() -> Vec<Param> {
             "S3 secret access key.",
         )
         .consequence("The secret half of the object-store credential. It is read only when OBJECT_STORE is s3, and a wrong value fails every attachment write with an auth error.")
-        .rationale("No default: it is a secret by definition.")
+        .rationale("No default, because the bucket's owner issues this half of the pair.")
         .needs(&["OBJECT_STORE"]),
 
         // email
@@ -1092,7 +1092,7 @@ fn params() -> Vec<Param> {
             "From display name.",
         )
         .consequence("The display name beside the From address. It changes nothing a provider checks, only what the recipient reads.")
-        .rationale("No default: the name is a deployment's own identity and a shipped one would read as somebody else's brand.")
+        .rationale("No default. The name is a deployment's own identity, and a shipped one would read as somebody else's brand.")
         .needs(&["EMAIL_FROM_ADDRESS"]),
         param(
             "POSTMARK_SERVER_TOKEN",
@@ -1102,8 +1102,8 @@ fn params() -> Vec<Param> {
             true,
             "Postmark server token.",
         )
-        .consequence("The Postmark server credential. It only matters when EMAIL_TRANSPORT is postmark; set otherwise it is ignored.")
-        .rationale("No default: it is a per-account secret.")
+        .consequence("The Postmark server credential. It only matters when EMAIL_TRANSPORT is postmark, and it is ignored otherwise.")
+        .rationale("No default, because Postmark issues one per account.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "SMTP_HOST",
@@ -1113,8 +1113,8 @@ fn params() -> Vec<Param> {
             false,
             "SMTP host.",
         )
-        .consequence("The SMTP server host. Empty with EMAIL_TRANSPORT set to smtp means the first send fails, after the message is already queued.")
-        .rationale("No default: there is no host that is right for more than one deployment.")
+        .consequence("The SMTP server host. An empty value with EMAIL_TRANSPORT set to smtp means the first send fails, after the message is already queued.")
+        .rationale("No default, because no host is right for more than one deployment.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "SMTP_PORT",
@@ -1125,7 +1125,7 @@ fn params() -> Vec<Param> {
             "SMTP port.",
         )
         .consequence("The SMTP port. 25 is plain and blocked outbound by most providers, which is why 587 with STARTTLS is the usual production answer.")
-        .rationale("25 is the SMTP default and the right answer for a local relay; a public sender needs 587.")
+        .rationale("25 is the SMTP default and the right answer for a local relay. A public sender needs 587.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "SMTP_USERNAME",
@@ -1135,8 +1135,8 @@ fn params() -> Vec<Param> {
             false,
             "SMTP username.",
         )
-        .consequence("The SMTP account name. A server that requires authentication refuses the send and the message stays queued with an error in the delivery log.")
-        .rationale("No default: anonymous relays need none, authenticated ones cannot guess it.")
+        .consequence("The SMTP account name. A server that requires authentication refuses the send, and the message stays queued with an error in the delivery log.")
+        .rationale("No default. An anonymous relay needs none, and an authenticated one cannot be guessed.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "SMTP_PASSWORD",
@@ -1147,7 +1147,7 @@ fn params() -> Vec<Param> {
             "SMTP password.",
         )
         .consequence("The SMTP account password. An authentication failure leaves each outbound message queued with an error in the delivery log rather than losing it.")
-        .rationale("No default: it is a secret.")
+        .rationale("No default, because the password belongs to the account that authenticates.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "AWS_SES_ACCESS_KEY_ID",
@@ -1158,7 +1158,7 @@ fn params() -> Vec<Param> {
             "SES access key id.",
         )
         .consequence("The SES access key. It needs ses:SendRawEmail and nothing else.")
-        .rationale("No default: SES credentials are per-deployment.")
+        .rationale("No default, because SES credentials belong to the deployment's own AWS account.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "AWS_SES_SECRET_ACCESS_KEY",
@@ -1169,7 +1169,7 @@ fn params() -> Vec<Param> {
             "SES secret access key.",
         )
         .consequence("The secret half of the SES credential. It is read only when EMAIL_TRANSPORT is ses, and a wrong value fails every send at the provider.")
-        .rationale("No default: it is a secret.")
+        .rationale("No default, because AWS issues it per account.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "AWS_SES_REGION",
@@ -1180,7 +1180,7 @@ fn params() -> Vec<Param> {
             "SES region. Part of the endpoint, not a preference.",
         )
         .consequence("The SES region. It is part of the endpoint, so a wrong value sends the request to a region where the sending identity is not verified.")
-        .rationale("eu-west-1 is a common EU sending region; a deployment in another region changes it.")
+        .rationale("eu-west-1 is a common EU sending region. A deployment in another region changes it.")
         .needs(&["EMAIL_TRANSPORT"]),
 
         // auth
@@ -1192,7 +1192,7 @@ fn params() -> Vec<Param> {
             false,
             "WebAuthn relying-party id (effective domain of the origin).",
         )
-        .consequence("The domain passkeys are bound to. Changing it orphans every enrolled passkey and users fall back to password or a reset.")
+        .consequence("The domain passkeys are bound to. Changing it orphans every enrolled passkey, and users fall back to a password or a reset.")
         .rationale("localhost is the only domain a dev browser will register a passkey for without TLS."),
         param(
             "WEBAUTHN_RP_ORIGIN",
@@ -1212,7 +1212,7 @@ fn params() -> Vec<Param> {
             false,
             "Access-token TTL.",
         )
-        .consequence("How long an access token keeps working. Short values limit a stolen token's life and cost a refresh round trip; long values do the opposite.")
+        .consequence("How long an access token keeps working. Short values limit a stolen token's life and cost a refresh round trip. Long values save those round trips and leave a stolen token usable for longer.")
         .rationale("900 s is short enough that a leaked token ages out within a coffee break and long enough that a working session refreshes every 15 minutes."),
         param(
             "REFRESH_TTL_SECS",
@@ -1222,7 +1222,7 @@ fn params() -> Vec<Param> {
             false,
             "Refresh-token TTL.",
         )
-        .consequence("How long a session survives without signing in again. Lowering it signs people out mid-shift; raising it extends what a stolen refresh token is worth.")
+        .consequence("How long a session survives without signing in again. Lowering it signs people out mid-shift. Raising it extends what a stolen refresh token is worth.")
         .rationale("30 days is the shipped session length, chosen so a technician is not asked for a password between calls."),
         param(
             "MARULA_AUTH_HASH_MAX_CONCURRENCY",
@@ -1233,7 +1233,7 @@ fn params() -> Vec<Param> {
             "Concurrent argon2id hashes this process will run. 0 resolves at boot to two slots per available core.",
         )
         .consequence("How many password hashes run at once. Each in-flight slot holds about nineteen megabytes, so a number past the core count widens the tail instead of adding throughput.")
-        .rationale("0 means two slots per core, which is the measured bound; every extra slot is memory that unauthenticated login traffic can claim."),
+        .rationale("0 means two slots per core, which is the measured bound. Every extra slot is memory that unauthenticated login traffic can claim."),
         param(
             "MARULA_AUTH_HASH_QUEUE_WAIT_MS",
             "auth",
@@ -1254,8 +1254,8 @@ fn params() -> Vec<Param> {
             false,
             "Outbound email idle poll interval. See docs/worker-cadence.md.",
         )
-        .consequence("How often the outbound email loop looks for work. At two seconds a queued message leaves almost immediately; each tick is a query, so a fleet adds up.")
-        .rationale("2 s is the shipped idle cadence and the reason a ticket notification arrives while the user is still looking at the screen."),
+        .consequence("How often the outbound email loop looks for work. At two seconds a queued message leaves almost immediately. Each tick is a query, so a fleet adds up.")
+        .rationale("2 s is the shipped idle cadence, and the reason a ticket notification arrives while the user is still looking at the screen."),
         param(
             "QUEUE_IDLE_MS",
             "cadence",
@@ -1264,7 +1264,7 @@ fn params() -> Vec<Param> {
             false,
             "General job-queue idle sleep.",
         )
-        .consequence("How long the job queue sleeps when it finds nothing. Lower starts a job sooner and asks the database more often while the system is idle.")
+        .consequence("How long the job queue sleeps when it finds nothing. A lower value starts a job sooner and asks the database more often while the system is idle.")
         .rationale("500 ms is short enough that the demo feels live and long enough that an idle box is not querying twice a second per loop."),
         param(
             "EVAL_INTERVAL_SECS",
@@ -1274,7 +1274,7 @@ fn params() -> Vec<Param> {
             false,
             "Shared interval for the SLA, project billing, rotation, dedupe sweeps.",
         )
-        .consequence("The shared interval for the SLA, billing, rotation and dedupe sweeps. Raising it delays all of them together, because there is no per-sweep override.")
+        .consequence("The interval all four sweeps share: SLA, billing, rotation and dedupe. Raising it delays all four together, because there is no per-sweep override.")
         .rationale("60 s is one minute of staleness across four sweeps, which is below what any of them promises a user."),
         param(
             "TIME_AUDIT_POLL_SECS",
@@ -1295,7 +1295,7 @@ fn params() -> Vec<Param> {
             "Scheduled report delivery sweep interval.",
         )
         .consequence("How often scheduled reports are checked for due time. It decides how late a nine o'clock report can be.")
-        .rationale("60 s means a report goes out within a minute of its slot, which is what a recipient expects."),
+        .rationale("60 s puts a report within a minute of its slot. A recipient expects no less."),
         param(
             "USAGE_REFRESH_SECS",
             "cadence",
@@ -1324,7 +1324,7 @@ fn params() -> Vec<Param> {
             false,
             "Workflow run-retention sweep interval.",
         )
-        .consequence("How often workflow run retention is enforced. The window decides what is kept; this only decides how long a row past the window survives.")
+        .consequence("How often workflow run retention is enforced. The window decides what is kept. This interval only decides how long a row past the window survives.")
         .rationale("21600 s is six hours, which is the shipped tolerance between a row ageing out and being deleted."),
 
         // lifecycle (retention matrix + object integrity; docs/reference/data-lifecycle.md)
@@ -1346,7 +1346,7 @@ fn params() -> Vec<Param> {
             false,
             "Retention pass interval: partition upkeep plus the batched deletes.",
         )
-        .consequence("How often the retention pass runs, partition upkeep plus the batched deletes. A short interval keeps each burst of deletes small.")
+        .consequence("How often the retention pass runs: partition upkeep plus the batched deletes. A short interval keeps each burst of deletes small.")
         .rationale("3600 s is hourly: frequent enough that deletes stay small, rare enough not to churn partitions."),
         param(
             "MARULA_RETENTION_BATCH",
@@ -1367,7 +1367,7 @@ fn params() -> Vec<Param> {
             "Object-integrity pass: off, dry_run or on. `on` deletes orphaned bytes.",
         )
         .consequence("Whether orphaned object bytes are removed. on deletes them, dry_run only reports, and off lets the storage grow unreported.")
-        .rationale("off is the default because a deletion pass on somebody's attachments should be switched on deliberately."),
+        .rationale("off is the default because a deletion pass over somebody's attachments should be switched on deliberately."),
         param(
             "MARULA_OBJECT_GC_GRACE_HOURS",
             "lifecycle",
@@ -1421,7 +1421,7 @@ fn params() -> Vec<Param> {
             false,
             "Deaths allowed per (group, event) before a dead entry stops being replayed.",
         )
-        .consequence("How many deaths one event group may have before replay stops. Zero parks a flapping event immediately; three lets a transient fault recover.")
+        .consequence("How many deaths one event group may have before replay stops. Zero parks a flapping event immediately. Three lets a transient fault recover.")
         .rationale("3 attempts covers a restart or a network blip and still stops a poison message from looping forever."),
         param(
             "MARULA_RECONCILE_WAKE_GRACE_SECS",
@@ -1453,8 +1453,8 @@ fn params() -> Vec<Param> {
             false,
             "GlitchTip DSN presence for the self-host pane.",
         )
-        .consequence("The API's error-reporting DSN. Its presence is what the self-host pane reports as configured; unset leaves errors in the log only.")
-        .rationale("No default: an error sink belongs to the deployment that runs it."),
+        .consequence("The API's error-reporting DSN. Setting it makes error reporting read as configured in the self-host pane. Left unset, errors stay in the log only.")
+        .rationale("No default, because an error sink belongs to the deployment that runs it."),
 
         // --- topology (added by Wave 52 lane R1: the descriptor omitted them) ---
         param(
@@ -1476,7 +1476,7 @@ fn params() -> Vec<Param> {
             "Enable the dev-only fallbacks for JWT_SECRET and MARULA_SECRET_KEY. Never set in production.",
         )
         .consequence("Enables dev fallbacks for the two signing secrets. On a reachable deployment it turns a boot refusal into a running server with a guessable key.")
-        .rationale("false, and never true outside a laptop: the fallback exists so a demo needs no setup, not so a server can skip its keys."),
+        .rationale("false, and never true outside a laptop. The fallback exists so a demo needs no setup, not so a server can skip its keys."),
         param(
             "TRUSTED_PROXIES",
             "topology",
@@ -1485,18 +1485,18 @@ fn params() -> Vec<Param> {
             false,
             "Comma-separated proxy CIDRs. Replaces the loopback plus RFC1918 default set.",
         )
-        .consequence("The proxy CIDRs whose X-Forwarded-For header is believed. Wider than the real fleet lets a client write its own address and step around per-IP limits.")
-        .rationale("Unset keeps the built-in loopback-plus-private set, which is what a proxy on the same host or network produces."),
+        .consequence("The proxy CIDRs whose X-Forwarded-For header is believed. A set wider than the real fleet lets a client write its own address and step around per-IP limits.")
+        .rationale("Unset keeps the built-in loopback-plus-private set. A proxy on the same host or network produces exactly those addresses."),
         param(
             "CF_CONNECTING_IP",
             "topology",
             String,
             Some("auto"),
             false,
-            "Which CF-Connecting-IP port the client-IP resolver believes: auto, true or false.",
+            "Whether the client-IP resolver believes the CF-Connecting-IP header: auto, true or false.",
         )
-        .consequence("Whether the client-IP resolver believes CF-Connecting-IP. true behind Cloudflare gets the real client; true without it lets any caller claim one.")
-        .rationale("auto trusts the header only when the peer address is one of the Cloudflare ranges, which is the safe reading of try it if it applies."),
+        .consequence("Whether the client-IP resolver believes CF-Connecting-IP. true behind Cloudflare gets the real client, and true without it lets any caller claim one.")
+        .rationale("auto trusts the header only when the peer address sits inside the Cloudflare ranges, so the safe answer needs no knowledge of the deployment's topology."),
         param(
             "CF_IP_RANGES",
             "topology",
@@ -1526,7 +1526,7 @@ fn params() -> Vec<Param> {
             "core-api base URL for the email and missing-time loops.",
         )
         .consequence("The API base the email and missing-time loops call. A wrong value fails those calls while the rest of the worker keeps running.")
-        .rationale("localhost:8080 is the dev default; inside compose the worker reaches the API by service name and the profile sets that."),
+        .rationale("localhost:8080 is the dev default. Inside compose the worker reaches the API by service name, and the profile sets that."),
         param(
             "INTERNAL_API_URL",
             "topology",
@@ -1545,7 +1545,7 @@ fn params() -> Vec<Param> {
             false,
             "Worker health URL the self-host pane probes. Unset shows the pane as not configured.",
         )
-        .consequence("The worker health URL the self-host pane probes. Unset shows the pane as not configured rather than failing it.")
+        .consequence("The worker health URL the self-host pane probes. Unset shows the pane as not configured rather than failing a process it never ran.")
         .rationale("Unset by default so a deployment without a worker pane does not show a red light for a process it never ran."),
 
         // --- database and cache ---
@@ -1555,7 +1555,7 @@ fn params() -> Vec<Param> {
             Integer,
             Some("30"),
             false,
-            "Backstop TTL for the reference cache; an invalidation event normally drops the entry first.",
+            "Backstop TTL for the reference cache. An invalidation event normally drops the entry first.",
         )
         .consequence("The backstop lifetime of a cached reference row. Normal invalidation drops the entry first, so this only bounds how stale a missed invalidation can stay.")
         .rationale("30 s is short enough that a missed invalidation is a blink and long enough that the cache still saves the reads."),
@@ -1567,7 +1567,7 @@ fn params() -> Vec<Param> {
             false,
             "Entry ceiling per cache namespace, least-recently-used eviction.",
         )
-        .consequence("The ceiling per cache namespace before least-recently-used eviction. Too small and the cache thrashes; too large and it holds memory no report needs.")
+        .consequence("The ceiling per cache namespace before least-recently-used eviction. Too small and the cache thrashes. Too large and it holds memory no report needs.")
         .rationale("4096 entries is a few megabytes for the tables that use it, well inside a container's memory budget."),
         param(
             "MARULA_MAX_UPLOAD_MB",
@@ -1577,7 +1577,7 @@ fn params() -> Vec<Param> {
             false,
             "Largest accepted attachment, in mebibytes.",
         )
-        .consequence("The largest attachment accepted. Lower refuses a file a user expects to attach; higher lets one request hold that much memory and disk.")
+        .consequence("The largest attachment accepted. A lower value refuses a file a user expects to attach. A higher one lets a single request hold that much memory and disk.")
         .rationale("25 MB covers a screenshot, a log bundle or a PDF export without letting a request become a bulk transfer."),
 
         // cache
@@ -1589,7 +1589,7 @@ fn params() -> Vec<Param> {
             false,
             "Entries kept in the event stream before the oldest are trimmed.",
         )
-        .consequence("Entries kept in the event stream. Trimming earlier loses replay for a client that reconnects late; keeping more costs Redis memory.")
+        .consequence("Entries kept in the event stream. Trimming earlier loses replay for a client that reconnects late. Keeping more costs Redis memory.")
         .rationale("50000 entries is several hours of a busy instance's events, which is longer than any tab stays suspended."),
         param(
             "MARULA_SSE_MAX_CONNECTIONS",
@@ -1619,7 +1619,7 @@ fn params() -> Vec<Param> {
             false,
             "Presence lease length. Unset keeps the built-in default.",
         )
-        .consequence("How long a presence lease lasts. Too short flickers a colleague offline; too long shows them present after the tab is gone.")
+        .consequence("How long a presence lease lasts. Too short flickers a colleague offline. Too long shows them present after the tab is gone.")
         .rationale("Unset keeps the built-in lease, which the presence loop renews while the tab is alive."),
         param(
             "OUTBOX_RETENTION_DAYS",
@@ -1639,7 +1639,7 @@ fn params() -> Vec<Param> {
             false,
             "How often the outbox retention window is enforced.",
         )
-        .consequence("How often the outbox retention window is enforced. Each pass deletes what has aged out; the interval only decides how often that happens.")
+        .consequence("How often the outbox retention window is enforced. Each pass deletes what has aged out, and the interval only decides how often that happens.")
         .rationale("21600 s is every six hours, which keeps the delete off the hot path entirely."),
 
         // --- secrets and keys ---
@@ -1652,7 +1652,7 @@ fn params() -> Vec<Param> {
             "Single trusted plugin-signing key (key_id=hex). Superseded by MARULA_PLUGIN_SIGNING_KEYS.",
         )
         .consequence("One trusted plugin key in the older singular form. The plural lever supersedes it, so set it only to keep an existing install working.")
-        .rationale("No default: a trust root cannot ship with the product."),
+        .rationale("No default, because a trust root cannot ship with the product."),
         param(
             "MARULA_JWT_EDDSA_PRIVATE_KEY",
             "secrets",
@@ -1662,7 +1662,7 @@ fn params() -> Vec<Param> {
             "Inline Ed25519 private key PEM for token signing. Set this or the _FILE form, not both.",
         )
         .consequence("The Ed25519 key that signs tokens instead of the HMAC secret. Tokens signed by it cannot be verified by a peer that only has the secret, so every verifier needs the public half.")
-        .rationale("No default: the signing key belongs to the deployment, and the inline form exists for a platform that cannot mount a file.")
+        .rationale("No default, because the signing key belongs to the deployment. The inline form exists for a platform that cannot mount a file.")
         .conflicts(&["MARULA_JWT_EDDSA_PRIVATE_KEY_FILE"]),
         param(
             "MARULA_JWT_EDDSA_PRIVATE_KEY_FILE",
@@ -1673,7 +1673,7 @@ fn params() -> Vec<Param> {
             "Path to the Ed25519 private key PEM. Set this or the inline form, not both.",
         )
         .consequence("The path to the Ed25519 private key PEM. The file form keeps the key out of the process environment and out of a crash dump.")
-        .rationale("No default: it is a filesystem path only the deployment knows.")
+        .rationale("No default, because only the deployment knows where it put the file.")
         .conflicts(&["MARULA_JWT_EDDSA_PRIVATE_KEY"]),
         param(
             "MARULA_JWT_EDDSA_PUBLIC_KEY",
@@ -1684,7 +1684,7 @@ fn params() -> Vec<Param> {
             "Inline Ed25519 public key PEM. Required whenever a private key is configured.",
         )
         .consequence("The public half verifiers use. A key pair that disagrees signs tokens nothing accepts, and the refusal appears at the first request rather than at boot.")
-        .rationale("No default: it has to match the private key that was generated for this deployment.")
+        .rationale("No default, because it has to match the private key generated for this deployment.")
         .conflicts(&["MARULA_JWT_EDDSA_PUBLIC_KEY_FILE"]),
         param(
             "MARULA_JWT_EDDSA_PUBLIC_KEY_FILE",
@@ -1695,7 +1695,7 @@ fn params() -> Vec<Param> {
             "Path to the Ed25519 public key PEM.",
         )
         .consequence("The path to the Ed25519 public key PEM, for deployments that mount keys as files.")
-        .rationale("No default: it is a deployment path.")
+        .rationale("No default, because only the deployment knows the path.")
         .conflicts(&["MARULA_JWT_EDDSA_PUBLIC_KEY"]),
         param(
             "MARULA_JWT_KID",
@@ -1706,7 +1706,7 @@ fn params() -> Vec<Param> {
             "Key id published in the token header so verifiers pick the right key.",
         )
         .consequence("The key id published in the token header so a verifier picks the right key. Two deployments sharing one id make a rotation ambiguous.")
-        .rationale("m1 is a single-key deployment's identifier; a rotation gives the new key a new id."),
+        .rationale("m1 is a single-key deployment's identifier. A rotation gives the new key a new id."),
         param(
             "MARULA_STRIPE_SECRET_KEY",
             "secrets",
@@ -1716,7 +1716,7 @@ fn params() -> Vec<Param> {
             "Stripe API key for the billing provider adapter.",
         )
         .consequence("The Stripe API key. With it unset the billing adapter stays in its none mode and no charge is attempted, which is the honest state of an install that does not bill.")
-        .rationale("No default: it is a live payment credential."),
+        .rationale("No default, because a live payment credential cannot ship in an image."),
         param(
             "MARULA_STRIPE_WEBHOOK_SECRET",
             "secrets",
@@ -1726,7 +1726,7 @@ fn params() -> Vec<Param> {
             "Stripe webhook signing secret.",
         )
         .consequence("Verifies Stripe webhooks. Unset means settlement events are refused rather than trusted unverified.")
-        .rationale("No default: it is issued by Stripe per endpoint.")
+        .rationale("No default, because Stripe issues it per endpoint.")
         .needs(&["MARULA_STRIPE_SECRET_KEY"]),
         param(
             "GOOGLE_CALENDAR_CLIENT_ID",
@@ -1747,7 +1747,7 @@ fn params() -> Vec<Param> {
             "Delegated Google Calendar OAuth client secret.",
         )
         .consequence("The Google Calendar OAuth client secret. It is exchanged for a refresh token per connected technician.")
-        .rationale("No default: it is a secret issued per client.")
+        .rationale("No default, because it is issued per OAuth client.")
         .needs(&["GOOGLE_CALENDAR_CLIENT_ID"]),
         param(
             "MICROSOFT_GRAPH_CLIENT_ID",
@@ -1758,7 +1758,7 @@ fn params() -> Vec<Param> {
             "Delegated Microsoft Graph OAuth client id.",
         )
         .consequence("The delegated Microsoft Graph OAuth client id. Without both halves the Graph calendar and mail providers stay unavailable.")
-        .rationale("No default: the app registration is the deployment's own."),
+        .rationale("No default, because the app registration belongs to the deployment."),
         param(
             "MICROSOFT_GRAPH_CLIENT_SECRET",
             "secrets",
@@ -1768,7 +1768,7 @@ fn params() -> Vec<Param> {
             "Delegated Microsoft Graph OAuth client secret.",
         )
         .consequence("The Microsoft Graph OAuth client secret. Without it the Graph calendar and mail providers cannot be connected, so the sync stays unavailable.")
-        .rationale("No default: it is a secret issued per app registration.")
+        .rationale("No default, because it is issued per app registration.")
         .needs(&["MICROSOFT_GRAPH_CLIENT_ID"]),
 
         // --- email (remaining levers) ---
@@ -1780,8 +1780,8 @@ fn params() -> Vec<Param> {
             false,
             "SES endpoint override. Unset derives it from the region.",
         )
-        .consequence("Overrides the SES endpoint. Useful against a local mail sink; in production it must be unset so the region decides.")
-        .rationale("Unset means the regional endpoint, which is what production wants.")
+        .consequence("Overrides the SES endpoint. It is useful against a local mail sink. In production it has to be unset so the region decides.")
+        .rationale("Unset means the regional endpoint, and production wants nothing else.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
             "POSTMARK_BASE_URL",
@@ -1791,7 +1791,7 @@ fn params() -> Vec<Param> {
             false,
             "Postmark API base URL.",
         )
-        .consequence("The Postmark API base. Unset uses the public API; a proxy or a regional endpoint goes here.")
+        .consequence("The Postmark API base. Unset uses the public API, and a proxy or a regional endpoint goes here.")
         .rationale("api.postmarkapp.com is Postmark's own endpoint and needs no configuration.")
         .needs(&["EMAIL_TRANSPORT"]),
         param(
@@ -1844,7 +1844,7 @@ fn params() -> Vec<Param> {
             "Scheduled-delivery rows claimed per sweep.",
         )
         .consequence("Scheduled-report rows claimed per sweep. The same trade as the email batch: throughput against the blast radius of one crashed claimant.")
-        .rationale("20 keeps a delivery sweep short; reports are heavier than mail, so the batch is smaller."),
+        .rationale("20 keeps a delivery sweep short. Reports are heavier than mail, so the batch is smaller."),
 
         // --- auth (remaining levers) ---
         param(
@@ -1865,7 +1865,7 @@ fn params() -> Vec<Param> {
             false,
             "Real member id decision runs are attributed to. Unset disables the decision subsystem.",
         )
-        .consequence("The real member id decision runs are attributed to. Unset disables the decision subsystem, so every rule that asks it stops producing a suggestion.")
+        .consequence("The real member id that decision runs are attributed to. Unset disables the decision subsystem, so every rule that asks it stops producing a suggestion.")
         .rationale("No default: attribution is to a person in the operator's own directory, and no shipped id could be right."),
 
         // --- cadence (remaining levers) ---
@@ -1887,7 +1887,7 @@ fn params() -> Vec<Param> {
             false,
             "Lease age after which a crashed claimant's job is re-armed.",
         )
-        .consequence("Lease age after which a crashed claimant's job is re-armed. Too short steals work from a live worker; too long leaves a job stuck for that whole window.")
+        .consequence("Lease age after which a crashed claimant's job is re-armed. Too short steals work from a live worker. Too long leaves a job stuck for that whole window.")
         .rationale("300 s is longer than the slowest measured job and shorter than a person's patience with a stuck run."),
         param(
             "RELAY_BATCH",
@@ -1917,8 +1917,8 @@ fn params() -> Vec<Param> {
             false,
             "Listen on the outbox notification channel. Off restores pure polling.",
         )
-        .consequence("Whether the relay listens on the outbox notification channel. Off restores pure polling, which adds up to the poll interval of latency to every event.")
-        .rationale("true because the wakeup is what makes live push feel instant; the poll stays as the backstop either way."),
+        .consequence("Whether the relay listens on the outbox notification channel. Off restores pure polling, so every event can wait up to the poll interval.")
+        .rationale("true because the wakeup is what makes live push feel instant. The poll stays as the backstop either way."),
 
         // --- observability (remaining levers) ---
         param(
@@ -1929,8 +1929,8 @@ fn params() -> Vec<Param> {
             true,
             "GlitchTip DSN for the worker. Presence is shown in the self-host pane.",
         )
-        .consequence("The worker's error-reporting DSN. Separate from the API's so the two process types can report to different projects.")
-        .rationale("No default: the worker reports where its operator sent it or not at all."),
+        .consequence("The worker's error-reporting DSN. It is separate from the API's so the two process types can report to different projects.")
+        .rationale("No default, because the worker reports where its operator pointed it or nowhere."),
         param(
             "MARULA_GLITCHTIP_URL",
             "observability",
@@ -1949,8 +1949,8 @@ fn params() -> Vec<Param> {
             false,
             "Grafana URL for the operator links.",
         )
-        .consequence("The Grafana link the self-host pane offers. Nothing depends on it; it saves an operator from remembering the address.")
-        .rationale("Unset hides the link."),
+        .consequence("The Grafana link the self-host pane offers. Nothing depends on it. It saves an operator from remembering the address.")
+        .rationale("Unset leaves the link out, because there is no address to open until an operator runs Grafana."),
         param(
             "MARULA_LOKI_URL",
             "observability",
@@ -1960,7 +1960,7 @@ fn params() -> Vec<Param> {
             "Loki URL for the operator links.",
         )
         .consequence("The Loki link the self-host pane offers for log queries.")
-        .rationale("Unset hides the link."),
+        .rationale("Unset leaves the link out, because there is no address to open until an operator runs Loki."),
         param(
             "MARULA_OTEL_METRICS_URL",
             "observability",
@@ -1970,7 +1970,7 @@ fn params() -> Vec<Param> {
             "Metrics backend URL for the operator links.",
         )
         .consequence("The metrics-backend link the self-host pane offers. It is unrelated to the OTLP endpoint, which is where the data is actually sent.")
-        .rationale("Unset hides the link."),
+        .rationale("Unset leaves the link out, because there is no address to open until a metrics backend exists."),
         param(
             "MARULA_TEMPO_URL",
             "observability",
@@ -1980,7 +1980,7 @@ fn params() -> Vec<Param> {
             "Tempo URL for the operator links.",
         )
         .consequence("The Tempo link the self-host pane offers for trace lookup.")
-        .rationale("Unset hides the link."),
+        .rationale("Unset leaves the link out, because there is no address to open until an operator runs Tempo."),
         param(
             "MARULA_UPTIME_KUMA_URL",
             "observability",
@@ -1989,8 +1989,8 @@ fn params() -> Vec<Param> {
             false,
             "Uptime Kuma URL for the operator links.",
         )
-        .consequence("The Uptime Kuma link the self-host pane offers. It points at whatever monitor the operator runs; Marula does not read it.")
-        .rationale("Unset hides the link."),
+        .consequence("The Uptime Kuma link the self-host pane offers. It points at whatever monitor the operator runs, and Marula does not read it.")
+        .rationale("Unset leaves the link out, because there is no address to open until an operator runs Uptime Kuma."),
 
         // --- routing ---
         param(
@@ -2022,8 +2022,8 @@ fn params() -> Vec<Param> {
             false,
             "OpenRouteService base URL.",
         )
-        .consequence("The OpenRouteService base URL. Unset uses the public service, which is what the key is issued against.")
-        .rationale("No default: the public endpoint or a proxy is a deployment choice.")
+        .consequence("The OpenRouteService base URL. Unset uses the public service, which is the endpoint the key was issued for.")
+        .rationale("No default, because the public endpoint and a proxy are both deployment choices.")
         .needs(&["ROUTING_PROVIDER"]),
         param(
             "ROUTING_ORS_API_KEY",
@@ -2034,7 +2034,7 @@ fn params() -> Vec<Param> {
             "OpenRouteService API key.",
         )
         .consequence("The OpenRouteService key. Without it the provider refuses every request, and travel times disappear rather than approximating.")
-        .rationale("No default: it is a per-account key.")
+        .rationale("No default, because OpenRouteService issues one per account.")
         .needs(&["ROUTING_ORS_URL"]),
         param(
             "ROUTING_CONTRACT_URL",
@@ -2045,7 +2045,7 @@ fn params() -> Vec<Param> {
             "Contract routing service base URL.",
         )
         .consequence("The contract routing service base URL, for a deployment that has its own travel-time agreement.")
-        .rationale("No default: the service is the customer's.")
+        .rationale("No default, because the service belongs to the customer.")
         .needs(&["ROUTING_PROVIDER"]),
         param(
             "ROUTING_CONTRACT_ID",
@@ -2056,7 +2056,7 @@ fn params() -> Vec<Param> {
             "Contract routing service account id.",
         )
         .consequence("The account id the contract routing service expects. It is sent with every lookup and rejected if it does not match.")
-        .rationale("No default: it is issued by the service.")
+        .rationale("No default, because the routing service issues it.")
         .needs(&["ROUTING_CONTRACT_URL"]),
         param(
             "ROUTING_CONTRACT_TOKEN",
@@ -2067,7 +2067,7 @@ fn params() -> Vec<Param> {
             "Contract routing service token.",
         )
         .consequence("The token for the contract routing service. A wrong one fails lookups while the rest of the board keeps working.")
-        .rationale("No default: it is a secret.")
+        .rationale("No default, because the routing service issues it per account.")
         .needs(&["ROUTING_CONTRACT_URL"]),
         param(
             "MAPBOX_ACCESS_TOKEN",
@@ -2078,7 +2078,7 @@ fn params() -> Vec<Param> {
             "Mapbox access token.",
         )
         .consequence("The Mapbox token used when the provider is mapbox. It is billed per request, so a leaked token costs money rather than data.")
-        .rationale("No default: it is a per-account token.")
+        .rationale("No default, because Mapbox issues one per account and bills it per request.")
         .needs(&["ROUTING_PROVIDER"]),
         param(
             "MAPBOX_PROFILE",
@@ -2101,7 +2101,7 @@ fn params() -> Vec<Param> {
             false,
             "Migration requests allowed per principal per minute.",
         )
-        .consequence("Requests a migration key may make per minute. Lower throttles a bulk push into a crawl; higher lets one key crowd the API.")
+        .consequence("Requests a migration key may make per minute. A lower value throttles a bulk push into a crawl. A higher one lets a single key crowd the API.")
         .rationale("600 is ten requests a second, which a real import sustains and a runaway client does not exceed unnoticed."),
         param(
             "MARULA_DISPATCH_RATE_LIMIT_PER_MIN",
@@ -2121,7 +2121,7 @@ fn params() -> Vec<Param> {
             false,
             "Scheduling-link requests allowed per principal per minute.",
         )
-        .consequence("Requests the public scheduling links accept per principal per minute. Lower protects a page a stranger can reach; higher admits a burst of bookings.")
+        .consequence("Requests the public scheduling links accept per principal per minute. A lower value protects a page a stranger can reach. A higher one admits a burst of bookings.")
         .rationale("60 is one request a second, which no human booking flow needs and a scraper exceeds at once."),
         param(
             "MARULA_VAULT_WRITE_BUDGET_PER_MIN",
@@ -2153,7 +2153,7 @@ fn params() -> Vec<Param> {
             false,
             "OpenAI-compatible base URL. Unset keeps the built-in default.",
         )
-        .consequence("The OpenAI-compatible endpoint for cloud embeddings and completions. Unset keeps the built-in URL; an internal gateway goes here.")
+        .consequence("The OpenAI-compatible endpoint for cloud embeddings and completions. Unset keeps the built-in URL, and an internal gateway goes here.")
         .rationale("Unset means the public OpenAI URL, which is the only endpoint that needs no configuration."),
         param(
             "OLLAMA_BASE_URL",
@@ -2164,7 +2164,7 @@ fn params() -> Vec<Param> {
             "Ollama base URL for the local model option.",
         )
         .consequence("Where the local model runtime answers. Unset uses the default local port, which is wrong the moment Ollama runs in another container.")
-        .rationale("Unset keeps the loopback default that a co-located Ollama uses; compose sets the service name instead."),
+        .rationale("Unset keeps the loopback default that a co-located Ollama uses. Compose sets the service name instead."),
         param(
             "MARULA_EMBEDDING_TIER",
             "ai",
@@ -2181,7 +2181,7 @@ fn params() -> Vec<Param> {
             String,
             Some("embeddinggemma-2:270m-q8_0-text"),
             false,
-            "Embedding model this instance runs. Set per instance, not per org; the tier picks the default.",
+            "Embedding model this instance runs, set per instance rather than per org. The tier picks the default.",
         )
         .consequence("The one model every vector in this instance is written with. Changing it writes nothing by itself, and the vectors already stored belong to the old space until a re-index finishes.")
         .rationale("embeddinggemma-2:270m-q8_0-text is the shipped default because it is the measured one on the reference profiles and runs on any CPU."),
@@ -2193,7 +2193,7 @@ fn params() -> Vec<Param> {
             false,
             "Where embeddings are computed: ollama for a local model, or openai for an OpenAI-compatible endpoint.",
         )
-        .consequence("Where embeddings are computed: the local runtime or a cloud endpoint. Switching to cloud sends search text off the box, which is a data-handling decision before it is a performance one.")
+        .consequence("Which runtime computes embeddings. The local one keeps search text on the box, and a cloud endpoint sends it off, which is a data-handling decision before it is a performance one.")
         .rationale("ollama is the default because the shipped model is local and search works on a box with no internet."),
         param(
             "MARULA_EMBEDDING_API_KEY",
@@ -2204,7 +2204,7 @@ fn params() -> Vec<Param> {
             "Instance-wide key for a cloud embedding provider. Checked before an org's own credential.",
         )
         .consequence("The instance key for a cloud provider, used before any org's own credential. Unset with a cloud provider means every org brings its own key or embedding fails.")
-        .rationale("No default: it is a billing credential.")
+        .rationale("No default, because it is a billing credential for one cloud account.")
         .needs(&["MARULA_EMBEDDING_PROVIDER"]),
         param(
             "MARULA_EMBEDDING_CUSTOM_MODELS",
@@ -2224,7 +2224,7 @@ fn params() -> Vec<Param> {
             false,
             "Host memory the capacity floor is checked against. Unset reads the host, and a host that publishes no reading is not refused.",
         )
-        .consequence("The memory figure the capacity floor is checked against. Unset reads the host; declaring less than the box has is how a container is refused before it is killed.")
+        .consequence("The memory figure the capacity floor is checked against. Unset reads the host. Declaring less than the box has is how a container gets refused before the kernel kills it.")
         .rationale("Unset by default because the host usually publishes a number, and a guessed value is worse than a measured one."),
         param(
             "MARULA_EMBEDDING_KEEP_ALIVE",
@@ -2234,7 +2234,7 @@ fn params() -> Vec<Param> {
             false,
             "How long the local embedding model stays resident after its last request (Ollama duration syntax).",
         )
-        .consequence("How long the local model stays resident after its last request. Long keeps searches fast and memory held; short frees memory and pays a reload on the next query, measured at 1.6 s.")
+        .consequence("How long the local model stays resident after its last request. A long value keeps searches fast and holds memory. A short one frees the memory and pays a reload on the next query, measured at 1.6 s.")
         .rationale("5m is the shipped balance: long enough to answer a burst of searches, short enough to give the memory back afterwards."),
         param(
             "MARULA_EMBEDDING_REINDEX_BATCH",
@@ -2252,9 +2252,9 @@ fn params() -> Vec<Param> {
             Integer,
             Some("600"),
             false,
-            "Ceiling on rows embedded per minute during a re-index; the sweep pauses between batches to hold it.",
+            "Ceiling on rows embedded per minute during a re-index. The sweep pauses between batches to hold it.",
         )
-        .consequence("The ceiling on re-index throughput. This is the knob that keeps a re-index from starving ordinary search and writes.")
+        .consequence("The ceiling on re-index throughput. It is the knob that keeps a re-index from starving ordinary search and writes.")
         .rationale("600 rows a minute re-indexes a 100k-vector tenant in under three hours while leaving the database to its other work."),
         param(
             "MARULA_EMBEDDING_REINDEX_SECS",
@@ -2282,10 +2282,10 @@ fn params() -> Vec<Param> {
             String,
             Some("exact"),
             false,
-            "How the search vector leg answers: exact (sequential scan, true nearest neighbours, the default), iterative (pgvector HNSW with hnsw.iterative_scan, needs pgvector 0.8 and the HNSW index) or index (VectorChord with vchordrq.prefilter, needs the vchord extension preloaded and its index). A mode this database cannot run refuses at boot; it never falls back to exact.",
+            "How the search vector leg answers: exact, iterative or index.",
         )
-        .consequence("How the search vector leg answers. index on a database without the extension refuses at boot instead of falling back, because a silent fallback reads as search working badly.")
-        .rationale("exact is the default: it returns the true nearest neighbours at 0.48 ms for a small tenant, and the two index modes need database capabilities a managed instance may not allow."),
+        .consequence("The strategy the search vector leg uses. exact runs a sequential scan and returns the true nearest neighbours. iterative uses pgvector HNSW with hnsw.iterative_scan, which needs pgvector 0.8 and the HNSW index. index uses VectorChord with vchordrq.prefilter, which needs the vchord extension preloaded and its index. A mode this database cannot run refuses at boot instead of falling back to exact.")
+        .rationale("exact is the default because it returns the true nearest neighbours at 0.48 ms for a small tenant. The two index modes need database capabilities a managed instance may not allow."),
         param(
             "MARULA_RETRIEVAL_WATCH_SECS",
             "ai",
@@ -2312,7 +2312,7 @@ fn params() -> Vec<Param> {
             "Retry preset for every subsystem: balanced, durable, best_effort or single_box.",
         )
         .consequence("The preset every subsystem's retry budget starts from. Changing it moves seven subsystems at once, so a per-lever override is the surgical answer.")
-        .rationale("balanced is the shipped preset because it is the one measured on the reference profiles; the other three exist for a one-box deployment, a long outage and a demo."),
+        .rationale("balanced is the shipped preset because it is the one measured on the reference profiles. The other three exist for a one-box deployment, a long outage and a demo."),
         param(
             "MARULA_RETRY_QUEUE_BASE_MS",
             "retries",
@@ -2331,8 +2331,8 @@ fn params() -> Vec<Param> {
             false,
             "Ceiling on the computed delay for the job queue, in milliseconds.",
         )
-        .consequence("The most the the job queue backoff may grow to. A low cap exhausts the tries during a long outage; a high cap keeps work waiting after it could have failed.")
-        .rationale("An hour is the ceiling because a queued job is work a person is waiting on; past that the operator should see the failure."),
+        .consequence("The most the job queue backoff may grow to. A low cap exhausts the tries during a long outage. A high cap keeps work waiting after it could have failed.")
+        .rationale("An hour is the ceiling because a queued job is work a person is waiting on. Past that, the operator should see the failure."),
         param(
             "MARULA_RETRY_QUEUE_ATTEMPTS",
             "retries",
@@ -2341,7 +2341,7 @@ fn params() -> Vec<Param> {
             false,
             "Total tries for the job queue, including the first. 0 never gives up.",
         )
-        .consequence("Total tries for the job queue, including the first. Zero never gives up, which means a broken dependency is retried forever.")
+        .consequence("Total tries for the job queue, including the first. Zero removes the ceiling, so a broken dependency is retried forever.")
         .rationale("Ten tries cover the shipped backoff from five seconds to the one-hour cap."),
         param(
             "MARULA_RETRY_QUEUE_JITTER",
@@ -2351,7 +2351,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay spread for the job queue: none, full (0 to delay) or equal (half to delay).",
         )
-        .consequence("How much the job queue retries spread. Without spread, everything that failed in one outage retries in lockstep and reproduces it.")
+        .consequence("How far job queue delays vary between attempts. With no variation, everything that failed in one outage retries in lockstep and reproduces the outage.")
         .rationale("Full spread because every worker claims from the same table and would otherwise synchronise after an outage."),
         param(
             "MARULA_RETRY_QUEUE_CONFLICT",
@@ -2361,8 +2361,8 @@ fn params() -> Vec<Param> {
             false,
             "Whether a 409 is retried for the job queue. Retry only where a replay cannot double-apply.",
         )
-        .consequence("Whether a 409 is retried for the job queue. Retrying where a replay can double-apply posts the same thing twice; refusing where it cannot gives up too early.")
-        .rationale("A queue job is idempotent by key, so retrying a conflict cannot double-apply it."),
+        .consequence("Whether a 409 is retried for the job queue. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
+        .rationale("A queue job is not provably free of side effects when it is replayed, so a conflict is treated like any other 4xx instead of being posted again."),
         param(
             "MARULA_RETRY_EMAIL_BASE_MS",
             "retries",
@@ -2381,8 +2381,8 @@ fn params() -> Vec<Param> {
             false,
             "Ceiling on the computed delay for outbound email, in milliseconds.",
         )
-        .consequence("The most the outbound email backoff may grow to. A low cap exhausts the tries during a long outage; a high cap keeps work waiting after it could have failed.")
-        .rationale("An hour lets a provider outage pass without dropping the message; mail that is a day late has lost its point."),
+        .consequence("The most the outbound email backoff may grow to. A low cap exhausts the tries during a long outage. A high cap keeps work waiting after it could have failed.")
+        .rationale("An hour lets a provider outage pass without dropping the message. Mail that is a day late has lost its point."),
         param(
             "MARULA_RETRY_EMAIL_ATTEMPTS",
             "retries",
@@ -2391,8 +2391,8 @@ fn params() -> Vec<Param> {
             false,
             "Total tries for outbound email, including the first. 0 never gives up.",
         )
-        .consequence("Total tries for outbound email, including the first. Zero never gives up, which means a broken dependency is retried forever.")
-        .rationale("Six tries reach the one-hour cap with equal spread, which is what a provider outage typically needs."),
+        .consequence("Total tries for outbound email, including the first. Zero removes the ceiling, so a broken dependency is retried forever.")
+        .rationale("Six tries reach the one-hour cap with equal spread. A provider outage typically needs that much."),
         param(
             "MARULA_RETRY_EMAIL_JITTER",
             "retries",
@@ -2401,7 +2401,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay spread for outbound email: none, full (0 to delay) or equal (half to delay).",
         )
-        .consequence("How much outbound email retries spread. Without spread, everything that failed in one outage retries in lockstep and reproduces it.")
+        .consequence("How far outbound email delays vary between attempts. With no variation, everything that failed in one outage retries in lockstep and reproduces the outage.")
         .rationale("Equal spread is enough for a single sender and keeps the retry order predictable in the delivery log."),
         param(
             "MARULA_RETRY_EMAIL_CONFLICT",
@@ -2411,7 +2411,7 @@ fn params() -> Vec<Param> {
             false,
             "Whether a 409 is retried for outbound email. Retry only where a replay cannot double-apply.",
         )
-        .consequence("Whether a 409 is retried for outbound email. Retrying where a replay can double-apply posts the same thing twice; refusing where it cannot gives up too early.")
+        .consequence("Whether a 409 is retried for outbound email. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
         .rationale("A 409 from the mail provider is a settled outcome, so retrying it would only duplicate the refusal."),
         param(
             "MARULA_RETRY_WEBHOOK_BASE_MS",
@@ -2431,7 +2431,7 @@ fn params() -> Vec<Param> {
             false,
             "Ceiling on the computed delay for signed webhook delivery, in milliseconds.",
         )
-        .consequence("The most the signed webhook delivery backoff may grow to. A low cap exhausts the tries during a long outage; a high cap keeps work waiting after it could have failed.")
+        .consequence("The most the signed webhook delivery backoff may grow to. A low cap exhausts the tries during a long outage. A high cap keeps work waiting after it could have failed.")
         .rationale("An hour is the longest a receiver's outage is worth riding out before the delivery is marked failed."),
         param(
             "MARULA_RETRY_WEBHOOK_ATTEMPTS",
@@ -2441,7 +2441,7 @@ fn params() -> Vec<Param> {
             false,
             "Total tries for signed webhook delivery, including the first. 0 never gives up.",
         )
-        .consequence("Total tries for signed webhook delivery, including the first. Zero never gives up, which means a broken dependency is retried forever.")
+        .consequence("Total tries for signed webhook delivery, including the first. Zero removes the ceiling, so a broken dependency is retried forever.")
         .rationale("Six tries reach the cap, the same shape the email path uses because receivers fail the same way."),
         param(
             "MARULA_RETRY_WEBHOOK_JITTER",
@@ -2451,7 +2451,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay spread for signed webhook delivery: none, full (0 to delay) or equal (half to delay).",
         )
-        .consequence("How much signed webhook delivery retries spread. Without spread, everything that failed in one outage retries in lockstep and reproduces it.")
+        .consequence("How far signed webhook delivery delays vary between attempts. With no variation, everything that failed in one outage retries in lockstep and reproduces the outage.")
         .rationale("Full spread because a fleet of receivers often fails together and should not retry together."),
         param(
             "MARULA_RETRY_WEBHOOK_CONFLICT",
@@ -2461,7 +2461,7 @@ fn params() -> Vec<Param> {
             false,
             "Whether a 409 is retried for signed webhook delivery. Retry only where a replay cannot double-apply.",
         )
-        .consequence("Whether a 409 is retried for signed webhook delivery. Retrying where a replay can double-apply posts the same thing twice; refusing where it cannot gives up too early.")
+        .consequence("Whether a 409 is retried for signed webhook delivery. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
         .rationale("A replay that can double-post to a receiver is worse than a missed delivery the receiver can query for."),
         param(
             "MARULA_RETRY_EFFECTS_BASE_MS",
@@ -2481,7 +2481,7 @@ fn params() -> Vec<Param> {
             false,
             "Ceiling on the computed delay for the worker to core-api effect seam, in milliseconds.",
         )
-        .consequence("The most the the worker to core-api effect seam backoff may grow to. A low cap exhausts the tries during a long outage; a high cap keeps work waiting after it could have failed.")
+        .consequence("The most the worker to core-api effect seam backoff may grow to. A low cap exhausts the tries during a long outage. A high cap keeps work waiting after it could have failed.")
         .rationale("A hundred milliseconds is also the cap, because this seam is local and a slow call means core-api is unhealthy."),
         param(
             "MARULA_RETRY_EFFECTS_ATTEMPTS",
@@ -2491,7 +2491,7 @@ fn params() -> Vec<Param> {
             false,
             "Total tries for the worker to core-api effect seam, including the first. 0 never gives up.",
         )
-        .consequence("Total tries for the worker to core-api effect seam, including the first. Zero never gives up, which means a broken dependency is retried forever.")
+        .consequence("Total tries for the worker to core-api effect seam, including the first. Zero removes the ceiling, so a broken dependency is retried forever.")
         .rationale("One try: the seam is the API's own surface, and a refusal there is a real answer rather than a blip."),
         param(
             "MARULA_RETRY_EFFECTS_JITTER",
@@ -2501,7 +2501,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay spread for the worker to core-api effect seam: none, full (0 to delay) or equal (half to delay).",
         )
-        .consequence("How much the worker to core-api effect seam retries spread. Without spread, everything that failed in one outage retries in lockstep and reproduces it.")
+        .consequence("How far worker to core-api effect seam delays vary between attempts. With no variation, everything that failed in one outage retries in lockstep and reproduces the outage.")
         .rationale("No spread, because there is no fleet of clients to desynchronise."),
         param(
             "MARULA_RETRY_EFFECTS_CONFLICT",
@@ -2511,8 +2511,8 @@ fn params() -> Vec<Param> {
             false,
             "Whether a 409 is retried for the worker to core-api effect seam. Retry only where a replay cannot double-apply.",
         )
-        .consequence("Whether a 409 is retried for the worker to core-api effect seam. Retrying where a replay can double-apply posts the same thing twice; refusing where it cannot gives up too early.")
-        .rationale("A conflict on the seam means the effect was applied; retrying would apply it twice."),
+        .consequence("Whether a 409 is retried for the worker to core-api effect seam. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
+        .rationale("Every endpoint on the effects seam is replay-inert, so a replayed conflict cannot double-apply the effect."),
         param(
             "MARULA_RETRY_CONSUMER_BASE_MS",
             "retries",
@@ -2531,7 +2531,7 @@ fn params() -> Vec<Param> {
             false,
             "Ceiling on the computed delay for stream consumer reconnect, in milliseconds.",
         )
-        .consequence("The most the stream consumer reconnect backoff may grow to. A low cap exhausts the tries during a long outage; a high cap keeps work waiting after it could have failed.")
+        .consequence("The most the stream consumer reconnect backoff may grow to. A low cap exhausts the tries during a long outage. A high cap keeps work waiting after it could have failed.")
         .rationale("Ten seconds is the longest pause before a consumer looks stuck to the metrics."),
         param(
             "MARULA_RETRY_CONSUMER_ATTEMPTS",
@@ -2541,8 +2541,8 @@ fn params() -> Vec<Param> {
             false,
             "Total tries for stream consumer reconnect, including the first. 0 never gives up.",
         )
-        .consequence("Total tries for stream consumer reconnect, including the first. Zero never gives up, which means a broken dependency is retried forever.")
-        .rationale("Zero never gives up, because a consumer that stops reconnecting stops live updates until the process restarts."),
+        .consequence("Total tries for stream consumer reconnect, including the first. Zero removes the ceiling, so a broken dependency is retried forever.")
+        .rationale("No ceiling, because a consumer that stops reconnecting stops live updates until the process restarts."),
         param(
             "MARULA_RETRY_CONSUMER_JITTER",
             "retries",
@@ -2551,7 +2551,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay spread for stream consumer reconnect: none, full (0 to delay) or equal (half to delay).",
         )
-        .consequence("How much stream consumer reconnect retries spread. Without spread, everything that failed in one outage retries in lockstep and reproduces it.")
+        .consequence("How far stream consumer reconnect delays vary between attempts. With no variation, everything that failed in one outage retries in lockstep and reproduces the outage.")
         .rationale("Full spread keeps a fleet of consumer tasks from reconnecting in lockstep."),
         param(
             "MARULA_RETRY_CONSUMER_CONFLICT",
@@ -2561,8 +2561,8 @@ fn params() -> Vec<Param> {
             false,
             "Whether a 409 is retried for stream consumer reconnect. Retry only where a replay cannot double-apply.",
         )
-        .consequence("Whether a 409 is retried for stream consumer reconnect. Retrying where a replay can double-apply posts the same thing twice; refusing where it cannot gives up too early.")
-        .rationale("A conflict while reconnecting means the group already has the entry; retrying is how it catches up."),
+        .consequence("Whether a 409 is retried for stream consumer reconnect. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
+        .rationale("A reconnect that collides is not provably replay-inert, so the consumer stops instead of replaying an entry it may already have applied."),
         param(
             "MARULA_RETRY_RELAY_BASE_MS",
             "retries",
@@ -2581,7 +2581,7 @@ fn params() -> Vec<Param> {
             false,
             "Ceiling on the computed delay for outbox relay and realtime listener reconnect, in milliseconds.",
         )
-        .consequence("The most the outbox relay and realtime listener reconnect backoff may grow to. A low cap exhausts the tries during a long outage; a high cap keeps work waiting after it could have failed.")
+        .consequence("The most the outbox relay and realtime listener reconnect backoff may grow to. A low cap exhausts the tries during a long outage. A high cap keeps work waiting after it could have failed.")
         .rationale("Ten seconds is the ceiling: a relay that waits longer looks down, and the backstop poll covers it."),
         param(
             "MARULA_RETRY_RELAY_ATTEMPTS",
@@ -2591,8 +2591,8 @@ fn params() -> Vec<Param> {
             false,
             "Total tries for outbox relay and realtime listener reconnect, including the first. 0 never gives up.",
         )
-        .consequence("Total tries for outbox relay and realtime listener reconnect, including the first. Zero never gives up, which means a broken dependency is retried forever.")
-        .rationale("Zero never gives up, because the relay is what turns a committed row into a delivered event."),
+        .consequence("Total tries for outbox relay and realtime listener reconnect, including the first. Zero removes the ceiling, so a broken dependency is retried forever.")
+        .rationale("No ceiling, because the relay is what turns a committed row into a delivered event."),
         param(
             "MARULA_RETRY_RELAY_JITTER",
             "retries",
@@ -2601,7 +2601,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay spread for outbox relay and realtime listener reconnect: none, full (0 to delay) or equal (half to delay).",
         )
-        .consequence("How much outbox relay and realtime listener reconnect retries spread. Without spread, everything that failed in one outage retries in lockstep and reproduces it.")
+        .consequence("How far outbox relay and realtime listener reconnect delays vary between attempts. With no variation, everything that failed in one outage retries in lockstep and reproduces the outage.")
         .rationale("Full spread because every instance runs a relay and they all reconnect to the same stream."),
         param(
             "MARULA_RETRY_RELAY_CONFLICT",
@@ -2611,8 +2611,8 @@ fn params() -> Vec<Param> {
             false,
             "Whether a 409 is retried for outbox relay and realtime listener reconnect. Retry only where a replay cannot double-apply.",
         )
-        .consequence("Whether a 409 is retried for outbox relay and realtime listener reconnect. Retrying where a replay can double-apply posts the same thing twice; refusing where it cannot gives up too early.")
-        .rationale("A conflict on the relay means the row was already published under that key; re-publishing would duplicate the event."),
+        .consequence("Whether a 409 is retried for outbox relay and realtime listener reconnect. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
+        .rationale("A conflict on the relay means the row was already published under that key. Re-publishing would duplicate the event."),
         param(
             "MARULA_RETRY_DECISION_BASE_MS",
             "retries",
@@ -2621,7 +2621,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay before the second try for the decision provider's upstream calls, in milliseconds.",
         )
-        .consequence("The wait before the decision provider's upstream calls retries. It sets how fast a transient fault is ridden out and how hard a failing dependency is hit.")
+        .consequence("The wait before the decision provider's upstream calls retry. It sets how fast a transient fault is ridden out and how hard a failing dependency is hit.")
         .rationale("Two hundred milliseconds leaves room for a model call to start without hammering a rate limit."),
         param(
             "MARULA_RETRY_DECISION_CAP_MS",
@@ -2631,7 +2631,7 @@ fn params() -> Vec<Param> {
             false,
             "Ceiling on the computed delay for the decision provider's upstream calls, in milliseconds.",
         )
-        .consequence("The most the the decision provider's upstream calls backoff may grow to. A low cap exhausts the tries during a long outage; a high cap keeps work waiting after it could have failed.")
+        .consequence("The most the decision provider's upstream calls backoff may grow to. A low cap exhausts the tries during a long outage. A high cap keeps work waiting after it could have failed.")
         .rationale("Two seconds is the cap: a decision that takes longer has failed a user who is waiting for an answer."),
         param(
             "MARULA_RETRY_DECISION_ATTEMPTS",
@@ -2641,7 +2641,7 @@ fn params() -> Vec<Param> {
             false,
             "Total tries for the decision provider's upstream calls, including the first. 0 never gives up.",
         )
-        .consequence("Total tries for the decision provider's upstream calls, including the first. Zero never gives up, which means a broken dependency is retried forever.")
+        .consequence("Total tries for the decision provider's upstream calls, including the first. Zero removes the ceiling, so a broken dependency is retried forever.")
         .rationale("Three tries cover a cold model or a transient 429 without a user staring at a spinner."),
         param(
             "MARULA_RETRY_DECISION_JITTER",
@@ -2651,7 +2651,7 @@ fn params() -> Vec<Param> {
             false,
             "Delay spread for the decision provider's upstream calls: none, full (0 to delay) or equal (half to delay).",
         )
-        .consequence("How much the decision provider's upstream calls retries spread. Without spread, everything that failed in one outage retries in lockstep and reproduces it.")
+        .consequence("How far the decision provider's upstream call delays vary between attempts. With no variation, everything that failed in one outage retries in lockstep and reproduces the outage.")
         .rationale("Full spread because a batch of decisions often arrives together and should not retry in step."),
         param(
             "MARULA_RETRY_DECISION_CONFLICT",
@@ -2661,7 +2661,7 @@ fn params() -> Vec<Param> {
             false,
             "Whether a 409 is retried for the decision provider's upstream calls. Retry only where a replay cannot double-apply.",
         )
-        .consequence("Whether a 409 is retried for the decision provider's upstream calls. Retrying where a replay can double-apply posts the same thing twice; refusing where it cannot gives up too early.")
+        .consequence("Whether a 409 is retried for the decision provider's upstream calls. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
         .rationale("A conflict from the provider is a settled refusal, and a replay would spend quota for the same answer."),
     ]
 }
