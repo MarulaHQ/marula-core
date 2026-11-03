@@ -1,0 +1,166 @@
+# Release images — the four application images a registry install pulls.
+#
+# Purpose: build `marula-core-api`, `marula-worker`, `marula-migrate` and
+# `marula-web` for both architectures, push them to GHCR by version tag, read
+# each digest back, and hand the digests to the manifest step as one
+# `images.json`. A bundle whose manifest carries those digests is what lets
+# `--images registry` install without a person copying four values out of a
+# signed document.
+#
+# One runner per image, both architectures in each: four emulated `arm64` builds
+# side by side instead of four in a row. `scripts/release/images.mjs` does the
+# building, tagging and digest reading, so this file holds no image logic.
+#
+# What this file deliberately does NOT do: write the release manifest, sign
+# anything, or attach artifacts to a GitHub Release. The digests land as a
+# workflow artifact named `marula-images`, which the release workflow's
+# `marula-*` download picks up as `dist/release/images.json`; the manifest step
+# merges them before it writes `SHA256SUMS`, and the release key signs that list.
+#
+# Run it by hand first. `workflow_dispatch` exists so the first push can be
+# proved on one release before a tagged run depends on it:
+#
+#   gh workflow run release-images.yml -f version=0.3.1
+#
+# GHCR packages created by a token push are PRIVATE, even in a public
+# repository. After the first run, set all four packages to public in the
+# package settings, or a self-hoster's pull fails with `unauthorized` and no
+# clue why. The run summary repeats this.
+
+name: Release images
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to tag (semver, no leading v)"
+        type: string
+        required: true
+      platforms:
+        description: "Architectures to build"
+        type: string
+        default: "linux/amd64,linux/arm64"
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version to tag (semver, no leading v)"
+        type: string
+        required: true
+      platforms:
+        description: "Architectures to build"
+        type: string
+        default: "linux/amd64,linux/arm64"
+
+# Least privilege at the top, then `packages: write` only where it is pushed.
+permissions: {}
+
+concurrency:
+  group: release-images-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  # GHCR refuses upper case, so this stays lower case even though the org's
+  # display name is not. `images.mjs` defaults to the same value; it is set here
+  # so a fork can point at its own org with one edit.
+  IMAGE_BASE: ghcr.io/marulagh
+
+jobs:
+  images:
+    name: Image ${{ matrix.service }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [core-api, worker, migrate, web]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Only the `arm64` half needs emulation; setting QEMU up unconditionally
+      # keeps the workflow readable and costs seconds when the list is amd64-only.
+      - name: Set up QEMU for the foreign architecture
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Builds, pushes by tag, reads the digest back, and writes this service's
+      # map. `--service` narrows the build to the one this runner owns.
+      - name: Build and record the digest
+        run: |
+          node scripts/release/images.mjs \
+            --version "${{ inputs.version }}" \
+            --image-base "$IMAGE_BASE" \
+            --platforms "${{ inputs.platforms }}" \
+            --service "${{ matrix.service }}" \
+            --digests "images-${{ matrix.service }}.json"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: marula-images-${{ matrix.service }}
+          path: images-${{ matrix.service }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  collect:
+    name: Collect the digests
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: marula-images-*
+          path: digests
+          merge-multiple: true
+
+      # This is the file the release workflow looks for. A partial set fails
+      # here, where the list of what is missing is on screen, rather than in an
+      # install that cannot pin one service.
+      - name: Join the leg outputs into one map
+        run: |
+          node scripts/release/images.mjs --merge digests --digests images.json
+          cat images.json
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: marula-images
+          path: images.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Say what to do with the packages
+        run: |
+          {
+            echo "### Images published for ${{ inputs.version }}"
+            echo
+            echo '```'
+            cat images.json
+            echo '```'
+            echo
+            echo "GHCR packages created by a token push are private. Open the"
+            echo "package settings for all four and set visibility to public, or"
+            echo "an install that pulls them fails with \`unauthorized\`."
+          } >> "$GITHUB_STEP_SUMMARY"

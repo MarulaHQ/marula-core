@@ -533,6 +533,13 @@ jobs:
             --out dist/release \
             ${images_args[@]+"${images_args[@]}"}
 
+      - name: Drop the digests file once the manifest carries it
+        run: |
+          # images.json is an input to the manifest, not an asset. Its content is
+          # now in release.json, which SHA256SUMS covers and the release key
+          # signs; leaving the file here would publish a second, unsigned copy.
+          rm -f dist/release/images.json
+
       - name: Sign the checksum lists with the release key
         env:
           MARULA_CHECKSUM_SIGNING_KEY: ${{ secrets.MARULA_CHECKSUM_SIGNING_KEY }}
