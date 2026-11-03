@@ -12,10 +12,10 @@
 
 import { useState } from "react";
 import { Brand } from "./brand";
-import ndebele from "./assets/brand/ndebele-inspired-wall-1200x800.png";
-import gouache from "./assets/brand/orchard-gouache-1600x900.jpg";
-import shweshwe from "./assets/brand/shweshwe-inspired-indigo-1200x800.png";
-import terracotta from "./assets/brand/terracotta-zellige-1200x800.png";
+import ndebele from "./assets/textures/ndebele-inspired-wall-1200x800.webp";
+import gouache from "./assets/textures/orchard-gouache-1600x900.webp";
+import shweshwe from "./assets/textures/shweshwe-inspired-indigo-1200x800.webp";
+import terracotta from "./assets/textures/terracotta-zellige-1200x800.webp";
 
 // Imported rather than served from `public/`: the loopback server hands out its
 // own asset directory and nothing else, so a root-relative path 404s there while
