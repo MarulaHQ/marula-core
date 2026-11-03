@@ -615,6 +615,28 @@ fi
 run_stage "migrate schema" 'cargo run -q -p marula-core-cli -- migrate'
 run_stage "seed the deterministic demo org (seed-demo --force)" \
   'MARULA_DEV_TOOLS=1 cargo run -q -p marula-core-cli -- seed-demo --force'
+
+########## isolated test database (no service attached) ##########
+# Some DB suites assert on whole-table behaviour rather than on rows they own:
+# `fetch_unpublished` polls every unpublished outbox row with SKIP LOCKED, so
+# with the stack's worker attached to the same database it relays rows between
+# the test's insert and its fetch, and the test legitimately sees a subset.
+# MARULA_TEST_DATABASE_URL is the override those harnesses already try first
+# (tests/common/mod.rs, core-projects, csat), so give them a database nothing
+# polls. TEMPLATE copies schema + demo rows without a second seed run, and the
+# copy is taken before core-api or the worker start, which is the only moment
+# the template can have no other connections.
+TEST_DB_NAME="${DB_NAME}_test"
+if ! docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -d postgres \
+      -c "CREATE DATABASE \"$TEST_DB_NAME\" TEMPLATE \"$DB_NAME\"" >/dev/null 2>&1; then
+  # Already existing is fine (re-running `up` against a kept container).
+  docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -tAc \
+    "select 1 from pg_database where datname='$TEST_DB_NAME'" 2>/dev/null | grep -q 1 \
+    || die "could not create isolated test database $TEST_DB_NAME"
+fi
+TEST_DATABASE_URL="postgres://postgres:postgres@localhost:${PG_PORT}/${TEST_DB_NAME}"
+export MARULA_TEST_DATABASE_URL="$TEST_DATABASE_URL"
+echo "[e2e-stack] isolated test database ready ($TEST_DB_NAME, no worker attached)"
 if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
   run_stage "mark the shared target (dev provenance)" \
     "python3 scripts/lane-target-guard.py mark --profile debug --note e2e-stack:cli-migrate+seed"
@@ -756,6 +778,7 @@ E2E_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
 MARULA_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
 E2E_DATABASE_URL=$DATABASE_URL
 DATABASE_URL=$DATABASE_URL
+MARULA_TEST_DATABASE_URL=$TEST_DATABASE_URL
 BIND_ADDR=$BIND_ADDR
 JWT_SECRET=$JWT_SECRET
 MARULA_SECRET_KEY=$MARULA_SECRET_KEY
