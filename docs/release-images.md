@@ -77,6 +77,37 @@ An air-gapped install uses the same digests: `docker save` writes the image the
 digest names into the offline archive, so the offline path and the online path
 install byte-identical images.
 
+## Publishing them
+
+`.github/workflows/release-images.yml` is the job that does steps 1 and 2 above:
+one runner per image, both architectures in each, GHCR as the destination. It
+writes the digests as a workflow artifact named `marula-images`, which the
+release workflow's `marula-*` download picks up as `dist/release/images.json`.
+The manifest step merges that before it writes `SHA256SUMS`, and the release key
+signs the list — so the digests are covered by the signature rather than added
+beside it.
+
+Run it by hand first, on a release that is already published:
+
+```sh
+gh workflow run release-images.yml -f version=0.3.1
+```
+
+The job takes about an hour, and almost all of that is the emulated `arm64`
+half. It does not depend on a tag, so running it early costs nothing and proves
+the push before a tagged release waits on it.
+
+Two things it cannot do for you:
+
+- **Make the packages public.** GHCR creates private packages for a token push,
+  even in a public repository. Until all four are set to public in their package
+  settings, a self-hoster's `docker pull` fails with `unauthorized` and no
+  explanation. The run summary repeats this.
+- **Wire itself into the tagged release.** The workflow is `workflow_call`-able
+  so `release-installer.yml` can invoke it as a job once the first run is
+  trusted; until then a tagged release publishes a manifest with no `images`
+  map, and the manifest step prints a notice saying so.
+
 ## Retention
 
 - Keep every image that a published manifest names, forever. A digest an older
@@ -113,14 +144,11 @@ with no digest.
 
 Missing, in the order that unblocks an install from a bundle:
 
-1. A CI job that builds and pushes the four images and hands
-   `dist/release/images.json` to the manifest step. The manifest step already
-   looks for that file and says on the run summary when it is absent. The job
-   needs `packages: write` and QEMU for the `arm64` leg, which is the slow part:
-   roughly an hour with that architecture emulated.
-2. A first push. No release has published images yet, so every bundle's manifest
-   carries no `images` map today and `--images registry` correctly refuses
-   against it.
+1. A first push. The workflow exists; no release has run it yet, so every
+   bundle's manifest carries no `images` map and `--images registry` correctly
+   refuses against it.
+2. The wiring from `release-installer.yml` to that workflow, which is one `uses:`
+   job away once the first run is proved.
 3. `cosign` signing over the images, if the mirroring story above is not enough.
 
 ## Cloudflare is not the image registry

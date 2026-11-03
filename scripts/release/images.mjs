@@ -20,8 +20,8 @@
  * with a token carrying write:packages). Nothing else: no CI, no dashboard.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const SERVICES = [
   { service: "core-api", image: "marula-core-api", dockerfile: "deploy/Dockerfile.rust", bin: "core-api" },
@@ -51,16 +51,23 @@ function parseArgs(argv) {
       case "--platforms": out.platforms = value(); break;
       case "--manifest": out.manifest = value(); break;
       case "--digests": out.digests = value(); break;
+      case "--service": out.services = [...(out.services ?? []), value()]; break;
+      case "--merge": out.merge = value(); break;
       case "--context": out.context = value(); break;
       case "--dry-run": out.dryRun = true; break;
       case "-h":
       case "--help":
-        console.log("usage: images.mjs --version X [--image-base ghcr.io/org] [--platforms a,b] [--manifest release.json] [--digests images.json] [--dry-run]");
+        console.log(
+          "usage: images.mjs --version X [--image-base ghcr.io/org] [--platforms a,b] " +
+            "[--service core-api] [--manifest release.json] [--digests images.json] [--dry-run]\n" +
+            "       images.mjs --merge <dir> --digests images.json",
+        );
         process.exit(0);
         break;
       default: throw new Error(`unknown flag ${flag}`);
     }
   }
+  if (out.merge) return out;
   if (!out.version) throw new Error("--version is required");
   if (!/^\d+\.\d+\.\d+$/.test(out.version)) throw new Error(`--version must be a semver release (got ${out.version})`);
   return out;
@@ -106,9 +113,53 @@ function buildArgs(spec, args, ref) {
   return out;
 }
 
+/**
+ * The images this run builds.
+ *
+ * All four by default. `--service` narrows it so a CI matrix can build one image
+ * per runner: four legs in parallel rather than four emulated builds in a row,
+ * which is the difference between minutes and an hour for the `arm64` half. An
+ * unknown name is refused rather than ignored, because a typo that silently
+ * builds nothing would publish a tag that does not exist.
+ */
+export function selectServices(asked) {
+  if (!asked || asked.length === 0) return SERVICES;
+  const unknown = asked.filter((name) => !SERVICES.some((spec) => spec.service === name));
+  if (unknown.length > 0) {
+    throw new Error(
+      `unknown --service ${unknown.join(", ")}: known are ${SERVICES.map((s) => s.service).join(", ")}`,
+    );
+  }
+  return SERVICES.filter((spec) => asked.includes(spec.service));
+}
+
 /** Merge the digests into the release manifest, keyed by service. */
 export function withImages(manifest, digests) {
   return { ...manifest, images: digests };
+}
+
+/**
+ * One digest map from the several files a CI matrix produces.
+ *
+ * Every service must be there. A registry install refuses to plan without a
+ * digest for each service it starts, so a partial merge would produce a manifest
+ * that cannot install — better to fail in the job that has the list.
+ */
+export function mergeDigests(documents) {
+  const merged = Object.assign({}, ...documents);
+  const digest = /@sha256:[0-9a-f]{64}$/;
+  for (const [service, reference] of Object.entries(merged)) {
+    if (typeof reference !== "string" || !digest.test(reference)) {
+      throw new Error(`the digest for ${service} is ${JSON.stringify(reference)}, which pins no digest`);
+    }
+  }
+  const missing = SERVICES.map((spec) => spec.service).filter(
+    (name) => typeof merged[name] !== "string",
+  );
+  if (missing.length > 0) {
+    throw new Error(`no digest for ${missing.join(", ")}: every service needs one`);
+  }
+  return merged;
 }
 
 /** The bare `service → reference` map, which `assemble.mjs --images` reads. */
@@ -118,14 +169,28 @@ export function digestsDocument(digests) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
-  for (const spec of SERVICES) {
+  // The matrix legs each write their own file; this joins them. Nothing is
+  // built and no registry is contacted, so it runs on any runner.
+  if (args.merge) {
+    const files = readdirSync(args.merge).filter((name) => name.endsWith(".json"));
+    if (files.length === 0) throw new Error(`no digest files in ${args.merge}`);
+    const merged = mergeDigests(
+      files.map((name) => JSON.parse(readFileSync(join(args.merge, name), "utf8"))),
+    );
+    if (!args.digests) throw new Error("--merge needs --digests to say where to write the result");
+    writeFileSync(args.digests, digestsDocument(merged));
+    console.log(`merged ${files.length} digest file(s) into ${args.digests}`);
+    return;
+  }
+  const selected = selectServices(args.services);
+  for (const spec of selected) {
     if (!existsSync(resolve(args.context, spec.dockerfile))) {
       throw new Error(`missing ${spec.dockerfile}: this must run from the repository root`);
     }
   }
 
   const digests = {};
-  for (const spec of SERVICES) {
+  for (const spec of selected) {
     const ref = `${args.imageBase}/${spec.image}:${args.version}`;
     console.log(`building ${ref} for ${args.platforms}`);
     run(buildArgs(spec, args, ref), args.dryRun);
@@ -145,7 +210,7 @@ function main() {
     if (args.dryRun) {
       console.log(`would write ${Object.keys(digests).length} digests into ${args.digests}`);
     } else {
-      if (Object.keys(digests).length !== SERVICES.length) {
+      if (Object.keys(digests).length !== selected.length) {
         throw new Error("refusing to write an incomplete image set");
       }
       writeFileSync(args.digests, digestsDocument(digests));
@@ -158,7 +223,7 @@ function main() {
       console.log(`would write images into ${args.manifest}`);
       return;
     }
-    if (Object.keys(digests).length !== SERVICES.length) {
+    if (Object.keys(digests).length !== selected.length) {
       throw new Error("refusing to write a manifest with an incomplete image set");
     }
     const manifest = JSON.parse(readFileSync(args.manifest, "utf8"));
@@ -204,6 +269,29 @@ export function selfTest() {
   const merged = withImages({ assets: { "linux-x64": {} } }, { "core-api": "x" });
   assert(merged.assets["linux-x64"], "merging keeps what the manifest already had");
   assert(merged.images["core-api"] === "x", "merging adds the digests");
+  const reference = (service) => `ghcr.io/marulagh/marula-${service}@sha256:${"a".repeat(64)}`;
+  const full = mergeDigests([
+    { "core-api": reference("core-api"), worker: reference("worker") },
+    { migrate: reference("migrate"), web: reference("web") },
+  ]);
+  assert(Object.keys(full).length === 4, "a merge joins the matrix legs into one map");
+  let partialRefused = false;
+  try {
+    mergeDigests([{ "core-api": reference("core-api") }]);
+  } catch (error) {
+    partialRefused = error.message.includes("worker");
+  }
+  assert(partialRefused, "a merge that is missing a service names it and refuses");
+  assert(selectServices().length === 4, "a bare run builds all four images");
+  const one = selectServices(["web"]);
+  assert(one.length === 1 && one[0].service === "web", "--service narrows the set to the one asked for");
+  let unknownRefused = false;
+  try {
+    selectServices(["core"]);
+  } catch {
+    unknownRefused = true;
+  }
+  assert(unknownRefused, "an unknown --service is refused rather than ignored");
   const bare = JSON.parse(digestsDocument({ "core-api": "ghcr.io/marulagh/marula-core-api@sha256:" + "a".repeat(64) }));
   assert(bare["core-api"].endsWith("@sha256:" + "a".repeat(64)), "the bare map is what the manifest step reads");
 
