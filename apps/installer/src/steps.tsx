@@ -72,7 +72,7 @@ export function PathStep({
           </CardHeader>
           <CardBody className="gap-3">
             <p className="m-0 text-[13px] leading-[1.55] text-muted-foreground">
-              Marula decides everything except what only you can answer.
+              Marula decides everything except the questions only you can answer.
             </p>
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
               {["This machine, and the shape it can carry", "The address your team opens", "Where search and files live", "Review, then apply"].map(
@@ -85,8 +85,8 @@ export function PathStep({
               )}
             </ul>
             <p className="m-0 mt-auto text-[12.5px] text-muted-foreground">
-              The other <span className="tabular-nums">{Math.max(0, paramCount - 7)}</span> levers keep
-              their defaults, and each one states why.
+              The other <span className="tabular-nums">{Math.max(0, paramCount - 7)}</span> settings keep
+              their defaults, and each states why.
             </p>
           </CardBody>
         </Card>
@@ -106,7 +106,7 @@ export function PathStep({
           <CardHeader>
             <CardTitle>Developer install</CardTitle>
             <Pill tone="neutral" className="ml-auto">
-              every lever
+              every setting
             </Pill>
           </CardHeader>
           <CardBody className="gap-3">
@@ -115,10 +115,10 @@ export function PathStep({
             </p>
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]">
               {[
-                `All ${paramCount} parameters, searchable by name or by effect`,
+                `All ${paramCount} settings, searchable by name or by effect`,
                 "What each one requires, and what it cannot be combined with",
                 "The resolved env file before anything is written",
-                "The compose command the apply will run",
+                "The compose command apply will run",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2">
                   <Icon name="sliders" size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
@@ -600,7 +600,7 @@ function DeveloperSettings({
           type="single"
           value={filter}
           onValueChange={(value) => value && setFilter(value as "all" | "yours")}
-          aria-label="Filter parameters"
+          aria-label="Filter settings"
         >
           <SegmentedItem value="all">all {state.param_count}</SegmentedItem>
           <SegmentedItem value="yours">yours {Object.keys(overrides).length}</SegmentedItem>
@@ -608,7 +608,7 @@ function DeveloperSettings({
       </div>
 
       {groups.length === 0 ? (
-        <Callout>No lever matches that. Try a name, a group, or a word from its consequence.</Callout>
+        <Callout>No setting matches that. Try a name, a group, or a word from its consequence.</Callout>
       ) : null}
 
       {groups.map((group) => (
@@ -832,7 +832,7 @@ export function ReviewStep({
       {rows.length > 0 ? (
         <Section
           title="What it writes"
-          hint="Grouped by what the value configures. Hover a row for the exact lever name."
+          hint="Grouped by what the value configures. Hover a row for the exact setting name."
           action={
             <Button size="sm" variant="outline" onClick={() => onMode(mode === "recommended" ? "developer" : "recommended")}>
               {mode === "recommended" ? "Edit all parameters" : "Back to recommended"}
