@@ -584,7 +584,7 @@ fi
 
 echo
 echo "== other common Marula processes (core-api / worker / next standalone) =="
-ps -axo pid,command | grep -E "release/(core-api|worker)|\.next/standalone/server\.js|marula-core-cli" \
+ps -axo pid,command | grep -E "release/(core-api|worker)|\.next/standalone/(apps/web/)?server\.js|marula-core-cli" \
   | grep -v grep | sed 's/^/  /' || echo "  (none)"
 echo
 echo "Reap orphaned runs:  bash scripts/dev-status.sh --reap"

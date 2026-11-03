@@ -129,7 +129,7 @@ export default defineConfig({
   // set, then copy .next/static + public into the standalone root (Next does
   // not copy them itself). `pnpm e2e:build-web` does all three steps.
   webServer: {
-    command: `sh -c 'cd "${process.cwd()}/apps/web" && HOSTNAME=127.0.0.1 PORT=${WEB_PORT} node .next/standalone/server.js'`,
+    command: `sh -c 'cd "${process.cwd()}/apps/web" && HOSTNAME=127.0.0.1 PORT=${WEB_PORT} node .next/standalone/apps/web/server.js'`,
     url: WEB_URL,
     reuseExistingServer: !CI,
     timeout: 120_000,
