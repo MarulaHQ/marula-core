@@ -108,6 +108,7 @@
         "how-to/install-on-a-server",
         "how-to/install-with-the-app",
         "how-to/upgrade",
+        "how-to/verify-a-release",
         "how-to/export-data",
         "how-to/local-demo-stack",
         "how-to/operator-embedding-model",

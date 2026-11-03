@@ -28,7 +28,10 @@ Every change lands as a reviewed pull request. Contributions follow
   text. All three use one capacity check, so the recommendation cannot differ
   between them.
 - An install can pull the published container images. The release manifest can
-  carry their digests, and the pipeline says when it does not.
+  carry their digests, the pipeline says when it does not, and a job publishes
+  them for both architectures.
+- A guide to checking a release before installing it: the signed checksum list,
+  the archive, the extracted tree, and the image digests.
 
 ### Changed
 
@@ -39,6 +42,10 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ### Fixed
 
+- An install that pulls the published images now pins the migration image too.
+  It was left out of the override, so the one-shot that runs the schema
+  migration built itself from source on the target — which fails outright on a
+  release bundle, where the sources are not shipped.
 - The ticket workbench keeps its status and SLA cells readable in a narrow
   window.
 - The Today day strip keeps its bound labels inside the card.
