@@ -11,6 +11,13 @@
 // numerals.
 //
 // Non-purpose: no data fetching; the widget card owns loading/empty/error.
+//
+// `accessibilityLayer={false}` is explicit because Recharts 3 turns it ON by
+// default. These charts are declared `<figure role="img">` with a label, and the
+// keyboard/AT path is the data table the widget card pairs with them
+// (report-widget.tsx: "Recharts tooltips are hover-only; the table presents the
+// same rows"). Recharts' default would nest a focusable `role="application"`
+// inside the `role="img"`, which is the thing that declaration rules out.
 "use client";
 
 import { useTheme } from "@marula-core/ui";
@@ -79,6 +86,7 @@ export function RollupBarChart({
   return (
     <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <BarChart
+        accessibilityLayer={false}
         width={width}
         height={CHART_HEIGHT}
         data={data}
@@ -129,6 +137,7 @@ export function AttainmentBarChart({
   return (
     <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <BarChart
+        accessibilityLayer={false}
         width={720}
         height={CHART_HEIGHT}
         data={data}
@@ -182,6 +191,7 @@ export function AgingBarChart({
   return (
     <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <BarChart
+        accessibilityLayer={false}
         width={720}
         height={CHART_HEIGHT}
         data={data}
@@ -231,7 +241,9 @@ export function ThroughputLineChart({
   return (
     <figure role="img" aria-label={ariaLabel} className="m-chart-fluid">
       <LineChart
-        width={720}        height={CHART_HEIGHT}
+        accessibilityLayer={false}
+        width={720}
+        height={CHART_HEIGHT}
         data={data}
         margin={{ top: 4, right: 24, bottom: 4, left: 8 }}
       >
