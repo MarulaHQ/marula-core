@@ -46,8 +46,7 @@ export function Welcome({ onStart }: { onStart: () => void }) {
           Set up Marula on this machine
         </h1>
         <p className="mx-auto mt-3 mb-0 max-w-[38ch] text-[13.5px] leading-[1.55] text-muted-foreground">
-          Five screens, one machine. Nothing is written until you have seen the plan and
-          said so.
+          A guided setup. Nothing is written until you review the plan.
         </p>
         <button
           type="button"
