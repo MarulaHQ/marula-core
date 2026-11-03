@@ -43,7 +43,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: changesets/action@v1
+      - uses: changesets/action@v2
         with:
           # @changesets/cli is invoked via npx: not a root devDependency on
           # purpose (the workspace itself is not a publishable package).
