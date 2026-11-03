@@ -516,10 +516,22 @@ jobs:
 
       - name: Write the manifest and the combined checksum list
         run: |
+          set -euo pipefail
+          # The digests ride in the manifest the checksum list covers and the
+          # release key signs, so they have to be merged before this step writes
+          # either. An images job publishes them here as dist/release/images.json.
+          images_args=()
+          if [ -f dist/release/images.json ]; then
+            images_args=(--images dist/release/images.json)
+            echo "the manifest will name the published image digests"
+          else
+            echo "::notice::no dist/release/images.json in this run, so the manifest names no images and a bundle built from it cannot pull published ones"
+          fi
           node scripts/release/assemble.mjs --manifest \
             --version "${{ needs.version.outputs.version }}" \
             --commit "$GITHUB_SHA" \
-            --out dist/release
+            --out dist/release \
+            ${images_args[@]+"${images_args[@]}"}
 
       - name: Sign the checksum lists with the release key
         env:

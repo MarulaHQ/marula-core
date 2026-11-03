@@ -53,7 +53,20 @@ pulls the pinned image instead of compiling one.
 2. Read each image's digest back:
    `docker buildx imagetools inspect <ref> --format '{{json .Manifest.Digest}}'`.
 3. Write the digests into the release manifest as `images`, so the signed
-   document names exactly what it published.
+   document names exactly what it published. `images.mjs` writes them either into
+   an existing manifest or, with `--digests images.json`, as the bare map the
+   assembler takes:
+
+   ```sh
+   node scripts/release/images.mjs --version 0.4.0 --digests dist/release/images.json
+   node scripts/release/assemble.mjs --manifest --version 0.4.0 \
+     --out dist/release --images dist/release/images.json
+   ```
+
+   The order is not a preference. `SHA256SUMS` covers `release.json` and the
+   release key signs that list, so a digest merged in after the manifest is
+   written sits outside both, and a bundle would then publish digests nobody
+   signed.
 4. Sign the manifest's `SHA256SUMS` as the update engine already does. The
    manifest signature is what makes the digests trustworthy, so the two must be
    signed together and committed in the same job.
@@ -93,14 +106,30 @@ Two gaps are honest to name:
 
 ## Today, and what is missing
 
-Built: `--images registry`, the digest requirement, the generated override, and
-the plan refusal that names the service without a digest.
+Built: `images.mjs` (build, push, read the digest back, write the map), the
+assembler's `--images` merge, the installer reading a bundle's `images` instead
+of four typed flags, and the refusals that name a missing prefix or a service
+with no digest.
 
 Missing, in the order that unblocks an install from a bundle:
 
-1. A workflow job that builds and pushes the four images and records their
-   digests. Until it exists, `--image-digest` is typed by a person.
-2. An `images` field in the manifest, and an installer that reads it instead of
-   taking four flags. The schema tolerates the field today, so adding it is not
-   a breaking change.
+1. A CI job that builds and pushes the four images and hands
+   `dist/release/images.json` to the manifest step. The manifest step already
+   looks for that file and says on the run summary when it is absent. The job
+   needs `packages: write` and QEMU for the `arm64` leg, which is the slow part:
+   roughly an hour with that architecture emulated.
+2. A first push. No release has published images yet, so every bundle's manifest
+   carries no `images` map today and `--images registry` correctly refuses
+   against it.
 3. `cosign` signing over the images, if the mirroring story above is not enough.
+
+## Cloudflare is not the image registry
+
+The update channel lives on Cloudflare: a Worker behind `updates.getmarula.com`
+serves the signed manifest, and the artifacts behind it sit in R2 under
+`artifacts.getmarula.com`. Those are the app and its update payload, not images.
+
+There is no OCI registry in that setup, and Cloudflare does not offer one, so
+`--images registry` cannot pull from `getmarula.com`. The four images live in
+GHCR. A self-hoster who wants neither can mirror by digest and pass their own
+prefix; that path is described under Trust above.

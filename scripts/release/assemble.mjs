@@ -370,10 +370,15 @@ export function writeManifest(options) {
     );
   }
 
+  // The images are merged here rather than appended to the file afterwards:
+  // SHA256SUMS covers release.json and the release job signs that list, so a
+  // digest added after this point would sit outside both.
+  const images = options.images ? readImages(options.images) : undefined;
   const manifest = {
     schema: "marula.release/1",
     version,
     ...(options.commit ? { commit: options.commit } : {}),
+    ...(images ? { images } : {}),
     assets,
   };
   writeFileSync(join(out, "release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -393,6 +398,36 @@ export function writeManifest(options) {
   writeFileSync(join(out, "SHA256SUMS"), renderSums(pairs));
 
   return { out, platforms, files: pairs.length, manifest };
+}
+
+/**
+ * The `images` map a release manifest carries, read from what `images.mjs` wrote.
+ *
+ * Accepts either the whole `release.json` that step produced or a bare
+ * service → reference map, because both are natural things to hand it. Every
+ * value must pin a digest: this is the field that decides what an install pulls,
+ * and a tag in it is the mistake the digest requirement exists to prevent.
+ */
+export function readImages(path) {
+  const parsed = JSON.parse(readFileSync(path, "utf8"));
+  const raw =
+    parsed && typeof parsed === "object" && !Array.isArray(parsed) && "images" in parsed
+      ? parsed.images
+      : parsed;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`${path} names no images map`);
+  }
+  const images = {};
+  for (const [service, reference] of Object.entries(raw)) {
+    if (typeof reference !== "string" || !/@sha256:[0-9a-f]{64}$/.test(reference)) {
+      throw new Error(
+        `${path}: the image for ${service} is ${JSON.stringify(reference)}, which pins no digest`,
+      );
+    }
+    images[service] = reference;
+  }
+  if (Object.keys(images).length === 0) throw new Error(`${path} names no images`);
+  return images;
 }
 
 /** The fewest assertions that prove the layout rules, without cargo. */
@@ -562,6 +597,38 @@ function selfTest() {  const assert = (condition, message) => {
       execFileSync(checker, args, { cwd: out, stdio: ["ignore", "ignore", "pipe"] });
       log(`${checker} -c accepts the combined SHA256SUMS`);
     }
+    // The digests a release publishes ride in the manifest the checksum list
+    // covers, and a tag in that field is refused rather than shipped.
+    const digest = (service) =>
+      `ghcr.io/marulagh/marula-${service}@sha256:${"a".repeat(64)}`;
+    const imagesFile = join(out, "images.json");
+    writeFileSync(imagesFile, JSON.stringify({ images: { "core-api": digest("core-api") } }));
+    writeManifest({ version: "9.9.9", out, commit: "0".repeat(40), images: imagesFile });
+    const merged = JSON.parse(readFileSync(join(out, "release.json"), "utf8"));
+    assert(
+      merged.images["core-api"] === digest("core-api"),
+      "the manifest carries the digest it was given",
+    );
+    assert(
+      parseSums(readFileSync(join(out, "SHA256SUMS"), "utf8")).some(([, path]) => path === "release.json"),
+      "the digest-bearing manifest is the one the checksum list covers",
+    );
+    writeFileSync(
+      join(out, "tagged.json"),
+      JSON.stringify({ "core-api": "ghcr.io/marulagh/marula-core-api:9.9.9" }),
+    );
+    let refused = null;
+    try {
+      writeManifest({ version: "9.9.9", out, images: join(out, "tagged.json") });
+    } catch (error) {
+      refused = error.message;
+    }
+    assert(
+      refused !== null && refused.includes("pins no digest"),
+      "a tag in the images map is refused rather than shipped",
+    );
+    log("the manifest carries image digests, and refuses a tag in that field");
+
     process.stdout.write("self-test: ok\n");
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -620,6 +687,12 @@ function parseArgs(argv) {
       case "--manifest":
         options.manifest = true;
         break;
+      case "--images":
+        // The digests `images.mjs` recorded, merged into the manifest this step
+        // writes. Without it a bundle ships no `images` map, and an install that
+        // pulls published images has nothing to pin.
+        options.images = value();
+        break;
       case "--self-test":
         options.selfTest = true;
         break;
@@ -641,6 +714,7 @@ function usage() {
     "                    [--target-triple <triple>] [--binary <path>] [--commit <sha>]",
     "                    [--no-archive]",
     "       assemble.mjs --manifest --version <semver> [--out <dir>] [--commit <sha>]",
+    "                    [--images <images.json>]",
     "       assemble.mjs --self-test",
   ].join("\n");
 }
