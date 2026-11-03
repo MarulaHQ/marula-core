@@ -419,6 +419,12 @@ fn app_services(profile: &Profile) -> Vec<&'static str> {
     {
         names.push("worker");
     }
+    // `migrate` runs once and exits, so it is not in the profile's service list.
+    // It is still built from this repository's Dockerfile, so leaving it out of
+    // the override left a registry install compiling that one image on the
+    // target — which fails outright on a release bundle, because the sources are
+    // not in it. Every image the release publishes gets pinned here.
+    names.push("migrate");
     names.push("web");
     names
 }
@@ -771,7 +777,7 @@ mod tests {
         let mut selection = Selection::new("split", &dir);
         selection.images = ImageSource::Registry;
         selection.image_base = Some("ghcr.io/marulagh/marula".to_string());
-        for service in ["core-api", "worker", "web"] {
+        for service in ["core-api", "worker", "migrate", "web"] {
             selection.image_digests.insert(
                 service.to_string(),
                 "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -794,8 +800,15 @@ mod tests {
             images.1
         );
         assert!(
-            images.1.matches("build: !reset null").count() == 3,
-            "every pinned service drops its build: {}",
+            images.1.matches("build: !reset null").count() == 4,
+            "every pinned service drops its build, migrate included: {}",
+            images.1
+        );
+        assert!(
+            images
+                .1
+                .contains("image: ghcr.io/marulagh/marula-migrate@sha256:1111"),
+            "the one-shot migration image is pinned too: {}",
             images.1
         );
         assert!(images.1.contains("pull_policy: always"), "{}", images.1);
