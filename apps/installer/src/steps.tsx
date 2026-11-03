@@ -509,7 +509,7 @@ function DeploymentSection({
           {shape.images === "registry" ? (
             <Field
               label="Registry prefix"
-              hint="Leave it empty when a release.json sits beside the installer. Each service is pulled as <prefix>-<service>, so ghcr.io/marulagh/marula is the whole repository name and not one image in it."
+              hint="Leave it empty when a release.json sits beside the installer. Each service is pulled as <prefix>-<service>, so ghcr.io/marulagh/marula is the shared prefix: it names marula-core-api and marula-web, not one repository."
             >
               <Input
                 value={shape.imageBase}
