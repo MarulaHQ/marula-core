@@ -458,34 +458,34 @@ function DeploymentSection({
     <Section title="Deployment">
       <div className="flex max-w-[720px] flex-col gap-5">
         <div className="flex flex-col gap-2">
-          <p className="m-0 text-[13px] font-medium">Where the application images come from</p>
+          <p className="m-0 text-[13px] font-medium">Application images</p>
           <Segmented
             type="single"
             value={shape.images}
             onValueChange={(value) => value && onShape({ ...shape, images: value as ShapeChoice["images"] })}
             aria-label="Image source"
           >
-            <SegmentedItem value="build">build from this checkout</SegmentedItem>
-            <SegmentedItem value="registry">the release's images</SegmentedItem>
+            <SegmentedItem value="build">Build on this machine</SegmentedItem>
+            <SegmentedItem value="registry">Pull the published images</SegmentedItem>
           </Segmented>
           <p className="m-0 text-[11.5px] leading-[1.5] text-muted-foreground">
             {shape.images === "build"
-              ? "Compiles the four services on this machine. It needs the sources, a Rust toolchain and a Node one, so it is the shape a developer install uses."
-              : "Pulls the release's images pinned by digest and stops Compose building. It needs the digests the release published, and the terminal takes them with --image-digest."}
+              ? "Compiles the four services here, which needs the source tree plus Rust and Node. That makes it the developer path, not the server one."
+              : "Pulls the exact images the release published and skips the build. It needs the digests from that release; the terminal takes them with --image-digest."}
           </p>
         </div>
 
         <div className="flex flex-col gap-2">
-          <p className="m-0 text-[13px] font-medium">After a crash or a restart of Docker</p>
+          <p className="m-0 text-[13px] font-medium">If a service stops</p>
           <Segmented
             type="single"
             value={shape.restart}
             onValueChange={(value) => value && onShape({ ...shape, restart: value as ShapeChoice["restart"] })}
             aria-label="Restart policy"
           >
-            <SegmentedItem value="unless-stopped">restart unless stopped</SegmentedItem>
-            <SegmentedItem value="always">always restart</SegmentedItem>
-            <SegmentedItem value="no">stay down</SegmentedItem>
+            <SegmentedItem value="unless-stopped">Restart unless stopped</SegmentedItem>
+            <SegmentedItem value="always">Always restart</SegmentedItem>
+            <SegmentedItem value="no">Leave it stopped</SegmentedItem>
           </Segmented>
           <p className="m-0 text-[11.5px] leading-[1.5] text-muted-foreground">
             {RESTART_NOTE[shape.restart]}
@@ -710,6 +710,12 @@ function ParamRow({
 
 /** The control a lever gets: a switch for a boolean, a select for a closed set,
  *  a text field for everything else. The set comes from the descriptor. */
+/** A closed-set token as a person reads it: `ollama` is Ollama, `s3` is S3. */
+function optionLabel(value: string): string {
+  if (/^[a-z]{1,3}\d?$/i.test(value) && value.length <= 3) return value.toUpperCase();
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function ParamControl({
   param,
   value,
@@ -734,7 +740,7 @@ function ParamControl({
           {known ? null : <option value="">{current ? `${current} (current)` : "choose…"}</option>}
           {param.values.map((option) => (
             <option key={option} value={option}>
-              {option}
+              {optionLabel(option)}
             </option>
           ))}
         </Select>

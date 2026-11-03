@@ -360,7 +360,7 @@ export function App() {
                   : step === 3
                     ? mode === "developer"
                       ? "Every setting, with what it changes and what it needs."
-                      : "Every answer prints the reason under it."
+                      : null
                     : "The plan as data: each step, why it exists, and the values it writes."}
           </p>
         </header>
@@ -390,9 +390,7 @@ export function App() {
                     <Kbd>⌘</Kbd>
                     <Kbd>↵</Kbd> continues
                   </>
-                ) : (
-                  "Choose a path. The next four screens follow it."
-                )}
+                ) : null}
               </span>
               <button
                 type="button"
@@ -431,7 +429,7 @@ export function App() {
                     <Kbd>↵</Kbd> continues
                   </>
                 ) : (
-                  "pick a shape this machine can carry"
+                  null
                 )}
               </span>
               <button
