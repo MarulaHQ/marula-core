@@ -27,3 +27,22 @@ packageExtensions:
   "@testing-library/jest-dom":
     peerDependencies:
       vitest: "*"
+
+# Security overrides (Dependabot cannot open these: every one is transitive, so
+# the only manifest naming it is the lockfile). Each key is scoped to the
+# vulnerable range, so only the affected copies move — nothing else in the graph
+# is touched. All four resolve inside the Expo prebuild/config toolchain
+# (@expo/plist, @expo/fingerprint, @bacons/*, xcode), which runs at build time
+# and ships in no bundle; `deepmerge` has no fixed release upstream and is left
+# alone deliberately.
+overrides:
+  # 13 advisories (XML injection, quadratic parsing) — fixed across 0.8.12-0.8.15
+  "@xmldom/xmldom@<0.8.12": "0.8.15"
+  # DoS via AbortSignal cancellation bypass; glob 14 brings minimatch 11 with it
+  "glob@<14": "14.0.2"
+  "minimatch@<11": "11.0.1"
+  # Missing buffer bounds check in v3/v5/v6 when a buffer is supplied
+  "uuid@<11": "11.1.1"
+  # maxTotalMergeKeys does not limit CPU for empty merge sources; @redocly's copy
+  # stayed on 4.3.1 because its parent pins the patch exactly.
+  "js-yaml@<4.3.2": "4.3.2"
