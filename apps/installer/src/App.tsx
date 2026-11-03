@@ -20,6 +20,7 @@ import {
 } from "@marula-core/ui/kit";
 
 import { Brand } from "./brand";
+import { Welcome } from "./welcome";
 
 import { errorMessage, transport } from "./api";
 import {
@@ -43,6 +44,7 @@ export function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [pathChoice, setPathChoice] = useState<"recommended" | "developer" | null>(null);
+  const [started, setStarted] = useState(false);
   const [mode, setMode] = useState<PathMode>("recommended");
   const [profile, setProfile] = useState("");
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -247,6 +249,8 @@ export function App() {
     );
   }
 
+  if (!started) return <Welcome onStart={() => setStarted(true)} />;
+
   const meta = STEPS[step] ?? STEPS[0]!;
 
   return (
@@ -255,9 +259,9 @@ export function App() {
         aria-label="Install steps"
         className="flex flex-row items-center gap-3 border-b border-border bg-mc-side px-3 py-2.5 lg:flex-col lg:items-stretch lg:border-r lg:border-b-0 lg:px-3 lg:py-4"
       >
-        <div className="hidden px-2 lg:block">
-          <Brand className="h-6" />
-          <p className="m-0 mt-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+        <div className="px-1 lg:px-2">
+          <Brand className="h-5 lg:h-6" />
+          <p className="m-0 mt-1 hidden text-[10px] uppercase tracking-[0.16em] text-muted-foreground lg:block">
             installer
           </p>
         </div>
