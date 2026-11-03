@@ -27,7 +27,7 @@ echo "==> [1/4] building the Next standalone bundle"
 # packages/ui/dist deleted — the bundle still carries --m-ink and kit classes.
 pnpm --filter @marula-core/web build
 STANDALONE="$WEB_DIR/.next/standalone"
-[ -f "$STANDALONE/server.js" ] || { echo "error: $STANDALONE/server.js missing" >&2; exit 1; }
+[ -f "$STANDALONE/apps/web/server.js" ] || { echo "error: $STANDALONE/apps/web/server.js missing" >&2; exit 1; }
 
 # Leave the standalone bundle runnable. `next build` regenerates .next/standalone
 # WITHOUT .next/static or public — writeStandaloneDirectory in Next's build
@@ -37,11 +37,11 @@ STANDALONE="$WEB_DIR/.next/standalone"
 # scripts/e2e-build-web.sh runs again). Refresh them the same way
 # scripts/e2e-build-web.sh does: drop the stale copies first, since a surviving
 # directory would carry the PREVIOUS build's content-hashed filenames.
-rm -rf "$STANDALONE/.next/static" "$STANDALONE/public"
-cp -R "$WEB_DIR/.next/static" "$STANDALONE/.next/static"
-[ -d "$WEB_DIR/public" ] && cp -R "$WEB_DIR/public" "$STANDALONE/public"
-[ -n "$(find "$STANDALONE/.next/static" -name '*.css' -print -quit 2>/dev/null)" ] \
-  || { echo "error: $STANDALONE/.next/static has no CSS after the build" >&2; exit 1; }
+rm -rf "$STANDALONE/apps/web/.next/static" "$STANDALONE/apps/web/public"
+cp -R "$WEB_DIR/.next/static" "$STANDALONE/apps/web/.next/static"
+[ -d "$WEB_DIR/public" ] && cp -R "$WEB_DIR/public" "$STANDALONE/apps/web/public"
+[ -n "$(find "$STANDALONE/apps/web/.next/static" -name '*.css' -print -quit 2>/dev/null)" ] \
+  || { echo "error: $STANDALONE/apps/web/.next/static has no CSS after the build" >&2; exit 1; }
 
 echo "==> [2/4] staging the standalone server into desktop/resources/web"
 # The standalone tree's node_modules entries are pnpm symlinks whose
@@ -68,9 +68,9 @@ find desktop/resources/web -type l | while read -r link; do
   esac
   ln -sfn "$abs" "$link"
 done
-rm -rf desktop/resources/web/.next/static
-cp -R "$WEB_DIR/.next/static" desktop/resources/web/.next/static
-[ -d "$WEB_DIR/public" ] && cp -RL "$WEB_DIR/public" desktop/resources/web/public || true
+rm -rf desktop/resources/web/apps/web/.next/static
+cp -R "$WEB_DIR/.next/static" desktop/resources/web/apps/web/.next/static
+[ -d "$WEB_DIR/public" ] && cp -RL "$WEB_DIR/public" desktop/resources/web/apps/web/public || true
 # Ship third-party attribution with the packaged app (fonts OFL, embedded
 # PostgreSQL, licence inventories — ACKNOWLEDGMENTS.md lists everything).
 cp "$PWD/ACKNOWLEDGMENTS.md" desktop/resources/web/ACKNOWLEDGMENTS.md

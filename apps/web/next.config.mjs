@@ -78,23 +78,29 @@ const SECURITY_HEADERS = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // `next build` type-checks the project, and the web image builds from a
+  // context that carries no tests (deliberately: .dockerignore keeps scripts/
+  // and fixtures/ out). The app's tests import helper modules from those trees,
+  // so with the default tsconfig the image build fails on module resolution in
+  // files it never runs. The image build therefore checks app source only;
+  // `pnpm typecheck` still checks the tests against the real tsconfig.
+  typescript: { tsconfigPath: "./tsconfig.build.json" },
   transpilePackages: ["@marula-core/layout", "@marula-core/sdk", "@marula-core/ui"],
   output: "standalone",
-  // Pin the output-tracing root to apps/web so the standalone bundle path
-  // is deterministic (apps/web/.next/standalone/server.js) even inside
-  // git worktrees, where Next may otherwise infer the wrong repo root.
-  outputFileTracingRoot: path.join(import.meta.dirname),
-  // Turbopack (the default builder from 16) took this pin as its resolution
-  // root too, and that breaks the build: pnpm's node_modules is a symlink farm
-  // rooted at the repo root, so `next` resolves outside a root of apps/web and
-  // the compile dies with "Could not find the Next.js package
-  // (next/package.json)". Setting `turbopack.root` to the monorepo does not
-  // change the root it reports, so the builder is chosen instead: package.json
-  // passes `--webpack` (see apps/web/package.json) and this pin keeps the
-  // standalone layout the web image expects (apps/web/.next/standalone/server.js
-  // — a monorepo tracing root nests it as standalone/apps/web/server.js and
-  // breaks deploy/Dockerfile.web's COPY paths). Moving to Turbopack is a deploy
-  // change, not a flag change.
+  // The tracing root is the MONOREPO, not apps/web: Turbopack (the default
+  // builder from 16) takes this value as its module-resolution root, and pnpm's
+  // store lives at the repo root, so a tracing root of apps/web makes even
+  // `next` unresolvable. The standalone tree is therefore monorepo-shaped —
+  // `.next/standalone/apps/web/server.js`, with the store beside it — and every
+  // consumer names that path explicitly.
+  outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
+  // Turbopack (the default builder from 16) takes this pin as its module-
+  // resolution root, so it has to be the monorepo root: pnpm's store lives
+  // there and resolving `next` through a symlink that escapes apps/web fails
+  // with "Could not find the Next.js package". The standalone tree therefore
+  // nests as `.next/standalone/apps/web/server.js`, and every consumer of that
+  // path names it explicitly — deploy/Dockerfile.web, scripts/e2e-build-web.sh,
+  // scripts/build-desktop.sh and desktop/src/main.rs.
   // Every route, documents and static assets alike. A narrower `source` would
   // leave the shell's own HTML — the document the opener handle and the frame
   // point at — outside the policy, which is the only response that matters
