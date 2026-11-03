@@ -13,7 +13,7 @@
 //! owns attempts; this module only answers "what should be sent" and
 //! "is a presented delivery authentic".
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 

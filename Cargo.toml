@@ -171,9 +171,9 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 rand = "0.8"
 hex = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 ed25519-dalek = { version = "2", default-features = false, features = ["fast", "zeroize"] }
-hmac = "0.12"
+hmac = "0.13"
 subtle = "2"
 futures-util = "0.3"
 clap = { version = "4", features = ["derive"] }
@@ -181,7 +181,7 @@ serde_urlencoded = "0.7"
 totp-rs = { version = "6", default-features = false, features = ["otpauth"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 webauthn-rs-core = "0.5"
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"] }
 url = "2"
 regex = "1"

@@ -6,8 +6,8 @@
 //! full envelope encryption (per-org data keys wrapped by a master key).
 //! Envelope mode is the upgrade path and does not change call sites.
 
-use aes_gcm::aead::{Aead, KeyInit, OsRng};
-use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
@@ -20,6 +20,18 @@ pub enum CryptoError {
 
 const NONCE_LEN: usize = 12;
 
+/// A fresh 12-byte nonce from the OS CSPRNG.
+///
+/// `aead` 0.6 removed the `AeadCore::generate_nonce` convenience this module
+/// used, so the bytes are drawn from `rand` and wrapped in the nonce type
+/// here. The wire format (`nonce || ciphertext`) is unchanged, so values
+/// sealed before the bump still open.
+fn fresh_nonce() -> [u8; NONCE_LEN] {
+    let mut bytes = [0u8; NONCE_LEN];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
+    bytes
+}
+
 fn cipher(key: &crate::config::SecretKey) -> Result<Aes256Gcm, CryptoError> {
     Aes256Gcm::new_from_slice(&key.0).map_err(|e| CryptoError::Backend(e.to_string()))
 }
@@ -27,7 +39,7 @@ fn cipher(key: &crate::config::SecretKey) -> Result<Aes256Gcm, CryptoError> {
 /// Encrypts `plaintext` into `nonce || ciphertext`.
 pub fn seal(key: &crate::config::SecretKey, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
     let c = cipher(key)?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = Nonce::from(fresh_nonce());
     let ct = c
         .encrypt(&nonce, plaintext)
         .map_err(|e| CryptoError::Backend(e.to_string()))?;
@@ -44,8 +56,8 @@ pub fn open(key: &crate::config::SecretKey, sealed: &[u8]) -> Result<Vec<u8>, Cr
     }
     let c = cipher(key)?;
     let (nonce_bytes, ct) = sealed.split_at(NONCE_LEN);
-    let nonce = Nonce::from_slice(nonce_bytes);
-    c.decrypt(nonce, ct).map_err(|_| CryptoError::Corrupt)
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| CryptoError::Corrupt)?;
+    c.decrypt(&nonce, ct).map_err(|_| CryptoError::Corrupt)
 }
 
 /// Encrypts `plaintext` into `nonce || ciphertext`, binding the
@@ -60,7 +72,7 @@ pub fn seal_with_aad(
     aad: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
     let c = cipher(key)?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = Nonce::from(fresh_nonce());
     let ct = c
         .encrypt(
             &nonce,
@@ -88,8 +100,8 @@ pub fn open_with_aad(
     }
     let c = cipher(key)?;
     let (nonce_bytes, ct) = sealed.split_at(NONCE_LEN);
-    let nonce = Nonce::from_slice(nonce_bytes);
-    c.decrypt(nonce, aes_gcm::aead::Payload { msg: ct, aad })
+    let nonce = Nonce::try_from(nonce_bytes).map_err(|_| CryptoError::Corrupt)?;
+    c.decrypt(&nonce, aes_gcm::aead::Payload { msg: ct, aad })
         .map_err(|_| CryptoError::Corrupt)
 }
 
@@ -184,9 +196,9 @@ pub fn seal_file_frame(
     let total = chunk_count_for(plain_len, chunk_size);
     let mut header = Vec::with_capacity(STREAM_HEADER_LEN);
     header.extend_from_slice(&STREAM_MAGIC);
-    let fresh = Aes256Gcm::generate_nonce(&mut OsRng);
+    let fresh = fresh_nonce();
     let mut prefix = [0u8; 8];
-    prefix.copy_from_slice(&fresh.as_slice()[..8]);
+    prefix.copy_from_slice(&fresh[..8]);
     header.extend_from_slice(&prefix);
     header.extend_from_slice(&plain_len.to_be_bytes());
     header.extend_from_slice(&chunk_size.to_be_bytes());
@@ -213,7 +225,7 @@ pub fn seal_file_frame(
         let plain = &plaintext[from..to];
         let ct = c
             .encrypt(
-                Nonce::from_slice(&chunk_nonce(&prefix, chunk)),
+                &Nonce::from(chunk_nonce(&prefix, chunk)),
                 aes_gcm::aead::Payload {
                     msg: plain,
                     aad: aad.as_slice(),
@@ -329,7 +341,7 @@ impl OpenStream {
         let plain = self
             .cipher()?
             .decrypt(
-                Nonce::from_slice(&chunk_nonce(&self.prefix, self.next_chunk)),
+                &Nonce::from(chunk_nonce(&self.prefix, self.next_chunk)),
                 aes_gcm::aead::Payload {
                     msg: ct_chunk.as_ref(),
                     aad: aad.as_slice(),

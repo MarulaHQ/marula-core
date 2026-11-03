@@ -3790,7 +3790,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
 
     // --- org API key (settings/api-keys; hash keyed by the at-rest secret) ----
     let demo_api_raw = "mrl_demo0000000000000000000000000000000000000000000000000000key";
-    use hmac::Mac;
+    use hmac::{KeyInit, Mac};
     let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&opts.seal_key)
         .map_err(|e| DemoError::Crypto(e.to_string()))?;
     mac.update(demo_api_raw.as_bytes());
@@ -5794,11 +5794,12 @@ fn pdf_string(line: &str) -> String {
 /// prefixed to the ciphertext) so core-api's `crypto::open` can read these
 /// demo secrets back on the ingest/test-fire paths.
 fn seal(key: &[u8; 32], plaintext: &[u8]) -> DemoResult<Vec<u8>> {
-    use aes_gcm::aead::AeadCore;
-    use aes_gcm::aead::{Aead, KeyInit, OsRng};
+    use aes_gcm::aead::{Aead, KeyInit};
     use aes_gcm::Aes256Gcm;
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| DemoError::Crypto(e.to_string()))?;
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let mut nonce_bytes = [0u8; 12];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce_bytes);
+    let nonce = aes_gcm::Nonce::from(nonce_bytes);
     let ct = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|e| DemoError::Crypto(e.to_string()))?;
@@ -5903,7 +5904,7 @@ fn seal_stable(key: &[u8; 32], plaintext: &[u8]) -> DemoResult<Vec<u8>> {
 
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| DemoError::Crypto(e.to_string()))?;
     let ct = cipher
-        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
+        .encrypt(&Nonce::from(nonce_bytes), plaintext)
         .map_err(|e| DemoError::Crypto(e.to_string()))?;
     let mut out = Vec::with_capacity(12 + ct.len());
     out.extend_from_slice(&nonce_bytes);
