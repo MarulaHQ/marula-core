@@ -424,7 +424,7 @@ export function App() {
 
         {step === 2 ? (
           <>
-            <ShapeStep state={state} chosen={profile} onChoose={chooseProfile} />
+            <ShapeStep state={state} chosen={profile} onChoose={chooseProfile} allowUnfit={mode === "developer"} />
             <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border pt-4">
               <span className="mr-auto flex items-center gap-1 text-[12px] text-muted-foreground">
                 {state.profiles.some((candidate) => candidate.name === profile && candidate.fits) ? (
@@ -446,7 +446,7 @@ export function App() {
               <button
                 type="button"
                 onClick={advance}
-                disabled={!state.profiles.some((candidate) => candidate.name === profile && candidate.fits)}
+                disabled={!state.profiles.some((candidate) => candidate.name === profile && (candidate.fits || mode === "developer"))}
                 className="rounded-ctl bg-primary px-3.5 py-2 text-[13px] font-semibold text-primary-foreground disabled:bg-muted disabled:text-muted-foreground"
               >
                 Continue

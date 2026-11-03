@@ -286,10 +286,13 @@ export function ShapeStep({
   state,
   chosen,
   onChoose,
+  allowUnfit,
 }: {
   state: State;
   chosen: string;
   onChoose: (profile: string) => void;
+  /** Developer mode may inspect a shape this machine cannot carry. */
+  allowUnfit: boolean;
 }) {
   return (
     <div className="grid max-w-[900px] grid-cols-1 gap-4 md:grid-cols-2">
@@ -300,6 +303,7 @@ export function ShapeStep({
           host={state.host}
           selected={chosen === profile.name}
           recommended={state.recommendation.profile === profile.name}
+          allowUnfit={allowUnfit}
           onChoose={() => onChoose(profile.name)}
         />
       ))}
@@ -312,12 +316,14 @@ function ShapeCard({
   host,
   selected,
   recommended,
+  allowUnfit,
   onChoose,
 }: {
   profile: Profile;
   host: HostFacts;
   selected: boolean;
   recommended: boolean;
+  allowUnfit: boolean;
   onChoose: () => void;
 }) {
   const rows = floorRows(profile, host);
@@ -393,9 +399,28 @@ function ShapeCard({
         ) : null}
 
         {!profile.fits ? (
-          <p className="m-0 border-t border-border pt-2 text-[12px] text-[var(--mc-attn-fg)]">
-            {profile.missing.join("; ")}
-          </p>
+          <div className="m-0 border-t border-border pt-2">
+            <p className="m-0 text-[12px] text-[var(--mc-attn-fg)]">{profile.missing.join("; ")}</p>
+            {allowUnfit ? (
+              <>
+                <p className="m-0 mt-1.5 text-[12px] leading-[1.5] text-muted-foreground">
+                  This shape runs core-api, the worker and PgBouncer as separate containers, and
+                  this machine is short on what it needs. You can open its settings anyway; the
+                  plan still refuses to apply until those numbers are met.
+                </p>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onChoose();
+                  }}
+                  className="mt-2 rounded-ctl border border-border px-2.5 py-1 text-[12px] font-semibold hover:bg-muted"
+                >
+                  Open {profile.name} anyway
+                </button>
+              </>
+            ) : null}
+          </div>
         ) : null}
       </CardBody>
     </Card>
