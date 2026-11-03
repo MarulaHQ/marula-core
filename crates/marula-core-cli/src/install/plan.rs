@@ -221,12 +221,15 @@ impl std::fmt::Display for PlanError {
             Self::ImageDigestMissing { service } => write!(
                 f,
                 "a registry install needs a digest for {service}: a tag can be moved, and the \
-                 release signs a digest"
+                 release signs a digest. The release's release.json carries one per service"
             ),
             Self::ImageBaseMissing => {
                 write!(
                     f,
-                    "a registry install needs --image-base, the repository prefix"
+                    "a registry install needs the registry prefix the release published to, \
+                     as in ghcr.io/marulagh/marula. Type it under Application images in \
+                     settings, or pass --image-base on a terminal. A release bundle's \
+                     release.json already names it"
                 )
             }
             Self::TargetUnavailable { target, reason } => {

@@ -466,6 +466,9 @@ export function SettingsStep({
 export interface ShapeChoice {
   images: "build" | "registry";
   restart: "unless-stopped" | "always" | "no";
+  /** The registry prefix a registry install pulls from. Empty means "read the
+   *  release bundle", which is what a shipped installer carries. */
+  imageBase: string;
 }
 
 const RESTART_NOTE: Record<ShapeChoice["restart"], string> = {
@@ -501,8 +504,21 @@ function DeploymentSection({
           <p className="m-0 text-[11.5px] leading-[1.5] text-muted-foreground">
             {shape.images === "build"
               ? "Compiles the four services here, which needs the source tree plus Rust and Node. That makes it the developer path, not the server one."
-              : "Pulls the exact images the release published and skips the build. It needs the digests from that release; the terminal takes them with --image-digest."}
+              : "Pulls the exact images the release published and skips the build. Each service is pinned to the digest in the release's own release.json, so a bundle found beside the installer needs nothing typed here."}
           </p>
+          {shape.images === "registry" ? (
+            <Field
+              label="Registry prefix"
+              hint="Leave it empty when a release.json sits beside the installer. Each service is pulled as <prefix>-<service>, so ghcr.io/marulagh/marula is the whole repository name and not one image in it."
+            >
+              <Input
+                value={shape.imageBase}
+                placeholder="ghcr.io/marulagh/marula"
+                spellCheck={false}
+                onChange={(event) => onShape({ ...shape, imageBase: event.target.value })}
+              />
+            </Field>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-2">

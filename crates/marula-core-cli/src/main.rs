@@ -899,21 +899,9 @@ async fn install_command(
     // the rest, which is what removes the hand-copy of four digests out of a
     // signed document. Only a registry install has anything to fill.
     if selection.images == install::plan::ImageSource::Registry {
-        let candidate = image_manifest
-            .clone()
-            .or_else(|| {
-                let beside = dir.join("release.json");
-                beside.is_file().then_some(beside)
-            })
-            .or_else(|| {
-                let here = std::path::PathBuf::from("release.json");
-                here.is_file().then_some(here)
-            });
-        if let Some(path) = candidate {
-            let text = std::fs::read_to_string(&path)
-                .map_err(|error| anyhow::anyhow!("reading {}: {error}", path.display()))?;
-            let bundle =
-                install::release::parse(&text).map_err(|reason| anyhow::anyhow!(reason))?;
+        if let Some(bundle) = install::release::resolve(&dir, image_manifest.as_deref())
+            .map_err(|reason| anyhow::anyhow!(reason))?
+        {
             if selection.image_base.is_none() {
                 selection.image_base = Some(bundle.base);
             }

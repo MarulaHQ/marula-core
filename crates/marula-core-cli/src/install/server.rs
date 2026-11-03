@@ -306,6 +306,9 @@ pub struct PlanRequest {
     /// Developer mode may plan a shape this machine cannot carry.
     #[serde(default)]
     pub allow_unfit: bool,
+    /// The registry prefix for a registry install, when a person types one.
+    #[serde(default)]
+    pub image_base: Option<String>,
 }
 
 impl PlanRequest {
@@ -327,7 +330,9 @@ impl PlanRequest {
                 )))
             })?,
         };
-        Ok(session.with_shape(images, restart, self.allow_unfit))
+        Ok(session
+            .with_shape(images, restart, self.allow_unfit)
+            .with_images(self.image_base.clone()))
     }
 }
 

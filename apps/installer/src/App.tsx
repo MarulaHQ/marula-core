@@ -61,7 +61,11 @@ export function App() {
   const [profile, setProfile] = useState("");
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [declared, setDeclared] = useState("");
-  const [shape, setShape] = useState<ShapeChoice>({ images: "build", restart: "unless-stopped" });
+  const [shape, setShape] = useState<ShapeChoice>({
+    images: "build",
+    restart: "unless-stopped",
+    imageBase: "",
+  });
   const [plan, setPlan] = useState<Plan | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [apply, setApply] = useState<ApplyState | null>(null);
@@ -96,7 +100,9 @@ export function App() {
         const next = await transport.plan({
           profile,
           overrides,
-          ...shape,
+          images: shape.images,
+          restart: shape.restart,
+          image_base: shape.imageBase,
           allow_unfit: mode === "developer",
         });
         if (!cancelled) {
@@ -184,7 +190,9 @@ export function App() {
       await transport.apply({
         profile,
         overrides,
-        ...shape,
+        images: shape.images,
+        restart: shape.restart,
+        image_base: shape.imageBase,
         allow_unfit: mode === "developer",
       });
       setApply({ running: true, done: [], failed: null, manual: [] });

@@ -162,6 +162,8 @@ export interface PlanRequest {
   restart?: "unless-stopped" | "always" | "no";
   /** Developer mode may plan a shape this machine cannot carry. */
   allow_unfit?: boolean;
+  /** The registry prefix for a registry install, when a person types one. */
+  image_base?: string;
 }
 
 export interface Credentials {
