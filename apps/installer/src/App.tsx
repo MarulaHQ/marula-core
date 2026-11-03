@@ -42,6 +42,7 @@ export function App() {
   const [state, setState] = useState<State | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
+  const [pathChoice, setPathChoice] = useState<"recommended" | "developer" | null>(null);
   const [mode, setMode] = useState<PathMode>("recommended");
   const [profile, setProfile] = useState("");
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -274,7 +275,7 @@ export function App() {
                   onClick={() => goTo(index)}
                   className={`flex h-9 w-full items-center gap-2 whitespace-nowrap rounded-ctl px-2.5 text-left text-[13px] transition-colors ${
                     current
-                      ? "bg-card font-semibold text-foreground shadow-[inset_2px_0_0_var(--mc-gold)]"
+                      ? "font-semibold text-foreground shadow-[inset_2px_0_0_var(--mc-gold)]"
                       : done
                         ? "text-muted-foreground hover:bg-muted"
                         : "text-muted-foreground/70"
@@ -317,7 +318,7 @@ export function App() {
         </div>
       </nav>
 
-      <main className="overflow-y-auto px-6 py-6 lg:px-10 lg:py-8">
+      <main className="flex min-h-full flex-col overflow-y-auto px-6 py-6 lg:px-10 lg:py-8">
         <header className="mb-5 flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10.5px] tracking-[0.12em] text-[var(--mc-gold-text)]">
@@ -351,27 +352,62 @@ export function App() {
           </h1>
           <p className="m-0 mt-1 max-w-[62ch] text-[13.5px] leading-[1.55] text-muted-foreground">
             {step === 0
-              ? "Two ways in. Both run the same engine and write the same install; they differ in how much you decide."
+              ? "Both paths run the same engine and write the same install. They differ in how many decisions you make."
               : step === 1
-                ? "Measured the same way the product measures itself at boot, so the recommendation and the refusal are the same verdict."
+                ? "Measured the way the product measures itself at boot, so the recommendation and the refusal reach the same verdict."
                 : step === 2
-                  ? "One decision. Both shapes run the product; they differ in what the machine must give them."
+                  ? "One decision. Both shapes run the product. They differ in what the machine must give them."
                   : step === 3
                     ? mode === "developer"
-                      ? "The whole catalogue, each lever with what it changes and what it needs. Nothing here is hidden."
-                      : "Seven answers, and every one of them has a reason printed under it."
-                    : "The plan as data: every step, the reason it exists, and the values it writes."}
+                      ? "Every lever, each with what it changes and what it needs. Nothing is hidden."
+                      : "Every answer prints the reason under it."
+                    : "The plan as data: each step, why it exists, and the values it writes."}
           </p>
         </header>
 
         {step === 0 ? (
-          <PathStep
-            paramCount={state.param_count}
-            onChoose={(next) => {
-              setMode(next);
-              setStep(1);
-            }}
-          />
+          <>
+            <PathStep paramCount={state.param_count} chosen={pathChoice} onSelect={setPathChoice} />
+            {/* The cards decide a path; this is the target they decide for, so the
+                choice is made with the machine in view rather than after it. */}
+            <dl className="mt-5 flex max-w-[900px] flex-wrap items-center gap-x-5 gap-y-1 rounded-ctl border border-border px-3.5 py-2.5 font-mono text-[11px] text-muted-foreground">
+              <dt className="uppercase tracking-[0.12em] text-muted-foreground/80">this machine</dt>
+              <dd className="m-0">
+                {state.host.cores} cores · {state.host.ram_mb ? `${Math.round(state.host.ram_mb / 1024)} GB` : "memory unknown"}
+                {state.host.free_disk_gb !== null ? ` · ${state.host.free_disk_gb} GB free` : ""}
+                {state.host.docker ? ` · docker ${state.host.docker}` : " · docker not found"}
+              </dd>
+              <dd className="m-0 ml-auto">
+                fits:{" "}
+                {state.profiles.filter((candidate) => candidate.fits).map((candidate) => candidate.name).join(", ") ||
+                  "no shipped shape"}
+              </dd>
+            </dl>
+            <div className="mt-6 flex items-center justify-end gap-2.5 border-t border-border pt-4">
+              <span className="mr-auto flex items-center gap-1 text-[12px] text-muted-foreground">
+                {pathChoice ? (
+                  <>
+                    <Kbd>⌘</Kbd>
+                    <Kbd>↵</Kbd> continues
+                  </>
+                ) : (
+                  "Choose a path. The next four screens follow it."
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!pathChoice) return;
+                  setMode(pathChoice);
+                  setStep(1);
+                }}
+                disabled={!pathChoice}
+                className="rounded-ctl bg-primary px-3.5 py-2 text-[13px] font-semibold text-primary-foreground disabled:bg-muted disabled:text-muted-foreground"
+              >
+                Continue
+              </button>
+            </div>
+          </>
         ) : null}
 
         {step === 1 ? (
