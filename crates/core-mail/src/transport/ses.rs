@@ -43,7 +43,7 @@ use crate::transport::{MailTransport, OutboundEmail, SendReceipt, TransportError
 use async_trait::async_trait;
 use base64::Engine;
 use chrono::{DateTime, Utc};
-use hmac::Mac;
+use hmac::{KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
 /// HMAC-SHA256, for the four-step SigV4 key chain.

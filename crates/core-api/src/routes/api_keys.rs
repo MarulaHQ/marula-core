@@ -20,7 +20,7 @@ use axum::{extract::State, http::Extensions, Json};
 use chrono::Utc;
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::policy::Permission;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use utoipa::ToSchema;

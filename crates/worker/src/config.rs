@@ -49,7 +49,10 @@ impl AtRestKey {
         let cipher = Aes256Gcm::new_from_slice(&self.0).map_err(|e| e.to_string())?;
         let (nonce, ct) = sealed.split_at(NONCE_LEN);
         cipher
-            .decrypt(Nonce::from_slice(nonce), ct)
+            .decrypt(
+                &Nonce::try_from(nonce).map_err(|_| "at-rest nonce has the wrong length")?,
+                ct,
+            )
             .map_err(|_| "ciphertext malformed or tampered".to_string())
     }
 }
@@ -699,11 +702,13 @@ mod tests {
 
     #[test]
     fn at_rest_key_parses_hex_and_decrypts_roundtrip() {
-        use aes_gcm::aead::{Aead, KeyInit, OsRng};
-        use aes_gcm::{AeadCore, Aes256Gcm};
+        use aes_gcm::aead::{Aead, KeyInit};
+        use aes_gcm::Aes256Gcm;
         let key = AtRestKey([7_u8; 32]);
         let cipher = Aes256Gcm::new_from_slice(&key.0).expect("key");
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let mut nonce_bytes = [0u8; 12];
+        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce_bytes);
+        let nonce = aes_gcm::Nonce::from(nonce_bytes);
         let mut sealed = cipher.encrypt(&nonce, b"whsec".as_ref()).expect("encrypt");
         let mut out = nonce.to_vec();
         out.append(&mut sealed);

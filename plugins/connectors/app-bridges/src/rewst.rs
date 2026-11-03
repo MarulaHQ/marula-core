@@ -87,7 +87,7 @@ impl RewstBridge {
 /// verification comparison lives on the Rewst side (their engine).
 fn core_signature(payload: &str, secret: &str) -> String {
     use hmac::Mac;
-    let mut mac = <hmac::Hmac<sha2::Sha256> as Mac>::new_from_slice(secret.as_bytes())
+    let mut mac = <hmac::Hmac<sha2::Sha256> as hmac::KeyInit>::new_from_slice(secret.as_bytes())
         .expect("hmac accepts any key length");
     mac.update(payload.as_bytes());
     hex::encode(mac.finalize().into_bytes())
