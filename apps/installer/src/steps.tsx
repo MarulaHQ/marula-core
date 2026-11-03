@@ -243,7 +243,7 @@ export function MachineStep({
           <CardBody>
             <Field
               label="This platform publishes no memory reading"
-              hint="Declare it — the same value MARULA_HOST_MEMORY_MB carries — and the shapes are scored on it."
+              hint="Declare it and the shapes are scored on it. This is the same value MARULA_HOST_MEMORY_MB carries."
             >
               <Input
                 inputMode="numeric"
