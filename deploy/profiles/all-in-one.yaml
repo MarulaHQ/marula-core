@@ -3,7 +3,7 @@
 # see docs/deploy-descriptor.md. Do not edit by hand.
 name: all-in-one
 title: "All-in-one (demo / one-box)"
-description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md. Unpooled on purpose: one instance's 54 connections fit inside Postgres's default 100, so the demo box does not need a second moving part. The floors are the shipped embedding model's four cores plus the database and cache it shares the box with; one fewer disk than split because there is no second image copy."
+description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md. It runs unpooled on purpose. One instance's 54 connections fit inside the default 100 a stock Postgres allows, so the demo box does not need a second moving part. The floors are the shipped embedding model's four cores, plus the database and cache it shares the box with. The disk floor is one tier smaller than split's because there is no second image copy."
 floors:
   cores: 4
   ram_mb: 8192

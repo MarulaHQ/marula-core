@@ -3,7 +3,7 @@
 # see docs/deploy-descriptor.md. Do not edit by hand.
 name: split
 title: "Split services behind a transaction pooler"
-description: "The default topology: core-api and worker run as separate processes so each scales and restarts on its own, with PgBouncer in transaction mode in front of Postgres. The compose stack ships this shape. Point DATABASE_URL at Postgres directly only when you also set MARULA_DB_STATEMENT_CACHE and accept the connection ceiling that comes back with it. The floors are set by the shipped embedding model, which needs four cores of its own, plus room for Postgres, the pooler and the object store."
+description: "The default topology. core-api and worker run as separate processes, so each scales and restarts on its own, with PgBouncer in transaction mode in front of Postgres. The compose stack ships this shape. Pointing DATABASE_URL straight at Postgres works only once you raise MARULA_DB_STATEMENT_CACHE, and it brings back the connection ceiling the pooler was hiding. The floors come from the shipped embedding model, which needs four cores of its own, plus room for Postgres, the pooler and the object store."
 floors:
   cores: 4
   ram_mb: 8192
