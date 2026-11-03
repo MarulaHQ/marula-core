@@ -84,6 +84,17 @@ const nextConfig = {
   // is deterministic (apps/web/.next/standalone/server.js) even inside
   // git worktrees, where Next may otherwise infer the wrong repo root.
   outputFileTracingRoot: path.join(import.meta.dirname),
+  // Turbopack (the default builder from 16) took this pin as its resolution
+  // root too, and that breaks the build: pnpm's node_modules is a symlink farm
+  // rooted at the repo root, so `next` resolves outside a root of apps/web and
+  // the compile dies with "Could not find the Next.js package
+  // (next/package.json)". Setting `turbopack.root` to the monorepo does not
+  // change the root it reports, so the builder is chosen instead: package.json
+  // passes `--webpack` (see apps/web/package.json) and this pin keeps the
+  // standalone layout the web image expects (apps/web/.next/standalone/server.js
+  // — a monorepo tracing root nests it as standalone/apps/web/server.js and
+  // breaks deploy/Dockerfile.web's COPY paths). Moving to Turbopack is a deploy
+  // change, not a flag change.
   // Every route, documents and static assets alike. A narrower `source` would
   // leave the shell's own HTML — the document the opener handle and the frame
   // point at — outside the policy, which is the only response that matters
