@@ -60,6 +60,7 @@ on:
       - "deploy/**"
       - "scripts/release/**"
       - ".github/workflows/release-installer.yml"
+      - ".github/workflows/release-images.yml"
   workflow_dispatch:
     inputs:
       offline:
@@ -138,6 +139,22 @@ jobs:
         run: |
           node --check scripts/release/assemble.mjs
           node scripts/release/assemble.mjs --self-test
+
+  # Workflow YAML is code, and the only place a typo in it is caught is the run
+  # that needed it. actionlint reads the syntax, the expression contexts, the
+  # job graph and (through shellcheck) the shell inside every `run:` block. The
+  # image is pinned: a linter that changes under a release is its own hazard.
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint every workflow
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
 
   build:
     name: Build — ${{ matrix.os }} ${{ matrix.arch }}
@@ -360,6 +377,8 @@ jobs:
       - name: Assemble the release directory
         shell: bash
         run: |
+          # shellcheck disable=SC2086 # ASSEMBLE_EXTRA is a flag list by design: the
+          # Windows leg needs one --extra per OpenSSL DLL, so it must word-split.
           node scripts/release/assemble.mjs \
             --version "$VERSION" \
             --os "${{ matrix.os }}" \
@@ -375,7 +394,18 @@ jobs:
       - name: The binary starts
         shell: bash
         run: |
-          DIR=$(ls -d dist/release/marula-*-${{ matrix.os }}-${{ matrix.arch }} | head -1)
+          # A glob rather than `ls`: the name has no newlines today, and parsing
+          # `ls` output is how a path with a space becomes a mystery.
+          SUFFIX="${{ matrix.os }}-${{ matrix.arch }}"
+          DIR=""
+          for candidate in "dist/release/marula-"*"-$SUFFIX"; do
+            DIR="$candidate"
+            break
+          done
+          if [ -z "$DIR" ]; then
+            echo "::error::no assembled release directory for ${{ matrix.os }}-${{ matrix.arch }}"
+            exit 1
+          fi
           if [ "${{ matrix.os }}" = "windows" ]; then BIN="$DIR/marula.exe"; else BIN="$DIR/marula"; fi
           "$BIN" --version
 
