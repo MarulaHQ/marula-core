@@ -13826,7 +13826,7 @@ export interface components {
              *     legacy clients — purely additive.
              */
             draft_key?: string | null;
-            email_envelope?: null | components["schemas"]["EmailEnvelopeOverride"];
+            email_envelope?: components["schemas"]["EmailEnvelopeOverride"] | null;
             kind: components["schemas"]["NoteKind"];
         };
         /** @description POST /api/tool-kits/{id}/members. */
@@ -14156,7 +14156,7 @@ export interface components {
              */
             models: components["schemas"]["AiAllowedModelDto"][];
             models_available: boolean;
-            picked?: null | components["schemas"]["AiAllowedModelDto"];
+            picked?: components["schemas"]["AiAllowedModelDto"] | null;
             surface_key: string;
         };
         AiSurfaceDto: {
@@ -14373,7 +14373,7 @@ export interface components {
              * @description Provider-reported leg distance in metres.
              */
             travel_distance_meters?: number | null;
-            travel_from?: null | components["schemas"]["TravelOrigin"];
+            travel_from?: components["schemas"]["TravelOrigin"] | null;
             /** Format: int32 */
             travel_minutes: number;
             /**
@@ -14441,7 +14441,7 @@ export interface components {
             limit?: number;
             /** Format: int64 */
             offset?: number;
-            status?: null | components["schemas"]["AppointmentRequestStatus"];
+            status?: components["schemas"]["AppointmentRequestStatus"] | null;
         };
         /**
          * @description Lifecycle of an appointment request. `approved`/`declined`/`cancelled`
@@ -14492,7 +14492,7 @@ export interface components {
             client_visible?: boolean;
             /** @description Title substring narrowing; ranked full-text search rides /api/search. */
             q?: string | null;
-            status?: null | components["schemas"]["KbArticleStatus"];
+            status?: components["schemas"]["KbArticleStatus"] | null;
         };
         /** @description Instant-first mutation response (IF2). */
         ArticleMutationResponse: components["schemas"]["KbArticle"] & {
@@ -14971,7 +14971,7 @@ export interface components {
             detail?: string | null;
             /** Format: uuid */
             id: string;
-            merge?: null | components["schemas"]["CiMerge"];
+            merge?: components["schemas"]["CiMerge"] | null;
             /** @description "applied" | "skipped" | "failed" */
             outcome: string;
         };
@@ -15074,7 +15074,7 @@ export interface components {
         };
         /** @description The result of evaluating one contract's billing rules over a window. */
         BillingEvaluation: {
-            block_consumption?: null | components["schemas"]["BlockConsumption"];
+            block_consumption?: components["schemas"]["BlockConsumption"] | null;
             /**
              * @description Cap warnings (`warn` behavior): one human-readable marker per
              *     (cap, period) whose labor reached the cap. `stop`/`overage_billable`
@@ -15301,7 +15301,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             is_default: boolean;
-            my_role?: null | components["schemas"]["BoardRole"];
+            my_role?: components["schemas"]["BoardRole"] | null;
             name: string;
         };
         /**
@@ -15409,7 +15409,7 @@ export interface components {
          *     guessing.
          */
         BulkDecisionItem: {
-            entry?: null | components["schemas"]["TimeEntry"];
+            entry?: components["schemas"]["TimeEntry"] | null;
             /** Format: uuid */
             entry_id: string;
             outcome: string;
@@ -15613,10 +15613,10 @@ export interface components {
             id: string;
             /** @description "appointment" | "on_call" */
             item_type: string;
-            kind?: null | components["schemas"]["AppointmentKind"];
+            kind?: components["schemas"]["AppointmentKind"] | null;
             /** Format: date-time */
             starts_at: string;
-            status?: null | components["schemas"]["AppointmentStatus"];
+            status?: components["schemas"]["AppointmentStatus"] | null;
             /** Format: uuid */
             ticket_id?: string | null;
             title?: string | null;
@@ -16154,7 +16154,7 @@ export interface components {
             items: components["schemas"]["ChecklistTemplateItem"][];
             /** @description Mirrors `boards.require_checklist_close`. */
             require_checklist_close: boolean;
-            template?: null | components["schemas"]["ChecklistTemplate"];
+            template?: components["schemas"]["ChecklistTemplate"] | null;
         };
         CheckoutItemRequest: {
             /** Format: uuid */
@@ -16211,7 +16211,7 @@ export interface components {
             org_id: string;
             /** Format: int32 */
             priority: number;
-            semantic_class?: null | components["schemas"]["CiSemanticClass"];
+            semantic_class?: components["schemas"]["CiSemanticClass"] | null;
             source_system: string;
             /** Format: date-time */
             updated_at: string;
@@ -16487,7 +16487,7 @@ export interface components {
         CloseKind: "full" | "short";
         CloseOrderRequest: components["schemas"]["MutationParams"];
         CommentListQuery: {
-            kind?: null | components["schemas"]["NoteKind"];
+            kind?: components["schemas"]["NoteKind"] | null;
         };
         /** @description One committed chunk's position in the resume view. */
         CommittedChunkRef: {
@@ -16597,7 +16597,7 @@ export interface components {
             /** Format: uuid */
             client_id?: string | null;
             client_name?: string | null;
-            dispatch_status?: null | components["schemas"]["ConnectorStatusView"];
+            dispatch_status?: components["schemas"]["ConnectorStatusView"] | null;
             /** Format: date-time */
             ends_at: string;
             /** Format: uuid */
@@ -16663,7 +16663,7 @@ export interface components {
             outbound_scopes?: {
                 [key: string]: string[];
             };
-            routing?: null | components["schemas"]["RoutingProfile"];
+            routing?: components["schemas"]["RoutingProfile"] | null;
             /**
              * @description The outbound scopes the connector asks the upstream SaaS for
              *     (e.g. `graph:mail.read`); opaque strings to the core — they exist
@@ -16852,7 +16852,7 @@ export interface components {
              * @description Required for recurring/retainer; the first billing period's start.
              */
             billing_anchor?: string | null;
-            billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            billing_frequency?: components["schemas"]["BillingFrequency"] | null;
             /** Format: uuid */
             client_id: string;
             contract_type: components["schemas"]["ContractType"];
@@ -16918,7 +16918,7 @@ export interface components {
              */
             po_number?: string | null;
             status: components["schemas"]["ContractStatus"];
-            unit_basis?: null | components["schemas"]["UnitBasis"];
+            unit_basis?: components["schemas"]["UnitBasis"] | null;
             /**
              * Format: int64
              * @description Per-unit recurring: the price per unit per period, minor units.
@@ -17054,7 +17054,7 @@ export interface components {
              *     attached commercial state).
              */
             change_orders: components["schemas"]["ContractChangeOrder"][];
-            escalator?: null | components["schemas"]["ContractEscalator"];
+            escalator?: components["schemas"]["ContractEscalator"] | null;
             fees: components["schemas"]["ContractFixedFee"][];
             /**
              * Format: int64
@@ -17283,7 +17283,7 @@ export interface components {
             client_id?: string | null;
             /** Format: date-time */
             ends_at: string;
-            kind?: null | components["schemas"]["AppointmentKind"];
+            kind?: components["schemas"]["AppointmentKind"] | null;
             notes?: string | null;
             /** Format: uuid */
             site_id?: string | null;
@@ -17322,7 +17322,7 @@ export interface components {
             content_jsonb?: unknown;
             /** @description Stable per-org handle; derived from the title when omitted. */
             slug?: string | null;
-            status?: null | components["schemas"]["KbArticleStatus"];
+            status?: components["schemas"]["KbArticleStatus"] | null;
             title: string;
         };
         CreateAssetLinkRequest: {
@@ -17348,7 +17348,7 @@ export interface components {
              * @description Typed layout; when set, `fields` is validated against its schema.
              */
             layout_id?: string | null;
-            lifecycle?: null | components["schemas"]["AssetLifecycleInput"];
+            lifecycle?: components["schemas"]["AssetLifecycleInput"] | null;
             name: string;
             /**
              * @description client | internal_org (migration 0103). Defaults to `client` when
@@ -17500,7 +17500,7 @@ export interface components {
              * @description Required for recurring/retainer; first billing period's start.
              */
             billing_anchor?: string | null;
-            billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            billing_frequency?: components["schemas"]["BillingFrequency"] | null;
             /** @description Prepaid hour banks (only valid on T&M and retainer contracts). */
             blocks?: components["schemas"]["BlockSpec"][];
             /** @description NTE caps (only valid on time_and_materials contracts). */
@@ -17514,7 +17514,7 @@ export interface components {
             effective_from: string;
             /** Format: date */
             effective_until?: string | null;
-            escalator?: null | components["schemas"]["EscalatorSpec"];
+            escalator?: components["schemas"]["EscalatorSpec"] | null;
             /** @description Fee schedule (only valid on fixed_fee contracts). */
             fees?: components["schemas"]["FeeSpec"][];
             /**
@@ -17551,8 +17551,8 @@ export interface components {
             po_number?: string | null;
             /** @description T&M rate card (only valid on time_and_materials contracts). */
             rates?: components["schemas"]["RateSpec"][];
-            status?: null | components["schemas"]["ContractStatus"];
-            unit_basis?: null | components["schemas"]["UnitBasis"];
+            status?: components["schemas"]["ContractStatus"] | null;
+            unit_basis?: components["schemas"]["UnitBasis"] | null;
             /**
              * Format: int64
              * @description Per-unit recurring (C): price per unit per period.
@@ -17995,7 +17995,7 @@ export interface components {
             description?: string | null;
             /** @description Org-unique display name (1–200 chars after trimming). */
             name: string;
-            scope?: null | components["schemas"]["DefinitionScope"];
+            scope?: components["schemas"]["DefinitionScope"] | null;
             /** @description The registry-validated report spec. */
             spec: components["schemas"]["ReportSpec"];
         };
@@ -18225,7 +18225,7 @@ export interface components {
             name: string;
             /** Format: int32 */
             position?: number | null;
-            stage_type?: null | components["schemas"]["StageType"];
+            stage_type?: components["schemas"]["StageType"] | null;
         };
         CreateStatusRequest: {
             /**
@@ -18582,9 +18582,9 @@ export interface components {
          *     receipt for applies) so the client reconciles both sides in one shot.
          */
         CreditNoteAllocationResponse: components["schemas"]["CreditNote"] & {
-            invoice?: null | components["schemas"]["Invoice"];
+            invoice?: components["schemas"]["Invoice"] | null;
             mutation: components["schemas"]["MutationMeta"];
-            payment?: null | components["schemas"]["InvoicePayment"];
+            payment?: components["schemas"]["InvoicePayment"] | null;
         };
         /**
          * @description One allocation of credit-note value onto an invoice. The money move
@@ -18663,7 +18663,7 @@ export interface components {
         /** @description Manual DNS setup instructions (the seam's none-mode), ready to render. */
         CustomDomainInstructions: {
             domain: string;
-            edge_record?: null | components["schemas"]["DnsRecordInstruction"];
+            edge_record?: components["schemas"]["DnsRecordInstruction"] | null;
             verification_note: string;
             verification_txt: components["schemas"]["DnsRecordInstruction"];
         };
@@ -18674,7 +18674,7 @@ export interface components {
         CustomDomainView: {
             /** @description The stored domain, or `null` when none is set. */
             domain?: string | null;
-            instructions?: null | components["schemas"]["CustomDomainInstructions"];
+            instructions?: components["schemas"]["CustomDomainInstructions"] | null;
             /** Format: uuid */
             org_id: string;
             /**
@@ -18798,7 +18798,7 @@ export interface components {
             ready: boolean;
             /** Format: int64 */
             required_units: number;
-            tick?: null | components["schemas"]["DayPackTickView"];
+            tick?: components["schemas"]["DayPackTickView"] | null;
             /** Format: uuid */
             ticket_id?: string | null;
         };
@@ -18819,10 +18819,10 @@ export interface components {
             /** Format: int64 */
             qty_milli: number;
             secondary?: string | null;
-            source?: null | components["schemas"]["DayPackSourceView"];
+            source?: components["schemas"]["DayPackSourceView"] | null;
             /** Format: uuid */
             stock_item_id: string;
-            tick?: null | components["schemas"]["DayPackTickView"];
+            tick?: components["schemas"]["DayPackTickView"] | null;
             /** Format: uuid */
             ticket_id: string;
             unit: string;
@@ -18916,9 +18916,9 @@ export interface components {
             date: string;
             display_name: string;
             has_stops: boolean;
-            start_point?: null | components["schemas"]["StartPointView"];
+            start_point?: components["schemas"]["StartPointView"] | null;
             timezone: string;
-            tomorrow?: null | components["schemas"]["DayPackTomorrowView"];
+            tomorrow?: components["schemas"]["DayPackTomorrowView"] | null;
             trips: components["schemas"]["DayPackTripView"][];
             /** Format: uuid */
             user_id: string;
@@ -19046,7 +19046,7 @@ export interface components {
          *     is present ONLY on approve: the calendar booking this decision made.
          */
         DecideResponse: {
-            appointment?: null | components["schemas"]["Appointment"];
+            appointment?: components["schemas"]["Appointment"] | null;
             mutation: components["schemas"]["MutationMeta"];
             request: components["schemas"]["AppointmentRequest"];
         };
@@ -19455,14 +19455,14 @@ export interface components {
             attempts: number;
             created_at: string;
             from_address: string;
-            greeting_source?: null | components["schemas"]["EmailSourceView"];
+            greeting_source?: components["schemas"]["EmailSourceView"] | null;
             last_error?: string | null;
             /** Format: int32 */
             max_attempts: number;
             /** Format: uuid */
             message_id: string;
             rfc_message_id: string;
-            signature_source?: null | components["schemas"]["EmailSourceView"];
+            signature_source?: components["schemas"]["EmailSourceView"] | null;
             status: string;
             subject?: string | null;
             /** Format: uuid */
@@ -19643,7 +19643,7 @@ export interface components {
             updated_at: string;
             /** Format: int32 */
             useful_life_months?: number | null;
-            warranty?: null | components["schemas"]["WarrantyWindow"];
+            warranty?: components["schemas"]["WarrantyWindow"] | null;
         };
         /**
          * @description One structural change between the current document and the draft. The
@@ -19736,7 +19736,7 @@ export interface components {
             /** Format: uuid */
             client_id?: string | null;
             client_name?: string | null;
-            dispatch_status?: null | components["schemas"]["DispatchStatusShade"];
+            dispatch_status?: components["schemas"]["DispatchStatusShade"] | null;
             /** Format: date-time */
             ends_at: string;
             /** Format: uuid */
@@ -19751,7 +19751,7 @@ export interface components {
             title: string;
             /** Format: int32 */
             travel_distance_meters?: number | null;
-            travel_from?: null | components["schemas"]["TravelOrigin"];
+            travel_from?: components["schemas"]["TravelOrigin"] | null;
             /** Format: int32 */
             travel_minutes: number;
             travel_provider?: string | null;
@@ -19912,7 +19912,7 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
-            semantic_class?: null | components["schemas"]["CiSemanticClass"];
+            semantic_class?: components["schemas"]["CiSemanticClass"] | null;
             /** @description Stable per-org handle (unique). */
             slug: string;
             /** Format: date-time */
@@ -20294,7 +20294,7 @@ export interface components {
          *     which is different from "adopted zero" — there is no zero revision.
          */
         EntitlementView: {
-            entitlement?: null | components["schemas"]["EntitlementHeld"];
+            entitlement?: components["schemas"]["EntitlementHeld"] | null;
             /** Format: uuid */
             org_id: string;
         };
@@ -20302,7 +20302,7 @@ export interface components {
             detail?: string | null;
             /** Format: uuid */
             id: string;
-            merge?: null | components["schemas"]["EntityMerge"];
+            merge?: components["schemas"]["EntityMerge"] | null;
             /** @description "applied" | "skipped" | "failed" */
             outcome: string;
         };
@@ -20441,7 +20441,7 @@ export interface components {
             primary_source?: unknown;
         };
         EntityWorkbenchSide: {
-            contact?: null | components["schemas"]["Contact"];
+            contact?: components["schemas"]["Contact"] | null;
             curated_fields: unknown;
             field_sources: unknown;
             observed_fields: unknown;
@@ -20456,7 +20456,7 @@ export interface components {
             auto_merge_threshold: number;
             candidate: components["schemas"]["EntityCandidateView"];
             candidate_side: components["schemas"]["EntityWorkbenchSide"];
-            decision?: null | components["schemas"]["EntityWorkbenchDecision"];
+            decision?: components["schemas"]["EntityWorkbenchDecision"] | null;
             fields: components["schemas"]["EntityWorkbenchFieldRow"][];
             primary: components["schemas"]["EntityWorkbenchSide"];
         };
@@ -20497,7 +20497,7 @@ export interface components {
         EntryActionResponse: {
             /** @description The action actually applied. */
             action: string;
-            adjustment?: null | components["schemas"]["TimeEntryAdjustment"];
+            adjustment?: components["schemas"]["TimeEntryAdjustment"] | null;
             /** @description The audit action name written to `audit_events` (V9). */
             audit_action: string;
             /** @description The entry's current disposition after the write. */
@@ -21275,7 +21275,7 @@ export interface components {
         /** @description POST /api/alerts/ingest — outcome of one signed delivery. */
         IngestResponse: {
             alert: components["schemas"]["AlertView"];
-            incident?: null | components["schemas"]["IncidentView"];
+            incident?: components["schemas"]["IncidentView"] | null;
             /**
              * @description `incident_created` (this alert anchored a NEW incident ticket),
              *     `collapsed` (folded into the still-open storm incident), or
@@ -21728,8 +21728,8 @@ export interface components {
         JourneyStartView: {
             /** Format: date */
             date: string;
-            explicit?: null | components["schemas"]["StartPointView"];
-            resolved?: null | components["schemas"]["StartPointView"];
+            explicit?: components["schemas"]["StartPointView"] | null;
+            resolved?: components["schemas"]["StartPointView"] | null;
             /** Format: uuid */
             user_id: string;
         };
@@ -21739,13 +21739,13 @@ export interface components {
             /** Format: date-time */
             ends_at: string;
             label?: string | null;
-            leg?: null | components["schemas"]["JourneyLegView"];
-            place?: null | components["schemas"]["TravelPlaceView"];
+            leg?: components["schemas"]["JourneyLegView"] | null;
+            place?: components["schemas"]["TravelPlaceView"] | null;
             /** Format: date-time */
             starts_at: string;
             /** Format: int32 */
             travel_distance_meters?: number | null;
-            travel_from?: null | components["schemas"]["TravelOrigin"];
+            travel_from?: components["schemas"]["TravelOrigin"] | null;
             /**
              * Format: int64
              * @description Booked travel minutes into this stop (the appointment field).
@@ -22764,11 +22764,11 @@ export interface components {
             survivor_id: string;
         };
         MergeResolutions: {
-            assignee?: null | components["schemas"]["FieldResolution"];
-            board?: null | components["schemas"]["FieldResolution"];
-            client?: null | components["schemas"]["FieldResolution"];
-            priority?: null | components["schemas"]["FieldResolution"];
-            title?: null | components["schemas"]["FieldResolution"];
+            assignee?: components["schemas"]["FieldResolution"] | null;
+            board?: components["schemas"]["FieldResolution"] | null;
+            client?: components["schemas"]["FieldResolution"] | null;
+            priority?: components["schemas"]["FieldResolution"] | null;
+            title?: components["schemas"]["FieldResolution"] | null;
         };
         MergeResponse: {
             conflicts: components["schemas"]["MergeConflictEntry"][];
@@ -22787,7 +22787,7 @@ export interface components {
             auto_merge_threshold: number;
             candidate: components["schemas"]["CandidateView"];
             candidate_side: components["schemas"]["WorkbenchSide"];
-            decision?: null | components["schemas"]["WorkbenchDecision"];
+            decision?: components["schemas"]["WorkbenchDecision"] | null;
             /**
              * @description The field-by-field picker's rows: the union of both sides'
              *     observed/curated keys with per-side provenance.
@@ -23085,7 +23085,7 @@ export interface components {
             updated_at: string;
         };
         NoteDraftResponse: {
-            draft?: null | components["schemas"]["NoteDraftBody"];
+            draft?: components["schemas"]["NoteDraftBody"] | null;
         };
         /**
          * @description Taxonomy of structured ticket notes (§1).
@@ -23499,7 +23499,7 @@ export interface components {
          *     `mutation` metadata.
          */
         OrgUserMutationResponse: components["schemas"]["OrgUser"] & {
-            invite?: null | components["schemas"]["InviteInfo"];
+            invite?: components["schemas"]["InviteInfo"] | null;
             mutation: components["schemas"]["MutationMeta"];
         };
         OutboundSettingsView: {
@@ -23560,9 +23560,9 @@ export interface components {
          */
         OverrideEntry: {
             allow_disable: boolean;
-            client_override?: null | components["schemas"]["ClientOverrideRow"];
+            client_override?: components["schemas"]["ClientOverrideRow"] | null;
             description: string;
-            detail?: null | components["schemas"]["ResolvedDetail"];
+            detail?: components["schemas"]["ResolvedDetail"] | null;
             /** @description Typed drift/validation notes (never empty on a fallback). */
             issues: string[];
             key: string;
@@ -23576,7 +23576,7 @@ export interface components {
         OverrideMutationResponse: {
             /** Format: uuid */
             client_id: string;
-            detail?: null | components["schemas"]["ResolvedDetail"];
+            detail?: components["schemas"]["ResolvedDetail"] | null;
             key: string;
             mutation: components["schemas"]["MutationMeta"];
             resolution: components["schemas"]["Resolution"];
@@ -23730,9 +23730,9 @@ export interface components {
             payload_schema_ref?: string | null;
         };
         PatchAppointmentRequest: {
-            kind?: null | components["schemas"]["AppointmentKind"];
+            kind?: components["schemas"]["AppointmentKind"] | null;
             notes?: string | null;
-            status?: null | components["schemas"]["AppointmentStatus"];
+            status?: components["schemas"]["AppointmentStatus"] | null;
             /** Format: uuid */
             ticket_id?: string | null;
             title?: string | null;
@@ -23744,7 +23744,7 @@ export interface components {
             amount_minor?: number | null;
             /** Format: date */
             billing_anchor?: string | null;
-            billing_frequency?: null | components["schemas"]["BillingFrequency"];
+            billing_frequency?: components["schemas"]["BillingFrequency"] | null;
             /** @description When present, replaces the whole prepaid-block set. */
             blocks?: components["schemas"]["BlockSpec"][] | null;
             /** @description When present, replaces the whole cap set. */
@@ -23758,13 +23758,13 @@ export interface components {
             clear_minimum?: boolean | null;
             /** Format: uuid */
             client_id?: string | null;
-            contract_type?: null | components["schemas"]["ContractType"];
+            contract_type?: components["schemas"]["ContractType"] | null;
             currency?: string | null;
             /** Format: date */
             effective_from?: string | null;
             /** Format: date */
             effective_until?: string | null;
-            escalator?: null | components["schemas"]["EscalatorSpec"];
+            escalator?: components["schemas"]["EscalatorSpec"] | null;
             /** @description When present, replaces the whole fee schedule. */
             fees?: components["schemas"]["FeeSpec"][] | null;
             /** Format: int64 */
@@ -23787,8 +23787,8 @@ export interface components {
             po_number?: string | null;
             /** @description When present, replaces the whole rate card. */
             rates?: components["schemas"]["RateSpec"][] | null;
-            status?: null | components["schemas"]["ContractStatus"];
-            unit_basis?: null | components["schemas"]["UnitBasis"];
+            status?: components["schemas"]["ContractStatus"] | null;
+            unit_basis?: components["schemas"]["UnitBasis"] | null;
             /** Format: int64 */
             unit_price_minor?: number | null;
         };
@@ -23836,14 +23836,14 @@ export interface components {
              *     quietly erase its planned window.
              */
             start_date?: string | null;
-            status?: null | components["schemas"]["PhaseStatus"];
+            status?: components["schemas"]["PhaseStatus"] | null;
         };
         PatchPortalUserRequest: {
             display_name?: string | null;
             /** @description Optional credential reset (hashed before storage). */
             password?: string | null;
-            role?: null | components["schemas"]["PortalRole"];
-            status?: null | components["schemas"]["PortalUserStatus"];
+            role?: components["schemas"]["PortalRole"] | null;
+            status?: components["schemas"]["PortalUserStatus"] | null;
         };
         PatchProjectRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -23852,7 +23852,7 @@ export interface components {
              *     `None` = no change (Wave 39 lane 4, report P2).
              */
             billing_contract_id?: string | null;
-            billing_method?: null | components["schemas"]["BillingMethod"];
+            billing_method?: components["schemas"]["BillingMethod"] | null;
             /** Format: int64 */
             budget_minor?: number | null;
             /** Format: uuid */
@@ -23865,7 +23865,7 @@ export interface components {
             name?: string | null;
             /** Format: date */
             start_date?: string | null;
-            status?: null | components["schemas"]["ProjectStatus"];
+            status?: components["schemas"]["ProjectStatus"] | null;
         };
         PatchRuleRequest: components["schemas"]["MutationParams"] & {
             active: boolean;
@@ -23884,7 +23884,7 @@ export interface components {
             phase_id?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
-            status?: null | components["schemas"]["TaskStatus"];
+            status?: components["schemas"]["TaskStatus"] | null;
             title?: string | null;
         };
         PatchTemplateRequest: {
@@ -23912,7 +23912,7 @@ export interface components {
             custom_fields?: components["schemas"]["TicketFieldInput"][] | null;
             /** Format: date-time */
             due_at?: string | null;
-            priority?: null | components["schemas"]["Priority"];
+            priority?: components["schemas"]["Priority"] | null;
             /** Format: uuid */
             site_id?: string | null;
             title?: string | null;
@@ -24192,13 +24192,13 @@ export interface components {
          *     cannot publish an entry the runtime would refuse.
          */
         PluginManifestBody: {
-            artifact_kind?: null | components["schemas"]["PluginRuntimeKind"];
+            artifact_kind?: components["schemas"]["PluginRuntimeKind"] | null;
             capabilities: string[];
-            connector_profile?: null | components["schemas"]["ConnectorProfile"];
+            connector_profile?: components["schemas"]["ConnectorProfile"] | null;
             description?: string;
             /** @description ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings. */
             settings_schema?: unknown;
-            surface_profile?: null | components["schemas"]["PluginSurfaceProfile"];
+            surface_profile?: components["schemas"]["PluginSurfaceProfile"] | null;
         };
         /**
          * @description The declarative v2 plugin manifest: name/version/capabilities — a
@@ -24208,14 +24208,14 @@ export interface components {
          *     snapshot.
          */
         PluginManifestV2: {
-            artifact_kind?: null | components["schemas"]["PluginRuntimeKind"];
+            artifact_kind?: components["schemas"]["PluginRuntimeKind"] | null;
             /**
              * @description The capabilities the plugin MAY be granted. Grants at install
              *     time are a subset of this list — a grant outside the manifest's
              *     declared set is rejected.
              */
             capabilities: string[];
-            connector_profile?: null | components["schemas"]["ConnectorProfile"];
+            connector_profile?: components["schemas"]["ConnectorProfile"] | null;
             description?: string;
             /**
              * Format: int32
@@ -24233,7 +24233,7 @@ export interface components {
              *     consent/enable/disable only. Additive to the v2 shape.
              */
             settings_schema?: unknown;
-            surface_profile?: null | components["schemas"]["PluginSurfaceProfile"];
+            surface_profile?: components["schemas"]["PluginSurfaceProfile"] | null;
             version: string;
         };
         PluginNodeListView: {
@@ -24638,7 +24638,7 @@ export interface components {
         PortalCreateAppointmentRequest: components["schemas"]["MutationParams"] & {
             /** Format: date-time */
             ends_at: string;
-            kind?: null | components["schemas"]["AppointmentKind"];
+            kind?: components["schemas"]["AppointmentKind"] | null;
             notes?: string | null;
             /** Format: date-time */
             starts_at: string;
@@ -24933,7 +24933,7 @@ export interface components {
         PortalTicketListQuery: {
             /** Format: uuid */
             board_id?: string | null;
-            category?: null | components["schemas"]["TicketStatusCategory"];
+            category?: components["schemas"]["TicketStatusCategory"] | null;
             /** Format: int64 */
             limit?: number;
             /** Format: int64 */
@@ -25222,7 +25222,7 @@ export interface components {
             limit?: number;
             /** Format: int64 */
             offset?: number;
-            status?: null | components["schemas"]["ProjectStatus"];
+            status?: components["schemas"]["ProjectStatus"] | null;
         };
         /**
          * @description Instant-first mutation response for the project entity (IF2): applied
@@ -25624,7 +25624,7 @@ export interface components {
             cancel_reason?: string | null;
             /** Format: date-time */
             cancelled_at?: string | null;
-            close_kind?: null | components["schemas"]["CloseKind"];
+            close_kind?: components["schemas"]["CloseKind"] | null;
             /** Format: date-time */
             closed_at?: string | null;
             /** Format: date-time */
@@ -25664,11 +25664,11 @@ export interface components {
             vendor: components["schemas"]["DeeplinkVendor"];
         };
         PurchaseOrderDetail: {
-            bill?: null | components["schemas"]["PurchaseBill"];
+            bill?: components["schemas"]["PurchaseBill"] | null;
             lines: components["schemas"]["PurchaseOrderLineView"][];
             order: components["schemas"]["PurchaseOrder"];
             receipts: components["schemas"]["PurchaseReceiptView"][];
-            totals?: null | components["schemas"]["PurchaseOrderRollup"];
+            totals?: components["schemas"]["PurchaseOrderRollup"] | null;
         };
         /** @description One PO line: quantity at milli precision, cost in minor units. */
         PurchaseOrderLine: {
@@ -25749,7 +25749,7 @@ export interface components {
          *     the detail page would hide.
          */
         PurchaseOrderSummary: components["schemas"]["PurchaseOrder"] & {
-            totals?: null | components["schemas"]["PurchaseOrderRollup"];
+            totals?: components["schemas"]["PurchaseOrderRollup"] | null;
         };
         /** @description One receipt document: goods that landed at a location against a PO. */
         PurchaseReceipt: {
@@ -26531,7 +26531,7 @@ export interface components {
         };
         /** @description Response from deleting a source's chunks in a namespace. */
         RagDeleteSourceResponse: {
-            mutation?: null | components["schemas"]["MutationMeta"];
+            mutation?: components["schemas"]["MutationMeta"] | null;
             receipt: components["schemas"]["RagDeletionReceipt"];
         };
         /**
@@ -26711,7 +26711,7 @@ export interface components {
              * @description Aggregated over the org: count of ratings and the mean.
              */
             count: number;
-            mine?: null | components["schemas"]["RatingMineView"];
+            mine?: components["schemas"]["RatingMineView"] | null;
         };
         /**
          * @description The guardrails a declared read runs under (ADR 0017 §5).
@@ -27340,7 +27340,7 @@ export interface components {
         };
         /** @description The deterministic rendered label: absolute geometry in millimetres. */
         ResolvedLabel: {
-            barcode?: null | components["schemas"]["LabelBarcode"];
+            barcode?: components["schemas"]["LabelBarcode"] | null;
             /** Format: int32 */
             dpi: number;
             /** @description Lines dropped because they could not fit at the minimum line height. */
@@ -27349,7 +27349,7 @@ export interface components {
             height_mm: number;
             lines: components["schemas"]["LabelLine"][];
             purpose: string;
-            qr?: null | components["schemas"]["LabelQr"];
+            qr?: components["schemas"]["LabelQr"] | null;
             /** Format: double */
             width_mm: number;
         };
@@ -27856,7 +27856,7 @@ export interface components {
              * @description Present for stock_item and serialized_unit: the parent item.
              */
             stock_item_id?: string | null;
-            warranty?: null | components["schemas"]["WarrantyWindow"];
+            warranty?: components["schemas"]["WarrantyWindow"] | null;
         };
         ScanResolveRequest: {
             /**
@@ -28867,7 +28867,7 @@ export interface components {
             attachment_sha256?: string | null;
             /** Format: int64 */
             attachment_size_bytes?: number | null;
-            revocation?: null | components["schemas"]["SignOffRevocation"];
+            revocation?: components["schemas"]["SignOffRevocation"] | null;
             /**
              * Format: uuid
              * @description The id of a correction that replaced this one, when one exists.
@@ -29106,7 +29106,7 @@ export interface components {
              */
             column: string;
             op: components["schemas"]["FilterOp"];
-            value?: null | components["schemas"]["FilterValue"];
+            value?: components["schemas"]["FilterValue"] | null;
         };
         SsoExchangeRequest: {
             /** Format: uuid */
@@ -29463,7 +29463,7 @@ export interface components {
              *     authoring cheap enough to be the default.
              */
             agent_description?: string | null;
-            audience?: null | components["schemas"]["NodeAudience"];
+            audience?: components["schemas"]["NodeAudience"] | null;
             /** @description One-line description shown in the editor and on consent. */
             description: string;
             /** @description The consented effect the engine executes. */
@@ -29545,7 +29545,7 @@ export interface components {
         SurfaceRead: {
             /** @description A2: model-facing prose beside the human label. */
             agent_description?: string | null;
-            audience?: null | components["schemas"]["NodeAudience"];
+            audience?: components["schemas"]["NodeAudience"] | null;
             /** @description One-line description shown in the editor and on consent. */
             description: string;
             /**
@@ -29761,7 +29761,7 @@ export interface components {
             offset?: number;
             /** Format: uuid */
             phase_id?: string | null;
-            status?: null | components["schemas"]["TaskStatus"];
+            status?: components["schemas"]["TaskStatus"] | null;
         };
         TaskMutationResponse: components["schemas"]["ProjectTask"] & {
             mutation: components["schemas"]["MutationMeta"];
@@ -29831,7 +29831,7 @@ export interface components {
         };
         TechnicianJourneyView: {
             display_name: string;
-            start_point?: null | components["schemas"]["StartPointView"];
+            start_point?: components["schemas"]["StartPointView"] | null;
             stops: components["schemas"]["JourneyStopView"][];
             timezone: string;
             /**
@@ -30099,7 +30099,7 @@ export interface components {
          *     note when the transition wrote one (§3.3/§3.4) — absent otherwise.
          */
         TicketChecklistMutationResponse: components["schemas"]["TicketChecklistView"] & {
-            appended_note?: null | components["schemas"]["TicketComment"];
+            appended_note?: components["schemas"]["TicketComment"] | null;
             mutation: components["schemas"]["MutationMeta"];
         };
         /**
@@ -30199,7 +30199,7 @@ export interface components {
          *     resolved in-ticket reply parent.
          */
         TicketEmailRow: components["schemas"]["EmailMessage"] & {
-            delivery?: null | components["schemas"]["EmailDeliveryView"];
+            delivery?: components["schemas"]["EmailDeliveryView"] | null;
             /**
              * Format: uuid
              * @description The id of the message INSIDE THIS TICKET this row replies to,
@@ -30269,7 +30269,7 @@ export interface components {
             assignee_id?: string | null;
             /** Format: uuid */
             board_id?: string | null;
-            category?: null | components["schemas"]["TicketStatusCategory"];
+            category?: components["schemas"]["TicketStatusCategory"] | null;
             /** Format: uuid */
             client_id?: string | null;
             /**
@@ -30283,7 +30283,7 @@ export interface components {
             limit?: number;
             /** Format: int64 */
             offset?: number;
-            priority?: null | components["schemas"]["Priority"];
+            priority?: components["schemas"]["Priority"] | null;
             /**
              * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
              *     must carry every listed tag.
@@ -30423,7 +30423,7 @@ export interface components {
             minutes_remaining?: number | null;
             /** @description True while a Waiting-category pause is open. */
             paused: boolean;
-            state?: null | components["schemas"]["TicketSlaState"];
+            state?: components["schemas"]["TicketSlaState"] | null;
         };
         /**
          * @description The four semantic categories every ticket status maps to (§5).
@@ -30693,7 +30693,7 @@ export interface components {
             submitted_at?: string | null;
             /** Format: uuid */
             submitted_by?: string | null;
-            ticket?: null | components["schemas"]["TimeEntryTicketRef"];
+            ticket?: components["schemas"]["TimeEntryTicketRef"] | null;
             /**
              * @description The zone the person who did the work was in when they did it — the
              *     record's clock for this entry (Wave 50 lane T2). The approver reads
@@ -30738,7 +30738,7 @@ export interface components {
         };
         /** @description One verdict: what is odd, said in words, plus the fix beside it. */
         TimeVerdict: {
-            fix?: null | components["schemas"]["TimeVerdictFix"];
+            fix?: components["schemas"]["TimeVerdictFix"] | null;
             kind: components["schemas"]["TimeVerdictKind"];
             /**
              * @description The mark's words, typed and short: "Vague description",
@@ -30789,7 +30789,7 @@ export interface components {
         };
         /** @description A contiguous running interval within a timer session. */
         TimerSegment: {
-            end_kind?: null | components["schemas"]["SegmentEnd"];
+            end_kind?: components["schemas"]["SegmentEnd"] | null;
             /**
              * Format: date-time
              * @description None while this segment is running.
@@ -31266,14 +31266,14 @@ export interface components {
              *     envelope (IF1–IF3 unchanged: idempotency key + version/If-Match).
              */
             content_jsonb?: unknown;
-            status?: null | components["schemas"]["KbArticleStatus"];
+            status?: components["schemas"]["KbArticleStatus"] | null;
             title?: string | null;
         };
         UpdateAssetRequest: components["schemas"]["MutationParams"] & {
             fields?: unknown;
             /** Format: uuid */
             layout_id?: string | null;
-            lifecycle?: null | components["schemas"]["AssetLifecycleInput"];
+            lifecycle?: components["schemas"]["AssetLifecycleInput"] | null;
             name?: string | null;
             /** Format: uuid */
             site_id?: string | null;
@@ -31579,7 +31579,7 @@ export interface components {
         UpdateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
             name: string;
-            scope?: null | components["schemas"]["DefinitionScope"];
+            scope?: components["schemas"]["DefinitionScope"] | null;
             spec: components["schemas"]["ReportSpec"];
         };
         /**
@@ -31625,7 +31625,7 @@ export interface components {
             assignee_id?: string | null;
             /** @description Some → set (null clears); absent → no change. */
             body?: string | null;
-            cadence?: null | components["schemas"]["CadenceSpec"];
+            cadence?: components["schemas"]["CadenceSpec"] | null;
             /** Format: uuid */
             client_id?: string | null;
             enabled?: boolean | null;
@@ -31692,10 +31692,10 @@ export interface components {
             name?: string | null;
             /** Format: int32 */
             position?: number | null;
-            stage_type?: null | components["schemas"]["StageType"];
+            stage_type?: components["schemas"]["StageType"] | null;
         };
         UpdateStatusRequest: {
-            category?: null | components["schemas"]["TicketStatusCategory"];
+            category?: components["schemas"]["TicketStatusCategory"] | null;
             /**
              * @description Wave 41 lane 12: whether the portal shows this status's own label to a
              *     client. Absent = unchanged.
@@ -32100,7 +32100,7 @@ export interface components {
              *     disposition was missed.
              */
             preview_total_minor: number;
-            signoff?: null | components["schemas"]["SignoffView"];
+            signoff?: components["schemas"]["SignoffView"] | null;
             /** Format: date */
             to: string;
             /**
@@ -33606,7 +33606,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Exact status: `pending | approved | declined | cancelled`. */
-                status?: null | components["schemas"]["AppointmentRequestStatus"];
+                status?: components["schemas"]["AppointmentRequestStatus"] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -42859,7 +42859,7 @@ export interface operations {
         parameters: {
             query?: {
                 category_id?: string | null;
-                status?: null | components["schemas"]["KbArticleStatus"];
+                status?: components["schemas"]["KbArticleStatus"] | null;
                 /** @description Only articles passing the effective client-facing gate. */
                 client_visible?: boolean;
                 /** @description Title substring narrowing; ranked full-text search rides /api/search. */
@@ -48514,7 +48514,7 @@ export interface operations {
         parameters: {
             query?: {
                 board_id?: string | null;
-                category?: null | components["schemas"]["TicketStatusCategory"];
+                category?: components["schemas"]["TicketStatusCategory"] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -48992,7 +48992,7 @@ export interface operations {
     projects_list: {
         parameters: {
             query?: {
-                status?: null | components["schemas"]["ProjectStatus"];
+                status?: components["schemas"]["ProjectStatus"] | null;
                 client_id?: string | null;
                 limit?: number;
                 offset?: number;
@@ -49409,7 +49409,7 @@ export interface operations {
         parameters: {
             query?: {
                 phase_id?: string | null;
-                status?: null | components["schemas"]["TaskStatus"];
+                status?: components["schemas"]["TaskStatus"] | null;
                 assignee_id?: string | null;
                 milestone?: boolean | null;
                 limit?: number;
@@ -56086,8 +56086,8 @@ export interface operations {
                 board_id?: string | null;
                 assignee_id?: string | null;
                 client_id?: string | null;
-                category?: null | components["schemas"]["TicketStatusCategory"];
-                priority?: null | components["schemas"]["Priority"];
+                category?: components["schemas"]["TicketStatusCategory"] | null;
+                priority?: components["schemas"]["Priority"] | null;
                 /**
                  * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
                  *     must carry every listed tag.
@@ -56445,7 +56445,7 @@ export interface operations {
                  * @description Optional taxonomy filter (`internal`, `client_visible`,
                  *     `in_house_update`). Omit for all kinds (staff view).
                  */
-                kind?: null | components["schemas"]["NoteKind"];
+                kind?: components["schemas"]["NoteKind"] | null;
             };
             header?: never;
             path: {
