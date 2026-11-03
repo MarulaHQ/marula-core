@@ -92,6 +92,11 @@ and a release does not.
 
 ## Verify a download by hand
 
+The published version of this section, written for someone who is not reading the
+repository, is [Check a release before you install
+it](https://getmarula.com/docs/psa/v0.3/how-to/verify-a-release). The commands are
+the same; that page also says what each failure means.
+
 Four layers, each one cheap. Run them in a directory holding the files you
 downloaded.
 
