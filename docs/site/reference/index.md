@@ -22,6 +22,7 @@ Reference pages give you exact endpoints, database view columns, environment var
 
 ## Self-hosting and operations runbooks
 
+- [Deployment shapes](deployment-shapes.md) — The two shapes Marula ships, what each one runs, the floors it asks of a host, and how the installer chooses.
 - [The local stack](self-host-local-stack.md) — Docker Compose services, ports, optional profiles, the PostgreSQL migration-owner vs. RLS app-role split, container hardening, and required secrets.
 - [Local AI: transcription and embeddings on your own hardware](self-host-local-ai.md) — Why model weights stay outside the core container image and how the local `ollama` profile runs Whisper and 768-dimension embeddings.
 - [Embedding model catalogue](embedding-model-catalogue.md) — The selectable embedding models, their capacity floors, the `model@version/dimensions` space tag, custom entries, and the instance-versus-organization credential rule.
