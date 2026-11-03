@@ -1202,6 +1202,42 @@ mod tests {
         assert_eq!(classify_http(302), ErrorClass::Permanent);
     }
 
+    /// The conflict posture of every subsystem, in one table.
+    ///
+    /// Only the effects seam was pinned before this, and the other six lived as
+    /// prose in the deploy descriptor — which is how the copy could argue for a
+    /// retry while the code refused one, for a whole release, with nothing
+    /// failing. Every row is asserted against every preset, so a per-preset
+    /// override cannot slip past either.
+    ///
+    /// A 409 means the server already has the work. The right reading is "done",
+    /// not "failed": the posture that says so is `permanent`, which stops rather
+    /// than posting again. The effects seam is the one place where replaying is
+    /// provably free, which is why it alone says `retry`.
+    #[test]
+    fn every_subsystem_declares_whether_a_409_is_retried() {
+        let expected = [
+            (Subsystem::Queue, false),
+            (Subsystem::Email, false),
+            (Subsystem::Webhook, false),
+            (Subsystem::Effects, true),
+            (Subsystem::Consumer, false),
+            (Subsystem::Relay, false),
+            (Subsystem::Decision, false),
+        ];
+        for preset in RobustnessPreset::ALL {
+            for (subsystem, retried) in expected {
+                assert_eq!(
+                    preset.policy(subsystem).retries_status(409),
+                    retried,
+                    "{} under {:?}",
+                    subsystem.as_str(),
+                    preset
+                );
+            }
+        }
+    }
+
     /// 409 is the operation's call. The seam that can replay opts in; a policy
     /// that has not said so must not.
     #[test]

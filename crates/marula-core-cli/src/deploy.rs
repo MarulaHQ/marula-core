@@ -2362,7 +2362,7 @@ fn params() -> Vec<Param> {
             "Whether a 409 is retried for the job queue. Retry only where a replay cannot double-apply.",
         )
         .consequence("Whether a 409 is retried for the job queue. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
-        .rationale("A queue job is not provably free of side effects when it is replayed, so a conflict is treated like any other 4xx instead of being posted again."),
+        .rationale("A conflict means that work is already recorded. There is nothing to retry, and sending it again would run it twice."),
         param(
             "MARULA_RETRY_EMAIL_BASE_MS",
             "retries",
@@ -2412,7 +2412,7 @@ fn params() -> Vec<Param> {
             "Whether a 409 is retried for outbound email. Retry only where a replay cannot double-apply.",
         )
         .consequence("Whether a 409 is retried for outbound email. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
-        .rationale("A 409 from the mail provider is a settled outcome, so retrying it would only duplicate the refusal."),
+        .rationale("A conflict from the mail provider means it already holds that message. A retry sends a second copy."),
         param(
             "MARULA_RETRY_WEBHOOK_BASE_MS",
             "retries",
@@ -2462,7 +2462,7 @@ fn params() -> Vec<Param> {
             "Whether a 409 is retried for signed webhook delivery. Retry only where a replay cannot double-apply.",
         )
         .consequence("Whether a 409 is retried for signed webhook delivery. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
-        .rationale("A replay that can double-post to a receiver is worse than a missed delivery the receiver can query for."),
+        .rationale("A conflict from the receiver means it already holds that delivery. Retrying posts it twice, which is worse than a delivery the receiver can still query for."),
         param(
             "MARULA_RETRY_EFFECTS_BASE_MS",
             "retries",
@@ -2512,7 +2512,7 @@ fn params() -> Vec<Param> {
             "Whether a 409 is retried for the worker to core-api effect seam. Retry only where a replay cannot double-apply.",
         )
         .consequence("Whether a 409 is retried for the worker to core-api effect seam. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
-        .rationale("Every endpoint on the effects seam is replay-inert, so a replayed conflict cannot double-apply the effect."),
+        .rationale("Every endpoint on the effects seam is replay-inert, so replaying a conflict is safe: the effect lands once either way."),
         param(
             "MARULA_RETRY_CONSUMER_BASE_MS",
             "retries",
@@ -2562,7 +2562,7 @@ fn params() -> Vec<Param> {
             "Whether a 409 is retried for stream consumer reconnect. Retry only where a replay cannot double-apply.",
         )
         .consequence("Whether a 409 is retried for stream consumer reconnect. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
-        .rationale("A reconnect that collides is not provably replay-inert, so the consumer stops instead of replaying an entry it may already have applied."),
+        .rationale("A reconnect never reads an HTTP status. Redis answers BUSYGROUP when the group already exists, and the consumer treats that as joined, so this lever is conservative on a path that does not consult it."),
         param(
             "MARULA_RETRY_RELAY_BASE_MS",
             "retries",
@@ -2612,7 +2612,7 @@ fn params() -> Vec<Param> {
             "Whether a 409 is retried for outbox relay and realtime listener reconnect. Retry only where a replay cannot double-apply.",
         )
         .consequence("Whether a 409 is retried for outbox relay and realtime listener reconnect. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
-        .rationale("A conflict on the relay means the row was already published under that key. Re-publishing would duplicate the event."),
+        .rationale("A conflict on the relay means that event is already published under its key. Publishing it again duplicates it."),
         param(
             "MARULA_RETRY_DECISION_BASE_MS",
             "retries",
@@ -2662,7 +2662,7 @@ fn params() -> Vec<Param> {
             "Whether a 409 is retried for the decision provider's upstream calls. Retry only where a replay cannot double-apply.",
         )
         .consequence("Whether a 409 is retried for the decision provider's upstream calls. Retrying where a replay can double-apply posts the same thing twice. Refusing where it cannot gives up too early.")
-        .rationale("A conflict from the provider is a settled refusal, and a replay would spend quota for the same answer."),
+        .rationale("A conflict from the provider means it already answered that request. Asking again spends quota for the same answer."),
     ]
 }
 
@@ -3529,6 +3529,31 @@ mod tests {
         assert_eq!(v["profiles"][0]["name"], "all-in-one");
 
         assert!(describe_json(Some("nope")).is_err());
+    }
+
+    /// The descriptor is what the settings screen shows, and the policy is what
+    /// the process does. They have to say the same thing about a 409, or a person
+    /// can set a lever to the value it already holds and get a different system.
+    #[test]
+    fn the_conflict_levers_default_to_the_posture_the_code_holds() {
+        use core_domain::retry::{env_name, Lever, RobustnessPreset, Subsystem};
+
+        let desc = descriptor();
+        for subsystem in Subsystem::ALL {
+            let name = env_name(subsystem, Lever::Conflict);
+            let param = desc
+                .params
+                .iter()
+                .find(|param| param.name == name)
+                .unwrap_or_else(|| panic!("{name} is not published"));
+            let posture = RobustnessPreset::Balanced.policy(subsystem).on_conflict;
+            assert_eq!(
+                param.default,
+                Some(posture.as_str()),
+                "{name} disagrees with the policy for {}",
+                subsystem.as_str()
+            );
+        }
     }
 
     #[test]
