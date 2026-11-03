@@ -642,7 +642,7 @@ async fn seeded_secrets_open_with_the_seed_key() {
     let open = |sealed: &[u8]| {
         let (nonce, ct) = sealed.split_at(12);
         cipher
-            .decrypt(aes_gcm::Nonce::from_slice(nonce), ct)
+            .decrypt(&aes_gcm::Nonce::try_from(nonce).expect("12-byte nonce"), ct)
             .expect("demo secret ciphertext must open with the seed key")
     };
 

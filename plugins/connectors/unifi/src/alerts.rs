@@ -23,7 +23,7 @@
 //! Marula 401s unsigned ingests, so a signature-less hop never
 //! reaches Marula with fabricated events.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;

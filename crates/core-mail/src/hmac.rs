@@ -9,7 +9,7 @@
 //! message-id idempotency ledger covers replay); v1 keeps the scheme
 //! deliberately simple — hex HMAC over the exact request body.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;

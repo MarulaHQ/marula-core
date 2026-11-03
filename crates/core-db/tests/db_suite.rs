@@ -4446,10 +4446,12 @@ use core_db::webhooks as wh;
 
 fn sealed_secret(key: [u8; 32], secret: &str) -> Vec<u8> {
     // Mirrors core-api crypto::seal(): nonce(12) || AES-256-GCM ct.
-    use aes_gcm::aead::{Aead, KeyInit, OsRng};
-    use aes_gcm::{AeadCore, Aes256Gcm};
+    use aes_gcm::aead::{Aead, KeyInit};
+    use aes_gcm::Aes256Gcm;
     let cipher = Aes256Gcm::new_from_slice(&key).expect("key");
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let mut nonce_bytes = [0u8; 12];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce_bytes);
+    let nonce = aes_gcm::Nonce::from(nonce_bytes);
     let mut out = nonce.to_vec();
     out.extend(cipher.encrypt(&nonce, secret.as_bytes()).expect("seal"));
     out
@@ -4497,7 +4499,7 @@ async fn webhook_crud_and_rls_isolation() {
         let cipher = Aes256Gcm::new_from_slice(&SUITE_AT_REST_KEY).expect("key");
         let (nonce, ct) = row.secret_encrypted.split_at(12);
         let plain = cipher
-            .decrypt(Nonce::from_slice(nonce), ct)
+            .decrypt(&Nonce::try_from(nonce).expect("12-byte nonce"), ct)
             .expect("stored ciphertext must be authentic");
         assert_eq!(String::from_utf8(plain).as_deref(), Ok(secret));
     }
