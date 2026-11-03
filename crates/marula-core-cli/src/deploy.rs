@@ -736,7 +736,7 @@ fn profiles() -> Vec<Profile> {
     let all_in_one = Profile {
         name: "all-in-one",
         title: "All-in-one (demo / one-box)",
-        description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. See docs/all-in-one.md. It runs unpooled on purpose. One instance's 54 connections fit inside the default 100 a stock Postgres allows, so the demo box does not need a second moving part. The floors are the shipped embedding model's four cores, plus the database and cache it shares the box with. The disk floor is one tier smaller than split's because there is no second image copy.",
+        description: "One core-api process hosts the worker loops and serves the SSE live-push stream, so a small box runs a single application container. It runs unpooled on purpose. One instance's 54 connections fit inside the default 100 a stock Postgres allows, so the demo box does not need a second moving part. The floors are the shipped embedding model's four cores, plus the database and cache it shares the box with. The disk floor is one tier smaller than split's because there is no second image copy.",
         floors: ResourceFloors {
             cores: 4,
             ram_mb: 8192,
@@ -896,7 +896,7 @@ fn params() -> Vec<Param> {
             Integer,
             Some("0"),
             false,
-            "sqlx prepared-statement cache capacity per connection. 0 (the default) disables it. See docs/reference/connection-pooling.md.",
+            "sqlx prepared-statement cache capacity per connection. 0 (the default) disables it.",
         )
         .consequence("How many prepared statements one connection keeps. Non-zero behind a transaction pooler hands a statement name to a connection that no longer has it, and the failure appears at query time. Raise it no higher than the pooler's max_prepared_statements, and only with the pooler's reset query off.")
         .rationale("0 because the shipped pooler runs DISCARD ALL after every transaction. A cached name cannot survive that, so a cache would pay for re-parsing twice."),
@@ -1252,7 +1252,7 @@ fn params() -> Vec<Param> {
             Integer,
             Some("2"),
             false,
-            "Outbound email idle poll interval. See docs/worker-cadence.md.",
+            "Outbound email idle poll interval.",
         )
         .consequence("How often the outbound email loop looks for work. At two seconds a queued message leaves almost immediately. Each tick is a query, so a fleet adds up.")
         .rationale("2 s is the shipped idle cadence, and the reason a ticket notification arrives while the user is still looking at the screen."),
