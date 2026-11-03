@@ -77,7 +77,6 @@ barcoders = { version = "2", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 utoipa = { workspace = true }
-utoipa-scalar = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
