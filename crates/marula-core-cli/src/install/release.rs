@@ -27,6 +27,37 @@ struct Document {
     images: BTreeMap<String, String>,
 }
 
+/// The bundle's images, as an install will consume them.
+///
+/// Three places, in one order for both hosts: the path named on the command
+/// line, then `release.json` beside the install directory, then one in the
+/// working directory. A released bundle ships the file next to what it installs,
+/// so the common case needs no flag in the terminal and no field in the wizard —
+/// and both get the same answer, because both call this.
+///
+/// `Ok(None)` means no manifest was found, which is not an error: a source
+/// install has nothing to read, and a registry install with a typed prefix does
+/// not need one.
+pub fn resolve(
+    dir: &std::path::Path,
+    explicit: Option<&std::path::Path>,
+) -> Result<Option<Images>, String> {
+    let candidate = explicit.map(std::path::Path::to_path_buf).or_else(|| {
+        let beside = dir.join("release.json");
+        beside.is_file().then_some(beside)
+    });
+    let candidate = candidate.or_else(|| {
+        let here = std::path::PathBuf::from("release.json");
+        here.is_file().then_some(here)
+    });
+    let Some(path) = candidate else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("reading {}: {error}", path.display()))?;
+    parse(&text).map(Some)
+}
+
 /// Parses `release.json`'s `images` map.
 ///
 /// Each value is a full reference, `<base>/<image>@sha256:<hex>`. A tag in that
@@ -105,6 +136,59 @@ mod tests {
 
     fn document(images: &str) -> String {
         format!("{{\"schema\":1,\"assets\":{{}},\"images\":{images}}}")
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("marula-release-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a scratch directory");
+        dir
+    }
+
+    /// The wizard runs inside a bundle, so the file beside the install directory
+    /// is the whole contract: no field in the app, no flag on the terminal.
+    #[test]
+    fn resolve_reads_the_manifest_beside_the_install_directory() {
+        let dir = scratch("beside");
+        std::fs::write(
+            dir.join("release.json"),
+            document(&format!(
+                "{{\"core-api\":\"ghcr.io/marulagh/marula-core-api@sha256:{HEX}\"}}"
+            )),
+        )
+        .expect("a manifest");
+        let found = resolve(&dir, None)
+            .expect("a readable bundle")
+            .expect("a bundle beside the directory");
+        assert_eq!(found.base, "ghcr.io/marulagh/marula");
+        assert_eq!(found.digests["core-api"], format!("sha256:{HEX}"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A path named explicitly wins, which is what `--image-manifest` means.
+    #[test]
+    fn resolve_prefers_the_manifest_it_was_given() {
+        let dir = scratch("explicit");
+        std::fs::write(
+            dir.join("release.json"),
+            document(&format!(
+                "{{\"core-api\":\"ghcr.io/marulagh/marula-core-api@sha256:{HEX}\"}}"
+            )),
+        )
+        .expect("a manifest");
+        let other = dir.join("signed.json");
+        std::fs::write(
+            &other,
+            document(&format!(
+                "{{\"core-api\":\"registry.example.com/team/marula-core-api@sha256:{HEX}\"}}"
+            )),
+        )
+        .expect("a second manifest");
+        let found = resolve(&dir, Some(&other))
+            .expect("a readable bundle")
+            .expect("the named bundle");
+        assert_eq!(found.base, "registry.example.com/team/marula");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

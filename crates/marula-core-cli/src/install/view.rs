@@ -247,6 +247,12 @@ pub struct Session {
     /// Whether this wizard may plan a shape the machine cannot carry. Set from
     /// the request, so recommended mode keeps the floors it promises.
     pub allow_unfit: bool,
+    /// The registry prefix a person typed, for a registry install. `None` means
+    /// "read the bundle", which is what a released installer carries.
+    pub image_base: Option<String>,
+    /// A manifest named instead of the bundle's own `release.json`. Only the
+    /// terminal passes this; the wizard reads the file beside itself.
+    pub image_manifest: Option<PathBuf>,
     /// Facts a caller pinned instead of measuring, for a host that is not this
     /// one. The wizard never sets it; a test does, because a suite that reads
     /// the machine's free disk fails the day the disk is full.
@@ -268,6 +274,8 @@ impl Session {
             images: crate::install::plan::ImageSource::Build,
             restart: crate::install::plan::RestartPolicy::UnlessStopped,
             allow_unfit: false,
+            image_base: None,
+            image_manifest: None,
             pinned_facts: None,
         }
     }
@@ -283,6 +291,17 @@ impl Session {
         self.images = images;
         self.restart = restart;
         self.allow_unfit = allow_unfit;
+        self
+    }
+
+    /// Sets where a registry install pulls from. An empty prefix is the same as
+    /// none, because a form that was cleared should fall back to the bundle
+    /// rather than compose `<empty>-core-api`.
+    #[must_use]
+    pub fn with_images(mut self, base: Option<String>) -> Self {
+        self.image_base = base
+            .map(|base| base.trim().to_string())
+            .filter(|base| !base.is_empty());
         self
     }
 
@@ -440,8 +459,9 @@ impl Session {
         target
             .available(&facts)
             .map_err(|error| error.to_string())?;
+        let selection = selection(self, profile, overrides)?;
         let plan = target
-            .plan(&facts, &selection(self, profile, overrides))
+            .plan(&facts, &selection)
             .map_err(|error| error.to_string())?;
         let mut view = plan_view(&descriptor, &plan, &self.env(), overrides);
         // A plan that ran past the floors has to say so: the numbers are the
@@ -513,8 +533,9 @@ impl Session {
         target
             .available(&facts)
             .map_err(|error| error.to_string())?;
+        let selection = selection(self, profile, overrides)?;
         let plan = target
-            .plan(&facts, &selection(self, profile, overrides))
+            .plan(&facts, &selection)
             .map_err(|error| error.to_string())?;
 
         {
@@ -557,13 +578,34 @@ impl Session {
     }
 }
 
-fn selection(session: &Session, profile: &str, overrides: &BTreeMap<String, String>) -> Selection {
+fn selection(
+    session: &Session,
+    profile: &str,
+    overrides: &BTreeMap<String, String>,
+) -> Result<Selection, String> {
     let mut selection = Selection::new(profile, &session.dir);
     selection.overrides = overrides.clone();
     selection.images = session.images;
     selection.restart = session.restart;
     selection.allow_unfit = session.allow_unfit;
-    selection
+    selection.image_base = session.image_base.clone();
+    // A release bundle describes its own images, and the wizard runs inside one.
+    // Reading it here is what lets "pull the published images" work without
+    // asking a person to copy four digests out of a signed document: the prefix
+    // a person typed wins, and the bundle fills whatever they left alone.
+    if selection.images == crate::install::plan::ImageSource::Registry {
+        if let Some(bundle) =
+            crate::install::release::resolve(&session.dir, session.image_manifest.as_deref())?
+        {
+            if selection.image_base.is_none() {
+                selection.image_base = Some(bundle.base);
+            }
+            for (service, digest) in bundle.digests {
+                selection.image_digests.entry(service).or_insert(digest);
+            }
+        }
+    }
+    Ok(selection)
 }
 
 fn kind_name(kind: ParamKind) -> &'static str {
