@@ -19,6 +19,31 @@ Every change lands as a reviewed pull request. Contributions follow
   you a hosted plan. Marula verifies the signature, stores the document and
   reports the revision it holds, so the two sides can agree on what was bought.
   Marula does not read the file to decide what a screen may do.
+- The Marula Installer, a desktop app that walks five decisions and writes the
+  same `marula.env` as the command line. It measures the machine first, shows
+  the configuration as it changes, and offers a recommended path of seven
+  questions or the full surface for an operator who wants every parameter.
+- `marula install --ui` serves that wizard over loopback for a machine where
+  the app cannot be installed, and `marula install` prints the same plan as
+  text. All three use one capacity check, so the recommendation cannot differ
+  between them.
+- An install can pull the published container images. The release manifest can
+  carry their digests, and the pipeline says when it does not.
+
+### Changed
+
+- The desktop release channel has a publisher, so an installed shell can be
+  offered a new build from the repository instead of a hand-copied download.
+- The install guide covers both ways in, the app and the terminal, and points
+  at the deployment shapes and the floors each one asks for.
+
+### Fixed
+
+- The ticket workbench keeps its status and SLA cells readable in a narrow
+  window.
+- The Today day strip keeps its bound labels inside the card.
+- The rail toggle responds to a click again, and the top bar spans the window
+  with the rail below it.
 
 ## [0.3.1] - 2026-10-27
 
