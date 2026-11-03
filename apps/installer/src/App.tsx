@@ -346,7 +346,7 @@ export function App() {
                   ? "Choose a shape"
                   : step === 3
                     ? mode === "developer"
-                      ? "Every parameter"
+                      ? "Every setting"
                       : "What only you can decide"
                     : "Review, then apply"}
           </h1>
@@ -354,12 +354,12 @@ export function App() {
             {step === 0
               ? "Both paths run the same engine and write the same install. They differ in how many decisions you make."
               : step === 1
-                ? "Measured the way the product measures itself at boot, so the recommendation and the refusal reach the same verdict."
+                ? "Measured the way the product measures itself at boot, so the recommendation and the refusal agree."
                 : step === 2
-                  ? "One decision. Both shapes run the product. They differ in what the machine must give them."
+                  ? "One decision. Both shapes run the product. They differ in what they ask of the machine."
                   : step === 3
                     ? mode === "developer"
-                      ? "Every lever, each with what it changes and what it needs. Nothing is hidden."
+                      ? "Every setting, with what it changes and what it needs."
                       : "Every answer prints the reason under it."
                     : "The plan as data: each step, why it exists, and the values it writes."}
           </p>
@@ -537,7 +537,7 @@ export function App() {
             value={mode === "developer" ? "developer install" : "recommended setup"}
           />
           <Summary label="directory" value={state.dir} mono />
-          <Summary label="levers" value={`${state.param_count}`} />
+          <Summary label="settings" value={`${state.param_count}`} />
           {plan ? (
             <Summary
               label="generated values"
@@ -568,7 +568,7 @@ export function App() {
             }}
             className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--mc-gold-text)]"
           >
-            All {state.param_count} parameters <Kbd>⌘K</Kbd>
+            All {state.param_count} settings <Kbd>⌘K</Kbd>
           </button>
           <p className="m-0 mt-1.5 text-[10.5px] leading-[1.5] text-muted-foreground">
             Nothing leaves this machine. No telemetry, and every step works offline once the images are
