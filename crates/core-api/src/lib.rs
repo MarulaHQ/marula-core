@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod all_in_one;
+pub mod api_scopes;
 pub mod auth;
 pub mod cache;
 pub mod cache_invalidation;

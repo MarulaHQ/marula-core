@@ -786,24 +786,29 @@ mod tests {
         }
     }
 
-    /// Every scope the API-key surface hands out must mean something to the
-    /// resolver. The two lists are edited in different files — `KNOWN_SCOPES`
-    /// in `routes/api_keys.rs` decides what an org may mint, this module
-    /// decides what it grants — and a key naming a scope only the first list
-    /// knows authenticates with an empty permission set. That is how a
-    /// documented export path stayed closed after the scope that opened it
-    /// shipped (Wave 52 lane R12), so the parity is a test now.
+    /// Every scope the API-key surface hands out must mean exactly what the
+    /// registry says it means. `crate::api_scopes` publishes the grant with
+    /// the scope; this module decides it at request time. A drift between
+    /// them is a documented grant that does not exist (or a wider one than
+    /// the document claims), so the parity is a test.
     #[test]
-    fn every_mintable_api_key_scope_resolves_to_a_permission() {
+    fn every_mintable_api_key_scope_resolves_to_its_documented_grant() {
         use super::permissions_from_scopes;
 
         let mut checked = 0;
-        for scope in crate::routes::api_keys::KNOWN_SCOPES {
-            let resolved = permissions_from_scopes(&[(*scope).to_string()]);
+        for scope in crate::api_scopes::SCOPES {
+            let resolved = permissions_from_scopes(&[scope.name.to_string()]);
             assert!(
                 !resolved.is_empty(),
-                "{scope} can be written onto an API key but resolves to no \
-                 permission — the key would authenticate carrying nothing"
+                "{} can be written onto an API key but resolves to no \
+                 permission — the key would authenticate carrying nothing",
+                scope.name
+            );
+            assert_eq!(
+                resolved, scope.grants,
+                "{} grants a different permission set than the document \
+                 publishes",
+                scope.name
             );
             checked += 1;
         }
