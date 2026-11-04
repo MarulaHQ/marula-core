@@ -2758,6 +2758,7 @@ pub async fn mint_identity_bundle_credential(
             &prefix,
             &scopes,
             actor,
+            None,
         )
         .await?;
         core_db::audit::insert(
@@ -3437,7 +3438,7 @@ mod tests {
     fn both_directory_scopes_this_flow_mints_are_mintable() {
         for scope in IDENTITY_BUNDLE_SCOPES {
             assert!(
-                crate::routes::api_keys::KNOWN_SCOPES.contains(&scope),
+                crate::api_scopes::get(&scope).is_some(),
                 "{scope} is not in KNOWN_SCOPES, so no org can mint it"
             );
         }

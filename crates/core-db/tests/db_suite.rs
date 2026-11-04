@@ -4910,6 +4910,7 @@ async fn api_keys_hash_lifecycle_scopes_and_revocation() {
             &raw[..12],
             &["tickets:read".to_string(), "clients:read".to_string()],
             creator,
+            None,
         )
         .await
         .expect("create key");

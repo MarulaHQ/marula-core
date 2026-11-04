@@ -604,6 +604,9 @@ pub struct ApiKeyRow {
     pub prefix: String,
     /// Capability scope strings ("tickets:read", …).
     pub scopes: Vec<String>,
+    /// When set, this key acts as the service account and takes its
+    /// permissions, not the connector vocabulary above.
+    pub service_account_id: Option<Uuid>,
     pub created_by: Option<Uuid>,
     pub last_used_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
@@ -620,16 +623,17 @@ pub async fn insert_api_key<'e, E>(
     prefix: &str,
     scopes: &[String],
     created_by: Uuid,
+    service_account_id: Option<Uuid>,
 ) -> DbResult<ApiKeyRow>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let row = sqlx::query_as!(
         ApiKeyRecord,
-        r#"INSERT INTO api_keys (id, org_id, name, key_hash, prefix, scopes, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-           RETURNING id, org_id, name, key_hash, prefix, scopes, created_by,
-                     last_used_at, revoked_at, created_at"#,
+        r#"INSERT INTO api_keys (id, org_id, name, key_hash, prefix, scopes, created_by, service_account_id)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+           RETURNING id, org_id, name, key_hash, prefix, scopes, service_account_id,
+                     created_by, last_used_at, revoked_at, created_at"#,
         id,
         org_id,
         name,
@@ -637,6 +641,7 @@ where
         prefix,
         serde_json::to_value(scopes).unwrap_or_else(|_| serde_json::json!([])),
         created_by,
+        service_account_id,
     )
     .fetch_one(executor)
     .await?;
@@ -652,6 +657,7 @@ struct ApiKeyRecord {
     key_hash: String,
     prefix: String,
     scopes: serde_json::Value,
+    service_account_id: Option<Uuid>,
     created_by: Option<Uuid>,
     last_used_at: Option<DateTime<Utc>>,
     revoked_at: Option<DateTime<Utc>>,
@@ -675,6 +681,7 @@ fn api_key_from(r: ApiKeyRecord) -> ApiKeyRow {
         key_hash: r.key_hash,
         prefix: r.prefix,
         scopes,
+        service_account_id: r.service_account_id,
         created_by: r.created_by,
         last_used_at: r.last_used_at,
         revoked_at: r.revoked_at,
@@ -688,8 +695,8 @@ where
 {
     let rows = sqlx::query_as!(
         ApiKeyRecord,
-        r#"SELECT id, org_id, name, key_hash, prefix, scopes, created_by,
-                  last_used_at, revoked_at, created_at
+        r#"SELECT id, org_id, name, key_hash, prefix, scopes, service_account_id,
+                  created_by, last_used_at, revoked_at, created_at
            FROM api_keys WHERE org_id = $1 ORDER BY created_at DESC, id DESC"#,
         org_id,
     )
@@ -733,7 +740,7 @@ where
         ApiKeyRecord,
         r#"SELECT id AS "id!", org_id AS "org_id!", name AS "name!",
                   key_hash AS "key_hash!", prefix AS "prefix!",
-                  scopes AS "scopes!", created_by, last_used_at, revoked_at,
+                  scopes AS "scopes!", service_account_id, created_by, last_used_at, revoked_at,
                   created_at AS "created_at!"
            FROM api_key_auth_lookup($1)"#,
         key_hash,

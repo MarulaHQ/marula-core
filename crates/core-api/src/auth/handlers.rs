@@ -1020,7 +1020,7 @@ pub async fn me(
     extensions: Extensions,
 ) -> ApiResult<Json<MeResponse>> {
     // Validates the authenticated principal is present (middleware-inserted).
-    let _: AuthedUser = crate::auth::middleware::authed(&extensions)?;
+    let authed: AuthedUser = crate::auth::middleware::authed(&extensions)?;
     let principal = principal(&extensions)?;
     let mcp_capabilities =
         granted_mcp_capabilities(&state, principal.user.org_id, principal.user.id).await?;
@@ -1031,6 +1031,7 @@ pub async fn me(
         display_name: principal.user.display_name.clone(),
         timezone: principal.user.timezone.clone(),
         permissions: principal.permissions.iter().map(|p| p.key()).collect(),
+        subject: if authed.via_api_key { "agent" } else { "user" }.to_string(),
         mcp_capabilities,
     }))
 }
@@ -1132,6 +1133,7 @@ pub async fn patch_me(
             .iter()
             .map(|p| p.key())
             .collect(),
+        subject: "user".to_string(),
         mcp_capabilities: granted_mcp_capabilities(&state, org_id, user_id).await?,
     }))
 }
@@ -1249,6 +1251,8 @@ pub struct MeResponse {
     pub display_name: String,
     pub timezone: String,
     pub permissions: Vec<String>,
+    /// `user` for a human session, `agent` for a service-account key.
+    pub subject: String,
     /// Capability names this org has granted to the MCP read surface
     /// (`GET /api/v1/mcp/capabilities`, admin-only). Returned here so a
     /// session's adapter can filter tools without an admin credential.

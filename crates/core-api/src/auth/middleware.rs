@@ -138,7 +138,7 @@ pub async fn require_auth(
                 || candidate
                     .strip_prefix(p)
                     .is_some_and(|rest| rest.starts_with('/'))
-        });
+        }) || (candidate == "/api/me" && request.method() == axum::http::Method::GET);
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),
@@ -159,15 +159,47 @@ pub async fn require_auth(
             tracing::warn!(%error, "api key last-used touch failed");
         }
 
-        let permissions = permissions_from_scopes(&row.scopes);
-        if permissions.is_empty() {
-            return Err(ApiError::Forbidden(
-                "api key carries no usable scopes".into(),
-            ));
-        }
+        // A key bound to a service account is that agent: its permissions are
+        // the account's own keys, and the account's status, expiry and
+        // revocation are re-checked on every use. An unbound key keeps the
+        // connector vocabulary it was minted with.
+        let (permissions, user) = match row.service_account_id {
+            Some(account_id) => {
+                let account = core_db::service_accounts::find_active_service_account_by_id(
+                    &state.pool,
+                    account_id,
+                )
+                .await
+                .map_err(|_| ApiError::Unauthorized("api key rejected".into()))?
+                .ok_or_else(|| ApiError::Forbidden("service account is not active".into()))?;
+                if account.org_id != row.org_id {
+                    return Err(ApiError::Forbidden("service account is not active".into()));
+                }
+                let permissions =
+                    crate::routes::service_accounts::resolve_scope_permissions(&account.scopes);
+                if permissions.is_empty() {
+                    return Err(ApiError::Forbidden(
+                        "service account carries no usable scopes".into(),
+                    ));
+                }
+                (
+                    permissions,
+                    service_account_user(account.id, account.org_id, &account.name),
+                )
+            }
+            None => {
+                let permissions = permissions_from_scopes(&row.scopes);
+                if permissions.is_empty() {
+                    return Err(ApiError::Forbidden(
+                        "api key carries no usable scopes".into(),
+                    ));
+                }
+                (permissions, machine_user(row.id, row.org_id))
+            }
+        };
         request.extensions_mut().insert(AuthedUser {
             principal: core_domain::entities::Principal {
-                user: machine_user(row.id, row.org_id),
+                user,
                 roles: vec![],
                 permissions,
             },
