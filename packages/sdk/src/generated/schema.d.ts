@@ -21513,6 +21513,21 @@ export interface components {
             /** Format: date-time */
             installed_at: string;
             /**
+             * @description Whether a signature the operator's trust set verified covers the
+             *     manifest this install pinned — not just the artifact bytes
+             *     (`plugin_versions.manifest_authenticated`, migration 0172).
+             *
+             *     It is on the install row because the row is where an operator decides
+             *     whether to trust what is running (F49). A GitHub pull is staged with
+             *     `manifest_authenticated = false` and the ruling kept that path failing
+             *     closed; the cost of that ruling is that the install must SAY so rather
+             *     than leave the operator to infer it from the drawer the import came
+             *     through. `false` is also the fail-closed answer for a pin whose
+             *     `plugin_versions` row is gone — unknown reads as unauthenticated, never
+             *     the other way round.
+             */
+            manifest_authenticated: boolean;
+            /**
              * @description The digest pin: sha256 of the module this install adopted, or empty for
              *     a declarative-only install. An operator can see exactly which bytes the
              *     install names, and the executor is handed the same value.
