@@ -1,12 +1,11 @@
 //! Identity-bundle lifecycle services (lane `p52-identity-bundle`).
 //!
-//! Why a service module rather than routes: the HTTP admin surface for
-//! identity bundles lands with its UI, and adding paths here would move the
-//! committed OpenAPI pin, which this lane cannot re-pin (the ritual boots a
-//! stack). The lifecycle itself is not UI work, though — an install must be
-//! enableable, disableable and revocable by something that audits and
-//! publishes, so that something is these functions. The routes, when they
-//! land, call them and add no logic of their own.
+//! Why a service module rather than routes: the lifecycle is not HTTP work —
+//! an install must be enableable, disableable and revocable by something that
+//! audits and publishes, so that something is these functions. The routes live
+//! with the rest of the distribution surface
+//! (`crate::routes::plugin_distribution`, Wave 62 lane `p62-identity-lifecycle`)
+//! and call them without adding logic of their own.
 //!
 //! What lives here, and only here:
 //!

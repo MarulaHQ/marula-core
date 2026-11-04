@@ -3915,7 +3915,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/directory-groups — every group in the org (manager+). */
+        /**
+         * GET /api/directory-groups — one cursor-paged page of the org's groups
+         *     (manager+), ordered `(name, id)`.
+         */
         get: operations["directory_groups_list"];
         put?: never;
         /**
@@ -7708,6 +7711,124 @@ export interface paths {
          *     `appearance.theme` setting first).
          */
         delete: operations["theme_packs_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/identity-bundles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/plugins/identity-bundles — the org's installs, which is also the
+         *     only way to learn the id the lifecycle verbs address.
+         * @description Approval (`POST …/staged/{id}/approve`) mints the row DISABLED, so before
+         *     this route a bundle could be installed and never switched on except by SQL.
+         */
+        get: operations["plugin_identity_bundles_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/identity-bundles/{id}/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/identity-bundles/{id}/credential — mint the connector's
+         *     key, carrying both directory scopes, and return the raw material ONCE.
+         * @description Why here and not at approval: approval adopts an artifact; the credential is
+         *     what the authorized operator hands to the process that will mirror the
+         *     directory. Keeping them separate is what makes rotation possible without a
+         *     re-install — mint a new key, move the connector, revoke the old one — and it
+         *     keeps the show-once secret out of a screen that renders a consent diff.
+         *
+         *     The key is stored as `api_keys`, so it is revoked, listed and last-used
+         *     stamped through the same surface as every other machine credential. The
+         *     install's pin and status decide whether a mint is allowed; a revoked bundle
+         *     mints nothing.
+         */
+        post: operations["plugin_identity_bundle_credential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/identity-bundles/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/identity-bundles/{id}/disable — switch a bundle off.
+         *     Reversible: linked identities that already signed in keep their sessions;
+         *     the next login through this source is what stops.
+         */
+        post: operations["plugin_identity_bundle_disable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/identity-bundles/{id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/identity-bundles/{id}/enable — switch a bundle on.
+         * @description The transition, the audit row and the domain event are one transaction in
+         *     `identity_bundle_service::apply_action`; the route adds no logic of its own.
+         *     Enabling is idempotent, and a revoked bundle refuses it with a typed 409.
+         */
+        post: operations["plugin_identity_bundle_enable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/plugins/identity-bundles/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/plugins/identity-bundles/{id}/revoke — TERMINAL withdrawal.
+         * @description The reason is recorded on the row and in the audit detail, the domain event
+         *     is `identity_bundle.revoked`, and no action revives the row afterwards: a
+         *     re-install is a new consent diff. The credential a bundle minted is a
+         *     separate row — revoke it with `DELETE /api/api-keys/{id}`.
+         */
+        post: operations["plugin_identity_bundle_revoke"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -19724,9 +19845,21 @@ export interface components {
             role_count: number;
             updated_at: string;
         };
+        /** @description GET /api/directory-groups query. */
+        DirectoryGroupsListQuery: {
+            /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+            cursor?: string | null;
+            /**
+             * Format: int64
+             * @description Page size, clamped to [1, 200]. Defaults to 50.
+             */
+            limit?: number | null;
+        };
         DirectoryGroupsListResponse: {
-            /** @description Every group in the org, by name. */
+            /** @description One page of the org's groups, ordered by `(name, id)`. */
             groups: components["schemas"]["DirectoryGroupView"][];
+            /** @description Pass back as `cursor`; absent when the last page was returned. */
+            next_cursor?: string | null;
         };
         /**
          * @description One booking block on the dispatch board: the appointment plus the
@@ -21233,6 +21366,49 @@ export interface components {
             holds: components["schemas"]["HeldMessageView"][];
             /** @description The org's level, so the queue can say why these messages are waiting. */
             level: string;
+        };
+        /**
+         * @description An installed identity bundle: the adopted artifact plus the provenance
+         *     chain that survives it. Mirrors `theme_packs` — the row is the
+         *     byproduct of an APPROVED staged import, so `provenance_digest` is the
+         *     pinned artifact digest and never a caller-supplied value.
+         */
+        IdentityBundleInstall: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            installed_at: string;
+            /** Format: uuid */
+            installed_by: string;
+            /** Format: int32 */
+            interface_version: number;
+            /**
+             * @description JIT provisioning is a per-install ADMIN opt-in and default-false;
+             *     even when true the core only provisions from a verified email.
+             */
+            jit_enabled: boolean;
+            /**
+             * @description Full validated manifest snapshot, so the consent screen and the
+             *     settings renderer read the same bytes the reviewer approved.
+             */
+            manifest: unknown;
+            name: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description sha256 of the verified artifact — the pinning anchor. */
+            provenance_digest: string;
+            provenance_fetched_ref?: string | null;
+            provenance_source_kind: string;
+            provenance_source_url: string;
+            provider_kinds: string[];
+            revoked_reason?: string | null;
+            scopes: string[];
+            /** @description Slug of [`IdentityBundleManifest::name`] — unique per org. */
+            slug: string;
+            status: components["schemas"]["PluginInstallStatus"];
+            /** Format: date-time */
+            updated_at: string;
+            version: string;
         };
         InboundSettingsResponse: {
             catchall_address?: string | null;
@@ -27442,6 +27618,13 @@ export interface components {
             seq: number;
         };
         RevokeCatalogEntryRequest: {
+            reason: string;
+        };
+        RevokeIdentityBundleRequest: {
+            /**
+             * @description Required. A kill switch with no recorded reason is an incident nobody
+             *     can review.
+             */
             reason: string;
         };
         RevokeInstallRequest: {
@@ -39669,7 +39852,12 @@ export interface operations {
     };
     directory_groups_list: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size, clamped to [1, 200]. Defaults to 50. */
+                limit?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -39686,6 +39874,13 @@ export interface operations {
             };
             /** @description requires manage_users, manage_roles, directory_groups:read or directory_groups:write */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the cursor does not decode */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -47088,6 +47283,167 @@ export interface operations {
                 content?: never;
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_identity_bundles_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityBundleInstall"][];
+                };
+            };
+        };
+    };
+    plugin_identity_bundle_credential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyCreatedResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_identity_bundle_disable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityBundleInstall"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_identity_bundle_enable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityBundleInstall"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    plugin_identity_bundle_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevokeIdentityBundleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityBundleInstall"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
