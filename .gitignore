@@ -53,6 +53,10 @@ e2e/.e2e-stack.env
 # numbers that matter live in the lane evidence, not in a second copy here.
 .kilo/vector-ann-bench/
 .kilo/capture-totp.json
+# The shared cargo cache (scripts/p13-build-env.sh --share-target). A build tree
+# measured at 15 GB on one machine; it is never a source file, and an
+# unanchored `git add -A` must never be able to reach it.
+.kilo/target-shared/
 # Worktree archival output: a lane's patch plus the untracked files it held
 # when it was retired. Per-run local state, like the registry and the logs.
 # A patch of an unmerged lane must never ride an unrelated `git add -A`, so
