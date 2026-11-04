@@ -20,6 +20,14 @@
 #   E2E_FOLLOW=1 …                    # stay attached and stream the core-api +
 #                                     #   worker logs (Ctrl-C stops following;
 #                                     #   the stack keeps running)
+#   E2E_DB_PROFILE=pooler …           # also boot PgBouncer for this run and
+#                                     #   point the services at it (direct is
+#                                     #   the default; the LISTEN connection and
+#                                     #   the migrations stay direct)
+#   E2E_DB_IMAGE=extensions …         # boot the overlay image that carries
+#                                     #   pg_cron, hypopg and vchord instead of
+#                                     #   the stock pgvector one, and assert the
+#                                     #   extensions are present and used
 #
 # Run ids: the canonical shape is `e2e-<digits>` (new_run_id below), and the
 # containers are `marula-e2e-pg-<RUN_ID>` / `marula-e2e-redis-<RUN_ID>`. `down`
@@ -208,7 +216,7 @@ normalize_run_id() {
 # that matched nothing fails instead of printing a success line.
 remove_run_containers() { # remove_run_containers <run_id>; non-zero when nothing matched
   local run="$1" name removed=0 missing=""
-  for name in "marula-e2e-pg-$run" "marula-e2e-redis-$run"; do
+  for name in "marula-e2e-pg-$run" "marula-e2e-redis-$run" "marula-e2e-pgbouncer-$run"; do
     if container_exists "$name"; then
       if container_remove "$name"; then
         echo "[e2e-stack] removed container $name"
@@ -229,6 +237,19 @@ remove_run_containers() { # remove_run_containers <run_id>; non-zero when nothin
     echo "[e2e-stack] note: already gone:$missing"
   fi
   return 0
+}
+
+# Per-run network, used only by the pooler profile: two containers resolve each
+# other by name on a user-defined bridge, and the default bridge does not.
+remove_run_network() { # remove_run_network <run_id>
+  local net="marula-e2e-net-$1"
+  if "$DOCKER" network inspect "$net" >/dev/null 2>&1; then
+    if "$DOCKER" network rm "$net" >/dev/null 2>&1; then
+      echo "[e2e-stack] removed network $net"
+    else
+      echo "[e2e-stack] WARN network $net exists but could not be removed" >&2
+    fi
+  fi
 }
 
 down_run() { # down_run <run_id>; non-zero when it removed nothing
@@ -257,6 +278,7 @@ PY
     echo "[e2e-stack] no registry entry $f (the boot never registered, or it was removed)"
   fi
   remove_run_containers "$run" || rc=1
+  remove_run_network "$run"
   # shared scratch PG: drop THIS run's DATABASE only (the shared container
   # stays for other runs). The name is run-id keyed, so it can never match a
   # different lane's database.
@@ -316,6 +338,7 @@ case "${1:-}" in
   rm)      name="${@: -1}"   # `rm -f -v <name>`: the name is the last argument
            if grep -qx "$name" "$state"; then grep -vx "$name" "$state" > "$state.tmp"; mv "$state.tmp" "$state"; echo "$name"; exit 0; fi
            exit 0 ;;
+  network) exit 1 ;;          # the fake daemon has no networks
   ps)      cat "$state" ;;
   *)       exit 0 ;;
 esac
@@ -476,6 +499,10 @@ esac
 # ########## mode selection ##########
 if [ -n "${E2E_PG_CONTAINER:-}" ] || [ -n "${CI:-}" ]; then
   # Legacy hosted-DB mode (CI): env is fixed, no per-run namespacing.
+  case "${E2E_DB_PROFILE:-direct}${E2E_DB_IMAGE:-stock}" in
+    *pooler*|*extensions*)
+      die "E2E_DB_PROFILE=pooler and E2E_DB_IMAGE=extensions belong to the isolated stack: they start containers this mode does not own (hosted mode uses E2E_PG_CONTAINER)" ;;
+  esac
   RUN_ID="${MARULA_RUN_ID:-ci}"
   DB_NAME="$(echo "${DATABASE_URL:-}" | sed 's|.*/||' || true)"
   PG_PORT=5432
@@ -530,26 +557,92 @@ else
    echo "[e2e-stack] object store dir $OBJECT_STORE_LOCAL_DIR"
 fi
 
+# ---------- database topology (Wave 62 lane p62-credentials-edge) ----------
+# P9's pooler claim was documented and never booted by a stack, so a change that
+# broke it could ship green. `E2E_DB_PROFILE=pooler` starts PgBouncer for THIS
+# run on its own port, in front of the run's own Postgres, and points the two
+# services at it. `direct` is the default and is unchanged.
+#
+# What stays direct, deliberately: migrations and the demo seed (sqlx migrations
+# take a session-scoped advisory lock, which transaction pooling cannot hold),
+# `MARULA_TEST_DATABASE_URL` (the DB suites own whole-table behaviour and must
+# not be shaped by pool settings), and `MARULA_LISTEN_DATABASE_URL` (a
+# subscription cannot ride a transaction pooler either — the same reason the
+# compose stack sets it).
+DB_PROFILE="${E2E_DB_PROFILE:-direct}"
+case "$DB_PROFILE" in
+  direct|pooler) ;;
+  *) die "E2E_DB_PROFILE must be direct or pooler (got '$DB_PROFILE')" ;;
+esac
+DB_IMAGE="${E2E_DB_IMAGE:-stock}"
+case "$DB_IMAGE" in
+  stock) PG_IMAGE="pgvector/pgvector:pg18" ;;
+  extensions) PG_IMAGE="marula/postgres-extensions:18" ;;
+  *) die "E2E_DB_IMAGE must be stock or extensions (got '$DB_IMAGE')" ;;
+esac
+if [ "$DB_IMAGE" = "extensions" ]; then
+  # The overlay exists to make this mode satisfiable (vchord preloaded, the ANN
+  # index built by the migrate step). Selecting it here is what turns the image
+  # from "installed" into "used", and it is why the assertion script can require
+  # the vchordrq index instead of accepting its absence as a deployment choice.
+  export MARULA_RETRIEVAL_MODE=index
+fi
+if [ "${MODE:-}" = "isolated" ]; then
+  echo "[e2e-stack] database topology: image ${DB_IMAGE} (${PG_IMAGE}), profile ${DB_PROFILE}"
+fi
+
 pg_ready() { pg_isready -q -d "$1" 2>/dev/null; }
 
 if [ "${MODE:-}" = "isolated" ]; then
   ########## scratch Postgres: per-run container + per-run DB ##########
+  # The migrate/seed half and every DB suite dial this URL; only the two booted
+  # services use the pooled one below, when the pooler profile is on.
   export DATABASE_URL="postgres://postgres:postgres@localhost:${PG_PORT}/${DB_NAME}"
+  DIRECT_DATABASE_URL="$DATABASE_URL"
   docker rm -f "marula-e2e-pg-$RUN_ID" >/dev/null 2>&1 || true
-  echo "[e2e-stack] starting scratch Postgres marula-e2e-pg-$RUN_ID on port $PG_PORT"
+  NETWORK_ARGS=()
+  if [ "$DB_PROFILE" = "pooler" ]; then
+    # A per-run network, so PgBouncer resolves the Postgres container by name.
+    # The default bridge has no DNS; the run id in the name keeps it this run's.
+    "$DOCKER" network rm "marula-e2e-net-$RUN_ID" >/dev/null 2>&1 || true
+    "$DOCKER" network create "marula-e2e-net-$RUN_ID" >/dev/null \
+      || die "could not create network marula-e2e-net-$RUN_ID"
+    NETWORK_ARGS=(--network "marula-e2e-net-$RUN_ID")
+  fi
+  # The overlay image is built from deploy/postgres (it installs PGDG packages
+  # and a pinned VectorChord deb), so a host that has not built it yet gets it
+  # built here rather than a confusing "image not found" from `docker run`.
+  if [ "$DB_IMAGE" = "extensions" ] && ! "$DOCKER" image inspect "$PG_IMAGE" >/dev/null 2>&1; then
+    run_stage "build ${PG_IMAGE} (deploy/postgres)" \
+      "$DOCKER build -t $PG_IMAGE deploy/postgres" \
+      || die "could not build $PG_IMAGE — build deploy/postgres or drop E2E_DB_IMAGE=extensions"
+  fi
+  echo "[e2e-stack] starting scratch Postgres marula-e2e-pg-$RUN_ID on port $PG_PORT ($PG_IMAGE)"
   # Same instrumentation the compose stack runs (deploy/docker-compose.yml):
   # the query mix and the slow tail are what migration 0145 reads, so the
   # test database has to collect them too. Keep the two lists in step.
+  #
+  # The extension image adds the two libraries it carries and the ones the
+  # overlay preloads: `pg_cron` refuses to be CREATEd without the preload, and
+  # `vchord` cannot maintain its index without it (deploy/postgres/compose.extensions.yml).
+  PG_SERVER_ARGS=(
+    -c "shared_preload_libraries=pg_stat_statements,auto_explain"
+    -c "pg_stat_statements.max=10000"
+    -c "auto_explain.log_min_duration=200ms"
+    -c "auto_explain.log_analyze=on"
+    -c "auto_explain.log_buffers=on"
+    -c "auto_explain.log_format=json"
+    -c "io_method=worker"
+  )
+  if [ "$DB_IMAGE" = "extensions" ]; then
+    PG_SERVER_ARGS[1]="shared_preload_libraries=pg_stat_statements,auto_explain,pg_cron,vchord"
+    PG_SERVER_ARGS+=(-c "cron.database_name=$DB_NAME")
+  fi
   docker run -d --name "marula-e2e-pg-$RUN_ID" \
+    ${NETWORK_ARGS[@]+"${NETWORK_ARGS[@]}"} \
     -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=marula_test \
-    -p "$PG_PORT:5432" pgvector/pgvector:pg18 \
-    -c shared_preload_libraries=pg_stat_statements,auto_explain \
-    -c pg_stat_statements.max=10000 \
-    -c auto_explain.log_min_duration=200ms \
-    -c auto_explain.log_analyze=on \
-    -c auto_explain.log_buffers=on \
-    -c auto_explain.log_format=json \
-    -c io_method=worker >/dev/null \
+    -p "$PG_PORT:5432" "$PG_IMAGE" \
+    "${PG_SERVER_ARGS[@]}" >/dev/null \
     || die "could not start scratch Postgres (docker down?)"
   # `pg_isready` reports the SERVER, not the database: a connection to a DB that
   # does not exist still returns "accepting connections" (it logs a FATAL and
@@ -570,6 +663,63 @@ if [ "${MODE:-}" = "isolated" ]; then
   # NOTE: no EXIT trap removing the container — the default `up` mode leaves
   # the stack running for Playwright; teardown is `e2e-stack.sh down $RUN_ID`
   # (keyed to this run id) or E2E_FOREGROUND's own trap.
+
+  ########## PgBouncer (P9's claim, actually booted) ##########
+  # `deploy/pooler/pgbouncer.ini` is the shipped config and stays the source of
+  # truth for the [pgbouncer] half: this reads the file and replaces ONLY the
+  # [databases] section (its `host=postgres` is the compose name; this run's
+  # database lives on a container named for the run). A local ini with the
+  # load-bearing settings retyped by hand would be a second source of truth for
+  # pool_mode/server_reset_query/max_prepared_statements — exactly the drift the
+  # pooled deployment must not have.
+  if [ "$DB_PROFILE" = "pooler" ]; then
+    POOLER_PORT="$(free_port 26432)"
+    POOLER_DIR="$LOG_ROOT/$RUN_ID/pooler"
+    mkdir -p "$POOLER_DIR"
+    {
+      echo "[databases]"
+      echo "$DB_NAME = host=marula-e2e-pg-$RUN_ID port=5432 dbname=$DB_NAME"
+      # Everything from [pgbouncer] on, verbatim; the shipped [databases] block
+      # is dropped because it names the compose host.
+      awk '/^\[databases\]/{skip=1; next} /^\[pgbouncer\]/{skip=0} !skip' \
+        "$REPO_ROOT/deploy/pooler/pgbouncer.ini"
+    } > "$POOLER_DIR/pgbouncer.ini"
+    # The auth file is rendered, never checked in (F65), by the same script the
+    # compose stack runs. The passwords are this scratch container's own values.
+    POSTGRES_PASSWORD=postgres MARULA_APP_PASSWORD=marula_app \
+      sh "$REPO_ROOT/deploy/pooler/render-userlist.sh" "$POOLER_DIR/userlist.txt" >/dev/null 2>&1 \
+      || die "could not render the PgBouncer auth file (deploy/pooler/render-userlist.sh)"
+    docker rm -f "marula-e2e-pgbouncer-$RUN_ID" >/dev/null 2>&1 || true
+    echo "[e2e-stack] starting PgBouncer marula-e2e-pgbouncer-$RUN_ID on 127.0.0.1:$POOLER_PORT (fronting marula-e2e-pg-$RUN_ID)"
+    docker run -d --name "marula-e2e-pgbouncer-$RUN_ID" \
+      --network "marula-e2e-net-$RUN_ID" \
+      -p "127.0.0.1:${POOLER_PORT}:6432" \
+      -v "$POOLER_DIR/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro" \
+      -v "$POOLER_DIR/userlist.txt:/auth/userlist.txt:ro" \
+      dhi.io/pgbouncer:1.26@sha256:17157120154cd111541281b39e9ad846e567e7fc1ea2e964abdc8c4bf4547fff \
+      >/dev/null || die "could not start PgBouncer (docker down, or the pinned image is unavailable)"
+    POOLED_DATABASE_URL="postgres://postgres:postgres@127.0.0.1:${POOLER_PORT}/${DB_NAME}"
+    # Wait for the pooler's own listener, not for the database: a pooler that
+    # has not started would otherwise be reported by the services as a database
+    # failure with a misleading message.
+    pooler_ready=0
+    for _ in $(seq 1 30); do
+      if python3 - "$POOLER_PORT" <<'PY'
+import socket, sys
+sock = socket.socket()
+sock.settimeout(0.5)
+try:
+    sock.connect(("127.0.0.1", int(sys.argv[1])))
+except OSError:
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+      then pooler_ready=1; break; fi
+      sleep 1
+    done
+    [ "$pooler_ready" -eq 1 ] || die "PgBouncer never accepted a connection on 127.0.0.1:$POOLER_PORT — see docker logs marula-e2e-pgbouncer-$RUN_ID"
+    echo "[e2e-stack] pooler ready — services dial $POOLED_DATABASE_URL (LISTEN stays direct)"
+  fi
 
   ########## scratch Valkey (redis name kept — REDIS_URL contract) ##########
   docker rm -f "marula-e2e-redis-$RUN_ID" >/dev/null 2>&1 || true
@@ -595,7 +745,8 @@ if [ "${MODE:-}" = "isolated" ]; then
         echo "[e2e-stack] FAIL: run $RUN_ID never became ready (exit $rc); E2E_KEEP=1 keeps marula-e2e-pg-$RUN_ID (port $PG_PORT) and marula-e2e-redis-$RUN_ID (port $REDIS_PORT)" >&2
       else
         echo "[e2e-stack] FAIL: run $RUN_ID never became ready (exit $rc) — removing its own containers (${RUN_ID} only)" >&2
-        docker rm -f "marula-e2e-pg-$RUN_ID" "marula-e2e-redis-$RUN_ID" >/dev/null 2>&1 || true
+        docker rm -f "marula-e2e-pg-$RUN_ID" "marula-e2e-redis-$RUN_ID" "marula-e2e-pgbouncer-$RUN_ID" >/dev/null 2>&1 || true
+        "$DOCKER" network rm "marula-e2e-net-$RUN_ID" >/dev/null 2>&1 || true
       fi
     fi
   }
@@ -615,6 +766,19 @@ fi
 run_stage "migrate schema" 'cargo run -q -p marula-core-cli -- migrate'
 run_stage "seed the deterministic demo org (seed-demo --force)" \
   'MARULA_DEV_TOOLS=1 cargo run -q -p marula-core-cli -- seed-demo --force'
+
+########## the overlay image actually carries — and uses — the extensions ##########
+# P8's image and migration 0145/0153 degrade quietly when pg_cron, hypopg or
+# vchord are absent, which is the right product behaviour and a useless proof:
+# a stack booted on the stock image looks the same as one booted on the overlay.
+# So when this run asked for the overlay, the extensions are asserted present
+# AND used on the database the migrations just ran against (F71's sibling: the
+# gate has to exercise the thing, not take the lane's word).
+if [ "$DB_IMAGE" = "extensions" ]; then
+  run_stage "assert the extensions are present and used (deploy/postgres)" \
+    "bash $REPO_ROOT/scripts/check-postgres-extensions.sh --container marula-e2e-pg-$RUN_ID --db $DB_NAME" \
+    || die "the overlay image is booted but an extension is missing or unused — see the FAIL lines above"
+fi
 
 ########## isolated test database (no service attached) ##########
 # Some DB suites assert on whole-table behaviour rather than on rows they own:
@@ -655,6 +819,18 @@ fi
   || die "could not reset volatile demo state"
 
 ########## core-api ##########
+# Past this point the SERVICES use the pooled URL when the pooler profile is on.
+# Everything above (migrations, the seed, the DB resets) stayed direct, and
+# `MARULA_TEST_DATABASE_URL` stays direct for the DB suites.
+if [ "$DB_PROFILE" = "pooler" ]; then
+  export DATABASE_URL="$POOLED_DATABASE_URL"
+  export MARULA_LISTEN_DATABASE_URL="$DIRECT_DATABASE_URL"
+  # A transaction pooler cannot keep a named statement between transactions
+  # (server_reset_query = DISCARD ALL), so sqlx must not cache the names either
+  # — the matching half of `max_prepared_statements = 0` in the pooler's config.
+  export MARULA_DB_STATEMENT_CACHE=0
+  echo "[e2e-stack] services dial the pooler; LISTEN and the DB suites stay direct"
+fi
 # Service stdio goes to per-run log files with stdin from /dev/null: the
 # daemons must not inherit this script's stdout, or a caller that pipes `up`
 # into a pager waits on an fd the daemons hold open forever.
@@ -765,9 +941,17 @@ curl -fsS "http://localhost:${WORKER_PORT}/healthz" >/dev/null \
 echo "[e2e-stack] worker healthy — workflows can trigger and execute on this stack"
 
 # ########## env file for Playwright (kills NEXT_PUBLIC_API_URL drift) ##########
+# `DATABASE_URL` here is the DIRECT database: Playwright and the DB suites query
+# rows, they do not exercise the pooler. `E2E_APP_DATABASE_URL` is what the two
+# booted services dial, so a spec that wants to prove the pooler is in the path
+# can compare the two instead of guessing.
+E2E_DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL:-$DATABASE_URL}"
+E2E_APP_DATABASE_URL="$DATABASE_URL"
 cat > "$ENV_FILE" <<EOF
 MARULA_RUN_ID=$RUN_ID
 E2E_API_PROFILE=$API_PROFILE
+E2E_DB_PROFILE=$DB_PROFILE
+E2E_DB_IMAGE=$DB_IMAGE
 E2E_API_URL=http://${API_HOST}/
 E2E_API_PORT=$API_PORT
 E2E_WEB_PORT=$WEB_PORT
@@ -776,8 +960,9 @@ E2E_WORKER_PORT=$WORKER_PORT
 E2E_WORKER_URL=http://localhost:$WORKER_PORT
 E2E_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
 MARULA_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
-E2E_DATABASE_URL=$DATABASE_URL
-DATABASE_URL=$DATABASE_URL
+E2E_DATABASE_URL=$E2E_DIRECT_DATABASE_URL
+DATABASE_URL=$E2E_DIRECT_DATABASE_URL
+E2E_APP_DATABASE_URL=$E2E_APP_DATABASE_URL
 MARULA_TEST_DATABASE_URL=$TEST_DATABASE_URL
 BIND_ADDR=$BIND_ADDR
 JWT_SECRET=$JWT_SECRET

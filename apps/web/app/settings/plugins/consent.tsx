@@ -43,9 +43,11 @@ export function ManifestCoverageBadge({
   sourceKind,
 }: {
   authenticated: boolean;
-  sourceKind: string;
+  /** Omitted where the surface knows the verdict but not the source it came
+   * from (the install row); the badge then renders unconditionally. */
+  sourceKind?: string;
 }) {
-  if (!SIGNED_SOURCES.has(sourceKind)) return null;
+  if (sourceKind !== undefined && !SIGNED_SOURCES.has(sourceKind)) return null;
   return (
     <Badge
       tone={authenticated ? "success" : "warning"}
@@ -103,16 +105,43 @@ export function ProvenanceSummary({
         </div>
       ))}
       {manifestAuthenticated !== undefined ? (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <ManifestCoverageBadge authenticated={manifestAuthenticated} sourceKind={sourceKind} />
-          <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
-            {manifestAuthenticated
-              ? "The publisher's signature covers this manifest."
-              : "The signature covers only the artifact bytes — read the manifest as text the publisher has not signed."}
-          </span>
+        <div className="mt-2">
+          <ManifestAuthenticationNote
+            authenticated={manifestAuthenticated}
+            sourceKind={sourceKind}
+          />
         </div>
       ) : null}
     </dl>
+  );
+}
+
+/** The verdict and its sentence, ONE rendering for every surface that shows
+ * it — the staged-approval row, the consent screen, and the install row
+ * (`F49`: an install from a GitHub pull is staged unsigned and has to keep
+ * saying so after it is approved). Keeping the copy here is what stops the
+ * three surfaces growing three vocabularies for the same fact.
+ *
+ * `sourceKind` is optional because the install row carries a verdict without
+ * carrying the source it came from; the sources that make no signature claim
+ * at all still render nothing. */
+export function ManifestAuthenticationNote({
+  authenticated,
+  sourceKind,
+}: {
+  authenticated: boolean;
+  sourceKind?: string;
+}) {
+  if (sourceKind !== undefined && !SIGNED_SOURCES.has(sourceKind)) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <ManifestCoverageBadge authenticated={authenticated} sourceKind={sourceKind} />
+      <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+        {authenticated
+          ? "The publisher's signature covers this manifest."
+          : "The signature covers only the artifact bytes — read the manifest as text the publisher has not signed."}
+      </span>
+    </div>
   );
 }
 

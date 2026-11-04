@@ -360,6 +360,37 @@ async fn a_model_switch_keeps_spaces_separate_and_the_reindex_resumes() {
         .await
         .expect("enqueue again");
     assert_eq!(again, 0, "idempotent on (switch_id, org_id)");
+    // The instance-level switch is audited in the org's own trail (L637). The
+    // boot records the switch; this fan-out is the only role that may write
+    // across orgs, so the row lands with the run and nowhere else. The retried
+    // sweep above must not have added a second one.
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events
+          WHERE org_id = $1 AND action = 'ai.embedding_space_changed'",
+    )
+    .bind(org)
+    .fetch_one(&db.admin)
+    .await
+    .expect("audit rows");
+    assert_eq!(
+        audited, 1,
+        "one audit row per org per switch, not one per sweep"
+    );
+    let detail: serde_json::Value = sqlx::query_scalar(
+        "SELECT detail FROM audit_events
+          WHERE org_id = $1 AND action = 'ai.embedding_space_changed'",
+    )
+    .bind(org)
+    .fetch_one(&db.admin)
+    .await
+    .expect("audit detail");
+    assert_eq!(detail["to_space"], serde_json::json!(new_space));
+    assert_eq!(detail["from_space"], serde_json::json!(old_space));
+    assert_eq!(
+        detail["rows_to_reindex"],
+        serde_json::json!(rows.len() as i64),
+        "the row says how much work it caused; it carries no tenant text"
+    );
     assert_eq!(
         embedding_space::runs_pending(&db.admin)
             .await

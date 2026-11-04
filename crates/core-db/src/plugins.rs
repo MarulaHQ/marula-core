@@ -18,6 +18,7 @@ use core_domain::entities::{
     PluginCatalogEntry, PluginInstall, PluginInstallStatus, PluginVersion,
 };
 use sqlx::{PgConnection, Row};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 const CATALOG_COLS: &str = "id, slug, name, description, publisher, origin_org_id, \
@@ -351,10 +352,10 @@ pub async fn get_version(
 /// manifest (migration 0172), not just its artifact bytes.
 ///
 /// Read on its own rather than carried on [`PluginVersion`] because the entity is
-/// the declarative manifest and its pin, and the only caller that needs the
-/// verdict is the cross-org adoption guard in core-api. `false` is the honest
-/// default for every row the backfill could not prove: unknown is treated as
-/// unauthenticated (fail closed), never the other way round.
+/// the declarative manifest and its pin, and the callers that need the verdict
+/// are the cross-org adoption guard and the install roster in core-api. `false`
+/// is the honest default for every row the backfill could not prove: unknown is
+/// treated as unauthenticated (fail closed), never the other way round.
 pub async fn version_manifest_authenticated(
     executor: &mut PgConnection,
     catalog_id: Uuid,
@@ -368,6 +369,44 @@ pub async fn version_manifest_authenticated(
     .fetch_one(executor)
     .await?;
     Ok(authenticated)
+}
+
+/// The same verdict for many pins in ONE read.
+///
+/// The install roster shows the verdict per row (F49: a GitHub pull is staged
+/// unsigned, approved, and installed — the operator has to see that on the
+/// install, not infer it from the import drawer). Resolving it per install
+/// would be the N+1 the roster's own comment warns about, so the caller passes
+/// every pin it is about to render and gets one map back.
+///
+/// A pin with no `plugin_versions` row (an orphaned pin whose catalog entry was
+/// deleted) is absent from the map. The caller reads absence as `false`: the
+/// same fail-closed posture [`version_manifest_authenticated`] documents.
+pub async fn manifest_authenticated_for(
+    executor: &mut PgConnection,
+    pins: &[(Uuid, String)],
+) -> DbResult<HashMap<(Uuid, String), bool>> {
+    if pins.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let catalog_ids: Vec<Uuid> = pins.iter().map(|(catalog_id, _)| *catalog_id).collect();
+    let versions: Vec<String> = pins.iter().map(|(_, version)| version.clone()).collect();
+    let rows = sqlx::query(
+        "SELECT catalog_id, version, manifest_authenticated FROM plugin_versions
+          WHERE (catalog_id, version) IN (SELECT * FROM unnest($1::uuid[], $2::text[]))",
+    )
+    .bind(&catalog_ids)
+    .bind(&versions)
+    .fetch_all(executor)
+    .await?;
+    let mut verdicts = HashMap::with_capacity(rows.len());
+    for row in rows {
+        verdicts.insert(
+            (row.get("catalog_id"), row.get("version")),
+            row.get("manifest_authenticated"),
+        );
+    }
+    Ok(verdicts)
 }
 
 pub async fn list_versions(

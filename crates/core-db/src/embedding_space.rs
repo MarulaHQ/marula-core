@@ -185,12 +185,23 @@ pub async fn record_switch(
     }))
 }
 
-/// Queues one run per org that still holds rows outside `to_space`.
+/// Queues one run per org that still holds rows outside `to_space`, and writes
+/// that org's audit row for the switch.
 ///
 /// Called by the worker's sweep, not by core-api: the insert spans orgs, and
 /// the only role that may do that is the worker's owner connection. The rows
 /// themselves are core-api's (it owns every embedding write); this table is
 /// the sweep's own bookkeeping, which is why it carries the policy above.
+///
+/// Why the audit row lands here and not in the boot that recorded the switch
+/// (F49's wave, row L637): `audit_events.org_id` is NOT NULL and every row
+/// belongs to exactly one org's trail — the read path is scoped to the
+/// reader's org, and `marula_app` cannot even enumerate orgs through RLS. An
+/// instance-level change therefore has exactly one honest representation in
+/// the existing ledger: one row in each affected org's trail. The boot records
+/// the switch; the fan-out that turns it into per-org work writes the trail,
+/// in the same statement, so the row exists iff the org's run exists and a
+/// retried sweep cannot duplicate it.
 ///
 /// An org is queued when it has at least one index row with no fresh vector in
 /// `to_space` — the same predicate [`crate::search::rows_needing_embedding`]
@@ -198,42 +209,63 @@ pub async fn record_switch(
 /// brand-new tenant waits for its first row rather than for a switch.
 ///
 /// Idempotent on `(switch_id, org_id)`: a retried boot, a restarted worker or
-/// two sweeps racing all converge on one run per org.
+/// two sweeps racing all converge on one run per org, and one audit row with it.
 ///
 /// Returns how many runs this call created.
 pub async fn enqueue_missing_runs(pool: &PgPool, switch_id: Uuid, to_space: &str) -> DbResult<u64> {
-    let result = sqlx::query(
-        r#"INSERT INTO embedding_reindex_runs
-             (id, switch_id, org_id, from_space, to_space, status, total_rows)
-           SELECT gen_random_uuid(), $1, i.org_id,
-                  (SELECT CASE WHEN COUNT(DISTINCT e.space) = 1
-                               THEN MIN(e.space) END
-                     FROM search_embeddings e
-                    WHERE e.org_id = i.org_id AND e.space <> $2),
-                  $2, 'queued', COUNT(*)
-             FROM search_index i
-            WHERE EXISTS (
-                    SELECT 1
-                      FROM search_index s
-                      LEFT JOIN search_embeddings e
-                        ON e.org_id = s.org_id
-                       AND e.entity_kind = s.entity_kind
-                       AND e.entity_id = s.entity_id
-                       AND e.space = $2
-                     WHERE s.org_id = i.org_id
-                       AND (
-                             e.id IS NULL
-                          OR e.content_hash <> md5(s.title || E'\x1f' || s.body)
-                         )
-                  )
-            GROUP BY i.org_id
-           ON CONFLICT (switch_id, org_id) DO NOTHING"#,
+    let queued: i64 = sqlx::query_scalar(
+        r#"WITH created AS (
+             INSERT INTO embedding_reindex_runs
+               (id, switch_id, org_id, from_space, to_space, status, total_rows)
+             SELECT gen_random_uuid(), $1, i.org_id,
+                    (SELECT CASE WHEN COUNT(DISTINCT e.space) = 1
+                                 THEN MIN(e.space) END
+                       FROM search_embeddings e
+                      WHERE e.org_id = i.org_id AND e.space <> $2),
+                    $2, 'queued', COUNT(*)
+               FROM search_index i
+              WHERE EXISTS (
+                      SELECT 1
+                        FROM search_index s
+                        LEFT JOIN search_embeddings e
+                          ON e.org_id = s.org_id
+                         AND e.entity_kind = s.entity_kind
+                         AND e.entity_id = s.entity_id
+                         AND e.space = $2
+                       WHERE s.org_id = i.org_id
+                         AND (
+                               e.id IS NULL
+                            OR e.content_hash <> md5(s.title || E'\x1f' || s.body)
+                          )
+                    )
+              GROUP BY i.org_id
+             ON CONFLICT (switch_id, org_id) DO NOTHING
+             RETURNING id, org_id, from_space, to_space, total_rows
+           ),
+           audited AS (
+             INSERT INTO audit_events
+               (id, org_id, actor_kind, actor_id, action, entity_type, entity_id,
+                detail, occurred_at)
+             SELECT gen_random_uuid(), org_id, 'system', NULL,
+                    'ai.embedding_space_changed', 'embedding_reindex_run',
+                    id::text,
+                    jsonb_build_object(
+                      'switch_id', $1::uuid,
+                      'from_space', from_space,
+                      'to_space', to_space,
+                      -- Counts, never contents: no tenant text reaches the log.
+                      'rows_to_reindex', total_rows
+                    ),
+                    now()
+               FROM created
+           )
+           SELECT count(*) FROM created"#,
     )
     .bind(switch_id)
     .bind(to_space)
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
-    Ok(result.rows_affected())
+    Ok(u64::try_from(queued).unwrap_or(0))
 }
 
 /// Every distinct space stored for one org. Used to decide whether the old
