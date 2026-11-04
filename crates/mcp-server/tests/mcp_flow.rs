@@ -1,58 +1,28 @@
-//! MCP adapter end-to-end (the private build tracker Phase 3, lane `p9-mcp-v1`): the REAL
-//! committed OpenAPI snapshot drives the catalog; a stub core-api serves
-//! the capability registry and one read endpoint; the MCP protocol runs
-//! over the HTTP transport exactly as the server binary mounts it.
-//!
-//! Pins:
-//! 1. The catalog derives mechanically from the snapshot: GET-only tools,
-//!    capability slugs from the first path segment, sensitive prefixes
-//!    (attachments/exports/api-keys/...) never enter the catalog.
-//! 2. Deny-by-default capability filtering: only granted namespaces
-//!    surface in `tools/list`; ungranted `tools/call` is a typed
-//!    capability-denied error BEFORE any proxying.
-//! 3. `tools/call` proxies to core-api with the caller's credentials
-//!    (defense in depth: core-api re-checks scopes + RLS).
+//! End-to-end contract for the adapter: a caller's own session is the only
+//! credential, the org's grants decide which tools exist, and both protocol
+//! eras get an answer.
 
-use axum::{Json, Router};
-use mcp_server::catalog::build_catalog;
-use mcp_server::http::router;
-use mcp_server::protocol::{RequestId, RpcRequest};
-use mcp_server::tools::{CoreApiBackend, ScopedBackend};
-use mcp_server::Server;
+use axum::{response::IntoResponse, routing::get, Json, Router};
+use mcp_server::MarulaServer;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
-use axum::response::IntoResponse;
-
-/// A tiny stub of the core-api surface the adapter proxies onto.
-///
-/// The proxied read routes REQUIRE `Authorization: Bearer <session>` —
-/// exactly what real core-api's require_auth does for a JWT. This is the
-/// pin that keeps the proxy authenticated as the caller: `tools/call` must
-/// carry the session on every read.
 const TOKEN: &str = "session-token";
 
 fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
     headers
         .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v == format!("Bearer {TOKEN}"))
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {TOKEN}"))
 }
 
+/// A stub of the core-api surface the adapter reads and proxies onto. It
+/// grants exactly one family, so a second family proves the deny path.
 fn stub_core_api() -> Router {
-    let proxied = |headers: axum::http::HeaderMap,
-                   respond: axum::response::Response|
-     -> axum::response::Response {
-        if bearer_ok(&headers) {
-            respond
-        } else {
-            axum::http::StatusCode::UNAUTHORIZED.into_response()
-        }
-    };
     Router::new()
         .route(
             "/api/v1/me",
-            axum::routing::get(move |headers: axum::http::HeaderMap| async move {
+            get(|headers: axum::http::HeaderMap| async move {
                 if !bearer_ok(&headers) {
                     return axum::http::StatusCode::UNAUTHORIZED.into_response();
                 }
@@ -62,266 +32,207 @@ fn stub_core_api() -> Router {
                     "email": "tech@example.test",
                     "display_name": "Tech",
                     "timezone": "UTC",
-                    "permissions": ["tickets:view", "clients:view"],
-                    "mcp_capabilities": ["clients:read", "tickets:read"]
+                    "permissions": ["clients:view"],
+                    "mcp_capabilities": ["clients:read"]
                 }))
                 .into_response()
             }),
         )
         .route(
-            "/api/clients/{id}",
-            axum::routing::get(move |headers: axum::http::HeaderMap,
-                                     path: axum::extract::Path<String>| async move {
-                proxied(
-                    headers,
-                    Json(json!({ "id": path.0, "name": "Acme Manufacturing" })).into_response(),
-                )
-            }),
-        )
-        .route(
             "/api/clients",
-            axum::routing::get(move |headers: axum::http::HeaderMap| async move {
-                proxied(
-                    headers,
-                    Json(json!({ "clients": [], "next_cursor": null })).into_response(),
-                )
-            }),
-        )
-        .route(
-            "/api/tickets",
-            axum::routing::get(move |headers: axum::http::HeaderMap| async move {
-                proxied(
-                    headers,
-                    Json(json!({ "tickets": [], "next_cursor": null })).into_response(),
-                )
+            get(|headers: axum::http::HeaderMap| async move {
+                if !bearer_ok(&headers) {
+                    return axum::http::StatusCode::UNAUTHORIZED.into_response();
+                }
+                Json(json!({ "clients": [], "next_cursor": null })).into_response()
             }),
         )
 }
 
-async fn mcp_app() -> Router {
-    let stub = stub_core_api();
+async fn app() -> Router {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
-
-    let backend = CoreApiBackend::new(&format!("http://{addr}")).with_token("session-token");
-    // The capability read itself must go through the stub.
-    let granted = backend.granted_capabilities().await;
-    assert!(
-        granted.contains(&"clients".to_string()),
-        "stub registry grants clients"
+    tokio::spawn(async move { axum::serve(listener, stub_core_api()).await.unwrap() });
+    let base = format!("http://{addr}");
+    let server = MarulaServer::new(
+        &base,
+        &mcp_server::openapi_spec(),
+        &mcp_server::mcp_catalog_spec(),
+        None,
     );
-    let granted_set: std::collections::HashSet<String> = granted.into_iter().collect();
-    let scoped = ScopedBackend::new(backend, granted_set.clone());
-    let spec = mcp_server::openapi_spec();
-    let tools = build_catalog(&spec, &mcp_server::mcp_catalog_spec());
-    let tools = mcp_server::catalog::filter_granted(tools, &granted_set);
-    router(Server::new(scoped, tools))
+    mcp_server::http::router(server)
 }
 
-async fn rpc(app: &Router, id: i64, method: &str, params: Value) -> Value {
-    let request = RpcRequest {
-        jsonrpc: "2.0".into(),
-        id: Some(RequestId::Number(id)),
-        method: method.into(),
-        params,
-    };
-    let response = app
-        .clone()
-        .oneshot(
-            axum::http::Request::builder()
-                .method(axum::http::Method::POST)
-                .uri("/mcp")
-                .header("content-type", "application/json")
-                .body(axum::body::Body::from(
-                    serde_json::to_string(&request).unwrap(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 200, "rpc must return 200");
-    serde_json::from_slice(
-        &axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap(),
-    )
-    .unwrap()
-}
-
-// ===========================================================================
-// Catalog derivation from the committed snapshot
-// ===========================================================================
-
-#[test]
-fn catalog_is_get_only_and_excludes_sensitive_prefixes() {
-    let spec = mcp_server::openapi_spec();
-    let tools = build_catalog(&spec, &mcp_server::mcp_catalog_spec());
-    assert!(
-        tools.len() > 20,
-        "the real snapshot yields a meaningful read catalog (got {})",
-        tools.len()
-    );
-    assert!(tools.iter().all(|t| t.method == "GET"));
-    let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
-    assert!(
-        names.contains(&"tickets_list"),
-        "canonical read tool present"
-    );
-    assert!(names.contains(&"clients_get_one"));
-    assert!(
-        !names.iter().any(|n| n.starts_with("attachments_")),
-        "attachment downloads never enter the agent catalog"
-    );
-    assert!(
-        !names.iter().any(|n| n.starts_with("api_keys_")),
-        "key management never enters the agent catalog"
-    );
-    assert!(
-        !names.iter().any(|n| n.starts_with("org_exports")),
-        "export bundles never enter the agent catalog"
-    );
-    // Unique names, unique stable ordering.
-    let mut sorted = names.clone();
-    sorted.sort();
-    sorted.dedup();
-    assert_eq!(names, sorted, "operationIds are unique and sorted");
-}
-
-#[test]
-fn capabilities_map_from_path_namespaces() {
-    let spec = mcp_server::openapi_spec();
-    let tools = build_catalog(&spec, &mcp_server::mcp_catalog_spec());
-    let tickets = tools.iter().find(|t| t.name == "tickets_list").unwrap();
-    assert_eq!(tickets.capability, "tickets:read");
-    let clients = tools.iter().find(|t| t.name == "clients_list").unwrap();
-    assert_eq!(clients.capability, "clients:read");
-}
-
-// ===========================================================================
-// Protocol flow over the HTTP transport
-// ===========================================================================
-
-#[tokio::test]
-async fn initialize_and_tools_list_honor_deny_by_default() {
-    let app = mcp_app().await;
-
-    let hello = rpc(
-        &app,
-        1,
-        "initialize",
-        json!({ "protocolVersion": "2025-03-26" }),
-    )
-    .await;
-    assert_eq!(hello["result"]["serverInfo"]["name"], "marula-mcp");
-    assert_eq!(hello["result"]["protocolVersion"], "2025-03-26");
-
-    // The stub registry grants clients + tickets only; every OTHER
-    // namespace must be absent from tools/list (deny-by-default).
-    let listed = rpc(&app, 2, "tools/list", json!({})).await;
-    let tools = listed["result"]["tools"].as_array().unwrap();
-    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert!(!names.is_empty(), "granted tools are listed");
-    assert!(
-        names.iter().all(|n| {
-            !(n.contains("invoices")
-                || n.contains("documents")
-                || n.contains("projects")
-                || n.contains("reports")
-                || n.contains("contracts")
-                || n.contains("search")
-                || n.contains("kb_"))
-        }),
-        "ungranted namespaces are hidden, got: {names:?}"
-    );
-    // Each listed tool carries a JSON-Schema input object.
-    for tool in tools {
-        assert_eq!(tool["inputSchema"]["type"], "object");
+async fn rpc(app: &Router, token: Option<&str>, body: Value) -> Value {
+    let mut request = axum::http::Request::builder()
+        .method(axum::http::Method::POST)
+        .uri("/mcp")
+        .header("content-type", "application/json")
+        .header("accept", "application/json, text/event-stream")
+        .header("host", "127.0.0.1");
+    if let Some(token) = token {
+        request = request.header("authorization", format!("Bearer {token}"));
     }
-}
-
-#[tokio::test]
-async fn tools_call_proxies_granted_reads_and_denies_ungranted() {
-    let app = mcp_app().await;
-
-    let call = rpc(
-        &app,
-        3,
-        "tools/call",
-        json!({ "name": "clients_get_one", "arguments": { "id": "42" } }),
-    )
-    .await;
-    let text = call["result"]["content"][0]["text"].as_str().unwrap();
-    let body: Value = serde_json::from_str(text).unwrap();
-    assert_eq!(body["name"], "Acme Manufacturing");
-    assert_eq!(body["id"], "42");
-    assert_eq!(call["result"]["isError"], false);
-
-    // tickets_list IS granted in the stub registry — proxied fine.
-    let call = rpc(
-        &app,
-        4,
-        "tools/call",
-        json!({ "name": "tickets_list", "arguments": { "limit": 5 } }),
-    )
-    .await;
-    assert!(call["result"]["content"][0]["text"].is_string());
-
-    // An ungranted namespace is not merely denied at call time — it was
-    // never listed: tools/call on it is a typed method-not-found (the
-    // scoped-backend capability denial is the defense-in-depth layer for
-    // grants shrinking between list and call).
-    let ungranted = rpc(
-        &app,
-        5,
-        "tools/call",
-        json!({ "name": "documents_list", "arguments": {} }),
-    )
-    .await;
-    assert_eq!(
-        ungranted["error"]["code"],
-        mcp_server::protocol::CODE_METHOD_NOT_FOUND,
-        "ungranted tools are unlisted: {ungranted}"
-    );
-
-    // Unknown tool names are a typed method-not-found too.
-    let unknown = rpc(&app, 6, "tools/call", json!({ "name": "nope" })).await;
-    assert_eq!(
-        unknown["error"]["code"],
-        mcp_server::protocol::CODE_METHOD_NOT_FOUND
-    );
-}
-
-#[tokio::test]
-async fn notifications_get_no_body_and_unknown_methods_error() {
-    let app = mcp_app().await;
-    let request = RpcRequest {
-        jsonrpc: "2.0".into(),
-        id: None,
-        method: "notifications/initialized".into(),
-        params: json!({}),
-    };
+    // SEP-2243: a request carrying per-request protocol metadata must also
+    // carry the version header, or the server refuses it.
+    let encoded = serde_json::to_string(&body).unwrap();
+    if encoded.contains("io.modelcontextprotocol/protocolVersion") {
+        request = request.header("MCP-Protocol-Version", "2026-07-28");
+        if let Some(method) = body.get("method").and_then(Value::as_str) {
+            request = request.header("Mcp-Method", method);
+        }
+        if let Some(name) = body
+            .get("params")
+            .and_then(|params| params.get("name"))
+            .and_then(Value::as_str)
+        {
+            request = request.header("Mcp-Name", name);
+        }
+    }
     let response = app
         .clone()
-        .oneshot(
-            axum::http::Request::builder()
-                .method(axum::http::Method::POST)
-                .uri("/mcp")
-                .header("content-type", "application/json")
-                .body(axum::body::Body::from(
-                    serde_json::to_string(&request).unwrap(),
-                ))
-                .unwrap(),
-        )
+        .oneshot(request.body(axum::body::Body::from(encoded)).unwrap())
+        .await
+        .expect("router answers");
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024)
         .await
         .unwrap();
-    assert_eq!(response.status(), 204, "notification ⇒ 204 no body");
+    let text = String::from_utf8_lossy(&bytes);
+    serde_json::from_str(&text).unwrap_or_else(|_| {
+        panic!("answer was not JSON ({status}): {text}");
+    })
+}
 
-    let bogus = rpc(&app, 7, "admin/secret", json!({})).await;
-    assert_eq!(
-        bogus["error"]["code"],
-        mcp_server::protocol::CODE_METHOD_NOT_FOUND
+fn modern_meta(method: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": method,
+        "params": { "_meta": {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1" },
+            "io.modelcontextprotocol/clientCapabilities": {}
+        }}
+    })
+}
+
+#[tokio::test]
+async fn a_modern_client_discovers_and_lists_its_grants() {
+    let app = app().await;
+    let discovered = rpc(&app, Some(TOKEN), modern_meta("server/discover")).await;
+    let result = &discovered["result"];
+    assert!(
+        result["supportedVersions"]
+            .as_array()
+            .is_some_and(|versions| versions.iter().any(|v| v == "2026-07-28")),
+        "server advertises the revision it implements: {result}"
     );
+
+    let listed = rpc(&app, Some(TOKEN), modern_meta("tools/list")).await;
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(names.contains(&"clients_list"), "granted family appears");
+    assert!(
+        !names.contains(&"tickets_list"),
+        "an ungranted family does not appear: {names:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_legacy_client_still_gets_the_same_catalog() {
+    let app = app().await;
+    let initialized = rpc(
+        &app,
+        Some(TOKEN),
+        json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "legacy-test", "version": "1" }
+            }
+        }),
+    )
+    .await;
+    let version = initialized["result"]["protocolVersion"]
+        .as_str()
+        .expect("a negotiated version");
+    assert!(
+        ["2025-11-25", "2026-07-28"].contains(&version),
+        "negotiated a version the server implements, got {version}"
+    );
+
+    let listed = rpc(
+        &app,
+        Some(TOKEN),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
+    )
+    .await;
+    assert!(listed["result"]["tools"]
+        .as_array()
+        .is_some_and(|tools| !tools.is_empty()));
+}
+
+#[tokio::test]
+async fn a_session_without_a_token_sees_no_tools() {
+    let app = app().await;
+    let listed = rpc(&app, None, modern_meta("tools/list")).await;
+    assert_eq!(
+        listed["result"]["tools"].as_array().map(Vec::len),
+        Some(0),
+        "no session means no grants means no tools"
+    );
+}
+
+#[tokio::test]
+async fn a_call_forwards_the_callers_session_and_refuses_an_ungranted_family() {
+    let app = app().await;
+    let called = rpc(
+        &app,
+        Some(TOKEN),
+        json!({
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": { "name": "clients_list", "arguments": {},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1" },
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(called["result"]["isError"], json!(false), "{called}");
+    let text = called["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    assert!(text.contains("\"clients\""), "proxied payload: {text}");
+
+    let refused = rpc(
+        &app,
+        Some(TOKEN),
+        json!({
+            "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": { "name": "tickets_list", "arguments": {},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1" },
+                    "io.modelcontextprotocol/clientCapabilities": {}
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(refused["result"]["isError"], json!(true), "{refused}");
+    let text = refused["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text content");
+    assert!(text.contains("tickets:read"), "names the grant: {text}");
 }

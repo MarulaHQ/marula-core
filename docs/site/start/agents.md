@@ -69,11 +69,34 @@ The capability endpoints are in the [API reference](../reference/api.md): `GET`,
 for the organization. A capability you have not been granted is not visible in the
 inventory, which is the deny-by-default rule applied to tool discovery.
 
+## Connecting an MCP client
+
+The adapter is `mcp-server`, built on the official `rmcp` SDK. It speaks the stable
+2026-07-28 revision and stays compatible with 2025-11-25 and earlier, so the client
+picks an era at connect time.
+
+Over stdio, the canonical transport:
+
+```sh
+MARULA_API_BASE=http://127.0.0.1:8080 MARULA_API_TOKEN=<access token> mcp-server
+```
+
+Over HTTP, for local development:
+
+```sh
+MARULA_API_BASE=http://127.0.0.1:8080 mcp-server serve-http
+```
+
+The endpoint is `POST /mcp`, and each request carries `Authorization: Bearer <access
+token>` plus the standard MCP headers its revision requires. Behind a real hostname,
+set `MARULA_MCP_ALLOWED_HOSTS` to the names the adapter should accept.
+
+The token is the caller's own session, not an adapter key. The tool list is that
+organization's granted reads, and every call runs as the person behind the token, so
+core-api's permissions and row scoping decide what comes back.
+
 ## Not documented yet
 
-- Connecting an MCP client to a running instance: the transport it uses, how it
-  authenticates, and a worked session. The endpoints exist in the reference; the client path is not
-  written.
 - A machine-readable docs index for agents. Every page here is prose for a
   person. Nothing publishes a manifest an agent can load and trust.
 - The domain event catalogue: which events exist, their payloads, and which ones

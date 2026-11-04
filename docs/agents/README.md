@@ -14,6 +14,11 @@ person behind the session and not the adapter. Over HTTP the token is the reques
 `Authorization: Bearer`; over stdio it is `MARULA_API_TOKEN`. A namespace the org has not
 granted does not appear at all.
 
+Both transports are served by the official `rmcp` SDK. It implements the stable
+2026-07-28 MCP revision and stays compatible with 2025-11-25 and earlier, so a client
+agrees its era at connect time. The adapter exposes tools only: resources, prompts,
+sampling, elicitation and long-running tasks are out of scope, and no write tool exists.
+
 [`manifest.json`](manifest.json) is the data half of this page: the namespaces an agent
 can be granted, the surfaces it reaches them through, and the prohibitions with the code
 that enforces each one. Read it when you are wiring a client. [`scripts/check-agent-manifest.mjs`](../../scripts/check-agent-manifest.mjs)
