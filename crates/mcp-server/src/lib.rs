@@ -19,10 +19,23 @@
 //! - Streamable HTTP at `/mcp`, the caller's token in the request's
 //!   `Authorization: Bearer` header.
 //!
+//! Three surfaces, one rule:
+//!
+//! - **tools** — every safe read operation in the snapshot;
+//! - **resources** — `marula://tickets/{id}`, `marula://clients/{id}` and
+//!   `marula://documents/{id}`, each resolving through the same catalog tool as
+//!   the equivalent call, so the path, the capability and the core-api check
+//!   are the same on both surfaces;
+//! - **prompts** — in-code workflow templates, listed only when the caller can
+//!   perform the first read the workflow needs.
+//!
+//! Tasks are not advertised: the revision defines them as an extension with
+//! its own server-side lifecycle, and nothing here needs to poll one yet.
+//!
 //! Capability registry: a capability slug the org has NOT granted is
-//! deny-by-default — tools whose derived capability is not granted are hidden
-//! from `tools/list` and refuse `tools/call`. Core-api's RBAC still decides
-//! every read, defense in depth.
+//! deny-by-default — a tool, resource template or prompt whose capability is
+//! not granted is hidden from its list method and refuses a direct call.
+//! Core-api's RBAC still decides every read, defense in depth.
 //!
 //! Write tools: intentionally ABSENT in v1. Agent-authored record changes
 //! enter through the IF8 proposal pipeline (`POST /api/agent-proposals`,
@@ -36,6 +49,8 @@ pub mod api;
 pub mod catalog;
 pub mod http;
 pub mod marula;
+pub mod prompts;
+pub mod resources;
 pub mod stdio;
 
 pub use marula::MarulaServer;

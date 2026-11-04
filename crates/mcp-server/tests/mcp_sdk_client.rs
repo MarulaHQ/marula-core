@@ -1,15 +1,19 @@
 //! Conformance against the SDK's own client. The raw JSON-RPC test proves the
 //! wire shape; this one proves the official `rmcp` client, which negotiates the
-//! modern revision, can discover and call through the same session rule.
+//! modern revision, can discover and use every surface through the same
+//! session rule: tools, resource templates, resource reads and prompts.
 
-use axum::{response::IntoResponse, routing::get, Json, Router};
+use axum::{extract::Path, response::IntoResponse, routing::get, Json, Router};
 use rmcp::{
+    model::{GetPromptRequestParams, ReadResourceRequestParams, ResourceContents},
     transport::streamable_http_client::StreamableHttpClientTransportConfig,
-    transport::StreamableHttpClientTransport, ServiceExt,
+    transport::StreamableHttpClientTransport,
+    ServiceExt,
 };
-use serde_json::json;
+use serde_json::{json, Map};
 
 const TOKEN: &str = "session-token";
+const TICKET: &str = "018f0a5e-0000-7000-8000-0000000000aa";
 
 fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
     let bearer = headers
@@ -23,11 +27,11 @@ fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
     bearer || key
 }
 
-fn stub_core_api() -> Router {
+fn stub_core_api(grants: &'static [&'static str]) -> Router {
     Router::new()
         .route(
             "/api/v1/me",
-            get(|headers: axum::http::HeaderMap| async move {
+            get(move |headers: axum::http::HeaderMap| async move {
                 if !bearer_ok(&headers) {
                     return axum::http::StatusCode::UNAUTHORIZED.into_response();
                 }
@@ -38,7 +42,7 @@ fn stub_core_api() -> Router {
                     "display_name": "Tech",
                     "timezone": "UTC",
                     "permissions": ["clients:view"],
-                    "mcp_capabilities": ["clients:read"]
+                    "mcp_capabilities": grants
                 }))
                 .into_response()
             }),
@@ -52,15 +56,30 @@ fn stub_core_api() -> Router {
                 Json(json!({ "clients": [], "next_cursor": null })).into_response()
             }),
         )
+        .route(
+            "/api/tickets/{id}",
+            get(
+                |Path(id): Path<String>, headers: axum::http::HeaderMap| async move {
+                    if !bearer_ok(&headers) {
+                        return axum::http::StatusCode::UNAUTHORIZED.into_response();
+                    }
+                    Json(json!({ "id": id, "summary": "Printer offline" })).into_response()
+                },
+            ),
+        )
 }
 
 /// Starts the stub api and the adapter. Returns the adapter's base URL.
-async fn adapter() -> String {
+async fn adapter(grants: &'static [&'static str]) -> String {
     let stub_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .unwrap();
     let stub_addr = stub_listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(stub_listener, stub_core_api()).await.unwrap() });
+    tokio::spawn(async move {
+        axum::serve(stub_listener, stub_core_api(grants))
+            .await
+            .unwrap()
+    });
 
     let server = mcp_server::MarulaServer::new(
         &format!("http://{stub_addr}"),
@@ -87,7 +106,7 @@ fn transport_config(base: &str, token: Option<&str>) -> StreamableHttpClientTran
 
 #[tokio::test]
 async fn the_official_client_lists_and_calls_within_the_session() {
-    let base = adapter().await;
+    let base = adapter(&["clients:read"]).await;
     let transport =
         StreamableHttpClientTransport::from_config(transport_config(&base, Some(TOKEN)));
     let client = ().serve(transport).await.expect("official client connects");
@@ -115,11 +134,71 @@ async fn the_official_client_lists_and_calls_within_the_session() {
 }
 
 #[tokio::test]
+async fn the_official_client_reads_a_resource_and_a_prompt() {
+    let base = adapter(&["tickets:read"]).await;
+    let transport =
+        StreamableHttpClientTransport::from_config(transport_config(&base, Some(TOKEN)));
+    let client = ().serve(transport).await.expect("official client connects");
+
+    let templates = client
+        .list_all_resource_templates()
+        .await
+        .expect("resources/templates/list");
+    let uris: Vec<&str> = templates
+        .iter()
+        .map(|template| template.uri_template.as_str())
+        .collect();
+    assert_eq!(uris, vec!["marula://tickets/{id}"]);
+
+    let read = client
+        .read_resource(ReadResourceRequestParams::new(format!(
+            "marula://tickets/{TICKET}"
+        )))
+        .await
+        .expect("resources/read");
+    let text = read
+        .contents
+        .first()
+        .and_then(|contents| match contents {
+            ResourceContents::TextResourceContents { text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .expect("text resource contents");
+    assert!(text.contains("Printer offline"), "{text}");
+
+    // An ungranted family is refused on the same surface.
+    assert!(
+        client
+            .read_resource(ReadResourceRequestParams::new(
+                "marula://clients/018f0a5e-0000-7000-8000-000000000002"
+            ))
+            .await
+            .is_err(),
+        "the grant decides a resource read too"
+    );
+
+    let prompts = client.list_all_prompts().await.expect("prompts/list");
+    let names: Vec<&str> = prompts.iter().map(|prompt| prompt.name.as_str()).collect();
+    assert_eq!(names, vec!["triage_ticket"]);
+
+    let mut arguments = Map::new();
+    arguments.insert("ticket_id".into(), json!(TICKET));
+    let read = client
+        .get_prompt(GetPromptRequestParams::new("triage_ticket").with_arguments(arguments))
+        .await
+        .expect("prompts/get");
+    assert_eq!(read.messages.len(), 2);
+    client.cancel().await.ok();
+}
+
+#[tokio::test]
 async fn the_official_client_without_a_session_sees_no_tools() {
-    let base = adapter().await;
+    let base = adapter(&["clients:read"]).await;
     let transport = StreamableHttpClientTransport::from_config(transport_config(&base, None));
     let client = ().serve(transport).await.expect("client connects");
     let tools = client.list_all_tools().await.expect("tools/list");
     assert!(tools.is_empty(), "{:?}", tools.len());
+    let prompts = client.list_all_prompts().await.expect("prompts/list");
+    assert!(prompts.is_empty(), "{:?}", prompts.len());
     client.cancel().await.ok();
 }

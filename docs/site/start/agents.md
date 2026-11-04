@@ -95,6 +95,57 @@ The token is the caller's own session, not an adapter key. The tool list is that
 organization's granted reads, and every call runs as the person behind the token, so
 core-api's permissions and row scoping decide what comes back.
 
+## What the surface offers
+
+Three surfaces share one rule: the organization's capability grant decides what
+exists, and every read runs as the caller's session.
+
+- **Tools**: one per safe read operation in the committed OpenAPI snapshot.
+- **Resources**: `marula://tickets/{id}`, `marula://clients/{id}` and
+  `marula://documents/{id}`. A resource is not a second permission. It resolves
+  through the same catalog entry as the equivalent tool call, so the path, the
+  capability and the API's own check are identical. The adapter publishes the
+  templates, not an enumeration of your records; use a list tool when you need to
+  page a collection.
+- **Prompts**: `triage_ticket`, `client_qbr_pack` and `document_review`. Each takes
+  one record id, and each is listed only when your session can perform the first
+  read the workflow needs.
+
+The last segment of a resource URI is taken literally: ASCII letters, digits, `-`
+and `_`. Anything else, a percent escape or a second segment included, is refused
+rather than decoded, so a URI cannot point at a different endpoint than the one it
+names.
+
+Tasks are not part of this surface yet. Long-running work stays with the API's own
+async operations, and the server answers a task request with method-not-found
+instead of advertising something it does not run.
+
+## Acting as an agent, not as a person
+
+A person's session is the right credential while a person is watching. For an agent
+that runs unattended, an admin creates a service account holding the permission keys
+the agent needs, then mints an API key bound to it:
+
+```sh
+curl -X POST "$MARULA_API_BASE/api/v1/api-keys" \
+  -H "authorization: Bearer $ADMIN_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"name": "triage-agent", "scopes": [], "service_account_id": "<account id>"}'
+```
+
+Creating a key needs the organization's key-management permission. The key carries the
+account: its permissions, its expiry, its revocation. Leave `scopes` empty, because a
+bound key takes the account's own keys and naming both is refused, so the two
+permission models never mix on one credential. The response is the only time the secret
+appears.
+
+Present the key the way any other MCP caller presents a token: `Authorization:
+Bearer <key>` over HTTP, or `MARULA_API_TOKEN` over stdio. The adapter decides
+the header by the token's shape when it forwards to core-api: a session token
+rides `Authorization`, a key rides `x-api-key`, which is where each one belongs. `GET /api/v1/me` answers `"subject": "agent"` for such a
+caller, with the account's permissions and the organization's grants, and the
+surface filters on exactly that.
+
 ## Not documented yet
 
 - A machine-readable docs index for agents. Every page here is prose for a
