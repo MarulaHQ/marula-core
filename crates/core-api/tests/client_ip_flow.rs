@@ -8,8 +8,9 @@
 //! resolver and publishes the answer as a `ClientIp` extension every
 //! handler reads. The observable surface is the durable per-IP half of the
 //! refresh gate (`GateSubject::IpOnly` — refresh is the one throttled
-//! surface whose key set has no per-actor member, so the per-IP key is the
-//! whole lock and its shape is directly visible in the status codes).
+//! surface whose key set no longer has a per-actor member once a session
+//! resolves, so the per-IP key is the half these cases can see in the
+//! status codes — still the outer bound).
 //!
 //! Every case sends its own randomly-suffixed client block: the per-IP
 //! counters are DURABLE and DB-wide, so a fixed IP would collide with
