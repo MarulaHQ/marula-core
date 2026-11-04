@@ -49,7 +49,10 @@ Two options, both zero-dependency:
 
 ## Build step
 
-`bin/build.mjs <plugin-dir>`:
+The kit compiles nothing of its own, so it declares no `build` script: the
+workspace build (`pnpm build`, which is `turbo run build`) builds the apps and
+packages and never a plugin bundle. A bundle is built per plugin directory, with
+`bin/build.mjs <plugin-dir>` (installed as the `marula-plugin-build` binary):
 
 1. **Validates** `<plugin-dir>/manifest.json` against the manifest v2 shape —
    the SAME closed vocabularies the host enforces at ingest: the capability

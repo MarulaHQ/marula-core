@@ -119,6 +119,10 @@ cp plugins/wasm/target/wasm32-unknown-unknown/release/escalation_widget.wasm \
 node packages/plugin-kit/bin/build.mjs plugins/wasm/escalation-widget
 ```
 
+The repository's workspace build (`pnpm build`, which is `turbo run build`)
+builds the apps and packages and does not run this step. A plugin bundle is
+always built from its own directory with the second command.
+
 The build refuses before producing a bundle when the manifest names a capability the core does not
 define, when a surface id or label breaks its shape, when a schema leaves the supported subset, or
 when an egress scope is not an `https` exact host. A bundle the host would refuse is never produced.
