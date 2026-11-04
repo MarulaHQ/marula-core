@@ -28,6 +28,25 @@ form; `scripts/check-openapi-pins.sh` fails it in CI.
   its support window; new versions are added alongside, never swapped in
   place (policy §2).
 
+## Machine scopes
+
+Interactive sessions authorize by role. API keys authorize by scope, and the
+document names them.
+
+- `x-scope-catalog` (top level) lists every scope an organization can write onto
+  a key and the permissions it grants. The key-creation endpoint validates
+  against the same list.
+- `x-api-key-scopes` on an operation names the scopes that satisfy it. Any one is
+  enough. An operation without the extension is not reachable by any scope in the
+  catalog.
+- `components.securitySchemes` defines `bearer` (JWT) and `api_key` (an
+  `x-api-key` header). OpenAPI 3.1 has no scope field on an API key scheme, so
+  the vocabulary lives in the two extensions instead of being described as an
+  OAuth2 flow.
+
+Holding a scope is not enough on its own. Handlers still apply their own
+permission and record-level checks.
+
 ## How this reference is generated
 
 [`docs/site/scripts/generate-api-reference.mjs`](../scripts/generate-api-reference.mjs)

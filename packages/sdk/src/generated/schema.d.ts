@@ -17396,7 +17396,7 @@ export interface components {
         };
         CreateApiKeyRequest: {
             name: string;
-            /** @description Capability scopes from [`KNOWN_SCOPES`]. */
+            /** @description Capability scopes from [`crate::api_scopes`]. */
             scopes: string[];
         };
         CreateAppointmentRequest: {

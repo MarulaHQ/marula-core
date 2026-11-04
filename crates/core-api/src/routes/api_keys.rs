@@ -26,47 +26,9 @@ use sha2::Sha256;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Capability scopes a machine key may hold. Kept deliberately small for
-/// v1: read/write on the three data modules connectors actually need, plus
-/// the D3 migration connector's broad push/pull grants, the dispatch
-/// connector's schedule plane, and the narrowest grant in the list —
-/// `org_usage:read` (Wave 47 lane A6), which unlocks exactly one read-only
-/// monitoring report and nothing else.
-pub const KNOWN_SCOPES: &[&str] = &[
-    "tickets:read",
-    "tickets:write",
-    "clients:read",
-    "clients:write",
-    "timers:read",
-    "timers:write",
-    "migration:read",
-    "migration:write",
-    "dispatch:read",
-    "dispatch:write",
-    "org_usage:read",
-    "rag:read",
-    "rag:write",
-    // Wave 47 lane A8: custom-domain management/reporting. `read` lets a
-    // reverse proxy read the org's domain back; `manage` lets a DNS-provider
-    // plugin drive the domain-management API on the org's behalf.
-    "org_custom_domain:read",
-    "org_custom_domain:manage",
-    // Wave 47 lane A7: read an org's suspension notice state. Read-only by
-    // design — setting the flag is an admin action, so there is no
-    // `org_suspension:manage` for a machine to hold.
-    "org_suspension:read",
-    // Wave 52 lane R12: the observability reader for a pack that exports or
-    // forwards the audit trail. It belongs in this list for the same reason as
-    // the rest — a scope the middleware resolves but this list refuses is a
-    // scope no org can ever mint, and the documented export path stays closed.
-    "observability:read",
-    // Wave 52 lane R16: the directory pair. The identity pack's SCIM connector
-    // and directory-admin plugin are separate processes and hold these on a
-    // key: `read` for the group list and the detail read, `write` for group,
-    // membership and role-mapping writes. Neither opens role CRUD.
-    "directory_groups:read",
-    "directory_groups:write",
-];
+// Capability scopes a machine key may hold live in `crate::api_scopes`, which
+// also publishes them to the OpenAPI document. This module validates against
+// that list; it does not keep a second copy.
 
 // --- hashing ------------------------------------------------------------------
 
@@ -89,12 +51,13 @@ fn validate_scopes(scopes: &[String]) -> ApiResult<()> {
         // Hand-written connector scopes plus the derived MCP read vocabulary
         // (row A29): one source — packages/sdk/mcp-catalog.json — so a mintable
         // scope always has a catalog tool and a key-allowed path behind it.
-        if !KNOWN_SCOPES.contains(&s.as_str())
+        if crate::api_scopes::get(s).is_none()
             && !crate::mcp_catalog::mintable_read_scopes().any(|known| known == s)
         {
+            let known: Vec<&str> = crate::api_scopes::names().collect();
             return Err(ApiError::Validation(format!(
                 "unknown scope {s:?}; known: {} plus the MCP read catalog",
-                KNOWN_SCOPES.join(", ")
+                known.join(", ")
             )));
         }
     }
@@ -137,7 +100,7 @@ pub struct ApiKeyList {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateApiKeyRequest {
     pub name: String,
-    /// Capability scopes from [`KNOWN_SCOPES`].
+    /// Capability scopes from [`crate::api_scopes`].
     pub scopes: Vec<String>,
 }
 

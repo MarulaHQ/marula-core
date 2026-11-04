@@ -2365,6 +2365,96 @@ fn canonicalize_paths(spec: &mut serde_json::Value) {
     }
 }
 
+/// Publishes the machine-credential vocabulary in the generated document.
+///
+/// Three additions, all derived from [`crate::api_scopes`]:
+///
+/// 1. `components.securitySchemes` defines the two schemes every operation
+///    already referenced. Without it the document was not valid OpenAPI 3.1
+///    and tools silently fell back to "unnamed bearer".
+/// 2. `x-scope-catalog` lists every scope an org may mint, what it grants,
+///    and where it comes from. OpenAPI 3.1 has no scope field on an
+///    `apiKey` scheme, so the vocabulary lives in this extension instead of
+///    being misdescribed as an OAuth2 flow.
+/// 3. `x-api-key-scopes` on an operation names the scopes that grant what
+///    it requires. An operation without it is not reachable by any mintable
+///    scope — a key may authenticate there and will be refused.
+///
+/// The extension form is deliberate: the credential is an `x-api-key`
+/// header, not a token exchange, and generated clients should keep sending
+/// it that way.
+fn apply_machine_surface(spec: &mut serde_json::Value) {
+    use serde_json::{json, Value};
+
+    let catalog: Vec<Value> = crate::api_scopes::SCOPES
+        .iter()
+        .map(|scope| {
+            json!({
+                "name": scope.name,
+                "description": scope.description,
+                "grants": scope.grants.iter().map(|p| p.key()).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    spec["components"]["securitySchemes"] = json!({
+        "bearer": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Interactive session token. Authorization follows the \
+                            caller's role and permissions; this scheme carries no scopes.",
+        },
+        "api_key": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "x-api-key",
+            "description": "Scoped machine key. Its scopes are listed in the \
+                            top-level `x-scope-catalog`; an operation authorizes a key \
+                            only when it carries `x-api-key-scopes`, and any one of those \
+                            scopes is enough. Read and write are separate scopes: a write \
+                            key does not imply its read half.",
+        },
+    });
+
+    spec["x-scope-catalog"] = json!({
+        "version": 1,
+        "note": "Every scope an organization can write onto an API key, and the \
+                 permissions it grants. An operation's `x-api-key-scopes` names the \
+                 scopes that satisfy it; an operation without that extension is not \
+                 reachable by any scope in this catalog. Holding a scope is not \
+                 sufficient on its own: the handler's own permission and record-level \
+                 gates still run.",
+        "scopes": catalog,
+    });
+
+    let Some(paths) = spec.get_mut("paths").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for (path, item) in paths.iter_mut() {
+        let Some(operations) = item.as_object_mut() else {
+            continue;
+        };
+        for (method, operation) in operations.iter_mut() {
+            if !matches!(
+                method.as_str(),
+                "get" | "post" | "put" | "patch" | "delete" | "options" | "head" | "trace"
+            ) {
+                continue;
+            }
+            let Some(scopes) = crate::api_scopes::scopes_for(path, method) else {
+                continue;
+            };
+            if let Some(operation) = operation.as_object_mut() {
+                operation.insert(
+                    "x-api-key-scopes".into(),
+                    Value::Array(scopes.iter().map(|s| json!(s)).collect()),
+                );
+            }
+        }
+    }
+}
+
 /// The document builds ONCE per process, on a dedicated thread with a
 /// generous stack. Utoipa's generated builder recurses per component, and
 /// at roughly a thousand schemas its frames exceed a tokio worker's 2 MiB
@@ -2395,6 +2485,7 @@ fn build_openapi_json() -> serde_json::Value {
         .parse()
         .unwrap_or_else(|_| serde_json::json!({}));
     canonicalize_paths(&mut value);
+    apply_machine_surface(&mut value);
     value
 }
 
@@ -2443,4 +2534,173 @@ pub struct TokenPair {
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct HealthResponse {
     pub status: String,
+}
+
+#[cfg(test)]
+mod scope_publication_tests {
+    use super::*;
+
+    fn doc() -> serde_json::Value {
+        openapi_json()
+    }
+
+    /// Every method operation in the document, as (path, method, operation).
+    fn operations(spec: &serde_json::Value) -> Vec<(String, String, serde_json::Value)> {
+        let mut out = Vec::new();
+        let Some(paths) = spec.get("paths").and_then(|p| p.as_object()) else {
+            return out;
+        };
+        for (path, item) in paths {
+            let Some(operations) = item.as_object() else {
+                continue;
+            };
+            for (method, operation) in operations {
+                if matches!(
+                    method.as_str(),
+                    "get" | "post" | "put" | "patch" | "delete" | "options" | "head" | "trace"
+                ) {
+                    out.push((path.clone(), method.clone(), operation.clone()));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_referenced_security_scheme_is_defined() {
+        let spec = doc();
+        let schemes = spec
+            .get("components")
+            .and_then(|c| c.get("securitySchemes"))
+            .and_then(|s| s.as_object())
+            .expect("securitySchemes is published");
+        for name in ["bearer", "api_key"] {
+            assert!(schemes.contains_key(name), "{name} is not defined");
+        }
+        // The header name is the one the auth middleware reads.
+        assert_eq!(schemes["api_key"]["name"], "x-api-key");
+        assert_eq!(schemes["api_key"]["in"], "header");
+
+        for (path, method, operation) in operations(&spec) {
+            let Some(security) = operation.get("security").and_then(|s| s.as_array()) else {
+                continue;
+            };
+            for requirement in security {
+                for name in requirement
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(k, _)| k)
+                {
+                    assert!(
+                        schemes.contains_key(name),
+                        "{method} {path} references undefined scheme {name}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_scope_catalog_matches_the_registry_exactly() {
+        let spec = doc();
+        let catalog = spec
+            .get("x-scope-catalog")
+            .and_then(|c| c.get("scopes"))
+            .and_then(|s| s.as_array())
+            .expect("x-scope-catalog.scopes is published");
+        let published: Vec<&str> = catalog
+            .iter()
+            .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
+            .collect();
+        let registry: Vec<&str> = crate::api_scopes::names().collect();
+        assert_eq!(published, registry);
+
+        for entry in catalog {
+            let name = entry["name"].as_str().expect("scope name");
+            let registered = crate::api_scopes::get(name).expect("registered scope");
+            assert_eq!(
+                entry["grants"],
+                serde_json::json!(registered
+                    .grants
+                    .iter()
+                    .map(|p| p.key())
+                    .collect::<Vec<_>>()),
+                "{name} publishes a different grant than the resolver owns"
+            );
+            assert!(
+                entry["description"]
+                    .as_str()
+                    .is_some_and(|d| !d.trim().is_empty()),
+                "{name} publishes no description"
+            );
+        }
+
+        for (path, method, operation) in operations(&spec) {
+            let Some(scopes) = operation.get("x-api-key-scopes") else {
+                continue;
+            };
+            let scopes = scopes.as_array().expect("x-api-key-scopes is an array");
+            assert!(
+                !scopes.is_empty(),
+                "{method} {path} publishes an empty list"
+            );
+            for scope in scopes {
+                let scope = scope.as_str().expect("scope name");
+                assert!(
+                    crate::api_scopes::get(scope).is_some(),
+                    "{method} {path} names unpublished scope {scope}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_audit_export_names_the_scope_it_checks() {
+        let spec = doc();
+        let audit = spec
+            .get("paths")
+            .and_then(|p| p.get("/api/v1/audit-events"))
+            .and_then(|p| p.get("get"))
+            .expect("audit_list is documented");
+        assert_eq!(
+            audit["x-api-key-scopes"],
+            serde_json::json!(["observability:read"])
+        );
+    }
+
+    #[test]
+    fn every_rule_reaches_a_documented_operation() {
+        let spec = doc();
+        let operations = operations(&spec);
+        for rule in crate::api_scopes::RULES {
+            let prefix = format!("{}/", rule.prefix);
+            let reached = operations.iter().filter(|(path, method, _)| {
+                (path == rule.prefix || path.starts_with(&prefix))
+                    && (rule.methods.is_empty() || rule.methods.contains(&method.as_str()))
+                    && crate::api_scopes::scopes_for(path, method) == Some(rule.scopes)
+            });
+            assert!(
+                reached.count() > 0,
+                "rule {} is stale — no documented operation matches it",
+                rule.prefix
+            );
+        }
+
+        // And the document is the emitter's output, not a second opinion.
+        for (path, method, operation) in operations {
+            let expected = crate::api_scopes::scopes_for(&path, &method);
+            match (expected, operation.get("x-api-key-scopes")) {
+                (Some(scopes), Some(published)) => assert_eq!(
+                    published,
+                    &serde_json::json!(scopes),
+                    "{method} {path} publishes different scopes than the rules"
+                ),
+                (None, None) => {}
+                (expected, published) => {
+                    panic!("{method} {path}: rules say {expected:?}, document says {published:?}")
+                }
+            }
+        }
+    }
 }
