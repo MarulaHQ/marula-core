@@ -1007,23 +1007,50 @@ pub async fn revoke_session(
 }
 
 /// GET /api/me — the authenticated principal with resolved permissions.
+///
+/// The response carries the org's granted MCP capability names as well, so an
+/// MCP adapter serving this session filters its tool list from the caller's
+/// own context instead of an admin-gated org endpoint. The list is policy, not
+/// data: it names what the org enabled, and the caller's permissions still
+/// decide every read.
 #[utoipa::path(operation_id = "handlers_me", get, path = "/api/me", tag = "auth", security(("bearer" = [])),
     responses((status = 200, body = MeResponse)))]
-pub async fn me(extensions: Extensions) -> ApiResult<Json<MeResponse>> {
+pub async fn me(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<MeResponse>> {
     // Validates the authenticated principal is present (middleware-inserted).
     let _: AuthedUser = crate::auth::middleware::authed(&extensions)?;
+    let principal = principal(&extensions)?;
+    let mcp_capabilities =
+        granted_mcp_capabilities(&state, principal.user.org_id, principal.user.id).await?;
     Ok(Json(MeResponse {
-        user_id: principal(&extensions)?.user.id,
-        org_id: principal(&extensions)?.user.org_id,
-        email: principal(&extensions)?.user.email.clone(),
-        display_name: principal(&extensions)?.user.display_name.clone(),
-        timezone: principal(&extensions)?.user.timezone.clone(),
-        permissions: principal(&extensions)?
-            .permissions
-            .iter()
-            .map(|p| p.key())
-            .collect(),
+        user_id: principal.user.id,
+        org_id: principal.user.org_id,
+        email: principal.user.email.clone(),
+        display_name: principal.user.display_name.clone(),
+        timezone: principal.user.timezone.clone(),
+        permissions: principal.permissions.iter().map(|p| p.key()).collect(),
+        mcp_capabilities,
     }))
+}
+
+/// The capability names this org has granted to the MCP surface, RLS-scoped to
+/// the caller's own org. Empty means deny-by-default, not "unknown".
+async fn granted_mcp_capabilities(
+    state: &AppState,
+    org_id: Uuid,
+    user_id: Uuid,
+) -> ApiResult<Vec<String>> {
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::agent_platform::list_capability_grants(&mut *tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(rows.into_iter().map(|row| row.capability).collect())
 }
 
 /// Wave 26 onboarding leg (b): the per-user first-run "check your profile"
@@ -1105,6 +1132,7 @@ pub async fn patch_me(
             .iter()
             .map(|p| p.key())
             .collect(),
+        mcp_capabilities: granted_mcp_capabilities(&state, org_id, user_id).await?,
     }))
 }
 
@@ -1221,6 +1249,10 @@ pub struct MeResponse {
     pub display_name: String,
     pub timezone: String,
     pub permissions: Vec<String>,
+    /// Capability names this org has granted to the MCP read surface
+    /// (`GET /api/v1/mcp/capabilities`, admin-only). Returned here so a
+    /// session's adapter can filter tools without an admin credential.
+    pub mcp_capabilities: Vec<String>,
 }
 
 // Silence unused-import lint for AccessClaims (used by jwt module re-export).

@@ -26,21 +26,24 @@ use axum::response::IntoResponse;
 
 /// A tiny stub of the core-api surface the adapter proxies onto.
 ///
-/// The proxied read routes REQUIRE `x-api-key` — exactly what real
-/// core-api's require_auth does. This is the pin that keeps the proxy
-/// authenticated: `tools/call` must carry the service key on every
-/// read (mcp_flow regression: the proxy once sent none, and real
-/// core-api answered 401 to every tool call).
+/// The proxied read routes REQUIRE `Authorization: Bearer <session>` —
+/// exactly what real core-api's require_auth does for a JWT. This is the
+/// pin that keeps the proxy authenticated as the caller: `tools/call` must
+/// carry the session on every read.
+const TOKEN: &str = "session-token";
+
+fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == format!("Bearer {TOKEN}"))
+}
+
 fn stub_core_api() -> Router {
-    const KEY: &str = "service-key";
     let proxied = |headers: axum::http::HeaderMap,
                    respond: axum::response::Response|
      -> axum::response::Response {
-        let present = headers
-            .get("x-api-key")
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|k| k == KEY);
-        if present {
+        if bearer_ok(&headers) {
             respond
         } else {
             axum::http::StatusCode::UNAUTHORIZED.into_response()
@@ -48,20 +51,19 @@ fn stub_core_api() -> Router {
     };
     Router::new()
         .route(
-            "/api/v1/mcp/capabilities",
+            "/api/v1/me",
             axum::routing::get(move |headers: axum::http::HeaderMap| async move {
-                let present = headers
-                    .get("x-api-key")
-                    .and_then(|v| v.to_str().ok())
-                    .is_some_and(|k| k == KEY);
-                if !present {
+                if !bearer_ok(&headers) {
                     return axum::http::StatusCode::UNAUTHORIZED.into_response();
                 }
                 Json(json!({
-                    "grants": [
-                        { "capability": "clients:read", "mode": "proposed" },
-                        { "capability": "tickets:read", "mode": "proposed" }
-                    ]
+                    "user_id": "018f0a5e-0000-7000-8000-000000000001",
+                    "org_id": "018f0a5e-0000-7000-8000-000000000002",
+                    "email": "tech@example.test",
+                    "display_name": "Tech",
+                    "timezone": "UTC",
+                    "permissions": ["tickets:view", "clients:view"],
+                    "mcp_capabilities": ["clients:read", "tickets:read"]
                 }))
                 .into_response()
             }),
@@ -104,9 +106,9 @@ async fn mcp_app() -> Router {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
 
-    let backend = CoreApiBackend::new(&format!("http://{addr}")).with_service_key("service-key");
-    // The registry read itself must go through the stub.
-    let granted = backend.granted_capabilities("service-key").await;
+    let backend = CoreApiBackend::new(&format!("http://{addr}")).with_token("session-token");
+    // The capability read itself must go through the stub.
+    let granted = backend.granted_capabilities().await;
     assert!(
         granted.contains(&"clients".to_string()),
         "stub registry grants clients"

@@ -3,9 +3,16 @@
 > **Audience:** developer. What an automated agent may reach in this product, what it
 > may not, and the machine-readable index of both.
 
-An agent here is one of two things. It is an MCP client talking to `mcp-server`, or a
-service key calling the HTTP API directly. Both arrive at the same authorisation model,
-and both see the same surface, so this page describes that surface once.
+An agent here is one of two things. It is an MCP client talking to `mcp-server` under the
+session of the person it acts for, or a service key calling the HTTP API directly. Both
+arrive at the same authorisation model, and both see the same surface, so this page
+describes that surface once.
+
+The MCP adapter holds no credential of its own. It forwards the session token it was
+given, on the capability read and on every proxied tool call, so core-api authorizes the
+person behind the session and not the adapter. Over HTTP the token is the request's
+`Authorization: Bearer`; over stdio it is `MARULA_API_TOKEN`. A namespace the org has not
+granted does not appear at all.
 
 [`manifest.json`](manifest.json) is the data half of this page: the namespaces an agent
 can be granted, the surfaces it reaches them through, and the prohibitions with the code
@@ -44,8 +51,8 @@ same list with the file that enforces it.
 
 | Surface | Transport | Source | Notes |
 |---|---|---|---|
-| MCP | stdio JSON-RPC | `crates/mcp-server/src/stdio.rs` | The canonical transport. No arguments runs this |
-| MCP | `POST /mcp` on loopback | `crates/mcp-server/src/http.rs:9-12` | `mcp-server serve-http`, for local development |
+| MCP | stdio JSON-RPC | `crates/mcp-server/src/stdio.rs` | The canonical transport. No arguments runs this; the session token is `MARULA_API_TOKEN` |
+| MCP | `POST /mcp` on loopback | `crates/mcp-server/src/http.rs:9-12` | `mcp-server serve-http`, for local development; the token is the request's bearer header |
 | REST | HTTPS | `packages/sdk/openapi.json` | 651 paths in the pinned snapshot. A service key scopes what it may call |
 | Events | SSE | `crates/core-api/src/routes/events.rs` | A read of the outbox stream, bounded by `MARULA_EVENT_STREAM_MAXLEN` |
 | Audit | HTTPS | `crates/core-api/src/routes/audit.rs` | Forward-only cursor export |
