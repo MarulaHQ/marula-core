@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.3.2** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**658 paths · 880 operations · 1385 schemas.**
+**663 paths · 885 operations · 1388 schemas.**
 
 ## admin
 
@@ -418,7 +418,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `GET` | `/api/v1/directory-groups` <a id="directory_groups_list"></a> | GET /api/directory-groups — every group in the org (manager+). | — |
+| `GET` | `/api/v1/directory-groups` <a id="directory_groups_list"></a> | GET /api/directory-groups — one cursor-paged page of the org's groups (manager+), ordered `(name, id)`. | — |
 | `POST` | `/api/v1/directory-groups` <a id="directory_groups_create"></a> | POST /api/directory-groups — create a group. The group grants nothing until a role is mapped onto it. | [CreateDirectoryGroupRequest](#schema-createdirectorygrouprequest) |
 | `DELETE` | `/api/v1/directory-groups/{id}` <a id="directory_groups_delete"></a> | DELETE /api/directory-groups/{id} — remove the group. Its memberships and role mappings go with it, so every member loses exactly what this group granted. | — |
 | `GET` | `/api/v1/directory-groups/{id}` <a id="directory_groups_detail"></a> | GET /api/directory-groups/{id} — the group with its members and role mappings (manager+). | — |
@@ -807,6 +807,11 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/plugins/distribution/staged/zip` <a id="plugin_distribution_stage_zip"></a> | POST /api/plugins/distribution/staged/zip — the local zip import. ALL the sandbox validation (manifest schema, artifact digest, size/entry caps, exactly one root manifest.json, traversal safety) runs BEFORE the row exists; the declared capability list rides into the SAME consent screen. | — |
 | `GET` | `/api/v1/plugins/distribution/theme-packs` <a id="theme_packs_list"></a> | GET /api/plugins/distribution/theme-packs — the org's installed theme packs (ADR 0009 V1 distribution; restyle-only manifests). | — |
 | `DELETE` | `/api/v1/plugins/distribution/theme-packs/{slug}` <a id="theme_packs_delete"></a> | DELETE /api/plugins/distribution/theme-packs/{slug} — uninstall. Refused while the pack is the org's active theme (repoint the typed `appearance.theme` setting first). | — |
+| `GET` | `/api/v1/plugins/identity-bundles` <a id="plugin_identity_bundles_list"></a> | GET /api/plugins/identity-bundles — the org's installs, which is also the only way to learn the id the lifecycle verbs address. | — |
+| `POST` | `/api/v1/plugins/identity-bundles/{id}/credential` <a id="plugin_identity_bundle_credential"></a> | POST /api/plugins/identity-bundles/{id}/credential — mint the connector's key, carrying both directory scopes, and return the raw material ONCE. | — |
+| `POST` | `/api/v1/plugins/identity-bundles/{id}/disable` <a id="plugin_identity_bundle_disable"></a> | POST /api/plugins/identity-bundles/{id}/disable — switch a bundle off. Reversible: linked identities that already signed in keep their sessions; the next login through this source is what stops. | — |
+| `POST` | `/api/v1/plugins/identity-bundles/{id}/enable` <a id="plugin_identity_bundle_enable"></a> | POST /api/plugins/identity-bundles/{id}/enable — switch a bundle on. | — |
+| `POST` | `/api/v1/plugins/identity-bundles/{id}/revoke` <a id="plugin_identity_bundle_revoke"></a> | POST /api/plugins/identity-bundles/{id}/revoke — TERMINAL withdrawal. | [RevokeIdentityBundleRequest](#schema-revokeidentitybundlerequest) |
 | `GET` | `/api/v1/plugins/installed` <a id="plugin_install_list"></a> | GET /api/plugins/installed — this org's adoptions. | — |
 | `POST` | `/api/v1/plugins/installed` <a id="plugin_install_create"></a> | POST /api/plugins/installed — adopt a catalog entry at a pinned version. Created DISABLED (deny-by-default); enabling is a separate explicit admin action. | [InstallPluginRequest](#schema-installpluginrequest) |
 | `DELETE` | `/api/v1/plugins/installed/{id}` <a id="plugin_install_delete"></a> | DELETE /api/plugins/installed/{id} — uninstall (the adoption row goes away; re-install is a fresh adoption). | — |
@@ -1876,6 +1881,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-directorygroupmemberview"></a>`DirectoryGroupMemberView` | object | One member of a group. |
 | <a id="schema-directorygroupmutationresponse"></a>`DirectoryGroupMutationResponse` | composite | Instant-first mutation response (IF2): the group fields at the top level plus the additive `mutation` metadata. |
 | <a id="schema-directorygrouproleview"></a>`DirectoryGroupRoleView` | object | One role a group carries. |
+| <a id="schema-directorygroupslistquery"></a>`DirectoryGroupsListQuery` | object | GET /api/directory-groups query. |
 | <a id="schema-directorygroupslistresponse"></a>`DirectoryGroupsListResponse` | object |  |
 | <a id="schema-directorygroupview"></a>`DirectoryGroupView` | object | One directory group, with the counts a listing shows. |
 | <a id="schema-dispatchappointment"></a>`DispatchAppointment` | object | One booking block on the dispatch board: the appointment plus the ticket number and client name the block face renders. |
@@ -1990,6 +1996,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-heartbeatrequest"></a>`HeartbeatRequest` | object | POST /api/presence/heartbeat body. One heartbeat per viewer per entity instance every ~30s; entries expire after 90s without one (TTL is server-side, see `realtime::presence`). |
 | <a id="schema-heldmessagesview"></a>`HeldMessagesView` | object |  |
 | <a id="schema-heldmessageview"></a>`HeldMessageView` | object | One held message as the triage queue renders it. |
+| <a id="schema-identitybundleinstall"></a>`IdentityBundleInstall` | object | An installed identity bundle: the adopted artifact plus the provenance chain that survives it. Mirrors `theme_packs` — the row is the byproduct of an APPROVED staged import, so `provenance_digest` is  |
 | <a id="schema-inboundsettingsresponse"></a>`InboundSettingsResponse` | object |  |
 | <a id="schema-incidentview"></a>`IncidentView` | object | The storm group behind an incident ticket. |
 | <a id="schema-ingestalertrequest"></a>`IngestAlertRequest` | object |  |
@@ -2450,6 +2457,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-revertdetail"></a>`RevertDetail` | object | What the revert restored. |
 | <a id="schema-revertticketrequest"></a>`RevertTicketRequest` | composite | POST /api/tickets/{id}/revert body. |
 | <a id="schema-revokecatalogentryrequest"></a>`RevokeCatalogEntryRequest` | object |  |
+| <a id="schema-revokeidentitybundlerequest"></a>`RevokeIdentityBundleRequest` | object |  |
 | <a id="schema-revokeinstallrequest"></a>`RevokeInstallRequest` | object |  |
 | <a id="schema-revokesignoffrequest"></a>`RevokeSignOffRequest` | object | POST /api/sign-offs/{id}/revoke |
 | <a id="schema-rolemutationresponse"></a>`RoleMutationResponse` | composite | Instant-first mutation response (IF2): the role at the top level plus the additive `mutation` metadata. |
@@ -2839,4 +2847,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1385 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1388 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

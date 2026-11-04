@@ -111,19 +111,25 @@ exists. Measured through the shipped config:
 | parse once, reuse by name (`pgbench -M prepared`, sqlx cache > 0) | 0 transactions, `ERROR: prepared statement "P_0" does not exist` |
 | parse and execute inside the transaction (`pgbench -M extended`, sqlx cache 0) | 8093 transactions, 1619 tps, 2.47 ms average |
 
-`MARULA_DB_STATEMENT_CACHE` defaults to 0, which disables the cache. sqlx then
-parses under a fresh name and executes inside the same transaction, which is the
-shape the pgbench row above passed. `crates/core-db/tests` asserts the capacity
-reaches sqlx's connect options rather than dying in a struct.
+`MARULA_DB_STATEMENT_CACHE` defaults to 0, which disables the cache. That is not
+the same as using unnamed statements: sqlx still sends a named `Parse` (the
+`sqlx_s_N` names in its wire protocol), it just does not retain the name for
+reuse. With the pooler's statement tracking off, the second use of that name
+reaches a backend that never parsed it, and the client sees
+`prepared statement "sqlx_s_1" does not exist` — measured on the e2e pooler
+profile on 2026-11-04, where the first query after boot failed exactly that way.
+So the shipped config sets `max_prepared_statements = 100`, which turns on
+PgBouncer's tracking, and keeps the client cache at 0 so nothing is retained
+across the reset. `crates/core-db/tests` asserts the capacity reaches sqlx's
+connect options rather than dying in a struct.
 
 A bounded cache is possible instead, and it is the right answer for a deployment
 that runs *without* a pooler: set `max_prepared_statements` above the cache size
 and stop running the reset query after every transaction. Both halves have to
-move together. PgBouncer's own statement tracking kept named statements working
-in that arrangement, but the same measurement showed almost none of the benefit
-once the reset query runs anyway, so the shipped config does not ask for it. A
-test in `crates/marula-core-cli/src/deploy.rs` pins the pair: the descriptor's
-cache default, the pooler's `max_prepared_statements`, and the reset setting must
+move together. PgBouncer's tracking costs a re-parse after each reset, and that
+is the price of a client that names its statements at all. A test in
+`crates/marula-core-cli/src/deploy.rs` pins the pair: the descriptor's cache
+default, the pooler's `max_prepared_statements`, and the reset setting must
 agree.
 
 What disabling it costs, with the reset query off on both sides so the only

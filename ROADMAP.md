@@ -8,7 +8,7 @@ Three columns, no dates we do not own. When something ships, it moves down and
 the [changelog](CHANGELOG.md) records what changed. The capability breakdown
 behind this page is in the [feature matrix](docs/feature-matrix.md).
 
-Last updated 2026-11-03.
+Last updated 2026-11-04.
 
 ## Shipped
 
@@ -47,6 +47,10 @@ Last updated 2026-11-03.
 - **A desktop app.** The Tauri 2 macOS shell with signed bundles and automatic
   updates, plus themes (Tangerine, Slate, a high-contrast preset) that ship
   validated from the same tokens as the web app.
+- **An install you can watch.** The Marula Installer measures the machine,
+  offers a recommended path or the full surface, shows the configuration as it
+  changes, and writes the same `marula.env` as `marula install`. The terminal
+  and loopback paths stay, so a headless machine gets the same plan.
 - **Docs that replace a support channel.** A documentation site organized by
   task, with guides for installing on your own machine, upgrading, backing
   up, and restoring; every page tags its audience and gets its links checked
@@ -59,10 +63,6 @@ Last updated 2026-11-03.
 
 ## In flight
 
-- **The installer.** A desktop wizard that measures the machine, offers a
-  recommended path or the full surface, shows the configuration it will write,
-  and produces the same `marula.env` as `marula install`. The terminal and
-  loopback paths stay, so a headless machine gets the same plan.
 - **The phone.** A React Native app on the same typed API as the web: field
   ops, camera scanning, live sync, timers, and a proper tablet layout.
 

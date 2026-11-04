@@ -223,6 +223,19 @@ pub struct InstallView {
     /// by title only — [`CredentialBindingView`] has no member that could
     /// carry a field or a value.
     pub credential_bindings: Vec<CredentialBindingView>,
+    /// Whether a signature the operator's trust set verified covers the
+    /// manifest this install pinned — not just the artifact bytes
+    /// (`plugin_versions.manifest_authenticated`, migration 0172).
+    ///
+    /// It is on the install row because the row is where an operator decides
+    /// whether to trust what is running (F49). A GitHub pull is staged with
+    /// `manifest_authenticated = false` and the ruling kept that path failing
+    /// closed; the cost of that ruling is that the install must SAY so rather
+    /// than leave the operator to infer it from the drawer the import came
+    /// through. `false` is also the fail-closed answer for a pin whose
+    /// `plugin_versions` row is gone — unknown reads as unauthenticated, never
+    /// the other way round.
+    pub manifest_authenticated: bool,
     #[schema(value_type = String, format = "date-time")]
     pub installed_at: chrono::DateTime<chrono::Utc>,
 }
@@ -261,8 +274,22 @@ impl InstallView {
                 .into_iter()
                 .map(CredentialBindingView::from)
                 .collect(),
+            // Resolved by the routes that have the install's pin in hand; see
+            // `with_manifest_authentication`. A route that does not resolve it
+            // reports the weaker claim, which is the fail-closed answer.
+            manifest_authenticated: false,
             installed_at: install.installed_at,
         }
+    }
+
+    /// Carries the pinned version's manifest-authentication verdict onto the
+    /// view. Separate from [`Self::from_install`] because the verdict lives on
+    /// `plugin_versions`, which the constructor has no handle to read: the
+    /// roster resolves every install's pin in one query and attaches it here.
+    #[must_use]
+    pub(crate) fn with_manifest_authentication(mut self, authenticated: bool) -> Self {
+        self.manifest_authenticated = authenticated;
+        self
     }
 }
 
@@ -640,7 +667,19 @@ pub async fn list_installs(
             .push(binding);
     }
     let mut views = Vec::with_capacity(installs.len());
+    // One read for every row's manifest-authentication verdict, for the same
+    // reason the bindings above are one read: a settings page must not cost a
+    // query per install (F49 shows the verdict, so it has to be resolved).
+    let pins: Vec<(Uuid, String)> = installs
+        .iter()
+        .map(|i| (i.catalog_id, i.version.clone()))
+        .collect();
+    let authenticated = core_db::plugins::manifest_authenticated_for(&mut tx, &pins).await?;
     for install in installs {
+        let authenticated = authenticated
+            .get(&(install.catalog_id, install.version.clone()))
+            .copied()
+            .unwrap_or(false);
         let name = core_db::plugins::get_catalog_entry(&mut tx, &install.slug)
             .await
             .map(|e| e.name)
@@ -650,9 +689,10 @@ pub async fn list_installs(
             .map(|v| v.manifest)
             .unwrap_or_else(|_| fallback_manifest(&install));
         let bindings = bindings_by_install.remove(&install.id).unwrap_or_default();
-        views.push(InstallView::from_install(
-            install, name, &manifest, bindings,
-        ));
+        views.push(
+            InstallView::from_install(install, name, &manifest, bindings)
+                .with_manifest_authentication(authenticated),
+        );
     }
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(views))
@@ -763,6 +803,11 @@ pub async fn create_install(
             previous_capabilities: Vec::new(),
         };
         core_db::plugins::create_install(&mut tx.tx, &install).await?;
+        // The pinned version's verdict, read once before `version` moves into the
+        // event payload below (F49 puts it on the install row).
+        let manifest_authenticated =
+            core_db::plugins::version_manifest_authenticated(&mut tx.tx, entry.id, &version)
+                .await?;
         // §4.6: derive + persist the surface registrations the pinned
         // manifest declares under the granted capabilities (data rows
         // only; they render nowhere until the install enables).
@@ -841,7 +886,8 @@ pub async fn create_install(
         .await?;
         Ok((
             tx,
-            InstallView::from_install(install, entry.name, &pinned.manifest, Vec::new()),
+            InstallView::from_install(install, entry.name, &pinned.manifest, Vec::new())
+                .with_manifest_authentication(manifest_authenticated),
         ))
     })
     .await;
@@ -996,9 +1042,21 @@ pub async fn update_install(
             .map(|e| e.name)
             .unwrap_or_else(|_| updated.slug.clone());
         let bindings = core_db::plugin_credentials::list(&mut tx.tx, org_id, updated.id).await?;
+        // Absence reads as the weaker claim, not as an error: an install can
+        // outlive its catalog entry (the roster's `fallback_manifest` exists for
+        // exactly that case), and a PATCH must not 500 because the pin is
+        // orphaned.
+        let pin = (updated.catalog_id, updated.version.clone());
+        let manifest_authenticated =
+            core_db::plugins::manifest_authenticated_for(&mut tx.tx, std::slice::from_ref(&pin))
+                .await?
+                .get(&pin)
+                .copied()
+                .unwrap_or(false);
         Ok((
             tx,
-            InstallView::from_install(updated, name, &target_manifest, bindings),
+            InstallView::from_install(updated, name, &target_manifest, bindings)
+                .with_manifest_authentication(manifest_authenticated),
         ))
     })
     .await?;

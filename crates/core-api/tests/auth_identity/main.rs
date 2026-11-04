@@ -30,6 +30,7 @@ mod common;
 
 mod auth_hardening_flow;
 mod directory_groups_flow;
+mod identity_bundle_lifecycle_flow;
 mod mfa_enroll_gate_flow;
 mod mfa_step_up_flow;
 mod roles_flow;

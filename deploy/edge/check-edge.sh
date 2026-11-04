@@ -13,6 +13,9 @@
 # Run it:   deploy/edge/check-edge.sh
 # Requires: python3, docker compose (skipped with a warning when absent),
 #           helm (skipped with a warning when absent)
+#           — and NO third-party Python package: the Ingress assertion reads the
+#           rendered document itself, so a host without PyYAML is a host where
+#           this gate still answers (F71).
 # Does NOT: start a container, build an image, or touch the network.
 
 set -eu
@@ -335,6 +338,18 @@ print("  ok   both build stages are digest-pinned and the DNS module is tag-pinn
 PY
 
 # ---------------------------------------------------------------------------
+head "Ingress assertion"
+# The parser proves itself before it judges a render: a check that can only say
+# "pass" is not a check. `--self-test` includes a render with the /api route
+# removed, which must fail, and a document outside the subset it reads, which
+# must be refused rather than skipped (F71 — this file used to need PyYAML).
+if out=$(python3 "$EDGE/check-ingress.py" --self-test 2>&1); then
+	ok "check-ingress.py reads its own render, fails a removed route, refuses what it cannot parse"
+else
+	bad "check-ingress.py self-test failed:"
+	printf '%s\n' "$out" | sed 's/^/       /'
+fi
+
 head "Helm"
 if have helm; then
 	vals=$(mktemp /tmp/marula-edge-values.XXXXXX.yaml)

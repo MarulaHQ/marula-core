@@ -36,6 +36,21 @@
 //! `…/{roles}/{roleId}`), so they are naturally idempotent set operations and
 //! carry no version — the same split the board-membership surface uses.
 //!
+//! Who wrote it (Wave 62 lane `p62-identity-lifecycle`): the caller kind is
+//! decided once, here, because this is the only surface a machine credential
+//! and a person both reach for the same rows. A person is `Actor::Human`; a
+//! `directory_groups:write` key is `Actor::Connector("api-key:<key-id>")` —
+//! the connector is what the caller is, and the id keeps the spelling the
+//! import and connector surfaces publish. `added_by` / `granted_by` hold a
+//! staff user id, so a machine write leaves them null rather than writing a key
+//! id a reader would join to `users`.
+//!
+//! Listing: `GET /api/directory-groups` is cursor-paged on `(name, id)`
+//! (`next_cursor`), because a tenant with thousands of groups paid for the
+//! whole roster on every sync pass. The cursor is opaque and JSON inside
+//! base64url: a name is free text, so a delimiter-split token would resume from
+//! the wrong row on exactly the data that made paging necessary.
+//!
 //! Non-purpose: no sync protocol, no SCIM endpoint, no token, no reconciliation
 //! loop, and no tier check. A premium identity product speaks its protocol to
 //! this API; core just stores and authorizes what it is told.
@@ -46,11 +61,13 @@ use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx::{self, OrgTx};
 use crate::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::Extensions,
     routing::{get, put},
     Json, Router,
 };
+use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+use base64::Engine as _;
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
 use core_domain::policy::{check, check_any, Permission};
@@ -106,6 +123,45 @@ fn require_writer(principal: &core_domain::entities::Principal) -> ApiResult<()>
     check_any(&principal.permissions, &GROUP_WRITERS)
         .expect()
         .map_err(ApiError::Forbidden)
+}
+
+// --- who wrote it ------------------------------------------------------------
+
+/// The audit actor for this caller.
+///
+/// Two callers reach this surface: a person holding `special:manage_roles`, and
+/// a machine credential holding `directory_groups:write` (the identity pack's
+/// SCIM connector or directory-admin plugin). Both used to record
+/// `Actor::Human`, so the trail said a person mapped the Admin preset onto a
+/// group when a connector had.
+///
+/// The kind is `Actor::Connector` because that is what the caller is — an
+/// external directory mirroring into core — and not `Actor::Plugin` (guest code
+/// running inside an install) or `Actor::Agent` (the agent layer). The id keeps
+/// the `api-key:<key-id>` form the import and connector surfaces already use,
+/// so an operator still reaches the credential this write came from without a
+/// second vocabulary: `audit_events.actor_id` is text and carries it verbatim.
+fn actor_of(authed: &crate::auth::AuthedUser) -> Actor {
+    if authed.via_api_key {
+        Actor::Connector(format!("api-key:{}", authed.principal.user.id))
+    } else {
+        Actor::Human(authed.principal.user.id)
+    }
+}
+
+/// The `added_by` / `granted_by` column value for this caller.
+///
+/// Those columns hold a STAFF USER id (migration 0148 says so, and says `null`
+/// for a write that came through a sync). A machine credential's id is not a
+/// user id, so a machine write records `null` there and carries its identity in
+/// the audit row alone. Writing the key id would put a value into a column whose
+/// reader joins `users`.
+fn staff_attribution(authed: &crate::auth::AuthedUser) -> Option<Uuid> {
+    if authed.via_api_key {
+        None
+    } else {
+        Some(authed.principal.user.id)
+    }
 }
 
 // --- the grant ceiling -------------------------------------------------------
@@ -281,8 +337,52 @@ pub struct DirectoryGroupRoleView {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DirectoryGroupsListResponse {
-    /// Every group in the org, by name.
+    /// One page of the org's groups, ordered by `(name, id)`.
     pub groups: Vec<DirectoryGroupView>,
+    /// Pass back as `cursor`; absent when the last page was returned.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// GET /api/directory-groups query.
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct DirectoryGroupsListQuery {
+    /// Opaque keyset cursor from a previous page's `next_cursor`.
+    pub cursor: Option<String>,
+    /// Page size, clamped to [1, 200]. Defaults to 50.
+    pub limit: Option<i64>,
+}
+
+// --- the listing cursor ------------------------------------------------------
+
+/// The cursor is JSON inside base64url, not `name|id` split on a delimiter: a
+/// group name is free text and may contain the delimiter, so a positional
+/// token would decode to the wrong row exactly on the data that made a tenant
+/// need paging. The shape is deliberately its own (not the audit trail's
+/// `v1|ts|uuid`) because the ordering key is `(name, id)`, not time.
+fn encode_group_cursor(name: &str, id: Uuid) -> String {
+    B64.encode(
+        serde_json::json!({ "name": name, "id": id.to_string() })
+            .to_string()
+            .as_bytes(),
+    )
+}
+
+fn decode_group_cursor(raw: &str) -> ApiResult<(String, Uuid)> {
+    let malformed = || ApiError::Validation("`cursor` is not a cursor this build issued".into());
+    let decoded = B64.decode(raw.as_bytes()).map_err(|_| malformed())?;
+    let value: Value = serde_json::from_slice(&decoded).map_err(|_| malformed())?;
+    let name = value
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(malformed)?
+        .to_string();
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(malformed)?;
+    Ok((name, id))
 }
 
 /// One group with its current members and role mappings.
@@ -426,7 +526,7 @@ async fn read_detail(
 async fn audit_action(
     ctx: &mut OrgTx<'_>,
     org_id: Uuid,
-    actor_id: Uuid,
+    actor: &Actor,
     action: &str,
     entity_id: Uuid,
     detail: Value,
@@ -436,7 +536,7 @@ async fn audit_action(
         &AuditEvent {
             id: Uuid::now_v7(),
             org_id,
-            actor: Actor::Human(actor_id),
+            actor: actor.clone(),
             action: action.into(),
             entity_type: Some(ENTITY.into()),
             entity_id: Some(entity_id.to_string()),
@@ -451,31 +551,56 @@ async fn audit_action(
 
 // --- handlers ----------------------------------------------------------------
 
-/// GET /api/directory-groups — every group in the org (manager+).
+/// GET /api/directory-groups — one cursor-paged page of the org's groups
+/// (manager+), ordered `(name, id)`.
 #[utoipa::path(operation_id = "directory_groups_list", get, path = "/api/directory-groups", tag = "org-users", security(("bearer" = [])),
+    params(DirectoryGroupsListQuery),
     responses((status = 200, body = DirectoryGroupsListResponse),
-              (status = 403, description = "requires manage_users, manage_roles, directory_groups:read or directory_groups:write")))]
+              (status = 403, description = "requires manage_users, manage_roles, directory_groups:read or directory_groups:write"),
+              (status = 422, description = "the cursor does not decode")))]
 pub async fn list(
     State(state): State<AppState>,
     extensions: Extensions,
+    Query(q): Query<DirectoryGroupsListQuery>,
 ) -> ApiResult<Json<DirectoryGroupsListResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_reader(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let after = match q.cursor.as_deref() {
+        Some(raw) => Some(decode_group_cursor(raw)?),
+        None => None,
+    };
 
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, user_id)
         .await
         .map_err(ApiError::from)?;
-    let groups = core_db::directory_groups::list_groups(&mut *tx, org_id).await?;
+    let groups = core_db::directory_groups::list_groups_page(
+        &mut *tx,
+        org_id,
+        after.as_ref().map(|(n, i)| (n.as_str(), *i)),
+        limit,
+    )
+    .await?;
     tx.commit().await.map_err(ApiError::from)?;
 
+    // A full page is the only evidence that another one exists, the same rule
+    // the audit trail and the run ledger use.
+    let next_cursor = if groups.len() as i64 >= limit {
+        groups
+            .last()
+            .map(|group| encode_group_cursor(&group.name, group.id))
+    } else {
+        None
+    };
     Ok(Json(DirectoryGroupsListResponse {
         groups: groups
             .into_iter()
             .map(DirectoryGroupView::from_row)
             .collect(),
+        next_cursor,
     }))
 }
 
@@ -495,6 +620,7 @@ pub async fn create(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let actor = actor_of(&authed);
     let name = validate_name(&req.name)?;
     let description = validate_description(req.description.as_deref())?;
     let external_id = validate_external_id(req.external_id.as_deref())?;
@@ -534,7 +660,7 @@ pub async fn create(
         audit_action(
             &mut ctx,
             org_id,
-            actor_id,
+            &actor,
             "directory_group.created",
             id,
             serde_json::json!({ "name": group.name, "external_id": group.external_id }),
@@ -635,6 +761,7 @@ pub async fn update(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let actor = actor_of(&authed);
     let name = req.name.as_deref().map(validate_name).transpose()?;
     let description = match &req.description {
         Some(inner) => Some(validate_description(inner.as_deref())?),
@@ -682,7 +809,7 @@ pub async fn update(
         audit_action(
             &mut ctx,
             org_id,
-            actor_id,
+            &actor,
             "directory_group.updated",
             id,
             serde_json::json!({
@@ -762,6 +889,7 @@ pub async fn remove(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let actor = actor_of(&authed);
 
     let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
         let before = core_db::directory_groups::get_group(&mut *ctx.tx, org_id, id).await?;
@@ -770,7 +898,7 @@ pub async fn remove(
         audit_action(
             &mut ctx,
             org_id,
-            actor_id,
+            &actor,
             "directory_group.deleted",
             id,
             serde_json::json!({
@@ -860,6 +988,8 @@ pub async fn add_member(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let actor = actor_of(&authed);
+    let added_by = staff_attribution(&authed);
     let caller_permissions = authed.principal.permissions.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
@@ -878,12 +1008,12 @@ pub async fn add_member(
             for (role_name, conferring) in roles_conferred_by_group(&mut ctx, org_id, id).await? {
                 refuse_unheld_role(&caller_permissions, &role_name, &conferring)?;
             }
-            core_db::directory_groups::add_member(&mut ctx.tx, org_id, id, user_id, Some(actor_id))
+            core_db::directory_groups::add_member(&mut ctx.tx, org_id, id, user_id, added_by)
                 .await?;
             audit_action(
                 &mut ctx,
                 org_id,
-                actor_id,
+                &actor,
                 "directory_group.member_added",
                 id,
                 serde_json::json!({ "user_id": user_id, "email": member.email }),
@@ -925,6 +1055,7 @@ pub async fn remove_member(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let actor = actor_of(&authed);
 
     let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
         core_db::directory_groups::get_group(&mut *ctx.tx, org_id, id).await?;
@@ -937,7 +1068,7 @@ pub async fn remove_member(
         audit_action(
             &mut ctx,
             org_id,
-            actor_id,
+            &actor,
             "directory_group.member_removed",
             id,
             serde_json::json!({ "user_id": user_id }),
@@ -988,6 +1119,8 @@ pub async fn map_role(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let actor = actor_of(&authed);
+    let granted_by = staff_attribution(&authed);
     let caller_permissions = authed.principal.permissions.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
@@ -1001,12 +1134,12 @@ pub async fn map_role(
         if !already {
             let conferring = role_permissions(&role)?;
             refuse_unheld_role(&caller_permissions, &role.name, &conferring)?;
-            core_db::directory_groups::add_role(&mut ctx.tx, org_id, id, role_id, Some(actor_id))
+            core_db::directory_groups::add_role(&mut ctx.tx, org_id, id, role_id, granted_by)
                 .await?;
             audit_action(
                 &mut ctx,
                 org_id,
-                actor_id,
+                &actor,
                 "directory_group.role_mapped",
                 id,
                 serde_json::json!({ "role_id": role_id, "role": role.name }),
@@ -1047,6 +1180,7 @@ pub async fn unmap_role(
     require_writer(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let actor = actor_of(&authed);
 
     let outcome = org_tx::with_org_tx(&state, org_id, actor_id, |mut ctx| async move {
         core_db::directory_groups::get_group(&mut *ctx.tx, org_id, id).await?;
@@ -1059,7 +1193,7 @@ pub async fn unmap_role(
         audit_action(
             &mut ctx,
             org_id,
-            actor_id,
+            &actor,
             "directory_group.role_unmapped",
             id,
             serde_json::json!({ "role_id": role_id }),
@@ -1086,7 +1220,10 @@ pub async fn unmap_role(
 
 #[cfg(test)]
 mod tests {
-    use super::{first_unheld, refuse_unheld_role, GROUP_READERS, GROUP_WRITERS};
+    use super::{
+        actor_of, decode_group_cursor, encode_group_cursor, first_unheld, refuse_unheld_role,
+        staff_attribution, Actor, GROUP_READERS, GROUP_WRITERS,
+    };
     use crate::error::ApiError;
     use crate::routes::service_accounts::permission_from_key;
     use core_domain::policy::{check_any, Action, BuiltinRole, Module, Permission, PolicyDecision};
@@ -1347,5 +1484,96 @@ mod tests {
         // A role that grants nothing is inside every set, including a writer's.
         let writer = scopes(&["directory_groups:write"]);
         assert!(refuse_unheld_role(&writer, "Empty", &[]).is_ok());
+    }
+
+    // --- who wrote it ---------------------------------------------------------
+
+    /// A caller of this surface, as the middleware would build one.
+    fn caller(id: uuid::Uuid, via_api_key: bool) -> crate::auth::AuthedUser {
+        crate::auth::AuthedUser {
+            principal: core_domain::entities::Principal {
+                user: core_domain::entities::User {
+                    id,
+                    org_id: uuid::Uuid::now_v7(),
+                    email: if via_api_key {
+                        String::new()
+                    } else {
+                        "admin@example.test".into()
+                    },
+                    display_name: if via_api_key {
+                        "api-key".into()
+                    } else {
+                        "Admin".into()
+                    },
+                    timezone: "UTC".into(),
+                    is_active: true,
+                    mfa_totp_secret: None,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                },
+                roles: vec![],
+                permissions: vec![],
+            },
+            session_id: None,
+            via_api_key,
+        }
+    }
+
+    /// The finding this lane fixes: a machine write used to land in the trail as
+    /// `Actor::Human` carrying a key id, so the only trace of a connector's role
+    /// mapping was a "human" id that is not a user id. The kind is now the
+    /// connector's, the `api-key:<id>` form is the one the import and connector
+    /// surfaces already print, and a human is unchanged.
+    #[test]
+    fn a_machine_write_reads_as_a_connector_and_a_human_write_as_a_human() {
+        let key_id = uuid::Uuid::now_v7();
+        assert_eq!(
+            actor_of(&caller(key_id, true)),
+            Actor::Connector(format!("api-key:{key_id}"))
+        );
+        let user_id = uuid::Uuid::now_v7();
+        assert_eq!(actor_of(&caller(user_id, false)), Actor::Human(user_id));
+    }
+
+    /// The attribution columns hold a STAFF USER id, so a machine write leaves
+    /// them null rather than writing a key id a reader would join to `users`.
+    #[test]
+    fn only_a_person_is_written_into_the_attribution_columns() {
+        let key_id = uuid::Uuid::now_v7();
+        assert_eq!(staff_attribution(&caller(key_id, true)), None);
+        let user_id = uuid::Uuid::now_v7();
+        assert_eq!(staff_attribution(&caller(user_id, false)), Some(user_id));
+    }
+
+    // --- the listing cursor ---------------------------------------------------
+
+    /// The cursor carries a name and an id, and a group name is free text: the
+    /// delimiter-based token the report surface uses would split a name that
+    /// contains the delimiter and resume from the wrong row. This is the case
+    /// that made the encoding JSON.
+    #[test]
+    fn a_group_cursor_round_trips_through_a_name_that_contains_a_delimiter() {
+        let id = uuid::Uuid::now_v7();
+        for name in ["Tier 2 Support", "Tier 2 | Support", "a|b|c", "ünïcode ✓"] {
+            assert_eq!(
+                decode_group_cursor(&encode_group_cursor(name, id)).expect("decodes"),
+                (name.to_string(), id)
+            );
+        }
+    }
+
+    /// A broken checkpoint is a typed 422, never a silent first page: an
+    /// identity sync that resumed from the newest groups would re-deliver every
+    /// group it had already mirrored.
+    #[test]
+    fn a_cursor_this_build_did_not_issue_is_refused() {
+        for raw in ["", "not-base64!!", "bm90IGpzb24"] {
+            match decode_group_cursor(raw) {
+                Err(ApiError::Validation(message)) => {
+                    assert!(message.contains("cursor"), "{message}");
+                }
+                other => panic!("{raw:?} must be a typed validation refusal: {other:?}"),
+            }
+        }
     }
 }

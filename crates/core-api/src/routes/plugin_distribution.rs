@@ -44,6 +44,7 @@ use axum::{
     Json,
 };
 use core_domain::entities::agent_skills::AgentSkillVersion;
+use core_domain::entities::identity_bundle::{IdentityBundleAction, IdentityBundleInstall};
 use core_domain::entities::{
     ConsentDiff, PluginArtifactKind, PluginCapability, PluginCatalogEntry, PluginInstall,
     PluginInstallStatus, PluginManifestV2, PluginProvenanceEntry, PluginPublisherVerification,
@@ -2561,6 +2562,240 @@ impl From<AgentSkillVersion> for SkillVersionView {
     }
 }
 
+// --- installed identity bundles (Wave 62 lane `p62-identity-lifecycle`) -------
+
+/// The two scopes the identity pack's connector holds on the key this surface
+/// mints.
+///
+/// `read` lists groups, members and role mappings; `write` mirrors group,
+/// membership and role changes. Neither opens role CRUD — `/api/roles` still
+/// demands `special:manage_roles` — and neither reaches any other route, which
+/// `routes::directory_groups::tests::no_other_route_accepts_the_directory_grants`
+/// pins. R16 made both mintable; this is the flow that mints them.
+pub const IDENTITY_BUNDLE_SCOPES: [&str; 2] = ["directory_groups:read", "directory_groups:write"];
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct RevokeIdentityBundleRequest {
+    /// Required. A kill switch with no recorded reason is an incident nobody
+    /// can review.
+    pub reason: String,
+}
+
+/// GET /api/plugins/identity-bundles — the org's installs, which is also the
+/// only way to learn the id the lifecycle verbs address.
+///
+/// Approval (`POST …/staged/{id}/approve`) mints the row DISABLED, so before
+/// this route a bundle could be installed and never switched on except by SQL.
+#[utoipa::path(operation_id = "plugin_identity_bundles_list", get,
+    path = "/api/plugins/identity-bundles", tag = "plugins",
+    security(("bearer" = [])),
+    responses((status = 200, body = Vec<IdentityBundleInstall>)))]
+pub async fn list_identity_bundles(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<IdentityBundleInstall>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, plugins(Action::View))?;
+    let installs = crate::auth::identity_bundle_service::list_installs(&state, &authed).await?;
+    Ok(Json(installs))
+}
+
+/// POST /api/plugins/identity-bundles/{id}/enable — switch a bundle on.
+///
+/// The transition, the audit row and the domain event are one transaction in
+/// `identity_bundle_service::apply_action`; the route adds no logic of its own.
+/// Enabling is idempotent, and a revoked bundle refuses it with a typed 409.
+#[utoipa::path(operation_id = "plugin_identity_bundle_enable", post,
+    path = "/api/plugins/identity-bundles/{id}/enable", tag = "plugins",
+    security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    responses((status = 200, body = IdentityBundleInstall),
+              (status = 404), (status = 409)))]
+pub async fn enable_identity_bundle(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<IdentityBundleInstall>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let install = crate::auth::identity_bundle_service::apply_action(
+        &state,
+        &authed,
+        id,
+        IdentityBundleAction::Enable,
+        None,
+    )
+    .await?;
+    Ok(Json(install))
+}
+
+/// POST /api/plugins/identity-bundles/{id}/disable — switch a bundle off.
+/// Reversible: linked identities that already signed in keep their sessions;
+/// the next login through this source is what stops.
+#[utoipa::path(operation_id = "plugin_identity_bundle_disable", post,
+    path = "/api/plugins/identity-bundles/{id}/disable", tag = "plugins",
+    security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    responses((status = 200, body = IdentityBundleInstall),
+              (status = 404), (status = 409)))]
+pub async fn disable_identity_bundle(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<IdentityBundleInstall>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let install = crate::auth::identity_bundle_service::apply_action(
+        &state,
+        &authed,
+        id,
+        IdentityBundleAction::Disable,
+        None,
+    )
+    .await?;
+    Ok(Json(install))
+}
+
+/// POST /api/plugins/identity-bundles/{id}/revoke — TERMINAL withdrawal.
+///
+/// The reason is recorded on the row and in the audit detail, the domain event
+/// is `identity_bundle.revoked`, and no action revives the row afterwards: a
+/// re-install is a new consent diff. The credential a bundle minted is a
+/// separate row — revoke it with `DELETE /api/api-keys/{id}`.
+#[utoipa::path(operation_id = "plugin_identity_bundle_revoke", post,
+    path = "/api/plugins/identity-bundles/{id}/revoke", tag = "plugins",
+    security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    request_body = RevokeIdentityBundleRequest,
+    responses((status = 200, body = IdentityBundleInstall),
+              (status = 404), (status = 409), (status = 422)))]
+pub async fn revoke_identity_bundle(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<RevokeIdentityBundleRequest>,
+) -> ApiResult<Json<IdentityBundleInstall>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let reason = req.reason.trim().to_string();
+    if reason.is_empty() {
+        return Err(ApiError::Validation(
+            "a revocation reason is required".into(),
+        ));
+    }
+    let install = crate::auth::identity_bundle_service::apply_action(
+        &state,
+        &authed,
+        id,
+        IdentityBundleAction::Revoke,
+        Some(reason),
+    )
+    .await?;
+    Ok(Json(install))
+}
+
+/// POST /api/plugins/identity-bundles/{id}/credential — mint the connector's
+/// key, carrying both directory scopes, and return the raw material ONCE.
+///
+/// Why here and not at approval: approval adopts an artifact; the credential is
+/// what the authorized operator hands to the process that will mirror the
+/// directory. Keeping them separate is what makes rotation possible without a
+/// re-install — mint a new key, move the connector, revoke the old one — and it
+/// keeps the show-once secret out of a screen that renders a consent diff.
+///
+/// The key is stored as `api_keys`, so it is revoked, listed and last-used
+/// stamped through the same surface as every other machine credential. The
+/// install's pin and status decide whether a mint is allowed; a revoked bundle
+/// mints nothing.
+#[utoipa::path(operation_id = "plugin_identity_bundle_credential", post,
+    path = "/api/plugins/identity-bundles/{id}/credential", tag = "plugins",
+    security(("bearer" = [])),
+    params(("id" = uuid::Uuid, Path)),
+    responses((status = 201, body = crate::routes::api_keys::ApiKeyCreatedResponse),
+              (status = 404), (status = 409)))]
+pub async fn mint_identity_bundle_credential(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<(
+    StatusCode,
+    Json<crate::routes::api_keys::ApiKeyCreatedResponse>,
+)> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_plugin_admin(&authed)?;
+    let org_id = authed.principal.user.org_id;
+    let actor = authed.principal.user.id;
+    // The same material `POST /api/api-keys` mints: 128 bits, shown once.
+    let raw_key = format!("mrl_{}", Uuid::now_v7().simple());
+    let prefix = raw_key[..12].to_string();
+    let key_hash = crate::routes::api_keys::hash_raw_key(&state, &raw_key);
+    let scopes: Vec<String> = IDENTITY_BUNDLE_SCOPES
+        .iter()
+        .map(|scope| scope.to_string())
+        .collect();
+    let now = chrono::Utc::now();
+
+    let row = org_tx::with_org_tx(&state, org_id, actor, |mut tx| async move {
+        // The row is read in the mint's own transaction, so a revoke that lands
+        // concurrently either commits before this read (and refuses the mint)
+        // or after it (and leaves a key the operator revokes separately).
+        let install = core_db::identity_bundles::get_install(&mut tx.tx, org_id, id).await?;
+        if install.status.is_revoked() {
+            return Err(ApiError::Conflict(format!(
+                "identity bundle {:?} is revoked: a revoked bundle mints no credential; \
+                 re-install it under a fresh consent diff",
+                install.slug
+            )));
+        }
+        let key_id = Uuid::now_v7();
+        let name = format!("identity-bundle:{}", install.slug);
+        let row = core_db::webhooks::insert_api_key(
+            &mut *tx.tx,
+            key_id,
+            org_id,
+            &name,
+            &key_hash,
+            &prefix,
+            &scopes,
+            actor,
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *tx.tx,
+            &core_domain::entities::AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: core_domain::entities::Actor::Human(actor),
+                action: "identity_bundle.credential_issued".into(),
+                entity_type: Some("identity_bundle_install".into()),
+                entity_id: Some(install.id.to_string()),
+                // The raw key is never in an audit row; the id and the display
+                // prefix are what an operator later revokes and what a listing
+                // shows.
+                detail: serde_json::json!({
+                    "key_id": key_id,
+                    "key_prefix": prefix,
+                    "scopes": scopes,
+                    "slug": install.slug,
+                }),
+                ip: None,
+                occurred_at: now,
+            },
+        )
+        .await?;
+        Ok((tx, row))
+    })
+    .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(crate::routes::api_keys::ApiKeyCreatedResponse {
+            key: row.into(),
+            raw_key,
+        }),
+    ))
+}
+
 // --- Marketplace v2 (Wave 22): verified publishers + ratings ------------------------
 
 /// Normalizes a publisher source identity: `registry://slug` verbatim;
@@ -3177,6 +3412,34 @@ mod tests {
                 "an unresolvable name must be a refusal, got: {message}"
             ),
             other => panic!("an unresolvable name must never return bytes: {other:?}"),
+        }
+    }
+
+    /// The credential names itself after a slug the domain caps at
+    /// `MAX_BUNDLE_NAME_BYTES`, and `POST /api/api-keys` refuses a name past 120
+    /// chars: a bundle that satisfied the domain would otherwise mint a key the
+    /// key surface would never have accepted.
+    #[test]
+    fn the_credential_name_fits_the_key_surface_limit() {
+        let longest = "a".repeat(core_domain::entities::identity_bundle::MAX_BUNDLE_NAME_BYTES);
+        let name = format!("identity-bundle:{longest}");
+        assert!(
+            name.chars().count() <= 120,
+            "{} chars exceeds the key surface's 120",
+            name.chars().count()
+        );
+    }
+
+    /// A scope the middleware resolves but the key surface refuses is a scope
+    /// no org can ever mint, and the connector would receive a key with fewer
+    /// grants than this flow promises. One list, so the two cannot drift.
+    #[test]
+    fn both_directory_scopes_this_flow_mints_are_mintable() {
+        for scope in IDENTITY_BUNDLE_SCOPES {
+            assert!(
+                crate::routes::api_keys::KNOWN_SCOPES.contains(&scope),
+                "{scope} is not in KNOWN_SCOPES, so no org can mint it"
+            );
         }
     }
 }
