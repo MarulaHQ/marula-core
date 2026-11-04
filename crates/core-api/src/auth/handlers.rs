@@ -3,7 +3,9 @@
 //! All auth events are audited (§6).
 
 use crate::auth::cookies;
-use crate::auth::hardening::{enforce_gate, record_failure, record_success, GateSubject};
+use crate::auth::hardening::{
+    enforce_gate, record_failure, record_session_failure, record_success, GateSubject,
+};
 use crate::auth::{jwt, password, AccessClaims, AuthedUser};
 use crate::client_ip::ClientIp;
 use crate::error::{ApiError, ApiResult};
@@ -692,6 +694,23 @@ pub async fn refresh(
         }
     };
 
+    // ADR 0029: the INNER arm. A session exists now, so the same request is
+    // checked again against it. This is the answer the outer IP bound cannot
+    // give: one stale cookie keeps failing on ITS session, and the office
+    // behind the same egress is not charged for it (the failure below is
+    // recorded on the session key alone).
+    //
+    // No new oracle: the caller already presented the token that resolves
+    // this session, so a typed 429 here answers nothing they did not supply.
+    enforce_gate(
+        &state,
+        crate::auth::hardening::kinds::REFRESH,
+        &client_ip,
+        GateSubject::Session(sid),
+        false,
+    )
+    .await?;
+
     if !resolution.active {
         let mut tx = state
             .pool
@@ -721,11 +740,11 @@ pub async fn refresh(
         tx.commit()
             .await
             .map_err(|e| ApiError::Internal(e.into()))?;
-        let _ = record_failure(
+        let _ = record_session_failure(
             &state,
             crate::auth::hardening::kinds::REFRESH,
             &client_ip,
-            GateSubject::IpOnly,
+            sid,
         )
         .await;
         return Err(ApiError::Unauthorized("invalid refresh token".into()));
@@ -793,16 +812,19 @@ pub async fn refresh(
     // backoff doubles per failure and caps at an hour, and nothing the app
     // can do pays it back down. One stale-cookie refresh after a logout
     // (which lands in the reuse branch above and arms 30s) is enough to
-    // start the climb, and because the key is per-IP, every user behind one
-    // egress — an office NAT, a CI runner, a long E2E sweep — inherits the
-    // growing window, up to an hour of "the app cannot rotate and bounces to
-    // /login". Clearing here is what makes the ladder self-healing: the
-    // first rotation that gets through resets everybody's curve.
+    // start the climb.
+    //
+    // Both arms are cleared (ADR 0029): the session key the failing session
+    // charged, and the shared IP key a session-less failure may have armed.
+    // Clearing only one of them leaves the other climbing, and every user
+    // behind one egress — an office NAT, a CI runner, a long E2E sweep —
+    // inherits that window as "the app cannot rotate, so it bounces to
+    // /login". Clearing here is what makes the ladder self-healing.
     let _ = record_success(
         &state,
         crate::auth::hardening::kinds::REFRESH,
         &client_ip,
-        GateSubject::IpOnly,
+        GateSubject::Session(sid),
     )
     .await;
 

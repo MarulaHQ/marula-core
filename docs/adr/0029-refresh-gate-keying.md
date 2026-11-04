@@ -1,6 +1,6 @@
 # ADR 0029: The refresh gate is keyed twice — IP outside, session inside
 
-Date: 2026-10-27 · Status: Accepted; implementation open · Ruling: Wave 62 register triage
+Date: 2026-10-27 · Status: Accepted; implemented (`handlers::refresh`, `hardening::record_session_failure`) · Ruling: Wave 62 register triage
 
 ## Context
 
@@ -30,8 +30,14 @@ The choice is not free in either direction:
    credential work, so it costs one indexed read and cannot be avoided by an
    attacker who never has a valid token.
 2. A session key joins it. Once `resolve_refresh` has produced a session, the same
-   request is checked again against that session, and a failure is recorded on
-   both keys.
+   request is checked again against that session. A failure that reaches this point
+   is charged to the session key; the shared IP key is charged only by failures that
+   resolve no session at all — a caller with no valid token, which is the case an
+   attacker controls. Both keys are still written on the durable attempt row, and
+   both are cleared by a success. (Amended 2026-11-05, while implementing: charging
+   the IP counter on a session-bound failure reproduces the incident. The two
+   counters would arm and expire in lockstep, so the office ladder still climbs to
+   an hour and the session key buys nothing.)
 3. A successful rotation clears both counters, exactly as it clears the IP counter
    today.
 4. The pre-auth refusal keeps its current shape. The typed 429 answers only after
@@ -48,11 +54,13 @@ ruling — one stale cookie, one armed hour.
 
 ## Implementation status
 
-Not implemented at HEAD. `handlers::refresh` still passes `GateSubject::IpOnly`
-(`crates/core-api/src/auth/handlers.rs:803`), and `GateSubject` has no session
-variant (`hardening.rs:44-48`). The owning follow-up is the A26 bullet in the live
-tracker. Until it lands, this record is the decision, not a description of the
-code.
+Implemented. `handlers::refresh` checks the outer IP key before any credential work,
+then checks again against the resolved session before it classifies the token
+(`GateSubject::Session`), records a session-bound failure on that session alone
+(`hardening::record_session_failure`), and clears both keys after a rotation
+commits. `resolve_refresh` still returns no session id, so the id the pair was
+presented with is the one used — but only after the bridge has confirmed the
+pair, which is what keeps an unvalidated id from naming a bucket.
 
 ## Consequences
 
@@ -60,5 +68,5 @@ code.
   MFA legs already pay after their bridge resolves.
 - Two counters must be cleared on success, so a change that clears only the IP
   key re-opens the ratchet this ADR exists to close.
-- Tests that assert one armed bucket for refresh now assert two, and the
-  end-to-end gate's arming counts move with them.
+- A refresh request is checked against two keys now, so the durable-gate tests that
+  pin one bucket for refresh assert two: the outer IP key and the session key.
