@@ -967,6 +967,17 @@ PY
   trap cleanup_failed_boot EXIT
 fi
 
+# ---------- which cache these builds write into (resolve_target_dir above) ----------
+# Resolved and EXPORTED before the FIRST cargo call in this script — that call is
+# the CLI below, not the core-api build, so the migration/seed compile must not
+# create a private target/ ahead of the resolver and then be "reused" by rule 5.
+# Exporting it means the provenance guard, the builds and `cargo metadata` all
+# name one directory.
+resolve_target_dir
+export CARGO_TARGET_DIR="$TARGET_DIR"
+echo "[e2e-stack] cargo target dir: $CARGO_TARGET_DIR"
+echo "[e2e-stack]   chosen because: $TARGET_DIR_WHY"
+
 ########## migrate + deterministic demo seed (mechanical reseed) ##########
 # The CLI runs in the DEV profile here (plain `cargo run`), so the dev half of
 # the shared dir gets the same provenance check the release builds get below.
@@ -1085,16 +1096,6 @@ case "$API_PROFILE" in
 esac
 API_CARGO_FLAGS=""
 [ "$API_PROFILE" = "release" ] && API_CARGO_FLAGS="--release"
-
-# ---------- which cache these builds write into (resolve_target_dir above) ----------
-# Resolved and EXPORTED before the first cargo call in this script, so the guard
-# checks provenance on the directory cargo actually writes, `cargo metadata`
-# reports the binary paths cargo actually produced, and a lane never grows a
-# private target/ of its own.
-resolve_target_dir
-export CARGO_TARGET_DIR="$TARGET_DIR"
-echo "[e2e-stack] cargo target dir: $CARGO_TARGET_DIR"
-echo "[e2e-stack]   chosen because: $TARGET_DIR_WHY"
 
 if [ "${MARULA_LANE_GUARD:-1}" != "0" ]; then
   run_stage "shared-target guard (${API_PROFILE})" \
