@@ -1969,6 +1969,32 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/plugins/distribution/ratings"),
             get(plugin_distribution::list_ratings).put(plugin_distribution::put_rating),
         )
+        // Installed identity bundles (Wave 62 lane `p62-identity-lifecycle`):
+        // approval mints the row DISABLED, so these are the routes that make
+        // enable / disable / revoke reachable, plus the credential mint the
+        // identity pack's connector needs (both directory scopes, shown once).
+        // Reads are plugins:view; every write is owner/admin, like the rest of
+        // the lifecycle.
+        .route(
+            &rp("/plugins/identity-bundles"),
+            get(plugin_distribution::list_identity_bundles),
+        )
+        .route(
+            &rp("/plugins/identity-bundles/{id}/enable"),
+            post(plugin_distribution::enable_identity_bundle),
+        )
+        .route(
+            &rp("/plugins/identity-bundles/{id}/disable"),
+            post(plugin_distribution::disable_identity_bundle),
+        )
+        .route(
+            &rp("/plugins/identity-bundles/{id}/revoke"),
+            post(plugin_distribution::revoke_identity_bundle),
+        )
+        .route(
+            &rp("/plugins/identity-bundles/{id}/credential"),
+            post(plugin_distribution::mint_identity_bundle_credential),
+        )
         .route(&rp("/calendar/week"), get(calendar::calendar_week))
         .route(&rp("/calendar/team"), get(calendar::calendar_team))
         .route(

@@ -492,6 +492,12 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::revoke_publisher,
         crate::routes::plugin_distribution::list_ratings,
         crate::routes::plugin_distribution::put_rating,
+        // Installed identity bundles (Wave 62 lane `p62-identity-lifecycle`)
+        crate::routes::plugin_distribution::list_identity_bundles,
+        crate::routes::plugin_distribution::enable_identity_bundle,
+        crate::routes::plugin_distribution::disable_identity_bundle,
+        crate::routes::plugin_distribution::revoke_identity_bundle,
+        crate::routes::plugin_distribution::mint_identity_bundle_credential,
         // Stripe webhook receiver (Wave 22)
         crate::routes::stripe_webhook::receive,
         // Transcription edge over the registered surface (Wave 22)
@@ -1845,6 +1851,10 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::ProvenanceView,
         crate::routes::plugin_distribution::SetSkillEnabledRequest,
         crate::routes::plugin_distribution::SkillVersionView,
+        // Installed identity bundles (Wave 62 lane `p62-identity-lifecycle`)
+        crate::routes::plugin_distribution::RevokeIdentityBundleRequest,
+        core_domain::entities::identity_bundle::IdentityBundleInstall,
+        crate::routes::directory_groups::DirectoryGroupsListQuery,
         core_domain::entities::agent_skills::AgentSkillVersion,
         core_domain::entities::agent_skills::SkillManifest,
         core_domain::events::PluginStagedImportCreated,
