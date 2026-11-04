@@ -37,6 +37,10 @@ function installFixture(overrides: Record<string, unknown> = {}) {
     granted_capabilities: ["clients:read", "time:read"],
     artifact_kind: "wasm",
     effective_permissions: [],
+    // F49: the roster carries the pinned version's manifest verdict. The
+    // default fixture is the GitHub-pull shape — staged unsigned, then
+    // installed — so the row has something honest to show.
+    manifest_authenticated: false,
     installed_at: "2026-09-16T00:00:00Z",
     ...overrides,
   };
@@ -248,6 +252,38 @@ describe("/settings/plugins integration", () => {
     expect(screen.getByText("Invoice Export")).toBeInTheDocument();
     await user.click(screen.getByTestId("tab-http-connectors"));
     await screen.findByText(/No HTTP connectors installed yet/);
+    cleanup();
+  });
+
+  it("says on the install row whether the pinned manifest is signed (F49), not only at import time", async () => {
+    setupApi();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <PluginsSettingsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Invoice Export");
+    await user.click(screen.getByTestId("expand-invoice-export"));
+    const row = await screen.findByTestId("install-manifest-coverage");
+    // A GitHub pull is staged with manifest_authenticated = false; the install
+    // keeps saying the weaker claim instead of leaving it to be inferred.
+    expect(row.textContent).toContain("manifest unsigned");
+    expect(row.textContent).toContain("covers only the artifact bytes");
+
+    // The same row for a version a trusted key verified flips to the signed
+    // claim — one vocabulary, two states.
+    installs[0] = installFixture({ manifest_authenticated: true });
+    cleanup();
+    render(
+      <AuthProvider>
+        <PluginsSettingsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Invoice Export");
+    await user.click(screen.getByTestId("expand-invoice-export"));
+    const signed = await screen.findByTestId("install-manifest-coverage");
+    expect(signed.textContent).toContain("manifest signed");
     cleanup();
   });
 

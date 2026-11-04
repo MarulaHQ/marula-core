@@ -35,12 +35,21 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { envelopeOf, reasonCopy } from "../../../lib/error-copy";
-import { ConsentSummary, SettingsSchemaBlock } from "./consent";
+import { ConsentSummary, ManifestAuthenticationNote, SettingsSchemaBlock } from "./consent";
 
 type InstallView = components["schemas"]["InstallView"];
 type InstallSettingsView = components["schemas"]["InstallSettingsView"];
 type UpdateProposalView = components["schemas"]["UpdateProposalView"];
 type ProvenanceView = components["schemas"]["ProvenanceView"];
+
+/** `InstallView` plus the pinned version's manifest-authentication verdict.
+ *
+ * The field is on the API response (F49: an install from a GitHub pull is
+ * staged unsigned and must keep saying so afterwards). It reaches
+ * `@marula-core/sdk` with the group's OpenAPI re-pin, so it is named here
+ * rather than reaching into a generated pin: optional, and absent reads as the
+ * weaker claim — the same fail-closed direction the backend takes. */
+type InstallViewWithCoverage = InstallView & { manifest_authenticated?: boolean };
 
 interface SchemaLeaf {
   type?: string;
@@ -77,7 +86,7 @@ export function InstallDetail({
   onOptimisticStatus,
   onChanged,
 }: {
-  install: InstallView;
+  install: InstallViewWithCoverage;
   canManage: boolean;
   /** Optimistic status flip in the parent list (instant-first envelope). */
   onOptimisticStatus: (next: "enabled" | "disabled") => void;
@@ -229,6 +238,9 @@ export function InstallDetail({
   const schema = readSchema(settings?.settings_schema);
   const value = (key: string): unknown => config[key];
   const setValue = (key: string, next: unknown) => setConfig((prev) => ({ ...prev, [key]: next }));
+  // Unknown reads as the weaker claim, never as trust: the backend resolves the
+  // pinned version's verdict and answers `false` when it cannot prove one.
+  const manifestAuthenticated = install.manifest_authenticated ?? false;
 
   return (
     <div className="grid gap-5 text-[13px]" data-testid="install-detail-root">
@@ -251,6 +263,19 @@ export function InstallDetail({
           ) : (
             <span style={{ color: "var(--m-text-muted)" }}>Enable/disable needs owner/admin.</span>
           )}
+        </div>
+        {/* Trust posture: the verdict travels with the install, so a plugin
+            pulled from GitHub keeps saying its manifest is unsigned after the
+            import drawer is closed (F49). Same badge and sentence as the staged
+            row and the consent screen — one vocabulary, no second phrasing. */}
+        <div
+          className="flex flex-wrap items-center gap-2 px-4 pb-4"
+          data-testid="install-manifest-coverage"
+        >
+          <span className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
+            Manifest authentication
+          </span>
+          <ManifestAuthenticationNote authenticated={manifestAuthenticated} />
         </div>
       </Card>
 
