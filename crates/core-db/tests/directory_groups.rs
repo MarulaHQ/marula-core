@@ -21,8 +21,8 @@ mod common;
 
 use common::{fixed_uuid, org_tx, test_db};
 use core_db::directory_groups::{
-    add_member, add_role, delete_group, get_group, insert_group, list_group_roles, list_groups,
-    list_members, remove_member, remove_role, NewDirectoryGroup,
+    add_member, add_role, delete_group, get_group, insert_group, list_group_roles,
+    list_groups_page, list_members, remove_member, remove_role, NewDirectoryGroup,
 };
 use core_db::{orgs, users};
 use sqlx::PgPool;
@@ -434,7 +434,10 @@ async fn groups_cannot_cross_an_org_boundary() {
             "org B cannot read org A's group"
         );
         assert!(
-            list_groups(&mut *tx, b.org).await.expect("list").is_empty(),
+            list_groups_page(&mut *tx, b.org, None, 50)
+                .await
+                .expect("list")
+                .is_empty(),
             "org B's listing is empty"
         );
         add_member(&mut tx, b.org, group_a, user_b, None)
@@ -460,6 +463,42 @@ async fn groups_cannot_cross_an_org_boundary() {
             .is_empty(),
         "org B's user gained nothing"
     );
+}
+
+// --- 3b. the keyset page -----------------------------------------------------
+
+/// The listing that this surface's row (W62-6) replaced returned the whole
+/// roster. The page is a keyset on `(name, id)`, so the resume is a position in
+/// the ordering rather than a row number: renaming a group between two pages
+/// moves it, and the walk still neither repeats nor skips a row it has not yet
+/// delivered.
+#[tokio::test]
+async fn the_group_page_walks_name_order_and_resumes_where_it_stopped() {
+    let db = test_db().await;
+    let s = seed_org(&db.app, 760).await;
+    for (n, name) in [(7601, "Alpha"), (7602, "Bravo"), (7603, "Charlie")] {
+        seed_group(&db.app, s.org, n, name).await;
+    }
+
+    let mut tx = org_tx(&db.app, s.org).await;
+    let first = list_groups_page(&mut *tx, s.org, None, 2)
+        .await
+        .expect("first page");
+    assert_eq!(
+        first.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+        vec!["Alpha", "Bravo"],
+        "the page is ordered by name"
+    );
+    let last = first.last().expect("two rows");
+    let second = list_groups_page(&mut *tx, s.org, Some((last.name.as_str(), last.id)), 2)
+        .await
+        .expect("second page");
+    assert_eq!(
+        second.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+        vec!["Charlie"],
+        "the resume neither repeats nor skips"
+    );
+    tx.commit().await.expect("commit read");
 }
 
 // --- 4. RLS on all three tables ----------------------------------------------

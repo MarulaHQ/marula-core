@@ -78,14 +78,45 @@ fn group_from_row(row: sqlx::postgres::PgRow) -> DbResult<DirectoryGroup> {
     })
 }
 
-/// Every group in the org, by name.
-pub async fn list_groups<'e, E>(executor: E, org_id: Uuid) -> DbResult<Vec<DirectoryGroup>>
+/// One page of groups, keyset-ordered `(name, id)`.
+///
+/// The read used to return every group in the tenant, which is right for a
+/// small directory and wrong for the one this surface exists for: a customer
+/// with thousands of groups paid for all of them on every sync pass. The
+/// cursor carries the previous page's last `(name, id)`, so a page boundary
+/// cannot skip or repeat a row when a sync renames a group between two pages —
+/// the position is a value in the ordering, not a row number.
+///
+/// `after = None` is the first page. The predicate is the same one in both
+/// cases (name/"" and id/nil sort before every real row), which is the shape
+/// `crate::report_schedules::list_page` already uses; one expression means the
+/// resume path and the first page cannot drift.
+///
+/// The `UNIQUE (org_id, name)` index from migration 0148 serves both the scan
+/// and the ordering, so pagination added no index.
+pub async fn list_groups_page<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    after: Option<(&str, Uuid)>,
+    limit: i64,
+) -> DbResult<Vec<DirectoryGroup>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let sql =
-        format!("SELECT {GROUP_COLS} FROM directory_groups g WHERE g.org_id = $1 ORDER BY g.name");
-    let rows = sqlx::query(&sql).bind(org_id).fetch_all(executor).await?;
+    let sql = format!(
+        "SELECT {GROUP_COLS} FROM directory_groups g \
+          WHERE g.org_id = $1 AND (g.name, g.id) > ($2, $3) \
+          ORDER BY g.name, g.id \
+          LIMIT $4"
+    );
+    let (after_name, after_id) = after.unwrap_or(("", Uuid::nil()));
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(after_name)
+        .bind(after_id)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
     rows.into_iter().map(group_from_row).collect()
 }
 
