@@ -27,3 +27,4 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tower = { workspace = true }
+rmcp = { version = "3.8", features = ["client", "transport-streamable-http-client-reqwest"] }

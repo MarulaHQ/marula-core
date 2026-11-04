@@ -12,7 +12,11 @@ use rmcp::transport::streamable_http_server::{
 };
 
 pub fn router(server: MarulaServer) -> Router {
-    let config = StreamableHttpServerConfig::default()
+    router_with(StreamableHttpServerConfig::default(), server)
+}
+
+fn router_with(config: StreamableHttpServerConfig, server: MarulaServer) -> Router {
+    let config = config
         .with_legacy_session_mode(false)
         .with_json_response(true);
     let service = StreamableHttpService::new(
@@ -33,5 +37,19 @@ pub async fn router_from_env() -> anyhow::Result<Router> {
         Err(_) => crate::openapi_spec(),
     };
     let server = MarulaServer::new(&base, &spec, &crate::mcp_catalog_spec(), None);
-    Ok(router(server))
+    // The SDK accepts loopback hosts by default, which is the safe default for
+    // a local adapter. A deployment behind a real hostname names itself here.
+    let mut config = StreamableHttpServerConfig::default();
+    if let Ok(hosts) = std::env::var("MARULA_MCP_ALLOWED_HOSTS") {
+        let hosts: Vec<String> = hosts
+            .split(',')
+            .map(str::trim)
+            .filter(|host| !host.is_empty())
+            .map(str::to_string)
+            .collect();
+        if !hosts.is_empty() {
+            config = config.with_allowed_hosts(hosts);
+        }
+    }
+    Ok(router_with(config, server))
 }
