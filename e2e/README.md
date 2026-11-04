@@ -119,10 +119,16 @@ evidence:check` runs it.
 
 ## The shared cargo target dir has a provenance guard
 
-On a machine that ran `scripts/p13-build-env.sh enable --share-target`, every
-checkout compiles into the main checkout's `.kilo/target-shared` (disk guardrails
-DX6); without it each checkout uses its own `target/`. Where the dir is shared,
-cargo records dep-info paths relative to the workspace root — so an artifact a
+`scripts/e2e-stack.sh` picks the cache its own builds write into: the main
+checkout's `.kilo/target-shared`, resolved through `git rev-parse
+--git-common-dir` so a worktree boot joins the one build instead of paying for a
+second (7.4 GB measured). Three things outrank that choice — an exported
+`CARGO_TARGET_DIR`, a `build.target-dir` named by `.cargo/config.toml` or the P13
+overlay it includes, and CI, which keeps the default `target/` a runner's rust
+cache already populates. A checkout that already holds artifacts in its own
+`target/` keeps them. `scripts/e2e-stack.sh --print-target-dir` prints the
+directory and the rule that chose it. Where the dir is shared, cargo records
+dep-info paths relative to the workspace root — so an artifact a
 peer worktree built from different sources can pass this tree's freshness check
 and get linked, producing a phantom `cannot find value …` or a
 `built for newer 'macOS'` linker error charged to an innocent crate.

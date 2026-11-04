@@ -9,7 +9,6 @@
     "marula-plugin-build": "./bin/build.mjs"
   },
   "scripts": {
-    "build": "node bin/build.mjs",
     "test": "node --test test/*.test.mjs"
   }
 }

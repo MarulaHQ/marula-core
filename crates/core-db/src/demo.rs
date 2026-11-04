@@ -190,6 +190,40 @@ pub async fn is_seeded(pool: &PgPool) -> DbResult<bool> {
     Ok(seeded.is_some())
 }
 
+/// Conditions for the seeded "Tag security alerts urgent" rule.
+///
+/// Written as the product serializes them: `AutomationCondition` is a tagged
+/// enum (`#[serde(tag = "type")]`), so a `{ "field", "op", "value" }` document
+/// deserializes to nothing, `AutomationRule::parse` refuses the whole rule and
+/// the worker skips it with a warn — a demo automation that never fires.
+///
+/// The condition reads the title because the closed vocabulary has no
+/// ticket-category predicate: `category_*` judges the status category, and
+/// "Security" in the demo is a taxonomy category on the ticket.
+fn demo_security_rule_conditions() -> serde_json::Value {
+    serde_json::json!([{ "type": "title_contains", "needle": "ransomware" }])
+}
+
+/// Conditions for the seeded "Notify dispatcher on P1" rule.
+fn demo_p1_rule_conditions() -> serde_json::Value {
+    serde_json::json!([{ "type": "priority_is", "priority": "p1" }])
+}
+
+/// Effects for the seeded "Tag security alerts urgent" rule.
+fn demo_security_rule_actions() -> serde_json::Value {
+    serde_json::json!([{ "type": "set_priority", "priority": "p1" }])
+}
+
+/// Effects for the seeded "Notify dispatcher on P1" rule.
+fn demo_p1_rule_actions() -> serde_json::Value {
+    serde_json::json!([{
+        "type": "notify_users",
+        "user_ids": [demo_uuid(11).to_string()],
+        "kind": "ticket_update",
+        "title": "P1 ticket created"
+    }])
+}
+
 /// Seeds the demo org. Idempotent at the org level: an existing demo org is
 /// reported as [`DemoError::AlreadySeeded`] and nothing is written.
 pub async fn seed(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSeedReport> {
@@ -4092,11 +4126,11 @@ you go, because the escalation record is what the SLA credit claim is read from 
     .bind(demo_uuid(850))
     .bind(DEMO_ORG_ID)
     .bind(demo_uuid(60)) // service desk board
-    .bind(serde_json::json!([{ "field": "category", "op": "eq", "value": "Security" }]))
-    .bind(serde_json::json!([{ "type": "set_priority", "priority": "p1" }]))
+    .bind(demo_security_rule_conditions())
+    .bind(demo_security_rule_actions())
     .bind(demo_uuid(851))
-    .bind(serde_json::json!([{ "field": "priority", "op": "eq", "value": "p1" }]))
-    .bind(serde_json::json!([{ "type": "notify_users", "user_ids": [demo_uuid(11).to_string()], "kind": "ticket_update", "title": "P1 ticket created" }]))
+    .bind(demo_p1_rule_conditions())
+    .bind(demo_p1_rule_actions())
     .bind(owner)
     .execute(&mut *tx)
     .await?;
@@ -5923,6 +5957,55 @@ fn secret_field_ciphertext(key: &[u8; 32], record_title: &str, value: &str) -> D
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The seeded automation documents must be in the shape the product
+    /// serializes, or the demo shows rules that never fire.
+    ///
+    /// `AutomationCondition` and `AutomationAction` are tagged enums, so the
+    /// old `{ "field", "op", "value" }` condition shape parses as nothing;
+    /// `AutomationRule::parse` refuses the rule and the worker skips it with a
+    /// warn on every evaluation. Deserializing the exact documents the seed
+    /// binds into `automation_rules` turns that silent rot into a failure
+    /// here, with no database.
+    #[test]
+    fn seeded_automation_documents_deserialize() {
+        use core_domain::automations::{
+            validate_conditions, AutomationAction, AutomationCondition,
+        };
+
+        for (name, conditions, actions) in [
+            (
+                "Tag security alerts urgent",
+                demo_security_rule_conditions(),
+                demo_security_rule_actions(),
+            ),
+            (
+                "Notify dispatcher on P1",
+                demo_p1_rule_conditions(),
+                demo_p1_rule_actions(),
+            ),
+        ] {
+            let parsed: Vec<AutomationCondition> = serde_json::from_value(conditions.clone())
+                .unwrap_or_else(|e| {
+                    panic!("{name}: seeded conditions do not deserialize: {e} (in {conditions})")
+                });
+            assert!(
+                !parsed.is_empty(),
+                "{name}: a seeded rule with no condition cannot demonstrate anything"
+            );
+            validate_conditions(&parsed)
+                .unwrap_or_else(|e| panic!("{name}: seeded condition can never match: {e}"));
+
+            let parsed: Vec<AutomationAction> = serde_json::from_value(actions.clone())
+                .unwrap_or_else(|e| {
+                    panic!("{name}: seeded actions do not deserialize: {e} (in {actions})")
+                });
+            assert!(
+                !parsed.is_empty(),
+                "{name}: a seeded rule with no effect cannot demonstrate anything"
+            );
+        }
+    }
 
     /// Every demo fixture must survive the upload gate — magic bytes,
     /// extension and declared content type all consistent. If one of them

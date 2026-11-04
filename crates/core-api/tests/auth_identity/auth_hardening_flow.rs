@@ -170,7 +170,7 @@ async fn pathological_refresh_throttle_is_a_typed_429() {
 /// restarts at its first rung.
 ///
 /// This is the invariant behind the red sweeps A16 left to this lane (Wave
-/// 47 lane A26). The refresh key is per-IP and `handlers::refresh` never
+/// 47 lane A26). The refresh key was per-IP and `handlers::refresh` never
 /// cleared it, so one revoked-cookie refresh after a logout armed 30s and
 /// nothing could pay it back down: every later failure doubled it (60, 120,
 /// 240, 480 …) and everyone behind that egress — a whole E2E run included —
@@ -243,8 +243,10 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
         .or_else(|_| std::env::var("DATABASE_URL"))
         .expect("needs MARULA_TEST_DATABASE_URL or DATABASE_URL");
     let app = core_api::router(test_state(&admin_url).await);
-    // Its own caller IP: durable per-IP counters are process-wide, and the
-    // rotation below arms this one.
+    // Its own caller IP: durable per-IP counters are process-wide, so a
+    // shared address is a shared bucket. The replay below does not charge
+    // this one — ADR 0029 puts a session-bound failure on the session key —
+    // but the case keeps a private address so it never reads a neighbour's.
     let caller = fresh_caller_ip();
     let ip = caller.as_str();
     let slug = format!("reuse-{}", Uuid::now_v7().simple());
@@ -279,8 +281,10 @@ async fn refresh_reuse_after_rotation_kills_the_whole_chain() {
     assert_eq!(replay.status(), axum::http::StatusCode::UNAUTHORIZED);
 
     // The rotation's successor DIED with the chain — presenting it is a
-    // 401. A FRESH caller ip because this test's own IP is now under the
-    // exponential lock it just demonstrated (durable, per-IP).
+    // 401. The reuse above charged the SESSION key (ADR 0029), so `ip` is
+    // deliberately left clear under the outer bound; the fresh address here
+    // is harmless and makes the point sharper, because the successor's 401
+    // cannot be borrowed from the parent's bucket.
     let ip_dead = fresh_caller_ip();
     let dead = send(
         &app,

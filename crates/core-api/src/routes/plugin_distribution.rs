@@ -3438,7 +3438,7 @@ mod tests {
     fn both_directory_scopes_this_flow_mints_are_mintable() {
         for scope in IDENTITY_BUNDLE_SCOPES {
             assert!(
-                crate::api_scopes::get(&scope).is_some(),
+                crate::api_scopes::get(scope).is_some(),
                 "{scope} is not in KNOWN_SCOPES, so no org can mint it"
             );
         }

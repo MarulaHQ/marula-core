@@ -28,6 +28,10 @@
 #                                     #   pg_cron, hypopg and vchord instead of
 #                                     #   the stock pgvector one, and assert the
 #                                     #   extensions are present and used
+#   scripts/e2e-stack.sh --print-target-dir
+#                                     # print the cargo target dir this boot
+#                                     #   would build into, and which rule chose
+#                                     #   it, then exit (no stack, no container)
 #
 # Run ids: the canonical shape is `e2e-<digits>` (new_run_id below), and the
 # containers are `marula-e2e-pg-<RUN_ID>` / `marula-e2e-redis-<RUN_ID>`. `down`
@@ -89,6 +93,117 @@ case "$gcd" in
 esac
 REGISTRY_DIR="${REGISTRY_DIR:-$SHARED_ROOT/.kilo/dev-registry}"
 LOG_ROOT="${LOG_ROOT:-$SHARED_ROOT/.kilo/e2e-logs}"
+
+# ---------- cargo target dir: one cache per machine, not one per checkout ----------
+# The builds below name no target dir, so without a decision here cargo writes
+# `<checkout>/target` and every worktree lane pays for a second full release
+# build — 7.4 GB measured, enough to fill a disk and truncate a `node_modules`
+# install mid-write. The default is the same directory
+# `scripts/p13-build-env.sh enable --share-target` writes: the MAIN checkout's
+# `.kilo/target-shared`, reached through the `git rev-parse --git-common-dir`
+# resolution above, so every worktree of this repository lands in one cache.
+#
+# Precedence, and the rule that fired is named in the boot log and by
+# `--print-target-dir`:
+#   1. `CARGO_TARGET_DIR` already exported: the caller's choice, never
+#      overridden, and relative values keep cargo's own meaning (this script has
+#      already cd'd to REPO_ROOT).
+#   2. `build.target-dir` in cargo's config. cargo's own answer is read back
+#      through `cargo metadata` instead of re-parsing TOML here, so the key
+#      written by the P13 overlay (`.cargo/p13-fast.local.toml`, loaded through
+#      an optional `include`) is honoured exactly as cargo resolves it.
+#   3. CI: cargo's default `target/`, because that is the path a runner's rust
+#      cache already populates and there is no sibling lane to share with.
+#   4. the shared dir, when it already holds artifacts.
+#   5. this checkout's own `target/`, when it already holds artifacts. The
+#      transitional case: main built there before share-target existed, and
+#      abandoning a populated cache (15 GB on the reference host) on a full disk
+#      to build the same code again is a second cost, not a saving.
+#   6. the shared dir, which cargo creates on first use.
+#
+# Exporting the answer matters beyond the three builds: `cargo metadata` later in
+# this script resolves the booted binary paths from it, and
+# `scripts/lane-target-guard.py` reads `CARGO_TARGET_DIR` when it checks and
+# marks provenance — so guard and cargo can no longer disagree about which dir
+# a release build touched.
+TARGET_DIR=""
+TARGET_DIR_WHY=""
+
+has_artifacts() { [ -d "$1" ] && [ -n "$(ls -A "$1" 2>/dev/null | head -1)" ]; }
+
+# Two spellings of one directory must compare equal. macOS makes this load
+# bearing: cargo answers `/private/tmp/x` for a checkout under `/tmp/x`, and a
+# plain string comparison against `$REPO_ROOT/target` then reads "the config
+# names a target dir" for a config that names none — which would hand back the
+# private dir this resolver exists to avoid (reproduced 2026-11-05).
+canonical_path() {
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null || printf '%s' "$1"
+}
+
+# The target dir cargo itself would use with CARGO_TARGET_DIR unset: cargo's
+# answer, so config files, their optional includes and --config all count.
+cargo_config_target_dir() {
+  cargo metadata -q --no-deps --format-version 1 2>/dev/null | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin)["target_directory"])
+except Exception:
+    pass
+' 2>/dev/null || true
+}
+
+resolve_target_dir() {
+  local exported="${CARGO_TARGET_DIR:-}" configured default
+  TARGET_DIR=""
+  TARGET_DIR_WHY=""
+  # 1. an export from the caller wins outright.
+  if [ -n "$exported" ]; then
+    case "$exported" in
+      /*) TARGET_DIR="$exported" ;;
+      *)  TARGET_DIR="$REPO_ROOT/$exported" ;;
+    esac
+    TARGET_DIR_WHY="CARGO_TARGET_DIR is exported — the caller's choice, not overridden here"
+    return 0
+  fi
+  # 2. a target dir the cargo config names. cargo reports `<repo>/target` when
+  #    no key exists, which is the private dir this resolver exists to avoid, so
+  #    that one value is not treated as a configuration.
+  default="$REPO_ROOT/target"
+  configured="$(cargo_config_target_dir)"
+  if [ -n "$configured" ] && [ "$(canonical_path "$configured")" != "$(canonical_path "$default")" ]; then
+    TARGET_DIR="$configured"
+    TARGET_DIR_WHY="cargo config names build.target-dir (.cargo/config.toml or the P13 overlay it includes)"
+    return 0
+  fi
+  # 3. CI keeps cargo's default on purpose: the tracked config names no
+  #    target-dir so a runner's rust cache finds `target/` where it already
+  #    looks, and a hosted-database boot on a runner has no sibling lane to
+  #    share a cache with.
+  if [ -n "${CI:-}" ]; then
+    TARGET_DIR="$default"
+    TARGET_DIR_WHY="CI — cargo's default target/, which a runner's rust cache already points at"
+    return 0
+  fi
+  # 4. the shared cache, once someone has built into it.
+  if has_artifacts "$SHARED_ROOT/.kilo/target-shared"; then
+    TARGET_DIR="$SHARED_ROOT/.kilo/target-shared"
+    TARGET_DIR_WHY="the shared cache is already populated — every worktree of this repository reuses it"
+    return 0
+  fi
+  # 5. artifacts this checkout already paid for.
+  if has_artifacts "$default"; then
+    TARGET_DIR="$default"
+    TARGET_DIR_WHY="this checkout already holds artifacts in its own target/ — reused rather than built a second time"
+    return 0
+  fi
+  # 6. nothing built yet: create the shared dir, never a lane-private one.
+  TARGET_DIR="$SHARED_ROOT/.kilo/target-shared"
+  if [ "$SHARED_ROOT" = "$REPO_ROOT" ]; then
+    TARGET_DIR_WHY="nothing built yet — the main checkout's shared cache (cargo creates it)"
+  else
+    TARGET_DIR_WHY="nothing built yet — the main checkout's shared cache, so this worktree creates no private target/ (cargo creates it)"
+  fi
+}
 
 die() { echo "[e2e-stack] FAIL: $*" >&2; exit 1; }
 
@@ -467,6 +582,94 @@ selftest_owner() {
   return 1
 }
 
+# ---------- self-test: the cache decision a boot makes -------------------
+# The rule this lane exists for: a worktree boot must NOT grow a private
+# target/. That is decidable without a build — every branch of
+# resolve_target_dir is a pure function of what is on disk plus two env vars —
+# so it is proved here with dummy workspaces and no cargo invocation beyond
+# `cargo metadata`, which compiles nothing and creates nothing.
+selftest_target_dir() {
+  local failures=0 checks=0 tmp shared
+
+  check() { # check <label> <got> <want>
+    checks=$((checks + 1))
+    if [ "$2" = "$3" ]; then
+      echo "  PASS  $1"
+    else
+      echo "  FAIL  $1: got '$2', want '$3'"
+      failures=$((failures + 1))
+    fi
+  }
+
+  # A dummy workspace: `cargo metadata` needs a manifest, and nothing else.
+  fake_repo() { # fake_repo <dir>
+    mkdir -p "$1/src"
+    printf '[package]\nname="%s"\nversion="0.0.0"\nedition="2021"\n' \
+      "$(basename "$1" | tr -cd 'a-z0-9')" > "$1/Cargo.toml"
+    printf 'pub fn marker() {}\n' > "$1/src/lib.rs"
+  }
+
+  # Resolve inside a subshell so no case can leak REPO_ROOT/SHARED_ROOT or an
+  # env var into the next one, or into the real boot after this returns.
+  resolve_as() { # resolve_as <repo> <shared> [VAR=value ...]
+    local repo="${1%/}" shared="${2%/}"
+    shift 2
+    ( cd "$repo" || exit 1
+      env -u CARGO_TARGET_DIR -u CI "$@" bash -c \
+        'REPO_ROOT="$1" SHARED_ROOT="$2"; eval "$3"; resolve_target_dir; printf "%s" "$TARGET_DIR"' \
+        _ "$repo" "$shared" "$(declare -f has_artifacts canonical_path cargo_config_target_dir resolve_target_dir)" )
+  }
+
+  echo "e2e-stack self-test: cargo target dir (no build, no daemon)"
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "e2e-stack self-test: target-dir checks skipped (cargo not on PATH)"
+    return 0
+  fi
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/e2e-stack-target.XXXXXX")" || return 1
+
+  fake_repo "$tmp/lane"
+  shared="$tmp/main"
+  check "a fresh worktree resolves the main checkout's shared cache" \
+    "$(resolve_as "$tmp/lane" "$shared")" "$shared/.kilo/target-shared"
+  check "resolving creates no private target/ in that worktree" \
+    "$([ -d "$tmp/lane/target" ] && echo created || echo absent)" "absent"
+  check "resolving creates no shared dir either (cargo does, at build time)" \
+    "$([ -d "$shared/.kilo/target-shared" ] && echo created || echo absent)" "absent"
+
+  fake_repo "$tmp/legacy"
+  mkdir -p "$tmp/legacy/target/release"
+  : > "$tmp/legacy/target/release/marker"
+  check "a checkout that already built keeps its own artifacts" \
+    "$(resolve_as "$tmp/legacy" "$shared")" "$tmp/legacy/target"
+
+  mkdir -p "$shared/.kilo/target-shared/release"
+  : > "$shared/.kilo/target-shared/release/marker"
+  check "a populated shared cache wins over a private target/" \
+    "$(resolve_as "$tmp/legacy" "$shared")" "$shared/.kilo/target-shared"
+
+  fake_repo "$tmp/overlay"
+  mkdir -p "$tmp/overlay/.cargo"
+  printf 'include = [{ path = "p13-fast.local.toml", optional = true }]\n' \
+    > "$tmp/overlay/.cargo/config.toml"
+  printf '[build]\ntarget-dir = "%s"\n' "$tmp/overlay-target" \
+    > "$tmp/overlay/.cargo/p13-fast.local.toml"
+  check "a target-dir the cargo config names is honoured (P13 overlay)" \
+    "$(resolve_as "$tmp/overlay" "$shared")" "$tmp/overlay-target"
+
+  check "an exported CARGO_TARGET_DIR is never overridden" \
+    "$(resolve_as "$tmp/legacy" "$shared" CARGO_TARGET_DIR="$tmp/explicit")" "$tmp/explicit"
+  check "CI keeps cargo's default, where a runner's rust cache looks" \
+    "$(resolve_as "$tmp/legacy" "$shared" CI=1)" "$tmp/legacy/target"
+
+  rm -rf "$tmp"
+  if [ "$failures" -eq 0 ]; then
+    echo "e2e-stack self-test: $checks target-dir checks pass"
+    return 0
+  fi
+  echo "e2e-stack self-test: $failures of $checks target-dir checks failed"
+  return 1
+}
+
 # ########## dispatch ##########
 case "${1:-up}" in
   down)
@@ -490,10 +693,18 @@ case "${1:-up}" in
     rc=0
     selftest_teardown || rc=1
     selftest_owner || rc=1
+    selftest_target_dir || rc=1
     exit "$rc"
     ;;
   help|-h|--help)
-    sed -n '1,28p' "$0"; exit 0 ;;
+    sed -n '1,34p' "$0"; exit 0 ;;
+  --print-target-dir|print-target-dir)
+    # The resolver's own surface: two lines, the dir it chose and the rule that
+    # chose it. No docker, no ports, no cargo build, nothing created.
+    resolve_target_dir
+    printf '%s\n%s\n' "$TARGET_DIR" "$TARGET_DIR_WHY"
+    exit 0
+    ;;
 esac
 
 # ########## mode selection ##########
@@ -755,6 +966,17 @@ PY
   }
   trap cleanup_failed_boot EXIT
 fi
+
+# ---------- which cache these builds write into (resolve_target_dir above) ----------
+# Resolved and EXPORTED before the FIRST cargo call in this script — that call is
+# the CLI below, not the core-api build, so the migration/seed compile must not
+# create a private target/ ahead of the resolver and then be "reused" by rule 5.
+# Exporting it means the provenance guard, the builds and `cargo metadata` all
+# name one directory.
+resolve_target_dir
+export CARGO_TARGET_DIR="$TARGET_DIR"
+echo "[e2e-stack] cargo target dir: $CARGO_TARGET_DIR"
+echo "[e2e-stack]   chosen because: $TARGET_DIR_WHY"
 
 ########## migrate + deterministic demo seed (mechanical reseed) ##########
 # The CLI runs in the DEV profile here (plain `cargo run`), so the dev half of

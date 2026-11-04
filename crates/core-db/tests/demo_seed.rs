@@ -660,3 +660,44 @@ async fn seeded_secrets_open_with_the_seed_key() {
     assert_eq!(open(&alert_secret), demo::DEMO_ALERT_HMAC_SECRET.as_bytes());
     assert_eq!(open(&webhook_secret), demo::DEMO_WEBHOOK_SECRET.as_bytes());
 }
+
+/// The seeded rules must parse into the product's typed documents.
+///
+/// `conditions` and `actions` are JSONB, so the seed can store any shape. A
+/// document the worker cannot parse makes `AutomationRule::parse` refuse the
+/// entire rule, and every evaluation skips it with a warn — the demo then
+/// shows automations that never fire. Reading the rows back and
+/// deserializing them is the assertion the JSON shape cannot make on its own,
+/// because a hand-edited literal in the seed bypasses any unit test over the
+/// seed's helpers.
+#[tokio::test]
+async fn seeded_automation_rules_deserialize_as_typed_documents() {
+    let (db, _guard) = fresh_demo_db().await;
+
+    let rules: Vec<(String, serde_json::Value, serde_json::Value)> = sqlx::query_as(
+        "SELECT name, conditions, actions FROM automation_rules WHERE org_id = $1 ORDER BY name",
+    )
+    .bind(DEMO_ORG_ID)
+    .fetch_all(&db.admin)
+    .await
+    .expect("seeded automation rules");
+
+    assert_eq!(rules.len(), 2, "the demo seeds two automation rules");
+    for (name, conditions, actions) in rules {
+        let parsed: Vec<core_domain::automations::AutomationCondition> =
+            serde_json::from_value(conditions.clone()).unwrap_or_else(|e| {
+                panic!("{name}: conditions do not deserialize ({conditions}): {e}")
+            });
+        assert!(
+            !parsed.is_empty(),
+            "{name}: a rule with no condition cannot demonstrate anything"
+        );
+        let parsed: Vec<core_domain::automations::AutomationAction> =
+            serde_json::from_value(actions.clone())
+                .unwrap_or_else(|e| panic!("{name}: actions do not deserialize ({actions}): {e}"));
+        assert!(
+            !parsed.is_empty(),
+            "{name}: a rule with no effect cannot demonstrate anything"
+        );
+    }
+}
