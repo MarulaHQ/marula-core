@@ -33,6 +33,13 @@ async fn register_org(app: &Router, slug: &str) -> String {
     register_org_token(app, "Workflow AI Co", slug).await
 }
 
+/// Registers an org whose slug is unique per run. The database outlives a run,
+/// so a fixed slug answers 409 `org_slug_taken` on the second one.
+async fn register_fresh_org(app: &Router, prefix: &str) -> String {
+    let slug = format!("{prefix}-{}", Uuid::now_v7().simple());
+    register_org(app, &slug).await
+}
+
 async fn me_ids(app: &Router, bearer: &str) -> (Uuid, Uuid) {
     let response = send(app, axum::http::Method::GET, "/api/me", Some(bearer), None).await;
     assert_eq!(response.status(), 200, "auth/me must resolve");
@@ -180,7 +187,7 @@ async fn ledger_rows(pool: &PgPool, org_id: Uuid, user_id: Uuid) -> Vec<Value> {
 #[tokio::test]
 async fn describe_it_returns_a_validated_draft_with_a_diff_and_writes_nothing() {
     let (pool, app) = test_state().await;
-    let owner = register_org(&app, "author-happy").await;
+    let owner = register_fresh_org(&app, "author-happy").await;
     let (user_id, org_id) = me_ids(&app, &owner).await;
     seed_admit_kit(&app, &owner, user_id, "happy").await;
     ChatRunner::seed_transport_for_org(
@@ -227,7 +234,7 @@ async fn describe_it_returns_a_validated_draft_with_a_diff_and_writes_nothing() 
 #[tokio::test]
 async fn a_bad_model_answer_comes_back_typed_and_still_writes_nothing() {
     let (_pool, app) = test_state().await;
-    let owner = register_org(&app, "author-bad").await;
+    let owner = register_fresh_org(&app, "author-bad").await;
     let (user_id, org_id) = me_ids(&app, &owner).await;
     seed_admit_kit(&app, &owner, user_id, "bad").await;
     let bad = json!({
@@ -266,7 +273,7 @@ async fn a_bad_model_answer_comes_back_typed_and_still_writes_nothing() {
 async fn ai_admission_is_the_existing_path() {
     let (_pool, app) = test_state().await;
     // No admit kit: AI features are off by default → typed refusal, not a run.
-    let owner = register_org(&app, "author-refused").await;
+    let owner = register_fresh_org(&app, "author-refused").await;
     let response = author(
         &app,
         &owner,
