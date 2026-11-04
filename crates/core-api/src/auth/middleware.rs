@@ -138,7 +138,7 @@ pub async fn require_auth(
                 || candidate
                     .strip_prefix(p)
                     .is_some_and(|rest| rest.starts_with('/'))
-        }) || crate::mcp_catalog::key_path_allowed(&candidate);
+        });
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),

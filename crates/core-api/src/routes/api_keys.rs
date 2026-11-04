@@ -48,15 +48,16 @@ fn validate_scopes(scopes: &[String]) -> ApiResult<()> {
         ));
     }
     for s in scopes {
-        // Hand-written connector scopes plus the derived MCP read vocabulary
-        // (row A29): one source — packages/sdk/mcp-catalog.json — so a mintable
-        // scope always has a catalog tool and a key-allowed path behind it.
-        if crate::api_scopes::get(s).is_none()
-            && !crate::mcp_catalog::mintable_read_scopes().any(|known| known == s)
-        {
+        // Only the published machine vocabulary is mintable (crate::api_scopes).
+        // The MCP read catalog is deliberately NOT a source here: those
+        // capabilities authorize MCP tools through the org's grant registry,
+        // and the credential that carries a caller's session is a JWT. A
+        // catalog name on an API key authenticated with no permission behind
+        // it, which is what F95 recorded.
+        if crate::api_scopes::get(s).is_none() {
             let known: Vec<&str> = crate::api_scopes::names().collect();
             return Err(ApiError::Validation(format!(
-                "unknown scope {s:?}; known: {} plus the MCP read catalog",
+                "unknown scope {s:?}; known: {}",
                 known.join(", ")
             )));
         }
@@ -229,4 +230,41 @@ pub async fn revoke(
     .await?;
     tx.commit().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_scopes;
+
+    /// The published vocabulary is the mintable vocabulary. A scope the
+    /// document names but this endpoint refuses would be a contract that
+    /// cannot be exercised; the reverse is F95.
+    #[test]
+    fn every_published_scope_is_mintable() {
+        for scope in crate::api_scopes::names() {
+            assert!(
+                validate_scopes(&[scope.to_string()]).is_ok(),
+                "{scope} is published but this endpoint refuses it"
+            );
+        }
+    }
+
+    /// A catalog capability authorizes an MCP tool through the grant
+    /// registry, not through a key. Minting one used to succeed and produce a
+    /// key that authenticated with no permission behind it.
+    #[test]
+    fn a_catalog_capability_is_not_mintable() {
+        let error = validate_scopes(&["invoices:read".to_string()])
+            .expect_err("invoices:read is a grant, not a key scope");
+        let message = error.to_string();
+        assert!(
+            message.contains("unknown scope"),
+            "the refusal must name the vocabulary, got: {message}"
+        );
+    }
+
+    #[test]
+    fn an_empty_scope_list_is_refused() {
+        assert!(validate_scopes(&[]).is_err());
+    }
 }
