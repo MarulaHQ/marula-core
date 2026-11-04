@@ -36,6 +36,13 @@
 //! Database selection follows the worker-test contract:
 //! `MARULA_TEST_DATABASE_URL` or `DATABASE_URL`, schema reset once per process.
 //! Redis is `REDIS_URL` or `redis://localhost:6379`.
+//!
+//! That Redis must be this binary's alone. A second consumer in `webhooks-out`
+//! is exactly what the group is built for, and exactly what breaks these
+//! phases: a live `worker` process on the same server reads with `>` between
+//! the phase's publish and its own read, and the phase then finds nothing to
+//! take. Point `REDIS_URL` at a Valkey of this run's own (`scripts/gate-db.sh
+//! up`) and never at a running stack's.
 
 use core_events::{Envelope, EVENT_STREAM};
 use redis::streams::{StreamClaimOptions, StreamClaimReply, StreamReadOptions, StreamReadReply};
@@ -192,6 +199,52 @@ async fn stream_len(conn: &mut redis::aio::MultiplexedConnection) -> i64 {
         .expect("xlen")
 }
 
+/// The group's own account of itself, rendered for a `>` read that came back
+/// empty.
+///
+/// `>` returns nothing for two reasons only. Either the group's cursor is
+/// already at the tail — `lag` is 0 and `last-delivered-id` is the newest entry
+/// the stream holds — or the entry was delivered to some consumer before this
+/// read, and only a consumer moves that cursor. The consumer list is what names
+/// the second case, which is the one worth printing: an idle consumer holding
+/// the entry is a sibling this binary did not start.
+async fn group_state(conn: &mut redis::aio::MultiplexedConnection) -> String {
+    let entries = stream_len(conn).await;
+    let groups: redis::streams::StreamInfoGroupsReply = match conn.xinfo_groups(EVENT_STREAM).await
+    {
+        Ok(reply) => reply,
+        Err(error) => {
+            return format!("stream holds {entries} entries; xinfo groups failed: {error}")
+        }
+    };
+    let Some(group) = groups.groups.iter().find(|group| group.name == GROUP) else {
+        return format!("stream holds {entries} entries and has no {GROUP} group");
+    };
+    let consumers: redis::streams::StreamInfoConsumersReply =
+        match conn.xinfo_consumers(EVENT_STREAM, GROUP).await {
+            Ok(reply) => reply,
+            Err(error) => return format!("{GROUP} cursor: xinfo consumers failed: {error}"),
+        };
+    let owners: Vec<String> = consumers
+        .consumers
+        .iter()
+        .map(|owner| {
+            format!(
+                "{} ({} pending, idle {} ms)",
+                owner.name, owner.pending, owner.idle
+            )
+        })
+        .collect();
+    format!(
+        "stream holds {entries} entries; {GROUP} is at last-delivered-id {} \
+         with {} pending and lag {:?}; consumers: [{}]",
+        group.last_delivered_id,
+        group.pending,
+        group.lag,
+        owners.join(", ")
+    )
+}
+
 /// One org plus one human-created subscription for [`EVENT_TYPE`].
 async fn seed_subscription(pool: &PgPool, org: Uuid, webhook: Uuid) {
     let mut tx = pool.begin().await.expect("begin seed");
@@ -341,7 +394,12 @@ async fn a_restart_redelivers_only_the_unacked_entries() {
         .await
         .expect("deliver to the group");
     let handed_over = delivered.keys.into_iter().flat_map(|key| key.ids).count();
-    assert_eq!(handed_over, 1, "the group must take the new entry");
+    assert_eq!(
+        handed_over,
+        1,
+        "the group must take the new entry; {}",
+        group_state(&mut seed).await
+    );
     assert_eq!(
         pending_ids(&mut seed, CONSUMER_A).await.len(),
         1,
@@ -441,7 +499,8 @@ async fn consumer_names_split_the_pending_list_and_idle_entries_are_claimed() {
     assert_eq!(
         delivered_ids.len(),
         1,
-        "the group must hand the new entry to CONSUMER_B"
+        "the group must hand the new entry to CONSUMER_B; {}",
+        group_state(&mut seed).await
     );
     let delivered_id = delivered_ids[0].clone();
     assert_eq!(
