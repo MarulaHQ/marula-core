@@ -59,31 +59,33 @@ pub async fn serve<S: Backend>(server: Server<S>) -> anyhow::Result<()> {
 
 /// Builds the stdio server from environment wiring:
 /// - `MARULA_API_BASE` — core-api base URL (default loopback:8080);
-/// - `MARULA_API_KEY` — the machine key whose capability grants scope
-///   the catalog;
+/// - `MARULA_API_TOKEN` — the caller's session token. The adapter holds no
+///   credential of its own; this one is forwarded on every read, and the
+///   capability list is read from `GET /api/v1/me` under it. Access tokens
+///   are short-lived, so a long-running session restarts the adapter with a
+///   fresh token rather than the adapter keeping a refresh chain;
 /// - `MARULA_OPENAPI` — optional spec path override for local iteration
 ///   (default: the snapshot embedded at build time).
 pub async fn serve_from_env() -> anyhow::Result<()> {
     let base =
         std::env::var("MARULA_API_BASE").unwrap_or_else(|_| crate::tools::DEFAULT_API_BASE.into());
-    let key = std::env::var("MARULA_API_KEY").ok();
-    let mut backend = crate::tools::CoreApiBackend::new(&base);
-    if let Some(k) = &key {
-        backend = backend.with_service_key(k);
-    }
+    let token = std::env::var("MARULA_API_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty());
+    let backend = match &token {
+        Some(token) => crate::tools::CoreApiBackend::new(&base).with_token(token),
+        None => crate::tools::CoreApiBackend::new(&base),
+    };
     let spec: serde_json::Value = match std::env::var("MARULA_OPENAPI") {
-        Ok(path) => serde_json::from_str(&std::fs::read_to_string(&path)?)?,
+        Ok(path) => serde_json::from_str(&std::fs::read_to_string(path)?)?,
         Err(_) => crate::openapi_spec(),
     };
-    let granted = match &key {
-        Some(k) => backend.granted_capabilities(k).await,
-        None => Vec::new(),
-    };
-    let granted_set: std::collections::HashSet<String> = granted.into_iter().collect();
-    let scoped = ScopedBackend::new(backend, granted_set.clone());
+    let granted: std::collections::HashSet<String> =
+        backend.granted_capabilities().await.into_iter().collect();
+    let scoped = ScopedBackend::new(backend, granted.clone());
     let tools = crate::catalog::filter_granted(
         crate::catalog::build_catalog(&spec, &crate::mcp_catalog_spec()),
-        &granted_set,
+        &granted,
     );
     let server = Server::new(scoped, tools);
     serve(server).await

@@ -4,9 +4,9 @@
 //! - `mcp-server` (no args) — stdio JSON-RPC, the canonical MCP transport;
 //! - `mcp-server serve-http` — JSON-RPC over HTTP at `/mcp` for local dev.
 //!
-//! Env wiring: `MARULA_API_BASE` (core-api URL), `MARULA_API_KEY`
-//! (the machine key whose capability grants scope the catalog),
-//! `MARULA_OPENAPI` (spec snapshot path override).
+//! Env wiring: `MARULA_API_BASE` (core-api URL), `MARULA_API_TOKEN`
+//! (the caller's session token, forwarded on every read; the adapter holds
+//! no credential of its own), `MARULA_OPENAPI` (spec snapshot path override).
 //!
 //! Reads only: write tools are Stage 4–5; agent-authored changes enter
 //! through the IF8 proposal pipeline, never a direct MCP write.

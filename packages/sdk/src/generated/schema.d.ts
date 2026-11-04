@@ -6061,7 +6061,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/me — the authenticated principal with resolved permissions. */
+        /**
+         * GET /api/me — the authenticated principal with resolved permissions.
+         * @description The response carries the org's granted MCP capability names as well, so an
+         *     MCP adapter serving this session filters its tool list from the caller's
+         *     own context instead of an admin-gated org endpoint. The list is policy, not
+         *     data: it names what the org enabled, and the caller's permissions still
+         *     decide every read.
+         */
         get: operations["handlers_me"];
         put?: never;
         post?: never;
@@ -22650,6 +22657,12 @@ export interface components {
         MeResponse: {
             display_name: string;
             email: string;
+            /**
+             * @description Capability names this org has granted to the MCP read surface
+             *     (`GET /api/v1/mcp/capabilities`, admin-only). Returned here so a
+             *     session's adapter can filter tools without an admin credential.
+             */
+            mcp_capabilities: string[];
             /** Format: uuid */
             org_id: string;
             permissions: string[];

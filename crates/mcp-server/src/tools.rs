@@ -1,9 +1,10 @@
 //! Tool execution: proxy each derived read tool onto core-api with the
-//! adapter's service credentials. The adapter holds NO database
-//! connection — every proxied request carries the `x-api-key` the
-//! process was wired with (`MARULA_API_KEY`), and core-api re-checks
-//! that key's scopes and the org's RLS on every call (defense in depth).
-//! Without a key the proxy still sends, but core-api answers 401 for
+//! caller's own session token. The adapter holds NO database connection
+//! and no credential of its own: every proxied request carries the
+//! `Authorization: Bearer` the transport received (an HTTP header, or
+//! `MARULA_API_TOKEN` for stdio), and core-api re-checks that principal's
+//! permissions and the org's RLS on every call (defense in depth).
+//! Without a token the proxy still sends, and core-api answers 401 for
 //! every read — exactly what an unwired adapter deserves.
 
 use crate::catalog::{query_string, resolve_path, Tool};
@@ -51,10 +52,10 @@ pub trait Backend: Send + Sync + 'static {
 pub struct CoreApiBackend {
     pub base_url: String,
     pub client: reqwest::Client,
-    /// The machine key (`MARULA_API_KEY`) attached to every proxied call.
+    /// The caller's session token, attached to every proxied call.
     /// `None` on a deliberately unwired adapter (tests, stubs) — core-api
     /// then refuses each read with 401, never data.
-    pub service_key: Option<String>,
+    pub token: Option<String>,
 }
 
 impl CoreApiBackend {
@@ -62,40 +63,46 @@ impl CoreApiBackend {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             client: reqwest::Client::new(),
-            service_key: None,
+            token: None,
         }
     }
 
-    /// Builder: wire the service key used for capability resolution AND
-    /// attached to every subsequent proxied tool call.
-    pub fn with_service_key(mut self, key: &str) -> Self {
-        self.service_key = Some(key.to_string());
+    /// Builder: wire the caller's session token. It is forwarded as a
+    /// bearer credential on the capability read and on every tool call,
+    /// so core-api authorizes the human behind the session, not the adapter.
+    pub fn with_token(mut self, token: &str) -> Self {
+        self.token = Some(token.to_string());
         self
     }
 
-    /// Resolves the org's granted capabilities from the registry via the
-    /// admin surface (the adapter's service key), for `tools/list`
-    /// filtering. An unreachable registry degrades to NO capabilities —
-    /// deny-by-default holds.
-    pub async fn granted_capabilities(&self, service_key: &str) -> Vec<String> {
+    /// Resolves the org's granted capabilities from `GET /api/v1/me`, which
+    /// returns them beside the caller's permissions. An unreachable api or a
+    /// refused token degrades to NO capabilities — deny-by-default holds.
+    pub async fn granted_capabilities(&self) -> Vec<String> {
+        let Some(token) = &self.token else {
+            return Vec::new();
+        };
         let Ok(resp) = self
             .client
-            .get(format!("{}/api/v1/mcp/capabilities", self.base_url))
-            .header("x-api-key", service_key)
+            .get(format!("{}/api/v1/me", self.base_url))
+            .bearer_auth(token)
             .send()
             .await
         else {
             return Vec::new();
         };
+        if !resp.status().is_success() {
+            return Vec::new();
+        }
         let Ok(body) = resp.json::<Value>().await else {
             return Vec::new();
         };
-        body.get("grants")
+        body.get("mcp_capabilities")
             .and_then(Value::as_array)
             .map(|grants| {
                 grants
                     .iter()
-                    .filter_map(|g| g.get("capability").and_then(Value::as_str))
+                    .filter_map(Value::as_str)
                     .filter_map(|c| c.strip_suffix(":read").map(|ns| ns.to_string()))
                     .collect()
             })
@@ -112,8 +119,8 @@ impl Backend for CoreApiBackend {
         let query = query_string(tool, args);
         let url = format!("{}{}{}", self.base_url, path, query);
         let mut request = self.client.get(&url).header("accept", "application/json");
-        if let Some(key) = &self.service_key {
-            request = request.header("x-api-key", key);
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
         }
         let resp = request
             .send()

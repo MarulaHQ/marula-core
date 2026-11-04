@@ -138,7 +138,7 @@ pub async fn require_auth(
                 || candidate
                     .strip_prefix(p)
                     .is_some_and(|rest| rest.starts_with('/'))
-        }) || crate::mcp_catalog::key_path_allowed(&candidate);
+        });
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),
@@ -286,8 +286,10 @@ pub async fn require_auth(
 /// `/api/imports` is the deliberate mutation exception (the private build tracker D2/D3):
 /// scoped migration pushes are a documented machine flow, gated in-handler
 /// by scope checks on top of this prefix allowance. `/api/agent-proposals`
-/// is the IF8 machine flow: agents file proposals (never direct writes)
-/// through keys, gated by the capability registry inside the handlers.
+/// is deliberately absent: it is the IF8 machine flow, and its handlers need
+/// the Admin matrix, which no mintable scope grants. A key was accepted there
+/// and refused two layers down, so the allowance is gone until a scope exists
+/// that the gate actually checks.
 /// `/api/migration` is the D3 connector surface (push + pull), scoped by
 /// `migration:*` keys. `/api/orgs` is the Wave 47 A6 usage/quota monitoring
 /// read (scoped by `org_usage:read`) plus A7's suspension notice
@@ -301,9 +303,6 @@ const API_KEY_PATHS: &[&str] = &[
     "/api/tickets",
     "/api/clients",
     "/api/imports",
-    // The IF8 machine flow accepts keys on BOTH mounts (legacy + v1).
-    "/api/agent-proposals",
-    "/api/v1/agent-proposals",
     "/api/migration",
     // The dispatch connector (Wave 9 lane 9): scoped schedule reads +
     // field-service status pushes; handlers gate on `dispatch:*` scopes.

@@ -69,6 +69,11 @@ pub const CODE_INVALID_PARAMS: i64 = -32602;
 pub const CODE_CAPABILITY_DENIED: i64 = -32001;
 pub const CODE_UPSTREAM: i64 = -32002;
 
+/// The one protocol revision this adapter speaks. A client asking for
+/// another revision is told this one, as the specification requires; the
+/// server never echoes a version it does not implement.
+pub const SUPPORTED_PROTOCOL: &str = "2025-03-26";
+
 /// Transport-neutral protocol engine: request in, response out. `S` is
 /// the tool-calling backend (the core-api proxy). Cheaply clonable (the
 /// backend rides an `Arc`) so the HTTP transport can hold it as state.
@@ -111,7 +116,7 @@ impl<S: super::tools::Backend> Server<S> {
             "initialize" => Some(RpcResponse::ok(
                 id,
                 json!({
-                    "protocolVersion": req.params.get("protocolVersion").cloned().unwrap_or(json!("2025-03-26")),
+                    "protocolVersion": SUPPORTED_PROTOCOL,
                     "capabilities": { "tools": {} },
                     "serverInfo": self.server_info,
                 }),
