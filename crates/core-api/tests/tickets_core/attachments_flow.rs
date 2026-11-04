@@ -1519,7 +1519,11 @@ async fn a_deployment_without_a_scanner_still_streams_an_unscanned_object() {
         "this half of the rule is the none-mode deployment"
     );
     let app = core_api::routes::build_router(state.clone());
-    let org = seed_org(&app, "presign-unscanned").await;
+    // Per run, not a constant: `portal_token_for` signs in by email, and the
+    // portal login resolves an address across orgs, so a fixed tag would sign
+    // this run into an earlier run's org.
+    let tag = Uuid::now_v7().simple().to_string();
+    let org = seed_org(&app, &tag).await;
     let uploaded = upload_png(&app, &org).await;
     let org_id = org_of_ticket(&app, &org.token, &org.ticket_a).await;
     // Surfaced through a client-visible note, so the portal list has a reason
@@ -1537,7 +1541,7 @@ async fn a_deployment_without_a_scanner_still_streams_an_unscanned_object() {
     )
     .await;
     assert_eq!(comment.status(), 200, "linking the attachment to a note");
-    let portal_token = portal_token_for(&app, &org, "presign-unscanned").await;
+    let portal_token = portal_token_for(&app, &org, &tag).await;
     delete_verdict(&state, org_id, &uploaded.sha256).await;
 
     let staff_list = body_json(
@@ -1643,8 +1647,10 @@ async fn admit_object(state: &AppState, org_id: Uuid, sha: &str, storage_key: &s
 }
 
 /// Exposes the default board to client A and signs a fresh portal contact in.
-/// The tag becomes the contact's email, so two runs never collide on the
-/// login `LIMIT 1`.
+/// The tag becomes the contact's email, and it MUST be unique per run: the
+/// portal login resolves an address across orgs with `portal_resolve_login`'s
+/// `LIMIT 1`, so a constant tag signs a later run into an earlier run's org
+/// and every portal read answers with that org's 404.
 async fn portal_token_for(app: &Router, org: &Org, tag: &str) -> String {
     let boards = body_json(
         send_json(

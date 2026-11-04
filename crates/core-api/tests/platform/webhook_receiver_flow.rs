@@ -73,6 +73,26 @@ fn sig(value: &str) -> (&'static str, String) {
     )
 }
 
+/// The org this run created, read through the door the API exposes for it.
+/// Callers scope raw SQL by it: the test database outlives a run, and a count
+/// with no org predicate adds up every earlier run's rows.
+async fn me_org_id(app: &Router, token: &str) -> Uuid {
+    let response = send(
+        app,
+        axum::http::Method::GET,
+        "/api/v1/me",
+        &[auth(token)],
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "/me must resolve the caller's org");
+    body_json(response).await["org_id"]
+        .as_str()
+        .expect("org id")
+        .parse()
+        .expect("org uuid")
+}
+
 async fn create_board(app: &Router, token: &str, name: &str) -> Uuid {
     let response = send(
         app,
@@ -353,6 +373,7 @@ async fn replay_returns_duplicate() {
     let app = core_api::routes::build_router(state.clone());
     let slug = format!("webhook-dedup-{}", Uuid::now_v7().simple());
     let token = register_org(&app, &slug).await;
+    let org_id = me_org_id(&app, &token).await;
     let board = create_board(&app, &token, "Dedup Board").await;
     let gs = create_generic_source(
         &app,
@@ -390,10 +411,14 @@ async fn replay_returns_duplicate() {
     assert_eq!(resp["status"], "duplicate", "replay returns duplicate");
     assert!(resp["event_id"].is_null(), "no new event_id for duplicate");
 
-    // Outbox should still have exactly 1 event for this dedup_key.
+    // Outbox should still have exactly 1 event for this dedup_key. Scoped to
+    // the org this run created: a fixed `entity_id` alone would also count the
+    // rows earlier runs left behind.
     let count: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM outbox_events WHERE entity = 'webhook' AND payload->>'entity_id' = 'user-1'",
+        "SELECT COUNT(*) FROM outbox_events \
+         WHERE org_id = $1 AND entity = 'webhook' AND payload->>'entity_id' = 'user-1'",
     )
+    .bind(org_id)
     .fetch_one(&state.pool)
     .await
     .expect("count");
