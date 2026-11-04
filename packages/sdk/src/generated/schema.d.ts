@@ -17403,8 +17403,16 @@ export interface components {
         };
         CreateApiKeyRequest: {
             name: string;
-            /** @description Capability scopes from [`crate::api_scopes`]. */
+            /**
+             * @description Capability scopes from [`crate::api_scopes`]. Must be empty when the
+             *     key is bound to a service account: the account's own keys decide.
+             */
             scopes: string[];
+            /**
+             * Format: uuid
+             * @description Bind the key to a service account, making it that agent.
+             */
+            service_account_id?: string | null;
         };
         CreateAppointmentRequest: {
             /** Format: uuid */
@@ -22857,6 +22865,8 @@ export interface components {
             /** Format: uuid */
             org_id: string;
             permissions: string[];
+            /** @description `user` for a human session, `agent` for a service-account key. */
+            subject: string;
             timezone: string;
             /** Format: uuid */
             user_id: string;

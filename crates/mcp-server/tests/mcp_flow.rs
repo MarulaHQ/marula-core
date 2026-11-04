@@ -10,10 +10,15 @@ use tower::ServiceExt;
 const TOKEN: &str = "session-token";
 
 fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
-    headers
+    let bearer = headers
         .get("authorization")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value == format!("Bearer {TOKEN}"))
+        .is_some_and(|value| value == format!("Bearer {TOKEN}"));
+    let key = headers
+        .get("x-api-key")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == TOKEN);
+    bearer || key
 }
 
 /// A stub of the core-api surface the adapter reads and proxies onto. It

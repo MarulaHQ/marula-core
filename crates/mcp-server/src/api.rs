@@ -43,16 +43,25 @@ impl CoreApi {
         }
     }
 
+    /// Attaches the caller's credential in the shape core-api expects: a JWT
+    /// rides `Authorization`, an API key (the `mrl_` form) rides `x-api-key`.
+    fn authenticated(
+        &self,
+        request: reqwest::RequestBuilder,
+        token: &str,
+    ) -> reqwest::RequestBuilder {
+        if token.matches('.').count() == 2 {
+            request.bearer_auth(token)
+        } else {
+            request.header("x-api-key", token)
+        }
+    }
+
     /// The caller's session context, or `None` when the token is refused or the
     /// api is unreachable. A caller with no context sees no tools.
     pub async fn session(&self, token: &str) -> Option<SessionContext> {
-        let response = self
-            .client
-            .get(format!("{}/api/v1/me", self.base_url))
-            .bearer_auth(token)
-            .send()
-            .await
-            .ok()?;
+        let request = self.client.get(format!("{}/api/v1/me", self.base_url));
+        let response = self.authenticated(request, token).send().await.ok()?;
         if !response.status().is_success() {
             return None;
         }
@@ -62,11 +71,12 @@ impl CoreApi {
     /// Proxies one read. `path` already carries the resolved parameters and
     /// `query` the encoded filters.
     pub async fn get(&self, path: &str, query: &str, token: &str) -> Result<Value, UpstreamError> {
-        let response = self
+        let request = self
             .client
             .get(format!("{}{}{}", self.base_url, path, query))
-            .bearer_auth(token)
-            .header("accept", "application/json")
+            .header("accept", "application/json");
+        let response = self
+            .authenticated(request, token)
             .send()
             .await
             .map_err(|error| UpstreamError {

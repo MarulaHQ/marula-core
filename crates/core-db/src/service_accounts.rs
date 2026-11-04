@@ -304,6 +304,31 @@ where
     Ok(row.map(service_account_from))
 }
 
+/// One active service account by id, for a key bound to it. Runs before any
+/// org is bound, so it rides the SECURITY DEFINER lookup with the same
+/// active/status/expiry filter as the certificate path.
+pub async fn find_active_service_account_by_id<'e, E>(
+    executor: E,
+    id: Uuid,
+) -> DbResult<Option<ServiceAccountRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let row = sqlx::query_as!(
+        ServiceAccountRecord,
+        r#"SELECT id AS "id!", org_id AS "org_id!", name AS "name!",
+                  cert_fingerprint AS "cert_fingerprint!", cert_subject,
+                  scopes AS "scopes!", status AS "status!",
+                  expires_at, revoked_at, revocation_reason, last_used_at, created_by,
+                  created_at AS "created_at!"
+           FROM service_account_key_lookup($1)"#,
+        id,
+    )
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(service_account_from))
+}
+
 /// Throttled last-used stamp: at most one write per `min_interval_secs`
 /// per account. Rides the SECURITY DEFINER function because the auth path
 /// runs before any org is bound (same seam as the api-key seam).

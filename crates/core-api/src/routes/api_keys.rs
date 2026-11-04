@@ -101,8 +101,12 @@ pub struct ApiKeyList {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateApiKeyRequest {
     pub name: String,
-    /// Capability scopes from [`crate::api_scopes`].
+    /// Capability scopes from [`crate::api_scopes`]. Must be empty when the
+    /// key is bound to a service account: the account's own keys decide.
     pub scopes: Vec<String>,
+    /// Bind the key to a service account, making it that agent.
+    #[serde(default)]
+    pub service_account_id: Option<Uuid>,
 }
 
 /// The ONLY response carrying raw key material. Lost keys are rotated by
@@ -151,7 +155,31 @@ pub async fn create(
     if name.is_empty() || name.len() > 120 {
         return Err(ApiError::Validation("name must be 1..=120 chars".into()));
     }
-    validate_scopes(&req.scopes)?;
+    let service_account_id = match req.service_account_id {
+        Some(account_id) => {
+            let account = core_db::service_accounts::find_active_service_account_by_id(
+                &state.pool,
+                account_id,
+            )
+            .await?
+            .ok_or_else(|| ApiError::Validation("service account is not active".into()))?;
+            if account.org_id != org_id {
+                return Err(ApiError::Validation(
+                    "service account belongs to another organization".into(),
+                ));
+            }
+            if !req.scopes.is_empty() {
+                return Err(ApiError::Validation(
+                    "a service-account key takes the account's permissions; omit scopes".into(),
+                ));
+            }
+            Some(account_id)
+        }
+        None => {
+            validate_scopes(&req.scopes)?;
+            None
+        }
+    };
 
     // 128 bits of entropy is plenty for an offline-verifiable token.
     let raw_key = format!("mrl_{}", uuid::Uuid::now_v7().simple());
@@ -169,6 +197,7 @@ pub async fn create(
         &prefix,
         &req.scopes,
         user_id,
+        service_account_id,
     )
     .await?;
     core_db::audit::insert(

@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\", org_id AS \"org_id!\", name AS \"name!\",\n                  cert_fingerprint AS \"cert_fingerprint!\", cert_subject,\n                  scopes AS \"scopes!\", status AS \"status!\",\n                  expires_at, revoked_at, revocation_reason, last_used_at, created_by,\n                  created_at AS \"created_at!\"\n           FROM service_account_key_lookup($1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "cert_fingerprint!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "cert_subject",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "scopes!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "revoked_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "revocation_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_used_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "315d780abb32f49b7459761dc024b972547574b0947ade58cbdb7061cbd47b5f"
+}
