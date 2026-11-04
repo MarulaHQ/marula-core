@@ -1,92 +1,23 @@
-//! stdio JSON-RPC transport: the canonical MCP transport. One JSON-RPC
-//! message per line (newline-delimited), responses echoed to stdout,
-//! telemetry to stderr.
+//! stdio transport: `rmcp`'s io service over stdin/stdout.
+//!
+//! The caller's session token arrives as `MARULA_API_TOKEN`. Access tokens are
+//! short-lived, so a long session restarts the adapter with a fresh one rather
+//! than the adapter keeping a refresh chain it would then have to protect.
 
-use crate::protocol::{RpcRequest, Server};
-use crate::tools::{Backend, ScopedBackend};
-use std::io::{BufRead, Write};
-use tokio::sync::mpsc;
+use crate::marula::MarulaServer;
+use rmcp::{transport::stdio, ServiceExt};
 
-/// Serves one stdio session to completion. `granted_namespaces` pre-filters
-/// the catalog (capability registry); every tool call additionally
-/// re-checks core-side via the caller's credentials.
-pub async fn serve<S: Backend>(server: Server<S>) -> anyhow::Result<()> {
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-    // Blocking stdin reads on a dedicated thread; line-delimited frames.
-    std::thread::spawn(move || {
-        let stdin = std::io::stdin();
-        let mut lock = stdin.lock();
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match lock.read_line(&mut line) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    if tx.send(line.trim().to_string()).is_err() {
-                        break;
-                    }
-                }
-            }
-        }
-    });
-
-    while let Some(line) = rx.recv().await {
-        if line.is_empty() {
-            continue;
-        }
-        let response = match serde_json::from_str::<RpcRequest>(&line) {
-            Ok(req) => {
-                let Some(resp) = server.handle(req).await else {
-                    continue;
-                };
-                resp
-            }
-            Err(e) => {
-                // Unparseable frame: JSON-RPC id-less parse error.
-                crate::protocol::RpcResponse::err(
-                    crate::protocol::RequestId::Number(0),
-                    -32700,
-                    format!("parse error: {e}"),
-                )
-            }
-        };
-        let mut stdout = std::io::stdout().lock();
-        writeln!(stdout, "{}", serde_json::to_string(&response)?)?;
-        stdout.flush()?;
-    }
-    Ok(())
-}
-
-/// Builds the stdio server from environment wiring:
-/// - `MARULA_API_BASE` — core-api base URL (default loopback:8080);
-/// - `MARULA_API_TOKEN` — the caller's session token. The adapter holds no
-///   credential of its own; this one is forwarded on every read, and the
-///   capability list is read from `GET /api/v1/me` under it. Access tokens
-///   are short-lived, so a long-running session restarts the adapter with a
-///   fresh token rather than the adapter keeping a refresh chain;
-/// - `MARULA_OPENAPI` — optional spec path override for local iteration
-///   (default: the snapshot embedded at build time).
 pub async fn serve_from_env() -> anyhow::Result<()> {
-    let base =
-        std::env::var("MARULA_API_BASE").unwrap_or_else(|_| crate::tools::DEFAULT_API_BASE.into());
+    let base = std::env::var("MARULA_API_BASE").unwrap_or_else(|_| crate::DEFAULT_API_BASE.into());
     let token = std::env::var("MARULA_API_TOKEN")
         .ok()
-        .filter(|t| !t.trim().is_empty());
-    let backend = match &token {
-        Some(token) => crate::tools::CoreApiBackend::new(&base).with_token(token),
-        None => crate::tools::CoreApiBackend::new(&base),
-    };
+        .filter(|token| !token.trim().is_empty());
     let spec: serde_json::Value = match std::env::var("MARULA_OPENAPI") {
         Ok(path) => serde_json::from_str(&std::fs::read_to_string(path)?)?,
         Err(_) => crate::openapi_spec(),
     };
-    let granted: std::collections::HashSet<String> =
-        backend.granted_capabilities().await.into_iter().collect();
-    let scoped = ScopedBackend::new(backend, granted.clone());
-    let tools = crate::catalog::filter_granted(
-        crate::catalog::build_catalog(&spec, &crate::mcp_catalog_spec()),
-        &granted,
-    );
-    let server = Server::new(scoped, tools);
-    serve(server).await
+    let server = MarulaServer::new(&base, &spec, &crate::mcp_catalog_spec(), token);
+    let service = server.serve(stdio()).await?;
+    service.waiting().await?;
+    Ok(())
 }
