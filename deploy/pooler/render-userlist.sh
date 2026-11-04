@@ -19,7 +19,11 @@
 # live here and in the README instead of inside the output.
 #
 # Usage: render-userlist.sh [output-path]   (default /auth/userlist.txt)
-# Reads: POSTGRES_PASSWORD (owner role), MARULA_APP_PASSWORD (app role)
+# Reads: POSTGRES_PASSWORD (owner role), MARULA_APP_PASSWORD (app role),
+#        POOLER_OWNER_ROLE / POOLER_APP_ROLE (role names; default `marula` and
+#        `marula_app`, which is what the compose shape creates). A deployment
+#        shaped differently — the e2e stack's scratch database is owned by
+#        `postgres` — passes the names its database actually has.
 # Writes: that one file, mode 644, atomically (via a temporary beside it).
 set -eu
 
@@ -65,8 +69,8 @@ trap 'rm -f "$tmp"' EXIT INT TERM
 # credentials in memory, and nowhere else — the volume is not a host path.
 umask 022
 {
-	printf '"marula" "%s"\n' "$(escape "$POSTGRES_PASSWORD")"
-	printf '"marula_app" "%s"\n' "$(escape "$MARULA_APP_PASSWORD")"
+	printf '"%s" "%s"\n' "${POOLER_OWNER_ROLE:-marula}" "$(escape "$POSTGRES_PASSWORD")"
+	printf '"%s" "%s"\n' "${POOLER_APP_ROLE:-marula_app}" "$(escape "$MARULA_APP_PASSWORD")"
 } >"$tmp"
 
 # Rename, so a pooler restarted mid-write never reads half a file.

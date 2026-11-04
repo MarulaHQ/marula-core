@@ -686,7 +686,10 @@ if [ "${MODE:-}" = "isolated" ]; then
     } > "$POOLER_DIR/pgbouncer.ini"
     # The auth file is rendered, never checked in (F65), by the same script the
     # compose stack runs. The passwords are this scratch container's own values.
-    POSTGRES_PASSWORD=postgres MARULA_APP_PASSWORD=marula_app \
+    # The scratch database's owner is `postgres` (the compose stack's is
+    # `marula`), and the pooler can only authenticate a role the file names, so
+    # the owner role is passed through rather than assumed.
+    POSTGRES_PASSWORD=postgres MARULA_APP_PASSWORD=marula_app POOLER_OWNER_ROLE=postgres \
       sh "$REPO_ROOT/deploy/pooler/render-userlist.sh" "$POOLER_DIR/userlist.txt" >/dev/null 2>&1 \
       || die "could not render the PgBouncer auth file (deploy/pooler/render-userlist.sh)"
     docker rm -f "marula-e2e-pgbouncer-$RUN_ID" >/dev/null 2>&1 || true
@@ -791,6 +794,14 @@ fi
 # copy is taken before core-api or the worker start, which is the only moment
 # the template can have no other connections.
 TEST_DB_NAME="${DB_NAME}_test"
+# A pooler profile keeps idle server connections open to the template, and
+# Postgres refuses to copy a database that has any. Nothing user-facing is
+# attached yet, so closing them is safe and PgBouncer reconnects on demand.
+if [ "$DB_PROFILE" = "pooler" ]; then
+  docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -d postgres -c \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+      WHERE datname = '$DB_NAME' AND pid <> pg_backend_pid()" >/dev/null 2>&1 || true
+fi
 if ! docker exec "marula-e2e-pg-$RUN_ID" psql -U postgres -d postgres \
       -c "CREATE DATABASE \"$TEST_DB_NAME\" TEMPLATE \"$DB_NAME\"" >/dev/null 2>&1; then
   # Already existing is fine (re-running `up` against a kept container).
