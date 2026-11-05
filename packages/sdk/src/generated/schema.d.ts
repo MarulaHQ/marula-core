@@ -14901,6 +14901,12 @@ export interface components {
             usage: components["schemas"]["AuthorUsage"];
             /** @description True when `draft` is present and passed the save/run boundary. */
             valid: boolean;
+            /**
+             * @description What the data check did: the classes it checked, every round, what a
+             *     repair cleared, and the findings that survive. A draft with findings is
+             *     handed back with them named, never presented as clean.
+             */
+            verification: components["schemas"]["DraftVerification"];
         };
         AuthorUsage: {
             /** Format: int32 */
@@ -20315,6 +20321,45 @@ export interface components {
              *     keeps the byte contract untouched.
              */
             presign?: boolean;
+        };
+        /**
+         * @description One check that could not be passed, as data rather than prose.
+         *
+         *     The `kind` reuses the card contract's slugs where they exist
+         *     (`no_rows`, `no_headers`, `no_scalar`, `window_wider_than_refresh`,
+         *     `refresh_slower_than_window`, `invalid_card`, …), so a reviewer and a
+         *     client read one vocabulary for a registry refusal and a data failure alike.
+         */
+        DraftFinding: {
+            /**
+             * @description The dashboard card this finding belongs to, zero-based. `None` for a
+             *     report, which draws one card.
+             */
+            card_index?: number | null;
+            /** @description A stable machine class. */
+            kind: string;
+            /** @description One sentence a reviewer can act on. */
+            message: string;
+        };
+        /**
+         * @description Everything the verification did, as the reviewer reads it: what was
+         *     checked, how many rounds it took, what the loop repaired, and what it could
+         *     not. Empty `findings` is the only clean answer.
+         */
+        DraftVerification: {
+            /** @description Every round, in order. */
+            attempts: components["schemas"]["VerificationAttempt"][];
+            /** @description The classes that were checked, in the reviewer's words. */
+            checked: string[];
+            /** @description Findings that survive. Empty is the only clean answer. */
+            findings: components["schemas"]["DraftFinding"][];
+            /**
+             * @description True when a verifier ran. False means nothing was checked — the draft
+             *     is not reported as verified.
+             */
+            ran: boolean;
+            /** @description Findings an earlier round produced and a repair cleared. */
+            repaired: components["schemas"]["DraftFinding"][];
         };
         /**
          * @description POST /api/imports/dry-run request: validate a full payload and report
@@ -32409,6 +32454,15 @@ export interface components {
              */
             applied: boolean;
             reason?: string | null;
+        };
+        /** @description One verification round: the findings the model's answer produced. */
+        VerificationAttempt: {
+            findings: components["schemas"]["DraftFinding"][];
+            /**
+             * @description Zero-based round. Round 0 checks the model's first answer; each later
+             *     round checks a repair.
+             */
+            round: number;
         };
         /** @description The workspace counters that gate the close checklist. */
         VerificationCounters: {

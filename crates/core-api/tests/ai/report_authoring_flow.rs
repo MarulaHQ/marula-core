@@ -18,7 +18,9 @@
 use crate::common::{body_json, boot_with, register_org_token, send};
 use axum::Router;
 use core_api::routes::chat_runner as ChatRunner;
-use core_api::routes::report_authoring::{self, AuthoringSample};
+use core_api::routes::report_authoring::{
+    self, AuthoringSample, DraftFinding, DraftVerifier, Verification,
+};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -153,6 +155,32 @@ fn tickets_by_priority() -> Value {
     })
 }
 
+/// One ticket on the org's default board. The authoring verifier now runs a
+/// draft through the real reporting path, so a scripted CHART answer needs a
+/// row to draw: a fresh org has none, and a chart over zero rows is exactly
+/// the failure the verifier is supposed to catch.
+async fn seed_one_ticket(app: &Router, owner: &str) {
+    let nav = send(
+        app,
+        axum::http::Method::GET,
+        "/api/boards/nav",
+        Some(owner),
+        None,
+    )
+    .await;
+    let nav = body_json(nav).await;
+    let board = nav[0]["id"].as_str().expect("default board").to_string();
+    let created = send(
+        app,
+        axum::http::Method::POST,
+        "/api/tickets",
+        Some(owner),
+        Some(json!({ "board_id": board, "title": "Verifier fixture", "priority": "p2" })),
+    )
+    .await;
+    assert_eq!(created.status(), 200, "ticket fixture");
+}
+
 async fn ledger_rows(pool: &PgPool, org_id: Uuid, user_id: Uuid) -> Vec<Value> {
     let rows: Vec<(String, i32, i32)> = sqlx::query_as(
         "SELECT surface, prompt_tokens, completion_tokens \
@@ -176,6 +204,7 @@ async fn describe_it_returns_a_validated_report_draft_and_writes_nothing() {
     let owner = register_fresh_org(&app, "report-author-happy").await;
     let (user_id, org_id) = me_ids(&app, &owner).await;
     seed_admit_kit(&app, &owner, user_id, "happy").await;
+    seed_one_ticket(&app, &owner).await;
     ChatRunner::seed_transport_for_org(
         org_id,
         Arc::new(ChatRunner::ScriptedTransport::new(vec![
@@ -199,6 +228,21 @@ async fn describe_it_returns_a_validated_report_draft_and_writes_nothing() {
     assert_eq!(body["saved"], json!(false), "authoring never saves");
     // The contract's one derivation decided the shape; the model did not send it.
     assert_eq!(body["draft"]["shape"], json!("chart"));
+    // The draft was checked against the real reporting data: one round, clean.
+    assert_eq!(body["verification"]["ran"], json!(true));
+    assert_eq!(
+        body["verification"]["attempts"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        body["verification"]["attempts"][0]["findings"],
+        json!([]),
+        "a chart with rows draws: {body}"
+    );
+    assert_eq!(
+        body["verification"]["checked"].as_array().map(Vec::len),
+        Some(5)
+    );
     assert_eq!(body["draft"]["spec"]["view"], json!("tickets"));
     assert_eq!(body["draft"]["card"]["window_days"], json!(30));
     // The read-back is derived from the spec, so it says what the report does.
@@ -306,6 +350,7 @@ async fn editing_diffs_against_the_current_draft_instead_of_nothing() {
     let owner = register_fresh_org(&app, "report-author-edit").await;
     let (user_id, org_id) = me_ids(&app, &owner).await;
     seed_admit_kit(&app, &owner, user_id, "edit").await;
+    seed_one_ticket(&app, &owner).await;
     // Same report plus a second dimension and a narrower window.
     let proposal = json!({
         "name": "Tickets by priority",
@@ -446,6 +491,239 @@ async fn ai_admission_is_the_existing_path() {
     assert_eq!(body["error"]["reason"], json!("ai_features_disabled"));
 }
 
+/// A zero-row card is caught by the verifier — through the real reporting
+/// path, not a re-implementation — and the loop repairs it within the cap.
+#[tokio::test]
+async fn a_zero_row_draft_is_caught_by_the_real_run_and_repaired() {
+    let (_pool, app) = test_state().await;
+    let owner = register_fresh_org(&app, "report-author-zero").await;
+    let (user_id, org_id) = me_ids(&app, &owner).await;
+    seed_admit_kit(&app, &owner, user_id, "zero").await;
+    // No ticket is seeded on purpose: a chart over tickets resolves to no
+    // rows, which is the class this test exists for.
+    let repaired = json!({
+        "name": "Tickets in the window",
+        "spec": {
+            "view": "tickets",
+            "filters": [],
+            "group_by": [],
+            "measures": [{ "agg": "count" }],
+            "viz": "stat"
+        },
+        "card": { "window_days": 30 }
+    });
+    ChatRunner::seed_transport_for_org(
+        org_id,
+        Arc::new(ChatRunner::ScriptedTransport::new(vec![
+            final_turn(120, 60, &tickets_by_priority().to_string()),
+            final_turn(120, 60, &repaired.to_string()),
+        ])),
+    );
+
+    let response = author(
+        &app,
+        &owner,
+        json!({
+            "surface_key": "general_chat",
+            "transcript": "Tickets by priority as a bar chart, last thirty days."
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["valid"], json!(true), "{body}");
+    assert_eq!(
+        body["draft"]["shape"],
+        json!("stat"),
+        "the repair is the draft"
+    );
+    assert_eq!(body["issues"], json!([]));
+    assert_eq!(body["verification"]["ran"], json!(true));
+    assert_eq!(
+        body["verification"]["attempts"].as_array().map(Vec::len),
+        Some(2),
+        "one check, one repair: {body}"
+    );
+    assert_eq!(
+        body["verification"]["attempts"][0]["findings"][0]["kind"],
+        json!("no_rows")
+    );
+    assert!(
+        body["verification"]["attempts"][0]["findings"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("has no rows at this window"),
+        "{body}"
+    );
+    assert_eq!(body["verification"]["attempts"][1]["findings"], json!([]));
+    assert_eq!(
+        body["verification"]["repaired"][0]["kind"],
+        json!("no_rows")
+    );
+    assert_eq!(body["verification"]["findings"], json!([]));
+}
+
+/// On exhaustion the draft comes back with the failure named and `valid` is
+/// false: a card the data cannot fill is never presented as clean.
+#[tokio::test]
+async fn a_draft_that_stays_undrawable_is_handed_back_with_its_failure() {
+    let (_pool, app) = test_state().await;
+    let owner = register_fresh_org(&app, "report-author-exhaust").await;
+    let (user_id, org_id) = me_ids(&app, &owner).await;
+    seed_admit_kit(&app, &owner, user_id, "exhaust").await;
+    // The model repeats the same undrawable chart three times: round 0 and the
+    // two repairs the cap allows.
+    ChatRunner::seed_transport_for_org(
+        org_id,
+        Arc::new(ChatRunner::ScriptedTransport::new(vec![
+            final_turn(120, 60, &tickets_by_priority().to_string()),
+            final_turn(120, 60, &tickets_by_priority().to_string()),
+            final_turn(120, 60, &tickets_by_priority().to_string()),
+        ])),
+    );
+
+    let response = author(
+        &app,
+        &owner,
+        json!({
+            "surface_key": "general_chat",
+            "transcript": "Tickets by priority as a bar chart, last thirty days."
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["valid"], json!(false));
+    assert_eq!(body["saved"], json!(false));
+    assert!(body["draft"].is_object(), "the draft is still handed back");
+    assert_eq!(
+        body["verification"]["attempts"].as_array().map(Vec::len),
+        Some(3),
+        "the cap is spent, not exceeded: {body}"
+    );
+    assert_eq!(
+        body["verification"]["findings"][0]["kind"],
+        json!("no_rows")
+    );
+    assert_eq!(body["issues"][0]["code"], json!("no_rows"));
+    assert_eq!(body["usage"]["steps"], json!(3));
+}
+
+/// The extraction behind the verifier did not change the HTTP contract: an
+/// undrawable card is the same typed 422, and a plain run is still a 200.
+#[tokio::test]
+async fn run_spec_still_answers_the_same_contract() {
+    let (_pool, app) = test_state().await;
+    let owner = register_fresh_org(&app, "report-author-runspec").await;
+    // No ticket: the card cannot be drawn.
+    let chart = json!({
+        "view": "tickets",
+        "filters": [],
+        "group_by": ["priority"],
+        "measures": [{ "agg": "count" }],
+        "viz": "bar"
+    });
+
+    let with_card = json!({ "spec": chart, "card": { "window_days": 30 } });
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/reports/run-spec",
+        Some(&owner),
+        Some(with_card),
+    )
+    .await;
+    assert_eq!(response.status(), 422, "an undrawable card is refused");
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], json!("card_contract"));
+    assert_eq!(body["error"]["shape"], json!("chart"));
+    assert_eq!(body["error"]["failure"], json!("no_rows"));
+
+    // The same spec without a card is a plain run: zero rows is a legitimate
+    // page, not a refusal.
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/reports/run-spec",
+        Some(&owner),
+        Some(json!({ "spec": chart })),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let body = body_json(response).await;
+    assert_eq!(body["rows"], json!([]));
+    assert_eq!(body["kind"], json!("tickets"));
+    assert!(!body["columns"].as_array().unwrap().is_empty());
+}
+
+/// One final-answer turn for the loop measurement.
+fn answer_turn_at(content: &str) -> ChatRunner::ModelTurn {
+    final_turn(100, 40, content)
+}
+
+/// A verifier whose first `failing` calls report a zero-row chart, then clean.
+struct ScriptedVerifier {
+    failing: usize,
+    seen: std::sync::Mutex<usize>,
+}
+
+impl ScriptedVerifier {
+    fn failing(n: usize) -> Self {
+        Self {
+            failing: n,
+            seen: std::sync::Mutex::new(0),
+        }
+    }
+}
+
+impl DraftVerifier for ScriptedVerifier {
+    fn verify<'a>(
+        &'a self,
+        _spec: &'a core_reports::ReportSpec,
+        _card: &'a core_reports::CardSpec,
+        _scope: core_reports::Scope,
+        _window: core_reports::RunWindow,
+        _card_index: Option<usize>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<DraftFinding>> + Send + 'a>> {
+        let mut seen = self.seen.lock().expect("seen lock poisoned");
+        let round = *seen;
+        *seen += 1;
+        let fails = round < self.failing;
+        Box::pin(async move {
+            if fails {
+                vec![DraftFinding::new(
+                    "no_rows",
+                    None,
+                    "The chart has no rows at this window.".to_string(),
+                )]
+            } else {
+                Vec::new()
+            }
+        })
+    }
+}
+
+async fn run_loop_with(
+    turns: Vec<ChatRunner::ModelTurn>,
+    verifier: ScriptedVerifier,
+    rounds: usize,
+) -> report_authoring::ReportAuthoringOutcome {
+    let transport = ChatRunner::ScriptedTransport::new(turns);
+    report_authoring::run_authoring_loop(
+        &transport,
+        "marula-test",
+        report_authoring::AuthoringRun {
+            transcript: "Tickets by priority as a bar chart.",
+            base: None,
+            scope: core_reports::Scope::OrgWide,
+            now: chrono::Utc::now(),
+            max_steps: core_api::routes::workflow_authoring::MAX_AUTHORING_STEPS,
+            verification: Verification::with_rounds(&verifier, rounds),
+        },
+    )
+    .await
+}
+
 /// The deterministic measurement evidence. Runs two corpora through the REAL
 /// registry validation and the real compile path, and — when a lane names its
 /// evidence directory in `MARULA_EVIDENCE_DIR` — writes the report beneath it.
@@ -551,6 +829,37 @@ async fn measurement_report_is_recorded() {
     let scope = core_reports::Scope::OrgWide;
     let realistic_measure = report_authoring::measure_corpus(&realistic, scope, now);
     let boundary_measure = report_authoring::measure_corpus(&boundary, scope, now);
+
+    // The loop's own rates: three deterministic scenarios through the REAL
+    // loop (the transport is scripted, the verifier answers from a script), so
+    // the repair cap and the recording are measured rather than asserted.
+    let clean = run_loop_with(
+        vec![answer_turn_at(&tickets_by_priority().to_string())],
+        ScriptedVerifier::failing(0),
+        2,
+    )
+    .await;
+    let repaired = run_loop_with(
+        vec![
+            answer_turn_at(&tickets_by_priority().to_string()),
+            answer_turn_at(&tickets_by_priority().to_string()),
+        ],
+        ScriptedVerifier::failing(1),
+        2,
+    )
+    .await;
+    let exhausted = run_loop_with(
+        vec![
+            answer_turn_at(&tickets_by_priority().to_string()),
+            answer_turn_at(&tickets_by_priority().to_string()),
+            answer_turn_at(&tickets_by_priority().to_string()),
+            answer_turn_at(&tickets_by_priority().to_string()),
+        ],
+        ScriptedVerifier::failing(usize::MAX),
+        2,
+    )
+    .await;
+    let loop_measure = report_authoring::measure_verification(&[clean, repaired, exhausted]);
     let (prompt_chars, column_chars, views) = report_authoring::measure_prompt_footprint();
 
     // The boundary MUST accept every realistic draft and reject every
@@ -563,6 +872,23 @@ async fn measurement_report_is_recorded() {
         boundary_measure.boundary_rejected >= 4,
         "the boundary rejects each malformation class: {boundary_measure:?}"
     );
+    // Per-class tallies, so a rate per failure class is readable from the
+    // evidence rather than inferred from one aggregate.
+    assert!(
+        boundary_measure.issue_classes.len() >= 4,
+        "each malformation is counted under its own class: {boundary_measure:?}"
+    );
+    assert!(boundary_measure
+        .issue_classes
+        .contains_key("window_wider_than_refresh"));
+    assert!(boundary_measure.issue_classes.contains_key("not_json"));
+    // The loop's mechanics, measured: one clean draft, one repaired in one
+    // round, one handed back with its finding.
+    assert_eq!(loop_measure.drafts, 3, "{loop_measure:?}");
+    assert_eq!(loop_measure.failed, 2);
+    assert_eq!(loop_measure.repaired, 1);
+    assert_eq!(loop_measure.unrepairable, 1);
+    assert_eq!(loop_measure.rounds_to_repair, vec![2]);
 
     let report = json!({
         "lane": "p46-authoring-draft",
@@ -584,20 +910,49 @@ async fn measurement_report_is_recorded() {
         },
         "realistic_corpus": realistic_measure,
         "boundary_corpus": boundary_measure,
+        "verification_loop": loop_measure,
         "note": "Deterministic (ScriptedTransport) corpus through the REAL \
                  registry validation and the real compile path. `realistic_corpus` \
                  = plausible model answers (all must validate). `boundary_corpus` = \
                  deliberate malformations (the boundary must reject each). This \
                  measures the boundary and the prompt footprint, not a live \
-                 model's rate.",
+                 model's rate. `verification_loop` measures the LOOP (check, \
+                 repair cap, recording) with a scripted verifier: it says \
+                 nothing about how often a real model repairs a real card, \
+                 which only a run with a live provider can measure.",
     });
+    // This lane's own block: the verification classes, the loop's measured
+    // behaviour, and the per-class refusal tallies the boundary produced.
+    let verification_report = json!({
+        "lane": "p46-draft-verification",
+        "checks": report_authoring::verification_checks(),
+        "repair_rounds_cap": report_authoring::MAX_VERIFICATION_ROUNDS,
+        "verification_loop": loop_measure,
+        "boundary_issue_classes": boundary_measure.issue_classes,
+        "note": "Deterministic. `verification_loop` runs the real loop three \
+                 times with a scripted verifier (clean, repaired in one round, \
+                 exhausted at the cap) and counts what the loop recorded. \
+                 `boundary_issue_classes` counts the registry refusals each \
+                 malformed candidate produced. Neither says how often a live \
+                 model produces a valid draft or repairs a real card: that \
+                 needs a provider this suite does not have.",
+    });
+
     let Some(dir) = std::env::var_os("MARULA_EVIDENCE_DIR") else {
         return;
     };
-    let path = std::path::Path::new(&dir).join("qa-p46-authoring-draft/measurement.json");
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).expect("evidence dir");
+    for (name, document) in [
+        ("qa-p46-authoring-draft/measurement.json", &report),
+        (
+            "qa-p46-draft-verification/verification.json",
+            &verification_report,
+        ),
+    ] {
+        let path = std::path::Path::new(&dir).join(name);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("evidence dir");
+        }
+        std::fs::write(&path, serde_json::to_string_pretty(document).unwrap())
+            .expect("write measurement");
     }
-    std::fs::write(&path, serde_json::to_string_pretty(&report).unwrap())
-        .expect("write measurement");
 }
