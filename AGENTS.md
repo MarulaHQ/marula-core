@@ -27,13 +27,13 @@ re-ignore rather than committing the graph.
 
 ## Repository boundary — this repo is the public product (BINDING, added 2026-10-21)
 
-`marula-core` is the public product repository: it is what users clone. Company material lives
-outside it, in a private repository, and **must never be added here** — not the build tracker, not
-lane evidence, not the security audit, not strategy or commercial documents, not per-agent configs.
+`marula-core` is the public product repository: it is what users clone. **Never add
+company-internal material here** — not a build tracker, not lane evidence, not a security
+audit, not strategy or commercial documents, not per-agent configs.
 
-If something you expect is missing, it is not lost: it is in the private half. Ask the maintainer,
-or read the private repository's `WHERE-THINGS-LIVE.md`. Do not recreate it here to make a path
-resolve, and do not cite a private path from public prose — describe the thing instead.
+If something you expect is missing, it is not lost: ask the maintainer. Do not recreate it
+here to make a path resolve, and do not cite a path that is not in this repository from
+public prose — describe the thing instead.
 
 Treat the commit history as public too. Do not add comments, docs or evidence that reveal internal
 planning, customer data, credentials, or unfixed vulnerabilities.
@@ -59,24 +59,18 @@ A fresh worktree has no `node_modules` and no build output. Install and build
 there at lane start; do not fall back to the primary checkout to dodge the
 install, which is how a lane ends up editing `main`'s working tree.
 
-## Lane preflight — the row's premise comes first (BINDING, added 2026-10-18)
+## Lane preflight — the premise comes first (BINDING, added 2026-10-18)
 
-A lane's first act is to test the premise it was launched on, not to start building.
+A lane's first act is to test the premise it was launched on, not to start building. Check
+what git can prove before writing anything: is the work already on `main`, has the file it
+cites been deleted by the lane that already closed it, does the gate it quotes already pass,
+does the prose still describe merged work as in flight? A flag is a prompt to read the code
+it cites and decide — the check reports, it does not rule.
 
-The tracker and its freshness check are part of the private half, not this
-repository. The check reads `TASKLIST.md` and compares it against this checkout:
-run it from the private tracker tooling, pointing at the worktree you are in
-(`MARULA_CORE_REPO=<worktree>`). It reports what git can prove about a row: the row's own
-branch merged into `main`, a claimed merge sha that is not in `main`'s history, a cited
-path that no longer exists, a gate the row quotes that already passes, fire-order prose
-that still calls a merged lane "in flight". If it flags the row, read the code the row
-cites and decide before writing anything — the check reports, it does not rule.
-
-When the premise is already satisfied — the work is on `main`, or the file the row points
-at was deleted by the lane that closed it — STOP. Report `STALE ROW <ID> — <evidence>` to
-the coordinator, with the check's output, and end the turn. Do not invent adjacent work to
-fill the lane, and do not move the row yourself: a human decides whether the row is stale
-or the check is wrong.
+When the premise is already satisfied — the work is on `main`, or the file the row points at
+was deleted by the lane that closed it — STOP. Report `STALE ROW <ID> — <evidence>` to the
+coordinator and end the turn. Do not invent adjacent work to fill the lane, and do not close
+the row yourself: a human decides whether the row is stale or the check is wrong.
 
 The rule exists because five lanes launched against satisfied premises: `p43-signature-pad`,
 `p45-rag-vector-namespace`, `p47-org-resource-quota-api`, `p44-ui-shared-css-closeout`, and
@@ -187,19 +181,11 @@ Ship only at **5/5 CLEAN** (use `--allow-proof` only when a number is real and
 evidenced). If the score is below 5, clean it following the skill's loop
 (kill vocabulary → kill constructions → put a person back in) and re-lint.
 
-**Out of scope (ruled 2026-10-16, user directive).** The working trackers `TASKLIST.md`
-and `TASKLIST_COMPLETED.md`, and this file. They are dense technical registers whose rows
-are tables, `file:line` citations and code spans; the scorer is written for prose, and it
-scores every row in them below the bar including rows no agent has touched — the tracker
-scores **0/5 at HEAD**. Holding them to it was unsatisfiable, so it is not a ship gate
-there. The scorer's own flag names the mismatch: "semicolon-heavy **for web copy**". Write
-those files plainly and economically as before; the rule simply does not gate them. This
-removes a real cost — two lanes this wave independently had to hand-polish rows or route
-doctrine around the rule.
-
-That verdict carries to the lane evidence documents too: they are in scope, so the
-scorer must report **5/5 CLEAN** on `design/qa-<lane>/REVIEW.md` and its siblings before
-you land.
+**Out of scope (ruled 2026-10-16, user directive).** This file. It is a dense technical
+register whose sections are tables, `file:line` citations and code spans; the scorer is
+written for prose, and it scores lines no agent has touched below the bar. Holding it to
+that was unsatisfiable, so it is not a ship gate here. Write it plainly and economically as
+before; the rule simply does not gate it.
 
 This is not needed for code, code comments, logs, git messages, or prose inside
 `code` spans/fenced blocks — the scorer skips those too.
@@ -291,7 +277,7 @@ once and waits for the user before running heavy verification (user directive
 - The lane's native to-do list marks the gate step pending with the pause
   noted, so an idle lane reads as "waiting for go-ahead", not stalled.
 - Merge only after the user-approved gate run is green. Close-out is the landing
-  record, the TASKLIST row, and the merge.
+  record and the merge.
 - **Worktree cleanup after landing (corrected 2026-10-18, user directive).** The
   old "no worktree removal by tooling" rule was written for **Kilo Code**, whose
   worktree handling is fragile, and it still applies there: leave anything under
