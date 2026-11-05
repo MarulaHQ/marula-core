@@ -101,3 +101,32 @@ test("report authoring: text only, and a refusal is stated rather than faked", a
     await expect(row.getByRole("heading").first()).toBeVisible();
   }
 });
+
+test("a described schedule becomes fields, and a cadence the route cannot express is refused", async ({
+  authedPage,
+}) => {
+  await authedPage.goto("/reports");
+  await authedPage.getByRole("tab", { name: /Schedules/ }).click();
+
+  const phrase = authedPage.getByLabel("In your own words");
+  await expect(phrase).toBeVisible({ timeout: 30_000 });
+
+  // A phrase the wire shape cannot carry is refused with a reason, not bent
+  // into the nearest cadence: weekly is one weekday, never "every other".
+  await phrase.fill("every other Tuesday at 09:00");
+  await authedPage.getByRole("button", { name: "Read it" }).click();
+  await expect(authedPage.getByText(/never every other week/i)).toBeVisible();
+
+  // A phrase it can read becomes an editable sentence.
+  await phrase.fill("every Monday at 09:00");
+  await authedPage.getByRole("button", { name: "Read it" }).click();
+  await expect(authedPage.getByText("Every Monday at 09:00").first()).toBeVisible();
+
+  // Taking the proposal fills the existing form — the one route that saves.
+  await authedPage.getByRole("button", { name: "Use this schedule" }).click();
+  // The dialog is the writer, and the proposal also has a Weekday field: scope
+  // the assertion to the dialog or it matches both.
+  const dialog = authedPage.getByRole("dialog");
+  await expect(dialog.getByLabel("Weekday")).toBeVisible({ timeout: 15_000 });
+  await expect(dialog.getByLabel("Time of day")).toHaveValue("09:00");
+});
