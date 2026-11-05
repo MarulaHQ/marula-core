@@ -218,6 +218,8 @@ use utoipa::OpenApi;
         crate::routes::report_defs::catalog,
         crate::routes::report_defs::run,
         crate::routes::report_defs::run_spec,
+        // report authoring (Wave 46 lane 3): "describe it" → a validated draft
+        crate::routes::report_authoring::author,
         // scheduled report delivery (the private build tracker R4)
         crate::routes::report_schedules::list,
         crate::routes::report_schedules::create,
@@ -1676,6 +1678,13 @@ use utoipa::OpenApi;
         crate::routes::report_defs::CreateReportDefinitionRequest,
         crate::routes::report_defs::UpdateReportDefinitionRequest,
         crate::routes::report_defs::ReportDefinitionMutationResponse,
+        // report authoring (Wave 46 lane 3)
+        crate::routes::report_authoring::AuthorReportRequest,
+        crate::routes::report_authoring::AuthorReportResponse,
+        crate::routes::report_authoring::AuthorReportCatalogue,
+        crate::routes::report_authoring::ReportDraft,
+        crate::routes::report_authoring::ReportAuthoringIssue,
+        crate::routes::report_authoring::ReportDiffEntry,
         // scheduled report delivery (the private build tracker R4)
         crate::routes::report_schedules::ScheduleCadence,
         crate::routes::report_schedules::ReportScheduleView,

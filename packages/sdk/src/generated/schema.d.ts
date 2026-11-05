@@ -10032,6 +10032,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/author": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/reports/author — author a report draft from a transcript.
+         * @description Reporting-create gated: the permission the save route needs is the
+         *     permission a draft needs, so a viewer can never be handed a proposal they
+         *     cannot accept. NOT a write: it returns a draft, its issues, a read-back and
+         *     the diff, and persists nothing. The completion rides the shared AI admission
+         *     path with the completion + tool-calling edges.
+         */
+        post: operations["report_author"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/run-spec": {
         parameters: {
             query?: never;
@@ -14813,6 +14837,68 @@ export interface components {
             model: string;
             provider: string;
             resolution: string;
+        };
+        AuthorReportCatalogue: {
+            /**
+             * @description The size of the system prompt in characters — the honest measure of what
+             *     the model was told, and the number the on-demand-columns posture keeps
+             *     small as columns grow.
+             */
+            prompt_chars: number;
+            /** @description How many card rules the prompt carried. */
+            rules: number;
+            /** @description How many card shapes the prompt described. */
+            shapes: number;
+            /**
+             * @description How many views the prompt catalogued. A draft is validated against the
+             *     same registry, so this is also how much of the registry it could name.
+             */
+            views: number;
+        };
+        AuthorReportRequest: {
+            card?: components["schemas"]["CardSpec"] | null;
+            /** Format: int32 */
+            max_steps?: number | null;
+            model?: string | null;
+            /**
+             * @description The current definition's name, when editing. Advisory: it seeds the diff
+             *     so a rename is visible, and the model may propose its own.
+             */
+            name?: string | null;
+            provider?: string | null;
+            spec?: components["schemas"]["ReportSpec"] | null;
+            /**
+             * @description The AI surface the call is admitted on (e.g. `general_chat`). The org
+             *     grants it like any other; there is no report-specific surface and no new
+             *     admission path.
+             */
+            surface_key: string;
+            /**
+             * @description The transcript to author from. TEXT ONLY: voice-note capture is its own
+             *     lane, and this endpoint has no audio member to send one through.
+             */
+            transcript: string;
+        };
+        AuthorReportResponse: {
+            /** @description The catalogue the draft was validated against. */
+            catalogue: components["schemas"]["AuthorReportCatalogue"];
+            /**
+             * @description The changes the draft makes against the caller's current draft (or an
+             *     empty base when generating fresh).
+             */
+            diff: components["schemas"]["ReportDiffEntry"][];
+            draft?: components["schemas"]["ReportDraft"] | null;
+            /** @description Set when the model transport failed; the caller reports this honestly. */
+            error?: string | null;
+            /** @description Typed validation issues; empty means `draft` is present and saveable. */
+            issues: components["schemas"]["ReportAuthoringIssue"][];
+            model_info: components["schemas"]["AuthorModelInfo"];
+            /** @description Always false — this endpoint never writes. */
+            saved: boolean;
+            tool_calls: components["schemas"]["AuthoringToolCall"][];
+            usage: components["schemas"]["AuthorUsage"];
+            /** @description True when `draft` is present and passed the save/run boundary. */
+            valid: boolean;
         };
         AuthorUsage: {
             /** Format: int32 */
@@ -27380,6 +27466,19 @@ export interface components {
             /** @description The closed variable vocabulary snippets may use (ticket context). */
             vocabulary: string[];
         };
+        /**
+         * @description One author-time refusal, pointed and stable so a UI can render it. The field
+         *     names match `workflow_authoring::AuthoringIssue` so one review component can
+         *     draw either surface's issues; the vocabulary is this module's because a
+         *     report fails in report-shaped ways (`unknown_column`, `window_wider_…`).
+         */
+        ReportAuthoringIssue: {
+            /** @description A stable machine code (`unknown_column`, `invalid_card`, …). */
+            code: string;
+            message: string;
+            /** @description The offending spec or card member, when known. */
+            path?: string | null;
+        };
         /** @description GET /api/report-catalog envelope. */
         ReportCatalog: {
             /**
@@ -27477,6 +27576,40 @@ export interface components {
             slot_at: string;
             /** @description `delivered` | `partial` | `failed` | `skipped`. */
             status: string;
+        };
+        /**
+         * @description One structural change between the caller's current draft and the proposal.
+         *     The caller renders these as the review diff; nothing is applied here.
+         */
+        ReportDiffEntry: {
+            after?: Record<string, never> | null;
+            before?: Record<string, never> | null;
+            /** @description `add`, `remove` or `change`. */
+            op: string;
+            /**
+             * @description A stable location, e.g. `view`, `group_by/priority`, `measures/count`,
+             *     `filters/priority:eq`, `card/window_days`.
+             */
+            path: string;
+        };
+        /**
+         * @description A validated report draft: the spec, its card, the shape the pair derives, and
+         *     the plain-English read-back. `shape` is derived by the contract's one
+         *     derivation (`CardShape::of`), never sent by the model.
+         */
+        ReportDraft: {
+            card: components["schemas"]["CardSpec"];
+            /** @description Advisory name from the model's answer envelope. */
+            name?: string | null;
+            /**
+             * @description One sentence saying what the report shows. Derived from the spec and the
+             *     card, so it cannot drift from the data the way a model-written summary
+             *     can.
+             */
+            reads: string;
+            /** @description `chart` | `stat` | `table`, from `CardShape::of(&spec)`. */
+            shape: string;
+            spec: components["schemas"]["ReportSpec"];
         };
         /** @description JSON envelope for a report page. */
         ReportPage: {
@@ -52208,6 +52341,43 @@ export interface operations {
             };
             /** @description not in scope */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    report_author: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorReportRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorReportResponse"];
+                };
+            };
+            /** @description AI admission refused (typed reason in the envelope) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the request or the base draft did not validate */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

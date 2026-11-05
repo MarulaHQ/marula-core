@@ -1,44 +1,76 @@
-// /dashboards — the widget grid (Wave 41 lane 11, Marula rebrand).
+// /dashboards — the widget grid (Wave 41 lane 11, Marula rebrand; Wave 46
+// lane 2 card sizes and placement).
 //
 // Purpose: the per-user report widget surface. The page header keeps the TL
 // frame (title row with attention shortcuts, one toolbar row, 24px gutters);
 // the body composes Dispatch Planning-card language: 16px-radius bordered
-// cards, flat, no gradients. Widget catalogue, per-user persisted row order
+// cards, flat, no gradients. Widget catalogue, per-user persisted arrangement
 // (settings key `dashboards.widgets`, the lane 2b pattern), role-limited
-// visibility (the server is the enforcement point; the UI mirrors it), and
-// a save-failed state that SURFACES — a fixed blush notice above the grid,
-// never a silent drop.
+// visibility (the server is the enforcement point; the UI mirrors it), a
+// save-failed state that SURFACES (a fixed blush notice above the grid, never a
+// silent drop), and a per-card size and order taken from lane 1's card
+// vocabulary.
 //
-// Non-purpose: no report-spec editing (that is /reports), no drag-to-resize
-// of widget cards (drag-to-reorder of ROWS stays in a later wave if wanted).
+// The vocabulary is READ, never restated: `GET /api/report-catalog` serves
+// `spans`, `heights`, `shapes[].default_span`, `shapes[].default_height` and
+// `card_rules`, and every control on this page renders that payload. A span or
+// height the payload does not list cannot be chosen or stored.
+//
+// Non-purpose: no report-spec editing (that is /reports), no drag-to-resize and
+// no drag-to-reorder. Placement is a keyboard-reachable control on each card.
 "use client";
 
-import {
-  Button,
-  Card,
-  Spinner,
-  SurfaceHeader,
-} from "@marula-core/ui";
+import { Button, Card, Spinner, SurfaceHeader } from "@marula-core/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ReportWidget } from "../../components/dashboards/report-widget";
 import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";
+import {
+  cardSpanClass,
+  sizeLabel,
+} from "../../components/dashboards/card-size-control";
 import { SurfaceTabs } from "../../components/insight/surface-tabs";
 import { InsightState } from "../../components/insight/insight-state";
 import {
   WIDGET_CATALOG,
   WIDGET_ROWS_KEY,
   addWidget,
-  decodeWidgetRows,
-  defaultRows,
-  encodeWidgetRows,
+  cardVocabulary,
+  defaultPlacements,
+  defaultSizeFor,
+  encodeWidgets,
   isManagerPermissions,
+  moveWidget,
+  placementsForPreset,
+  placementsMatch,
+  readArrangement,
   removeWidget,
+  resizeWidget,
   visiblePresets,
   widgetDef,
   widgetVisible,
 } from "../../lib/dashboards";
+import type {
+  CardSize,
+  CardVocabulary,
+  WidgetPlacement,
+} from "../../lib/dashboards";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
+
+/** Why the surface is read-only, in the two cases that can cause it. */
+type ReadOnlyReason = "catalogue" | "arrangement";
+
+const NOTICE: Record<ReadOnlyReason, string> = {
+  catalogue:
+    "Card sizes and the widget catalogue could not be loaded. Nothing is shown and this dashboard is read-only until they do.",
+  arrangement:
+    "Your saved arrangement could not be loaded. Nothing is shown and nothing has been overwritten. Retry reads it again.",
+};
+
+const PICKER_NOTICE: Record<ReadOnlyReason, string> = {
+  catalogue: "No widget can be added until the card vocabulary loads.",
+  arrangement: "No widget can be added until your saved arrangement loads.",
+};
 
 export default function DashboardsPage() {
   const auth = useRequireAuth();
@@ -47,43 +79,97 @@ export default function DashboardsPage() {
     [auth.me],
   );
 
-  const [rows, setRows] = useState<string[] | null>(null);
+  // `null` while loading, and again when the surface is read-only: either the
+  // catalogue is missing (a size cannot be validated) or this user's stored
+  // arrangement cannot be read (writing anything would replace it).
+  const [placements, setPlacements] = useState<WidgetPlacement[] | null>(null);
+  const [vocabulary, setVocabulary] = useState<CardVocabulary | null>(null);
+  const [readOnlyReason, setReadOnlyReason] = useState<ReadOnlyReason | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Load stored rows through the settings registry (2.5 pattern); fall
-  // back to the defaults-first preset when nothing usable is stored.
+  const resolveDashboard = useCallback(async () => {
+    const [settings, catalog] = await Promise.all([
+      api.api.GET("/api/v1/settings/user"),
+      api.api.GET("/api/v1/report-catalog"),
+    ]);
+    const vocab =
+      catalog.error === undefined && catalog.data !== undefined
+        ? cardVocabulary(catalog.data)
+        : null;
+    if (vocab === null) {
+      return { vocab: null, next: null, reason: "catalogue" as const };
+    }
+    // A failed settings read says "this user's arrangement is unknown", not
+    // "this user has no arrangement". Falling through to the defaults here
+    // would let the next resize overwrite the arrangement they still have.
+    if (settings.error !== undefined) {
+      return { vocab, next: null, reason: "arrangement" as const };
+    }
+    const stored = (settings.data ?? []).find((v) => v.key === WIDGET_ROWS_KEY);
+    let decoded = defaultPlacements(vocab);
+    if (stored !== undefined) {
+      const read = readArrangement(stored.value, vocab);
+      if (read.status === "read") {
+        decoded = read.placements;
+      } else if (read.status === "unset") {
+        // Nothing has been written yet: the defaults ARE this user's
+        // arrangement until they change it.
+        decoded = defaultPlacements(vocab);
+      } else if (read.problem === "size") {
+        // The row's own rule: a stored size the payload no longer lists falls
+        // back to the default arrangement instead of drawing an unmeasurable
+        // grid. Every other problem leaves the document alone.
+        decoded = defaultPlacements(vocab);
+      } else {
+        return { vocab, next: null, reason: "arrangement" as const };
+      }
+    }
+    // Widgets no longer visible for this user (role change) drop out; the
+    // stored arrangement keeps them, so a role change back restores them.
+    const next = decoded.filter((p) => {
+      const def = widgetDef(p.id);
+      return def !== undefined && widgetVisible(def, manager);
+    });
+    return { vocab, next, reason: null };
+  }, [manager]);
+
   useEffect(() => {
     if (auth.status !== "authed") return;
     let cancelled = false;
     void (async () => {
-      const { data } = await api.api.GET("/api/v1/settings/user");
+      const { vocab, next, reason } = await resolveDashboard();
       if (cancelled) return;
-      const stored = (data ?? []).find((v) => v.key === WIDGET_ROWS_KEY);
-      const decoded = decodeWidgetRows(stored?.value) ?? defaultRows();
-      // Widgets that are no longer visible for this user (role change)
-      // simply drop out of the rendered rows.
-      const visible = decoded.filter((id) => {
-        const def = widgetDef(id);
-        return def !== undefined && widgetVisible(def, manager);
-      });
-      setRows(visible);
+      setVocabulary(vocab);
+      setPlacements(next);
+      setReadOnlyReason(reason);
       setLoaded(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [auth.status, manager]);
+  }, [auth.status, resolveDashboard]);
+
+  // Retry after a failed read: the same resolve, applied directly.
+  const retry = useCallback(() => {
+    void (async () => {
+      const { vocab, next, reason } = await resolveDashboard();
+      setVocabulary(vocab);
+      setPlacements(next);
+      setReadOnlyReason(reason);
+      setLoaded(true);
+    })();
+  }, [resolveDashboard]);
 
   const persist = useCallback(
-    (next: string[]) => {
-      setRows(next);
+    (next: WidgetPlacement[]) => {
+      setPlacements(next);
       setSaveError(null);
       void (async () => {
         try {
           const res = await api.api.PUT("/api/v1/settings/user", {
-            body: { key: WIDGET_ROWS_KEY, value: encodeWidgetRows(next) },
+            body: { key: WIDGET_ROWS_KEY, value: encodeWidgets(next) },
           });
           if (res.error) {
             const detail = friendlyMutationText(
@@ -102,19 +188,55 @@ export default function DashboardsPage() {
     [],
   );
 
-  const visible = rows ?? [];
-  const presets = visiblePresets(manager);
-  const candidates = WIDGET_CATALOG.filter(
-    (w) => widgetVisible(w, manager) && !visible.includes(w.id),
+  const resize = useCallback(
+    (id: string, size: CardSize) => {
+      if (placements === null || vocabulary === null) return;
+      const next = resizeWidget(placements, id, size, vocabulary);
+      if (next !== null) persist(next);
+    },
+    [placements, vocabulary, persist],
   );
 
-  if (auth.status !== "authed" || !loaded || rows === null) {
+  const move = useCallback(
+    (id: string, direction: -1 | 1) => {
+      if (placements === null) return;
+      persist(moveWidget(placements, id, direction));
+    },
+    [placements, persist],
+  );
+
+  const remove = useCallback(
+    (id: string) => {
+      if (placements === null) return;
+      persist(removeWidget(placements, id));
+    },
+    [placements, persist],
+  );
+
+  const add = useCallback(
+    (id: string) => {
+      if (placements === null || vocabulary === null) return;
+      const next = addWidget(placements, id, vocabulary);
+      if (next !== null) persist(next);
+    },
+    [placements, vocabulary, persist],
+  );
+
+  const grid = placements ?? [];
+  const presets = visiblePresets(manager);
+  const candidates = WIDGET_CATALOG.filter(
+    (w) => widgetVisible(w, manager) && !grid.some((p) => p.id === w.id),
+  );
+
+  if (auth.status !== "authed" || !loaded) {
     return (
       <main className="p-6" aria-busy="true">
         <Spinner label="Loading dashboards" />
       </main>
     );
   }
+
+  const readOnly = readOnlyReason !== null;
 
   return (
     <main className="mx-auto grid w-full max-w-6xl gap-5 p-6">
@@ -145,61 +267,94 @@ export default function DashboardsPage() {
           }
         />
 
-        {/* Toolbar row: named arrangement views (the presets) on the left. */}
-        <SurfaceTabs
-          tabs={presets.map((p) => ({ id: p.id, label: p.title, ariaLabel: `Apply ${p.title} preset` }))}
-          activeId={
-            presets.find(
-              (p) =>
-                p.widgets.length === visible.length &&
-                p.widgets.every((id, i) => visible[i] === id),
-            )?.id ?? ""
-          }
-          onChange={(id) => {
-            const preset = presets.find((p) => p.id === id);
-            if (preset !== undefined) persist([...preset.widgets]);
-          }}
-          label="Saved arrangements"
-        />
+        {/* Toolbar row: named arrangement views (the presets) on the left.
+            Absent while read-only: applying one would write an arrangement the
+            page could not read. */}
+        {!readOnly && (
+          <SurfaceTabs
+            tabs={presets.map((p) => ({ id: p.id, label: p.title, ariaLabel: `Apply ${p.title} preset` }))}
+            activeId={presets.find((p) => placementsMatch(grid, p.widgets))?.id ?? ""}
+            onChange={(id) => {
+              const preset = presets.find((p) => p.id === id);
+              if (preset === undefined || vocabulary === null) return;
+              const next = placementsForPreset(preset.widgets, grid, vocabulary);
+              if (next !== null) persist(next);
+            }}
+            label="Saved arrangements"
+          />
+        )}
 
-        {/* The catalogue: a popover-style card under the Add widget button. */}
+        {/* The catalogue: a popover-style card under the Add widget button.
+            Each candidate shows the footprint it arrives with, read from the
+            payload's shape default. */}
         {pickerOpen && (
-          <Card className="grid gap-1 p-3" id="widget-picker">
+          <Card className="grid gap-2 p-3" id="widget-picker">
             <p
               className="text-[12px] font-semibold uppercase tracking-[0.06em]"
               style={{ color: "var(--m-text-muted)" }}
             >
               Widget catalogue
             </p>
-            {candidates.length === 0 ? (
+            {readOnlyReason !== null ? (
+              <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                {PICKER_NOTICE[readOnlyReason]}
+              </p>
+            ) : candidates.length === 0 ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                 Every widget available to you is already on the dashboard.
               </p>
             ) : (
               <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
-                {candidates.map((w) => (
-                  <Button
-                    key={w.id}
-                    variant="ghost"
-                    size="sm"
-                    className="justify-start"
-                    onClick={() => {
-                      const next = addWidget(visible, w.id);
-                      if (next !== null) persist(next);
-                    }}
-                  >
-                    {w.title}
-                    <span
-                      aria-hidden="true"
-                      className="ml-1 text-[10px] uppercase"
-                      style={{ color: "var(--m-text-muted)" }}
+                {candidates.map((w) => {
+                  const size = vocabulary === null ? null : defaultSizeFor(w, vocabulary);
+                  return (
+                    <Button
+                      key={w.id}
+                      variant="ghost"
+                      size="sm"
+                      className="justify-start"
+                      data-testid={`add-widget-${w.id}`}
+                      aria-label={`Add ${w.title}`}
+                      onClick={() => add(w.id)}
                     >
-                      {w.lens === "org" ? "org" : "mine"}
-                    </span>
-                  </Button>
-                ))}
+                      <span className="truncate">{w.title}</span>
+                      <span
+                        aria-hidden="true"
+                        className="ml-1 text-[10px] uppercase"
+                        style={{ color: "var(--m-text-muted)" }}
+                      >
+                        {w.lens === "org" ? "org" : "mine"}
+                      </span>
+                      <span
+                        className="ml-auto shrink-0 text-[10px]"
+                        style={{ color: "var(--m-text-muted)" }}
+                      >
+                        {size === null
+                          ? "no default size"
+                          : `${sizeLabel(size.span)} wide, ${sizeLabel(size.height)}`}
+                      </span>
+                    </Button>
+                  );
+                })}
               </div>
             )}
+            {vocabulary !== null && vocabulary.rules.length > 0 ? (
+              <details className="text-[12px]">
+                <summary
+                  className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.06em]"
+                  style={{ color: "var(--m-text-muted)" }}
+                >
+                  Card rules
+                </summary>
+                <ul className="mt-1 grid list-disc gap-1 pl-4">
+                  {vocabulary.rules.map((rule) => (
+                    <li key={rule} style={{ color: "var(--m-text-secondary)" }}>
+                      {rule}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </Card>
         )}
 
@@ -229,32 +384,75 @@ export default function DashboardsPage() {
             {saveError}
           </div>
         )}
+
+        {/* Read-only: no card is drawn. Either the vocabulary is missing (a
+            size cannot be validated) or the stored arrangement cannot be read
+            (a write would replace it). Drawing some other arrangement under
+            either notice would say one thing and show another. */}
+        {readOnlyReason !== null && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-2 rounded-[var(--m-radius-control)] border px-3 py-2 text-[13px]"
+            style={{
+              borderColor: "var(--m-border)",
+              background: "var(--m-surface-2)",
+              color: "var(--m-text-secondary)",
+            }}
+            data-testid="dashboard-readonly"
+            data-reason={readOnlyReason}
+          >
+            <span>{NOTICE[readOnlyReason]}</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={retry}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
       </div>
 
-      {visible.length === 0 ? (
+      {placements === null ? null : placements.length === 0 ? (
         <Card className="p-6">
           <InsightState
             title="Your dashboard is empty"
             hint="Add widgets from the catalogue above, or restore the default arrangement."
             primary={
-              <Button variant="primary" size="sm" onClick={() => persist(defaultRows())}>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (vocabulary !== null) persist(defaultPlacements(vocabulary));
+                }}
+              >
                 Restore My day
               </Button>
             }
           />
         </Card>
       ) : (
-        <div className="grid items-start gap-4 xl:grid-cols-[1.5fr_1fr]">
-          {visible.map((id, i) => {
-            const def = widgetDef(id);
+        <div className="grid grid-cols-12 items-start gap-4" data-testid="dashboard-grid">
+          {placements.map((placement, i) => {
+            const def = widgetDef(placement.id);
             if (def === undefined) return null;
             return (
-              <div key={id} className="min-w-0">
+              <div
+                key={placement.id}
+                className={`min-w-0 ${cardSpanClass(placement.size.span)}`}
+              >
                 <ReportWidget
                   def={def}
                   meUserId={auth.me?.user_id ?? ""}
+                  size={placement.size}
+                  spans={vocabulary?.spans ?? []}
+                  heights={vocabulary?.heights ?? []}
                   entranceDelay={Math.min(i * 30, 240)}
-                  onRemove={() => persist(removeWidget(visible, id))}
+                  onResize={(size) => resize(placement.id, size)}
+                  onMove={(direction) => move(placement.id, direction)}
+                  canMoveEarlier={i > 0}
+                  canMoveLater={i < placements.length - 1}
+                  onRemove={() => remove(placement.id)}
                 />
               </div>
             );
