@@ -2,10 +2,11 @@
 //!
 //! Purpose: CRUD for stored report specs — the `report_definitions` rows
 //! (migration 0034). Rows carry the registry-backed `kind`/`viz`/`scope`
-//! columns plus the spec BODY jsonb; core-reports re-validates the merged
-//! spec on every write and load, so this module stays deliberately thin:
-//! no spec knowledge, no SQL compilation, no authorization (core-api owns
-//! RBAC; RLS keeps tenancy absolute).
+//! columns plus the spec BODY jsonb and, since migration 0180, the card
+//! document; core-reports re-validates the merged spec and the card on every
+//! write and load, so this module stays deliberately thin: no spec knowledge,
+//! no SQL compilation, no authorization (core-api owns RBAC; RLS keeps
+//! tenancy absolute).
 //!
 //! Visibility is a QUERY concern here because it is a WHERE clause: admins
 //! see every row of the org, everyone else sees org-published rows plus
@@ -34,6 +35,10 @@ pub struct ReportDefinitionRow {
     pub kind: String,
     /// Spec body document.
     pub spec: serde_json::Value,
+    /// Card document (`{size, window_days, refresh}`), or NULL when the
+    /// definition carries no card. Reassembly into a typed
+    /// [`core_reports::CardSpec`] happens one layer up, like `spec`.
+    pub card: Option<serde_json::Value>,
     /// Registry-backed visualization hint (core-reports `VizHint`).
     pub viz: String,
     /// `org` (published org-wide) or `self` (private to the creator).
@@ -51,6 +56,7 @@ pub struct DefinitionFields {
     pub description: Option<String>,
     pub kind: String,
     pub spec: serde_json::Value,
+    pub card: Option<serde_json::Value>,
     pub viz: String,
     pub scope: String,
 }
@@ -67,15 +73,16 @@ pub async fn insert(
 ) -> DbResult<ReportDefinitionRow> {
     let row = sqlx::query_as!(
         ReportDefinitionRow,
-        r#"INSERT INTO report_definitions (id, org_id, name, description, kind, spec, viz, scope, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           RETURNING id, org_id, name, description, kind, spec, viz, scope, created_by, created_at, updated_at"#,
+        r#"INSERT INTO report_definitions (id, org_id, name, description, kind, spec, card, viz, scope, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING id, org_id, name, description, kind, spec, card, viz, scope, created_by, created_at, updated_at"#,
         id,
         org_id,
         fields.name,
         fields.description,
         fields.kind,
         fields.spec,
+        fields.card,
         fields.viz,
         fields.scope,
         created_by,
@@ -95,7 +102,7 @@ pub async fn get(
 ) -> DbResult<ReportDefinitionRow> {
     sqlx::query_as!(
         ReportDefinitionRow,
-        r#"SELECT id, org_id, name, description, kind, spec, viz, scope, created_by, created_at, updated_at
+        r#"SELECT id, org_id, name, description, kind, spec, card, viz, scope, created_by, created_at, updated_at
            FROM report_definitions WHERE org_id = $1 AND id = $2"#,
         org_id,
         id,
@@ -112,7 +119,7 @@ pub async fn list_all(
 ) -> DbResult<Vec<ReportDefinitionRow>> {
     let rows = sqlx::query_as!(
         ReportDefinitionRow,
-        r#"SELECT id, org_id, name, description, kind, spec, viz, scope, created_by, created_at, updated_at
+        r#"SELECT id, org_id, name, description, kind, spec, card, viz, scope, created_by, created_at, updated_at
            FROM report_definitions WHERE org_id = $1
            ORDER BY name, id"#,
         org_id,
@@ -132,7 +139,7 @@ pub async fn list_visible(
 ) -> DbResult<Vec<ReportDefinitionRow>> {
     let rows = sqlx::query_as!(
         ReportDefinitionRow,
-        r#"SELECT id, org_id, name, description, kind, spec, viz, scope, created_by, created_at, updated_at
+        r#"SELECT id, org_id, name, description, kind, spec, card, viz, scope, created_by, created_at, updated_at
            FROM report_definitions
            WHERE org_id = $1 AND (scope = 'org' OR created_by = $2)
            ORDER BY name, id"#,
@@ -156,15 +163,17 @@ pub async fn update(
     sqlx::query_as!(
         ReportDefinitionRow,
         r#"UPDATE report_definitions
-           SET name = $3, description = $4, kind = $5, spec = $6, viz = $7, scope = $8, updated_at = now()
+           SET name = $3, description = $4, kind = $5, spec = $6, card = $7, viz = $8,
+               scope = $9, updated_at = now()
            WHERE org_id = $1 AND id = $2
-           RETURNING id, org_id, name, description, kind, spec, viz, scope, created_by, created_at, updated_at"#,
+           RETURNING id, org_id, name, description, kind, spec, card, viz, scope, created_by, created_at, updated_at"#,
         org_id,
         id,
         fields.name,
         fields.description,
         fields.kind,
         fields.spec,
+        fields.card,
         fields.viz,
         fields.scope,
     )

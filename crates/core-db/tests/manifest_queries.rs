@@ -447,6 +447,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
                 description: None,
                 kind: kind.into(),
                 spec: body,
+                card: None,
                 viz: viz.into(),
                 scope: scope.into(),
             },

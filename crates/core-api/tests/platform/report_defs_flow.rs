@@ -18,6 +18,10 @@
 //!    see or touch each other's private definitions, while admins see all.
 //! 5. Dual-mount parity: /api/v1 (canonical) and /api (legacy alias) hit
 //!    the same handlers.
+//! 6. The stored card (F103): a card round-trips through create, get, list
+//!    and update; `card: null` clears it; a card that fails
+//!    `CardSpec::validate` is refused with the typed 422 and writes nothing;
+//!    and a run with no caller bounds defaults to the card's window.
 //!
 //! Database selection follows manifest_flow's contract:
 //! MARULA_TEST_DATABASE_URL or DATABASE_URL (no schema reset).
@@ -770,5 +774,379 @@ async fn definitions_are_served_identically_on_both_mounts() {
     assert_eq!(
         canonical_list, alias_list,
         "both mounts serve one handler set"
+    );
+}
+
+// --- F103: a definition stores its card -----------------------------------------
+
+/// The card every case starts from: seven days, tall, hourly. `window_days` is
+/// the only member the run default reads.
+fn stored_card(window_days: u32) -> Value {
+    json!({
+        "window_days": window_days,
+        "size": {"span": "half", "height": "tall"},
+        "refresh": {"every_minutes": 60}
+    })
+}
+
+/// The spec the card cases store: tickets by status, one count measure.
+fn count_by_status() -> Value {
+    json!({
+        "view": "tickets",
+        "filters": [],
+        "group_by": ["status_name"],
+        "measures": [{"agg": "count"}],
+        "viz": "bar"
+    })
+}
+
+/// Runs one stored definition with no query string and returns the page.
+async fn run_stored(app: &Router, bearer: &[(&'static str, String)], id: &str) -> Value {
+    let response = send(
+        app,
+        axum::http::Method::GET,
+        &format!("/api/v1/report-definitions/{id}/run"),
+        bearer,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200, "the run must succeed");
+    body_json(response).await
+}
+
+#[tokio::test]
+async fn a_stored_card_round_trips_and_an_update_clears_it() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state);
+    let slug = format!("repdefs-card-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+
+    // CREATE carries the card through the instant-first path, and the
+    // read-your-write response is the card the caller chose.
+    let created = {
+        let mut body = create_body("Card round trip", "self");
+        body["card"] = stored_card(7);
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/report-definitions",
+            &bearer,
+            Some(body),
+        )
+        .await;
+        assert_eq!(response.status(), 200, "create with a card must succeed");
+        let body = body_json(response).await;
+        assert_eq!(body["card"]["window_days"], json!(7));
+        assert_eq!(body["card"]["size"]["height"], json!("tall"));
+        assert_eq!(body["card"]["refresh"]["every_minutes"], json!(60));
+        body["id"].as_str().unwrap().to_string()
+    };
+
+    // GET and LIST read the card back from the row, not from an echo.
+    let got = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/report-definitions/{created}"),
+            &bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(got["card"], stored_card(7), "the stored card round-trips");
+
+    let listed = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/report-definitions",
+            &bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        listed["definitions"][0]["card"],
+        stored_card(7),
+        "the listing carries the card too"
+    );
+
+    // A full-replace update that sends `card: null` clears it.
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        &format!("/api/v1/report-definitions/{created}"),
+        &bearer,
+        Some(json!({
+            "name": "Card round trip",
+            "spec": count_by_status(),
+            "card": null,
+            "version": 1,
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "the clearing update lands");
+    let body = body_json(response).await;
+    assert_eq!(body["card"], Value::Null, "null clears the stored card");
+
+    let got = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/report-definitions/{created}"),
+            &bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        got["card"],
+        Value::Null,
+        "the cleared card is null on the next read, not absent-and-stale"
+    );
+}
+
+#[tokio::test]
+async fn a_card_that_fails_validation_is_refused_and_nothing_lands() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state);
+    let slug = format!("repdefs-card-bad-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+
+    // `window_days: 0` is the typed bounds refusal, not a stored row.
+    let mut body = create_body("Zero window", "self");
+    body["card"] = json!({"window_days": 0});
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/report-definitions",
+        &bearer,
+        Some(body),
+    )
+    .await;
+    assert_eq!(response.status(), 422, "an out-of-range window is a 422");
+    let body = body_json(response).await;
+    assert_eq!(body["error"]["reason"], "validation_failed");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("window"),
+        "the refusal names the field it refused, got {}",
+        body["error"]["message"]
+    );
+
+    // The other half of the same gate: a refresh slower than the window.
+    let mut body = create_body("Slow refresh", "self");
+    body["card"] = json!({"window_days": 1, "refresh": {"every_minutes": 5_000}});
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/report-definitions",
+        &bearer,
+        Some(body),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "a refresh slower than the window is a 422"
+    );
+    assert_eq!(
+        body_json(response).await["error"]["reason"],
+        "validation_failed"
+    );
+
+    // Neither refusal wrote a row.
+    let listed = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/report-definitions",
+            &bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        listed["definitions"].as_array().unwrap().len(),
+        0,
+        "a refused card writes nothing"
+    );
+
+    // A refused UPDATE leaves the card that was already stored.
+    let created = {
+        let mut body = create_body("Keeps its card", "self");
+        body["card"] = stored_card(7);
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/report-definitions",
+            &bearer,
+            Some(body),
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        body_json(response).await["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let response = send(
+        &app,
+        axum::http::Method::PUT,
+        &format!("/api/v1/report-definitions/{created}"),
+        &bearer,
+        Some(json!({
+            "name": "Keeps its card",
+            "spec": count_by_status(),
+            "card": {"window_days": 999},
+            "version": 1,
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 422, "the update's bad card is refused");
+    let got = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/report-definitions/{created}"),
+            &bearer,
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        got["card"],
+        stored_card(7),
+        "the refused update changed no column"
+    );
+}
+
+#[tokio::test]
+async fn a_run_defaults_to_the_stored_card_window() {
+    let state = test_state().await;
+    let pool = state.pool.clone();
+    let app = core_api::routes::build_router(state);
+    let slug = format!("repdefs-card-run-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+
+    // One ticket, aged ten days: inside the registry default of thirty,
+    // outside a seven-day card.
+    let board_id = {
+        let boards =
+            body_json(send(&app, axum::http::Method::GET, "/api/boards", &bearer, None).await)
+                .await;
+        boards[0]["id"].as_str().unwrap().to_string()
+    };
+    let ticket = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/tickets",
+            &bearer,
+            Some(json!({
+                "board_id": board_id,
+                "title": "aged ticket",
+                "priority": "p3",
+            })),
+        )
+        .await,
+    )
+    .await;
+    let ticket_id: Uuid = ticket["id"].as_str().unwrap().parse().unwrap();
+    let aged =
+        sqlx::query("UPDATE tickets SET created_at = now() - interval '10 days' WHERE id = $1")
+            .bind(ticket_id)
+            .execute(&pool)
+            .await
+            .expect("age the ticket");
+    assert_eq!(aged.rows_affected(), 1, "the ticket was actually aged");
+
+    let create = |name: &str, card: Option<Value>| {
+        let mut body = json!({
+            "name": name,
+            "spec": count_by_status(),
+            "scope": "self",
+            "idempotency_key": format!("def-run-{name}"),
+        });
+        if let Some(card) = card {
+            body["card"] = card;
+        }
+        body
+    };
+
+    // A seven-day card: no caller bounds, so the card's window applies and
+    // the ten-day-old ticket is outside it.
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/report-definitions",
+        &bearer,
+        Some(create("Seven day card", Some(stored_card(7)))),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let carded = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let page = run_stored(&app, &bearer, &carded).await;
+    assert_eq!(
+        page["rows"].as_array().unwrap().len(),
+        0,
+        "the card's seven days exclude a ten-day-old ticket"
+    );
+
+    // An explicit window still wins over the card.
+    let today = chrono::Utc::now().date_naive();
+    let from = today - chrono::Duration::days(20);
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!(
+            "/api/v1/report-definitions/{carded}/run?from={}&to={}",
+            from.format("%Y-%m-%d"),
+            today.format("%Y-%m-%d")
+        ),
+        &bearer,
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let page = body_json(response).await;
+    assert_eq!(
+        page["rows"].as_array().unwrap().len(),
+        1,
+        "caller bounds win over the stored card"
+    );
+
+    // A definition with no card keeps the registry's thirty-day default.
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/report-definitions",
+        &bearer,
+        Some(create("No card", None)),
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let cardless = body_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let page = run_stored(&app, &bearer, &cardless).await;
+    assert_eq!(
+        page["rows"].as_array().unwrap().len(),
+        1,
+        "no card leaves the thirty-day default alone"
     );
 }
