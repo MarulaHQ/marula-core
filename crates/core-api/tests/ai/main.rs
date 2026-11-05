@@ -24,4 +24,5 @@ mod automation_draft_summary_flow;
 mod chat_runner_flow;
 mod decision_auxiliary_flow;
 mod decision_triage_flow;
+mod report_authoring_flow;
 mod secret_grant_seeding_flow;

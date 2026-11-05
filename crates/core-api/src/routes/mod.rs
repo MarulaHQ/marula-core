@@ -119,6 +119,7 @@ pub mod quotes;
 pub mod rag;
 pub mod recurring;
 pub mod reply_snippets;
+pub mod report_authoring;
 pub mod report_defs;
 pub mod report_schedules;
 pub mod reports;
@@ -2137,6 +2138,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // report definitions (the private build tracker R3): stored specs as data, RBAC-
         // scoped, instant-first write path; module owns its own router.
         .merge(report_defs::routes(gen))
+        // report authoring (Wave 46 lane 3): "describe it" → a validated report
+        // DRAFT. NOT a write: it returns the spec, its card, the typed issues,
+        // the plain-English read-back and the diff, and persists nothing. Rides
+        // the shared AI admission path; module owns its own router.
+        .merge(report_authoring::routes(gen))
         // alert ingestor (the private build tracker Phase 3): source admin + alert ledger;
         // module owns its own router (ingest mounts via public_routes).
         .merge(alerts::admin_routes(gen))
