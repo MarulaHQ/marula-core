@@ -48,13 +48,6 @@ const SCOPE_GROUPS: { group: string; scopes: { id: string; hint: string }[] }[] 
       { id: "clients:write", hint: "create & update clients" },
     ],
   },
-  {
-    group: "Timers",
-    scopes: [
-      { id: "timers:read", hint: "view running timers & entries" },
-      { id: "timers:write", hint: "start/stop timers, add entries" },
-    ],
-  },
 ];
 
 export default function ApiKeysSettingsPage() {

@@ -462,8 +462,6 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
                 Module::Clients,
                 &[Action::View, Action::Create, Action::Edit],
             ),
-            "timers:read" => push(Module::Time, &[Action::View]),
-            "timers:write" => push(Module::Time, &[Action::View, Action::Create, Action::Edit]),
             // Migration connector (the private build tracker D3): deliberately broad data
             // grants — a migration tool writes whole entity families
             // through the D2 engine. The engine's gate checks the Clients
