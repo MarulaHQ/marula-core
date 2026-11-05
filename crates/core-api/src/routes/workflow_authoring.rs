@@ -857,8 +857,9 @@ fn handle_tool_call(call: &ToolCallReq) -> (String, &'static str) {
 }
 
 /// The provider-wire `tool_calls` round-trip for an assistant message (the
-/// same shape the chat runner sends back).
-fn tool_calls_wire(calls: &[ToolCallReq]) -> Value {
+/// same shape the chat runner sends back). Public because the report authoring
+/// loop (Wave 46 lane 3) drives the same protocol: one wire shape, not two.
+pub fn tool_calls_wire(calls: &[ToolCallReq]) -> Value {
     json!(calls
         .iter()
         .map(|c| json!({
