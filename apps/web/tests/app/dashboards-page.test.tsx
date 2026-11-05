@@ -1,9 +1,10 @@
-// Integration test: /dashboards — defaults-first presets, RBAC-driven
-// widget visibility, widget add/remove persistence round-trip through the
-// settings-registry machinery, and clean empty states. Reports run against
-// SDK-typed mock routes mirroring the R1 API shapes.
+// Integration test: /dashboards — defaults-first presets, RBAC-driven widget
+// visibility, widget add/remove persistence, the card size and order controls
+// read from `GET /api/report-catalog`, the version 1 migration, the read-only
+// fallback when the catalogue cannot be read, and clean empty states. Reports
+// run against SDK-typed mock routes mirroring the R1 API shapes.
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import DashboardsPage from "../../app/dashboards/page";
 import { decodeSpecFromQuery } from "../../lib/report-spec-codec";
@@ -23,6 +24,20 @@ const MANAGER_ME = {
 const MEMBER_ME = {
   ...ME_FIXTURE,
   permissions: ["tickets:view"],
+};
+
+// `GET /api/v1/report-catalog` as lane 1 serves it, trimmed to the members the
+// dashboard reads. Values match crates/core-reports SHAPES.
+const CATALOG = {
+  views: [],
+  spans: ["quarter", "third", "half", "full"],
+  heights: ["compact", "regular", "tall"],
+  shapes: [
+    { shape: "chart", viz: ["bar", "line", "pie"], default_span: "half", default_height: "regular" },
+    { shape: "stat", viz: ["stat"], default_span: "third", default_height: "compact" },
+    { shape: "table", viz: ["table"], default_span: "full", default_height: "tall" },
+  ],
+  card_rules: ["A card must draw something."],
 };
 
 function page(rows: unknown[], summary: Record<string, unknown>, kind: string) {
@@ -79,7 +94,10 @@ const BREACHES = page(
   "sla_breaches",
 );
 
-function setupApi(me: typeof ME_FIXTURE): MockApi & { setStored: (v: string | null) => void } {
+function setupApi(
+  me: typeof ME_FIXTURE,
+  catalog: unknown = CATALOG,
+): MockApi & { setStored: (v: string | null) => void } {
   const mock = new MockApi() as MockApi & { setStored: (v: string | null) => void };
   let stored: string | null = null;
   mock.setStored = (v) => {
@@ -92,6 +110,8 @@ function setupApi(me: typeof ME_FIXTURE): MockApi & { setStored: (v: string | nu
   mock.on("PUT", "/api/v1/settings/user", (ctx) => ({
     json: { key: (ctx.body as { key: string }).key, value: (ctx.body as { value: string }).value },
   }));
+  mock.on("GET", "/api/v1/report-catalog", () => ({ json: catalog }));
+  mock.on("GET", "/api/v1/plugins/surface/widgets", () => ({ json: { entries: [] } }));
   mock.on("GET", "/api/v1/reports/time_by_user", (ctx) => ({
     json: ctx.query.user_id === ME_ID ? TIME_SELF : TIME_ORG,
   }));
@@ -103,6 +123,16 @@ function setupApi(me: typeof ME_FIXTURE): MockApi & { setStored: (v: string | nu
   mock.on("GET", "/api/v1/reports/sla_breaches", () => ({ json: BREACHES }));
   mock.install();
   return mock;
+}
+
+/** The default My day arrangement with the sizes lane 1's payload names. */
+function myDayPlacements() {
+  return [
+    { id: "time_by_user:self", size: { span: "half", height: "regular" } },
+    { id: "ticket_throughput:self", size: { span: "half", height: "regular" } },
+    { id: "ticket_aging:self", size: { span: "half", height: "regular" } },
+    { id: "first_response:self", size: { span: "third", height: "compact" } },
+  ];
 }
 
 beforeEach(() => {
@@ -140,6 +170,109 @@ describe("/dashboards integration", () => {
     cleanup();
   });
 
+  it("draws each card at the span and height the payload defaults to", async () => {
+    setupApi(MANAGER_ME);
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    const chart = await screen.findByTestId("widget-time_by_user:self", {}, { timeout: 5000 });
+    const stat = screen.getByTestId("widget-first_response:self");
+    expect(chart).toHaveAttribute("data-card-span", "half");
+    expect(chart).toHaveAttribute("data-card-height", "regular");
+    // The span is a grid class on the card's cell; the height is on the card.
+    expect(chart.parentElement?.className).toContain("xl:col-span-6");
+    expect(stat).toHaveAttribute("data-card-span", "third");
+    expect(stat).toHaveAttribute("data-card-height", "compact");
+    expect(stat.parentElement?.className).toContain("xl:col-span-4");
+    cleanup();
+  });
+
+  it("offers only the span and height values the payload lists", async () => {
+    // A payload without `third`: the control must not invent it, and a widget
+    // whose shape default it cannot name keeps working through another shape.
+    setupApi(MANAGER_ME, {
+      ...CATALOG,
+      spans: ["quarter", "half", "full"],
+      shapes: [
+        CATALOG.shapes[0],
+        { ...CATALOG.shapes[1], default_span: "quarter" },
+        CATALOG.shapes[2],
+      ],
+    });
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    const card = await screen.findByTestId("widget-time_by_user:self", {}, { timeout: 5000 });
+    fireEvent.click(within(card).getByRole("button", { name: "Size and position for My time" }));
+
+    const width = within(card).getByRole("radiogroup", { name: "My time card width" });
+    expect(within(width).getAllByRole("radio").map((r) => r.textContent)).toEqual([
+      "Quarter",
+      "Half",
+      "Full",
+    ]);
+    expect(within(width).queryByRole("radio", { name: "Third" })).not.toBeInTheDocument();
+
+    const height = within(card).getByRole("radiogroup", { name: "My time card height" });
+    expect(within(height).getAllByRole("radio").map((r) => r.textContent)).toEqual([
+      "Compact",
+      "Regular",
+      "Tall",
+    ]);
+    cleanup();
+  });
+
+  it("resizes and reorders a card from the keyboard-reachable controls", async () => {
+    const mock = setupApi(MANAGER_ME);
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    const card = await screen.findByTestId("widget-time_by_user:self", {}, { timeout: 5000 });
+
+    fireEvent.click(within(card).getByRole("button", { name: "Size and position for My time" }));
+    expect(within(card).getByTestId("card-size-time_by_user:self")).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("radio", { name: "Full" }));
+    await waitFor(() => {
+      expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(1);
+    });
+    const resized = mock.lastBody<{ key: string; value: string }>("PUT", "/api/v1/settings/user");
+    expect(resized.key).toBe("dashboards.widgets");
+    const resizedPayload = JSON.parse(resized.value) as {
+      version: number;
+      widgets: Array<{ id: string; size: { span: string; height: string } }>;
+    };
+    expect(resizedPayload.version).toBe(2);
+    expect(resizedPayload.widgets[0]).toEqual({
+      id: "time_by_user:self",
+      size: { span: "full", height: "regular" },
+    });
+    // The other cards kept their size.
+    expect(resizedPayload.widgets[1]).toEqual(myDayPlacements()[1]);
+
+    // Move it one slot later.
+    fireEvent.click(within(card).getByRole("button", { name: "Move My time later" }));
+    await waitFor(() => {
+      expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(2);
+    });
+    const moved = JSON.parse(
+      mock.lastBody<{ value: string }>("PUT", "/api/v1/settings/user").value,
+    ) as { widgets: Array<{ id: string }> };
+    expect(moved.widgets.map((w) => w.id)).toEqual([
+      "ticket_throughput:self",
+      "time_by_user:self",
+      "ticket_aging:self",
+      "first_response:self",
+    ]);
+    cleanup();
+  });
+
   it("keeps personal-lens queries pinned and org queries unscoped", async () => {
     const mock = setupApi(MANAGER_ME);
     render(
@@ -171,9 +304,9 @@ describe("/dashboards integration", () => {
     expect(screen.queryByRole("button", { name: "Apply SLA health preset" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
-    expect(screen.queryByRole("button", { name: "Time by client" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "SLA breaches" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "My SLA attainment" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Time by client" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add SLA breaches" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add My SLA attainment" })).toBeInTheDocument();
     // Personal-lens widgets still pin self on the wire.
     await waitFor(() => {
       expect(mock.callsTo("GET", "/api/v1/reports/time_by_user").length).toBeGreaterThan(0);
@@ -191,22 +324,22 @@ describe("/dashboards integration", () => {
     );
     await screen.findByText("My time", {}, { timeout: 5000 });
 
-    // Add an org widget through the picker.
+    // Add an org widget through the picker; it arrives at its shape default.
     fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
-    fireEvent.click(screen.getByRole("button", { name: "Time by client" }));
+    expect(screen.getByRole("button", { name: "Add Time by client" })).toHaveTextContent(
+      "Half wide, Regular",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add Time by client" }));
     await waitFor(() => {
       expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(1);
     });
     const added = mock.lastBody<{ key: string; value: string }>("PUT", "/api/v1/settings/user");
     expect(added.key).toBe("dashboards.widgets");
     expect(JSON.parse(added.value)).toEqual({
-      version: 1,
+      version: 2,
       widgets: [
-        "time_by_user:self",
-        "ticket_throughput:self",
-        "ticket_aging:self",
-        "first_response:self",
-        "time_by_client:org",
+        ...myDayPlacements(),
+        { id: "time_by_client:org", size: { span: "half", height: "regular" } },
       ],
     });
     expect(await screen.findByText("Acme Corp", {}, { timeout: 5000 })).toBeInTheDocument();
@@ -219,7 +352,9 @@ describe("/dashboards integration", () => {
       expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(2);
     });
     const removed = mock.lastBody<{ value: string }>("PUT", "/api/v1/settings/user");
-    expect(JSON.parse(removed.value).widgets).not.toContain("time_by_client:org");
+    expect(JSON.parse(removed.value).widgets).not.toContainEqual(
+      expect.objectContaining({ id: "time_by_client:org" }),
+    );
 
     // Round-trip: a fresh mount restores the stored arrangement.
     mock.setStored(removed.value);
@@ -232,6 +367,217 @@ describe("/dashboards integration", () => {
     expect(await screen.findByText("My time", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByText("Time by client")).not.toBeInTheDocument();
     expect(screen.queryByText("Acme Corp")).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("migrates the shipped version 1 arrangement and keeps its order", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(
+      JSON.stringify({ version: 1, widgets: ["sla_breaches:org", "time_by_user:self"] }),
+    );
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByText("SLA breaches", {}, { timeout: 5000 })).toBeInTheDocument();
+    const grid = screen.getByTestId("dashboard-grid");
+    const cards = Array.from(grid.querySelectorAll("[data-widget-id]"));
+    expect(cards.map((c) => c.getAttribute("data-widget-id"))).toEqual([
+      "sla_breaches:org",
+      "time_by_user:self",
+    ]);
+    expect(cards[0]).toHaveAttribute("data-card-span", "full");
+    cleanup();
+  });
+
+  it("falls back to the default arrangement when a stored size no longer decodes", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(
+      JSON.stringify({
+        version: 2,
+        widgets: [{ id: "time_by_user:self", size: { span: "huge", height: "regular" } }],
+      }),
+    );
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByText("My time", {}, { timeout: 5000 })).toBeInTheDocument();
+    // The whole My day arrangement, at its defaults, and nothing written back.
+    expect(screen.getByText("My first response")).toBeInTheDocument();
+    expect(screen.getByTestId("widget-time_by_user:self")).toHaveAttribute("data-card-span", "half");
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("treats a failed settings read as unknown, not as no arrangement", async () => {
+    const mock = setupApi(MANAGER_ME);
+    // The registry read fails while the catalogue is fine. The page knows the
+    // size vocabulary, so it could render and write — and that write would
+    // replace an arrangement it never saw.
+    mock.on("GET", "/api/v1/settings/user", () => ({
+      status: 500,
+      json: { error: { message: "settings registry unavailable" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
+    expect(notice).toHaveAttribute("data-reason", "arrangement");
+    expect(notice).toHaveTextContent(/saved arrangement could not be loaded/i);
+    expect(notice).toHaveTextContent(/nothing has been overwritten/i);
+
+    // Nothing is drawn: some other arrangement under this notice would say one
+    // thing and show another. Every mutation surface is absent too.
+    expect(screen.queryByTestId("dashboard-grid")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
+    expect(screen.queryByRole("tab", { name: "Apply Team load preset" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    expect(screen.getByText(/until your saved arrangement loads/i)).toBeInTheDocument();
+
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("leaves a stored arrangement this client cannot read alone", async () => {
+    const mock = setupApi(MANAGER_ME);
+    // A newer client's payload version: readable by nobody here, and the page
+    // must not replace it with defaults.
+    mock.setStored(JSON.stringify({ version: 3, widgets: [] }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
+    expect(notice).toHaveAttribute("data-reason", "arrangement");
+    expect(notice).toHaveTextContent(/nothing is shown/i);
+    expect(screen.queryByTestId("dashboard-grid")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("renders the default arrangement when nothing is stored", async () => {
+    const mock = setupApi(MANAGER_ME);
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByTestId("dashboard-grid", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText("My first response")).toBeInTheDocument();
+    const card = screen.getByTestId("widget-time_by_user:self");
+    // A stored row is absent, so the page is fully live: size, remove, presets.
+    expect(within(card).getByRole("button", { name: "Size and position for My time" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Remove My time" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Apply Team load preset" })).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-readonly")).not.toBeInTheDocument();
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("recovers the stored arrangement when a retry succeeds", async () => {
+    const mock = setupApi(MANAGER_ME);
+    const arrangement = JSON.stringify({
+      version: 2,
+      widgets: [
+        { id: "sla_breaches:org", size: { span: "full", height: "tall" } },
+        { id: "time_by_user:self", size: { span: "quarter", height: "compact" } },
+      ],
+    });
+    let reads = 0;
+    mock.on("GET", "/api/v1/settings/user", () => {
+      reads += 1;
+      if (reads === 1) {
+        return { status: 500, json: { error: { message: "settings registry unavailable" } } };
+      }
+      return { json: [{ key: "dashboards.widgets", value: arrangement }] };
+    });
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 })).toHaveAttribute(
+      "data-reason",
+      "arrangement",
+    );
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-grid")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("dashboard-readonly")).not.toBeInTheDocument();
+    expect(screen.getByTestId("widget-sla_breaches:org")).toHaveAttribute("data-card-span", "full");
+    expect(screen.getByTestId("widget-time_by_user:self")).toHaveAttribute("data-card-span", "quarter");
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("renders read-only with a notice when the catalogue cannot be read", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.on("GET", "/api/v1/report-catalog", () => ({
+      status: 500,
+      json: { error: { message: "catalogue unavailable" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
+    expect(notice).toHaveAttribute("data-reason", "catalogue");
+    expect(notice).toHaveTextContent(/nothing is shown/i);
+    // No card is drawn, so no size is claimed and no control can write.
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    expect(screen.getByText(/No widget can be added until the card vocabulary loads/i)).toBeInTheDocument();
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("keeps plugin widgets reachable beside the report grid", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.on("GET", "/api/v1/plugins/surface/widgets", () => ({
+      json: {
+        entries: [
+          {
+            install_id: "00000000-0000-4000-8000-0000000000aa",
+            entry_key: "acme.hello",
+            label: "Acme hello",
+            definition: {
+              kind: "stat",
+              slot: "dashboard",
+              props_schema: { type: "object", properties: { value: { type: "string" } } },
+              default_props: { value: "42" },
+            },
+          },
+        ],
+      },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByText("Acme hello", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByTestId("plugin-widgets-dashboard")).toBeInTheDocument();
+    // The sized report grid is still there beside it.
+    expect(screen.getByTestId("dashboard-grid")).toBeInTheDocument();
     cleanup();
   });
 
@@ -272,7 +618,7 @@ describe("/dashboards integration", () => {
     await screen.findByText("My time", {}, { timeout: 5000 });
 
     fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
-    fireEvent.click(screen.getByRole("button", { name: "Time by client" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Time by client" }));
 
     const notice = await screen.findByTestId("dashboard-save-error", {}, { timeout: 5000 });
     expect(notice).toHaveTextContent(/did not save/i);
@@ -288,7 +634,7 @@ describe("/dashboards integration", () => {
 
   it("offers restore-from-empty through the My day preset", async () => {
     const mock = setupApi(MANAGER_ME);
-    mock.setStored(JSON.stringify({ version: 1, widgets: [] }));
+    mock.setStored(JSON.stringify({ version: 2, widgets: [] }));
     render(
       <AuthProvider>
         <DashboardsPage />
@@ -296,18 +642,17 @@ describe("/dashboards integration", () => {
     );
 
     expect(await screen.findByText("Your dashboard is empty", {}, { timeout: 5000 })).toBeInTheDocument();
+    // An empty arrangement is valid, not a failure: the picker stays live.
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    expect(screen.getByRole("button", { name: "Add Time by client" })).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-readonly")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Restore My day" }));
     await waitFor(() => {
       expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(1);
     });
     const body = mock.lastBody<{ key: string; value: string }>("PUT", "/api/v1/settings/user");
     expect(body.key).toBe("dashboards.widgets");
-    expect(JSON.parse(body.value).widgets).toEqual([
-      "time_by_user:self",
-      "ticket_throughput:self",
-      "ticket_aging:self",
-      "first_response:self",
-    ]);
+    expect(JSON.parse(body.value).widgets).toEqual(myDayPlacements());
     cleanup();
   });
 });
