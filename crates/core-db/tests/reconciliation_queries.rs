@@ -574,7 +574,13 @@ async fn a_failed_slot_is_due_and_a_recovered_slot_is_not() {
     let db = test_db().await;
     let org = seed_org(&db.admin, 92_070).await;
     let (_user, schedule) = seed_schedule(&db.admin, org, 92_070).await;
-    let slot = Utc::now() - Duration::minutes(30);
+    // Postgres `timestamptz` keeps microseconds, so a value taken straight from
+    // `Utc::now()` cannot survive the round trip: the read-back drops the
+    // sub-microsecond digits and an exact comparison fails on them alone. Build
+    // the slot at whole-second precision, which the column stores unchanged.
+    let slot =
+        chrono::DateTime::from_timestamp((Utc::now() - Duration::minutes(30)).timestamp(), 0)
+            .expect("a valid timestamp");
     let failed_slot = slot;
     let recovered_slot = slot - Duration::days(7);
 

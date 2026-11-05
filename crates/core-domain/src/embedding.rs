@@ -796,10 +796,7 @@ fn read_proc_meminfo_mb() -> Option<u32> {
 /// `/proc/meminfo` path never needs the conversion, so the lib build there has
 /// no caller and `-D warnings` would refuse it. The unit test below still
 /// exercises it on every platform.
-#[cfg_attr(
-    not(any(target_os = "macos", target_os = "windows")),
-    allow(dead_code)
-)]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 fn bytes_to_mb(bytes: u64) -> Option<u32> {
     const CEILING_MB: u64 = 4 * 1024 * 1024;
     let mb = bytes / (1024 * 1024);
