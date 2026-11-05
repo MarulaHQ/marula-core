@@ -187,6 +187,12 @@ function scanEscapes(dirs) {
         const target = resolve(dirname(file), m[1]);
         if (target === pkgRoot || target.startsWith(pkgRoot + sep)) continue;
         const rel = relative(root, target).split(sep).join("/");
+        // An empty relative path means the reference resolved to the repository
+        // root itself — `outputFileTracingRoot: path.join(import.meta.dirname,
+        // "../..")` in apps/web/next.config.mjs is one. The root is not a file a
+        // COPY has to cover; reporting it as an uncovered read produced the
+        // useless message `the build reads ""`.
+        if (rel === "") continue;
         if (rel.startsWith("..") || rel.split("/").includes("node_modules")) continue;
         if (existsLoose(rel)) found.add(rel);
       }

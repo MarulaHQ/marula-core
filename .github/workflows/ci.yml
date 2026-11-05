@@ -91,6 +91,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: System libraries the GTK-linked crates need
+        # `installer` is a Tauri member and is not excluded here, so `glib-sys`
+        # wants `glib-2.0.pc` from pkg-config. Without it the build dies before
+        # a single lint runs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       # Compile against the committed .sqlx metadata, not the service
@@ -271,6 +279,15 @@ jobs:
           echo "--- after reclaim ---"
           df -h /
       - uses: dtolnay/rust-toolchain@stable
+      - name: System libraries the GTK-linked crates need
+        # `installer` is a Tauri workspace member and is not excluded from this
+        # job, so its build script looks for `glib-2.0.pc` and the webkit/soup
+        # headers through pkg-config. Without them the job dies inside a build
+        # script before a single test runs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --exclude marula-desktop --exclude core-api --tests
         env:
@@ -472,7 +489,7 @@ jobs:
       # (auth posture, versioning parity, existence sentinels). Drift in either
       # direction fails.
       - name: API contract probes from the pinned OpenAPI
-        run: cargo test -q -p core-api --test api_versioning
+        run: cargo test -q -p core-api --test documents_kb api_versioning
         env:
           SQLX_OFFLINE: "true"
       # Two of the three golden layers: the spec derived from the compiled

@@ -18,6 +18,19 @@ pub fn fixed_uuid(n: u64) -> Uuid {
     Uuid::from_u128(0x6D65_7269_6469_616E_u128 << 64 | u128::from(n))
 }
 
+/// `Utc::now()` at the precision a `timestamptz` column stores.
+///
+/// Postgres keeps microseconds. A value read back from the database has lost
+/// the sub-microsecond digits, so a test that compares its own `Utc::now()` to
+/// the stored value fails on those digits alone. Same helper as
+/// `crates/core-db/tests/common`.
+#[must_use]
+pub fn db_now() -> chrono::DateTime<chrono::Utc> {
+    let now = chrono::Utc::now();
+    chrono::DateTime::from_timestamp(now.timestamp(), now.timestamp_subsec_micros() * 1_000)
+        .expect("a valid timestamp")
+}
+
 struct Bootstrap {
     admin_url: String,
     _container: Option<testcontainers::ContainerAsync<GenericImage>>,

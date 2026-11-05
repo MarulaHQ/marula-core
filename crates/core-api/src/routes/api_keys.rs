@@ -155,10 +155,19 @@ pub async fn create(
     if name.is_empty() || name.len() > 120 {
         return Err(ApiError::Validation("name must be 1..=120 chars".into()));
     }
+    // The service-account lookup rides the same org-bound transaction the write
+    // uses. Reading it off the shared pool left the statement without an
+    // `app.org_id`, which is the unscoped-read class the RLS gate fails: any
+    // other caller of this route would have touched a tenant table with no
+    // tenant set. The cross-organization check below stays, because the lookup
+    // resolves through a SECURITY DEFINER bridge and does not see row-level
+    // security itself.
+    let mut tx = org_tx::begin(&state, org_id, user_id).await?;
+
     let service_account_id = match req.service_account_id {
         Some(account_id) => {
             let account = core_db::service_accounts::find_active_service_account_by_id(
-                &state.pool,
+                &mut *tx.tx,
                 account_id,
             )
             .await?
@@ -187,7 +196,6 @@ pub async fn create(
     let prefix = raw_key[..12].to_string();
 
     let id = Uuid::now_v7();
-    let mut tx = org_tx::begin(&state, org_id, user_id).await?;
     let row = core_db::webhooks::insert_api_key(
         &mut *tx.tx,
         id,

@@ -20,7 +20,7 @@
 
 mod common;
 
-use common::{org_tx, seed_org, test_db, TestDb};
+use common::{db_now, org_tx, seed_org, test_db, TestDb};
 use core_domain::entities::{BillingMethod, PhaseStatus, ProjectStatus, TaskStatus};
 use core_projects::deps;
 use core_projects::template;
@@ -211,7 +211,7 @@ async fn phase_and_task_completion_stamp_timestamps() {
     .expect("task");
     assert_eq!(task.status, TaskStatus::Pending);
 
-    let at = chrono::Utc::now();
+    let at = db_now();
     let completed_task = core_db::projects::complete_task(&mut *tx, org, task.id, at)
         .await
         .expect("complete task");

@@ -25,7 +25,7 @@
 
 mod common;
 
-use common::{fixed_uuid, org_tx, test_db};
+use common::{db_now, fixed_uuid, org_tx, test_db};
 use core_db::{orgs, users};
 use core_domain::settings::WORKFLOW_RUN_RETENTION_DAYS;
 use core_domain::workflow_runs::{
@@ -539,7 +539,7 @@ async fn a_parked_run_shows_waiting_with_its_wake_at_and_its_cursor() {
     .await
     .expect("run");
 
-    let wake_at = chrono::Utc::now() + Duration::from_secs(3600);
+    let wake_at = db_now() + Duration::from_secs(3600);
     core_db::workflow_runs::park_run(
         &mut tx,
         org,
@@ -628,7 +628,7 @@ async fn a_resume_is_a_new_row_and_the_parked_row_is_never_edited() {
     )
     .await
     .expect("run");
-    let wake_at = chrono::Utc::now() + Duration::from_secs(60);
+    let wake_at = db_now() + Duration::from_secs(60);
     core_db::workflow_runs::park_run(
         &mut tx,
         org,
