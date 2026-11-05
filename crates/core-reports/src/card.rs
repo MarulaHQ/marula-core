@@ -493,7 +493,7 @@ pub fn materialise(
                 })?;
             let value = run
                 .summary
-                .get(&measure)
+                .get(crate::spec::summary_key(&measure))
                 .and_then(Scalar::from_json)
                 .ok_or_else(|| {
                     empty(CardFailure::NoScalar {
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn a_stat_takes_a_scalar_and_accepts_zero() {
         let s = spec(VizHint::Stat, &[], vec![count()]);
-        let zero = json!({ "count": 0 });
+        let zero = json!({ "total_count": 0 });
         let data = materialise(
             &s,
             &card(30),
@@ -794,7 +794,7 @@ mod tests {
             }
         );
 
-        for missing in [json!({}), json!({ "count": null })] {
+        for missing in [json!({}), json!({ "total_count": null })] {
             let err = materialise(
                 &s,
                 &card(30),

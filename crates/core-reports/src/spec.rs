@@ -252,6 +252,17 @@ pub struct SpecBody {
     pub measures: Vec<MeasureSpec>,
 }
 
+/// The summary block's member name for one measure.
+///
+/// The compiler aliases each whole-window aggregate with this name and the stat
+/// card reads the same member, so the two cannot drift. A count over an empty
+/// window is `0`; a sum over one is `null`, which a stat refuses because a sum
+/// of nothing has no value.
+#[must_use]
+pub fn summary_key(output_name: &str) -> String {
+    format!("total_{output_name}")
+}
+
 impl ReportSpec {
     /// Splits into the stored `kind` column value, the jsonb body, and the
     /// `viz` column value.
@@ -574,9 +585,9 @@ impl ReportSpec {
         let mut s_select: Vec<String> = vec!["COUNT(*)::bigint AS rows_total".to_string()];
         for m in &self.measures {
             s_select.push(format!(
-                "{} AS \"total_{}\"",
+                "{} AS \"{}\"",
                 measure_expr(m),
-                m.output_name()
+                summary_key(&m.output_name())
             ));
         }
         let summary_sql = format!(
