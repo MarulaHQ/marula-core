@@ -13,6 +13,54 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-05
+
+### Added
+
+- Describe a report in plain English on the reports page or your dashboard. The
+  draft comes back with a sentence saying what it will show and a list of what
+  changed against your current draft. Accepting saves it. Editing opens the
+  builder. Rejecting discards it.
+- Every draft is checked against your own data before it is offered. A chart
+  with no rows, a table without headers, a stat without a number, or a window
+  wider than its refresh is caught and repaired when the model can repair it.
+  A failure that survives is named plainly on the draft.
+- Describe a schedule the same way: "every Monday at 09:00" becomes the fields
+  the schedule form takes. A phrase the schedule shape cannot carry is refused
+  with the part it could not read, instead of being guessed at.
+- Dashboard cards take their width and height from the report catalogue, and a
+  saved report can be placed on a dashboard with the card it was authored with.
+- A saved report shows what it will run with, on the saved row and on the
+  dashboard card: its window and refresh interval, beside the size it draws at.
+- An MCP client is offered only the tools its own account can call, rather than
+  the whole catalogue with a refusal waiting at call time.
+- The desktop client ships on Linux and Windows as the connected client,
+  beside the macOS app.
+- Loading surfaces use the kit's skeleton composer instead of a hand-rolled
+  splash.
+
+### Changed
+
+- A report definition stores the card it was authored with, so accepting a
+  draft keeps its window, refresh and size, and editing a saved report no
+  longer clears them.
+- The reports page, the dashboards page and the authoring route share one
+  describe-it panel.
+
+### Fixed
+
+- A stat card drawn from real data came back as having no value. The run wrote
+  its total under one name and the card looked for another.
+- The schedules form could not create a weekly or monthly schedule at all,
+  because it had no day field. It also called its time UTC while sending the
+  browser's own zone.
+- Saving a dashboard arrangement failed, because the settings key the page
+  writes was never declared.
+- A dashboard card whose saved report was deleted, or moved out of your reach,
+  showed a hole. It now states why and offers to remove the card.
+- The authoring page showed an AI refusal without the reason for it or the
+  remedy.
+
 ### Removed
 
 - `timers:read` and `timers:write` can no longer be written onto an API key. A
@@ -196,7 +244,8 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 - Dispatch with SLA awareness and scheduling.
 - The client portal with tickets, invoices, and the knowledge base.
 
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/MarulaHQ/marula-core/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/MarulaHQ/marula-core/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MarulaHQ/marula-core/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MarulaHQ/marula-core/compare/v0.2.0...v0.3.0
