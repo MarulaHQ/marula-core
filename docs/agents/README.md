@@ -12,7 +12,8 @@ The MCP adapter holds no credential of its own. It forwards the session token it
 given, on the capability read and on every proxied tool call, so core-api authorizes the
 person behind the session and not the adapter. Over HTTP the token is the request's
 `Authorization: Bearer`; over stdio it is `MARULA_API_TOKEN`. A namespace the org has not
-granted does not appear at all.
+granted does not appear at all, and neither does one the caller's own permissions cannot
+read.
 
 Both transports are served by the official `rmcp` SDK. It implements the stable
 2026-07-28 MCP revision and stays compatible with 2025-11-25 and earlier, so a client
@@ -46,7 +47,8 @@ same list with the file that enforces it.
 | Never | Stopped by |
 |---|---|
 | Write through the MCP catalog | The catalog derives `GET` operations only, and `catalog_derives_get_tools_only` fails if that changes (`crates/mcp-server/src/catalog.rs:201`) |
-| Reach a namespace it was not granted | `filter_granted` drops an ungranted namespace from `tools/list` entirely, so the tool is not hidden, it does not exist (`catalog.rs:102-111`) |
+| Reach a namespace it was not granted | `is_granted` drops an ungranted namespace from `tools/list` entirely, so the tool is not hidden, it does not exist (`crates/mcp-server/src/catalog.rs`) |
+| See a tool its own permissions would be refused for | The caller's permission keys from `GET /api/v1/me` clear each tool's row in `crates/mcp-server/src/gates.rs` before the tool is advertised |
 | Read sensitive content even with a grant | `EXCLUDED_PATH_PREFIXES` removes attachments, export bundles, webhook delivery logs, API keys, auth, email, internal and portal paths before grants are considered (`crates/mcp-server/src/lib.rs:57-75`) |
 | Hold an administrative special | No plugin capability maps onto one, and `admin_specials_should_never_be_grantable` fails the build if one does ([extension points](../reference/extension-points.md)) |
 | Write, edit or delete an audit row | The audit surface is export only, org-scoped, with no write path ([extension points](../reference/extension-points.md)) |
@@ -71,7 +73,12 @@ Three rules, all in the adapter and all checked:
 2. The capability namespace is the first segment after the version prefix, so
    `/api/v1/tickets/123` derives `tickets` and the tool holds `tickets:read`
    (`crates/mcp-server/src/lib.rs:80-89`).
-3. The org's granted namespaces intersect that list, deny-by-default. No grant, no tool.
+3. Two filters intersect that list, deny-by-default. The org's granted namespaces decide
+   whether the family exists at all, and the caller's own permission keys decide whether
+   this session can read it — a bound API key is scoped to its account, and the org's
+   grants say nothing about that key. A scoped key also needs its credential to reach the
+   path: core-api refuses an `x-api-key` outside its machine allowance, and the catalog
+   marks each such operation with `x-api-key-scopes`.
 
 That is why the manifest lists namespaces rather than 303 tool names. The names are
 derived at runtime from the spec, and a hand-maintained list of them would be a second

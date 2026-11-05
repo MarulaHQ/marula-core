@@ -27,7 +27,26 @@ fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
     bearer || key
 }
 
-fn stub_core_api(grants: &'static [&'static str]) -> Router {
+/// What the org granted and what this credential holds. Every case here is a
+/// staff session, so `subject` is `user` and the permission gate is the only
+/// dimension.
+struct Caller {
+    grants: &'static [&'static str],
+    permissions: &'static [&'static str],
+}
+
+fn person(grants: &'static [&'static str], permissions: &'static [&'static str]) -> Caller {
+    Caller {
+        grants,
+        permissions,
+    }
+}
+
+fn stub_core_api(caller: Caller) -> Router {
+    let Caller {
+        grants,
+        permissions,
+    } = caller;
     Router::new()
         .route(
             "/api/v1/me",
@@ -41,7 +60,8 @@ fn stub_core_api(grants: &'static [&'static str]) -> Router {
                     "email": "tech@example.test",
                     "display_name": "Tech",
                     "timezone": "UTC",
-                    "permissions": ["clients:view"],
+                    "permissions": permissions,
+                    "subject": "user",
                     "mcp_capabilities": grants
                 }))
                 .into_response()
@@ -70,13 +90,13 @@ fn stub_core_api(grants: &'static [&'static str]) -> Router {
 }
 
 /// Starts the stub api and the adapter. Returns the adapter's base URL.
-async fn adapter(grants: &'static [&'static str]) -> String {
+async fn adapter(caller: Caller) -> String {
     let stub_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .unwrap();
     let stub_addr = stub_listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(stub_listener, stub_core_api(grants))
+        axum::serve(stub_listener, stub_core_api(caller))
             .await
             .unwrap()
     });
@@ -106,7 +126,7 @@ fn transport_config(base: &str, token: Option<&str>) -> StreamableHttpClientTran
 
 #[tokio::test]
 async fn the_official_client_lists_and_calls_within_the_session() {
-    let base = adapter(&["clients:read"]).await;
+    let base = adapter(person(&["clients:read"], &["clients:view"])).await;
     let transport =
         StreamableHttpClientTransport::from_config(transport_config(&base, Some(TOKEN)));
     let client = ().serve(transport).await.expect("official client connects");
@@ -135,7 +155,7 @@ async fn the_official_client_lists_and_calls_within_the_session() {
 
 #[tokio::test]
 async fn the_official_client_reads_a_resource_and_a_prompt() {
-    let base = adapter(&["tickets:read"]).await;
+    let base = adapter(person(&["tickets:read"], &["tickets:view"])).await;
     let transport =
         StreamableHttpClientTransport::from_config(transport_config(&base, Some(TOKEN)));
     let client = ().serve(transport).await.expect("official client connects");
@@ -193,7 +213,7 @@ async fn the_official_client_reads_a_resource_and_a_prompt() {
 
 #[tokio::test]
 async fn the_official_client_without_a_session_sees_no_tools() {
-    let base = adapter(&["clients:read"]).await;
+    let base = adapter(person(&["clients:read"], &["clients:view"])).await;
     let transport = StreamableHttpClientTransport::from_config(transport_config(&base, None));
     let client = ().serve(transport).await.expect("client connects");
     let tools = client.list_all_tools().await.expect("tools/list");

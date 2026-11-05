@@ -47,6 +47,7 @@
 
 pub mod api;
 pub mod catalog;
+pub mod gates;
 pub mod http;
 pub mod marula;
 pub mod prompts;
