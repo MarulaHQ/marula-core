@@ -25,6 +25,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # The PR head, not the synthetic merge commit GitHub builds for
+          # `refs/pull/<n>/merge`. Checking out the merge ref puts a commit
+          # authored by the pull request author — and unsigned by construction —
+          # inside the range this job walks, so a perfectly signed branch failed
+          # with "missing the trailer" naming a commit nobody wrote.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Every commit carries a Signed-off-by matching its author
@@ -49,7 +55,7 @@ jobs:
               echo "::error::$sha is missing the trailer 'Signed-off-by: ${author}'"
               status=1
             fi
-          done < <(git rev-list "${base}..HEAD")
+          done < <(git rev-list --no-merges "${base}..HEAD")
 
           echo "checked ${checked} commit(s)"
           exit "${status}"
