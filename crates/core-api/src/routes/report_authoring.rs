@@ -527,13 +527,17 @@ pub fn parse_report_output(
     let issues = validate_candidate(&spec, Some(&card), scope, now);
     let reads = describe_report(&spec, &card);
     let shape = CardShape::of(&spec).slug().to_string();
-    let draft = issues.is_empty().then(|| ReportDraft {
-        name: envelope.name,
-        spec,
-        card,
-        shape,
-        reads,
-    });
+    let draft = if issues.is_empty() {
+        Some(ReportDraft {
+            name: envelope.name,
+            spec,
+            card,
+            shape,
+            reads,
+        })
+    } else {
+        None
+    };
     ParsedReportDraft { draft, issues }
 }
 
@@ -604,12 +608,12 @@ fn filter_phrase(filter: &SpecFilter) -> String {
 }
 
 fn every_words(minutes: u32) -> String {
-    if minutes % (24 * 60) == 0 {
+    if minutes.is_multiple_of(24 * 60) {
         match minutes / (24 * 60) {
             1 => "every day".to_string(),
             days => format!("every {days} days"),
         }
-    } else if minutes % 60 == 0 {
+    } else if minutes.is_multiple_of(60) {
         match minutes / 60 {
             1 => "every hour".to_string(),
             hours => format!("every {hours} hours"),
