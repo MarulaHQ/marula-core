@@ -446,6 +446,33 @@ describe("/dashboards integration", () => {
     cleanup();
   });
 
+  it("treats the registry's default document as unset, not as corrupt", async () => {
+    // The registry serves every declared user setting with its default, so a
+    // fresh user now reads `dashboards.widgets: "{}"` instead of no row at
+    // all. That is "nothing written yet": the defaults are the arrangement,
+    // and the first change must be able to save.
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored("{}");
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const card = await screen.findByTestId("widget-time_by_user:self", {}, { timeout: 5000 });
+    expect(screen.queryByTestId("dashboard-readonly")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-grid")).toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("button", { name: "Size and position for My time" }));
+    fireEvent.click(within(card).getByRole("radio", { name: "Tall" }));
+    await waitFor(() => {
+      expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(1);
+    });
+    const saved = mock.lastBody<{ value: string }>("PUT", "/api/v1/settings/user");
+    expect(JSON.parse(saved.value).version).toBe(2);
+    cleanup();
+  });
+
   it("leaves a stored arrangement this client cannot read alone", async () => {
     const mock = setupApi(MANAGER_ME);
     // A newer client's payload version: readable by nobody here, and the page

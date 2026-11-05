@@ -113,6 +113,10 @@ export default function DashboardsPage() {
       const read = readArrangement(stored.value, vocab);
       if (read.status === "read") {
         decoded = read.placements;
+      } else if (read.status === "unset") {
+        // Nothing has been written yet: the defaults ARE this user's
+        // arrangement until they change it.
+        decoded = defaultPlacements(vocab);
       } else if (read.problem === "size") {
         // The row's own rule: a stored size the payload no longer lists falls
         // back to the default arrangement instead of drawing an unmeasurable

@@ -343,6 +343,8 @@ export type ArrangementProblem = "version" | "format" | "id" | "size";
 
 export type ArrangementRead =
   | { readonly status: "read"; readonly placements: WidgetPlacement[] }
+  /** No arrangement has ever been written: the registry's default document. */
+  | { readonly status: "unset" }
   | { readonly status: "unreadable"; readonly problem: ArrangementProblem };
 
 /**
@@ -360,6 +362,12 @@ export function readArrangement(
   if (typeof stored !== "string") {
     return { status: "unreadable", problem: "format" };
   }
+  // The registry serves every declared user setting with its default, so an
+  // undeclared value is not the only "nothing stored yet": `{}` is the
+  // default document and means exactly that. It is not a corrupt arrangement.
+  if (stored.trim() === "") {
+    return { status: "unset" };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(stored);
@@ -370,6 +378,12 @@ export function readArrangement(
     return { status: "unreadable", problem: "format" };
   }
   const candidate = parsed as { version?: unknown; widgets?: unknown };
+  // A document with no version and no widgets is the default, not a payload a
+  // newer client wrote: a version we do not know is the case that must not be
+  // overwritten.
+  if (candidate.version === undefined && candidate.widgets === undefined) {
+    return { status: "unset" };
+  }
   if (!Array.isArray(candidate.widgets)) {
     return { status: "unreadable", problem: "format" };
   }
