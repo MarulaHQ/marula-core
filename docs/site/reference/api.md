@@ -1017,7 +1017,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `DELETE` | `/api/v1/report-definitions/{id}` <a id="report_definitions_delete"></a> | DELETE /api/report-definitions/{id} — removal through the same gated path; the write trail keeps the deleted snapshot (undo substrate). | — |
 | `GET` | `/api/v1/report-definitions/{id}` <a id="report_definitions_get"></a> | GET /api/report-definitions/{id} — one visible definition; anything not visible (deleted, other org, private of another user) is a bare 404. | — |
 | `PUT` | `/api/v1/report-definitions/{id}` <a id="report_definitions_update"></a> | PUT /api/report-definitions/{id} — full-replace update through the instant-first write path (version gate enforced; a miss inside a mutation is the typed `rls_sparse` reason, not `not_found`). | [UpdateReportDefinitionRequest](#schema-updatereportdefinitionrequest) |
-| `GET` | `/api/v1/report-definitions/{id}/run` <a id="report_definitions_run"></a> | GET /api/report-definitions/{id}/run — compile-on-demand execution of a visible stored definition's spec (R6 builder runs). The spec re-validates through the registry, compiles via `ReportSpec::compile_windowed` (identifiers stay enum-matched catalog constants; values bind as `$N` parameters), and executes against the reporting pool inside an org-bound transaction. Non-admins are structurally self-scoped exactly like the prebuilt kinds. | — |
+| `GET` | `/api/v1/report-definitions/{id}/run` <a id="report_definitions_run"></a> | GET /api/report-definitions/{id}/run — compile-on-demand execution of a visible stored definition's spec (R6 builder runs). The spec re-validates through the registry, compiles via `ReportSpec::compile_windowed` (identifiers stay enum-matched catalog constants; values bind as `$N` parameters), and executes against the reporting pool inside an org-bound transaction. Non-admins are structurally self-scoped exactly like the prebuilt kinds. A definition that carries a card defaults to the card's window when the caller supplies no bounds; explicit bounds always win. | — |
 
 ## report-schedules
 
@@ -2778,7 +2778,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-updateproviderrequest"></a>`UpdateProviderRequest` | composite |  |
 | <a id="schema-updatequoterequest"></a>`UpdateQuoteRequest` | composite | PATCH /api/quotes/{id} body — draft-only. Absent fields keep their value; `lines` present replaces the whole line list. |
 | <a id="schema-updatereplysnippetrequest"></a>`UpdateReplySnippetRequest` | composite |  |
-| <a id="schema-updatereportdefinitionrequest"></a>`UpdateReportDefinitionRequest` | composite | PUT /api/report-definitions/{id} body — full-replace semantics: every member is applied; `description: null` clears it. |
+| <a id="schema-updatereportdefinitionrequest"></a>`UpdateReportDefinitionRequest` | composite | PUT /api/report-definitions/{id} body — full-replace semantics: every member is applied; `description: null` clears it and `card: null` (or an omitted card) clears the card. |
 | <a id="schema-updatereportschedulerequest"></a>`UpdateReportScheduleRequest` | composite | PUT /api/report-schedules/{id} body — full-replace semantics; every member is applied and the next-run preview recomputes. |
 | <a id="schema-updaterolerequest"></a>`UpdateRoleRequest` | composite |  |
 | <a id="schema-updaterulerequest"></a>`UpdateRuleRequest` | object |  |
