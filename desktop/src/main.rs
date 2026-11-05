@@ -915,7 +915,24 @@ fn main() {
 
     let root = data_root();
     match start_mode(&root) {
-        Start::Ready(connection::Mode::Local) => run_embedded(root),
+        Start::Ready(connection::Mode::Local) => {
+            if cfg!(target_os = "macos") {
+                run_embedded(root)
+            } else {
+                // The embedded app bundles a Postgres sidecar and the Next
+                // standalone server, which this build does not ship. A stored
+                // choice written on another machine must not reach the boot
+                // path and fail halfway; ask again on the connect screen.
+                run_connect(
+                    root,
+                    false,
+                    Some(
+                        "This build connects to a Marula instance. The embedded app is macOS-only."
+                            .to_string(),
+                    ),
+                )
+            }
+        }
         Start::Ready(connection::Mode::Remote { server_url }) => run_connected(root, server_url),
         Start::FirstRun { embedded, notice } => run_connect(root, embedded, notice),
     }
@@ -958,7 +975,16 @@ fn start_mode(root: &Path) -> Start {
                 println!("{USAGE}");
                 std::process::exit(0);
             }
-            "--local" => choice = Some(connection::Mode::Local),
+            "--local" => {
+                if cfg!(target_os = "macos") {
+                    choice = Some(connection::Mode::Local);
+                } else {
+                    eprintln!(
+                        "--local runs the embedded app, which is macOS-only. Use --server <url>."
+                    );
+                    std::process::exit(2);
+                }
+            }
             "--server" => {
                 let Some(raw) = args.next() else {
                     eprintln!("--server needs an address, for example https://psa.example.com");
@@ -1003,7 +1029,11 @@ fn start_mode(root: &Path) -> Start {
 /// server is the marker: without it there is nothing to run on this machine,
 /// and the connect screen offers the instance only.
 fn embedded_available() -> bool {
-    next_standalone_dir().join("server.js").exists()
+    // The embedded app is macOS-only until the per-OS Postgres sidecar and the
+    // Next standalone tree are staged for Linux and Windows (ADR 0031). The
+    // marker alone is not enough: a resources directory copied from a macOS
+    // build must not make a Linux client offer a mode it cannot run.
+    cfg!(target_os = "macos") && next_standalone_dir().join("server.js").exists()
 }
 
 /// The part of the app every mode shares: the update channel, single instance,
@@ -1257,7 +1287,13 @@ async fn save_connection(
     server_url: Option<String>,
 ) -> Result<(), String> {
     let mode = match mode.as_str() {
-        "local" => connection::Mode::Local,
+        "local" if cfg!(target_os = "macos") => connection::Mode::Local,
+        "local" => {
+            return Err(
+                "This build connects to a Marula instance. The embedded app is macOS-only."
+                    .to_string(),
+            )
+        }
         "remote" => connection::Mode::Remote {
             server_url: connection::parse_server_url(server_url.as_deref().unwrap_or_default())?,
         },

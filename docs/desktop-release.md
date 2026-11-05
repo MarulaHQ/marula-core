@@ -14,11 +14,26 @@ environment variables.
 |---|---|
 | Icons (multi-size .ico, .icns, .png) regenerated from `marula-ci/source/*.svg` | `scripts/generate-desktop-icons.sh` → `desktop/icons/` |
 | Bundle config (targets `app`+`dmg`, category, copyright, min macOS 12, updater artifacts) | `desktop/tauri.conf.json` |
+| Platform bundle targets (`deb`+`appimage`; `nsis`+`msi`) | `desktop/tauri.linux.conf.json`, `desktop/tauri.windows.conf.json` |
+| Desktop release pipeline (macOS embedded, Linux/Windows connected) | `.github/workflows/release-desktop.yml` (unrun while F89 blocks CI) |
 | Updater plugin (channel endpoint + pubkey) | `desktop/tauri.conf.json` `plugins.updater` + `desktop/src/main.rs` registration |
 | Dev/test build (no bundle, `desktop` profile, shared target dir) | `scripts/build-desktop.sh` |
 | First-run connect screen (the shell's own page, embedded) | `desktop/connect/` → `desktop/tauri.conf.json` `build.frontendDist` |
 | Connection record and its validation | `desktop/src/connection.rs` → `connection.json` in the app data dir |
 | Uninstall (app bundle, optionally the data dir) | `scripts/uninstall-desktop.sh` |
+
+## 0. Platform matrix
+
+| Platform | Mode | Bundle targets | Signing |
+|---|---|---|---|
+| macOS | embedded and connected | `app`, `dmg` | the Apple identity and notarization secrets when present; ad-hoc otherwise |
+| Linux | connected | `deb`, `appimage` | unsigned |
+| Windows | connected | `nsis`, `msi` | Authenticode when the certificate secret is present; unsigned otherwise, and SmartScreen will warn |
+
+The Linux and Windows builds are connected clients: they ask for an instance and
+refuse `--local`. Embedded Linux and Windows is a named follow-up (ADR 0031),
+because it needs a per-OS Postgres sidecar and a decision on whether the
+installer carries the database or downloads it.
 
 ## 1. Point the client at an instance
 
@@ -29,10 +44,12 @@ before it starts anything:
 | Mode | What starts | Where the data is |
 |---|---|---|
 | **Connected** (ADR 0028) | The window, the menu, the tray, deep links, the update channel. No database, no API, no bundled server. | On the instance. The webview loads that instance's own URL, so the page and the API share an origin and the session cookie is first-party. |
-| **Embedded** (ADR 0005) | Everything above plus embedded Postgres, core-api in-process, and the bundled Next.js server on loopback ports. | `~/Library/Application Support/Marula/pgdata`. |
+| **Embedded** (ADR 0005; macOS only) | Everything above plus embedded Postgres, core-api in-process, and the bundled Next.js server on loopback ports. | `~/Library/Application Support/Marula/pgdata`. |
 
 On the first run the shell asks, in one window: an instance address, or "Run
-Marula on this machine". Settle the same decision without a dialog when you
+Marula on this machine". The second choice exists only in the macOS build; the
+Linux and Windows builds ask for an address and refuse `--local` with a sentence
+that says why (ADR 0031). Settle the same decision without a dialog when you
 install by script:
 
 ```sh

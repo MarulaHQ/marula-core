@@ -1,6 +1,6 @@
 # ADR 0005: Local desktop test app — embedded Postgres in a Tauri shell
 
-Date: 2026-09-13 · Status: Accepted · Lane: desktop-local-test-app
+Date: 2026-09-13 · Status: Accepted; extended by ADR 0031 (the client ships on macOS, Linux and Windows; the embedded app remains macOS-only) · Lane: desktop-local-test-app
 
 ## Context
 
