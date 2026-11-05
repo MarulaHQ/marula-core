@@ -331,28 +331,48 @@ export function encodeWidgets(placements: readonly WidgetPlacement[]): string {
 }
 
 /**
- * Decode a stored registry value against the vocabulary.
+ * Why a stored arrangement could not be read.
  *
- * Version 2 is strict: any unknown span, unknown height, unknown widget id,
- * duplicate id or malformed entry returns null, so the caller falls back to the
- * default arrangement instead of drawing a grid it cannot measure. Version 1
- * (the ids-only payload the shipped page wrote) is migrated by giving each id
- * its shape default, so an existing arrangement survives the upgrade.
+ * `size` is the one the card vocabulary owns: a span or height the payload no
+ * longer lists. The row's rule covers that case, and the page falls back to the
+ * default arrangement. The others mean the document itself is not one this
+ * client can read, so the page must not treat it as "no arrangement" and write
+ * defaults over it.
  */
-export function decodeWidgets(
+export type ArrangementProblem = "version" | "format" | "id" | "size";
+
+export type ArrangementRead =
+  | { readonly status: "read"; readonly placements: WidgetPlacement[] }
+  | { readonly status: "unreadable"; readonly problem: ArrangementProblem };
+
+/**
+ * Read a stored registry value against the vocabulary, and say why when it
+ * cannot be read.
+ *
+ * Version 2 is strict. Version 1 (the ids-only payload the shipped page wrote)
+ * is migrated by giving each id its shape default, so an existing arrangement
+ * survives the upgrade.
+ */
+export function readArrangement(
   stored: unknown,
   vocabulary: CardVocabulary,
-): WidgetPlacement[] | null {
-  if (typeof stored !== "string") return null;
+): ArrangementRead {
+  if (typeof stored !== "string") {
+    return { status: "unreadable", problem: "format" };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(stored);
   } catch {
-    return null;
+    return { status: "unreadable", problem: "format" };
   }
-  if (typeof parsed !== "object" || parsed === null) return null;
+  if (typeof parsed !== "object" || parsed === null) {
+    return { status: "unreadable", problem: "format" };
+  }
   const candidate = parsed as { version?: unknown; widgets?: unknown };
-  if (!Array.isArray(candidate.widgets)) return null;
+  if (!Array.isArray(candidate.widgets)) {
+    return { status: "unreadable", problem: "format" };
+  }
 
   if (candidate.version === LEGACY_VERSION) {
     const migrated: WidgetPlacement[] = [];
@@ -365,23 +385,49 @@ export function decodeWidgets(
       if (size === null) continue;
       migrated.push({ id, size });
     }
-    return migrated;
+    return { status: "read", placements: migrated };
   }
 
-  if (candidate.version !== PAYLOAD_VERSION) return null;
+  if (candidate.version !== PAYLOAD_VERSION) {
+    return { status: "unreadable", problem: "version" };
+  }
   const placements: WidgetPlacement[] = [];
   for (const entry of candidate.widgets as unknown[]) {
-    if (typeof entry !== "object" || entry === null) return null;
+    if (typeof entry !== "object" || entry === null) {
+      return { status: "unreadable", problem: "format" };
+    }
     const widget = entry as { id?: unknown; size?: unknown };
-    if (typeof widget.id !== "string" || !CATALOG_BY_ID.has(widget.id)) return null;
-    if (!isCardSize(vocabulary, widget.size)) return null;
-    if (placements.some((p) => p.id === widget.id)) return null;
+    if (typeof widget.id !== "string" || !CATALOG_BY_ID.has(widget.id)) {
+      return { status: "unreadable", problem: "id" };
+    }
+    if (placements.some((p) => p.id === widget.id)) {
+      return { status: "unreadable", problem: "id" };
+    }
+    if (!isCardSize(vocabulary, widget.size)) {
+      return { status: "unreadable", problem: "size" };
+    }
     placements.push({
       id: widget.id,
       size: { span: widget.size.span, height: widget.size.height },
     });
   }
-  return placements;
+  return { status: "read", placements };
+}
+
+/**
+ * Decode a stored registry value to placements, or null when it cannot be read.
+ *
+ * Kept as the narrow form for callers that only need the placements. The page
+ * uses [`readArrangement`] instead, because a version, format or identity
+ * problem must not be mistaken for "no arrangement" — writing defaults over it
+ * would destroy the arrangement the user had.
+ */
+export function decodeWidgets(
+  stored: unknown,
+  vocabulary: CardVocabulary,
+): WidgetPlacement[] | null {
+  const read = readArrangement(stored, vocabulary);
+  return read.status === "read" ? read.placements : null;
 }
 
 /**

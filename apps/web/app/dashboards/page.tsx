@@ -35,7 +35,6 @@ import {
   WIDGET_ROWS_KEY,
   addWidget,
   cardVocabulary,
-  decodeWidgets,
   defaultPlacements,
   defaultRows,
   defaultSizeFor,
@@ -44,6 +43,7 @@ import {
   moveWidget,
   placementsForPreset,
   placementsMatch,
+  readArrangement,
   removeWidget,
   resizeWidget,
   visiblePresets,
@@ -58,8 +58,20 @@ import type {
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
 
-const CATALOG_ERROR =
-  "Card sizes and the widget catalogue could not be loaded, so this dashboard is read-only for now.";
+/** Why the surface is read-only, in the two cases that can cause it. */
+type ReadOnlyReason = "catalogue" | "arrangement";
+
+const NOTICE: Record<ReadOnlyReason, string> = {
+  catalogue:
+    "Card sizes and the widget catalogue could not be loaded, so this dashboard is read-only for now.",
+  arrangement:
+    "Your saved arrangement could not be loaded. This dashboard is read-only and nothing has been overwritten; the default arrangement is shown instead.",
+};
+
+const PICKER_NOTICE: Record<ReadOnlyReason, string> = {
+  catalogue: "No widget can be added until the card vocabulary loads.",
+  arrangement: "No widget can be added until your saved arrangement loads.",
+};
 
 export default function DashboardsPage() {
   const auth = useRequireAuth();
@@ -68,10 +80,12 @@ export default function DashboardsPage() {
     [auth.me],
   );
 
-  // `null` while loading, and again when no catalogue arrived: the size of a
-  // card cannot be validated without the vocabulary the server owns.
+  // `null` while loading, and again when the surface is read-only: either the
+  // catalogue is missing (a size cannot be validated) or this user's stored
+  // arrangement cannot be read (writing anything would replace it).
   const [placements, setPlacements] = useState<WidgetPlacement[] | null>(null);
   const [vocabulary, setVocabulary] = useState<CardVocabulary | null>(null);
+  const [readOnlyReason, setReadOnlyReason] = useState<ReadOnlyReason | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -85,28 +99,48 @@ export default function DashboardsPage() {
       catalog.error === undefined && catalog.data !== undefined
         ? cardVocabulary(catalog.data)
         : null;
-    let next: WidgetPlacement[] | null = null;
-    if (vocab !== null) {
-      const stored = (settings.data ?? []).find((v) => v.key === WIDGET_ROWS_KEY);
-      const decoded = decodeWidgets(stored?.value, vocab) ?? defaultPlacements(vocab);
-      // Widgets no longer visible for this user (role change) drop out; the
-      // stored arrangement keeps them, so a role change back restores them.
-      next = decoded.filter((p) => {
-        const def = widgetDef(p.id);
-        return def !== undefined && widgetVisible(def, manager);
-      });
+    if (vocab === null) {
+      return { vocab: null, next: null, reason: "catalogue" as const };
     }
-    return { vocab, next };
+    // A failed settings read says "this user's arrangement is unknown", not
+    // "this user has no arrangement". Falling through to the defaults here
+    // would let the next resize overwrite the arrangement they still have.
+    if (settings.error !== undefined) {
+      return { vocab, next: null, reason: "arrangement" as const };
+    }
+    const stored = (settings.data ?? []).find((v) => v.key === WIDGET_ROWS_KEY);
+    let decoded = defaultPlacements(vocab);
+    if (stored !== undefined) {
+      const read = readArrangement(stored.value, vocab);
+      if (read.status === "read") {
+        decoded = read.placements;
+      } else if (read.problem === "size") {
+        // The row's own rule: a stored size the payload no longer lists falls
+        // back to the default arrangement instead of drawing an unmeasurable
+        // grid. Every other problem leaves the document alone.
+        decoded = defaultPlacements(vocab);
+      } else {
+        return { vocab, next: null, reason: "arrangement" as const };
+      }
+    }
+    // Widgets no longer visible for this user (role change) drop out; the
+    // stored arrangement keeps them, so a role change back restores them.
+    const next = decoded.filter((p) => {
+      const def = widgetDef(p.id);
+      return def !== undefined && widgetVisible(def, manager);
+    });
+    return { vocab, next, reason: null };
   }, [manager]);
 
   useEffect(() => {
     if (auth.status !== "authed") return;
     let cancelled = false;
     void (async () => {
-      const { vocab, next } = await resolveDashboard();
+      const { vocab, next, reason } = await resolveDashboard();
       if (cancelled) return;
       setVocabulary(vocab);
       setPlacements(next);
+      setReadOnlyReason(reason);
       setLoaded(true);
     })();
     return () => {
@@ -114,12 +148,13 @@ export default function DashboardsPage() {
     };
   }, [auth.status, resolveDashboard]);
 
-  // Retry after a failed catalogue read: the same resolve, applied directly.
+  // Retry after a failed read: the same resolve, applied directly.
   const retry = useCallback(() => {
     void (async () => {
-      const { vocab, next } = await resolveDashboard();
+      const { vocab, next, reason } = await resolveDashboard();
       setVocabulary(vocab);
       setPlacements(next);
+      setReadOnlyReason(reason);
       setLoaded(true);
     })();
   }, [resolveDashboard]);
@@ -198,7 +233,7 @@ export default function DashboardsPage() {
     );
   }
 
-  const readOnly = vocabulary === null;
+  const readOnly = readOnlyReason !== null;
 
   return (
     <main className="mx-auto grid w-full max-w-6xl gap-5 p-6">
@@ -229,18 +264,22 @@ export default function DashboardsPage() {
           }
         />
 
-        {/* Toolbar row: named arrangement views (the presets) on the left. */}
-        <SurfaceTabs
-          tabs={presets.map((p) => ({ id: p.id, label: p.title, ariaLabel: `Apply ${p.title} preset` }))}
-          activeId={presets.find((p) => placementsMatch(grid, p.widgets))?.id ?? ""}
-          onChange={(id) => {
-            const preset = presets.find((p) => p.id === id);
-            if (preset === undefined || vocabulary === null) return;
-            const next = placementsForPreset(preset.widgets, grid, vocabulary);
-            if (next !== null) persist(next);
-          }}
-          label="Saved arrangements"
-        />
+        {/* Toolbar row: named arrangement views (the presets) on the left.
+            Absent while read-only: applying one would write an arrangement the
+            page could not read. */}
+        {!readOnly && (
+          <SurfaceTabs
+            tabs={presets.map((p) => ({ id: p.id, label: p.title, ariaLabel: `Apply ${p.title} preset` }))}
+            activeId={presets.find((p) => placementsMatch(grid, p.widgets))?.id ?? ""}
+            onChange={(id) => {
+              const preset = presets.find((p) => p.id === id);
+              if (preset === undefined || vocabulary === null) return;
+              const next = placementsForPreset(preset.widgets, grid, vocabulary);
+              if (next !== null) persist(next);
+            }}
+            label="Saved arrangements"
+          />
+        )}
 
         {/* The catalogue: a popover-style card under the Add widget button.
             Each candidate shows the footprint it arrives with, read from the
@@ -253,9 +292,9 @@ export default function DashboardsPage() {
             >
               Widget catalogue
             </p>
-            {readOnly ? (
+            {readOnlyReason !== null ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                No widget can be added until the card vocabulary loads.
+                {PICKER_NOTICE[readOnlyReason]}
               </p>
             ) : candidates.length === 0 ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
@@ -343,9 +382,11 @@ export default function DashboardsPage() {
           </div>
         )}
 
-        {/* No vocabulary: the cards still render, stacked, with no size
-            controls and no writes, because a size cannot be validated. */}
-        {readOnly && (
+        {/* Read-only: the cards still render, stacked, with no size controls
+            and no writes. Either the vocabulary is missing (a size cannot be
+            validated) or the stored arrangement cannot be read (a write would
+            replace it). */}
+        {readOnlyReason !== null && (
           <div
             role="status"
             className="flex flex-wrap items-center gap-2 rounded-[var(--m-radius-control)] border px-3 py-2 text-[13px]"
@@ -354,9 +395,10 @@ export default function DashboardsPage() {
               background: "var(--m-surface-2)",
               color: "var(--m-text-secondary)",
             }}
-            data-testid="dashboard-catalog-error"
+            data-testid="dashboard-readonly"
+            data-reason={readOnlyReason}
           >
-            <span>{CATALOG_ERROR}</span>
+            <span>{NOTICE[readOnlyReason]}</span>
             <Button
               variant="secondary"
               size="sm"

@@ -23,6 +23,7 @@ import {
   moveWidget,
   placementsForPreset,
   placementsMatch,
+  readArrangement,
   removeWidget,
   resizeWidget,
   shapeForViz,
@@ -245,6 +246,50 @@ describe("widget placement persistence payload", () => {
 
   it("keeps an empty version 2 arrangement empty instead of falling back", () => {
     expect(decodeWidgets(JSON.stringify({ version: 2, widgets: [] }), vocabulary())).toEqual([]);
+  });
+
+  it("says why a stored arrangement cannot be read, so a caller can tell it from none", () => {
+    const vocab = vocabulary();
+    expect(readArrangement("not json", vocab)).toEqual({
+      status: "unreadable",
+      problem: "format",
+    });
+    expect(readArrangement(JSON.stringify({ version: 3, widgets: [] }), vocab)).toEqual({
+      status: "unreadable",
+      problem: "version",
+    });
+    expect(
+      readArrangement(
+        JSON.stringify({
+          version: 2,
+          widgets: [{ id: "gone:self", size: { span: "half", height: "regular" } }],
+        }),
+        vocab,
+      ),
+    ).toEqual({ status: "unreadable", problem: "id" });
+    expect(
+      readArrangement(
+        JSON.stringify({
+          version: 2,
+          widgets: [{ id: "time_by_user:self", size: { span: "huge", height: "regular" } }],
+        }),
+        vocab,
+      ),
+    ).toEqual({ status: "unreadable", problem: "size" });
+  });
+
+  it("reads a version 1 payload and an empty arrangement through the same reader", () => {
+    const vocab = vocabulary();
+    expect(
+      readArrangement(JSON.stringify({ version: 1, widgets: ["time_by_user:self"] }), vocab),
+    ).toEqual({
+      status: "read",
+      placements: [{ id: "time_by_user:self", size: { span: "half", height: "regular" } }],
+    });
+    expect(readArrangement(JSON.stringify({ version: 2, widgets: [] }), vocab)).toEqual({
+      status: "read",
+      placements: [],
+    });
   });
 });
 

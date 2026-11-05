@@ -414,6 +414,116 @@ describe("/dashboards integration", () => {
     cleanup();
   });
 
+  it("treats a failed settings read as unknown, not as no arrangement", async () => {
+    const mock = setupApi(MANAGER_ME);
+    // The registry read fails while the catalogue is fine. The page knows the
+    // size vocabulary, so it could render and write — and that write would
+    // replace an arrangement it never saw.
+    mock.on("GET", "/api/v1/settings/user", () => ({
+      status: 500,
+      json: { error: { message: "settings registry unavailable" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
+    expect(notice).toHaveAttribute("data-reason", "arrangement");
+    expect(notice).toHaveTextContent(/saved arrangement could not be loaded/i);
+    expect(notice).toHaveTextContent(/nothing has been overwritten/i);
+
+    // Every mutation surface is absent: no preset tabs, no size control, no
+    // remove button, and the picker refuses to add.
+    expect(screen.queryByRole("tab", { name: "Apply Team load preset" })).not.toBeInTheDocument();
+    const card = screen.getByTestId("widget-time_by_user:self");
+    expect(within(card).queryByRole("button", { name: /Size and position/ })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    expect(screen.getByText(/until your saved arrangement loads/i)).toBeInTheDocument();
+
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("leaves a stored arrangement this client cannot read alone", async () => {
+    const mock = setupApi(MANAGER_ME);
+    // A newer client's payload version: readable by nobody here, and the page
+    // must not replace it with defaults.
+    mock.setStored(JSON.stringify({ version: 3, widgets: [] }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
+    expect(notice).toHaveAttribute("data-reason", "arrangement");
+    expect(screen.queryByTestId("dashboard-grid")).not.toBeInTheDocument();
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("renders the default arrangement when nothing is stored", async () => {
+    const mock = setupApi(MANAGER_ME);
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByTestId("dashboard-grid", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText("My first response")).toBeInTheDocument();
+    const card = screen.getByTestId("widget-time_by_user:self");
+    // A stored row is absent, so the page is fully live: size, remove, presets.
+    expect(within(card).getByRole("button", { name: "Size and position for My time" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Remove My time" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Apply Team load preset" })).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-readonly")).not.toBeInTheDocument();
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("recovers the stored arrangement when a retry succeeds", async () => {
+    const mock = setupApi(MANAGER_ME);
+    const arrangement = JSON.stringify({
+      version: 2,
+      widgets: [
+        { id: "sla_breaches:org", size: { span: "full", height: "tall" } },
+        { id: "time_by_user:self", size: { span: "quarter", height: "compact" } },
+      ],
+    });
+    let reads = 0;
+    mock.on("GET", "/api/v1/settings/user", () => {
+      reads += 1;
+      if (reads === 1) {
+        return { status: 500, json: { error: { message: "settings registry unavailable" } } };
+      }
+      return { json: [{ key: "dashboards.widgets", value: arrangement }] };
+    });
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    expect(await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 })).toHaveAttribute(
+      "data-reason",
+      "arrangement",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-grid")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("dashboard-readonly")).not.toBeInTheDocument();
+    expect(screen.getByTestId("widget-sla_breaches:org")).toHaveAttribute("data-card-span", "full");
+    expect(screen.getByTestId("widget-time_by_user:self")).toHaveAttribute("data-card-span", "quarter");
+    expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
+    cleanup();
+  });
+
   it("renders read-only with a notice when the catalogue cannot be read", async () => {
     const mock = setupApi(MANAGER_ME);
     mock.on("GET", "/api/v1/report-catalog", () => ({
@@ -426,9 +536,9 @@ describe("/dashboards integration", () => {
       </AuthProvider>,
     );
 
-    expect(await screen.findByTestId("dashboard-catalog-error", {}, { timeout: 5000 })).toHaveTextContent(
-      /read-only for now/i,
-    );
+    const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
+    expect(notice).toHaveAttribute("data-reason", "catalogue");
+    expect(notice).toHaveTextContent(/read-only for now/i);
     const card = screen.getByTestId("widget-time_by_user:self");
     // Data still renders; every write control is gone and no size is claimed.
     expect(within(card).queryByRole("button", { name: /Size and position/ })).not.toBeInTheDocument();
@@ -533,6 +643,10 @@ describe("/dashboards integration", () => {
     );
 
     expect(await screen.findByText("Your dashboard is empty", {}, { timeout: 5000 })).toBeInTheDocument();
+    // An empty arrangement is valid, not a failure: the picker stays live.
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    expect(screen.getByRole("button", { name: "Add Time by client" })).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-readonly")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Restore My day" }));
     await waitFor(() => {
       expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(1);
