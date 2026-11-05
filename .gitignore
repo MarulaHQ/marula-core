@@ -177,38 +177,15 @@ apps/web/.harness/probe-*.html
 apps/web/.harness/fragments.json
 apps/web/.harness/in.css
 
-# Agent hook wiring (trail rewrites it per checkout with absolute paths, so a
-# tracked copy is machine-local and every worktree lane starts dirty). Wave 47
-# lane A18 untracked it; Wave 52 lanes P2/P3 re-added it by hand. Keep it
-# ignored — scripts/check-hook-paths.mjs is the guard.
+# Agent hook wiring is rewritten per checkout with absolute paths, so a tracked
+# copy is machine-local and every worktree starts dirty.
+# scripts/check-hook-paths.mjs is the guard.
 .cursor/hooks.json
 
-# The build tracker is deliberately NOT ignored.
-# TASKLIST.md and TASKLIST_COMPLETED.md are the live working documents every lane
-# edits, so they must stay tracked here. They are removed from the *published*
-# repository by the publish filter (~/.local/bin/publish-marula-core.sh), not by a
-# rule in this file: an ignore rule cannot untrack a tracked file, it can only
-# manufacture a tracked-but-ignored contradiction. The same applies to design/,
-# .claude/, .kilo/skills/ and the other internal paths excluded at publish time.
-# If you want one of them gone from this repo, remove it — do not add it here.
-
-# Internal material extracted to the private sibling repository (../internal).
-# These are ignored so a stray copy cannot re-enter the working tree: the public
-# repository must never contain the design corpus, the security audit, the
-# strategy and commercial documents, or per-agent configs. The tracker
-# (TASKLIST*.md) is deliberately NOT here — see the note above.
-#
-# /design/ also absorbs lane capture output: e2e helpers and the capture scripts
-# write design/qa-<lane>/, which is local scratch a run rewrites and never a
-# record this repository ships. One ignore rule covers both uses.
+# Local scratch: capture output, per-agent configuration and trace notes. None of
+# it is a record this repository ships, and a capture helper that runs with
+# `git add -A` must not be able to commit it.
 /design/*
-# No negation for design/qa-<lane>/. Lane evidence is company material: it is copied to
-# ../internal/design/qa-<lane>/ and committed there, never here. The old negation tracked
-# it in the product repo, which the repository-boundary rule forbids — and a lane that ran
-# `git add -A` after a capture wrote exactly that file into a product worktree (Wave 52
-# group 3's follow-up). An ignore rule is the only mechanism that holds against that.
-/website/
-/meridian-ci/
 /.claude/
 /.agents/
 /.cursor/
@@ -220,22 +197,9 @@ apps/web/.harness/in.css
 /.trail/learnings/
 /.kilo/w41lanes/
 /.kilo/worktests/
-/README-PROPOSAL.md
-/docs/STRATEGY.md
-/docs/prompts/
-/docs/11-web-presence.md
-/docs/reference/architecture-review-2026-10.md
-/docs/reference/parallel-lanes.md
-/docs/reference/marula-surface-brief.md
-/docs/reference/wave41-marula-plan.md
-/docs/reference/auth-threat-model.md
-/docs/reference/plugin-signing-rotation-runbook.md
-/docs/reference/marula-name-map.md
-/docs/reference/wave16-content-model-and-vault.md
-/docs/reference/core-vs-premium.md
-/docs/adr/0012-internal-org-asset-scope.md
-/docs/adr/0013-connector-tiers-and-marketplace.md
-/scripts/check-brand-assets.mjs
+
+# Local Cloudflare dev state (miniflare caches, R2 blobs, SQLite). Build output.
+/.wrangler/
 
 # Python bytecode (lane tooling imports repo modules by path)
 __pycache__/

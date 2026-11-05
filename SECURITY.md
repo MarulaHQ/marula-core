@@ -12,7 +12,7 @@ Marula keeps a disposable staging instance for alpha testers and independent sec
 
 - **Target:** the operator sends you the URL with your credentials. Credentials are issued out of band and never published here.
 - **Accounts:** one per tester, with a role the operator chose. Owner accounts stay with the operator. Do not share credentials or make accounts for other people.
-- **Before you report:** read [known issues](docs/security/pentest-known-issues.md). Those items are already owned, and a fresh report on one of them costs everyone a day.
+- **Before you report:** ask the operator for the list of known issues. Those items are already owned, and a fresh report on one of them costs everyone a day.
 - **Disclosure window:** 90 days from the report, or earlier when a fix ships. We tell you when it does, and credit you in the advisory unless you prefer otherwise.
 
 ### In scope
