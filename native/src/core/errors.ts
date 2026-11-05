@@ -85,6 +85,12 @@ export const REASON_COPY: Readonly<Record<string, string>> = {
     "This capability is temporarily unavailable. Try again in a moment.",
   internal_error:
     "Something went wrong on our side — your change wasn't saved. Try again.",
+  upload_quarantined:
+    "The malware scanner rejected this file and it is held for an operator — retrying the same file will not change the answer.",
+  upload_refused:
+    "The malware scanner rejected this file. Nothing was stored.",
+  upload_too_large_to_scan:
+    "This file is larger than this deployment will scan, so nothing was stored.",
 };
 
 export const GENERIC_REJECTION =

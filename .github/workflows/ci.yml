@@ -472,7 +472,7 @@ jobs:
       # (auth posture, versioning parity, existence sentinels). Drift in either
       # direction fails.
       - name: API contract probes from the pinned OpenAPI
-        run: cargo test -q -p core-api --test api_versioning
+        run: cargo test -q -p core-api --test documents_kb api_versioning::
         env:
           SQLX_OFFLINE: "true"
       # Two of the three golden layers: the spec derived from the compiled
