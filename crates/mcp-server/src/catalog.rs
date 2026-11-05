@@ -21,6 +21,11 @@ pub struct Tool {
     pub method: String,
     /// JSON-Schema object built from the operation's parameters.
     pub input_schema: Value,
+    /// Whether a scoped API key may reach this operation at all. The document
+    /// publishes `x-api-key-scopes` on every operation core-api's machine
+    /// allowance admits, and the adapter reads that instead of keeping a second
+    /// copy of the allowance.
+    pub key_reachable: bool,
 }
 
 /// Builds the read-tool catalog from the derived artifact
@@ -93,6 +98,10 @@ pub fn build_catalog(spec: &Value, catalog: &Value) -> Vec<Tool> {
                 path: path.to_string(),
                 method: "GET".into(),
                 input_schema,
+                key_reachable: get_op
+                    .get("x-api-key-scopes")
+                    .and_then(Value::as_array)
+                    .is_some_and(|scopes| !scopes.is_empty()),
             });
         }
     }
@@ -112,19 +121,15 @@ fn spec_get_op<'a>(spec: &'a Value, path: &str) -> Option<&'a Value> {
         .and_then(|item| item.get("get"))
 }
 
-/// Intersects the derived catalog with the org's granted capability
-/// NAMESPACES (the `:read` side of the registry). Deny-by-default: a
-/// namespace without a grant row disappears from `tools/list` entirely.
-/// `tools/call` re-checks through the scoped backend (defense in depth).
-pub fn filter_granted(tools: Vec<Tool>, granted_namespaces: &HashSet<String>) -> Vec<Tool> {
-    tools
-        .into_iter()
-        .filter(|t| {
-            t.capability
-                .strip_suffix(":read")
-                .is_some_and(|ns| granted_namespaces.contains(ns))
-        })
-        .collect()
+/// Whether the org granted the capability namespace this tool belongs to.
+///
+/// The `:read` side of the registry is the namespace; deny-by-default holds, so
+/// a namespace without a grant row answers `false`. This is the org's half of
+/// visibility — the caller's own half is in [`crate::gates`].
+pub fn is_granted(tool: &Tool, granted_namespaces: &HashSet<String>) -> bool {
+    tool.capability
+        .strip_suffix(":read")
+        .is_some_and(|namespace| granted_namespaces.contains(namespace))
 }
 
 /// Interpolates `{param}` template segments from the call arguments; a

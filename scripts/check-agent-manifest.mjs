@@ -25,7 +25,7 @@
 //
 // Non-purpose: it does not check that a grant exists for a namespace, and it
 // does not call the API. Grants are runtime data, and the catalog's own
-// `filter_granted` is the authority on them.
+// `is_granted` is the authority on them.
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

@@ -16,6 +16,12 @@
 //! - **prompts** — in-code workflow templates, listed only when the caller can
 //!   perform the first read the workflow needs.
 //!
+//! Visibility has two halves and a surface needs both: the organization's
+//! capability grant for the family (policy), and the caller's own permission for
+//! the handler behind the tool (what the server will actually serve). The second
+//! half lives in [`crate::gates`], and a scoped API key also needs its
+//! credential to reach the path at all.
+//!
 //! Tasks are deliberately not advertised. The 2026-07-28 revision defines them
 //! as an extension with its own server-side lifecycle and cancellation, and no
 //! caller of this surface needs to poll one yet. `tasks/*` therefore answers
@@ -23,6 +29,7 @@
 
 use crate::api::CoreApi;
 use crate::catalog::{self, Tool as CatalogTool};
+use crate::gates::{self, Caller};
 use crate::prompts::{self, Prompt as PromptDefinition};
 use crate::resources::{self, Family};
 use rmcp::{
@@ -45,6 +52,36 @@ use std::sync::Arc;
 struct ResourceEntry {
     family: &'static Family,
     tool: CatalogTool,
+}
+
+/// The caller's session as the adapter reads it: the org's grants plus the
+/// caller's own permissions. Built once per request from `GET /api/v1/me`.
+#[derive(Default)]
+struct SessionView {
+    /// Capability namespaces the organization granted to the MCP surface.
+    namespaces: HashSet<String>,
+    /// The caller's own permission keys (`MeResponse.permissions`).
+    permissions: HashSet<String>,
+    /// A scoped API key rather than a person (`MeResponse.subject`).
+    machine: bool,
+    /// Whether `/me` published a permission list at all.
+    scoped: bool,
+}
+
+impl SessionView {
+    /// Whether the org granted the namespace this tool's capability belongs to.
+    fn grants(&self, tool: &CatalogTool) -> bool {
+        catalog::is_granted(tool, &self.namespaces)
+    }
+
+    /// The caller-side view of this session, for the permission table.
+    fn caller(&self) -> Caller<'_> {
+        Caller {
+            permissions: &self.permissions,
+            machine: self.machine,
+            scoped: self.scoped,
+        }
+    }
 }
 
 /// Requests carry the caller's bearer either in the HTTP request parts or, for
@@ -118,37 +155,71 @@ impl MarulaServer {
         self.stdio_token.clone()
     }
 
-    /// Granted capability namespaces for this session. An unreadable context is
-    /// an empty set, so deny-by-default holds on every failure mode.
-    async fn granted(&self, token: Option<&str>) -> HashSet<String> {
+    /// What the caller's own session allows. An unreadable context is an empty
+    /// view, so deny-by-default holds on every failure mode.
+    ///
+    /// Two dimensions, and a tool needs both: the namespaces this organization
+    /// granted, and the permissions this caller holds. The second is what keeps
+    /// a scoped API key from being shown a family its own scopes never opened —
+    /// the grant list is the org's policy, not the key's.
+    async fn session(&self, token: Option<&str>) -> SessionView {
         let Some(token) = token else {
-            return HashSet::new();
+            return SessionView::default();
         };
         let Some(session) = self.api.session(token).await else {
-            return HashSet::new();
+            return SessionView::default();
         };
-        session
+        let namespaces = session
             .mcp_capabilities
-            .into_iter()
+            .iter()
             .filter_map(|capability| {
                 capability
                     .strip_suffix(":read")
                     .map(|namespace| namespace.to_string())
             })
-            .collect()
+            .collect();
+        // A server that publishes no permission list leaves the caller
+        // unscoped: showing the pre-filter surface beats hiding every tool
+        // because a field was missing from the wire.
+        let scoped = !session.permissions.is_empty();
+        SessionView {
+            namespaces,
+            permissions: session.permissions.into_iter().collect(),
+            machine: session.subject == "agent",
+            scoped,
+        }
     }
 
-    fn visible(&self, granted: &HashSet<String>) -> Vec<&CatalogTool> {
+    fn visible(&self, session: &SessionView) -> Vec<&CatalogTool> {
+        let caller = session.caller();
         self.tools
             .iter()
-            .filter(|tool| granted.contains(namespace_of(&tool.capability)))
+            .filter(|tool| session.grants(tool))
+            .filter(|tool| gates::may_see(tool, &caller))
             .collect()
     }
 
-    fn visible_resources(&self, granted: &HashSet<String>) -> Vec<&ResourceEntry> {
+    fn visible_resources(&self, session: &SessionView) -> Vec<&ResourceEntry> {
+        let caller = session.caller();
         self.resources
             .iter()
-            .filter(|entry| granted.contains(namespace_of(&entry.tool.capability)))
+            .filter(|entry| session.grants(&entry.tool))
+            .filter(|entry| gates::may_see(&entry.tool, &caller))
+            .collect()
+    }
+
+    /// The prompts this caller may see. A prompt starts from one published
+    /// family, so it is visible exactly when that family's read is — the same
+    /// rule the tools and the resource templates follow.
+    fn visible_prompts(&self, session: &SessionView) -> Vec<&'static PromptDefinition> {
+        let readable: Vec<&'static str> = self
+            .visible_resources(session)
+            .into_iter()
+            .map(|entry| entry.family.family)
+            .collect();
+        prompts::PROMPTS
+            .iter()
+            .filter(|prompt| readable.contains(&prompt.resource))
             .collect()
     }
 
@@ -223,7 +294,7 @@ impl MarulaServer {
 
 /// The namespace side of a capability slug (`tickets:read` → `tickets`).
 fn namespace_of(capability: &str) -> &str {
-    capability.strip_suffix(":read").unwrap_or(capability)
+    gates::namespace_of(capability)
 }
 
 /// The one refusal message every surface gives for an ungranted capability, so
@@ -272,9 +343,9 @@ impl ServerHandler for MarulaServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         let token = self.bearer(&context);
-        let granted = self.granted(token.as_deref()).await;
+        let session = self.session(token.as_deref()).await;
         let tools = self
-            .visible(&granted)
+            .visible(&session)
             .into_iter()
             .map(Self::as_mcp_tool)
             .collect();
@@ -302,8 +373,8 @@ impl ServerHandler for MarulaServer {
                 None,
             ));
         };
-        let granted = self.granted(Some(&token)).await;
-        if !granted.contains(namespace_of(&tool.capability)) {
+        let granted = self.session(Some(&token)).await;
+        if !granted.grants(tool) {
             return Ok(
                 CallToolResult::error(vec![ContentBlock::text(not_granted_message(
                     &tool.capability,
@@ -351,9 +422,9 @@ impl ServerHandler for MarulaServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
         let token = self.bearer(&context);
-        let granted = self.granted(token.as_deref()).await;
+        let session = self.session(token.as_deref()).await;
         let resource_templates = self
-            .visible_resources(&granted)
+            .visible_resources(&session)
             .into_iter()
             .map(Self::as_mcp_template)
             .collect();
@@ -374,8 +445,13 @@ impl ServerHandler for MarulaServer {
         let (entry, id) = self
             .lookup_uri(&request.uri)
             .map_err(|message| McpError::invalid_params(message, None))?;
-        let granted = self.granted(Some(&token)).await;
-        if !granted.contains(namespace_of(&entry.tool.capability)) {
+        let granted = self.session(Some(&token)).await;
+        if !granted.grants(&entry.tool) {
+            return Err(not_granted(&entry.tool.capability));
+        }
+        // The template is hidden from a caller who cannot read the family; a
+        // direct read of that URI is refused here too, so the two agree.
+        if !gates::may_see(&entry.tool, &granted.caller()) {
             return Err(not_granted(&entry.tool.capability));
         }
         let path = catalog::resolve_path(&entry.tool, &serde_json::json!({ "id": id }))
@@ -406,10 +482,10 @@ impl ServerHandler for MarulaServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, McpError> {
         let token = self.bearer(&context);
-        let granted = self.granted(token.as_deref()).await;
-        let prompts = prompts::PROMPTS
-            .iter()
-            .filter(|prompt| granted.contains(namespace_of(prompt.requires)))
+        let session = self.session(token.as_deref()).await;
+        let prompts = self
+            .visible_prompts(&session)
+            .into_iter()
             .map(Self::as_mcp_prompt)
             .collect();
         Ok(ListPromptsResult {
@@ -429,8 +505,17 @@ impl ServerHandler for MarulaServer {
         let prompt = prompts::by_name(&request.name).ok_or_else(|| {
             McpError::invalid_params(format!("unknown prompt: {}", request.name), None)
         })?;
-        let granted = self.granted(Some(&token)).await;
-        if !granted.contains(namespace_of(prompt.requires)) {
+        let granted = self.session(Some(&token)).await;
+        if !granted.namespaces.contains(namespace_of(prompt.requires)) {
+            return Err(not_granted(prompt.requires));
+        }
+        // A prompt that is not listed is not served either: its workflow is
+        // written for a caller who can perform the read it starts from.
+        if !self
+            .visible_prompts(&granted)
+            .iter()
+            .any(|visible| visible.name == prompt.name)
+        {
             return Err(not_granted(prompt.requires));
         }
         let id = request
@@ -506,8 +591,24 @@ mod tests {
         )
     }
 
-    fn granted(namespaces: &[&str]) -> HashSet<String> {
-        namespaces.iter().map(|ns| (*ns).to_string()).collect()
+    /// A session over `namespaces` holding `permissions`, as `/me` would
+    /// report it. `machine` marks a scoped API key.
+    fn session(namespaces: &[&str], permissions: &[&str], machine: bool) -> SessionView {
+        SessionView {
+            namespaces: namespaces.iter().map(|ns| (*ns).to_string()).collect(),
+            permissions: permissions.iter().map(|p| (*p).to_string()).collect(),
+            machine,
+            scoped: !permissions.is_empty(),
+        }
+    }
+
+    fn names(session: &SessionView) -> Vec<String> {
+        let server = server();
+        server
+            .visible(session)
+            .into_iter()
+            .map(|tool| tool.name.clone())
+            .collect()
     }
 
     #[test]
@@ -515,7 +616,7 @@ mod tests {
         let server = server();
         assert_eq!(server.catalog().len(), 2);
         let visible: Vec<&str> = server
-            .visible(&granted(&["clients"]))
+            .visible(&session(&["clients"], &["clients:view"], false))
             .into_iter()
             .map(|tool| tool.name.as_str())
             .collect();
@@ -525,7 +626,23 @@ mod tests {
     #[test]
     fn no_grants_means_no_tools() {
         let server = server();
-        assert!(server.visible(&HashSet::new()).is_empty());
+        assert!(server
+            .visible(&session(&[], &["clients:view", "tickets:view"], false))
+            .is_empty());
+    }
+
+    /// The grant is the org's policy; the permission list is the caller's own.
+    /// A family the org enabled but this caller cannot read stays off the list.
+    #[test]
+    fn a_granted_family_the_caller_cannot_read_is_not_listed() {
+        assert_eq!(
+            names(&session(&["tickets"], &["clients:view"], false)),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            names(&session(&["tickets"], &["tickets:view"], false)),
+            vec!["tickets_list".to_string()]
+        );
     }
 
     #[test]
@@ -580,12 +697,14 @@ mod tests {
     fn resource_templates_follow_the_grant() {
         let server = real_server();
         let visible: Vec<&'static str> = server
-            .visible_resources(&granted(&["tickets"]))
+            .visible_resources(&session(&["tickets"], &["tickets:view"], false))
             .into_iter()
             .map(|entry| entry.family.family)
             .collect();
         assert_eq!(visible, vec!["tickets"]);
-        assert!(server.visible_resources(&HashSet::new()).is_empty());
+        assert!(server
+            .visible_resources(&session(&[], &["tickets:view"], false))
+            .is_empty());
     }
 
     #[test]
@@ -602,11 +721,18 @@ mod tests {
 
     #[test]
     fn prompt_visibility_follows_the_first_read() {
-        let visible: Vec<&str> = prompts::PROMPTS
-            .iter()
-            .filter(|prompt| granted(&["documents"]).contains(namespace_of(prompt.requires)))
+        let server = real_server();
+        let visible: Vec<&str> = server
+            .visible_prompts(&session(&["documents"], &["documents:view"], false))
+            .into_iter()
             .map(|prompt| prompt.name)
             .collect();
         assert_eq!(visible, vec!["document_review"]);
+
+        // The grant alone does not list it: the caller must be able to read the
+        // family the workflow starts from.
+        assert!(server
+            .visible_prompts(&session(&["documents"], &["clients:view"], false))
+            .is_empty());
     }
 }

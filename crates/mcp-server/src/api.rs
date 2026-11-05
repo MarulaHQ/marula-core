@@ -9,8 +9,15 @@ use serde_json::Value;
 #[derive(Debug, Deserialize)]
 pub struct SessionContext {
     pub org_id: String,
+    /// The caller's own permission keys: role-derived for a staff session,
+    /// scope-derived for a scoped API key. Empty from a server that does not
+    /// publish them, which is why emptiness is read as "not scoped".
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// `user` for a human session, `agent` for an API key. Absent from a server
+    /// that predates the field; the adapter then treats the caller as a person.
+    #[serde(default)]
+    pub subject: String,
     #[serde(default)]
     pub mcp_capabilities: Vec<String>,
 }

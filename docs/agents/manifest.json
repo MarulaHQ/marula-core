@@ -161,7 +161,12 @@
     {
       "id": "no-ungranted-namespace",
       "statement": "A namespace without a grant row does not appear in tools/list, so the tool does not exist for that principal.",
-      "enforced_by": "crates/mcp-server/src/catalog.rs:102"
+      "enforced_by": "crates/mcp-server/src/catalog.rs"
+    },
+    {
+      "id": "no-unreadable-tool",
+      "statement": "A tool whose handler requires a permission this caller does not hold never enters tools/list, and a scoped API key is not offered an operation its credential cannot reach.",
+      "enforced_by": "crates/mcp-server/src/gates.rs"
     },
     {
       "id": "no-sensitive-content",
