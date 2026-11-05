@@ -87,9 +87,11 @@ function ReportAuthorInner() {
   }, [landed?.name]);
 
   /**
-   * The base the request sends. A stored report definition has a spec and no
-   * card, so no card is sent: the server reports the card members as additions
-   * rather than diffing against a card nobody chose.
+   * The base the request sends. The deep link carries the builder's spec
+   * encoding and no card, so the draft diffs against a base with no card: the
+   * server reports the card members as additions rather than inventing a card
+   * nobody chose. Saving is unaffected — the accepted draft's card lands with
+   * the definition.
    */
   const current: CurrentDraft | null = useMemo(
     () =>
@@ -283,12 +285,6 @@ function ReportAuthorInner() {
               </p>
             </section>
           ) : null}
-
-          <Callout icon={<Icon name="info" size={14} />}>
-            A saved report stores its query. The card&apos;s window, refresh and size
-            travel with this draft and belong to the surface that displays it — the
-            report definition has no card field today.
-          </Callout>
         </aside>
       </div>
     </div>

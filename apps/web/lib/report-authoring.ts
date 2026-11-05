@@ -12,7 +12,9 @@
 //   * accept through the EXISTING definition routes. There is no second save
 //     path: `POST /api/v1/report-definitions` for a new report,
 //     `PUT /api/v1/report-definitions/{id}` for an edit, both re-validating on
-//     the server exactly as they did before this lane existed.
+//     the server exactly as they did before this lane existed. The card saves
+//     with the spec (migration 0180), so the window, the refresh and the size
+//     the reviewer approved are the ones the stored definition carries.
 //
 // Why fetch and not the generated client: the endpoint is not in the pinned
 // OpenAPI snapshot yet (re-pinning boots the stack, which is a gate step, not a
@@ -73,9 +75,9 @@ export interface AuthorReportResponse {
 /**
  * The current draft, when editing an existing report.
  *
- * `card` is optional because a stored report definition carries a spec and no
- * card: a card belongs to the surface that displays the report. Without one the
- * server reports the card members as additions instead of inventing a base.
+ * `card` is optional because a definition may legitimately have no card. Without
+ * one the server reports the card members as additions instead of inventing a
+ * base.
  */
 export interface CurrentDraft {
   id?: string;
@@ -234,9 +236,11 @@ function idempotencyKey(prefix: string): string {
  * Saves an accepted draft through the EXISTING definition routes.
  *
  * A new report is a create; an edit is a full-replace PUT on the definition the
- * caller was editing. Both validate the spec server-side before storage, so a
- * draft that arrived valid and is then saved cannot arrive invalid by way of
- * this function — it sends the spec the server returned, unmodified.
+ * caller was editing. Both validate the spec and the card server-side before
+ * storage, so a draft that arrived valid and is then saved cannot arrive invalid
+ * by way of this function — it sends the spec and the card the server returned,
+ * unmodified. The card is what makes the saved report keep its window, refresh
+ * and size.
  */
 export async function acceptReportDraft(args: {
   draft: ReportDraft;
@@ -250,6 +254,7 @@ export async function acceptReportDraft(args: {
       body: {
         name,
         spec: args.draft.spec,
+        card: args.draft.card,
         idempotency_key: idempotencyKey("report-author"),
       },
     });
@@ -262,6 +267,7 @@ export async function acceptReportDraft(args: {
     body: {
       name,
       spec: args.draft.spec,
+      card: args.draft.card,
       scope: "self",
       idempotency_key: idempotencyKey("report-author"),
     },
