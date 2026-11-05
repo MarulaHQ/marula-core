@@ -786,6 +786,29 @@ fn read_proc_meminfo_mb() -> Option<u32> {
     Some(u32::try_from(kb / 1024).unwrap_or(u32::MAX))
 }
 
+/// Bytes to mebibytes, refusing a reading no machine could have.
+///
+/// The ceiling is 4 TiB: a parse that picked up a timestamp or a byte count from
+/// the wrong column would otherwise become a host that passes every floor, which
+/// is worse than a host the operator has to declare.
+///
+/// Only the macOS and Windows readers call it; on Linux the cgroup and
+/// `/proc/meminfo` path never needs the conversion, so the lib build there has
+/// no caller and `-D warnings` would refuse it. The unit test below still
+/// exercises it on every platform.
+#[cfg_attr(
+    not(any(target_os = "macos", target_os = "windows")),
+    allow(dead_code)
+)]
+fn bytes_to_mb(bytes: u64) -> Option<u32> {
+    const CEILING_MB: u64 = 4 * 1024 * 1024;
+    let mb = bytes / (1024 * 1024);
+    if mb == 0 || mb > CEILING_MB {
+        return None;
+    }
+    u32::try_from(mb).ok()
+}
+
 /// The platform reading, for the two platforms that have no `/proc`.
 ///
 /// Purpose: until Wave 60 the function below read cgroups and `/proc/meminfo`,

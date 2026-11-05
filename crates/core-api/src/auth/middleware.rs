@@ -138,7 +138,15 @@ pub async fn require_auth(
                 || candidate
                     .strip_prefix(p)
                     .is_some_and(|rest| rest.starts_with('/'))
-        }) || (candidate == "/api/me" && request.method() == axum::http::Method::GET);
+        }) || (candidate == "/api/me" && request.method() == axum::http::Method::GET)
+            // The IF8 filing route: an agent files a proposal, and filing is not
+            // a write — approval does that. The capability grant in the handler
+            // is the gate (deny-by-default), and it answers a typed 403 that
+            // names the missing capability. The two read routes on this path
+            // stay closed: they require the Admin matrix, which no mintable
+            // scope grants.
+            || (candidate == "/api/agent-proposals"
+                && request.method() == axum::http::Method::POST);
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),
