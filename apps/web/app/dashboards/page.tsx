@@ -36,7 +36,6 @@ import {
   addWidget,
   cardVocabulary,
   defaultPlacements,
-  defaultRows,
   defaultSizeFor,
   encodeWidgets,
   isManagerPermissions,
@@ -63,9 +62,9 @@ type ReadOnlyReason = "catalogue" | "arrangement";
 
 const NOTICE: Record<ReadOnlyReason, string> = {
   catalogue:
-    "Card sizes and the widget catalogue could not be loaded, so this dashboard is read-only for now.",
+    "Card sizes and the widget catalogue could not be loaded. Nothing is shown and this dashboard is read-only until they do.",
   arrangement:
-    "Your saved arrangement could not be loaded. This dashboard is read-only and nothing has been overwritten; the default arrangement is shown instead.",
+    "Your saved arrangement could not be loaded. Nothing is shown and nothing has been overwritten. Retry reads it again.",
 };
 
 const PICKER_NOTICE: Record<ReadOnlyReason, string> = {
@@ -382,10 +381,10 @@ export default function DashboardsPage() {
           </div>
         )}
 
-        {/* Read-only: the cards still render, stacked, with no size controls
-            and no writes. Either the vocabulary is missing (a size cannot be
-            validated) or the stored arrangement cannot be read (a write would
-            replace it). */}
+        {/* Read-only: no card is drawn. Either the vocabulary is missing (a
+            size cannot be validated) or the stored arrangement cannot be read
+            (a write would replace it). Drawing some other arrangement under
+            either notice would say one thing and show another. */}
         {readOnlyReason !== null && (
           <div
             role="status"
@@ -410,23 +409,7 @@ export default function DashboardsPage() {
         )}
       </div>
 
-      {placements === null ? (
-        <div className="grid gap-4">
-          {defaultRows().map((id, i) => {
-            const def = widgetDef(id);
-            if (def === undefined) return null;
-            return (
-              <div key={id} className="min-w-0">
-                <ReportWidget
-                  def={def}
-                  meUserId={auth.me?.user_id ?? ""}
-                  entranceDelay={Math.min(i * 30, 240)}
-                />
-              </div>
-            );
-          })}
-        </div>
-      ) : placements.length === 0 ? (
+      {placements === null ? null : placements.length === 0 ? (
         <Card className="p-6">
           <InsightState
             title="Your dashboard is empty"

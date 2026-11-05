@@ -434,12 +434,11 @@ describe("/dashboards integration", () => {
     expect(notice).toHaveTextContent(/saved arrangement could not be loaded/i);
     expect(notice).toHaveTextContent(/nothing has been overwritten/i);
 
-    // Every mutation surface is absent: no preset tabs, no size control, no
-    // remove button, and the picker refuses to add.
+    // Nothing is drawn: some other arrangement under this notice would say one
+    // thing and show another. Every mutation surface is absent too.
+    expect(screen.queryByTestId("dashboard-grid")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
     expect(screen.queryByRole("tab", { name: "Apply Team load preset" })).not.toBeInTheDocument();
-    const card = screen.getByTestId("widget-time_by_user:self");
-    expect(within(card).queryByRole("button", { name: /Size and position/ })).not.toBeInTheDocument();
-    expect(within(card).queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
     expect(screen.getByText(/until your saved arrangement loads/i)).toBeInTheDocument();
 
@@ -460,7 +459,9 @@ describe("/dashboards integration", () => {
 
     const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
     expect(notice).toHaveAttribute("data-reason", "arrangement");
+    expect(notice).toHaveTextContent(/nothing is shown/i);
     expect(screen.queryByTestId("dashboard-grid")).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
     expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);
     cleanup();
   });
@@ -512,6 +513,7 @@ describe("/dashboards integration", () => {
       "data-reason",
       "arrangement",
     );
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => {
@@ -538,12 +540,9 @@ describe("/dashboards integration", () => {
 
     const notice = await screen.findByTestId("dashboard-readonly", {}, { timeout: 5000 });
     expect(notice).toHaveAttribute("data-reason", "catalogue");
-    expect(notice).toHaveTextContent(/read-only for now/i);
-    const card = screen.getByTestId("widget-time_by_user:self");
-    // Data still renders; every write control is gone and no size is claimed.
-    expect(within(card).queryByRole("button", { name: /Size and position/ })).not.toBeInTheDocument();
-    expect(within(card).queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
-    expect(card).not.toHaveAttribute("data-card-span");
+    expect(notice).toHaveTextContent(/nothing is shown/i);
+    // No card is drawn, so no size is claimed and no control can write.
+    expect(screen.queryAllByTestId(/^widget-/)).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
     expect(screen.getByText(/No widget can be added until the card vocabulary loads/i)).toBeInTheDocument();
     expect(mock.callsTo("PUT", "/api/v1/settings/user")).toHaveLength(0);

@@ -64,7 +64,7 @@ interface Props {
   /** Caller's user id — pins personal-lens queries. */
   meUserId: string;
   /** Lane 1's size for this card: a span and a height from the payload. */
-  size?: CardSize;
+  size: CardSize;
   /** Every span the payload lists, in its order. */
   spans?: readonly string[];
   /** Every height the payload lists, in its order. */
@@ -170,11 +170,11 @@ export function ReportWidget({
 
   return (
     <Card
-      className={`m-rise group grid gap-3 p-4 transition-shadow duration-100 hover:shadow-md ${cardHeightClass(size?.height ?? "")}`}
+      className={`m-rise group grid gap-3 p-4 transition-shadow duration-100 hover:shadow-md ${cardHeightClass(size.height)}`}
       data-widget-id={def.id}
       data-testid={`widget-${def.id}`}
-      data-card-span={size?.span}
-      data-card-height={size?.height}
+      data-card-span={size.span}
+      data-card-height={size.height}
       style={{ animationDelay: `${entranceDelay}ms` }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -232,7 +232,7 @@ export function ReportWidget({
         </div>
       </div>
       <div id={sizePanelId}>
-        {sizeOpen && onResize !== undefined && size !== undefined ? (
+        {sizeOpen && onResize !== undefined ? (
           <CardSizePanel
             title={def.title}
             spans={spans}
