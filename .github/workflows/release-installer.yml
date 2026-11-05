@@ -154,7 +154,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Lint every workflow
         run: |
-          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
 
   build:
     name: Build — ${{ matrix.os }} ${{ matrix.arch }}
