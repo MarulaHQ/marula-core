@@ -1,12 +1,20 @@
-//! Marula desktop test app (ADR 0005).
+//! The Marula desktop client: a shell around the product's own front end.
 //!
-//! One double-clickable .app for local testing: an embedded Postgres
-//! (`postgresql_embedded`) + the existing core-api axum router mounted in
-//! this process + the built web app as Tauri assets. No Docker, no
-//! sidecar binaries — the API is a library call.
+//! It launches in one of two modes, decided before anything else starts
+//! (`connection.rs`):
 //!
-//! Data lives in `~/Library/Application Support/Marula` and persists
-//! across rebuilds; migrations apply incrementally on startup.
+//! - **connected** (ADR 0028) — a client of an instance that is already
+//!   running, self-hosted or hosted. Nothing is booted locally; the webview
+//!   loads that deployment's own URL.
+//! - **embedded** (ADR 0005) — the local test app: an embedded Postgres
+//!   (`postgresql_embedded`), the existing core-api axum router mounted in this
+//!   process, and the built web app served on loopback. No Docker, no sidecar
+//!   binaries — the API is a library call.
+//!
+//! A first run with neither chosen opens the connect screen, which asks for an
+//! instance address or takes this machine. Data lives in
+//! `~/Library/Application Support/Marula` and persists across rebuilds;
+//! migrations apply incrementally on startup.
 
 use anyhow::{bail, Context};
 use std::path::{Path, PathBuf};
@@ -14,6 +22,7 @@ use std::sync::Arc;
 use tauri::{Manager, RunEvent};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+mod connection;
 mod launch_secrets;
 mod os_integrations;
 mod printers;
@@ -891,16 +900,264 @@ async fn install_desktop_update(
     app.restart()
 }
 
+/// `generate_context!` can be expanded once per crate: it defines the embedded
+/// Info.plist and asset symbols. Every mode builds the same app from it.
+fn app_context() -> tauri::Context<tauri::Wry> {
+    tauri::generate_context!()
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
-    // The backend must be up before the webview loads: the web app reads
-    // the injected API base URL before its own scripts run, and login has
-    // nothing to talk to until the API listens. First run may take a
-    // while (binary download + full migrations); later starts are quick.
+
+    let root = data_root();
+    match start_mode(&root) {
+        Start::Ready(connection::Mode::Local) => run_embedded(root),
+        Start::Ready(connection::Mode::Remote { server_url }) => run_connected(root, server_url),
+        Start::FirstRun { embedded, notice } => run_connect(root, embedded, notice),
+    }
+}
+
+/// What this launch is going to be.
+enum Start {
+    /// A mode was chosen: a flag, the environment, or `connection.json`.
+    Ready(connection::Mode),
+    /// Nothing has been chosen yet, so the shell opens the connect screen.
+    FirstRun {
+        embedded: bool,
+        notice: Option<String>,
+    },
+}
+
+const USAGE: &str = "\
+Usage: marula-desktop [--server <url> | --local]
+
+  --server <url>  Connect this client to a running instance, and remember it.
+  --local         Run the embedded app on this machine, and remember it.
+  --help          Print this.
+
+With no flag the client uses the stored choice, and asks on the first run.
+";
+
+/// Decide the mode before anything starts, because the answer decides whether
+/// this process boots a database at all.
+///
+/// A flag is an instruction, not a hint: it is written to `connection.json`, so
+/// an install script that copies the bundle into place can settle the choice in
+/// the same step. Deep links arrive in argv as well, so an argument that is not
+/// one of ours is left alone rather than refused.
+fn start_mode(root: &Path) -> Start {
+    let mut choice = None;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                std::process::exit(0);
+            }
+            "--local" => choice = Some(connection::Mode::Local),
+            "--server" => {
+                let Some(raw) = args.next() else {
+                    eprintln!("--server needs an address, for example https://psa.example.com");
+                    std::process::exit(2);
+                };
+                match connection::parse_server_url(&raw) {
+                    Ok(server_url) => choice = Some(connection::Mode::Remote { server_url }),
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(2);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(mode) = choice {
+        if let Err(e) = connection::save(root, &mode) {
+            tracing::warn!("could not remember the chosen connection: {e}");
+        }
+        return Start::Ready(mode);
+    }
+    match connection::resolve(root) {
+        Ok(Some(mode)) => Start::Ready(mode),
+        Ok(None) => Start::FirstRun {
+            embedded: embedded_available(),
+            notice: None,
+        },
+        Err(e) => {
+            // A file we cannot read is a first run with an explanation, not a
+            // silent reset into a mode the person did not pick.
+            tracing::warn!("{e}");
+            Start::FirstRun {
+                embedded: embedded_available(),
+                notice: Some(e),
+            }
+        }
+    }
+}
+
+/// Is the embedded app (ADR 0005) present in this build? The standalone Next.js
+/// server is the marker: without it there is nothing to run on this machine,
+/// and the connect screen offers the instance only.
+fn embedded_available() -> bool {
+    next_standalone_dir().join("server.js").exists()
+}
+
+/// The part of the app every mode shares: the update channel, single instance,
+/// the typed command surface, and the shell's own files.
+fn base_builder(
+    window_state_path: PathBuf,
+    printer_registry: printers::Registry,
+) -> tauri::Builder<tauri::Wry> {
+    tauri::Builder::default()
+        // Auto-update channel (GA packaging): the updater reads its endpoint
+        // and pubkey from tauri.conf.json `plugins.updater`. The check is
+        // exposed to the web app as the typed `check_desktop_update` /
+        // `install_desktop_update` commands (Wave 34 lane 6) — the plugin's own
+        // JS commands are deliberately NOT granted; the UI rides the app ACL
+        // only. Release workflow lives in docs/desktop-release.md.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Wave 38 lane 2: `marula://` deep links open-or-focus the right
+        // window; single instance makes a second launch focus the running app
+        // (and hand it the deep link it was opened with). Deep-link OS
+        // registration is the bundle Info.plist (build-desktop.sh); runtime
+        // delivery is RunEvent::Opened (macOS warm launch), argv on first
+        // launch, and this hook's argv for Linux/Windows re-launches.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(link) = argv.iter().find(|a| a.starts_with("marula://")) {
+                let app = app.clone();
+                let link = link.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = os_integrations::route_deep_link(&app, &link).await {
+                        tracing::warn!("deep link routing failed: {e}");
+                    }
+                });
+            } else if let Some(window) = app
+                .get_webview_window("main")
+                .or_else(|| app.get_webview_window("connect"))
+            {
+                // A second launch before a mode is chosen focuses the connect
+                // window rather than opening a second one.
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        // Wave 32 lane 5: typed raw-ZPL door for label printing. Custom app
+        // commands are ACL-gated for this shell's remote web origin (tauri
+        // >= 2.11); the grants live in desktop/capabilities/ and are generated
+        // from desktop/build.rs.
+        .invoke_handler(tauri::generate_handler![
+            print_raw_zpl,
+            check_desktop_update,
+            install_desktop_update,
+            window_manager::open_native_window,
+            window_manager::focus_native_window,
+            os_integrations::route_marula_link,
+            save_connection
+        ])
+        .manage(PendingUpdate::default())
+        .manage(window_manager::WindowRegistry::new(window_state_path))
+        .manage(printer_registry)
+}
+
+/// The main window: the product's own front end, with the API base injected
+/// before its scripts run.
+///
+/// In connected mode `web_url` is the instance itself, so the page and the API
+/// share an origin and the session cookie is first-party. That is also why a
+/// connected page cannot call the app commands: `desktop/capabilities/desktop-web.json`
+/// grants them to the loopback origins this shell serves, and an origin the
+/// person typed is not one of those. The shell's own paths still reach them —
+/// the window, the menu, the tray, deep links and the update channel start in
+/// Rust, not in the page.
+fn open_main_window(
+    app: &tauri::AppHandle,
+    web_url: &str,
+    api_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let injected = serde_json::to_string(api_url).expect("a string serializes");
+    tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(web_url.parse()?))
+        .title("Marula")
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(900.0, 640.0)
+        .initialization_script(format!("window.__MARULA_API_URL__ = {injected};"))
+        // Windows are the point: native tabbing stays OFF. Without an explicit
+        // tabbing identifier macOS never auto-groups this window into tabs, and
+        // the Window menu lists windows rather than merging them.
+        .build()?;
+    Ok(())
+}
+
+/// Native chrome: the menu bar (Window menu with the tabs-off posture) and the
+/// tray quick actions. Failures are honest but non-fatal — a tray-less launch
+/// beats a dead app.
+fn chrome(app: &tauri::AppHandle) {
+    if let Err(e) = os_integrations::build_menu(app) {
+        tracing::warn!("menu bar unavailable: {e}");
+    }
+    if let Err(e) = os_integrations::build_tray(app) {
+        tracing::warn!("tray unavailable: {e}");
+    }
+}
+
+/// Any deep link this FIRST launch was opened with (macOS hands warm launches
+/// over through RunEvent::Opened instead).
+fn first_launch_deep_links(app: &tauri::AppHandle) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        for arg in std::env::args().skip(1) {
+            if arg.starts_with("marula://") {
+                let app = handle.clone();
+                tauri::async_runtime::block_on(async move {
+                    if let Err(e) = os_integrations::route_deep_link(&app, &arg).await {
+                        tracing::warn!("launch deep link failed: {e}");
+                    }
+                });
+            }
+        }
+    });
+}
+
+/// The event loop every mode ends in.
+fn run_event_loop(app: tauri::App<tauri::Wry>) {
+    app.run(|app, event| match event {
+        // macOS: warm-launch deep links (dock right-click "Open URL", OS open
+        // with the app running) arrive here.
+        RunEvent::Opened { urls } => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                for url in urls {
+                    let link = url.to_string();
+                    if let Err(e) = os_integrations::route_deep_link(&app, &link).await {
+                        tracing::warn!("deep link {link} failed: {e}");
+                    }
+                }
+            });
+        }
+        RunEvent::Exit => {
+            // Graceful shutdown: stop the embedded Postgres so the data dir is
+            // left consistent for the next launch. A connected client has no
+            // backend state, so this is a no-op there.
+            if let Some(b) = app.try_state::<Backend>() {
+                if let Err(e) = tauri::async_runtime::block_on(b.postgres.stop()) {
+                    eprintln!("stopping embedded Postgres failed: {e}");
+                }
+                // kill_on_drop also covers this; explicit kill keeps the
+                // shutdown order deterministic (web, then PG).
+                let _ = b.next_server.lock().map(|mut c| c.start_kill());
+            }
+        }
+        _ => {}
+    });
+}
+
+/// The embedded app from ADR 0005: Postgres, core-api and the bundled Next.js
+/// server, all in this process, on loopback ports.
+fn run_embedded(root: PathBuf) {
     let (backend, api_url, web_url) = match tauri::async_runtime::block_on(bootstrap_backend()) {
         Ok(ok) => ok,
         Err(e) => {
@@ -908,150 +1165,132 @@ fn main() {
             std::process::exit(1);
         }
     };
-    install_sigterm_handler(data_root().join("pgdata"));
-
-    // Window-geometry state for the native fleet (Wave 38 lane 2): one
-    // JSON file under the app data dir, roles keyed by route key.
-    let window_state_path = data_root().join("window-state.json");
+    install_sigterm_handler(root.join("pgdata"));
 
     // Configured printers (raw-ZPL destination check): the shell owns the
-    // list, the renderer only names an entry. The template is written on
-    // first launch so the file the refusal message names actually exists.
-    let app_root = data_root();
-    if let Err(e) = printers::ensure_config(&app_root) {
+    // list, the renderer only names an entry. The template is written on first
+    // launch so the file the refusal message names actually exists.
+    if let Err(e) = printers::ensure_config(&root) {
         tracing::warn!("could not write the printer config template: {e}");
     }
-    let printer_registry = printers::Registry::load(&app_root);
+    let printer_registry = printers::Registry::load(&root);
 
-    tauri::Builder::default()
-        // Auto-update channel (GA packaging): the updater reads its
-        // endpoint + pubkey from tauri.conf.json `plugins.updater`. The
-        // check is exposed to the web app as the typed
-        // `check_desktop_update` / `install_desktop_update` commands (Wave
-        // 34 lane 6) — the plugin's own JS commands are deliberately NOT
-        // granted; the UI rides the app ACL only. Release workflow lives in
-        // docs/desktop-release.md.
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        // Wave 38 lane 2: `marula://` deep links open-or-focus the right
-        // window; single instance makes a second launch focus the running
-        // app (and hand it the deep link it was opened with). Deep-link OS
-        // registration is the bundle Info.plist (build-desktop.sh); runtime
-        // delivery is RunEvent::Opened (macOS warm launch), argv on first
-        // launch, and this hook's argv for Linux/Windows re-launches.
-        .plugin(tauri_plugin_single_instance::init(|_app, argv, _cwd| {
-            // Second-launch focus: bring the fleet forward. Deep links
-            // arriving via argv are handled by the normal event path on
-            // macOS RunEvent::Opened; on Linux/Windows argv carries them.
-            if let Some(link) = argv.iter().find(|a| a.starts_with("marula://")) {
-                let app = _app.clone();
-                let link = link.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) = os_integrations::route_deep_link(&app, &link).await {
-                        tracing::warn!("deep link routing failed: {e}");
-                    }
-                });
-            } else if let Some(main) = _app.get_webview_window("main") {
-                let _ = main.show();
-                let _ = main.unminimize();
-                let _ = main.set_focus();
-            }
-        }))
-        // Wave 32 lane 5: typed raw-ZPL door for label printing. Custom app
-        // commands are ACL-gated for this shell's remote web origin (tauri
-        // >= 2.11); the grants live in desktop/capabilities/desktop-web.json
-        // and are generated from desktop/build.rs.
-        .invoke_handler(tauri::generate_handler![
-            print_raw_zpl,
-            check_desktop_update,
-            install_desktop_update,
-            window_manager::open_native_window,
-            window_manager::focus_native_window,
-            os_integrations::route_marula_link
-        ])
+    let app = base_builder(root.join("window-state.json"), printer_registry)
         .manage(backend)
-        .manage(PendingUpdate::default())
-        .manage(window_manager::WindowRegistry::new(window_state_path))
-        .manage(printer_registry)
         .manage(WebUrl(web_url.clone()))
         .manage(window_manager::ApiUrl(api_url.clone()))
         .setup(move |app| {
-            // Rust-built window so the initialization script (API base
-            // URL injection, ADR 0005) runs before the page's scripts.
-            tauri::WebviewWindowBuilder::new(
+            open_main_window(app.handle(), &web_url, &api_url)?;
+            chrome(app.handle());
+            first_launch_deep_links(app.handle());
+            Ok(())
+        })
+        .build(app_context())
+        .expect("building the Tauri app");
+    run_event_loop(app);
+}
+
+/// A client of an instance that is already running. Nothing is booted: no
+/// database, no second copy of the API, no bundled web server. The window loads
+/// the instance's own deployment, which is the same front end a browser gets.
+fn run_connected(root: PathBuf, server_url: String) {
+    let printer_registry = printers::Registry::load(&root);
+    let app = base_builder(root.join("window-state.json"), printer_registry)
+        .manage(WebUrl(server_url.clone()))
+        .manage(window_manager::ApiUrl(server_url.clone()))
+        .setup(move |app| {
+            open_main_window(app.handle(), &server_url, &server_url)?;
+            chrome(app.handle());
+            first_launch_deep_links(app.handle());
+            Ok(())
+        })
+        .build(app_context())
+        .expect("building the Tauri app");
+    run_event_loop(app);
+}
+
+/// The first run: one screen, one decision, then the window it implies.
+fn run_connect(root: PathBuf, embedded: bool, notice: Option<String>) {
+    let printer_registry = printers::Registry::load(&root);
+    let state = serde_json::json!({ "embedded": embedded, "notice": notice });
+    let injected = serde_json::to_string(&state).expect("a JSON value serializes");
+    let app = base_builder(root.join("window-state.json"), printer_registry)
+        .setup(move |app| {
+            let window = tauri::WebviewWindowBuilder::new(
                 app,
-                "main",
-                tauri::WebviewUrl::External(web_url.parse().expect("valid web URL")),
+                "connect",
+                tauri::WebviewUrl::App("index.html".into()),
             )
-            .title("Marula")
-            .inner_size(1440.0, 900.0)
-            .min_inner_size(900.0, 640.0)
-            .initialization_script(format!("window.__MARULA_API_URL__ = '{api_url}';"))
-            // Windows are the point: native tabbing stays OFF. Without an
-            // explicit tabbing identifier macOS never auto-groups this
-            // window into tabs, and the Window menu below lists windows
-            // rather than merging them.
+            .title("Connect to Marula")
+            .inner_size(760.0, 620.0)
+            .min_inner_size(560.0, 540.0)
+            .center()
+            .initialization_script(format!("window.__MARULA_CONNECT__ = {injected};"))
             .build()?;
-
-            // Native chrome: menu bar (Window menu with tabs-off posture)
-            // + tray quick actions. Failures are honest but non-fatal — a
-            // tray-less launch beats a dead app.
-            if let Err(e) = os_integrations::build_menu(app.handle()) {
-                tracing::warn!("menu bar unavailable: {e}");
-            }
-            if let Err(e) = os_integrations::build_tray(app.handle()) {
-                tracing::warn!("tray unavailable: {e}");
-            }
-
-            // Any deep link this FIRST launch was opened with (macOS hands
-            // it over via RunEvent::Opened below for warm launches).
+            // This window is the whole app until a mode is chosen, and macOS
+            // keeps a windowless app alive by convention. Closing it ends the
+            // launch rather than leaving a dock icon with no way back: there is
+            // no tray yet, and no main window to reopen.
             let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                for arg in std::env::args().skip(1) {
-                    if arg.starts_with("marula://") {
-                        let app = handle.clone();
-                        let arg = arg.clone();
-                        tauri::async_runtime::block_on(async move {
-                            if let Err(e) = os_integrations::route_deep_link(&app, &arg).await {
-                                tracing::warn!("launch deep link failed: {e}");
-                            }
-                        });
-                    }
+            window.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    handle.exit(0);
                 }
             });
             Ok(())
         })
-        .build(tauri::generate_context!())
-        .expect("building the Tauri app")
-        .run(|app, event| {
-            match event {
-                // macOS: warm-launch deep links (dock right-click "Open
-                // URL", OS open with app running) arrive here.
-                RunEvent::Opened { urls } => {
-                    let app = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        for url in urls {
-                            let link = url.to_string();
-                            if let Err(e) = os_integrations::route_deep_link(&app, &link).await {
-                                tracing::warn!("deep link {link} failed: {e}");
-                            }
-                        }
-                    });
-                }
-                RunEvent::Exit => {
-                    // Graceful shutdown: stop the embedded Postgres so the
-                    // data dir is left consistent for the next launch.
-                    if let Some(b) = app.try_state::<Backend>() {
-                        if let Err(e) = tauri::async_runtime::block_on(b.postgres.stop()) {
-                            eprintln!("stopping embedded Postgres failed: {e}");
-                        }
-                        // kill_on_drop also covers this; explicit kill keeps
-                        // the shutdown order deterministic (web, then PG).
-                        let _ = b.next_server.lock().map(|mut c| c.start_kill());
-                    }
-                }
-                _ => {}
-            }
-        });
+        .build(app_context())
+        .expect("building the Tauri app");
+    run_event_loop(app);
+}
+
+/// Tauri command: the connect screen's one decision.
+///
+/// `mode` says which decision it is, so an empty address can never be read as
+/// "run it here" — the local path has to be asked for. The choice is written
+/// before the session starts, so a failure between the two lands on the mode the
+/// person chose instead of asking again.
+#[tauri::command]
+async fn save_connection(
+    app: tauri::AppHandle,
+    mode: String,
+    server_url: Option<String>,
+) -> Result<(), String> {
+    let mode = match mode.as_str() {
+        "local" => connection::Mode::Local,
+        "remote" => connection::Mode::Remote {
+            server_url: connection::parse_server_url(server_url.as_deref().unwrap_or_default())?,
+        },
+        other => return Err(format!("unknown connection mode: {other}")),
+    };
+    connection::save(&data_root(), &mode)
+        .map_err(|e| format!("The choice could not be saved: {e}"))?;
+    begin_session(&app, mode).await
+}
+
+/// Start the session the choice implies, then replace the connect window with
+/// the main one.
+async fn begin_session(app: &tauri::AppHandle, mode: connection::Mode) -> Result<(), String> {
+    let (web_url, api_url) = match mode {
+        connection::Mode::Remote { server_url } => (server_url.clone(), server_url),
+        connection::Mode::Local => {
+            let root = data_root();
+            install_sigterm_handler(root.join("pgdata"));
+            let (backend, api_url, web_url) = bootstrap_backend()
+                .await
+                .map_err(|e| format!("Marula could not start on this machine: {e:#}"))?;
+            app.manage(backend);
+            (web_url, api_url)
+        }
+    };
+    app.manage(WebUrl(web_url.clone()));
+    app.manage(window_manager::ApiUrl(api_url.clone()));
+    open_main_window(app, &web_url, &api_url).map_err(|e| e.to_string())?;
+    chrome(app);
+    if let Some(connect) = app.get_webview_window("connect") {
+        let _ = connect.close();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1303,5 +1542,57 @@ mod tests {
                 "{refused} must not match a granted origin"
             );
         }
+    }
+
+    /// The connect screen holds exactly one grant. A capability that grew a
+    /// second permission would be a first-run window able to do more than
+    /// choose where the product lives, and nobody would see it happen.
+    #[test]
+    fn the_connect_capability_grants_only_the_connection_decision() {
+        let raw = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capabilities/connect.json"
+        ))
+        .expect("connect capability exists");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("capability parses");
+        assert_eq!(v["windows"], serde_json::json!(["connect"]));
+        assert_eq!(
+            v["permissions"],
+            serde_json::json!(["core:default", "allow-save-connection"])
+        );
+        assert!(
+            v.get("remote").is_none(),
+            "the connect screen is served from the bundle, so it needs no remote grant"
+        );
+    }
+
+    /// `build.frontendDist` is `./connect`, and a missing asset there is a
+    /// first-run window with no styles or no script — visible only on a machine
+    /// that has never run the app, which is the worst place to find it.
+    #[test]
+    fn the_connect_screen_ships_with_the_crate() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let conf: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("tauri.conf.json")).expect("config exists"),
+        )
+        .expect("config parses");
+        assert_eq!(conf["build"]["frontendDist"], "./connect");
+        let index = std::fs::read_to_string(dir.join("connect/index.html")).expect("index.html");
+        for asset in ["connect.css", "connect.js"] {
+            assert!(
+                dir.join("connect").join(asset).exists(),
+                "{asset} is missing from the connect screen"
+            );
+            assert!(index.contains(asset), "index.html does not load {asset}");
+        }
+        let css = std::fs::read_to_string(dir.join("connect/connect.css")).expect("connect.css");
+        assert!(
+            dir.join("connect/figtree-variable-latin.woff2").exists(),
+            "the brand face is missing from the connect screen"
+        );
+        assert!(
+            css.contains("figtree-variable-latin.woff2"),
+            "connect.css does not load the brand face"
+        );
     }
 }

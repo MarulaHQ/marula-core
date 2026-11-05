@@ -77,11 +77,6 @@ cp "$PWD/ACKNOWLEDGMENTS.md" desktop/resources/web/ACKNOWLEDGMENTS.md
 mkdir -p desktop/resources/web/LEGAL
 cp -R LEGAL desktop/resources/web/LEGAL/ 2>/dev/null || true
 
-# Tauri still requires frontendDist to exist at build time even though the
-# webview is served by the bundled Next server (see ADR 0005 deviation).
-mkdir -p apps/web/out
-printf 'The desktop app serves the bundled Next server, not these assets.\n' > apps/web/out/index.html
-
 echo "==> [3/4] cargo build (profile: desktop, shared target dir)"
 (cd desktop && pnpm exec tauri build --no-bundle -- --profile desktop)
 
@@ -138,3 +133,5 @@ echo
 echo "Built $APP"
 echo "Size: $SIZE · wall time: ${ELAPSED}s"
 echo "Data dir (persists across rebuilds): ~/Library/Application Support/Marula"
+echo "First launch asks whether this client runs the app here or connects to an instance."
+echo "Settle it without a dialog: \"$APP/Contents/MacOS/marula-desktop\" --server https://psa.example.com"
