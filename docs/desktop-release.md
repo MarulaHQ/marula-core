@@ -14,7 +14,7 @@ environment variables.
 |---|---|
 | Icons (multi-size .ico, .icns, .png) regenerated from `marula-ci/source/*.svg` | `scripts/generate-desktop-icons.sh` → `desktop/icons/` |
 | Bundle config (targets `app`+`dmg`, category, copyright, min macOS 12, updater artifacts) | `desktop/tauri.conf.json` |
-| Platform bundle targets (`deb`+`appimage`; `nsis`+`msi`) | `desktop/tauri.linux.conf.json`, `desktop/tauri.windows.conf.json` |
+| Platform bundle targets (`deb`+`appimage`, `nsis`+`msi`) | `desktop/tauri.linux.conf.json`, `desktop/tauri.windows.conf.json` |
 | Desktop release pipeline (macOS embedded, Linux/Windows connected) | `.github/workflows/release-desktop.yml` (unrun while F89 blocks CI) |
 | Updater plugin (channel endpoint + pubkey) | `desktop/tauri.conf.json` `plugins.updater` + `desktop/src/main.rs` registration |
 | Dev/test build (no bundle, `desktop` profile, shared target dir) | `scripts/build-desktop.sh` |
@@ -26,14 +26,19 @@ environment variables.
 
 | Platform | Mode | Bundle targets | Signing |
 |---|---|---|---|
-| macOS | embedded and connected | `app`, `dmg` | the Apple identity and notarization secrets when present; ad-hoc otherwise |
+| macOS | embedded and connected | `app`, `dmg` | the Apple identity and notarization secrets when present, ad-hoc otherwise |
 | Linux | connected | `deb`, `appimage` | unsigned |
-| Windows | connected | `nsis`, `msi` | Authenticode when the certificate secret is present; unsigned otherwise, and SmartScreen will warn |
+| Windows | connected | `nsis`, `msi` | Authenticode when the certificate secret is present. Unsigned otherwise, and SmartScreen will warn |
 
 The Linux and Windows builds are connected clients: they ask for an instance and
 refuse `--local`. Embedded Linux and Windows is a named follow-up (ADR 0031),
 because it needs a per-OS Postgres sidecar and a decision on whether the
 installer carries the database or downloads it.
+
+**Unsigned is the accepted posture until W61-4 lands** (ADR 0031 decision 7). A
+bundle without a certificate installs and runs. The OS adds a warning, and the
+warning is named here instead of being discovered. Signing is its own lane, and
+it is not what blocks the first build: the billing block (F89) does.
 
 ## 1. Point the client at an instance
 
@@ -44,10 +49,10 @@ before it starts anything:
 | Mode | What starts | Where the data is |
 |---|---|---|
 | **Connected** (ADR 0028) | The window, the menu, the tray, deep links, the update channel. No database, no API, no bundled server. | On the instance. The webview loads that instance's own URL, so the page and the API share an origin and the session cookie is first-party. |
-| **Embedded** (ADR 0005; macOS only) | Everything above plus embedded Postgres, core-api in-process, and the bundled Next.js server on loopback ports. | `~/Library/Application Support/Marula/pgdata`. |
+| **Embedded** (ADR 0005, macOS only) | Everything above plus embedded Postgres, core-api in-process, and the bundled Next.js server on loopback ports. | `~/Library/Application Support/Marula/pgdata`. |
 
 On the first run the shell asks, in one window: an instance address, or "Run
-Marula on this machine". The second choice exists only in the macOS build; the
+Marula on this machine". The second choice exists only in the macOS build. The
 Linux and Windows builds ask for an address and refuse `--local` with a sentence
 that says why (ADR 0031). Settle the same decision without a dialog when you
 install by script:
@@ -153,7 +158,7 @@ The updater endpoint in `tauri.conf.json` is:
 https://updates.getmarula.com/desktop/{{target}}/{{arch}}/{{current_version}}
 ```
 
-Serve a static JSON manifest there (any static host / object store works;
+Serve a static JSON manifest there (any static host or object store works, and
 self-hosting is the doctrine). The Tauri CLI emits the artifact JSON for you
 next to the bundle (`latest.json` shape). Minimum fields:
 
@@ -166,7 +171,7 @@ next to the bundle (`latest.json` shape). Minimum fields:
 }
 ```
 
-- Bump `version` in `desktop/tauri.conf.json` every release; the updater
+- Bump `version` in `desktop/tauri.conf.json` every release. The updater
   refuses downgrades and compares semver.
 - Rotate keys by adding a second pubkey context in the release notes and
   re-issuing the manifest (minisign trust is config-side).
@@ -185,7 +190,7 @@ minisign -Vm Marula.app.tar.gz -P "$(jq -r .pubkey desktop/tauri.conf.json 2>/de
 
 Launch smoke: open the built `.app` once on a clean machine profile
 (`~/Library/Application Support/Marula` untouched). The first window asks where
-the client should live; take "Run Marula on this machine" to exercise the
+the client should live. Take "Run Marula on this machine" to exercise the
 embedded path. That run applies all migrations, mints `desktop-secret`, and
 seeds **no** demo org: a release build mounts no `/api/dev/*` route and creates
 no demo account (ADR 0005, amendment 2026-10-25). Create the account you want to
@@ -220,27 +225,26 @@ Which build exposes what, after Wave 55:
 
 ## 7. Per-OS artifacts, and what ships signed
 
-The desktop client is a **macOS** artifact. ADR 0005 chose the `.app` and the
-bundler config asks for `app` + `dmg`; nothing in this repository builds a
-Windows or Linux desktop bundle, and CI excludes `marula-desktop` from the Linux
-clippy leg because the Tauri shell needs GTK headers that leg does not install
-(`.github/workflows/ci.yml`). Adding Windows or Linux desktop bundles is a
-change to ADR 0005, not a configuration file.
-
-Reading a per-OS artifacts request as "desktop bundles for every platform" is
-therefore a conflict with that ADR. This is the honest state of it:
+The client ships on three platforms (ADR 0031). macOS carries both modes. Linux
+and Windows carry the connected client, and their bundle targets live in
+`desktop/tauri.linux.conf.json` (`deb`, `appimage`) and
+`desktop/tauri.windows.conf.json` (`nsis`, `msi`). CI still excludes
+`marula-desktop` from the Linux clippy leg because the shell needs GTK headers
+that leg does not install (`.github/workflows/ci.yml`).
 
 | Deliverable | State |
 |---|---|
 | macOS install (`.app`, `.dmg`) | Configured in `desktop/tauri.conf.json`. Assembled locally by `scripts/build-desktop.sh` (no bundle, ad-hoc signed) or by `pnpm tauri build` (full bundle). |
-| Windows / Linux desktop bundles | Not built, by ADR 0005. The per-OS bundle files that exist (`installer/tauri.macos.conf.json`, `installer/tauri.windows.conf.json`) belong to the **installer** app for a server, not to the client. |
-| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds five legs. macOS and Windows ship unsigned until the trust chain exists (`docs/release.md`). |
-| Signed desktop artifacts (updater payloads, notarization) | **Blocked on the signing trust chain.** The key, the endpoint and the checker exist (`scripts/check-desktop-trust.mjs`, §2 and §4 above). No signed desktop release has been cut, and this document does not claim one has. |
+| Linux desktop bundles (`deb`, `appimage`) | Configured in `desktop/tauri.linux.conf.json`. Built by `.github/workflows/release-desktop.yml`, which has not run while F89 blocks CI. |
+| Windows desktop bundles (`nsis`, `msi`) | Configured in `desktop/tauri.windows.conf.json`, same workflow, same block. Authenticode applies when the certificate secret is present. |
+| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds five legs. These belong to the installer app, not to the client. macOS and Windows ship unsigned until the trust chain exists (`docs/release.md`). |
+| Signed desktop artifacts (updater payloads, notarization) | **Blocked on the signing trust chain, and tracked as W61-4.** The key, the endpoint and the checker exist (`scripts/check-desktop-trust.mjs`, §2 and §4 above). No signed desktop release has been cut, and this document does not claim one has. |
 
-Until that trust chain exists, the desktop client is installed from a build you
-produce locally, and its updater verifies nothing that does not exist yet. A full
-`pnpm tauri build` fails closed without `TAURI_SIGNING_PRIVATE_KEY`, which is the
-loud outcome and the one to keep.
+Unsigned bundles are the accepted posture until W61-4 lands. The updater key in
+`desktop/tauri.conf.json` is independent of the OS signing certificate: a bundle
+can verify updates while the OS still warns about the installer. `pnpm tauri
+build` fails closed without `TAURI_SIGNING_PRIVATE_KEY`, which is the loud
+outcome and the one to keep.
 
 ## 8. Uninstall
 

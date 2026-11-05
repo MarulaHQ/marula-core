@@ -34,6 +34,13 @@ too, or only the connected client?
    is not in `desktop-web.json`, so raw-ZPL printing and the native window
    commands stay with the loopback origins the shell serves (ADR 0028). The menu,
    tray, deep links, geometry and the update channel work on every platform.
+7. **Unsigned bundles ship first, and signing is its own lane.** A bundle with no
+   certificate is a working installer with an OS warning attached, not a broken
+   one, so signing never blocks the platform matrix. The signing lane (tracker
+   W61-4) adds the Apple identity and notarization, the Windows Authenticode
+   certificate and the Linux signature story, and it is what removes the
+   warnings. The artifacts themselves still come from CI, so the billing block
+   (F89) gates the first real build, not this decision.
 
 ## Consequences
 
@@ -42,10 +49,12 @@ too, or only the connected client?
 - The Linux and Windows binaries still compile the embedded dependencies because
   they share the crate. They never boot them. Splitting the crate by feature is
   a clean-up, not a requirement, and is left for the embedded-parity lane.
-- Signing is per platform and is not solved here. macOS uses the existing
-  identity and notarization secrets when present. Windows needs an Authenticode
-  certificate for a quiet install, and ships unsigned with the SmartScreen cost
-  stated when the secret is absent. Linux bundles are unsigned.
+- Signing is per platform and is not solved here; unsigned is the accepted
+  posture until W61-4 lands. macOS uses the existing identity and notarization
+  secrets when present. Windows needs an Authenticode certificate for a quiet
+  install, and ships unsigned with the SmartScreen cost stated when the secret
+  is absent. Linux bundles are unsigned. A person installing an unsigned bundle
+  is told which warning to expect rather than left to discover it.
 - The release workflow `release-desktop.yml` is written and has not run: CI is
   blocked on billing (F89). Its first run must be a manual dispatch on a branch,
   not a tag.
