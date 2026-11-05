@@ -79,7 +79,7 @@ export function DraftRow({
       data-testid="report-draft-row"
       data-status={status}
     >
-      <CardHeader className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
+      <CardHeader className="flex flex-wrap items-start justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Icon name="chart" size={16} />
@@ -121,7 +121,7 @@ export function DraftRow({
       </CardHeader>
 
       {issues.length > 0 ? (
-        <CardContent className="grid gap-2 border-b px-4 py-3">
+        <CardContent className="grid gap-2">
           <h3 className="text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
             What the registry refused
           </h3>
@@ -131,7 +131,7 @@ export function DraftRow({
                 key={`${issue.code}:${issue.path ?? ""}:${issue.message}`}
                 className="grid grid-cols-[16px_minmax(0,1fr)] items-baseline gap-2 text-[13px] leading-[1.5]"
               >
-                <Icon name="alert" size={14} className="text-mc-attn-fg" />
+                <span className="text-mc-attn-fg"><Icon name="alert" size={14} /></span>
                 <span className="min-w-0">
                   <span className="font-mono text-[12px] text-muted-foreground">{issue.code}</span>
                   {issue.path ? (
@@ -153,18 +153,18 @@ export function DraftRow({
       ) : null}
 
       {draft !== null && diff.length > 0 ? (
-        <CardContent className="border-b p-0">
+        <CardContent>
           <DiffList diff={diff} />
         </CardContent>
       ) : null}
 
       {acceptError !== null ? (
-        <CardContent className="border-b px-4 py-3">
+        <CardContent>
           <Banner icon={<Icon name="alert" size={14} />}>{acceptError}</Banner>
         </CardContent>
       ) : null}
 
-      <CardContent className="flex flex-wrap items-end gap-3 px-4 py-3">
+      <CardContent className="flex flex-wrap items-end gap-3">
         {status !== "refused" && status !== "accepted" ? (
           <label className="grid min-w-[220px] flex-1 gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
@@ -203,7 +203,7 @@ export function DraftRow({
       </CardContent>
 
       {failed && draft === null ? (
-        <CardContent className="border-t px-4 py-2.5">
+        <CardContent>
           <p className="text-[12px] text-muted-foreground">
             Accept is off because there is no validated draft to save. The proposal
             above says why.

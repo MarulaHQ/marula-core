@@ -157,8 +157,8 @@ function ReportAuthorInner() {
 
   return (
     <div className="grid gap-5 p-6">
+      <div className="m-rise motion-reduce:animate-none">
       <SurfaceHeader
-        className="animate-[m-rise_120ms_cubic-bezier(0.2,0,0,1)] motion-reduce:animate-none"
         title="Describe a report"
         eyebrow="Reports"
         meta={
@@ -179,6 +179,7 @@ function ReportAuthorInner() {
           </Button>
         }
       />
+      </div>
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="grid gap-5">
