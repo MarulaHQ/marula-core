@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, org_id, name, description, kind, spec, viz, scope, created_by, created_at, updated_at\n           FROM report_definitions WHERE org_id = $1 AND id = $2",
+  "query": "SELECT id, org_id, name, description, kind, spec, card, viz, scope, created_by, created_at, updated_at\n           FROM report_definitions WHERE org_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -35,26 +35,31 @@
       },
       {
         "ordinal": 6,
+        "name": "card",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
         "name": "viz",
         "type_info": "Text"
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "scope",
         "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "created_by",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -72,6 +77,7 @@
       true,
       false,
       false,
+      true,
       false,
       false,
       false,
@@ -79,5 +85,5 @@
       false
     ]
   },
-  "hash": "f08729b097c6735b8290aac995eda24d3b5c7d3dbb8e304362efb20a3d0f4e34"
+  "hash": "d2b97c8220d5fed1d04e107f093ffb8686240fd91c4c239c2d89a47ec8836a72"
 }

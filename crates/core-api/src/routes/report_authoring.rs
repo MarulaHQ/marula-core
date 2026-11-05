@@ -420,10 +420,11 @@ pub struct ParsedReportDraft {
     pub issues: Vec<ReportAuthoringIssue>,
 }
 
-/// The caller's current draft, when editing. A report definition stores a spec
-/// and no card (`core_db::report_defs::DefinitionFields` has no card member), so
-/// `card` is optional here: a report has a spec from the day it is saved, and a
-/// card only once a surface that displays it has decided on one.
+/// The caller's current draft, when editing. A report definition MAY carry a
+/// card (migration 0180), but a definition saved before that, or authored
+/// without one, has none — so `card` stays optional here: the server diffs
+/// against a card only when the caller presents one, never against a card
+/// nobody chose.
 #[derive(Debug, Clone)]
 pub struct CurrentDraft {
     pub name: Option<String>,
@@ -752,8 +753,9 @@ fn push_entries(
 ///
 /// A missing base (a fresh description) diffs against nothing: every member of
 /// the proposal is an `add`, which is what a reviewer reading "what will this
-/// report be" needs to see. A base with no card — a saved report definition —
-/// shows its card members as additions rather than pretending a card was there.
+/// report be" needs to see. A base with no card — a definition saved without
+/// one — shows its card members as additions rather than pretending a card was
+/// there.
 pub fn diff_drafts(base: Option<&CurrentDraft>, draft: &ReportDraft) -> Vec<ReportDiffEntry> {
     let mut entries = Vec::new();
 
@@ -869,7 +871,8 @@ pub fn diff_drafts(base: Option<&CurrentDraft>, draft: &ReportDraft) -> Vec<Repo
 
     // Card members. The shape is derived from the spec, so it is not diffed;
     // the numbers a reviewer can actually change are. A base with no card shows
-    // all five as additions, which is the truth about a saved report.
+    // all five as additions, which is the truth about a report saved without
+    // one.
     let base_card = base.and_then(|base| base.card);
     for (path, before, after) in [
         (
@@ -1196,10 +1199,10 @@ pub struct AuthorReportRequest {
     /// diff is against a spec the reviewer could have saved.
     #[serde(default)]
     pub spec: Option<ReportSpec>,
-    /// The card of the report being edited, when the surface that displays it
-    /// has one. A stored report definition carries a spec and no card, so this
-    /// is optional: without it the diff shows the card members as additions
-    /// rather than pretending a card was already there.
+    /// The card of the report being edited, when the definition has one. A
+    /// definition may store a card (migration 0180) and may legitimately have
+    /// none, so this is optional: without it the diff shows the card members
+    /// as additions rather than pretending a card was already there.
     #[serde(default)]
     pub card: Option<CardSpec>,
     /// The current definition's name, when editing. Advisory: it seeds the diff
@@ -1320,8 +1323,8 @@ pub async fn author(
     let now = Utc::now();
 
     // A base draft must itself be saveable, so the diff is meaningful. A report
-    // definition stores a spec and no card, so the card half is optional: half a
-    // card with no spec is not a report and is refused as a caller bug.
+    // definition may store a card and may not, so the card half is optional:
+    // half a card with no spec is not a report and is refused as a caller bug.
     let base = match (req.spec.clone(), req.card) {
         (Some(spec), card) => {
             let issues = validate_candidate(&spec, card.as_ref(), scope, now);

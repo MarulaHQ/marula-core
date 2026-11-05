@@ -9945,7 +9945,9 @@ export interface paths {
          *     (identifiers stay enum-matched catalog constants; values bind as `$N`
          *     parameters), and executes against the reporting pool inside an
          *     org-bound transaction. Non-admins are structurally self-scoped exactly
-         *     like the prebuilt kinds.
+         *     like the prebuilt kinds. A definition that carries a card defaults to the
+         *     card's window when the caller supplies no bounds; explicit bounds always
+         *     win.
          */
         get: operations["report_definitions_run"];
         put?: never;
@@ -18282,6 +18284,7 @@ export interface components {
         };
         /** @description POST /api/report-definitions body. */
         CreateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
+            card?: components["schemas"]["CardSpec"] | null;
             description?: string | null;
             /** @description Org-unique display name (1–200 chars after trimming). */
             name: string;
@@ -27516,7 +27519,9 @@ export interface components {
             format?: string | null;
             /**
              * Format: date
-             * @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.
+             * @description Inclusive window start (UTC day, YYYY-MM-DD). Default: the stored
+             *     card's `window_days` ending today, or 30 trailing days when the
+             *     definition carries no card.
              */
             from?: string | null;
             /**
@@ -27535,6 +27540,7 @@ export interface components {
          *     reassembled (`spec.view` == the stored `kind` column).
          */
         ReportDefinitionView: {
+            card?: components["schemas"]["CardSpec"] | null;
             created_at: string;
             /** Format: uuid */
             created_by: string;
@@ -32010,9 +32016,11 @@ export interface components {
         };
         /**
          * @description PUT /api/report-definitions/{id} body — full-replace semantics: every
-         *     member is applied; `description: null` clears it.
+         *     member is applied; `description: null` clears it and `card: null` (or an
+         *     omitted card) clears the card.
          */
         UpdateReportDefinitionRequest: components["schemas"]["MutationParams"] & {
+            card?: components["schemas"]["CardSpec"] | null;
             description?: string | null;
             name: string;
             scope?: components["schemas"]["DefinitionScope"] | null;
@@ -52082,7 +52090,11 @@ export interface operations {
     report_definitions_run: {
         parameters: {
             query?: {
-                /** @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days. */
+                /**
+                 * @description Inclusive window start (UTC day, YYYY-MM-DD). Default: the stored
+                 *     card's `window_days` ending today, or 30 trailing days when the
+                 *     definition carries no card.
+                 */
                 from?: string | null;
                 /** @description Inclusive window end (UTC day). Max span with `from`: 366 days. */
                 to?: string | null;
