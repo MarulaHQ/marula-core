@@ -9,7 +9,10 @@
 // hover/focus-revealed actions, typed skeleton loading, error state with
 // retry, and the shared empty sentence per widget. Staggered entrance via
 // .m-rise (transform/opacity, ≤120ms, reduced-motion honored).
-// Non-purpose: no persistence — the page owns widget rows.
+// Wave 46 lane 2: the card carries lane 1's `CardSize` (span and height) and
+// opens the size panel whose options the catalogue payload lists. The size is
+// drawn by CSS classes, never by a pixel value on the card.
+// Non-purpose: no persistence — the page owns widget rows and their sizes.
 "use client";
 
 import {
@@ -22,10 +25,11 @@ import {
   Th,
   Tr,
 } from "@marula-core/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
-import type { WidgetDef } from "../../lib/dashboards";
+import type { CardSize, WidgetDef } from "../../lib/dashboards";
 import { WidgetSkeleton } from "./widget-skeleton";
+import { CardSizePanel, CardSizeToggle, cardHeightClass } from "./card-size-control";
 import { AGING_BUCKET_LABELS, formatMinutes, formatSeconds } from "../../lib/dashboards";
 import {
   agingRows,
@@ -59,9 +63,20 @@ interface Props {
   def: WidgetDef;
   /** Caller's user id — pins personal-lens queries. */
   meUserId: string;
+  /** Lane 1's size for this card: a span and a height from the payload. */
+  size?: CardSize;
+  /** Every span the payload lists, in its order. */
+  spans?: readonly string[];
+  /** Every height the payload lists, in its order. */
+  heights?: readonly string[];
   /** Staggered-entrance delay in ms (caps at 240 on the page). */
   entranceDelay?: number;
-  onRemove: () => void;
+  /** Absent when the catalogue could not be read: the card is then read-only. */
+  onResize?: (size: CardSize) => void;
+  onMove?: (direction: -1 | 1) => void;
+  canMoveEarlier?: boolean;
+  canMoveLater?: boolean;
+  onRemove?: () => void;
 }
 
 interface LoadState {
@@ -83,9 +98,23 @@ function attainmentTone(pct: number): "success" | "warning" | "danger" {
   return "danger";
 }
 
-export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Props) {
+export function ReportWidget({
+  def,
+  meUserId,
+  size,
+  spans = [],
+  heights = [],
+  entranceDelay = 0,
+  onResize,
+  onMove,
+  canMoveEarlier = false,
+  canMoveLater = false,
+  onRemove,
+}: Props) {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const sizePanelId = useId();
   // Chart ↔ data-table alternative (keyboard a11y: recharts tooltips are
   // hover-only; the table presents the same rows to keyboard/AT readers).
   const [showTable, setShowTable] = useState(false);
@@ -141,8 +170,11 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
 
   return (
     <Card
-      className="m-rise group grid gap-3 p-4 transition-shadow duration-100 hover:shadow-md"
+      className={`m-rise group grid gap-3 p-4 transition-shadow duration-100 hover:shadow-md ${cardHeightClass(size?.height ?? "")}`}
       data-widget-id={def.id}
+      data-testid={`widget-${def.id}`}
+      data-card-span={size?.span}
+      data-card-height={size?.height}
       style={{ animationDelay: `${entranceDelay}ms` }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -155,6 +187,14 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
           </Badge>
         </div>
         <div className="flex items-center gap-1 opacity-0 transition-opacity duration-100 group-focus-within:opacity-100 group-hover:opacity-100">
+          {onResize !== undefined ? (
+            <CardSizeToggle
+              open={sizeOpen}
+              onToggle={() => setSizeOpen((open) => !open)}
+              panelId={sizePanelId}
+              title={def.title}
+            />
+          ) : null}
           <a
             href={buildWidgetDeepLink(def)}
             data-testid={`widget-drill-${def.id}`}
@@ -179,15 +219,32 @@ export function ReportWidget({ def, meUserId, entranceDelay = 0, onRemove }: Pro
           <Button variant="ghost" size="sm" onClick={exportCsv} aria-label={`Export ${def.title} as CSV`}>
             CSV
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onRemove}
-            aria-label={`Remove ${def.title}`}
-          >
-            Remove
-          </Button>
+          {onRemove !== undefined ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRemove}
+              aria-label={`Remove ${def.title}`}
+            >
+              Remove
+            </Button>
+          ) : null}
         </div>
+      </div>
+      <div id={sizePanelId}>
+        {sizeOpen && onResize !== undefined && size !== undefined ? (
+          <CardSizePanel
+            title={def.title}
+            spans={spans}
+            heights={heights}
+            size={size}
+            onResize={onResize}
+            onMove={(direction) => onMove?.(direction)}
+            canMoveEarlier={canMoveEarlier}
+            canMoveLater={canMoveLater}
+            testId={`card-size-${def.id}`}
+          />
+        ) : null}
       </div>
       {body}
     </Card>
