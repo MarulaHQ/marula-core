@@ -54,6 +54,10 @@ use serde_json::{json, Value};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
+
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
 use crate::routes::ai_policy::{authorize_surface_call, org_bound_tx, AiAdmissionAsk, AiEdge};
@@ -459,9 +463,12 @@ pub fn validate_candidate(
     // The same compile the run routes execute. A spec that validates but cannot
     // compile (an identifier the registry refuses later in the path) is a draft
     // the reviewer must not be told is ready.
-    let window = RunWindow {
-        start: now - Duration::days(i64::from(card.map_or(30, |c| c.window_days))),
-        end: now,
+    let window = match card {
+        Some(card) => card_window(card, now),
+        None => RunWindow {
+            start: now - Duration::days(30),
+            end: now,
+        },
     };
     if let Err(error) = spec.compile_windowed(scope, core_reports::PAGE_LIMIT_DEFAULT, window) {
         issues.push(issue_from_reports_error(&error));
@@ -909,6 +916,369 @@ pub fn diff_drafts(base: Option<&CurrentDraft>, draft: &ReportDraft) -> Vec<Repo
 }
 
 // ---------------------------------------------------------------------------
+// Verification: the agent checks its own work against the real data path
+// ---------------------------------------------------------------------------
+
+/// The name of the on-demand verification tool. Stable, like
+/// [`VIEW_COLUMNS_TOOL`]: it is the tool id the model calls back on.
+pub const VERIFY_DRAFT_TOOL: &str = "verify_report_draft";
+
+/// How many verification rounds one authoring call may spend repairing a
+/// draft — the checks after the model's first answer do not count.
+///
+/// Two is deliberate. The first round repairs the ordinary mistake (a filter
+/// that resolves to nothing, a chart hint with no dimension to put on the
+/// axis); the second exists because a repair can introduce a new failure. A
+/// third would spend the org's tokens on a model that is not converging, and
+/// the honest answer then is a draft with its failures named.
+pub const MAX_VERIFICATION_ROUNDS: usize = 2;
+
+/// One check that could not be passed, as data rather than prose.
+///
+/// The `kind` reuses the card contract's slugs where they exist
+/// (`no_rows`, `no_headers`, `no_scalar`, `window_wider_than_refresh`,
+/// `refresh_slower_than_window`, `invalid_card`, …), so a reviewer and a
+/// client read one vocabulary for a registry refusal and a data failure alike.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct DraftFinding {
+    /// A stable machine class.
+    pub kind: String,
+    /// The dashboard card this finding belongs to, zero-based. `None` for a
+    /// report, which draws one card.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card_index: Option<usize>,
+    /// One sentence a reviewer can act on.
+    pub message: String,
+}
+
+impl DraftFinding {
+    pub fn new(kind: &str, card_index: Option<usize>, message: String) -> Self {
+        Self {
+            kind: kind.to_string(),
+            card_index,
+            message,
+        }
+    }
+}
+
+/// The verification port.
+///
+/// The loop knows only this trait, so every behaviour that matters — the
+/// repair round, the cap, the finding that survives — is testable without a
+/// database. The implementation that actually runs SQL lives in the HTTP
+/// layer (`report_defs::ReportExecutionVerifier`) and calls
+/// `run_inline_spec`, the same function `POST /api/reports/run-spec` uses.
+pub trait DraftVerifier: Send + Sync {
+    /// Runs one candidate through the product's execution path. An empty
+    /// result means the card draws. `card_index` is the dashboard card's
+    /// position, so a finding names the card it belongs to; `None` for a
+    /// report.
+    fn verify<'a>(
+        &'a self,
+        spec: &'a ReportSpec,
+        card: &'a CardSpec,
+        scope: core_reports::Scope,
+        window: RunWindow,
+        card_index: Option<usize>,
+    ) -> Pin<Box<dyn Future<Output = Vec<DraftFinding>> + Send + 'a>>;
+}
+
+/// How much verification one authoring call may do. `none()` is the
+/// no-verifier posture: the loop behaves exactly as it did before this lane,
+/// which is what a deployment with no reporting pool (unit tests) gets.
+#[derive(Clone, Copy)]
+pub struct Verification<'a> {
+    pub verifier: Option<&'a dyn DraftVerifier>,
+    pub rounds: usize,
+}
+
+impl<'a> Verification<'a> {
+    /// No verification: the loop validates the draft and hands it back.
+    pub const fn none() -> Self {
+        Self {
+            verifier: None,
+            rounds: 0,
+        }
+    }
+
+    /// Verification with the shipped cap.
+    pub fn new(verifier: &'a dyn DraftVerifier) -> Self {
+        Self {
+            verifier: Some(verifier),
+            rounds: MAX_VERIFICATION_ROUNDS,
+        }
+    }
+
+    /// Verification with an explicit cap, for a caller that needs a tighter
+    /// budget (and for the tests that prove the cap holds).
+    pub fn with_rounds(verifier: &'a dyn DraftVerifier, rounds: usize) -> Self {
+        Self {
+            verifier: Some(verifier),
+            rounds,
+        }
+    }
+}
+
+/// The classes a verified draft was checked against, in the reviewer's words:
+/// what "verified" means on the row.
+#[must_use]
+pub fn verification_checks() -> Vec<String> {
+    vec![
+        "the spec and card pass the same boundary the save and run routes use".to_string(),
+        "a chart hint has a dimension to put on its axis".to_string(),
+        "the window is no wider than one refresh reaches".to_string(),
+        "a chart has rows, a table has headers, a stat has a number".to_string(),
+        "no card's filters resolve to zero rows".to_string(),
+    ]
+}
+
+/// The OpenAI-format tool definition for the verification call: the model may
+/// run its candidate through the product's data path before it hands it back.
+pub fn verify_draft_tool() -> Value {
+    json!({
+        "name": VERIFY_DRAFT_TOOL,
+        "description": "Run a candidate report spec + card through the SAME execution path \
+                        the product uses (the run-spec query, the card contract) and return \
+                        typed findings. Call this before your final answer: a draft that \
+                        cannot be drawn is not a draft.",
+        "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "spec": {
+                    "type": "object",
+                    "description": "The report spec, exactly as it would appear in the answer."
+                },
+                "card": {
+                    "type": "object",
+                    "description": "The card, exactly as it would appear in the answer."
+                }
+            },
+            "required": ["spec", "card"]
+        }
+    })
+}
+
+/// The window a card displays, ending now. One definition, so the validation
+/// compile and the verification run cannot disagree about what "last 30 days"
+/// means for a draft.
+fn card_window(card: &CardSpec, now: chrono::DateTime<Utc>) -> RunWindow {
+    RunWindow {
+        start: now - Duration::days(i64::from(card.window_days)),
+        end: now,
+    }
+}
+
+/// "Card 3's chart" for a dashboard, "The chart" for a report.
+fn finding_subject(card_index: Option<usize>, shape: &str) -> String {
+    match card_index {
+        Some(index) => format!("Card {}'s {shape} ", index + 1),
+        None => format!("The {shape} "),
+    }
+}
+
+/// Prefixes a registry sentence with the card it belongs to, so a dashboard
+/// finding names its card the way the row's message does.
+fn with_index(card_index: Option<usize>, message: String) -> String {
+    match card_index {
+        Some(index) => format!("Card {}: {message}", index + 1),
+        None => message,
+    }
+}
+
+/// Maps a contract refusal onto a typed finding, keeping the card contract's
+/// failure slugs. The empty-card sentence is written here, not in the contract,
+/// because it is advice to a repair: what to change to make the card draw.
+#[must_use]
+pub fn finding_from_reports_error(card_index: Option<usize>, error: &ReportsError) -> DraftFinding {
+    match error {
+        ReportsError::EmptyCard { shape, failure } => {
+            let subject = finding_subject(card_index, shape.slug());
+            let message = match failure {
+                core_reports::CardFailure::NoRows => format!(
+                    "{subject}has no rows at this window. Loosen a filter or widen the \
+                     window, or make it a stat if zero is the real answer."
+                ),
+                core_reports::CardFailure::NoHeaders => {
+                    format!("{subject}projected no columns, so it has no headers.")
+                }
+                core_reports::CardFailure::NoScalar { column } => format!(
+                    "{subject}has no value for {column} in this window. A stat needs a \
+                     number, and null is not zero."
+                ),
+            };
+            DraftFinding::new(failure.slug(), card_index, message)
+        }
+        other => {
+            let issue = issue_from_reports_error(other);
+            DraftFinding::new(
+                &issue.code,
+                card_index,
+                with_index(card_index, issue.message),
+            )
+        }
+    }
+}
+
+/// A registry issue as a finding, so the loop has one shape to feed back.
+fn finding_from_issue(card_index: Option<usize>, issue: &ReportAuthoringIssue) -> DraftFinding {
+    DraftFinding::new(
+        &issue.code,
+        card_index,
+        with_index(card_index, issue.message.clone()),
+    )
+}
+
+/// The checks that need no data: a viz hint that contradicts the dimensions
+/// the spec carries. A bar, line or pie hint with no group-by has nothing to
+/// put on an axis and derives to a table — the card the author asked for is not
+/// the card they would get, which is a defect in the draft, not in the data.
+fn shape_findings(spec: &ReportSpec, card_index: Option<usize>) -> Vec<DraftFinding> {
+    let chart_hint = matches!(
+        spec.viz,
+        core_reports::VizHint::Bar | core_reports::VizHint::Line | core_reports::VizHint::Pie
+    );
+    if chart_hint && spec.group_by.is_empty() {
+        let subject = finding_subject(card_index, spec.viz.slug());
+        return vec![DraftFinding::new(
+            "viz_contradicts_data",
+            card_index,
+            format!(
+                "{subject}has no group-by dimension, so it would be drawn as a table. Add \
+                 a dimension, or ask for a table."
+            ),
+        )];
+    }
+    Vec::new()
+}
+
+/// Verifies one candidate card: the pure checks first, then — only when the
+/// draft could be drawn at all — the real run through the port.
+///
+/// `card_index` is the dashboard card's position, or `None` for a report.
+pub async fn verify_candidate(
+    verifier: &dyn DraftVerifier,
+    spec: &ReportSpec,
+    card: &CardSpec,
+    scope: core_reports::Scope,
+    now: chrono::DateTime<Utc>,
+    card_index: Option<usize>,
+) -> Vec<DraftFinding> {
+    let mut findings = shape_findings(spec, card_index);
+    for issue in validate_candidate(spec, Some(card), scope, now) {
+        findings.push(finding_from_issue(card_index, &issue));
+    }
+    if !findings.is_empty() {
+        // Nothing to run: the contract has already refused this draft.
+        return findings;
+    }
+    findings.extend(
+        verifier
+            .verify(spec, card, scope, card_window(card, now), card_index)
+            .await,
+    );
+    findings
+}
+
+/// One card of a dashboard, as the verifier takes it.
+pub struct DashboardCard {
+    pub spec: ReportSpec,
+    pub card: CardSpec,
+}
+
+/// Verifies every card of a dashboard through the SAME path a single card
+/// takes, tagging each finding with the card's index.
+///
+/// One function over a list rather than a dashboard surface: the close-out lane
+/// that renders a dashboard calls this, and a finding says "Card 3's chart has
+/// no rows at this window" because the reviewer needs to know which card.
+pub async fn verify_dashboard(
+    verifier: &dyn DraftVerifier,
+    cards: &[DashboardCard],
+    scope: core_reports::Scope,
+    now: chrono::DateTime<Utc>,
+) -> Vec<DraftFinding> {
+    let mut findings = Vec::new();
+    for (index, card) in cards.iter().enumerate() {
+        findings.extend(
+            verify_candidate(verifier, &card.spec, &card.card, scope, now, Some(index)).await,
+        );
+    }
+    findings
+}
+
+/// One verification round: the findings the model's answer produced.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
+pub struct VerificationAttempt {
+    /// Zero-based round. Round 0 checks the model's first answer; each later
+    /// round checks a repair.
+    pub round: usize,
+    pub findings: Vec<DraftFinding>,
+}
+
+/// Everything the verification did, as the reviewer reads it: what was
+/// checked, how many rounds it took, what the loop repaired, and what it could
+/// not. Empty `findings` is the only clean answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, ToSchema)]
+pub struct DraftVerification {
+    /// True when a verifier ran. False means nothing was checked — the draft
+    /// is not reported as verified.
+    pub ran: bool,
+    /// The classes that were checked, in the reviewer's words.
+    pub checked: Vec<String>,
+    /// Every round, in order.
+    pub attempts: Vec<VerificationAttempt>,
+    /// Findings an earlier round produced and a repair cleared.
+    pub repaired: Vec<DraftFinding>,
+    /// Findings that survive. Empty is the only clean answer.
+    pub findings: Vec<DraftFinding>,
+}
+
+impl DraftVerification {
+    /// True only when a verifier ran and found nothing. A deployment with no
+    /// verifier is not "clean", it is unchecked — callers read `ran`.
+    #[must_use]
+    pub fn clean(&self) -> bool {
+        self.ran && self.findings.is_empty()
+    }
+}
+
+/// Findings an earlier round produced that the final answer no longer has.
+fn repaired_findings(
+    attempts: &[VerificationAttempt],
+    remaining: &[DraftFinding],
+) -> Vec<DraftFinding> {
+    let mut cleared: Vec<DraftFinding> = Vec::new();
+    for attempt in attempts {
+        for finding in &attempt.findings {
+            if remaining.contains(finding) || cleared.contains(finding) {
+                continue;
+            }
+            cleared.push(finding.clone());
+        }
+    }
+    cleared
+}
+
+/// The repair instruction the loop sends back: a typed reason per finding, so
+/// the model is told which card failed and how, not that something "was wrong".
+fn repair_prompt(findings: &[DraftFinding]) -> String {
+    let mut prompt = String::from(
+        "The data check ran your draft through the real report path and it cannot be \
+         drawn:\n",
+    );
+    for finding in findings {
+        prompt.push_str(&format!("- {}: {}\n", finding.kind, finding.message));
+    }
+    prompt.push_str(
+        "\nAnswer again with a corrected JSON object of the same shape. Change only what \
+         the findings name: a window the data can fill, a dimension the chart can plot, a \
+         stat with one measure, or a table for what is left.\n",
+    );
+    prompt
+}
+
+// ---------------------------------------------------------------------------
 // The authoring loop
 // ---------------------------------------------------------------------------
 
@@ -927,11 +1297,21 @@ pub struct ReportAuthoringOutcome {
     /// Set when the loop ended because of a transport failure, so a caller can
     /// report honestly instead of pretending the model answered.
     pub transport_error: Option<String>,
+    /// What the data check did: the classes, every round, what a repair
+    /// cleared, and what survived.
+    pub verification: DraftVerification,
 }
 
 impl ReportAuthoringOutcome {
+    /// A draft is clean only when it exists, no registry issue survives, no
+    /// verification finding survives, and the model actually answered. A
+    /// transport failure is never clean, and neither is a draft the data check
+    /// could not draw.
     pub fn valid(&self) -> bool {
-        self.draft.is_some() && self.issues.is_empty()
+        self.draft.is_some()
+            && self.issues.is_empty()
+            && self.verification.findings.is_empty()
+            && self.transport_error.is_none()
     }
 }
 
@@ -964,113 +1344,229 @@ pub fn build_messages(transcript: &str, base: Option<&CurrentDraft>) -> Vec<Loop
     messages
 }
 
+/// One authoring call's inputs: what it authors from, for whom, anchored when,
+/// and how much verification it may spend.
+pub struct AuthoringRun<'a> {
+    pub transcript: &'a str,
+    pub base: Option<&'a CurrentDraft>,
+    pub scope: core_reports::Scope,
+    pub now: chrono::DateTime<Utc>,
+    pub max_steps: usize,
+    pub verification: Verification<'a>,
+}
+
 /// The bounded authoring loop: model → tool-result feedback → repeat, then the
-/// final answer is parsed and validated. Mirrors `chat_runner::run_turn`'s loop
-/// shape (same transport seam, same tool protocol) without the SSE framing — the
-/// same loop lane 17 runs, with this module's tool and validator.
+/// final answer is parsed, validated, and — when a verifier is wired — run
+/// through the product's data path with a bounded number of repair rounds.
+/// Mirrors `chat_runner::run_turn`'s loop shape (same transport seam, same tool
+/// protocol) without the SSE framing — lane 17's loop, with this module's
+/// tools, validator and verifier.
+///
+/// `verification` decides whether the data check happens at all: a caller with
+/// no reporting pool passes [`Verification::none`] and the loop behaves as it
+/// did before this lane, which is what the unit tests that only exercise the
+/// transport do.
 pub async fn run_authoring_loop(
     transport: &dyn ChatModelTransport,
     model: &str,
-    transcript: &str,
-    base: Option<&CurrentDraft>,
-    scope: core_reports::Scope,
-    now: chrono::DateTime<Utc>,
-    max_steps: usize,
+    run: AuthoringRun<'_>,
 ) -> ReportAuthoringOutcome {
-    let tools = vec![view_columns_tool()];
+    let AuthoringRun {
+        transcript,
+        base,
+        scope,
+        now,
+        max_steps,
+        verification,
+    } = run;
+    let mut tools = vec![view_columns_tool()];
+    if verification.verifier.is_some() {
+        tools.push(verify_draft_tool());
+    }
     let mut messages = build_messages(transcript, base);
     let mut steps = 0usize;
     let mut prompt_tokens = 0u32;
     let mut completion_tokens = 0u32;
     let mut tool_calls: Vec<AuthoringToolCall> = Vec::new();
-    let mut final_content = String::new();
     let mut transport_error: Option<String> = None;
+    let mut log = DraftVerification {
+        ran: verification.verifier.is_some(),
+        checked: if verification.verifier.is_some() {
+            verification_checks()
+        } else {
+            Vec::new()
+        },
+        ..DraftVerification::default()
+    };
+    let mut draft: Option<ReportDraft> = None;
+    let mut issues: Vec<ReportAuthoringIssue> = Vec::new();
 
-    loop {
-        if steps >= max_steps.max(1) {
-            break;
-        }
-        let ask = ModelCallRequest {
-            model: Some(model.to_string()),
-            messages: messages.clone(),
-            tools: tools.clone(),
-            response_format: Some(json!({ "type": "json_object" })),
-        };
-        let turn = match transport.call(&ask).await {
-            Ok(turn) => turn,
-            Err(error) => {
-                transport_error = Some(error.to_string());
+    'repair: loop {
+        let mut final_content = String::new();
+        loop {
+            if steps >= max_steps.max(1) {
                 break;
             }
-        };
-        steps += 1;
-        prompt_tokens += turn.prompt_tokens;
-        completion_tokens += turn.completion_tokens;
+            let ask = ModelCallRequest {
+                model: Some(model.to_string()),
+                messages: messages.clone(),
+                tools: tools.clone(),
+                response_format: Some(json!({ "type": "json_object" })),
+            };
+            let turn = match transport.call(&ask).await {
+                Ok(turn) => turn,
+                Err(error) => {
+                    transport_error = Some(error.to_string());
+                    break;
+                }
+            };
+            steps += 1;
+            prompt_tokens += turn.prompt_tokens;
+            completion_tokens += turn.completion_tokens;
 
-        if !turn.content.is_empty() {
-            final_content = turn.content.clone();
+            if !turn.content.is_empty() {
+                final_content = turn.content.clone();
+            }
+            messages.push(LoopMessage {
+                role: "assistant".to_string(),
+                content: turn.content.clone(),
+                tool_calls: if turn.tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(tool_calls_wire(&turn.tool_calls))
+                },
+                tool_call_id: None,
+            });
+            if turn.tool_calls.is_empty() {
+                break;
+            }
+            for call in turn.tool_calls {
+                let (result, outcome) = handle_tool_call(&call, verification, scope, now).await;
+                tool_calls.push(AuthoringToolCall {
+                    name: call.name.clone(),
+                    argument: tool_argument(&call.arguments),
+                    outcome: outcome.to_string(),
+                });
+                messages.push(LoopMessage {
+                    role: "tool".to_string(),
+                    content: result,
+                    tool_calls: None,
+                    tool_call_id: Some(call.id.clone()),
+                });
+            }
         }
-        messages.push(LoopMessage {
-            role: "assistant".to_string(),
-            content: turn.content.clone(),
-            tool_calls: if turn.tool_calls.is_empty() {
-                None
-            } else {
-                Some(tool_calls_wire(&turn.tool_calls))
-            },
-            tool_call_id: None,
+
+        let parsed = if final_content.is_empty() {
+            ParsedReportDraft {
+                draft: None,
+                issues: vec![ReportAuthoringIssue::new(
+                    "no_answer",
+                    None,
+                    "the model produced no final answer".to_string(),
+                )],
+            }
+        } else {
+            parse_report_output(&final_content, scope, now)
+        };
+
+        let Some(candidate) = parsed.draft else {
+            // The registry refused the answer: a repair prompt cannot help a
+            // draft that never parsed, and the issues already say why.
+            issues = parsed.issues;
+            break;
+        };
+        let Some(verifier) = verification.verifier else {
+            draft = Some(candidate);
+            break;
+        };
+
+        let findings =
+            verify_candidate(verifier, &candidate.spec, &candidate.card, scope, now, None).await;
+        log.attempts.push(VerificationAttempt {
+            round: log.attempts.len(),
+            findings: findings.clone(),
         });
-        if turn.tool_calls.is_empty() {
+        if findings.is_empty() {
+            draft = Some(candidate);
             break;
         }
-        for call in turn.tool_calls {
-            let (result, outcome) = handle_tool_call(&call);
-            tool_calls.push(AuthoringToolCall {
-                name: call.name.clone(),
-                argument: call
-                    .arguments
-                    .get("view")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                outcome: outcome.to_string(),
-            });
-            messages.push(LoopMessage {
-                role: "tool".to_string(),
-                content: result,
-                tool_calls: None,
-                tool_call_id: Some(call.id.clone()),
-            });
+        // The first check is not a repair round: the cap counts the repairs
+        // after it. A transport that has already failed gets no further call.
+        if log.attempts.len() > verification.rounds || transport_error.is_some() {
+            log.findings = findings.clone();
+            issues = findings.iter().map(finding_as_issue).collect();
+            draft = Some(candidate);
+            break;
         }
+        messages.push(LoopMessage {
+            role: "user".to_string(),
+            content: repair_prompt(&findings),
+            tool_calls: None,
+            tool_call_id: None,
+        });
+        continue 'repair;
     }
 
-    let parsed = if final_content.is_empty() {
-        ParsedReportDraft {
-            draft: None,
-            issues: vec![ReportAuthoringIssue::new(
-                "no_answer",
-                None,
-                "the model produced no final answer".to_string(),
-            )],
-        }
-    } else {
-        parse_report_output(&final_content, scope, now)
-    };
+    if let Some(error) = &transport_error {
+        // A failed call is never a clean draft, even when an earlier turn left
+        // an answer behind: the reviewer is told the transport failed.
+        issues.push(ReportAuthoringIssue::new(
+            "transport_failed",
+            None,
+            format!("the model transport failed: {error}"),
+        ));
+    }
 
+    log.repaired = repaired_findings(&log.attempts, &log.findings);
     ReportAuthoringOutcome {
-        draft: parsed.draft,
-        issues: parsed.issues,
+        draft,
+        issues,
         tool_calls,
         steps,
         prompt_tokens,
         completion_tokens,
         transport_error,
+        verification: log,
     }
 }
 
-/// Dispatches one tool call. Only [`VIEW_COLUMNS_TOOL`] is understood; anything
-/// else is answered typed (the model cannot invent a tool that does work).
-fn handle_tool_call(call: &ToolCallReq) -> (String, &'static str) {
+/// The tool call's own argument, for the ledger: the view a column fetch asked
+/// for, or the view of the spec a verification asked about.
+fn tool_argument(arguments: &Value) -> String {
+    arguments
+        .get("view")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            arguments
+                .get("spec")
+                .and_then(|spec| spec.get("view"))
+                .and_then(Value::as_str)
+        })
+        .unwrap_or("")
+        .to_string()
+}
+
+/// A surviving finding as a registry-shaped issue, so a client that reads only
+/// `issues` still tells the reviewer the draft is not clean.
+fn finding_as_issue(finding: &DraftFinding) -> ReportAuthoringIssue {
+    ReportAuthoringIssue::new(
+        &finding.kind,
+        finding
+            .card_index
+            .map(|index| format!("card[{}]", index + 1)),
+        finding.message.clone(),
+    )
+}
+
+/// Dispatches one tool call. The column fetch and the verification are the two
+/// tools this loop answers; anything else is answered typed (the model cannot
+/// invent a tool that does work).
+async fn handle_tool_call(
+    call: &ToolCallReq,
+    verification: Verification<'_>,
+    scope: core_reports::Scope,
+    now: chrono::DateTime<Utc>,
+) -> (String, &'static str) {
     if call.name == VIEW_COLUMNS_TOOL {
         let result = run_view_columns_tool(&call.arguments);
         let outcome = if result.contains("\"found\":true") {
@@ -1078,13 +1574,46 @@ fn handle_tool_call(call: &ToolCallReq) -> (String, &'static str) {
         } else {
             "not_found"
         };
-        (result, outcome)
-    } else {
-        (
-            json!({ "error": format!("unknown tool {:?}", call.name) }).to_string(),
-            "rejected",
-        )
+        return (result, outcome);
     }
+    if call.name == VERIFY_DRAFT_TOOL {
+        let Some(verifier) = verification.verifier else {
+            return (
+                json!({
+                    "checked": false,
+                    "reason": "no verifier is wired on this deployment; answer without it"
+                })
+                .to_string(),
+                "unavailable",
+            );
+        };
+        let spec = call
+            .arguments
+            .get("spec")
+            .and_then(|value| serde_json::from_value::<ReportSpec>(value.clone()).ok());
+        let card = call
+            .arguments
+            .get("card")
+            .and_then(|value| serde_json::from_value::<CardSpec>(value.clone()).ok());
+        let (Some(spec), Some(card)) = (spec, card) else {
+            return (
+                json!({
+                    "checked": false,
+                    "error": "spec and card are both required, as JSON objects in this schema"
+                })
+                .to_string(),
+                "rejected",
+            );
+        };
+        let findings = verify_candidate(verifier, &spec, &card, scope, now, None).await;
+        let clean = findings.is_empty();
+        let body = json!({ "checked": true, "clean": clean, "findings": findings });
+        return (body.to_string(), if clean { "clean" } else { "findings" });
+    }
+    (
+        json!({ "error": format!("unknown tool {:?}", call.name) }).to_string(),
+        "rejected",
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1110,6 +1639,9 @@ pub struct AuthoringMeasurement {
     pub boundary_rejected: usize,
     pub valid_json_rate: f64,
     pub boundary_rejection_rate: f64,
+    /// Rejections per typed issue code, so a failure rate per class is readable
+    /// instead of one aggregate the corpus cannot explain.
+    pub issue_classes: BTreeMap<String, usize>,
 }
 
 /// Runs a corpus through the real parse+validate path and reports the rates.
@@ -1122,8 +1654,12 @@ pub fn measure_corpus(
     let total = samples.len();
     let mut json_extracted = 0usize;
     let mut boundary_valid = 0usize;
+    let mut issue_classes: BTreeMap<String, usize> = BTreeMap::new();
     for sample in samples {
         let parsed = parse_report_output(&sample.candidate, scope, now);
+        for issue in &parsed.issues {
+            *issue_classes.entry(issue.code.clone()).or_default() += 1;
+        }
         // A candidate that never reached the boundary (not JSON, no spec/card)
         // is not "extracted"; the codes below are the ones that mean the model
         // produced a draft-shaped answer.
@@ -1153,7 +1689,70 @@ pub fn measure_corpus(
         boundary_rejected,
         valid_json_rate: rate(json_extracted),
         boundary_rejection_rate: rate(boundary_rejected),
+        issue_classes,
     }
+}
+
+/// The verification rates a set of loop outcomes can prove. Deterministic: it
+/// counts what the loop recorded, so it is evidence about the loop and the
+/// boundary, not about a live model's intent.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct VerificationMeasurement {
+    /// Drafts that reached a verification round.
+    pub drafts: usize,
+    /// Drafts whose first check found something.
+    pub failed: usize,
+    pub failure_rate: f64,
+    /// Failed drafts per finding kind, across every round.
+    pub by_class: BTreeMap<String, usize>,
+    /// Drafts a repair round made clean.
+    pub repaired: usize,
+    pub repair_rate: f64,
+    /// How many verification rounds each repaired draft needed.
+    pub rounds_to_repair: Vec<usize>,
+    /// Drafts handed back with a finding still attached.
+    pub unrepairable: usize,
+}
+
+/// Counts those rates from loop outcomes.
+#[must_use]
+pub fn measure_verification(outcomes: &[ReportAuthoringOutcome]) -> VerificationMeasurement {
+    let mut measure = VerificationMeasurement::default();
+    let mut repaired_rounds = Vec::new();
+    for outcome in outcomes {
+        let verification = &outcome.verification;
+        if verification.attempts.is_empty() {
+            continue;
+        }
+        measure.drafts += 1;
+        for attempt in &verification.attempts {
+            for finding in &attempt.findings {
+                *measure.by_class.entry(finding.kind.clone()).or_default() += 1;
+            }
+        }
+        let first = &verification.attempts[0].findings;
+        if !first.is_empty() {
+            measure.failed += 1;
+        }
+        if !verification.repaired.is_empty() && verification.findings.is_empty() {
+            measure.repaired += 1;
+            repaired_rounds.push(verification.attempts.len());
+        }
+        if !verification.findings.is_empty() {
+            measure.unrepairable += 1;
+        }
+    }
+    let rate = |n: usize| {
+        if measure.drafts == 0 {
+            0.0
+        } else {
+            n as f64 / measure.drafts as f64
+        }
+    };
+    measure.failure_rate = rate(measure.failed);
+    measure.repair_rate = rate(measure.repaired);
+    measure.rounds_to_repair = repaired_rounds;
+    measure
 }
 
 /// The prompt-footprint measurement that motivates on-demand columns. Returns
@@ -1251,6 +1850,10 @@ pub struct AuthorReportResponse {
     pub model_info: AuthorModelInfo,
     /// The catalogue the draft was validated against.
     pub catalogue: AuthorReportCatalogue,
+    /// What the data check did: the classes it checked, every round, what a
+    /// repair cleared, and the findings that survive. A draft with findings is
+    /// handed back with them named, never presented as clean.
+    pub verification: DraftVerification,
     /// Set when the model transport failed; the caller reports this honestly.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -1294,6 +1897,17 @@ pub async fn author(
         Permission::Matrix {
             module: Module::Reporting,
             action: Action::Create,
+        },
+    )?;
+    // The verification step runs the draft through the product's own report
+    // query, so authoring needs the read half too. Without this a principal
+    // holding create but not view could learn whether a card returns rows by
+    // asking the verifier — a read of data the run path refuses them.
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Reporting,
+            action: Action::View,
         },
     )?;
     let org_id = authed.principal.user.org_id;
@@ -1377,14 +1991,24 @@ pub async fn author(
         .map(|n| n as usize)
         .unwrap_or(MAX_AUTHORING_STEPS)
         .min(MAX_AUTHORING_STEPS);
+    // The verifier is the production port: it runs a candidate through
+    // `report_defs::run_inline_spec`, the function `POST /api/reports/run-spec`
+    // runs, on this request's reporting pool.
+    let verifier = crate::routes::report_defs::ReportExecutionVerifier {
+        pool: state.reporting.clone(),
+        org_id,
+    };
     let outcome = run_authoring_loop(
         transport.as_ref(),
         &call.model,
-        &transcript,
-        base.as_ref(),
-        scope,
-        now,
-        max_steps,
+        AuthoringRun {
+            transcript: &transcript,
+            base: base.as_ref(),
+            scope,
+            now,
+            max_steps,
+            verification: Verification::new(&verifier),
+        },
     )
     .await;
 
@@ -1418,6 +2042,7 @@ pub async fn author(
             rules: core_reports::rules().len(),
             prompt_chars: report_authoring_system_prompt().len(),
         },
+        verification: outcome.verification.clone(),
         error: outcome.transport_error.clone(),
     };
     Ok(Json(response))
@@ -1477,6 +2102,16 @@ async fn record_authoring_usage(
                 "model": call.model,
                 "steps": outcome.steps,
                 "valid": outcome.valid(),
+                "verification_ran": outcome.verification.ran,
+                "verification_rounds": outcome.verification.attempts.len(),
+                "verification_findings": outcome.verification.findings.len(),
+                "verification_classes": outcome
+                    .verification
+                    .attempts
+                    .iter()
+                    .flat_map(|attempt| attempt.findings.iter())
+                    .map(|finding| finding.kind.clone())
+                    .collect::<Vec<_>>(),
             }),
             ip: None,
             occurred_at: chrono::Utc::now(),

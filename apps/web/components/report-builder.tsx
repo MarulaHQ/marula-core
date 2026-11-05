@@ -259,6 +259,10 @@ export function ReportBuilder({
       name: saveName.trim(),
       description: saveDescription.trim() === "" ? null : saveDescription.trim(),
       spec: buildSpec(),
+      // The builder does not edit a card, so it sends back the one the
+      // definition stores. A full-replace PUT that omitted it would clear the
+      // window, refresh and size the report was authored with (migration 0180).
+      card: editingDef?.card ?? null,
       scope: canPublish ? saveScope : ("self" as const),
       idempotency_key: idempotencyKey,
     };

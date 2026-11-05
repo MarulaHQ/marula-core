@@ -1132,39 +1132,85 @@ pub async fn run_spec(
     } else {
         core_reports::Scope::Self_(authed.principal.user.id)
     };
-    let compiled = req
-        .spec
-        .compile_windowed(scope, limit, run_window)
-        .map_err(|e| ApiError::Validation(e.to_string()))?;
-    let rows =
-        crate::routes::reports::run_rows(&state.reporting, &compiled.sql, &compiled.binds, org_id)
-            .await?;
+    let run = run_inline_spec(
+        &state.reporting,
+        org_id,
+        scope,
+        &req.spec,
+        run_window,
+        limit,
+        req.card.as_ref(),
+    )
+    .await
+    .map_err(inline_failure)?;
+    Ok(Json(run).into_response())
+}
+
+/// Why an inline spec produced no page. Typed so the HTTP layer keeps its
+/// contract refusal and the authoring verifier names the class instead of a
+/// string it has to parse.
+pub(crate) enum InlineSpecError {
+    /// The spec failed registry validation or did not compile.
+    Spec(core_reports::ReportsError),
+    /// The card contract refused the finished run (or the card itself).
+    Card(core_reports::ReportsError),
+    /// The reporting pool could not answer the query.
+    Db(sqlx::Error),
+}
+
+/// Compile one inline spec, run it on the reporting pool inside an org-bound
+/// transaction, and check it as a card when one is supplied.
+///
+/// This is the ONLY inline execution path: `POST /api/reports/run-spec` calls
+/// it, and the authoring verifier calls it, so a draft is checked by the query
+/// the product would run rather than by a second implementation of the card
+/// rules. The caller has already resolved the window and the caller's scope.
+pub(crate) async fn run_inline_spec(
+    pool: &sqlx::PgPool,
+    org_id: Uuid,
+    scope: core_reports::Scope,
+    spec: &ReportSpec,
+    window: RunWindow,
+    limit: i64,
+    card: Option<&CardSpec>,
+) -> Result<crate::routes::reports::ReportPage, InlineSpecError> {
+    let compiled = spec
+        .compile_windowed(scope, limit, window)
+        .map_err(InlineSpecError::Spec)?;
+    let rows = crate::routes::reports::run_rows(pool, &compiled.sql, &compiled.binds, org_id)
+        .await
+        .map_err(InlineSpecError::Db)?;
     let decoded: Vec<Value> = rows
         .iter()
         .map(|r| crate::routes::reports::row_json(r, &compiled.columns))
         .collect();
     let summary = crate::routes::reports::run_rows(
-        &state.reporting,
+        pool,
         &compiled.summary_sql,
         &compiled.summary_binds,
         org_id,
     )
-    .await?;
+    .await
+    .map_err(InlineSpecError::Db)?;
     let summary_json = match summary.first() {
         Some(row) => crate::routes::reports::dynamic_row_json(row),
         None => serde_json::json!({}),
     };
-    // The card gate runs on the SAME run the product would render: a card
-    // that would be handed back empty is a refusal here, not a blank frame
-    // the reader has to interpret. Lane 5's verifier calls exactly this.
     let columns: Vec<String> = compiled
         .columns
         .iter()
         .map(|c| c.name.to_string())
         .collect();
-    if let Some(card) = req.card.as_ref() {
+    // The card gate runs on the SAME run the product would render: a card
+    // that would be handed back empty is a refusal here, not a blank frame
+    // the reader has to interpret. The authoring verifier calls exactly this.
+    if let Some(card) = card {
+        // The card gate runs on the SAME run the product would render, and the
+        // materialised card is discarded: what a caller needs to know is
+        // whether the card could be drawn, and the contract's refusal is the
+        // answer when it could not.
         core_reports::materialise(
-            &req.spec,
+            spec,
             card,
             &core_reports::CardRun {
                 columns: &columns,
@@ -1172,17 +1218,86 @@ pub async fn run_spec(
                 summary: &summary_json,
             },
         )
-        .map_err(card_failure)?;
+        .map_err(InlineSpecError::Card)?;
     }
-    Ok(Json(crate::routes::reports::ReportPage {
-        kind: req.spec.view.slug().to_string(),
+    Ok(crate::routes::reports::ReportPage {
+        kind: spec.view.slug().to_string(),
         view: compiled.view.qualified_name().to_string(),
         columns,
         rows: decoded,
         summary: summary_json,
         next_cursor: None,
     })
-    .into_response())
+}
+
+/// Maps an inline-run failure onto the wire: a spec/limit/window problem is a
+/// validation refusal, a card the contract cannot draw keeps its typed
+/// `card_contract` shape, and a database error stays an internal failure.
+fn inline_failure(err: InlineSpecError) -> ApiError {
+    match err {
+        InlineSpecError::Spec(e) => ApiError::Validation(e.to_string()),
+        InlineSpecError::Card(e) => card_failure(e),
+        InlineSpecError::Db(e) => ApiError::from(e),
+    }
+}
+
+/// The production verification port: runs a candidate spec + card through
+/// [`run_inline_spec`] — the same function `POST /api/reports/run-spec` uses —
+/// on the request's reporting pool. Lives here because `AppState` and the
+/// reporting pool do; the authoring loop only knows the trait.
+pub(crate) struct ReportExecutionVerifier {
+    pub pool: sqlx::PgPool,
+    pub org_id: Uuid,
+}
+
+impl crate::routes::report_authoring::DraftVerifier for ReportExecutionVerifier {
+    fn verify<'a>(
+        &'a self,
+        spec: &'a ReportSpec,
+        card: &'a CardSpec,
+        scope: core_reports::Scope,
+        window: RunWindow,
+        card_index: Option<usize>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Vec<crate::routes::report_authoring::DraftFinding>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            use crate::routes::report_authoring::DraftFinding;
+            match run_inline_spec(
+                &self.pool,
+                self.org_id,
+                scope,
+                spec,
+                window,
+                core_reports::PAGE_LIMIT_DEFAULT,
+                Some(card),
+            )
+            .await
+            {
+                Ok(_) => Vec::new(),
+                Err(InlineSpecError::Card(error) | InlineSpecError::Spec(error)) => {
+                    vec![crate::routes::report_authoring::finding_from_reports_error(
+                        card_index, &error,
+                    )]
+                }
+                Err(InlineSpecError::Db(error)) => {
+                    // The driver's message can carry the compiled SQL and the
+                    // relation names, and this finding is returned to the
+                    // reviewer. Log the detail, state the fact.
+                    tracing::warn!(%error, "draft verification query failed");
+                    vec![DraftFinding::new(
+                        "run_failed",
+                        card_index,
+                        "The report could not run against the reporting data just now.".to_string(),
+                    )]
+                }
+            }
+        })
+    }
 }
 
 /// Maps a card-contract refusal onto the wire: an empty card keeps its

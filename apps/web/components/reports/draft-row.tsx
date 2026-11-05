@@ -29,7 +29,11 @@ import {
   DRAFT_STATUS_LABEL,
   DRAFT_STATUS_TONE,
   diffTally,
+  issuesOutsideVerification,
+  verificationSummary,
+  type DraftFinding,
   type DraftStatus,
+  type DraftVerification,
   type ReportAuthoringIssue,
   type ReportDiffEntry,
   type ReportDraft,
@@ -52,6 +56,12 @@ export interface DraftRowProps {
   accepting?: boolean;
   /** A save attempt's failure, in blush — never red, never a stack trace. */
   acceptError?: string | null;
+  /**
+   * What the server's data check did (Wave 64 lane 5): the classes it checked,
+   * what a repair cleared, and what survives. Absent on an answer from a server
+   * that predates the check, in which case the row claims nothing about it.
+   */
+  verification?: DraftVerification | null;
 }
 
 export function DraftRow({
@@ -67,11 +77,20 @@ export function DraftRow({
   onReject,
   accepting = false,
   acceptError = null,
+  verification = null,
 }: DraftRowProps) {
   const canAccept = status === "ready" && draft !== null && !accepting;
-  const canEdit = (status === "ready" || status === "accepted") && draft !== null;
+  // A draft the DATA check could not fill is still a valid spec: the builder is
+  // where a reviewer fixes a window or a filter by hand, so it stays reachable.
+  // A draft the registry refused has no spec worth loading, so edit stays shut
+  // and the copy must not offer it.
+  const canEdit =
+    (status === "ready" || status === "accepted" || status === "needs_fixes") &&
+    draft !== null &&
+    issuesOutsideVerification(issues, verification).length === 0;
   const failed = status === "needs_fixes" || status === "refused";
   const title = draft?.name ?? (name.trim() === "" ? "Untitled report" : name.trim());
+  const registryIssues = issuesOutsideVerification(issues, verification);
 
   return (
     <Card
@@ -120,13 +139,66 @@ export function DraftRow({
         ) : null}
       </CardHeader>
 
-      {issues.length > 0 ? (
+      {verification !== null ? (
+        <CardContent className="grid gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <h3 className="text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
+              What the check found
+            </h3>
+            <span
+              className="font-mono text-[12px] tabular-nums text-muted-foreground"
+              data-testid="draft-verification-summary"
+            >
+              {verificationSummary(verification)}
+            </span>
+          </div>
+
+          {verification.ran && verification.checked.length > 0 ? (
+            <details className="group">
+              <summary className="cursor-pointer text-[12px] text-muted-foreground">
+                What was checked
+              </summary>
+              <ul className="mt-1 grid gap-1">
+                {verification.checked.map((check) => (
+                  <li
+                    key={check}
+                    className="grid grid-cols-[14px_minmax(0,1fr)] items-baseline gap-2 text-[12px] leading-[1.5] text-muted-foreground"
+                  >
+                    <span className="text-mc-green-text">
+                      <Icon name="check" size={13} />
+                    </span>
+                    <span className="min-w-0">{check}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+
+          {verification.repaired.length > 0 ? (
+            <FindingList
+              title="Repaired before this draft was offered"
+              findings={verification.repaired}
+              tone="repaired"
+            />
+          ) : null}
+
+          {verification.findings.length > 0 ? (
+            <FindingList
+              title="What the data could not fill"
+              findings={verification.findings}
+              tone="failing"
+            />
+          ) : null}
+        </CardContent>
+      ) : null}
+
+      {registryIssues.length > 0 ? (
         <CardContent className="grid gap-2">
           <h3 className="text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
             What the registry refused
           </h3>
           <ul className="grid gap-1.5">
-            {issues.map((issue) => (
+            {registryIssues.map((issue) => (
               <li
                 key={`${issue.code}:${issue.path ?? ""}:${issue.message}`}
                 className="grid grid-cols-[16px_minmax(0,1fr)] items-baseline gap-2 text-[13px] leading-[1.5]"
@@ -146,8 +218,7 @@ export function DraftRow({
             ))}
           </ul>
           <p className="text-[12px] text-muted-foreground">
-            Nothing was saved. Reword the transcript and generate again, or open the
-            builder and set it by hand.
+            Nothing was saved. Reword the transcript and generate again.
           </p>
         </CardContent>
       ) : null}
@@ -211,6 +282,59 @@ export function DraftRow({
         </CardContent>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * One class of finding, as the reviewer reads it: the machine class in mono,
+ * then the sentence. Repaired findings are muted because they are history;
+ * surviving ones carry attention because they are why Accept is off.
+ */
+function FindingList({
+  title,
+  findings,
+  tone,
+}: {
+  title: string;
+  findings: DraftFinding[];
+  tone: "repaired" | "failing";
+}) {
+  return (
+    <div className="grid gap-1.5">
+      <h4 className="text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
+        {title}
+      </h4>
+      <ul className="grid gap-1.5">
+        {findings.map((finding) => (
+          <li
+            key={`${finding.kind}:${finding.card_index ?? ""}:${finding.message}`}
+            className="grid grid-cols-[16px_minmax(0,1fr)] items-baseline gap-2 text-[13px] leading-[1.5]"
+          >
+            <span className={tone === "failing" ? "text-mc-attn-fg" : "text-mc-green-text"}>
+              <Icon name={tone === "failing" ? "alert" : "check"} size={14} />
+            </span>
+            <span className="min-w-0">
+              <span className="font-mono text-[12px] text-muted-foreground">{finding.kind}</span>
+              {finding.card_index !== undefined ? (
+                <span className="font-mono text-[12px] text-muted-foreground">
+                  {" · card "}
+                  {finding.card_index + 1}
+                </span>
+              ) : null}
+              <span
+                className={
+                  tone === "failing"
+                    ? "block text-foreground"
+                    : "block text-muted-foreground"
+                }
+              >
+                {finding.message}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

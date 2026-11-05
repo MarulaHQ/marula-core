@@ -39,6 +39,8 @@ import {
 } from "../../../lib/report-authoring";
 import { DraftRow } from "../../../components/reports/draft-row";
 import { TranscriptPanel } from "../../../components/reports/transcript-panel";
+import { AiGateNotice } from "../../../components/reports/ai-gate-notice";
+import { aiGateCopy } from "../../../lib/error-copy";
 
 /** What a definition deep link carries: the spec, its id, and its name. */
 interface LandedDraft {
@@ -193,13 +195,24 @@ function ReportAuthorInner() {
             disabled={transcript.trim() === ""}
           />
 
+          {showRow && refusal !== null && aiGateCopy(refusal.code) !== null ? (
+            <AiGateNotice reason={refusal.code} message={refusal.message} surface="reports" />
+          ) : null}
+
           {showRow ? (
             <DraftRow
               status={status}
               draft={draft}
               issues={answer?.issues ?? []}
               diff={answer?.diff ?? []}
-              refusalMessage={refusal?.message ?? null}
+              verification={answer?.verification ?? null}
+              // An AI refusal is stated above with its remedy; any other refusal
+              // keeps the server's own sentence on the row.
+              refusalMessage={
+                refusal !== null && aiGateCopy(refusal.code) !== null
+                  ? null
+                  : (refusal?.message ?? null)
+              }
               name={name}
               onNameChange={setName}
               onAccept={() => void accept()}

@@ -75,20 +75,11 @@ pub const SCOPES: &[ApiScope] = &[
             matrix(Module::Clients, Action::Edit),
         ],
     },
-    ApiScope {
-        name: "timers:read",
-        description: "Read timer and time-entry state for the caller's org.",
-        grants: &[matrix(Module::Time, Action::View)],
-    },
-    ApiScope {
-        name: "timers:write",
-        description: "Read timers and start, edit or stop time entries.",
-        grants: &[
-            matrix(Module::Time, Action::View),
-            matrix(Module::Time, Action::Create),
-            matrix(Module::Time, Action::Edit),
-        ],
-    },
+    // No `timers:*` scope, deliberately. A timer is the signed-in person's
+    // own work and the handlers read `principal.user.id`; a machine identity
+    // has no timer of its own. Minting the scope produced a credential that
+    // authenticated and was then refused by the path gate, so the published
+    // pair promised a surface no key could reach.
     ApiScope {
         name: "migration:read",
         description: "Read the migration connector's checked-out data families. The read half of a pull.",
@@ -324,16 +315,9 @@ pub const RULES: &[MachineRule] = &[
         methods: &[],
         scopes: &["dispatch:write"],
     },
-    MachineRule {
-        prefix: "/api/v1/timers",
-        methods: &["get"],
-        scopes: &["timers:read"],
-    },
-    MachineRule {
-        prefix: "/api/v1/timers",
-        methods: &[],
-        scopes: &["timers:write"],
-    },
+    // `/api/v1/timers` is absent for the same reason it is absent from
+    // `auth::middleware::API_KEY_PATHS`: a machine key cannot reach it, and a
+    // scope published here would describe access the middleware refuses.
 ];
 
 /// Whether `path` is `prefix` itself or a child of it.
@@ -396,6 +380,27 @@ mod tests {
             for method in rule.methods {
                 assert_eq!(*method, method.to_ascii_lowercase());
             }
+        }
+    }
+
+    /// A timer belongs to the signed-in person (`principal.user.id`), and the
+    /// middleware's path gate refuses `/api/timers` for keys. The scope pair
+    /// that used to be published promised a surface no credential could reach
+    /// (F102), so both halves are asserted: the name is gone from the
+    /// vocabulary, and no rule claims the path.
+    #[test]
+    fn the_timer_surface_is_not_published_to_machine_keys() {
+        assert!(get("timers:read").is_none());
+        assert!(get("timers:write").is_none());
+        for method in ["get", "post"] {
+            assert!(
+                scopes_for("/api/v1/timers/active", method).is_none(),
+                "{method} /api/v1/timers/active must not advertise a key scope"
+            );
+            assert!(
+                scopes_for("/api/v1/timers/working-set", method).is_none(),
+                "{method} /api/v1/timers/working-set must not advertise a key scope"
+            );
         }
     }
 

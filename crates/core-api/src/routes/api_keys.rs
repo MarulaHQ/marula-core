@@ -292,6 +292,22 @@ mod tests {
         );
     }
 
+    /// Timers left the machine vocabulary (F102). A key that carries one gets
+    /// the same refusal as any other name outside the published set, rather
+    /// than a credential that authenticates and is then turned away by the
+    /// path gate.
+    #[test]
+    fn a_timer_scope_is_not_mintable() {
+        for scope in ["timers:read", "timers:write"] {
+            let error = validate_scopes(&[scope.to_string()])
+                .expect_err("timers are not a machine surface");
+            assert!(
+                error.to_string().contains("unknown scope"),
+                "the refusal must name the vocabulary, got: {error}"
+            );
+        }
+    }
+
     #[test]
     fn an_empty_scope_list_is_refused() {
         assert!(validate_scopes(&[]).is_err());

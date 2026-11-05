@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.3.2** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**664 paths · 886 operations · 1400 schemas.**
+**664 paths · 886 operations · 1403 schemas.**
 
 ## admin
 
@@ -1914,6 +1914,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-documentview"></a>`DocumentView` | composite | GET /api/documents/{id} response: the living handle plus the CURRENT version's content (read-your-write on the body the last write stored). |
 | <a id="schema-downloadmode"></a>`DownloadMode` | string | Which way this deployment can hand a download out. |
 | <a id="schema-downloadticketquery"></a>`DownloadTicketQuery` | object | The ticket request's query: `?presign=true` asks for a URL, absent streams. |
+| <a id="schema-draftfinding"></a>`DraftFinding` | object | One check that could not be passed, as data rather than prose. The `kind` reuses the card contract's slugs where they exist (`no_rows`, `no_headers`, `no_scalar`, `window_wider_than_refresh`, `refresh |
+| <a id="schema-draftverification"></a>`DraftVerification` | object | Everything the verification did, as the reviewer reads it: what was checked, how many rounds it took, what the loop repaired, and what it could not. Empty `findings` is the only clean answer. |
 | <a id="schema-dryrunrequest"></a>`DryRunRequest` | composite | POST /api/imports/dry-run request: validate a full payload and report what each row WOULD do before any data write. The probe is recorded as a finished dry-run batch for operator history. |
 | <a id="schema-dsnrow"></a>`DsnRow` | object |  |
 | <a id="schema-dunningstate"></a>`DunningState` | string | Collections posture of an issued invoice. Forward-only: states are data moved by explicit API writes (events + write trail), never a background side effect. |
@@ -2817,6 +2819,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-vendordetail"></a>`VendorDetail` | object | Vendor detail: the entity plus its typed contacts and external links. |
 | <a id="schema-vendormutationresponse"></a>`VendorMutationResponse` | composite |  |
 | <a id="schema-verdictresponse"></a>`VerdictResponse` | object |  |
+| <a id="schema-verificationattempt"></a>`VerificationAttempt` | object | One verification round: the findings the model's answer produced. |
 | <a id="schema-verificationcounters"></a>`VerificationCounters` | object | The workspace counters that gate the close checklist. |
 | <a id="schema-verificationentryview"></a>`VerificationEntryView` | object | One entry inside a ticket group: identity, cost cell, badge. |
 | <a id="schema-verificationgroupview"></a>`VerificationGroupView` | object | One ticket (or project phase) group with its running totals. |
@@ -2860,4 +2863,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1400 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1403 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

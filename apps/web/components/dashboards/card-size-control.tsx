@@ -17,6 +17,7 @@ import type { KeyboardEvent } from "react";
 import { useId, useRef } from "react";
 import { Button } from "@marula-core/ui";
 import type { CardSize } from "../../lib/dashboards";
+import { humanSlug } from "../../lib/dashboards";
 
 /** Span slug to the columns it occupies. The payload names, the CSS measures. */
 const SPAN_CLASS: Record<string, string> = {
@@ -49,9 +50,7 @@ export function cardHeightClass(height: string): string {
 
 /** A slug as a person reads it: `half` is "Half", `extra_wide` is "Extra wide". */
 export function sizeLabel(slug: string): string {
-  const words = slug.replace(/_/g, " ").trim();
-  if (words === "") return slug;
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return humanSlug(slug);
 }
 
 /** The header button that opens the size panel for one card. */

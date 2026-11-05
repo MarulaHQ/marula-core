@@ -44,6 +44,73 @@ function page(rows: unknown[], summary: Record<string, unknown>, kind: string) {
   return { columns: [], kind, view: "ops.v1_test", rows, summary, next_cursor: null };
 }
 
+// A saved report: the card it stores is what the dashboard must draw with.
+const DEFINITION_ID = "00000000-0000-4000-8000-00000000a001";
+const DEFINITIONS = {
+  definitions: [
+    {
+      id: DEFINITION_ID,
+      name: "Weekly breaches",
+      description: null,
+      spec: {
+        view: "tickets",
+        filters: [],
+        group_by: ["priority"],
+        measures: [{ agg: "count" }],
+        viz: "table",
+      },
+      card: {
+        size: { span: "full", height: "tall" },
+        window_days: 7,
+        refresh: { every_minutes: 15, reach_days: 0 },
+      },
+      scope: "self",
+      created_by: ME_ID,
+      created_at: "2026-10-01T00:00:00Z",
+      updated_at: "2026-11-01T00:00:00Z",
+    },
+  ],
+};
+
+const DEFINITION_RUN = {
+  columns: ["priority", "count"],
+  kind: "tickets",
+  view: "ops.v1_tickets",
+  rows: [{ priority: "P1", count: 4 }],
+  summary: { count: 4 },
+  next_cursor: null,
+};
+
+const AUTHORED_CARD = {
+  size: { span: "third", height: "compact" },
+  window_days: 14,
+  refresh: { every_minutes: 15, reach_days: 0 },
+};
+
+const AUTHORED = {
+  valid: true,
+  saved: false,
+  draft: {
+    name: "Aging P1 tickets",
+    spec: {
+      view: "tickets",
+      filters: [],
+      group_by: ["priority"],
+      measures: [{ agg: "count" }],
+      viz: "bar",
+    },
+    card: AUTHORED_CARD,
+    shape: "chart",
+    reads: "A chart of tickets by priority over the last 14 days.",
+  },
+  issues: [],
+  diff: [],
+  tool_calls: [],
+  usage: { prompt_tokens: 1, completion_tokens: 1, steps: 1 },
+  model_info: { provider: "openai", model: "marula-test-chat", resolution: "requested" },
+  catalogue: { views: 1, shapes: 3, rules: 3, prompt_chars: 100 },
+};
+
 const TIME_SELF = page(
   [{ group_id: ME_ID, label: "Alice", metric: 210, billable_minutes: 150, entry_count: 5 }],
   { entries_count: 5, total_minutes: 210, billable_minutes: 150 },
@@ -97,6 +164,7 @@ const BREACHES = page(
 function setupApi(
   me: typeof ME_FIXTURE,
   catalog: unknown = CATALOG,
+  author: () => { status?: number; json: unknown } = () => ({ json: AUTHORED }),
 ): MockApi & { setStored: (v: string | null) => void } {
   const mock = new MockApi() as MockApi & { setStored: (v: string | null) => void };
   let stored: string | null = null;
@@ -111,6 +179,14 @@ function setupApi(
     json: { key: (ctx.body as { key: string }).key, value: (ctx.body as { value: string }).value },
   }));
   mock.on("GET", "/api/v1/report-catalog", () => ({ json: catalog }));
+  mock.on("GET", "/api/v1/report-definitions", () => ({ json: DEFINITIONS }));
+  mock.on("GET", `/api/v1/report-definitions/${DEFINITION_ID}/run`, () => ({
+    json: DEFINITION_RUN,
+  }));
+  mock.on("POST", "/api/v1/reports/author", author);
+  mock.on("POST", "/api/v1/report-definitions", () => ({
+    json: { ...DEFINITIONS.definitions[0], id: DEFINITION_ID, name: AUTHORED.draft.name },
+  }));
   mock.on("GET", "/api/v1/plugins/surface/widgets", () => ({ json: { entries: [] } }));
   mock.on("GET", "/api/v1/reports/time_by_user", (ctx) => ({
     json: ctx.query.user_id === ME_ID ? TIME_SELF : TIME_ORG,
@@ -680,6 +756,314 @@ describe("/dashboards integration", () => {
     const body = mock.lastBody<{ key: string; value: string }>("PUT", "/api/v1/settings/user");
     expect(body.key).toBe("dashboards.widgets");
     expect(JSON.parse(body.value).widgets).toEqual(myDayPlacements());
+    cleanup();
+  });
+});
+
+// --- Wave 46 lane 6: saved report cards, the describe entry, the gates -------
+
+function storedWidgets(mock: MockApi): Array<{ id: string; size: { span: string; height: string } }> {
+  const call = mock.callsTo("PUT", "/api/v1/settings/user").at(-1);
+  if (call === undefined) throw new Error("no arrangement was written");
+  return (JSON.parse((call.body as { value: string }).value) as {
+    widgets: Array<{ id: string; size: { span: string; height: string } }>;
+  }).widgets;
+}
+
+describe("/dashboards saved reports and describe entry (Wave 46 lane 6)", () => {
+  it("places a saved report at its stored card's size and prints that card", async () => {
+    const mock = setupApi(MANAGER_ME);
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("My time", {}, { timeout: 5000 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+    // The picker shows the stored card before the card is placed.
+    const candidate = await screen.findByTestId(
+      `definition-candidate-${DEFINITION_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    expect(within(candidate).getByTestId(`definition-candidate-meta-${DEFINITION_ID}`)).toHaveAttribute(
+      "data-card-window-days",
+      "7",
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add Weekly breaches to the dashboard" }),
+    );
+    await waitFor(() =>
+      expect(mock.callsTo("PUT", "/api/v1/settings/user").length).toBe(1),
+    );
+
+    // The placement stores the definition's own size, not a shape default.
+    const widgets = storedWidgets(mock);
+    expect(widgets.at(-1)).toEqual({
+      id: `definition:${DEFINITION_ID}`,
+      size: { span: "full", height: "tall" },
+    });
+
+    // The card runs the definition and prints the window, refresh and size.
+    const card = await screen.findByTestId(
+      `definition-widget-${DEFINITION_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    expect(card).toHaveAttribute("data-card-span", "full");
+    expect(card).toHaveAttribute("data-card-height", "tall");
+    const meta = within(card).getByTestId(`definition-card-meta-${DEFINITION_ID}`);
+    expect(meta).toHaveAttribute("data-card-refresh-minutes", "15");
+    expect(meta).toHaveTextContent("Last 7 days");
+    expect(meta).toHaveTextContent("every 15 min");
+    expect(meta).toHaveTextContent("Full wide, Tall tall");
+    expect(mock.callsTo("GET", `/api/v1/report-definitions/${DEFINITION_ID}/run`)).toHaveLength(1);
+    expect(await within(card).findByText("P1")).toBeInTheDocument();
+
+    // A reload reads the placement back and draws it again: the load filter
+    // must not treat a `definition:` id as an unknown widget.
+    mock.setStored(mock.lastBody<{ value: string }>("PUT", "/api/v1/settings/user").value);
+    cleanup();
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    const reloaded = await screen.findByTestId(
+      `definition-widget-${DEFINITION_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    expect(reloaded).toHaveAttribute("data-card-span", "full");
+    cleanup();
+  });
+
+  it("refuses to place a saved report whose stored size the catalogue lost", async () => {
+    setupApi(MANAGER_ME, {
+      ...CATALOG,
+      heights: ["compact", "regular"],
+      shapes: [
+        CATALOG.shapes[0],
+        { ...CATALOG.shapes[1], default_height: "regular" },
+        { ...CATALOG.shapes[2], default_height: "regular", default_span: "full" },
+      ],
+    });
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("My time", {}, { timeout: 5000 });
+    fireEvent.click(screen.getByRole("button", { name: "Add widget" }));
+
+    const add = await screen.findByRole(
+      "button",
+      { name: "Add Weekly breaches to the dashboard" },
+      { timeout: 5000 },
+    );
+    // The stored card says tall; the payload no longer offers tall. Nothing is
+    // stored rather than silently drawn at another height.
+    expect(add).toBeDisabled();
+    expect(add).toHaveTextContent(/stored size is not in this catalogue/i);
+    cleanup();
+  });
+
+  it("describes a card, saves through the definition route, and places the accepted card", async () => {
+    const mock = setupApi(MANAGER_ME);
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("My time", {}, { timeout: 5000 });
+
+    fireEvent.click(screen.getByTestId("dashboard-describe-entry"));
+    const box = await screen.findByLabelText("What should this report answer?");
+    fireEvent.change(box, { target: { value: "Aging P1 tickets over two weeks." } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate a draft" }));
+
+    const row = await screen.findByTestId("report-draft-row", {}, { timeout: 5000 });
+    await waitFor(() => expect(row).toHaveAttribute("data-status", "ready"));
+    expect(mock.callsTo("POST", "/api/v1/reports/author")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /Accept and save/ }));
+    await waitFor(() =>
+      expect(mock.callsTo("POST", "/api/v1/report-definitions")).toHaveLength(1),
+    );
+    const saved = mock.lastBody<{ card: { window_days: number } }>(
+      "POST",
+      "/api/v1/report-definitions",
+    );
+    expect(saved.card.window_days).toBe(14);
+
+    // The accepted card is placed at the size it was accepted with.
+    await waitFor(() =>
+      expect(mock.callsTo("PUT", "/api/v1/settings/user").length).toBe(1),
+    );
+    expect(storedWidgets(mock).at(-1)).toEqual({
+      id: `definition:${DEFINITION_ID}`,
+      size: { span: "third", height: "compact" },
+    });
+    expect(await screen.findByTestId("dashboard-authored-note")).toHaveTextContent(
+      /on your dashboard with the card you accepted/i,
+    );
+    cleanup();
+  });
+
+  it("states why AI cannot draft, with the remedy, on the dashboard entry", async () => {
+    setupApi(MANAGER_ME, CATALOG, () => ({
+      status: 403,
+      json: {
+        error: {
+          reason: "ai_no_credential",
+          message: "no active 'openai' credential is available for this call (org or personal)",
+        },
+      },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("My time", {}, { timeout: 5000 });
+
+    fireEvent.click(screen.getByTestId("dashboard-describe-entry"));
+    const box = await screen.findByLabelText("What should this report answer?");
+    fireEvent.change(box, { target: { value: "anything" } });
+    fireEvent.click(screen.getByRole("button", { name: "Generate a draft" }));
+
+    const notice = await screen.findByTestId("ai-gate-notice", {}, { timeout: 5000 });
+    expect(notice).toHaveAttribute("data-reason", "ai_no_credential");
+    expect(notice).toHaveAttribute("data-surface", "dashboards");
+    expect(notice).toHaveTextContent("No model credential is available");
+    expect(notice).toHaveTextContent(/provider key under Settings, AI, credentials/i);
+    // Nothing was saved and nothing was placed.
+    expect(screen.queryByRole("button", { name: /Accept and save/ })).toBeDisabled();
+    cleanup();
+  });
+});
+
+// --- Wave 46 lane 6 follow-up: an unavailable card is a stated state --------
+
+const GONE_ID = "00000000-0000-4000-8000-00000000dead";
+
+/** A stored arrangement holding one placement whose definition is not listed. */
+function storedWithGoneDefinition() {
+  return JSON.stringify({
+    version: 2,
+    widgets: [
+      { id: `definition:${GONE_ID}`, size: { span: "full", height: "tall" } },
+      { id: "time_by_user:self", size: { span: "half", height: "regular" } },
+    ],
+  });
+}
+
+describe("/dashboards unavailable saved reports (Wave 46 lane 6 follow-up)", () => {
+  it("draws a placeholder at the stored span when the saved report is gone", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(storedWithGoneDefinition());
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const tile = await screen.findByTestId(
+      `definition-unavailable-${GONE_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    // It occupies the stored footprint, so the grid does not shift.
+    expect(tile).toHaveAttribute("data-card-span", "full");
+    expect(tile).toHaveAttribute("data-card-height", "tall");
+    expect(tile.parentElement?.className).toContain("col-span-12");
+    expect(tile).toHaveTextContent(/Saved report unavailable/i);
+    expect(tile).toHaveTextContent(/not available to you/i);
+    expect(tile).toHaveTextContent(/deleted or is outside your scope/i);
+
+    // The catalogue card beside it still draws, and nothing was run for the
+    // definition the list does not resolve.
+    expect(await screen.findByText("My time", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(mock.callsTo("GET", `/api/v1/report-definitions/${GONE_ID}/run`)).toHaveLength(0);
+    cleanup();
+  });
+
+  it("removes the placeholder through the same arrangement write", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(storedWithGoneDefinition());
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const tile = await screen.findByTestId(
+      `definition-unavailable-${GONE_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    fireEvent.click(
+      within(tile).getByRole("button", { name: "Remove the unavailable saved report card" }),
+    );
+
+    await waitFor(() =>
+      expect(mock.callsTo("PUT", "/api/v1/settings/user").length).toBe(1),
+    );
+    expect(storedWidgets(mock).map((w) => w.id)).toEqual(["time_by_user:self"]);
+    expect(screen.queryByTestId(`definition-unavailable-${GONE_ID}`)).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("states a failed saved-report read above the grid without blocking the catalogue", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.on("GET", "/api/v1/report-definitions", () => ({
+      status: 500,
+      json: { error: { reason: "internal_error", message: "boom" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const note = await screen.findByTestId(
+      "dashboard-definitions-error",
+      {},
+      { timeout: 5000 },
+    );
+    expect(note).toHaveTextContent(/saved reports could not be loaded/i);
+    // The catalogue's own widgets are unaffected.
+    expect(await screen.findByText("My time", {}, { timeout: 5000 })).toBeInTheDocument();
+
+    fireEvent.click(within(note).getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(mock.callsTo("GET", "/api/v1/report-definitions").length).toBe(2),
+    );
+    cleanup();
+  });
+
+  it("does not claim deletion when the saved-report list is merely unread", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(storedWithGoneDefinition());
+    mock.on("GET", "/api/v1/report-definitions", () => ({
+      status: 500,
+      json: { error: { reason: "internal_error", message: "boom" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const tile = await screen.findByTestId(
+      `definition-unavailable-${GONE_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    expect(tile).toHaveTextContent(/could not be checked/i);
+    expect(tile).not.toHaveTextContent(/deleted or is outside your scope/i);
     cleanup();
   });
 });

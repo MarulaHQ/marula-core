@@ -13,7 +13,7 @@
  * budget.
  */
 import { Button, Spinner } from "@marula-core/ui";
-import { Field, Textarea } from "@marula-core/ui/kit";
+import { Field, Icon, Textarea } from "@marula-core/ui/kit";
 
 export interface TranscriptPanelProps {
   value: string;
@@ -24,6 +24,33 @@ export interface TranscriptPanelProps {
   disabled: boolean;
 }
 
+/**
+ * The mic affordance, drawn as the typed state it is.
+ *
+ * Voice-note capture is its own lane by ruling, so there is no recorder behind
+ * this control and no audio input to grey out. Rendering nothing would leave a
+ * person hunting for a mic; rendering a live button would lie. It states the
+ * reason, stays out of the tab order's action path, and points at the sentence
+ * that says what to do instead.
+ */
+function VoiceNotAvailable({ describedBy }: { describedBy: string }) {
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-disabled="true"
+      aria-describedby={describedBy}
+      data-testid="transcript-voice-unavailable"
+      data-state="unavailable"
+      title="Voice capture is not available yet. Describe the report in text."
+      onClick={(event) => event.preventDefault()}
+    >
+      <Icon name="mic" size={14} />
+      <span className="ml-1.5">Voice note</span>
+    </Button>
+  );
+}
+
 export function TranscriptPanel({
   value,
   onChange,
@@ -31,6 +58,7 @@ export function TranscriptPanel({
   busy,
   disabled,
 }: TranscriptPanelProps) {
+  const voiceHintId = "transcript-voice-note";
   return (
     <section aria-label="Describe the report" className="grid gap-3">
       <Field
@@ -50,6 +78,7 @@ export function TranscriptPanel({
         <Button variant="primary" onClick={onGenerate} disabled={disabled || busy}>
           {busy ? <Spinner /> : null} Generate a draft
         </Button>
+        <VoiceNotAvailable describedBy={voiceHintId} />
         <span className="text-[12px] tabular-nums text-muted-foreground">
           {value.trim().length} characters
         </span>
@@ -58,6 +87,10 @@ export function TranscriptPanel({
           Nothing is stored until you accept it.
         </span>
       </div>
+      <p id={voiceHintId} className="text-[12px] leading-[1.5] text-muted-foreground">
+        Voice capture is not available yet, and audio is never recorded here.
+        Describe the report in text.
+      </p>
     </section>
   );
 }
