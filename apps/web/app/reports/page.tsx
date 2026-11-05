@@ -56,6 +56,8 @@ import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { ReportDeliveryHistory } from "../../components/report-delivery-history";
 import { ReportBuilder } from "../../components/report-builder";
+import { ScheduleProposal } from "../../components/reports/schedule-proposal";
+import { MONTH_DAYS, WEEKDAYS, type ScheduleCadenceFields } from "../../lib/schedule-phrase";
 import { VIEW_LABELS } from "../../lib/report-builder";
 import { isManagerPermissions } from "../../lib/dashboards";
 import { decodeSpecFromQuery } from "../../lib/report-spec-codec";
@@ -81,6 +83,15 @@ type ReportScheduleView = components["schemas"]["ReportScheduleView"];
 type ScheduleCadence = components["schemas"]["ScheduleCadence"];
 
 type Tab = "builder" | "saved" | "schedules";
+
+/** The zone this browser can infer, or null when it cannot say. */
+function browserTimezone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
 
 const SURFACE_KEY = "reports.saved";
 
@@ -314,6 +325,9 @@ function ReportsInner() {
   const [schedDefId, setSchedDefId] = useState("");
   const [schedCadence, setSchedCadence] = useState<ScheduleCadence>("daily");
   const [schedTime, setSchedTime] = useState("08:00");
+  const [schedDayOfWeek, setSchedDayOfWeek] = useState(0);
+  const [schedDayOfMonth, setSchedDayOfMonth] = useState(1);
+  const [schedTimezone, setSchedTimezone] = useState<string | null>(() => browserTimezone());
   const [schedRecipients, setSchedRecipients] = useState<string[]>([]);
   const [orgUsers, setOrgUsers] = useState<{ id: string; display_name: string; email: string }[] | null>(null);
   const [savingSched, setSavingSched] = useState(false);
@@ -427,7 +441,11 @@ function ReportsInner() {
         report_definition_id: schedDefId,
         cadence: schedCadence,
         time_of_day: schedTime,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // Migration 0038: a weekly row carries day_of_week and nothing else in
+        // the day columns; monthly is the mirror.
+        day_of_week: schedCadence === "weekly" ? schedDayOfWeek : null,
+        day_of_month: schedCadence === "monthly" ? schedDayOfMonth : null,
+        timezone: schedTimezone ?? "",
         recipients: schedRecipients,
         idempotency_key: idempotencyKey,
       },
@@ -442,6 +460,47 @@ function ReportsInner() {
     setSchedRecipients([]);
     void refreshSchedules();
   };
+
+  /**
+   * Recipient staff, fetched once per page. Both ways into the dialog call it:
+   * the "New schedule" trigger through `onOpenChange`, and the proposal through
+   * its own handler — a programmatic `open` flip does not fire Radix's callback,
+   * so the recipients would otherwise never load on that path.
+   */
+  const loadOrgUsers = useCallback(() => {
+    if (orgUsers !== null) return;
+    void api.api
+      .GET("/api/v1/org/users")
+      .then(({ data }) => {
+        if (data) {
+          setOrgUsers(
+            data.users
+              .filter((u) => u.is_active)
+              .map((u) => ({ id: u.id, display_name: u.display_name, email: u.email })),
+          );
+        }
+      })
+      .catch(() => setOrgUsers([]));
+  }, [orgUsers]);
+
+  /**
+   * The proposal fills THIS form's cadence fields and opens it. The save still
+   * rides the existing POST, so the typed 422 stays the only authority on what
+   * the server will accept.
+   */
+  const handleUseProposal = useCallback(
+    (fields: ScheduleCadenceFields) => {
+      setSchedCadence(fields.cadence);
+      setSchedTime(fields.time_of_day);
+      if (fields.day_of_week !== null) setSchedDayOfWeek(fields.day_of_week);
+      if (fields.day_of_month !== null) setSchedDayOfMonth(fields.day_of_month);
+      setSchedTimezone(fields.timezone);
+      setSchedFormError(null);
+      loadOrgUsers();
+      setScheduleModalOpen(true);
+    },
+    [loadOrgUsers],
+  );
 
   const handleDeleteSchedule = useCallback(async (id: string) => {
     const { error } = await api.api.DELETE("/api/v1/report-schedules/{id}", {
@@ -725,20 +784,7 @@ function ReportsInner() {
               open={scheduleModalOpen}
               onOpenChange={(open) => {
                 setScheduleModalOpen(open);
-                if (open && orgUsers === null) {
-                  void api.api
-                    .GET("/api/v1/org/users")
-                    .then(({ data }) => {
-                      if (data) {
-                        setOrgUsers(
-                          data.users
-                            .filter((u) => u.is_active)
-                            .map((u) => ({ id: u.id, display_name: u.display_name, email: u.email })),
-                        );
-                      }
-                    })
-                    .catch(() => setOrgUsers([]));
-                }
+                if (open) loadOrgUsers();
               }}
             >
               <DialogTrigger asChild>
@@ -790,12 +836,68 @@ function ReportsInner() {
                     </div>
 
                     <div>
-                      <Label htmlFor="sch-time">Time of day (UTC)</Label>
+                      <Label htmlFor="sch-time">Time of day</Label>
                       <Input
                         id="sch-time"
                         value={schedTime}
                         onChange={(e) => setSchedTime(e.target.value)}
                         placeholder="08:00"
+                      />
+                      <FieldHint>Wall clock in the time zone below, not UTC.</FieldHint>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {schedCadence === "weekly" ? (
+                      <div>
+                        <Label htmlFor="sch-weekday">Weekday</Label>
+                        <Select
+                          value={String(schedDayOfWeek)}
+                          onValueChange={(v) => setSchedDayOfWeek(Number(v))}
+                        >
+                          <SelectTrigger id="sch-weekday" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {WEEKDAYS.map((day, index) => (
+                              <SelectItem key={day} value={String(index)}>
+                                {day}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : schedCadence === "monthly" ? (
+                      <div>
+                        <Label htmlFor="sch-monthday">Day of the month</Label>
+                        <Select
+                          value={String(schedDayOfMonth)}
+                          onValueChange={(v) => setSchedDayOfMonth(Number(v))}
+                        >
+                          <SelectTrigger id="sch-monthday" className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MONTH_DAYS.map((day) => (
+                              <SelectItem key={day} value={String(day)}>
+                                {day}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FieldHint>1–28, so every month has the day.</FieldHint>
+                      </div>
+                    ) : (
+                      <div />
+                    )}
+
+                    <div>
+                      <Label htmlFor="sch-timezone">Time zone</Label>
+                      <Input
+                        id="sch-timezone"
+                        value={schedTimezone ?? ""}
+                        onChange={(e) => setSchedTimezone(e.target.value)}
+                        placeholder="Europe/London"
                       />
                     </div>
                   </div>
@@ -844,7 +946,14 @@ function ReportsInner() {
                     </Button>
                     <Button
                       onClick={() => void handleSaveSchedule()}
-                      disabled={savingSched || !schedName.trim() || schedRecipients.length === 0}
+                      disabled={
+                        savingSched ||
+                        !schedName.trim() ||
+                        schedRecipients.length === 0 ||
+                        (schedTimezone ?? "").trim() === "" ||
+                        (schedCadence === "weekly" && schedDayOfWeek === null) ||
+                        (schedCadence === "monthly" && schedDayOfMonth === null)
+                      }
                     >
                       {savingSched ? <Spinner /> : null} Save schedule
                     </Button>
@@ -853,6 +962,8 @@ function ReportsInner() {
               </DialogContent>
             </Dialog>
           </div>
+
+          <ScheduleProposal defaultTimezone={schedTimezone} onUse={handleUseProposal} />
 
           {schedulesError !== null && (
             <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>

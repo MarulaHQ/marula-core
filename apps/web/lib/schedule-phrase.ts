@@ -35,6 +35,12 @@ export const WEEKDAYS = [
   "Sunday",
 ] as const;
 
+/**
+ * The day numbers a monthly schedule can carry: 1..=28, the API's bound, so
+ * every month has the day (migration 0038).
+ */
+export const MONTH_DAYS = Array.from({ length: 28 }, (_, index) => index + 1);
+
 /** The body fragment the schedules create/update routes read. */
 export interface ScheduleCadenceFields {
   cadence: ScheduleCadenceSlug;
@@ -483,7 +489,7 @@ function extractTime(text: string): TimeExtraction {
 
   const twelve = CLOCK_12.exec(rest);
   if (twelve !== null) {
-    const hour = Number.parseInt(twelve[1], 10) % 12 + (twelve[3] === "pm" ? 12 : 0);
+    const hour = (Number.parseInt(twelve[1] ?? "0", 10) % 12) + (twelve[3] === "pm" ? 12 : 0);
     const minute = twelve[2] === undefined ? 0 : Number.parseInt(twelve[2], 10);
     rest = splice(rest, twelve.index, twelve[0].length);
     return { kind: "ok", rest, value: hhmm(hour, minute) };
@@ -496,14 +502,17 @@ function extractTime(text: string): TimeExtraction {
 
   const twentyFour = CLOCK_24.exec(rest);
   if (twentyFour !== null) {
-    const value = hhmm(Number.parseInt(twentyFour[1], 10), Number.parseInt(twentyFour[2], 10));
+    const value = hhmm(
+      Number.parseInt(twentyFour[1] ?? "0", 10),
+      Number.parseInt(twentyFour[2] ?? "0", 10),
+    );
     rest = splice(rest, twentyFour.index, twentyFour[0].length);
     return { kind: "ok", rest, value };
   }
 
   const bare = BARE_HOUR.exec(rest);
   if (bare !== null) {
-    const hour = Number.parseInt(bare[1], 10);
+    const hour = Number.parseInt(bare[1] ?? "0", 10);
     const token = bare[0].trim();
     rest = splice(rest, bare.index, bare[0].length);
     if (hour > 23) return { kind: "range", rest };
@@ -539,7 +548,7 @@ type DayExtraction =
 function extractDayOfMonth(text: string): DayExtraction {
   const match = /\b(\d{1,2})(?:st|nd|rd|th)?\b/.exec(text);
   if (match === null) return { kind: "missing" };
-  const value = Number.parseInt(match[1], 10);
+  const value = Number.parseInt(match[1] ?? "0", 10);
   if (value < 1 || value > 31) return { kind: "range", value };
   if (value > 28) return { kind: "range", value };
   return { kind: "ok", value };
