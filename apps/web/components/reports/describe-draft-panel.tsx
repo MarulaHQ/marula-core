@@ -139,6 +139,7 @@ export function DescribeDraftPanel({
           draft={answer?.draft ?? null}
           issues={answer?.issues ?? []}
           diff={answer?.diff ?? []}
+          verification={answer?.verification ?? null}
           // The gate notice above carries the refusal in its own words; the row
           // keeps the status word so the two do not print the same sentence.
           refusalMessage={null}

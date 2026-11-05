@@ -200,10 +200,11 @@ export function verificationSummary(verification: DraftVerification): string {
   const rounds = verification.attempts.length;
   const classes = verification.checked.length;
   const roundWords = rounds === 1 ? "1 round" : `${rounds} rounds`;
+  const classWords = classes === 1 ? "1 class" : `${classes} classes`;
   if (verification.findings.length > 0) {
-    return `Checked ${classes} classes in ${roundWords}; ${verification.findings.length} still failing.`;
+    return `Checked ${classWords} in ${roundWords}; ${verification.findings.length} still failing.`;
   }
-  return `Checked ${classes} classes in ${roundWords}; nothing failed.`;
+  return `Checked ${classWords} in ${roundWords}; nothing failed.`;
 }
 
 /**

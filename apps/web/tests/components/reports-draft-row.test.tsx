@@ -145,6 +145,57 @@ describe("DraftRow verification block", () => {
     expect(screen.queryByText("What the data could not fill")).toBeNull();
   });
 
+  it("keeps the builder reachable when the data check is what failed", () => {
+    const finding = {
+      kind: "no_rows",
+      message: "The chart has no rows at this window.",
+    };
+    const verification: DraftVerification = {
+      ran: true,
+      checked: CHECKED,
+      attempts: [{ round: 0, findings: [finding] }],
+      repaired: [],
+      findings: [finding],
+    };
+    render(
+      <DraftRow
+        {...props({
+          status: "needs_fixes",
+          verification,
+          issues: [{ code: "no_rows", message: finding.message }],
+        })}
+      />,
+    );
+    // The spec is valid; the data is not. A reviewer fixes that in the builder.
+    expect(
+      screen.getByRole("button", { name: "Edit in the builder" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Accept and save" })).toBeDisabled();
+    // The data finding is NOT reported as a registry refusal.
+    expect(screen.queryByText("What the registry refused")).toBeNull();
+  });
+
+  it("keeps the builder shut when the registry refused the spec", () => {
+    render(
+      <DraftRow
+        {...props({
+          status: "needs_fixes",
+          issues: [
+            {
+              code: "unknown_column",
+              path: "nonsense",
+              message: "unknown column 'nonsense' on view 'ops.v1_tickets'",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Edit in the builder" }),
+    ).toBeDisabled();
+    expect(screen.getByText("What the registry refused")).toBeInTheDocument();
+  });
+
   it("says nothing was checked rather than implying a clean check", () => {
     const verification: DraftVerification = {
       ran: false,

@@ -205,6 +205,7 @@ function ReportAuthorInner() {
               draft={draft}
               issues={answer?.issues ?? []}
               diff={answer?.diff ?? []}
+              verification={answer?.verification ?? null}
               // An AI refusal is stated above with its remedy; any other refusal
               // keeps the server's own sentence on the row.
               refusalMessage={

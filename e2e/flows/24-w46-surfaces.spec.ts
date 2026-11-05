@@ -92,8 +92,12 @@ test("report authoring: text only, and a refusal is stated rather than faked", a
 
   const status = await row.getAttribute("data-status");
   if (status === "refused") {
-    // The admission path answered: the row says why, and there is no draft.
-    const refusal = row.getByRole("alert");
+    // The admission path answered. Since the close-out lane an AI refusal is
+    // its own typed state above the row (reason plus remedy); any other
+    // refusal keeps the row's alert. Either way it is stated and not empty.
+    const gate = authedPage.getByTestId("ai-gate-notice");
+    const inRow = row.getByRole("alert");
+    const refusal = gate.or(inRow).first();
     await expect(refusal).toBeVisible();
     await expect(refusal).not.toBeEmpty();
   } else {

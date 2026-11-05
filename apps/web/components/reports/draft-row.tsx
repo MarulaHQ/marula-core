@@ -80,7 +80,14 @@ export function DraftRow({
   verification = null,
 }: DraftRowProps) {
   const canAccept = status === "ready" && draft !== null && !accepting;
-  const canEdit = (status === "ready" || status === "accepted") && draft !== null;
+  // A draft the DATA check could not fill is still a valid spec: the builder is
+  // where a reviewer fixes a window or a filter by hand, so it stays reachable.
+  // A draft the registry refused has no spec worth loading, so edit stays shut
+  // and the copy must not offer it.
+  const canEdit =
+    (status === "ready" || status === "accepted" || status === "needs_fixes") &&
+    draft !== null &&
+    issuesOutsideVerification(issues, verification).length === 0;
   const failed = status === "needs_fixes" || status === "refused";
   const title = draft?.name ?? (name.trim() === "" ? "Untitled report" : name.trim());
   const registryIssues = issuesOutsideVerification(issues, verification);
@@ -211,8 +218,7 @@ export function DraftRow({
             ))}
           </ul>
           <p className="text-[12px] text-muted-foreground">
-            Nothing was saved. Reword the transcript and generate again, or open the
-            builder and set it by hand.
+            Nothing was saved. Reword the transcript and generate again.
           </p>
         </CardContent>
       ) : null}

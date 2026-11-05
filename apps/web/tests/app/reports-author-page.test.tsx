@@ -172,6 +172,43 @@ describe("/reports/author integration", () => {
     expect(mock.callsTo("POST", SAVE_PATH)).toHaveLength(0);
   });
 
+  it("shows the data check the server ran, including what it repaired", async () => {
+    const repaired = {
+      kind: "no_rows",
+      message: "The chart has no rows at this window.",
+    };
+    const verified = {
+      ...READY,
+      verification: {
+        ran: true,
+        checked: ["a chart has rows"],
+        attempts: [
+          { round: 0, findings: [repaired] },
+          { round: 1, findings: [] },
+        ],
+        repaired: [repaired],
+        findings: [],
+      },
+    };
+    setupApi({ author: () => ({ json: verified }) });
+    renderPage();
+    await describeIt("Tickets by priority as a bar chart.");
+
+    const row = await screen.findByTestId("report-draft-row");
+    await waitFor(() => expect(row).toHaveAttribute("data-status", "ready"));
+
+    // The page must hand the server's verification to the row. Without this
+    // wiring the row renders a clean state and the evidence never appears.
+    expect(within(row).getByText("What the check found")).toBeInTheDocument();
+    expect(within(row).getByTestId("draft-verification-summary")).toHaveTextContent(
+      "Checked 1 class in 2 rounds; nothing failed.",
+    );
+    expect(
+      within(row).getByText("Repaired before this draft was offered"),
+    ).toBeInTheDocument();
+    expect(within(row).getByText(repaired.message)).toBeInTheDocument();
+  });
+
   it("shows a typed AI refusal and leaves nothing saveable", async () => {
     const mock = setupApi({
       author: () => ({
