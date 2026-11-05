@@ -284,6 +284,14 @@ pub const APPEARANCE_DENSITY: &str = "appearance.density";
 /// and typed by `crate::data_surface` rather than by the registry's scalar
 /// `SettingValue` union — richer structures are entities, not settings.
 pub const APPEARANCE_DATA_SURFACES: &str = "appearance.data_surfaces";
+
+/// Wave 46 lane 2: the per-user dashboard arrangement — each widget's id with
+/// the span and height it draws at — as one JSON string, for the same reason
+/// the data-surface document is one: the value column admits no object. The
+/// page wrote this key before the registry declared it, so every write was
+/// refused as an unknown key; the declaration is what makes the arrangement
+/// survivable across reloads.
+pub const DASHBOARDS_WIDGETS: &str = "dashboards.widgets";
 /// The org-scope setting key pointing at the active custom theme pack.
 pub const APPEARANCE_THEME_PACK: &str = "appearance.theme_pack";
 pub const ONBOARDING_WIZARD_COMPLETED: &str = "onboarding.wizard_completed";
@@ -948,6 +956,24 @@ pub static REGISTRY: std::sync::LazyLock<Vec<SettingDeclaration>> = std::sync::L
                              surface is on its own defaults; export reads the same document, \
                              so an export always matches what the table is showing. \
                              Hidden from the generated UI: the four controls write it.",
+            },
+            SettingDeclaration {
+                key: DASHBOARDS_WIDGETS,
+                kind: SettingKind::Text {
+                    max_len: crate::data_surface::MAX_DOCUMENT_CHARS,
+                },
+                default: SettingValue::Text("{}".into()),
+                scope: SettingScope::User,
+                section: SettingSection::Appearance,
+                visibility: SettingVisibility::Hidden,
+                label: "Dashboard arrangement",
+                description: "Per-user dashboard state: the widget each card draws and the \
+                             span and height it draws at, as a JSON document stored in a \
+                             string because the settings value column admits no object. \
+                             The spans and heights are the ones GET /api/report-catalog \
+                             publishes, so a stored card cannot name a size the grid \
+                             refuses. Hidden from the generated UI: the dashboards page \
+                             owns it.",
             },
             SettingDeclaration {
                 key: ONBOARDING_WIZARD_COMPLETED,
@@ -1909,7 +1935,9 @@ mod tests {
         // Wave 41 lane 2b added the two appearance seams (density, and the
         // data-surface document) = 22.
         // Wave 50 lane T2 added general.show_record_time (user scope) = 23.
-        assert_eq!(declarations_for(SettingScope::User).len(), 23);
+        // Wave 46 lane 2 declared dashboards.widgets, the arrangement the
+        // dashboards page had been writing to an undeclared key = 24.
+        assert_eq!(declarations_for(SettingScope::User).len(), 24);
         // Tripwire count: bump deliberately when an org-scope setting is
         // added (Wave 26 lane 1: flows_disabled + six org steps ×
         // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added
