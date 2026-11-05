@@ -19,6 +19,7 @@
  * chunk at compile time.
  */
 import dynamic from "next/dynamic";
+import { Skeleton } from "@marula-core/ui";
 import type { KbArticleEditorProps } from "./kb-article-editor";
 
 function EditorSkeleton() {
@@ -30,15 +31,12 @@ function EditorSkeleton() {
         style={{ height: 32 }}
       >
         {[24, 24, 24, 96, 24, 24, 24, 128].map((width, index) => (
-          <div
+          <Skeleton
             key={index}
-            style={{
-              width,
-              height: 24,
-              background: "var(--m-surface-2)",
-              borderRadius: "var(--m-radius-control)",
-              marginLeft: index === 3 || index === 7 ? 8 : 0,
-            }}
+            shape="block"
+            width={width}
+            height={24}
+            style={{ marginLeft: index === 3 || index === 7 ? 8 : 0 }}
           />
         ))}
       </div>

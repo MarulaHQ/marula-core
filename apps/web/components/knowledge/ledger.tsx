@@ -18,6 +18,7 @@ import type { ReactNode } from "react";
 import {
   Badge,
   EmptyState,
+  Skeleton,
 } from "@marula-core/ui";
 import { formatNumber } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
@@ -332,13 +333,10 @@ export function SkeletonRows({
         {Array.from({ length: rows }, (_, i) => (
           <div key={i} className="flex items-center gap-3">
             {Array.from({ length: columns }, (_, c) => (
-              <span
+              <Skeleton
                 key={c}
-                className="h-3 rounded-full"
-                style={{
-                  background: "var(--m-surface-2)",
-                  width: c === 0 ? "26%" : c === 1 ? "34%" : "12%",
-                }}
+                shape="line"
+                width={c === 0 ? "26%" : c === 1 ? "34%" : "12%"}
               />
             ))}
           </div>
