@@ -240,6 +240,7 @@ async fn seed_org(pool: &PgPool) -> Org {
             description: None,
             kind: kind.to_string(),
             spec: serde_json::to_value(&body).unwrap(),
+            card: None,
             viz: viz.to_string(),
             scope: "org".into(),
         },

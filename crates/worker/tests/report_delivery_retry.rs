@@ -201,6 +201,7 @@ async fn seed(pool: &PgPool) -> Seeded {
             description: None,
             kind: kind.to_string(),
             spec: serde_json::to_value(&body).expect("spec"),
+            card: None,
             viz: viz.to_string(),
             scope: "org".into(),
         },

@@ -509,6 +509,7 @@ async fn seed_schedule(app: &PgPool, org: Uuid, n: u64) -> (Uuid, Uuid) {
             description: None,
             kind: "tickets".into(),
             spec: json!({ "filters": [], "group_by": [], "measures": [] }),
+            card: None,
             viz: "table".into(),
             scope: "org".into(),
         },

@@ -20,10 +20,12 @@
 //! reason (`validation_failed`, `forbidden`, `conflict`, `rls_sparse`),
 //! never prose to parse.
 //!
-//! Execution: deliberately absent. Definitions are windowless templates;
-//! running them (R6 builder / R4 delivery) compiles on demand via
+//! Execution: deliberately absent. Definitions are templates; running them
+//! (R6 builder / R4 delivery) compiles on demand via
 //! `core_reports::ReportSpec::compile` against the reporting pool. This
-//! module never executes SQL against report data.
+//! module never executes SQL against report data. A definition MAY carry a
+//! card (migration 0180); the card's window seeds the run default when the
+//! caller supplies no bounds, and nothing else about a run changes.
 //!
 //! Non-purpose: no dashboards UI (R2), no scheduling (R4), no share-by-
 //! link (R6), no manifest assembly (U5 reads core-db directly).
@@ -41,10 +43,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use core_domain::events::types;
 use core_domain::policy::{Action, Module, Permission};
-use core_reports::{ReportSpec, RunWindow, ViewId};
+use core_reports::{CardSpec, ReportSpec, RunWindow, ViewId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -85,6 +87,9 @@ pub struct ReportDefinitionView {
     pub name: String,
     pub description: Option<String>,
     pub spec: ReportSpec,
+    /// The card stored with the definition, when it has one: its size, the
+    /// window it displays and how it refreshes. Absent is legitimate.
+    pub card: Option<CardSpec>,
     pub scope: DefinitionScope,
     pub created_by: Uuid,
     #[schema(value_type = String)]
@@ -102,6 +107,11 @@ pub struct CreateReportDefinitionRequest {
     pub description: Option<String>,
     /// The registry-validated report spec.
     pub spec: ReportSpec,
+    /// Optional card contract stored with the definition. Omitted means the
+    /// definition carries no card; a present card must pass
+    /// `CardSpec::validate`, and the refusal is the run path's own typed 422.
+    #[serde(default)]
+    pub card: Option<CardSpec>,
     /// Requested visibility; `org` requires admin and non-admins are
     /// forced onto `self` regardless.
     #[serde(default)]
@@ -111,13 +121,18 @@ pub struct CreateReportDefinitionRequest {
 }
 
 /// PUT /api/report-definitions/{id} body — full-replace semantics: every
-/// member is applied; `description: null` clears it.
+/// member is applied; `description: null` clears it and `card: null` (or an
+/// omitted card) clears the card.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct UpdateReportDefinitionRequest {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
     pub spec: ReportSpec,
+    /// Full replace: `null` clears the stored card, a present card replaces
+    /// it after `CardSpec::validate`.
+    #[serde(default)]
+    pub card: Option<CardSpec>,
     /// New visibility; `org` requires admin and non-admins keep `self`.
     #[serde(default)]
     pub scope: Option<DefinitionScope>,
@@ -288,6 +303,10 @@ pub async fn create(
     req.spec
         .validate()
         .map_err(|e| ApiError::Validation(e.to_string()))?;
+    if let Some(card) = req.card.as_ref() {
+        card.validate().map_err(card_failure)?;
+    }
+    let card = card_document(req.card.as_ref())?;
     let admin = authed.principal.is_owner_or_admin();
     let scope = match req.scope {
         // Publishing org-wide is an admin act; everyone else is silently
@@ -322,6 +341,7 @@ pub async fn create(
             description: req.description.clone(),
             kind: kind.to_string(),
             spec: serde_json::to_value(&body).unwrap_or(Value::Null),
+            card,
             viz: viz.to_string(),
             scope: scope.as_str().to_string(),
         };
@@ -419,6 +439,10 @@ pub async fn update(
     req.spec
         .validate()
         .map_err(|e| ApiError::Validation(e.to_string()))?;
+    if let Some(card) = req.card.as_ref() {
+        card.validate().map_err(card_failure)?;
+    }
+    let card = card_document(req.card.as_ref())?;
     let admin = authed.principal.is_owner_or_admin();
 
     let org_id = authed.principal.user.org_id;
@@ -462,6 +486,7 @@ pub async fn update(
             description: req.description.clone(),
             kind: kind.to_string(),
             spec: serde_json::to_value(&body).unwrap_or(Value::Null),
+            card,
             viz: viz.to_string(),
             scope: scope.as_str().to_string(),
         };
@@ -642,6 +667,7 @@ fn writable(
 /// stored row failing validation is a server-side integrity fault
 /// (writes gate on the same registry), surfaced as internal error.
 fn view_of(row: core_db::report_defs::ReportDefinitionRow) -> ApiResult<ReportDefinitionView> {
+    let card = card_of(&row)?;
     let spec = ReportSpec::from_parts(&row.kind, &row.spec, &row.viz).map_err(|e| {
         ApiError::Internal(anyhow::anyhow!("stored definition failed registry: {e}"))
     })?;
@@ -650,11 +676,61 @@ fn view_of(row: core_db::report_defs::ReportDefinitionRow) -> ApiResult<ReportDe
         name: row.name,
         description: row.description,
         spec,
+        card,
         scope: DefinitionScope::parse(&row.scope).unwrap_or(DefinitionScope::Self_),
         created_by: row.created_by,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
+}
+
+/// Reassembles a stored card and re-runs the same bounds and
+/// window-versus-refresh gate every write applies. A stored card that fails
+/// is an integrity fault like a stored spec that fails, never caller input.
+fn card_of(row: &core_db::report_defs::ReportDefinitionRow) -> ApiResult<Option<CardSpec>> {
+    let Some(value) = row.card.as_ref() else {
+        return Ok(None);
+    };
+    let card: CardSpec = serde_json::from_value(value.clone()).map_err(|e| {
+        ApiError::Internal(anyhow::anyhow!("stored definition card unreadable: {e}"))
+    })?;
+    card.validate().map_err(|e| {
+        ApiError::Internal(anyhow::anyhow!(
+            "stored definition card failed validation: {e}"
+        ))
+    })?;
+    Ok(Some(card))
+}
+
+/// The column's representation of a card: `None` stays SQL NULL, a card is
+/// its JSON object (the migration's CHECK pins that shape).
+fn card_document(card: Option<&CardSpec>) -> ApiResult<Option<Value>> {
+    match card {
+        None => Ok(None),
+        Some(card) => serde_json::to_value(card)
+            .map(Some)
+            .map_err(|e| ApiError::Internal(anyhow::anyhow!("card did not serialize: {e}"))),
+    }
+}
+
+/// The bounds a stored-definition run resolves. Explicit caller bounds always
+/// win, including the one-bound case `resolve_window` collapses to a single
+/// day. With no bounds at all, a card's `window_days` becomes the span; a
+/// definition without a card keeps the registry's trailing-30-day default.
+fn run_window_bounds(
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
+    card: Option<&CardSpec>,
+    now: DateTime<Utc>,
+) -> (Option<NaiveDate>, Option<NaiveDate>) {
+    match (from, to, card) {
+        (None, None, Some(card)) => {
+            let today = now.date_naive();
+            let days = i64::from(card.window_days);
+            (Some(today - Duration::days(days - 1)), Some(today))
+        }
+        bounds => (bounds.0, bounds.1),
+    }
 }
 
 fn validate_name(raw: &str) -> ApiResult<String> {
@@ -843,7 +919,9 @@ pub async fn catalog(extensions: Extensions) -> ApiResult<Json<ReportCatalog>> {
 /// kinds' loose GET shape; irrelevant fields ignored).
 #[derive(Debug, Deserialize, utoipa::IntoParams, utoipa::ToSchema)]
 pub struct ReportDefinitionRunQuery {
-    /// Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.
+    /// Inclusive window start (UTC day, YYYY-MM-DD). Default: the stored
+    /// card's `window_days` ending today, or 30 trailing days when the
+    /// definition carries no card.
     pub from: Option<NaiveDate>,
     /// Inclusive window end (UTC day). Max span with `from`: 366 days.
     pub to: Option<NaiveDate>,
@@ -859,7 +937,9 @@ pub struct ReportDefinitionRunQuery {
 /// (identifiers stay enum-matched catalog constants; values bind as `$N`
 /// parameters), and executes against the reporting pool inside an
 /// org-bound transaction. Non-admins are structurally self-scoped exactly
-/// like the prebuilt kinds.
+/// like the prebuilt kinds. A definition that carries a card defaults to the
+/// card's window when the caller supplies no bounds; explicit bounds always
+/// win.
 #[utoipa::path(
     operation_id = "report_definitions_run",
     get,
@@ -906,12 +986,14 @@ pub async fn run(
     let spec = ReportSpec::from_parts(&row.kind, &row.spec, &row.viz).map_err(|e| {
         ApiError::Internal(anyhow::anyhow!("stored definition failed registry: {e}"))
     })?;
+    let card = card_of(&row)?;
 
     core_reports::validate_limit_raw(q.limit.unwrap_or(core_reports::PAGE_LIMIT_DEFAULT))
         .map_err(|e| ApiError::Validation(e.to_string()))?;
     let limit = core_reports::clamp_limit(q.limit);
     let now = Utc::now();
-    let win = core_reports::resolve_window(q.from, q.to, now)
+    let (from, to) = run_window_bounds(q.from, q.to, card.as_ref(), now);
+    let win = core_reports::resolve_window(from, to, now)
         .map_err(|e| ApiError::Validation(e.to_string()))?;
     let run_window = RunWindow {
         start: win.start,
@@ -1193,5 +1275,63 @@ mod catalog_tests {
             reach_days: 7,
         });
         assert!(matches!(timing, ApiError::Validation(_)));
+    }
+}
+
+/// The stored-definition run's default window (F103): a card's `window_days`
+/// seeds the span when the caller supplies no bounds, and nothing else about
+/// the resolution moves.
+#[cfg(test)]
+mod card_window_tests {
+    use super::*;
+    use chrono::TimeZone;
+    use core_reports::{CardHeight, CardRefresh, CardSize, CardSpan};
+
+    fn anchor() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 6, 15, 12, 0, 0).unwrap()
+    }
+
+    fn card(window_days: u32) -> CardSpec {
+        CardSpec {
+            size: CardSize {
+                span: CardSpan::Half,
+                height: CardHeight::Regular,
+            },
+            window_days,
+            refresh: CardRefresh {
+                every_minutes: 60,
+                reach_days: 0,
+            },
+        }
+    }
+
+    #[test]
+    fn a_card_supplies_the_default_window_and_the_caller_keeps_its_own() {
+        let today = anchor().date_naive();
+        let seven = card(7);
+
+        assert_eq!(
+            run_window_bounds(None, None, Some(&seven), anchor()),
+            (Some(today - Duration::days(6)), Some(today)),
+            "no caller bounds: the card's seven days, ending today"
+        );
+        assert_eq!(
+            run_window_bounds(None, None, None, anchor()),
+            (None, None),
+            "no card: the registry's trailing-30-day default is untouched"
+        );
+
+        let from = today - Duration::days(20);
+        assert_eq!(
+            run_window_bounds(Some(from), None, Some(&seven), anchor()),
+            (Some(from), None),
+            "one caller bound still collapses to that single day"
+        );
+        let to = today - Duration::days(2);
+        assert_eq!(
+            run_window_bounds(Some(from), Some(to), Some(&seven), anchor()),
+            (Some(from), Some(to)),
+            "both caller bounds win outright"
+        );
     }
 }
