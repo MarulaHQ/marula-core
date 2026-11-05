@@ -994,10 +994,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `GET` | `/api/v1/reply-snippets` <a id="list"></a> | GET /api/v1/reply-snippets — the org's snippet library with the search-in-composer predicate applied (`board_id` offer filter + `q` case-insensitive substring over name and body). | — |
+| `GET` | `/api/v1/reply-snippets` <a id="reply_snippets_list"></a> | GET /api/v1/reply-snippets — the org's snippet library with the search-in-composer predicate applied (`board_id` offer filter + `q` case-insensitive substring over name and body). | — |
 | `POST` | `/api/v1/reply-snippets` <a id="create"></a> | POST /api/v1/reply-snippets — add a snippet to the library. | [CreateReplySnippetRequest](#schema-createreplysnippetrequest) |
 | `DELETE` | `/api/v1/reply-snippets/{id}` <a id="delete"></a> | DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. | — |
-| `GET` | `/api/v1/reply-snippets/{id}` <a id="get_by_id"></a> | GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix, Wave 34 lane 4: the fork-on-edit flow reads the origin after forking; the route was missing so reads 405'd). | — |
+| `GET` | `/api/v1/reply-snippets/{id}` <a id="reply_snippets_get_one"></a> | GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix, Wave 34 lane 4: the fork-on-edit flow reads the origin after forking; the route was missing so reads 405'd). | — |
 | `PATCH` | `/api/v1/reply-snippets/{id}` <a id="update"></a> | PATCH /api/v1/reply-snippets/{id} — edit a snippet in place (the library is org-owned data; fork-on-edit applies when orgs want a divergent copy, via the fork endpoint). | [UpdateReplySnippetRequest](#schema-updatereplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/fork` <a id="fork"></a> | POST /api/v1/reply-snippets/{id}/fork — duplicate a snippet into a new editable copy (templates fork-on-edit provenance pattern). The origin is untouched; the copy records `forked_from`. | [ForkReplySnippetRequest](#schema-forkreplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/render` <a id="render"></a> | POST /api/v1/reply-snippets/{id}/render — resolve the snippet's variable tokens against a real ticket context and return the rendered body (the composer inserts the RENDERED text; the portal reply renders the result). Out-of-vocabulary placeholders are typed 400s. | [RenderReplySnippetRequest](#schema-renderreplysnippetrequest) |

@@ -9774,7 +9774,7 @@ export interface paths {
          *     search-in-composer predicate applied (`board_id` offer filter + `q`
          *     case-insensitive substring over name and body).
          */
-        get: operations["list"];
+        get: operations["reply_snippets_list"];
         put?: never;
         /** POST /api/v1/reply-snippets — add a snippet to the library. */
         post: operations["create"];
@@ -9796,7 +9796,7 @@ export interface paths {
          *     Wave 34 lane 4: the fork-on-edit flow reads the origin after forking;
          *     the route was missing so reads 405'd).
          */
-        get: operations["get_by_id"];
+        get: operations["reply_snippets_get_one"];
         put?: never;
         post?: never;
         /** DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. */
@@ -51453,7 +51453,7 @@ export interface operations {
             };
         };
     };
-    list: {
+    reply_snippets_list: {
         parameters: {
             query?: {
                 /**
@@ -51527,7 +51527,7 @@ export interface operations {
             };
         };
     };
-    get_by_id: {
+    reply_snippets_get_one: {
         parameters: {
             query?: never;
             header?: never;

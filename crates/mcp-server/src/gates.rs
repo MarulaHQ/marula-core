@@ -214,6 +214,10 @@ pub const TOOL_GATES: &[(&str, Gate)] = &[
         "dispatch_work_next_list",
         Gate::All(&["scheduling:view", "scheduling:edit"]),
     ),
+    // The org's commercial facts: `authorize_org(.., View)` checks Admin:read,
+    // not the membership read the `orgs` family row admits. Without this row a
+    // key holding only org_usage:read would see a tool the handler refuses.
+    ("org_entitlement_get", Gate::All(&["admin:view"])),
     (
         "org_custom_domain_get",
         Gate::Subject {

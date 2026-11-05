@@ -4,11 +4,20 @@
   "tool_derivation": {
     "spec": "packages/sdk/openapi.json",
     "adapter": "crates/mcp-server/src/catalog.rs",
-    "rule": "One tool per GET path that carries an operationId and sits under /api/, named by that operationId.",
+    "artifact": "packages/sdk/mcp-catalog.json",
+    "policy": "packages/sdk/mcp-catalog.config.json",
+    "rule": "The MCP read surface is packages/sdk/mcp-catalog.json, generated from the spec and the policy. One tool per GET path the policy admits, named by its operationId. The manifest documents the full agent-relevant API, which includes sensitive families the MCP artifact excludes.",
     "capability": "The first path segment after the version prefix derives the namespace, and the tool holds <namespace>:read.",
     "grant_model": "Deny-by-default. filter_granted drops every namespace without a grant row, so an ungranted tool is absent from tools/list rather than refused at call time.",
-    "excluded_prefixes_source": "crates/mcp-server/src/lib.rs",
-    "note": "Excluded prefixes and any path containing /attachments never enter the catalog, whatever the grant says."
+    "namespace_exclusions": [
+      "/api/v1/attachments",
+      "/api/v1/api-keys",
+      "/api/v1/auth",
+      "/api/v1/email",
+      "/api/v1/portal",
+      "/api/v1/webhooks"
+    ],
+    "note": "A namespace excluded here is not agent-relevant: it is a human, browser or system surface. The MCP policy can exclude more, and a family excluded there may still be documented above because an agent should know it exists."
   },
   "surfaces": [
     {
