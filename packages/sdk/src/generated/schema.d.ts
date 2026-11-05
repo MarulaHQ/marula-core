@@ -16028,6 +16028,55 @@ export interface components {
             work_type_map: components["schemas"]["WorkTypeMapRowWire"][];
         };
         /**
+         * @description Card height. Three named steps, not pixels: the grid owns the
+         *     measurement so a density change never becomes a data-contract change.
+         * @enum {string}
+         */
+        CardHeight: "compact" | "regular" | "tall";
+        /** @description How often a card recomputes, and how much data one recompute covers. */
+        CardRefresh: {
+            /**
+             * Format: int32
+             * @description Minutes between recomputes. Bounded by [`MIN_REFRESH_MINUTES`] and
+             *     [`MAX_REFRESH_MINUTES`].
+             */
+            every_minutes: number;
+            /**
+             * Format: int32
+             * @description Days of data one recompute reads. `0` means "the card's whole
+             *     window", which is the honest default and the only value most authors
+             *     need to send: narrowing it is a deliberate act, and the card is
+             *     refused when the window reaches past it.
+             */
+            reach_days?: number;
+        };
+        /** @description A card's footprint: the one size vocabulary both surfaces read. */
+        CardSize: {
+            height?: components["schemas"]["CardHeight"];
+            span?: components["schemas"]["CardSpan"];
+        };
+        /**
+         * @description Card width on the dashboard's twelve-column grid. The vocabulary lane 6
+         *     consumes; the CSS owns the measurement, this owns the names.
+         * @enum {string}
+         */
+        CardSpan: "quarter" | "third" | "half" | "full";
+        /**
+         * @description Everything about a card that is not the query: its size, the window it
+         *     displays, and how it refreshes. Stored beside a [`ReportSpec`] by both
+         *     surfaces.
+         */
+        CardSpec: {
+            refresh?: components["schemas"]["CardRefresh"];
+            size?: components["schemas"]["CardSize"];
+            /**
+             * Format: int32
+             * @description Inclusive day span the card displays. Bounded by
+             *     [`WINDOW_MAX_DAYS`], the same ceiling a report run accepts.
+             */
+            window_days: number;
+        };
+        /**
          * @description One catalog column: the static identifier plus its value class slug
          *     (`uuid | text | timestamp | date | int | bigint | bool`). The slug is
          *     what the builder UI keys operand typing on.
@@ -16096,6 +16145,25 @@ export interface components {
             group_name?: string | null;
             /** @description Substring search over name/sku/category/group. */
             search?: string | null;
+        };
+        /**
+         * @description One card shape, described for the authoring agent (Wave 46 lane 1). The
+         *     prose is served, not duplicated in a prompt: a model that reads this
+         *     catalogue authors against the same rules the compiler enforces.
+         */
+        CatalogShape: {
+            /** @description Plain-English description the authoring model reads. */
+            agent_description: string;
+            /** @description What the shape must be given: `rows`, `scalar`, `headers`. */
+            data: string[];
+            default_height: string;
+            default_span: string;
+            /** @description The refusal, in plain English, so the model chooses away from it. */
+            refuses_when: string;
+            /** @description `chart` | `stat` | `table`. */
+            shape: string;
+            /** @description Viz hints that produce this shape in a spec. */
+            viz: string[];
         };
         /**
          * @description The field catalog of ONE versioned view: every projected column plus the
@@ -27314,6 +27382,19 @@ export interface components {
         };
         /** @description GET /api/report-catalog envelope. */
         ReportCatalog: {
+            /**
+             * @description The card rules (zero rows, window versus refresh) in the same words
+             *     the refusals use.
+             */
+            card_rules: string[];
+            heights: string[];
+            /**
+             * @description The card shapes both surfaces draw, with the prose the authoring
+             *     agent reads.
+             */
+            shapes: components["schemas"]["CatalogShape"][];
+            /** @description Every span and height the grid accepts, so a picker cannot invent one. */
+            spans: string[];
             views: components["schemas"]["CatalogView"][];
         };
         /** @description GET /api/report-definitions envelope. */
@@ -27913,6 +27994,7 @@ export interface components {
          *     builder's PREVIEW-before-save surface — nothing is persisted.
          */
         RunSpecRequest: {
+            card?: components["schemas"]["CardSpec"] | null;
             /**
              * Format: date
              * @description Inclusive window start (UTC day, YYYY-MM-DD). Default: 30 trailing days.
@@ -32384,7 +32466,7 @@ export interface components {
          *     never influences the compiled SQL.
          * @enum {string}
          */
-        VizHint: "bar" | "line" | "pie" | "table";
+        VizHint: "bar" | "line" | "pie" | "table" | "stat";
         /** @description POST /api/credit-notes/{id}/void body. */
         VoidCreditNoteRequest: components["schemas"]["MutationParams"];
         VoidInvoiceRequest: components["schemas"]["MutationParams"];
@@ -52154,7 +52236,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReportPage"];
                 };
             };
-            /** @description spec failed registry validation or invalid window */
+            /** @description spec failed registry validation or invalid window; with `card` present, a card that cannot be drawn is a 422 with `reason: card_contract`, naming the shape and the failure */
             422: {
                 headers: {
                     [name: string]: unknown;
