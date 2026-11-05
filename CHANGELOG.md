@@ -13,6 +13,15 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+### Removed
+
+- `timers:read` and `timers:write` can no longer be written onto an API key. A
+  timer is the signed-in person's own work, and a key has no person behind it:
+  the key authenticated and the endpoint then refused it, so the pair described
+  access that could never happen. Keys minted before this keep working and lose
+  only that grant. Timers stay available to a signed-in session, where they
+  belong.
+
 ## [0.3.2] - 2026-11-04
 
 ### Added
