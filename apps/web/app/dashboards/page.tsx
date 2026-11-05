@@ -16,27 +16,42 @@
 // `card_rules`, and every control on this page renders that payload. A span or
 // height the payload does not list cannot be chosen or stored.
 //
+// Wave 46 lane 6 adds two things. Saved reports are placeable cards: their id
+// is stored under `definition:`, their size comes from the card the definition
+// stores (migration 0180), and the card prints the window and refresh it will
+// run with. And "Describe a card" opens the shared authoring panel, which saves
+// through the existing definition routes and then places the card it accepted.
+//
 // Non-purpose: no report-spec editing (that is /reports), no drag-to-resize and
 // no drag-to-reorder. Placement is a keyboard-reachable control on each card.
 "use client";
 
 import { Button, Card, Spinner, SurfaceHeader } from "@marula-core/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ReportWidget } from "../../components/dashboards/report-widget";
+import { ReportDefinitionCard, type DefinitionView } from "../../components/dashboards/report-definition-card";
+import { CardContractMeta } from "../../components/dashboards/card-contract";
 import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";
 import {
   cardSpanClass,
   sizeLabel,
 } from "../../components/dashboards/card-size-control";
+import { DescribeEntry } from "../../components/reports/describe-entry";
+import { encodeSpecToQuery } from "../../lib/report-spec-codec";
 import { SurfaceTabs } from "../../components/insight/surface-tabs";
 import { InsightState } from "../../components/insight/insight-state";
 import {
   WIDGET_CATALOG,
   WIDGET_ROWS_KEY,
+  addPlacement,
   addWidget,
   cardVocabulary,
   defaultPlacements,
   defaultSizeFor,
+  definitionSize,
+  definitionWidgetId,
+  definitionIdOfWidgetId,
   encodeWidgets,
   isManagerPermissions,
   moveWidget,
@@ -56,6 +71,7 @@ import type {
 } from "../../lib/dashboards";
 import { api, useRequireAuth } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
+import type { ReportDraft } from "../../lib/report-authoring";
 
 /** Why the surface is read-only, in the two cases that can cause it. */
 type ReadOnlyReason = "catalogue" | "arrangement";
@@ -88,6 +104,24 @@ export default function DashboardsPage() {
   const [loaded, setLoaded] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Saved reports, read from the definition list. Their cards are stored with
+  // them, so this surface never derives a window or a size for one.
+  const [definitions, setDefinitions] = useState<DefinitionView[] | null>(null);
+  const [definitionsError, setDefinitionsError] = useState<string | null>(null);
+  const [authoredId, setAuthoredId] = useState<string | null>(null);
+  const router = useRouter();
+
+  const refreshDefinitions = useCallback(async () => {
+    const { data, error } = await api.api.GET("/api/v1/report-definitions");
+    if (error !== undefined || data === undefined) {
+      setDefinitionsError(
+        "Your saved reports could not be loaded. The catalogue's widgets are still available.",
+      );
+      return;
+    }
+    setDefinitionsError(null);
+    setDefinitions(data.definitions as DefinitionView[]);
+  }, []);
 
   const resolveDashboard = useCallback(async () => {
     const [settings, catalog] = await Promise.all([
@@ -134,6 +168,11 @@ export default function DashboardsPage() {
     });
     return { vocab, next, reason: null };
   }, [manager]);
+
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    void refreshDefinitions();
+  }, [auth.status, refreshDefinitions]);
 
   useEffect(() => {
     if (auth.status !== "authed") return;
@@ -222,11 +261,68 @@ export default function DashboardsPage() {
     [placements, vocabulary, persist],
   );
 
+  /**
+   * Place a saved report. Its size is read from the definition's own card; a
+   * size the catalogue no longer lists refuses the placement rather than
+   * storing a different one.
+   */
+  const addDefinition = useCallback(
+    (def: DefinitionView) => {
+      if (placements === null || vocabulary === null) return;
+      const size = definitionSize(def, vocabulary);
+      if (size === null) return;
+      const next = addPlacement(
+        placements,
+        definitionWidgetId(def.id),
+        size,
+        vocabulary,
+      );
+      if (next !== null) persist(next);
+    },
+    [placements, vocabulary, persist],
+  );
+
+  /**
+   * An accepted draft from the "describe it" entry. The card it was accepted
+   * with is the card the definition now stores, so it is placed at that size —
+   * not at the shape default.
+   */
+  const handleAuthored = useCallback(
+    (result: { id: string; created: boolean; draft: ReportDraft }) => {
+      setAuthoredId(result.id);
+      if (placements !== null && vocabulary !== null) {
+        const def: DefinitionView = {
+          id: result.id,
+          name: result.draft.name ?? "Saved report",
+          card: result.draft.card,
+          spec: result.draft.spec,
+        };
+        const size = definitionSize(def, vocabulary);
+        if (size !== null) {
+          const next = addPlacement(
+            placements,
+            definitionWidgetId(result.id),
+            size,
+            vocabulary,
+          );
+          if (next !== null) persist(next);
+        }
+      }
+      void refreshDefinitions();
+    },
+    [placements, vocabulary, persist, refreshDefinitions],
+  );
+
   const grid = placements ?? [];
   const presets = visiblePresets(manager);
   const candidates = WIDGET_CATALOG.filter(
     (w) => widgetVisible(w, manager) && !grid.some((p) => p.id === w.id),
   );
+  const definitionCandidates = (definitions ?? []).filter(
+    (d) => !grid.some((p) => p.id === definitionWidgetId(d.id)),
+  );
+  const authoredPlaced =
+    authoredId !== null && grid.some((p) => p.id === definitionWidgetId(authoredId));
 
   if (auth.status !== "authed" || !loaded) {
     return (
@@ -255,15 +351,24 @@ export default function DashboardsPage() {
             </span>
           }
           actions={
-            <Button
-              variant={pickerOpen ? "secondary" : "primary"}
-              size="sm"
-              aria-expanded={pickerOpen}
-              aria-controls="widget-picker"
-              onClick={() => setPickerOpen((open) => !open)}
-            >
-              {pickerOpen ? "Close" : "Add widget"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <DescribeEntry
+                surface="dashboards"
+                testId="dashboard-describe-entry"
+                onEdit={(draft) => router.push(`/reports?spec=${encodeSpecToQuery(draft.spec)}`)}
+                onAccepted={handleAuthored}
+                onOpenReports={() => router.push("/reports")}
+              />
+              <Button
+                variant={pickerOpen ? "secondary" : "primary"}
+                size="sm"
+                aria-expanded={pickerOpen}
+                aria-controls="widget-picker"
+                onClick={() => setPickerOpen((open) => !open)}
+              >
+                {pickerOpen ? "Close" : "Add widget"}
+              </Button>
+            </div>
           }
         />
 
@@ -289,17 +394,74 @@ export default function DashboardsPage() {
             payload's shape default. */}
         {pickerOpen && (
           <Card className="grid gap-2 p-3" id="widget-picker">
+            {definitionsError !== null ? (
+              <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                {definitionsError}
+              </p>
+            ) : null}
+
+            {readOnlyReason !== null ? (
+              <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                {PICKER_NOTICE[readOnlyReason]}
+              </p>
+            ) : null}
+
+            {/* Saved reports come first: they are the cards this org authored,
+                and each one arrives with the card it stores. */}
+            <p
+              className="text-[12px] font-semibold uppercase tracking-[0.06em]"
+              style={{ color: "var(--m-text-muted)" }}
+            >
+              Saved reports
+            </p>
+            {readOnlyReason !== null ? null : definitions === null ? (
+              <Spinner label="Loading saved reports" />
+            ) : definitionCandidates.length === 0 ? (
+              <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                No saved reports are waiting to be placed. Describe one above, or
+                save a report on the reports surface.
+              </p>
+            ) : (
+              <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3">
+                {definitionCandidates.map((def) => {
+                  const size = vocabulary === null ? null : definitionSize(def, vocabulary);
+                  return (
+                    <div
+                      key={def.id}
+                      className="grid gap-1 rounded-[var(--m-radius-control)] border p-2"
+                      style={{ borderColor: "var(--m-border)" }}
+                      data-testid={`definition-candidate-${def.id}`}
+                    >
+                      <span className="truncate text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
+                        {def.name}
+                      </span>
+                      <CardContractMeta card={def.card} testId={`definition-candidate-meta-${def.id}`} />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="justify-start"
+                        disabled={size === null}
+                        data-testid={`add-definition-${def.id}`}
+                        aria-label={`Add ${def.name} to the dashboard`}
+                        onClick={() => addDefinition(def)}
+                      >
+                        {size === null
+                          ? "Its stored size is not in this catalogue"
+                          : `Add — ${sizeLabel(size.span)} wide, ${sizeLabel(size.height)}`}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <p
               className="text-[12px] font-semibold uppercase tracking-[0.06em]"
               style={{ color: "var(--m-text-muted)" }}
             >
               Widget catalogue
             </p>
-            {readOnlyReason !== null ? (
-              <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                {PICKER_NOTICE[readOnlyReason]}
-              </p>
-            ) : candidates.length === 0 ? (
+            {readOnlyReason !== null ? null : candidates.length === 0 ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                 Every widget available to you is already on the dashboard.
               </p>
@@ -413,6 +575,23 @@ export default function DashboardsPage() {
         )}
       </div>
 
+      {authoredId !== null ? (
+        <div
+          role="status"
+          className="rounded-[var(--m-radius-control)] border px-3 py-2 text-[13px]"
+          style={{
+            borderColor: "var(--m-border)",
+            background: "var(--m-surface-2)",
+            color: "var(--m-text-secondary)",
+          }}
+          data-testid="dashboard-authored-note"
+        >
+          {authoredPlaced
+            ? "Saved. The report is on your dashboard with the card you accepted."
+            : "Saved to your reports. Your dashboard is read-only right now, so it was not placed."}
+        </div>
+      ) : null}
+
       {placements === null ? null : placements.length === 0 ? (
         <Card className="p-6">
           <InsightState
@@ -434,6 +613,34 @@ export default function DashboardsPage() {
       ) : (
         <div className="grid grid-cols-12 items-start gap-4" data-testid="dashboard-grid">
           {placements.map((placement, i) => {
+            const definitionId = definitionIdOfWidgetId(placement.id);
+            if (definitionId !== null) {
+              const saved = (definitions ?? []).find((d) => d.id === definitionId);
+              // A placement for a definition this user cannot see is dropped
+              // from the grid, not drawn as an empty card: the stored
+              // arrangement keeps it, so a restored scope brings it back.
+              if (saved === undefined) return null;
+              return (
+                <div
+                  key={placement.id}
+                  className={`min-w-0 ${cardSpanClass(placement.size.span)}`}
+                >
+                  <ReportDefinitionCard
+                    def={saved}
+                    size={placement.size}
+                    spans={vocabulary?.spans ?? []}
+                    heights={vocabulary?.heights ?? []}
+                    entranceDelay={Math.min(i * 30, 240)}
+                    onResize={(size) => resize(placement.id, size)}
+                    onMove={(direction) => move(placement.id, direction)}
+                    canMoveEarlier={i > 0}
+                    canMoveLater={i < placements.length - 1}
+                    onRemove={() => remove(placement.id)}
+                    onOpenReports={() => router.push("/reports")}
+                  />
+                </div>
+              );
+            }
             const def = widgetDef(placement.id);
             if (def === undefined) return null;
             return (

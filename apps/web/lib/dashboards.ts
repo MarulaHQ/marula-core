@@ -191,6 +191,39 @@ export interface WidgetPlacement {
   readonly size: CardSize;
 }
 
+/**
+ * A saved report placed on a dashboard.
+ *
+ * The catalogue's widgets are fixed report kinds; a saved report is a stored
+ * definition, and the dashboard stores its id under this prefix. The id is the
+ * whole reference — the definition itself (its spec and its card) is read from
+ * `GET /api/v1/report-definitions`, so the card a dashboard card draws with is
+ * the card the definition stores, never a copy of it.
+ */
+export const DEFINITION_WIDGET_PREFIX = "definition:";
+
+export function definitionWidgetId(definitionId: string): string {
+  return `${DEFINITION_WIDGET_PREFIX}${definitionId}`;
+}
+
+/** The definition id behind a placement id, or null when it is a catalogue id. */
+export function definitionIdOfWidgetId(id: string): string | null {
+  if (!id.startsWith(DEFINITION_WIDGET_PREFIX)) return null;
+  const suffix = id.slice(DEFINITION_WIDGET_PREFIX.length);
+  return suffix === "" ? null : suffix;
+}
+
+export function isDefinitionWidgetId(id: string): boolean {
+  return definitionIdOfWidgetId(id) !== null;
+}
+
+/** A stored size as a person reads it: `half` is "Half", `extra_wide` is "Extra wide". */
+export function humanSlug(slug: string): string {
+  const words = slug.replace(/_/g, " ").trim();
+  if (words === "") return slug;
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** A non-empty, deduped list of non-empty strings, or null. */
 function stringList(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
@@ -285,6 +318,108 @@ export function isCardSize(
 }
 
 /**
+ * The card a saved report stores (migration 0180), narrowed to what this
+ * surface reads. Every member is optional because the wire type's size and
+ * refresh carry serde defaults server-side; a client that fills them in itself
+ * would be inventing a card.
+ */
+export interface StoredCard {
+  readonly window_days: number;
+  readonly refresh?: {
+    readonly every_minutes?: number;
+    readonly reach_days?: number;
+  } | null;
+  readonly size?: {
+    readonly span?: string;
+    readonly height?: string;
+  } | null;
+}
+
+/** The part of a saved definition the dashboard needs to place and label it. */
+export interface DefinitionLike {
+  readonly id?: string;
+  readonly name?: string;
+  readonly card?: StoredCard | null;
+  readonly spec: { readonly viz: string };
+}
+
+/**
+ * The size a saved report arrives with on the grid.
+ *
+ * A stored card's size is READ and checked against the payload. If the
+ * definition stores a size the payload no longer lists, this returns null and
+ * the page refuses the placement with a reason — falling back to the shape
+ * default would silently change a size the author chose. A definition with no
+ * card has no stored size, so the shape default is the honest starting point.
+ */
+export function definitionSize(
+  def: DefinitionLike,
+  vocabulary: CardVocabulary,
+): CardSize | null {
+  const stored = def.card?.size;
+  if (stored !== undefined && stored !== null) {
+    return isCardSize(vocabulary, stored)
+      ? { span: stored.span, height: stored.height }
+      : null;
+  }
+  const shape = shapeForViz(vocabulary, def.spec.viz);
+  if (shape === undefined) return null;
+  return { span: shape.default_span, height: shape.default_height };
+}
+
+/**
+ * What a stored card will run with, in the words the row and the card print.
+ *
+ * Both surfaces read this one function: the saved-report row and the dashboard
+ * card show the same three facts, in the same order, because they come from the
+ * same stored `CardSpec`.
+ */
+export interface CardReadout {
+  /** "Last 30 days" */
+  readonly window: string;
+  /** "every 1 h" */
+  readonly refresh: string;
+  /** "reads 7 days per refresh", or null when one refresh covers the window. */
+  readonly reach: string | null;
+  /** "Half wide, Regular tall" */
+  readonly size: string;
+  /** One line for a dense cell: window · refresh · size. */
+  readonly line: string;
+}
+
+/** Minutes as a compact interval: 60 → "1 h", 90 → "1 h 30 min", 30 → "30 min". */
+export function intervalLabel(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "not set";
+  const whole = Math.round(minutes);
+  if (whole < 60) return `${whole} min`;
+  const hours = Math.floor(whole / 60);
+  const rest = whole % 60;
+  if (rest === 0) return `${hours} h`;
+  return `${hours} h ${rest} min`;
+}
+
+export function cardReadout(card: StoredCard | null | undefined): CardReadout | null {
+  if (card === null || card === undefined) return null;
+  const window = `Last ${card.window_days} day${card.window_days === 1 ? "" : "s"}`;
+  const every = card.refresh?.every_minutes;
+  const refresh = every === undefined ? "refresh not set" : `every ${intervalLabel(every)}`;
+  const reachDays = card.refresh?.reach_days ?? 0;
+  const reach =
+    reachDays > 0 && reachDays !== card.window_days
+      ? `reads ${reachDays} day${reachDays === 1 ? "" : "s"} per refresh`
+      : null;
+  const span = card.size?.span;
+  const height = card.size?.height;
+  const size =
+    span === undefined && height === undefined
+      ? "size not set"
+      : `${span === undefined ? "size" : `${humanSlug(span)} wide`}, ${
+          height === undefined ? "height" : `${humanSlug(height)} tall`
+        }`;
+  return { window, refresh, reach, size, line: `${window} · ${refresh} · ${size}` };
+}
+
+/**
  * Turn widget ids into placements at their shape defaults. Ids whose shape the
  * payload does not describe are dropped: a card cannot be stored without a
  * size the grid accepts, and inventing one is the second vocabulary again.
@@ -346,6 +481,11 @@ export type ArrangementRead =
   /** No arrangement has ever been written: the registry's default document. */
   | { readonly status: "unset" }
   | { readonly status: "unreadable"; readonly problem: ArrangementProblem };
+
+/** True when a placement id names a catalogue widget or a saved report. */
+export function knownWidgetId(id: string): boolean {
+  return CATALOG_BY_ID.has(id) || isDefinitionWidgetId(id);
+}
 
 /**
  * Read a stored registry value against the vocabulary, and say why when it
@@ -411,7 +551,7 @@ export function readArrangement(
       return { status: "unreadable", problem: "format" };
     }
     const widget = entry as { id?: unknown; size?: unknown };
-    if (typeof widget.id !== "string" || !CATALOG_BY_ID.has(widget.id)) {
+    if (typeof widget.id !== "string" || !knownWidgetId(widget.id)) {
       return { status: "unreadable", problem: "id" };
     }
     if (placements.some((p) => p.id === widget.id)) {
@@ -445,6 +585,25 @@ export function decodeWidgets(
 }
 
 /**
+ * Add any placement at an explicit size, or null when it is already present or
+ * the size is not one the payload lists.
+ *
+ * This is the seam a saved report uses: the dashboard reads the definition's
+ * stored size (or its shape default), checks it against the same vocabulary,
+ * and stores the id under `definition:`.
+ */
+export function addPlacement(
+  placements: readonly WidgetPlacement[],
+  id: string,
+  size: CardSize,
+  vocabulary: CardVocabulary,
+): WidgetPlacement[] | null {
+  if (placements.some((p) => p.id === id)) return null;
+  if (!isCardSize(vocabulary, size)) return null;
+  return [...placements, { id, size: { span: size.span, height: size.height } }];
+}
+
+/**
  * Add a widget at an explicit size, or at its shape default.
  *
  * The explicit size is the seam a generated card uses: it arrives with the span
@@ -458,15 +617,11 @@ export function addWidget(
   vocabulary: CardVocabulary,
   size?: CardSize,
 ): WidgetPlacement[] | null {
-  if (placements.some((p) => p.id === id)) return null;
   const def = CATALOG_BY_ID.get(id);
   if (def === undefined) return null;
   const resolved = size ?? defaultSizeFor(def, vocabulary);
-  if (resolved === null || !isCardSize(vocabulary, resolved)) return null;
-  return [
-    ...placements,
-    { id, size: { span: resolved.span, height: resolved.height } },
-  ];
+  if (resolved === null) return null;
+  return addPlacement(placements, id, resolved, vocabulary);
 }
 
 /** Remove a widget id from the grid. */
