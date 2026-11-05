@@ -1899,6 +1899,17 @@ pub async fn author(
             action: Action::Create,
         },
     )?;
+    // The verification step runs the draft through the product's own report
+    // query, so authoring needs the read half too. Without this a principal
+    // holding create but not view could learn whether a card returns rows by
+    // asking the verifier — a read of data the run path refuses them.
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Reporting,
+            action: Action::View,
+        },
+    )?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 

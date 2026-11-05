@@ -1284,11 +1284,17 @@ impl crate::routes::report_authoring::DraftVerifier for ReportExecutionVerifier 
                         card_index, &error,
                     )]
                 }
-                Err(InlineSpecError::Db(error)) => vec![DraftFinding::new(
-                    "run_failed",
-                    card_index,
-                    format!("The report could not run against the reporting data: {error}"),
-                )],
+                Err(InlineSpecError::Db(error)) => {
+                    // The driver's message can carry the compiled SQL and the
+                    // relation names, and this finding is returned to the
+                    // reviewer. Log the detail, state the fact.
+                    tracing::warn!(%error, "draft verification query failed");
+                    vec![DraftFinding::new(
+                        "run_failed",
+                        card_index,
+                        "The report could not run against the reporting data just now.".to_string(),
+                    )]
+                }
             }
         })
     }
