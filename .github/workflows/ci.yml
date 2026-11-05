@@ -91,6 +91,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: System libraries the GTK-linked crates need
+        # `installer` is a Tauri member and is not excluded here, so `glib-sys`
+        # wants `glib-2.0.pc` from pkg-config. Without it the build dies before
+        # a single lint runs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       # Compile against the committed .sqlx metadata, not the service

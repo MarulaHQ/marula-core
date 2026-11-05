@@ -22,7 +22,7 @@
 mod common;
 
 use chrono::{Duration, Utc};
-use common::{fixed_uuid, org_tx, test_db};
+use common::{db_now, fixed_uuid, org_tx, test_db};
 use core_db::{clients, orgs, queue, reconcile, report_defs, report_schedules, search, users};
 use serde_json::json;
 use sqlx::PgPool;
@@ -574,13 +574,9 @@ async fn a_failed_slot_is_due_and_a_recovered_slot_is_not() {
     let db = test_db().await;
     let org = seed_org(&db.admin, 92_070).await;
     let (_user, schedule) = seed_schedule(&db.admin, org, 92_070).await;
-    // Postgres `timestamptz` keeps microseconds, so a value taken straight from
-    // `Utc::now()` cannot survive the round trip: the read-back drops the
-    // sub-microsecond digits and an exact comparison fails on them alone. Build
-    // the slot at whole-second precision, which the column stores unchanged.
-    let slot =
-        chrono::DateTime::from_timestamp((Utc::now() - Duration::minutes(30)).timestamp(), 0)
-            .expect("a valid timestamp");
+    // The slot is compared to the value read back, so it must carry the
+    // precision the column stores — see `common::db_now`.
+    let slot = db_now() - Duration::minutes(30);
     let failed_slot = slot;
     let recovered_slot = slot - Duration::days(7);
 
