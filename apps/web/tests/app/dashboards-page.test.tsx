@@ -821,6 +821,22 @@ describe("/dashboards saved reports and describe entry (Wave 46 lane 6)", () => 
     expect(meta).toHaveTextContent("Full wide, Tall tall");
     expect(mock.callsTo("GET", `/api/v1/report-definitions/${DEFINITION_ID}/run`)).toHaveLength(1);
     expect(await within(card).findByText("P1")).toBeInTheDocument();
+
+    // A reload reads the placement back and draws it again: the load filter
+    // must not treat a `definition:` id as an unknown widget.
+    mock.setStored(mock.lastBody<{ value: string }>("PUT", "/api/v1/settings/user").value);
+    cleanup();
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+    const reloaded = await screen.findByTestId(
+      `definition-widget-${DEFINITION_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    expect(reloaded).toHaveAttribute("data-card-span", "full");
     cleanup();
   });
 
@@ -925,6 +941,129 @@ describe("/dashboards saved reports and describe entry (Wave 46 lane 6)", () => 
     expect(notice).toHaveTextContent(/provider key under Settings, AI, credentials/i);
     // Nothing was saved and nothing was placed.
     expect(screen.queryByRole("button", { name: /Accept and save/ })).toBeDisabled();
+    cleanup();
+  });
+});
+
+// --- Wave 46 lane 6 follow-up: an unavailable card is a stated state --------
+
+const GONE_ID = "00000000-0000-4000-8000-00000000dead";
+
+/** A stored arrangement holding one placement whose definition is not listed. */
+function storedWithGoneDefinition() {
+  return JSON.stringify({
+    version: 2,
+    widgets: [
+      { id: `definition:${GONE_ID}`, size: { span: "full", height: "tall" } },
+      { id: "time_by_user:self", size: { span: "half", height: "regular" } },
+    ],
+  });
+}
+
+describe("/dashboards unavailable saved reports (Wave 46 lane 6 follow-up)", () => {
+  it("draws a placeholder at the stored span when the saved report is gone", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(storedWithGoneDefinition());
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const tile = await screen.findByTestId(
+      `definition-unavailable-${GONE_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    // It occupies the stored footprint, so the grid does not shift.
+    expect(tile).toHaveAttribute("data-card-span", "full");
+    expect(tile).toHaveAttribute("data-card-height", "tall");
+    expect(tile.parentElement?.className).toContain("col-span-12");
+    expect(tile).toHaveTextContent(/Saved report unavailable/i);
+    expect(tile).toHaveTextContent(/not available to you/i);
+    expect(tile).toHaveTextContent(/deleted or is outside your scope/i);
+
+    // The catalogue card beside it still draws, and nothing was run for the
+    // definition the list does not resolve.
+    expect(await screen.findByText("My time", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(mock.callsTo("GET", `/api/v1/report-definitions/${GONE_ID}/run`)).toHaveLength(0);
+    cleanup();
+  });
+
+  it("removes the placeholder through the same arrangement write", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(storedWithGoneDefinition());
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const tile = await screen.findByTestId(
+      `definition-unavailable-${GONE_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    fireEvent.click(
+      within(tile).getByRole("button", { name: "Remove the unavailable saved report card" }),
+    );
+
+    await waitFor(() =>
+      expect(mock.callsTo("PUT", "/api/v1/settings/user").length).toBe(1),
+    );
+    expect(storedWidgets(mock).map((w) => w.id)).toEqual(["time_by_user:self"]);
+    expect(screen.queryByTestId(`definition-unavailable-${GONE_ID}`)).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it("states a failed saved-report read above the grid without blocking the catalogue", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.on("GET", "/api/v1/report-definitions", () => ({
+      status: 500,
+      json: { error: { reason: "internal_error", message: "boom" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const note = await screen.findByTestId(
+      "dashboard-definitions-error",
+      {},
+      { timeout: 5000 },
+    );
+    expect(note).toHaveTextContent(/saved reports could not be loaded/i);
+    // The catalogue's own widgets are unaffected.
+    expect(await screen.findByText("My time", {}, { timeout: 5000 })).toBeInTheDocument();
+
+    fireEvent.click(within(note).getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(mock.callsTo("GET", "/api/v1/report-definitions").length).toBe(2),
+    );
+    cleanup();
+  });
+
+  it("does not claim deletion when the saved-report list is merely unread", async () => {
+    const mock = setupApi(MANAGER_ME);
+    mock.setStored(storedWithGoneDefinition());
+    mock.on("GET", "/api/v1/report-definitions", () => ({
+      status: 500,
+      json: { error: { reason: "internal_error", message: "boom" } },
+    }));
+    render(
+      <AuthProvider>
+        <DashboardsPage />
+      </AuthProvider>,
+    );
+
+    const tile = await screen.findByTestId(
+      `definition-unavailable-${GONE_ID}`,
+      {},
+      { timeout: 5000 },
+    );
+    expect(tile).toHaveTextContent(/could not be checked/i);
+    expect(tile).not.toHaveTextContent(/deleted or is outside your scope/i);
     cleanup();
   });
 });

@@ -35,6 +35,7 @@ import { CardContractMeta } from "../../components/dashboards/card-contract";
 import { PluginWidgetsSection } from "../../components/dashboards/plugin-widget";
 import {
   cardSpanClass,
+  cardHeightClass,
   sizeLabel,
 } from "../../components/dashboards/card-size-control";
 import { DescribeEntry } from "../../components/reports/describe-entry";
@@ -54,6 +55,7 @@ import {
   definitionIdOfWidgetId,
   encodeWidgets,
   isManagerPermissions,
+  isDefinitionWidgetId,
   moveWidget,
   placementsForPreset,
   placementsMatch,
@@ -161,8 +163,11 @@ export default function DashboardsPage() {
       }
     }
     // Widgets no longer visible for this user (role change) drop out; the
-    // stored arrangement keeps them, so a role change back restores them.
+    // stored arrangement keeps them, so a role change back restores them. A
+    // saved-report placement is kept: the definition list decides whether it
+    // draws or renders as unavailable, not this filter.
     const next = decoded.filter((p) => {
+      if (isDefinitionWidgetId(p.id)) return true;
       const def = widgetDef(p.id);
       return def !== undefined && widgetVisible(def, manager);
     });
@@ -394,12 +399,6 @@ export default function DashboardsPage() {
             payload's shape default. */}
         {pickerOpen && (
           <Card className="grid gap-2 p-3" id="widget-picker">
-            {definitionsError !== null ? (
-              <p role="status" className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                {definitionsError}
-              </p>
-            ) : null}
-
             {readOnlyReason !== null ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                 {PICKER_NOTICE[readOnlyReason]}
@@ -575,6 +574,27 @@ export default function DashboardsPage() {
         )}
       </div>
 
+      {definitionsError !== null ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 rounded-[var(--m-radius-control)] border px-3 py-2 text-[13px]"
+          style={{
+            borderColor: "var(--m-border)",
+            background: "var(--m-surface-2)",
+            color: "var(--m-text-secondary)",
+          }}
+          data-testid="dashboard-definitions-error"
+        >
+          <span>
+            Your saved reports could not be loaded, so saved-report cards cannot be
+            drawn. The catalogue&apos;s widgets are unaffected.
+          </span>
+          <Button variant="secondary" size="sm" onClick={() => void refreshDefinitions()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
       {authoredId !== null ? (
         <div
           role="status"
@@ -616,10 +636,45 @@ export default function DashboardsPage() {
             const definitionId = definitionIdOfWidgetId(placement.id);
             if (definitionId !== null) {
               const saved = (definitions ?? []).find((d) => d.id === definitionId);
-              // A placement for a definition this user cannot see is dropped
-              // from the grid, not drawn as an empty card: the stored
-              // arrangement keeps it, so a restored scope brings it back.
-              if (saved === undefined) return null;
+              // A placement whose definition the list does not resolve is still
+              // a card the user placed. Drawing nothing would leave a hole in
+              // the grid with no reason and no way out, so it renders as a
+              // stated state at its stored span, with the one action that clears
+              // it through the same `remove()` every other card uses.
+              if (saved === undefined) {
+                return (
+                  <div
+                    key={placement.id}
+                    className={`min-w-0 ${cardSpanClass(placement.size.span)}`}
+                  >
+                    <Card
+                      className={`grid content-start gap-2 p-4 ${cardHeightClass(placement.size.height)}`}
+                      data-testid={`definition-unavailable-${definitionId}`}
+                      data-card-span={placement.size.span}
+                      data-card-height={placement.size.height}
+                    >
+                      <h3 className="text-[13px] font-semibold" style={{ color: "var(--m-text)" }}>
+                        Saved report unavailable
+                      </h3>
+                      <p className="text-[13px] leading-[1.5]" style={{ color: "var(--m-text-secondary)" }}>
+                        {definitionsError !== null
+                          ? "This card's saved report could not be checked, because the saved-report list did not load."
+                          : "This card's saved report is not available to you. It was deleted or is outside your scope."}
+                      </p>
+                      <div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          aria-label="Remove the unavailable saved report card"
+                          onClick={() => remove(placement.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </Card>
+                  </div>
+                );
+              }
               return (
                 <div
                   key={placement.id}
