@@ -703,10 +703,38 @@ pub struct CatalogView {
     pub filterable: Vec<CatalogColumn>,
 }
 
+/// One card shape, described for the authoring agent (Wave 46 lane 1). The
+/// prose is served, not duplicated in a prompt: a model that reads this
+/// catalogue authors against the same rules the compiler enforces.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CatalogShape {
+    /// `chart` | `stat` | `table`.
+    pub shape: String,
+    /// Viz hints that produce this shape in a spec.
+    pub viz: Vec<String>,
+    /// What the shape must be given: `rows`, `scalar`, `headers`.
+    pub data: Vec<String>,
+    pub default_span: String,
+    pub default_height: String,
+    /// Plain-English description the authoring model reads.
+    pub agent_description: String,
+    /// The refusal, in plain English, so the model chooses away from it.
+    pub refuses_when: String,
+}
+
 /// GET /api/report-catalog envelope.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ReportCatalog {
     pub views: Vec<CatalogView>,
+    /// The card shapes both surfaces draw, with the prose the authoring
+    /// agent reads.
+    pub shapes: Vec<CatalogShape>,
+    /// The card rules (zero rows, window versus refresh) in the same words
+    /// the refusals use.
+    pub card_rules: Vec<String>,
+    /// Every span and height the grid accepts, so a picker cannot invent one.
+    pub spans: Vec<String>,
+    pub heights: Vec<String>,
 }
 
 fn value_type_slug(ty: core_reports::catalog::ValueType) -> &'static str {
@@ -774,7 +802,41 @@ pub async fn catalog(extensions: Extensions) -> ApiResult<Json<ReportCatalog>> {
             filterable,
         });
     }
-    Ok(Json(ReportCatalog { views }))
+    // The card vocabulary travels with the field catalog: one description
+    // per shape, the rules the refusals enforce, and the size names. Lane 5's
+    // authoring prompt and the builder picker both read this, so neither can
+    // carry a second, stale copy.
+    let shapes = core_reports::shape_catalogue()
+        .iter()
+        .map(|info| CatalogShape {
+            shape: info.shape.slug().to_string(),
+            viz: info.viz.iter().map(|v| v.slug().to_string()).collect(),
+            data: info.data.iter().map(|d| d.slug().to_string()).collect(),
+            default_span: info.default_size.span.slug().to_string(),
+            default_height: info.default_size.height.slug().to_string(),
+            agent_description: info.agent_description.to_string(),
+            refuses_when: info.refuses_when.to_string(),
+        })
+        .collect();
+    let card_rules = core_reports::rules()
+        .iter()
+        .map(|r| (*r).to_string())
+        .collect();
+    let spans = core_reports::CardSpan::ALL
+        .iter()
+        .map(|s| s.slug().to_string())
+        .collect();
+    let heights = core_reports::CardHeight::ALL
+        .iter()
+        .map(|h| h.slug().to_string())
+        .collect();
+    Ok(Json(ReportCatalog {
+        views,
+        shapes,
+        card_rules,
+        spans,
+        heights,
+    }))
 }
 
 /// Query surface for running a stored definition (mirrors the prebuilt
@@ -935,6 +997,12 @@ pub struct RunSpecRequest {
     /// Page size, clamped to [1, 500].
     #[serde(default)]
     pub limit: Option<i64>,
+    /// Optional card contract (Wave 46 lane 1): when present, the run is
+    /// checked as a CARD and a card that cannot be drawn is a typed 422
+    /// rather than an empty envelope. Absent means a plain report run, which
+    /// is allowed to return zero rows.
+    #[serde(default)]
+    pub card: Option<core_reports::CardSpec>,
 }
 
 /// POST /api/reports/run-spec — execute an INLINE spec (R6 builder preview).
@@ -950,7 +1018,7 @@ pub struct RunSpecRequest {
     request_body = RunSpecRequest,
     responses(
         (status = 200, body = crate::routes::reports::ReportPage),
-        (status = 422, description = "spec failed registry validation or invalid window")
+        (status = 422, description = "spec failed registry validation or invalid window; with `card` present, a card that cannot be drawn is a 422 with `reason: card_contract`, naming the shape and the failure")
     )
 )]
 pub async fn run_spec(
@@ -1004,19 +1072,51 @@ pub async fn run_spec(
         Some(row) => crate::routes::reports::dynamic_row_json(row),
         None => serde_json::json!({}),
     };
+    // The card gate runs on the SAME run the product would render: a card
+    // that would be handed back empty is a refusal here, not a blank frame
+    // the reader has to interpret. Lane 5's verifier calls exactly this.
+    let columns: Vec<String> = compiled
+        .columns
+        .iter()
+        .map(|c| c.name.to_string())
+        .collect();
+    if let Some(card) = req.card.as_ref() {
+        core_reports::materialise(
+            &req.spec,
+            card,
+            &core_reports::CardRun {
+                columns: &columns,
+                rows: &decoded,
+                summary: &summary_json,
+            },
+        )
+        .map_err(card_failure)?;
+    }
     Ok(Json(crate::routes::reports::ReportPage {
         kind: req.spec.view.slug().to_string(),
         view: compiled.view.qualified_name().to_string(),
-        columns: compiled
-            .columns
-            .iter()
-            .map(|c| c.name.to_string())
-            .collect(),
+        columns,
         rows: decoded,
         summary: summary_json,
         next_cursor: None,
     })
     .into_response())
+}
+
+/// Maps a card-contract refusal onto the wire: an empty card keeps its
+/// shape and failure class as machine-readable fields, so a repair loop can
+/// say "the chart has no rows" without parsing prose. Everything else (a
+/// window/refresh or bounds violation) is an ordinary validation refusal.
+fn card_failure(err: core_reports::ReportsError) -> ApiError {
+    let message = err.to_string();
+    match err {
+        core_reports::ReportsError::EmptyCard { shape, failure } => ApiError::CardContract {
+            shape: shape.slug().to_string(),
+            failure: failure.slug().to_string(),
+            message,
+        },
+        other => ApiError::Validation(other.to_string()),
+    }
 }
 
 /// Guard against catalog drift: every builder-facing surface is derived from
@@ -1045,5 +1145,53 @@ mod catalog_tests {
         assert_eq!(core_reports::MAX_GROUP_BY, 3);
         assert_eq!(core_reports::MAX_MEASURES, 4);
         assert_eq!(core_reports::Aggregate::Count.slug(), "count");
+    }
+
+    /// The catalogue is what the authoring agent reads, so it must describe
+    /// every shape the renderer can be handed, name every viz the registry
+    /// accepts, and carry the size vocabulary lane 6 picks from. A shape
+    /// missing here is a shape the model cannot choose.
+    #[test]
+    fn the_card_catalogue_describes_every_shape_and_viz() {
+        let shapes = core_reports::shape_catalogue();
+        for shape in core_reports::CardShape::ALL {
+            assert!(
+                shapes.iter().any(|s| s.shape == shape),
+                "{shape:?} has no catalogue entry"
+            );
+        }
+        for viz in core_reports::VizHint::ALL {
+            assert!(
+                shapes.iter().any(|s| s.viz.contains(&viz)),
+                "{viz:?} maps onto no shape"
+            );
+        }
+        assert_eq!(core_reports::rules().len(), 3);
+        assert_eq!(core_reports::CardSpan::ALL.len(), 4);
+        assert_eq!(core_reports::CardHeight::ALL.len(), 3);
+    }
+
+    /// A refusal a caller cannot branch on is a prose message with extra
+    /// steps. The empty-card refusal must survive the mapping with its shape
+    /// and failure intact, and the timing refusals must stay validation.
+    #[test]
+    fn an_empty_card_maps_onto_the_typed_refusal() {
+        let empty = card_failure(core_reports::ReportsError::EmptyCard {
+            shape: core_reports::CardShape::Chart,
+            failure: core_reports::CardFailure::NoRows,
+        });
+        match empty {
+            ApiError::CardContract { shape, failure, .. } => {
+                assert_eq!(shape, "chart");
+                assert_eq!(failure, "no_rows");
+            }
+            other => panic!("unexpected mapping {other:?}"),
+        }
+
+        let timing = card_failure(core_reports::ReportsError::WindowWiderThanRefresh {
+            window_days: 30,
+            reach_days: 7,
+        });
+        assert!(matches!(timing, ApiError::Validation(_)));
     }
 }

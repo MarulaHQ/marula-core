@@ -1652,10 +1652,20 @@ use utoipa::OpenApi;
         core_reports::MeasureSpec,
         core_reports::Aggregate,
         core_reports::VizHint,
+        // The card contract (Wave 46 lane 1): one vocabulary for report and
+        // dashboard cards, and the shape catalogue the authoring agent reads.
+        // Only the types the wire references are registered — the refusal's
+        // shape/failure classes travel as slugs on the error envelope.
+        core_reports::CardSpec,
+        core_reports::CardSize,
+        core_reports::CardSpan,
+        core_reports::CardHeight,
+        core_reports::CardRefresh,
         // R6 builder catalog DTOs
         crate::routes::report_defs::ReportCatalog,
         crate::routes::report_defs::CatalogView,
         crate::routes::report_defs::CatalogColumn,
+        crate::routes::report_defs::CatalogShape,
         crate::routes::report_defs::ReportDefinitionRunQuery,
         crate::routes::report_defs::RunSpecRequest,
         core_reports::ViewId,

@@ -11,6 +11,10 @@
 //! * every report CSV cell is encoded by one writer (`csv`), so the
 //!   interactive and scheduled lanes cannot disagree about which values a
 //!   spreadsheet would evaluate.
+//! * the card contract (`card`) is the ONE vocabulary a report card and a
+//!   dashboard card share: the shape is derived from the spec, an
+//!   undrawable card is a typed refusal, and the window/refresh pair is
+//!   validated in the same place.
 //!
 //! Non-purpose (binding):
 //! * **Never reads physical tables.** Every statement this crate emits
@@ -24,6 +28,7 @@
 //!   stored definitions).
 
 pub mod builder;
+pub mod card;
 pub mod catalog;
 pub mod csv;
 pub mod error;
@@ -32,6 +37,11 @@ pub mod params;
 pub mod spec;
 
 pub use builder::{compile, next_cursor, Bind, CompiledReport, CursorShape, OutType, OutputColumn};
+pub use card::{
+    materialise, rules, shape_catalogue, CardData, CardDatum, CardFailure, CardHeight, CardRefresh,
+    CardRun, CardShape, CardSize, CardSpan, CardSpec, Scalar, ShapeInfo, MAX_REFRESH_MINUTES,
+    MIN_REFRESH_MINUTES,
+};
 pub use catalog::{lookup_column, resolve_filter_column, ViewId};
 pub use error::ReportsError;
 pub use kinds::{

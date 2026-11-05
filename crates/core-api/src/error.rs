@@ -204,6 +204,22 @@ pub enum ApiError {
         /// The scanner's detail string (usually the signature name).
         detail: Option<String>,
     },
+    /// Typed 422 for a card that cannot be drawn (Wave 46 lane 1): the
+    /// request carried a card contract and the run cannot fill it — no rows
+    /// for a chart or table, no headers, no scalar for a stat. Kept distinct
+    /// from `Validation` so a repair loop branches on `reason:
+    /// card_contract` and reads `shape` and `failure` as fields instead of
+    /// parsing a sentence, and so a caller can tell "your card is invalid"
+    /// from "your request was malformed".
+    #[error("card contract refused: {message}")]
+    CardContract {
+        /// `chart` | `stat` | `table`.
+        shape: String,
+        /// `no_rows` | `no_headers` | `no_scalar`.
+        failure: String,
+        /// The refusal in one sentence, naming the shape and the failure.
+        message: String,
+    },
     /// A fail-policy import chunk was rejected transactionally (the private build tracker
     /// D2): nothing from that chunk was written; the full per-row report
     /// rides the 409 so clients can correct and retry without re-upload.
@@ -948,6 +964,16 @@ impl IntoResponse for ApiError {
                     // no operator action and no release to wait for.
                     "held_for_operator": false,
                 })),
+            ),
+            ApiError::CardContract {
+                shape,
+                failure,
+                message,
+            } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "card_contract",
+                message.clone(),
+                Some(json!({ "shape": shape, "failure": failure })),
             ),
             ApiError::TimeEntryLocked { entry_id } => (
                 StatusCode::CONFLICT,
