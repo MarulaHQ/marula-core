@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.3.2** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**663 paths · 885 operations · 1394 schemas.**
+**664 paths · 886 operations · 1400 schemas.**
 
 ## admin
 
@@ -1035,6 +1035,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/reports/{kind}` <a id="report_get"></a> | GET /api/reports/{kind} — prebuilt operational report over the read-model views. Kinds: time_by_user | time_by_client | time_by_ticket | sla_attainment | sla_breaches | ticket_throughput | ticket_aging | first_response. | — |
+| `POST` | `/api/v1/reports/author` <a id="report_author"></a> | POST /api/reports/author — author a report draft from a transcript. | [AuthorReportRequest](#schema-authorreportrequest) |
 | `POST` | `/api/v1/reports/run-spec` <a id="report_run_spec"></a> | POST /api/reports/run-spec — execute an INLINE spec (R6 builder preview). Same compile/execute/RBAC seam as running a stored definition; the spec never touches storage and identifiers re-validate against the static catalog before compilation. | [RunSpecRequest](#schema-runspecrequest) |
 
 ## roles
@@ -1541,6 +1542,9 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-authoringissue"></a>`AuthoringIssue` | object | One author-time refusal, pointed and stable so a UI can render it. |
 | <a id="schema-authoringtoolcall"></a>`AuthoringToolCall` | object | One tool call the model made, as the response reports it. |
 | <a id="schema-authormodelinfo"></a>`AuthorModelInfo` | object | Model-provenance summary for the response. |
+| <a id="schema-authorreportcatalogue"></a>`AuthorReportCatalogue` | object |  |
+| <a id="schema-authorreportrequest"></a>`AuthorReportRequest` | object |  |
+| <a id="schema-authorreportresponse"></a>`AuthorReportResponse` | object |  |
 | <a id="schema-authorusage"></a>`AuthorUsage` | object |  |
 | <a id="schema-authorworkflowrequest"></a>`AuthorWorkflowRequest` | object |  |
 | <a id="schema-authorworkflowresponse"></a>`AuthorWorkflowResponse` | object |  |
@@ -2435,6 +2439,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-replysnippetmutationresponse"></a>`ReplySnippetMutationResponse` | composite | Instant-first mutation response (IF2): the snippet at the top level plus the additive `mutation` metadata. |
 | <a id="schema-replysnippetslistresponse"></a>`ReplySnippetsListResponse` | object |  |
 | <a id="schema-replysnippetview"></a>`ReplySnippetView` | object | One canned reply in the org's snippet library. |
+| <a id="schema-reportauthoringissue"></a>`ReportAuthoringIssue` | object | One author-time refusal, pointed and stable so a UI can render it. The field names match `workflow_authoring::AuthoringIssue` so one review component can draw either surface's issues; the vocabulary i |
 | <a id="schema-reportcatalog"></a>`ReportCatalog` | object | GET /api/report-catalog envelope. |
 | <a id="schema-reportdefinitionlist"></a>`ReportDefinitionList` | object | GET /api/report-definitions envelope. |
 | <a id="schema-reportdefinitionmutationresponse"></a>`ReportDefinitionMutationResponse` | composite | Mutation envelope: applied definition (flattened) + read-your-write metadata (IF2). |
@@ -2442,6 +2447,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-reportdefinitionview"></a>`ReportDefinitionView` | object | A stored report definition with its registry-validated spec reassembled (`spec.view` == the stored `kind` column). |
 | <a id="schema-reportdeliverypage"></a>`ReportDeliveryPage` | object | GET /api/report-schedules/{id}/deliveries envelope — offset-paged delivery history, newest slot first. |
 | <a id="schema-reportdeliveryview"></a>`ReportDeliveryView` | object | One delivery-history row (R4): the claimed slot, the outcome status (`delivered\|partial\|failed\|skipped`), the per-recipient outcome detail, and when the ledger row landed. |
+| <a id="schema-reportdiffentry"></a>`ReportDiffEntry` | object | One structural change between the caller's current draft and the proposal. The caller renders these as the review diff; nothing is applied here. |
+| <a id="schema-reportdraft"></a>`ReportDraft` | object | A validated report draft: the spec, its card, the shape the pair derives, and the plain-English read-back. `shape` is derived by the contract's one derivation (`CardShape::of`), never sent by the mode |
 | <a id="schema-reportpage"></a>`ReportPage` | object | JSON envelope for a report page. |
 | <a id="schema-reportschedulemutationresponse"></a>`ReportScheduleMutationResponse` | composite | Mutation envelope: applied schedule + read-your-write metadata (IF2). |
 | <a id="schema-reportschedulepage"></a>`ReportSchedulePage` | object | GET /api/report-schedules envelope. |
@@ -2853,4 +2860,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1394 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1400 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
