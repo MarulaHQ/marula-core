@@ -10,16 +10,22 @@ import {
   WIDGET_CATALOG,
   WIDGET_ROWS_KEY,
   addWidget,
+  cardReadout,
   cardVocabulary,
   decodeWidgets,
   defaultPlacements,
   defaultRows,
   defaultSizeFor,
+  definitionIdOfWidgetId,
+  definitionSize,
+  definitionWidgetId,
   encodeWidgets,
   formatMinutes,
   formatSeconds,
   isCardSize,
+  isDefinitionWidgetId,
   isManagerPermissions,
+  knownWidgetId,
   moveWidget,
   placementsForPreset,
   placementsMatch,
@@ -395,5 +401,87 @@ describe("display formatting", () => {
     for (const bucket of ["under_1d", "d1_3", "d3_7", "d7_30", "over_30d"]) {
       expect(AGING_BUCKET_LABELS[bucket]).toBeDefined();
     }
+  });
+});
+
+// --- Wave 46 lane 6: saved reports as cards, and the stored card's readout ---
+
+describe("saved report cards", () => {
+  const vocabulary = {
+    spans: ["quarter", "third", "half", "full"],
+    heights: ["compact", "regular", "tall"],
+    shapes: [
+      { shape: "chart", viz: ["bar", "line", "pie"], default_span: "half", default_height: "regular" },
+      { shape: "stat", viz: ["stat"], default_span: "third", default_height: "compact" },
+      { shape: "table", viz: ["table"], default_span: "full", default_height: "tall" },
+    ],
+    rules: [],
+  };
+
+  it("names a definition placement without treating it as an unknown widget", () => {
+    const id = definitionWidgetId("00000000-0000-4000-8000-00000000a001");
+    expect(id).toBe("definition:00000000-0000-4000-8000-00000000a001");
+    expect(definitionIdOfWidgetId(id)).toBe("00000000-0000-4000-8000-00000000a001");
+    expect(isDefinitionWidgetId(id)).toBe(true);
+    expect(knownWidgetId(id)).toBe(true);
+    expect(definitionIdOfWidgetId("time_by_user:self")).toBeNull();
+    expect(definitionIdOfWidgetId("definition:")).toBeNull();
+  });
+
+  it("reads a stored definition id back out of a version 2 arrangement", () => {
+    const id = definitionWidgetId("00000000-0000-4000-8000-00000000a001");
+    const stored = JSON.stringify({ version: 2, widgets: [{ id, size: { span: "full", height: "tall" } }] });
+    const read = readArrangement(stored, vocabulary);
+    expect(read.status).toBe("read");
+    if (read.status === "read") {
+      expect(read.placements).toEqual([{ id, size: { span: "full", height: "tall" } }]);
+    }
+  });
+
+  it("places a saved report at the size its card stores", () => {
+    const def = {
+      card: { window_days: 7, refresh: { every_minutes: 15 }, size: { span: "third", height: "compact" } },
+      spec: { viz: "bar" },
+    };
+    expect(definitionSize(def, vocabulary)).toEqual({ span: "third", height: "compact" });
+  });
+
+  it("refuses a stored size the payload no longer lists instead of substituting one", () => {
+    const def = {
+      card: { window_days: 7, size: { span: "third", height: "extra_tall" } },
+      spec: { viz: "bar" },
+    };
+    expect(definitionSize(def, vocabulary)).toBeNull();
+  });
+
+  it("falls back to the shape default only when no card is stored", () => {
+    expect(definitionSize({ card: null, spec: { viz: "stat" } }, vocabulary)).toEqual({
+      span: "third",
+      height: "compact",
+    });
+  });
+
+  it("reads the card's window, refresh and size as the row and card print them", () => {
+    const readout = cardReadout({
+      window_days: 30,
+      refresh: { every_minutes: 90, reach_days: 0 },
+      size: { span: "half", height: "regular" },
+    });
+    expect(readout).not.toBeNull();
+    expect(readout!.window).toBe("Last 30 days");
+    expect(readout!.refresh).toBe("every 1 h 30 min");
+    expect(readout!.reach).toBeNull();
+    expect(readout!.size).toBe("Half wide, Regular tall");
+    expect(readout!.line).toBe("Last 30 days · every 1 h 30 min · Half wide, Regular tall");
+    expect(cardReadout(null)).toBeNull();
+  });
+
+  it("states a reach that is narrower than the window", () => {
+    const readout = cardReadout({
+      window_days: 30,
+      refresh: { every_minutes: 60, reach_days: 7 },
+      size: { span: "full", height: "tall" },
+    });
+    expect(readout!.reach).toBe("reads 7 days per refresh");
   });
 });

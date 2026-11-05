@@ -10,8 +10,13 @@
 // Validation trouble is blush (`--m-status-due`), never red; red is reserved
 // for breach — a failed save is a loading sentence, not an error.
 //
-// Non-purpose: no AI affordance anywhere on this surface (the report
-// builder is not a granted decision surface), no bulk actions.
+// Wave 46 lane 6 adds the "describe it" entry: a dialog that borrows the
+// authoring panel, so a described report is reviewed and then saved through
+// the definition routes that already exist. It is not a second writer and not
+// a second builder. The saved table also prints each definition's stored card
+// (window, refresh, size) — the card migration 0180 stopped losing.
+//
+// Non-purpose: no report-spec editing outside the builder, no bulk actions.
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -57,10 +62,13 @@ import { friendlyMutationText } from "../../lib/error-copy";
 import { ReportDeliveryHistory } from "../../components/report-delivery-history";
 import { ReportBuilder } from "../../components/report-builder";
 import { ScheduleProposal } from "../../components/reports/schedule-proposal";
+import { DescribeEntry } from "../../components/reports/describe-entry";
+import { CardContractMeta } from "../../components/dashboards/card-contract";
 import { MONTH_DAYS, WEEKDAYS, type ScheduleCadenceFields } from "../../lib/schedule-phrase";
 import { VIEW_LABELS } from "../../lib/report-builder";
-import { isManagerPermissions } from "../../lib/dashboards";
-import { decodeSpecFromQuery } from "../../lib/report-spec-codec";
+import { cardReadout, isManagerPermissions } from "../../lib/dashboards";
+import { decodeSpecFromQuery, encodeSpecToQuery } from "../../lib/report-spec-codec";
+import type { ReportDraft } from "../../lib/report-authoring";
 import {
   downloadCsv,
   toCsv,
@@ -146,6 +154,8 @@ function ReportsInner() {
   const [runToken, setRunToken] = useState<{ def: ReportDefinitionView; nonce: number } | null>(null);
   const [rowBusyId, setRowBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; text: string } | null>(null);
+  /** The outcome of an accepted "describe it" draft, in the saved table's own words. */
+  const [savedNote, setSavedNote] = useState<string | null>(null);
 
   // Saved-table state: view switch (all/mine), filters, columns.
   const [view, setView] = useState<"all" | "mine">("all");
@@ -168,6 +178,8 @@ function ReportsInner() {
     view: string;
     scope: "org" | "self";
     updated: string;
+    /** The stored card, or null. Read back from the definition, never inferred. */
+    card: ReportDefinitionView["card"];
   };
 
   const defColumns: readonly InsightColumn<DefRow>[] = useMemo(
@@ -197,6 +209,20 @@ function ReportsInner() {
           <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
             {viewLabel(r.view)}
           </span>
+        ),
+      },
+      {
+        key: "runs",
+        label: "Runs as",
+        // Sorted by window so the table answers "which of these looks further
+        // back" without a second control; a definition with no card sorts last.
+        sortValue: (r) => r.card?.window_days ?? -1,
+        render: (r) => (
+          <CardContractMeta
+            card={r.card}
+            variant="cell"
+            testId={`definition-card-meta-${r.id}`}
+          />
         ),
       },
       {
@@ -299,6 +325,7 @@ function ReportsInner() {
         view: d.spec.view,
         scope: d.scope,
         updated: d.updated_at,
+        card: d.card ?? null,
       })),
     [definitions],
   );
@@ -407,6 +434,10 @@ function ReportsInner() {
           name: def.name,
           description: def.description ?? null,
           spec: def.spec,
+          // Full replace: omitting the card would clear it, and publishing is
+          // not an edit to what the card displays. Migration 0180 only keeps
+          // the card if every writer sends it back.
+          card: def.card ?? null,
           scope,
           idempotency_key: idempotencyKey,
         },
@@ -521,6 +552,7 @@ function ReportsInner() {
         sortedRows,
         (col, row) => {
           if (col.key === "data") return viewLabel(row.view);
+          if (col.key === "runs") return cardReadout(row.card)?.line ?? "No card stored";
           if (col.key === "visibility") return row.scope === "org" ? "Org-wide" : "Private";
           if (col.key === "updated") return new Date(row.updated).toISOString().slice(0, 10);
           return row.name;
@@ -529,6 +561,24 @@ function ReportsInner() {
       downloadCsv(`marula-reports.${opts.format === "xlsx" ? "xlsx" : "csv"}`, csv);
     },
     [defsTable.keys, defColumns, sortedRows],
+  );
+
+  /**
+   * An accepted draft is already a definition: `acceptReportDraft` wrote it
+   * through the create/update routes. The page's only job is to read the list
+   * again and say where the row is.
+   */
+  const handleAuthored = useCallback(
+    (result: { id: string; created: boolean; draft: ReportDraft }) => {
+      setSavedNote(
+        result.created
+          ? "Saved as a new private report. It is in the list below."
+          : "The saved report was updated. Its row is in the list below.",
+      );
+      setTab("saved");
+      void refreshDefinitions();
+    },
+    [refreshDefinitions],
   );
 
   if (auth.status !== "authed") return null;
@@ -545,6 +595,17 @@ function ReportsInner() {
           >
             Build, run and schedule
           </span>
+        }
+        actions={
+          <DescribeEntry
+            surface="reports"
+            testId="reports-describe-entry"
+            onEdit={(draft) =>
+              router.push(`/reports?spec=${encodeSpecToQuery(draft.spec)}`)
+            }
+            onAccepted={handleAuthored}
+            onOpenReports={() => setTab("saved")}
+          />
         }
       />
 
@@ -663,6 +724,24 @@ function ReportsInner() {
               />
             }
           />
+
+          {savedNote !== null ? (
+            <div
+              role="status"
+              className="flex flex-wrap items-center gap-2 rounded-[var(--m-radius-control)] border px-3 py-2 text-[13px]"
+              style={{
+                borderColor: "var(--m-border)",
+                background: "var(--m-surface-2)",
+                color: "var(--m-text-secondary)",
+              }}
+              data-testid="reports-saved-note"
+            >
+              <span>{savedNote}</span>
+              <Button variant="ghost" size="sm" onClick={() => setSavedNote(null)}>
+                Dismiss
+              </Button>
+            </div>
+          ) : null}
 
           {defsError !== null && (
             <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
