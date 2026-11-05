@@ -782,10 +782,13 @@ async fn definitions_are_served_identically_on_both_mounts() {
 /// The card every case starts from: seven days, tall, hourly. `window_days` is
 /// the only member the run default reads.
 fn stored_card(window_days: u32) -> Value {
+    // `reach_days` is a serde default, so it is written even when the author
+    // never set it: 0 means "one refresh covers the whole window". The column
+    // keeps the document serde produced, so the expectation carries it too.
     json!({
         "window_days": window_days,
         "size": {"span": "half", "height": "tall"},
-        "refresh": {"every_minutes": 60}
+        "refresh": {"every_minutes": 60, "reach_days": 0}
     })
 }
 
