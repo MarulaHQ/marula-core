@@ -10,8 +10,10 @@ fn main() {
     // Every real build populates the directory first: `release-installer.yml`
     // runs `pnpm --dir apps/installer build` before `cargo build`, and vite
     // empties `outDir` as it writes. So this guard only ever creates the
-    // placeholder a typecheck needs. It is the same one `desktop/build.rs` has
-    // carried since Wave 43 lane 9, `p43-repo-hygiene`, for `apps/web/out`.
+    // placeholder a typecheck needs. `desktop/build.rs` carried the same guard
+    // for `apps/web/out` since Wave 43 lane 9, `p43-repo-hygiene`; that crate
+    // now points `frontendDist` at its own tracked connect screen, so this is
+    // the only guard left.
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
         let frontend_dist = std::path::Path::new(&manifest_dir).join("../apps/installer/dist");
         let index_html = frontend_dist.join("index.html");

@@ -45,7 +45,7 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | [`release.md`](release.md) | Cut a release, verify a download, and install one on a host with no network |
 | [`release-images.md`](release-images.md) | The four application images: how they are named and pinned by digest, and what the release must publish |
 | [`update.md`](update.md) | `marula update`: a signed manifest, the sentence a check prints, and what a rollback restores |
-| [`desktop-release.md`](desktop-release.md) | Desktop packaging, signing and the auto-update path |
+| [`desktop-release.md`](desktop-release.md) | Desktop client: packaging, connecting to an instance, the auto-update path and uninstall |
 | [`security/pentest-known-issues.md`](security/pentest-known-issues.md) | What the audit already owns, written for testers so they do not report it again |
 
 Operator tasks also live in the site, because operators read the site:

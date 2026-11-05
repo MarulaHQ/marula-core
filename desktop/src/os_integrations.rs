@@ -15,7 +15,7 @@
 
 use tauri::{
     image::Image,
-    menu::{Menu, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
     AppHandle, Manager,
 };
@@ -178,13 +178,33 @@ pub async fn route_marula_link(app: AppHandle, url: String) -> Result<String, St
 /// Bring All to Front + per-window entries the OS fills) is guaranteed on
 /// every platform we ship.
 pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
+    // License and name are the About box's job, and until now it carried the
+    // bundle's version only. `copyright` and `credits` are what macOS shows;
+    // `license` and `website` are what Windows and Linux show, so both are
+    // filled rather than one platform's half.
+    let about = {
+        let version = app.package_info().version.to_string();
+        AboutMetadata {
+            name: Some("Marula".into()),
+            version: Some(version.clone()),
+            short_version: Some(version),
+            copyright: Some("AGPL-3.0 — Marula contributors".into()),
+            license: Some("AGPL-3.0 (GNU Affero General Public License v3.0)".into()),
+            credits: Some(
+                "Free software under the AGPL-3.0. Third-party notices sit beside the app in \
+                 ACKNOWLEDGMENTS.md and LEGAL/."
+                    .into(),
+            ),
+            ..Default::default()
+        }
+    };
     let app_menu = Submenu::with_id_and_items(
         app,
         "marula-app",
         "Marula",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About Marula"), None)?,
+            &PredefinedMenuItem::about(app, Some("About Marula"), Some(about))?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,

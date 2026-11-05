@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Connect to Marula</title>
+    <link rel="stylesheet" href="connect.css" />
+  </head>
+  <body>
+    <main class="card">
+      <header class="head">
+        <!-- The mark from apps/web/public/mark-color.svg, inlined so this
+             screen needs no network and no build step. -->
+        <svg class="mark" viewBox="-12 -17.29 89 99.29" width="40" height="45" role="img" aria-label="Marula">
+          <path d="M32 17 L32 11" stroke="#7C746A" stroke-width="2.5" stroke-linecap="round" fill="none" />
+          <path d="M32 12 C37 4 49 3 55 7 C50 14 39 16 32 12 Z" fill="#5E7F3A" />
+          <circle cx="32" cy="38" r="22" fill="#E8B83A" />
+          <ellipse cx="24" cy="31" rx="6" ry="4" fill="#F6EFD9" opacity="0.75" />
+        </svg>
+        <h1>Connect to Marula</h1>
+        <p class="lede">Enter the address of the instance that holds your workspace.</p>
+      </header>
+
+      <p class="notice" id="notice" role="status" hidden></p>
+
+      <form id="connect-form" novalidate>
+        <label for="server">Instance address</label>
+        <input
+          id="server"
+          name="server"
+          type="text"
+          inputmode="url"
+          autocomplete="url"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          placeholder="https://psa.example.com"
+          aria-describedby="server-hint server-error"
+          autofocus
+        />
+        <p class="hint" id="server-hint">The same address you open in a browser.</p>
+        <p class="error" id="server-error" role="alert" hidden></p>
+        <button class="primary" id="connect" type="submit">Connect</button>
+      </form>
+
+      <div class="or" id="or" hidden><span>or</span></div>
+
+      <div class="local" id="local-block" hidden>
+        <button class="quiet" id="local" type="button">Run Marula on this machine</button>
+        <p class="hint">Keeps your data in a local database, for testing.</p>
+      </div>
+    </main>
+
+    <footer class="foot">
+      Marula is free software under the AGPL-3.0. Your data stays on the instance you choose.
+    </footer>
+
+    <script src="connect.js"></script>
+  </body>
+</html>
