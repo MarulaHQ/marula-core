@@ -58,6 +58,40 @@ export interface ReportDraft {
   reads: string;
 }
 
+/**
+ * One check that could not be passed, as the server reports it (Wave 64 lane
+ * 5). `kind` reuses the card contract's own slugs where one exists
+ * (`no_rows`, `no_headers`, `no_scalar`, `window_wider_than_refresh`, …), so a
+ * reviewer reads one vocabulary for a registry refusal and a data failure.
+ */
+export interface DraftFinding {
+  kind: string;
+  /** The dashboard card this finding belongs to, zero-based. A report has none. */
+  card_index?: number;
+  message: string;
+}
+
+/** One verification round: what the model's answer produced. Round 0 is first. */
+export interface VerificationAttempt {
+  round: number;
+  findings: DraftFinding[];
+}
+
+/**
+ * What the data check did. `ran: false` means nothing was checked — that is not
+ * the same as clean, and the row must never say it is.
+ */
+export interface DraftVerification {
+  ran: boolean;
+  /** The classes that were checked, in the server's words. */
+  checked: string[];
+  attempts: VerificationAttempt[];
+  /** Findings a repair cleared. */
+  repaired: DraftFinding[];
+  /** Findings that survive; empty is the only clean answer. */
+  findings: DraftFinding[];
+}
+
 export interface AuthorReportResponse {
   valid: boolean;
   /** Always false, always present: the endpoint persists nothing. */
@@ -69,6 +103,8 @@ export interface AuthorReportResponse {
   usage: { prompt_tokens: number; completion_tokens: number; steps: number };
   model_info: { provider: string; model: string; resolution: string };
   catalogue: { views: number; shapes: number; rules: number; prompt_chars: number };
+  /** Absent on an answer from a server that predates the data check. */
+  verification?: DraftVerification;
   error?: string;
 }
 
@@ -131,7 +167,9 @@ export const DRAFT_STATUS_TONE: Record<
 /**
  * Reads one answer into a status. `valid` alone is not enough: a refusal that
  * never reached the model (AI off, a cap) is a different state from a draft the
- * registry rejected, and the reviewer is told which.
+ * registry rejected, and the reviewer is told which. A draft the data check
+ * could not draw arrives with `valid: false`, so it lands on `needs_fixes`
+ * with its findings, never on `ready`.
  */
 export function draftStatusOf(answer: AuthorReportResponse | null, refused: boolean): DraftStatus {
   if (refused) return "refused";
@@ -148,6 +186,42 @@ export function diffTally(diff: ReportDiffEntry[]): string {
   if (count("remove") > 0) parts.push(`−${count("remove")}`);
   if (count("change") > 0) parts.push(`~${count("change")}`);
   return parts.join(" ");
+}
+
+/**
+ * One line for the draft row: what was checked and in how many rounds.
+ *
+ * `ran: false` says so plainly, because an unchecked draft and a checked one
+ * are different facts and the reviewer is owed the true one. The line never
+ * claims a verdict the server did not report.
+ */
+export function verificationSummary(verification: DraftVerification): string {
+  if (!verification.ran) return "Not checked: no data check ran for this draft.";
+  const rounds = verification.attempts.length;
+  const classes = verification.checked.length;
+  const roundWords = rounds === 1 ? "1 round" : `${rounds} rounds`;
+  if (verification.findings.length > 0) {
+    return `Checked ${classes} classes in ${roundWords}; ${verification.findings.length} still failing.`;
+  }
+  return `Checked ${classes} classes in ${roundWords}; nothing failed.`;
+}
+
+/**
+ * Registry issues the verification block is not already showing.
+ *
+ * The server lists a surviving finding in `issues` as well, so a client that
+ * reads only `issues` still tells the truth. When both are rendered the row
+ * would print the same sentence twice, so the verification block owns them.
+ */
+export function issuesOutsideVerification(
+  issues: ReportAuthoringIssue[],
+  verification: DraftVerification | null | undefined,
+): ReportAuthoringIssue[] {
+  if (verification === null || verification === undefined) return issues;
+  const shown = new Set(
+    [...verification.findings, ...verification.repaired].map((finding) => finding.message),
+  );
+  return issues.filter((issue) => !shown.has(issue.message));
 }
 
 /** The refusal envelope the API returns for a typed AI refusal. */
