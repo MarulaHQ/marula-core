@@ -15,7 +15,7 @@
 "use client";
 
 import "../dispatch.css";
-import { EmptyState, Spinner, formatDayKey } from "@marula-core/ui";
+import { EmptyState, Skeleton, Spinner, formatDayKey } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
@@ -214,8 +214,8 @@ export default function DispatchPlanningPage() {
               <div className="dp-hz">
                 {[70, 85, 90, 60, 30, 18, 80].map((h, i) => (
                   <div className="col" key={i}>
-                    <div className="dp-skel" style={{ width: "100%", maxWidth: 64, height: `${h}%` }} />
-                    <div className="dp-skel" style={{ width: 40, height: 12 }} />
+                    <Skeleton shape="block" height={`${h}%`} style={{ maxWidth: 64 }} />
+                    <Skeleton shape="line" width={40} />
                   </div>
                 ))}
               </div>
@@ -224,7 +224,7 @@ export default function DispatchPlanningPage() {
               <h2>Skill catalogue</h2>
               <div className="dp-sub">Loading rosters and open work…</div>
               {Array.from({ length: 6 }, (_, i) => (
-                <div key={i} className="dp-skel" style={{ height: 22, marginTop: 14 }} />
+                <Skeleton key={i} shape="block" height={22} style={{ marginTop: 14 }} />
               ))}
             </div>
           </div>

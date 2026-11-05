@@ -121,3 +121,58 @@ does.
 look at the verifier: Tauri reads minisign, the release lane reads sshsig. A
 single key would mean writing our own verifier for one of the two, which is more
 code in the trust path than a second key is.
+
+## Amendment 2026-11-05: the client is told which installation it is a client of
+
+**What was missing.** This ADR decided what the client is (a shell around the
+product's own front end) and left one question unasked: a shell that loads "the
+web deployment" has to know *which* deployment. Until now the answer was
+implicit, because the only client that existed ran the app itself — the embedded
+build from ADR 0005. A client of a running instance had no way to exist, and
+`main.rs` booted embedded Postgres and core-api unconditionally.
+
+**The decision.** The client has two modes, chosen once and read before anything
+starts:
+
+- **Connected.** The webview loads the instance's own URL, self-hosted or hosted.
+  Nothing is booted: no database, no API, no bundled server. This is §1 taken
+  literally — the front end the client shows is the one the deployment serves,
+  because it *is* the deployment's own page.
+- **Embedded.** ADR 0005's app, unchanged. The database is local and the client
+  is the server.
+
+The choice lives in `connection.json` in the app data dir, written by the
+first-run screen or by `--server`/`--local`. `MARULA_DESKTOP_SERVER` overrides it
+for a single launch. The file holds an address and no credential. The rules that
+decide what an address may be, and the tests that hold them, are in
+`desktop/src/connection.rs`.
+
+**Why the instance's own URL, and not the bundled shell pointed at a remote
+API.** The second design is the obvious one and it fails on the session. The
+bundled shell is served from `127.0.0.1`, so a cookie set by the instance would
+be a third-party cookie, which WebKit blocks by default; and every API call
+would be cross-origin, which asks the instance's operator to allow
+`http://127.0.0.1:<port>` in `CORS_ORIGIN`. A client that only works when the
+server was configured for it is not a client of the server. Loading the
+instance's own origin makes the page and the API same-origin, which is the
+posture the deployment already has.
+
+**The cost, stated plainly.** A connected page holds no app command. The
+capability set grants the native surface to the loopback origins this shell
+serves, as exact origins, and an address a person typed is not one of them. So a
+connected window keeps the menu, the tray, deep links, window geometry and the
+update channel, and loses raw-ZPL printing. It also cannot ask the shell to open
+a native role window; the tray and a deep link still open one, because those
+paths begin in Rust rather than in the page. That follows from §1 rather than
+contradicting it: the shell adds what a browser cannot do *for the front end it
+hosts*. Handing those commands to whatever origin a user typed would be the
+larger decision, and it is not taken here.
+
+**Unchanged.** The two trust roots (§2), the window model (§3), the offline
+rule (§4) and the update channel (§5) are untouched. A connected client keeps
+the shell and its static assets and still holds no ticket content, no
+attachment and no offline queue of its own.
+
+**Unchanged, and still an ADR question.** The client is a macOS artifact
+(ADR 0005). Per-OS desktop bundles for Windows and Linux are a change to that
+ADR, and this amendment does not make one by adding a bundle target.

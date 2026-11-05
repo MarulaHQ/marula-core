@@ -10,6 +10,33 @@ use tower::ServiceExt;
 const TOKEN: &str = "session-token";
 const TICKET: &str = "018f0a5e-0000-7000-8000-0000000000aa";
 
+/// The caller `/api/v1/me` describes: what the org granted, and what this
+/// credential itself holds.
+#[derive(Clone, Copy)]
+struct Caller {
+    grants: &'static [&'static str],
+    permissions: &'static [&'static str],
+    subject: &'static str,
+}
+
+/// A staff session: role-derived permissions.
+fn person(grants: &'static [&'static str], permissions: &'static [&'static str]) -> Caller {
+    Caller {
+        grants,
+        permissions,
+        subject: "user",
+    }
+}
+
+/// A scoped API key: scope-derived permissions, `subject` agent.
+fn key(grants: &'static [&'static str], permissions: &'static [&'static str]) -> Caller {
+    Caller {
+        grants,
+        permissions,
+        subject: "agent",
+    }
+}
+
 fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
     let bearer = headers
         .get("authorization")
@@ -25,7 +52,7 @@ fn bearer_ok(headers: &axum::http::HeaderMap) -> bool {
 /// A stub of the core-api surface the adapter reads and proxies onto. It grants
 /// exactly the capabilities it is given, so an absent grant proves the deny
 /// path for all three surfaces.
-fn stub_core_api(grants: &'static [&'static str]) -> Router {
+fn stub_core_api(caller: Caller) -> Router {
     Router::new()
         .route(
             "/api/v1/me",
@@ -39,8 +66,9 @@ fn stub_core_api(grants: &'static [&'static str]) -> Router {
                     "email": "tech@example.test",
                     "display_name": "Tech",
                     "timezone": "UTC",
-                    "permissions": ["clients:view"],
-                    "mcp_capabilities": grants
+                    "permissions": caller.permissions,
+                    "subject": caller.subject,
+                    "mcp_capabilities": caller.grants
                 }))
                 .into_response()
             }),
@@ -89,12 +117,12 @@ fn stub_core_api(grants: &'static [&'static str]) -> Router {
         )
 }
 
-async fn app(grants: &'static [&'static str]) -> Router {
+async fn app(caller: Caller) -> Router {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, stub_core_api(grants)).await.unwrap() });
+    tokio::spawn(async move { axum::serve(listener, stub_core_api(caller)).await.unwrap() });
     let base = format!("http://{addr}");
     let server = MarulaServer::new(
         &base,
@@ -164,7 +192,7 @@ fn modern(method: &str, params: Value) -> Value {
 
 #[tokio::test]
 async fn a_modern_client_discovers_and_lists_its_grants() {
-    let app = app(&["clients:read"]).await;
+    let app = app(person(&["clients:read"], &["clients:view"])).await;
     let discovered = rpc(&app, Some(TOKEN), modern_meta("server/discover")).await;
     let result = &discovered["result"];
     assert!(
@@ -195,7 +223,7 @@ async fn a_modern_client_discovers_and_lists_its_grants() {
 
 #[tokio::test]
 async fn a_legacy_client_still_gets_the_same_catalog() {
-    let app = app(&["clients:read"]).await;
+    let app = app(person(&["clients:read"], &["clients:view"])).await;
     let initialized = rpc(
         &app,
         Some(TOKEN),
@@ -229,8 +257,74 @@ async fn a_legacy_client_still_gets_the_same_catalog() {
 }
 
 #[tokio::test]
+async fn a_bound_key_sees_only_the_tools_its_own_permissions_open() {
+    // The org granted both families; this key was minted with `clients:read`
+    // alone, so every ticket tool would be refused by the handler behind it.
+    let bound_app = app(key(&["clients:read", "tickets:read"], &["clients:view"])).await;
+    let listed = rpc(&bound_app, Some(TOKEN), modern_meta("tools/list")).await;
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(names.contains(&"clients_list"), "{names:?}");
+    assert!(
+        !names.contains(&"tickets_list"),
+        "a tool the key's own scopes cannot call must not be advertised: {names:?}"
+    );
+
+    // The same org, a key that carries the ticket scope: the family returns.
+    let permitted_app = app(key(
+        &["clients:read", "tickets:read"],
+        &["clients:view", "tickets:view"],
+    ))
+    .await;
+    let listed = rpc(&permitted_app, Some(TOKEN), modern_meta("tools/list")).await;
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"tickets_list") && names.contains(&"clients_list"),
+        "{names:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_key_is_not_shown_a_family_its_credential_cannot_reach() {
+    // `notifications` is self-scoped and org-granted, so a person sees it. An
+    // `x-api-key` cannot reach that path at all: core-api refuses the credential
+    // before a handler runs, so the adapter does not advertise the tool.
+    let person_view = app(person(&["notifications:read"], &["clients:view"])).await;
+    let listed = rpc(&person_view, Some(TOKEN), modern_meta("tools/list")).await;
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(names.contains(&"notifications_list"), "{names:?}");
+
+    let key_view = app(key(&["notifications:read"], &["clients:view"])).await;
+    let listed = rpc(&key_view, Some(TOKEN), modern_meta("tools/list")).await;
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(
+        !names.contains(&"notifications_list"),
+        "a key cannot reach this path, so it must not be offered: {names:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_session_without_a_token_sees_no_tools() {
-    let app = app(&["clients:read"]).await;
+    let app = app(person(&["clients:read"], &["clients:view"])).await;
     let listed = rpc(&app, None, modern_meta("tools/list")).await;
     assert_eq!(
         listed["result"]["tools"].as_array().map(Vec::len),
@@ -255,7 +349,7 @@ async fn a_session_without_a_token_sees_no_tools() {
 
 #[tokio::test]
 async fn a_call_forwards_the_callers_session_and_refuses_an_ungranted_family() {
-    let app = app(&["clients:read"]).await;
+    let app = app(person(&["clients:read"], &["clients:view"])).await;
     let called = rpc(
         &app,
         Some(TOKEN),
@@ -301,7 +395,11 @@ async fn a_call_forwards_the_callers_session_and_refuses_an_ungranted_family() {
 
 #[tokio::test]
 async fn resources_are_templates_scoped_by_grant() {
-    let app = app(&["tickets:read", "documents:read"]).await;
+    let app = app(person(
+        &["tickets:read", "documents:read"],
+        &["tickets:view", "documents:view"],
+    ))
+    .await;
     let listed = rpc(&app, Some(TOKEN), modern_meta("resources/list")).await;
     assert_eq!(
         listed["result"]["resources"].as_array().map(Vec::len),
@@ -328,7 +426,7 @@ async fn resources_are_templates_scoped_by_grant() {
 
 #[tokio::test]
 async fn a_resource_read_proxies_the_same_record_the_tool_would() {
-    let app = app(&["tickets:read"]).await;
+    let app = app(person(&["tickets:read"], &["tickets:view"])).await;
     let read = rpc(
         &app,
         Some(TOKEN),
@@ -349,7 +447,7 @@ async fn a_resource_read_proxies_the_same_record_the_tool_would() {
 
 #[tokio::test]
 async fn a_resource_read_refuses_an_ungranted_family_and_a_reshaped_uri() {
-    let app = app(&["tickets:read"]).await;
+    let app = app(person(&["tickets:read"], &["tickets:view"])).await;
     let refused = rpc(
         &app,
         Some(TOKEN),
@@ -384,7 +482,7 @@ async fn a_resource_read_refuses_an_ungranted_family_and_a_reshaped_uri() {
 
 #[tokio::test]
 async fn prompts_are_listed_and_served_only_when_the_first_read_is_granted() {
-    let app = app(&["tickets:read"]).await;
+    let app = app(person(&["tickets:read"], &["tickets:view"])).await;
     let listed = rpc(&app, Some(TOKEN), modern_meta("prompts/list")).await;
     let names: Vec<&str> = listed["result"]["prompts"]
         .as_array()

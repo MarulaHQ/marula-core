@@ -1724,10 +1724,6 @@
   border-top: 1px solid var(--m-border);
   font-variant-numeric: tabular-nums;
 }
-.dp-skel {
-  background: var(--m-surface-muted);
-  border-radius: 8px;
-}
 
 /* ---- travel ---- */
 .dp-tv {

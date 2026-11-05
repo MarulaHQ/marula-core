@@ -211,7 +211,7 @@ fn render_error(e: tmpl::RenderError) -> ApiError {
 /// GET /api/v1/reply-snippets — the org's snippet library with the
 /// search-in-composer predicate applied (`board_id` offer filter + `q`
 /// case-insensitive substring over name and body).
-#[utoipa::path(get, path = "/api/reply-snippets", tag = "admin", security(("bearer" = [])),
+#[utoipa::path(operation_id = "reply_snippets_list", get, path = "/api/reply-snippets", tag = "admin", security(("bearer" = [])),
     params(ReplySnippetListQuery),
     responses((status = 200, body = ReplySnippetsListResponse),
               (status = 403, description = "requires tickets:view or admin:view")))]
@@ -248,7 +248,7 @@ pub async fn list(
 /// GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix,
 /// Wave 34 lane 4: the fork-on-edit flow reads the origin after forking;
 /// the route was missing so reads 405'd).
-#[utoipa::path(get, path = "/api/reply-snippets/{id}", tag = "admin", security(("bearer" = [])),
+#[utoipa::path(operation_id = "reply_snippets_get_one", get, path = "/api/reply-snippets/{id}", tag = "admin", security(("bearer" = [])),
     params(("id" = uuid::Uuid, Path)),
     responses((status = 200, body = ReplySnippetView),
               (status = 404),

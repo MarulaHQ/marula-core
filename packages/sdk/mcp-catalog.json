@@ -620,7 +620,7 @@
           "name": "directory_groups_list",
           "path": "/api/directory-groups",
           "capability": "directory-groups:read",
-          "summary": "GET /api/directory-groups — every group in the org (manager+)."
+          "summary": "GET /api/directory-groups — one cursor-paged page of the org's groups\n(manager+), ordered `(name, id)`."
         },
         {
           "name": "directory_groups_detail",
@@ -1078,6 +1078,12 @@
           "summary": "`GET /api/v1/orgs/{org_id}/custom-domain` — current state + verification\nstatus + provider-plugin availability."
         },
         {
+          "name": "org_entitlement_get",
+          "path": "/api/orgs/{org_id}/entitlements",
+          "capability": "orgs:read",
+          "summary": "GET /api/v1/orgs/{org_id}/entitlements — the artifact the org holds."
+        },
+        {
           "name": "org_quotas_get",
           "path": "/api/orgs/{org_id}/quotas",
           "capability": "orgs:read",
@@ -1174,6 +1180,12 @@
           "path": "/api/plugins/distribution/theme-packs",
           "capability": "plugins:read",
           "summary": "GET /api/plugins/distribution/theme-packs — the org's installed\ntheme packs (ADR 0009 V1 distribution; restyle-only manifests)."
+        },
+        {
+          "name": "plugin_identity_bundles_list",
+          "path": "/api/plugins/identity-bundles",
+          "capability": "plugins:read",
+          "summary": "GET /api/plugins/identity-bundles — the org's installs, which is also the\nonly way to learn the id the lifecycle verbs address."
         },
         {
           "name": "plugin_install_list",
@@ -1431,13 +1443,13 @@
       "sensitive": false,
       "tools": [
         {
-          "name": "list",
+          "name": "reply_snippets_list",
           "path": "/api/reply-snippets",
           "capability": "reply-snippets:read",
           "summary": "GET /api/v1/reply-snippets — the org's snippet library with the\nsearch-in-composer predicate applied (`board_id` offer filter + `q`\ncase-insensitive substring o"
         },
         {
-          "name": "get_by_id",
+          "name": "reply_snippets_get_one",
           "path": "/api/reply-snippets/{id}",
           "capability": "reply-snippets:read",
           "summary": "GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix,\nWave 34 lane 4: the fork-on-edit flow reads the origin after forking;\nthe route was missing"

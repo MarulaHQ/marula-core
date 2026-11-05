@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "connect",
+  "description": "Grants the shell's own first-run screen exactly one thing: the connection decision. The screen is served from the bundle (the local asset origin), so it needs no remote grant; the product's front end runs in a different window and never sees this capability. No plugin permission is granted here — the connect window cannot read files, open windows, print, or update anything.",
+  "windows": ["connect"],
+  "permissions": ["core:default", "allow-save-connection"]
+}

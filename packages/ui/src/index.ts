@@ -74,6 +74,7 @@ export * from "./components/card";
 export * from "./components/separator";
 export * from "./components/kbd";
 export * from "./components/spinner";
+export * from "./components/skeleton";
 export * from "./components/empty-state";
 export * from "./components/table";
 export * from "./components/select";

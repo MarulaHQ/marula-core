@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.3.2** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**663 paths · 885 operations · 1388 schemas.**
+**663 paths · 885 operations · 1394 schemas.**
 
 ## admin
 
@@ -994,10 +994,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `GET` | `/api/v1/reply-snippets` <a id="list"></a> | GET /api/v1/reply-snippets — the org's snippet library with the search-in-composer predicate applied (`board_id` offer filter + `q` case-insensitive substring over name and body). | — |
+| `GET` | `/api/v1/reply-snippets` <a id="reply_snippets_list"></a> | GET /api/v1/reply-snippets — the org's snippet library with the search-in-composer predicate applied (`board_id` offer filter + `q` case-insensitive substring over name and body). | — |
 | `POST` | `/api/v1/reply-snippets` <a id="create"></a> | POST /api/v1/reply-snippets — add a snippet to the library. | [CreateReplySnippetRequest](#schema-createreplysnippetrequest) |
 | `DELETE` | `/api/v1/reply-snippets/{id}` <a id="delete"></a> | DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. | — |
-| `GET` | `/api/v1/reply-snippets/{id}` <a id="get_by_id"></a> | GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix, Wave 34 lane 4: the fork-on-edit flow reads the origin after forking; the route was missing so reads 405'd). | — |
+| `GET` | `/api/v1/reply-snippets/{id}` <a id="reply_snippets_get_one"></a> | GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix, Wave 34 lane 4: the fork-on-edit flow reads the origin after forking; the route was missing so reads 405'd). | — |
 | `PATCH` | `/api/v1/reply-snippets/{id}` <a id="update"></a> | PATCH /api/v1/reply-snippets/{id} — edit a snippet in place (the library is org-owned data; fork-on-edit applies when orgs want a divergent copy, via the fork endpoint). | [UpdateReplySnippetRequest](#schema-updatereplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/fork` <a id="fork"></a> | POST /api/v1/reply-snippets/{id}/fork — duplicate a snippet into a new editable copy (templates fork-on-edit provenance pattern). The origin is untouched; the copy records `forked_from`. | [ForkReplySnippetRequest](#schema-forkreplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/render` <a id="render"></a> | POST /api/v1/reply-snippets/{id}/render — resolve the snippet's variable tokens against a real ticket context and return the rendered body (the composer inserts the RENDERED text; the portal reply renders the result). Out-of-vocabulary placeholders are typed 400s. | [RenderReplySnippetRequest](#schema-renderreplysnippetrequest) |
@@ -1622,11 +1622,17 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-capreachedbehavior"></a>`CapReachedBehavior` | string | What evaluation does when a T&M contract's cap is reached (B: never a silent cutoff — the behavior is a typed choice on the cap). |
 | <a id="schema-capspec"></a>`CapSpec` | object | NTE cap spec (B): typed not-to-exceed behavior. |
 | <a id="schema-capturedefaultsresponse"></a>`CaptureDefaultsResponse` | object | The capture surface's read: ordered picker + theHELP defaults. |
+| <a id="schema-cardheight"></a>`CardHeight` | string | Card height. Three named steps, not pixels: the grid owns the measurement so a density change never becomes a data-contract change. |
+| <a id="schema-cardrefresh"></a>`CardRefresh` | object | How often a card recomputes, and how much data one recompute covers. |
+| <a id="schema-cardsize"></a>`CardSize` | object | A card's footprint: the one size vocabulary both surfaces read. |
+| <a id="schema-cardspan"></a>`CardSpan` | string | Card width on the dashboard's twelve-column grid. The vocabulary lane 6 consumes; the CSS owns the measurement, this owns the names. |
+| <a id="schema-cardspec"></a>`CardSpec` | object | Everything about a card that is not the query: its size, the window it displays, and how it refreshes. Stored beside a [`ReportSpec`] by both surfaces. |
 | <a id="schema-catalogcolumn"></a>`CatalogColumn` | object | One catalog column: the static identifier plus its value class slug (`uuid \| text \| timestamp \| date \| int \| bigint \| bool`). The slug is what the builder UI keys operand typing on. |
 | <a id="schema-catalogentryview"></a>`CatalogEntryView` | object |  |
 | <a id="schema-catalogitemmutationresponse"></a>`CatalogItemMutationResponse` | composite | Instant-first mutation response (IF2) for catalog mutations. |
 | <a id="schema-catalogitemview"></a>`CatalogItemView` | object | RB2 (ADR 0004): a catalog item as the CALLER may see it. `unit_price` is the commercial surface; `cost_minor` (and the gross margin derived from it) is financial data — it serializes `null` for caller |
 | <a id="schema-cataloglistquery"></a>`CatalogListQuery` | object |  |
+| <a id="schema-catalogshape"></a>`CatalogShape` | object | One card shape, described for the authoring agent (Wave 46 lane 1). The prose is served, not duplicated in a prompt: a model that reads this catalogue authors against the same rules the compiler enfor |
 | <a id="schema-cataloguenode"></a>`CatalogueNode` | object | One node as the authoring prompt sees it: NO schemas. Schemas are fetched per node, on demand, through [`NODE_SCHEMA_TOOL`]. `idempotent` and `agent_description` ride here so the model can reason abou |
 | <a id="schema-catalogview"></a>`CatalogView` | object | The field catalog of ONE versioned view: every projected column plus the narrower filterable inventory. Identifiers here are the ONLY ones a builder may reference — the server re-validates every spec  |
 | <a id="schema-categorymutationresponse"></a>`CategoryMutationResponse` | composite | Instant-first mutation response (IF2): category fields at the top level plus the additive `mutation` metadata. |
@@ -2847,4 +2853,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 31 operation groups; schema count 1388 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 31 operation groups; schema count 1394 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
