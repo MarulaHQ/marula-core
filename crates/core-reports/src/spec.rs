@@ -53,10 +53,21 @@ pub enum VizHint {
     Line,
     Pie,
     Table,
+    /// A single headline number: exactly one measure and no group-by
+    /// dimension (enforced by [`ReportSpec::validate`]). Added with the card
+    /// contract (Wave 46 lane 1) so a dashboard stat and a report stat are
+    /// the same viz, not a client-side word with no server meaning.
+    Stat,
 }
 
 impl VizHint {
-    pub const ALL: [VizHint; 4] = [VizHint::Bar, VizHint::Line, VizHint::Pie, VizHint::Table];
+    pub const ALL: [VizHint; 5] = [
+        VizHint::Bar,
+        VizHint::Line,
+        VizHint::Pie,
+        VizHint::Table,
+        VizHint::Stat,
+    ];
 
     pub const fn slug(self) -> &'static str {
         match self {
@@ -64,6 +75,7 @@ impl VizHint {
             VizHint::Line => "line",
             VizHint::Pie => "pie",
             VizHint::Table => "table",
+            VizHint::Stat => "stat",
         }
     }
 
@@ -444,6 +456,18 @@ impl ReportSpec {
             }
             names.push(out);
         }
+
+        // --- viz -----------------------------------------------------------
+        // A stat is a headline number. The card contract derives a spec's
+        // shape from this, so a stat that carries dimensions or a second
+        // measure would be drawn as something the author did not ask for.
+        if self.viz == VizHint::Stat && (self.measures.len() != 1 || !self.group_by.is_empty()) {
+            return Err(invalid(
+                "viz",
+                "a stat takes exactly one measure and no group-by dimension".to_string(),
+            ));
+        }
+
         Ok(())
     }
 
