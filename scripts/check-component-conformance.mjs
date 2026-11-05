@@ -186,7 +186,15 @@ const PACK_COUNTERPARTS = {
   "ui/separator": { standalone: "layout utility; the pack separates with spacing, never with rules" },
   "ui/spinner": {
     standalone:
-      "indeterminate loading ring; the pack's loading shapes are the skeleton family (see the skeleton-loader residual), and a spinner is the chrome-level fallback",
+      "indeterminate loading ring; the pack's loading shapes are the skeleton family (ui/skeleton), and a spinner is the chrome-level fallback",
+  },
+  "ui/skeleton": {
+    anchors: [[SK, "Skeleton"], [SK, 'class="skel"']],
+    kit: [
+      ["packages/ui/src/components.css", "m-skel-block"],
+      ["packages/ui/src/components/skeleton.tsx", "m-skel"],
+    ],
+    note: "the sheet's flat loading blocks: line, block, circle and a group that says what is loading; no shimmer",
   },
   "ui/status-stepper": {
     anchors: [[KV, 'class="stp2"']],
@@ -301,28 +309,7 @@ function grepTreeHas(needle, relUnderRepo) {
   }
 }
 
-/** Some shipped component implements the drawn family (needle searchable in its module). */
-function someShippedModuleServes(needle) {
-  for (const { components } of shipped) {
-    for (const c of components) {
-      const text = moduleText(c.module);
-      if (text !== null && text.includes(needle)) return true;
-    }
-  }
-  return false;
-}
-
-const RESIDUAL_LEDGER = [
-  {
-    id: "skeleton-loader",
-    panel: "Skeleton",
-    drawn: "the pack draws the loading shape as flat skeleton blocks, no shimmer (S4)",
-    missing:
-      "no component in packages/ui ships the skeleton family — components.css carries the m-skel vocabulary entry but no module emits it, so surfaces hand-roll their loading splashes",
-    ownedBy: "a follow-up row (place the owner's name here when it is adopted), not Wave 48 lane 3",
-    verify: () => someShippedModuleServes("m-skel") || someShippedModuleServes("skeleton"),
-  },
-];
+const RESIDUAL_LEDGER = [];
 
 /* -------------------------------------------------------------------------
  * Self-test — synthetic fixtures, no pack, no stack, no disk beyond the repo

@@ -140,18 +140,6 @@ body {
   }
 }
 
-/* Quiet skeleton pulse (opacity only) for typed widget loading states. */
-
-@keyframes m-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
-}
-
 /*
  * Wave 17 lane 3 — kanban board (docs/theme.md §5 motion law):
  * transform/opacity only, ≤120ms, prefers-reduced-motion honored.

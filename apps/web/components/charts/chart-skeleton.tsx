@@ -15,6 +15,8 @@
  * Non-purpose: no pulse or shimmer (docs/theme.md motion law forbids it), and
  * no spinner — a spinner announces loading while collapsing the layout.
  */
+import { Skeleton } from "@marula-core/ui";
+
 export function ChartSkeleton({
   label,
   height,
@@ -46,14 +48,7 @@ export function ChartSkeleton({
         style={{ gridTemplateColumns: "repeat(6, 1fr)" }}
       >
         {[58, 86, 44, 72, 96, 62].map((share, index) => (
-          <div
-            key={index}
-            className="rounded-md"
-            style={{
-              height: `${share}%`,
-              background: "var(--m-surface-2)",
-            }}
-          />
+          <Skeleton key={index} shape="block" height={`${share}%`} />
         ))}
       </div>
     </div>

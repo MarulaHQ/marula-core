@@ -709,6 +709,48 @@
   color: var(--m-text-secondary);
 }
 
+/* ---------- Skeleton (surface pack S4) ---------- */
+
+/* The pack draws loading as flat blocks: 22px tall, 8px radius, a 10px stack,
+   no shimmer. The line is the 12px text floor the sheet sets, the circle is a
+   control-sized avatar dot. Nothing here animates (theme.md §5). */
+
+.m-skel {
+  display: block;
+  flex-shrink: 0;
+  background: var(--m-surface-2);
+}
+
+.m-skel-line {
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+}
+
+.m-skel-block {
+  width: 100%;
+  height: 22px;
+  border-radius: 8px;
+}
+
+.m-skel-circle {
+  width: var(--m-density-control);
+  height: var(--m-density-control);
+  border-radius: 50%;
+}
+
+.m-skel-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.m-skel-sentence {
+  margin: 0;
+  font-size: 13px;
+  color: var(--m-text-secondary);
+}
+
 .m-spinner {
   display: inline-block;
   width: 16px;

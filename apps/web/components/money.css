@@ -15,12 +15,6 @@
   animation: m-rise 120ms cubic-bezier(0.2, 0, 0, 1) backwards;
 }
 
-.m-skel {
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--m-mist) 22%, transparent);
-  animation: m-pulse 1.4s ease-in-out infinite;
-}
-
 .m-chart-fluid {
   min-width: 0;
 }
@@ -685,10 +679,6 @@
 @media (prefers-reduced-motion: reduce) {
 .m-rise {
     animation: none;
-  }
-.m-skel {
-    animation: none;
-    opacity: 0.5;
   }
 .m-shortcut-overlay > div {
     animation: none;
