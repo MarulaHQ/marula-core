@@ -108,6 +108,83 @@ const REASON_COPY: Readonly<Record<string, string>> = {
 const GENERIC_REJECTION =
   "That change couldn't be saved. Refresh and try again — if it keeps failing, the value may already be in use.";
 
+/**
+ * Why an AI-backed proposal is not available, and what would make it available.
+ *
+ * Wave 46 lane 6: the two "describe it" entries (reports and dashboards) and
+ * the authoring page all sit on the same admission path, and it refuses with a
+ * typed reason before any model runs. One row per reason the API can emit
+ * (`crates/core-api/src/routes/ai_policy.rs`, `authorize_surface_call`), so the
+ * two surfaces cannot describe the same refusal two different ways. A reason
+ * that is not listed here still gets the generic row below rather than a bare
+ * date or a dead control.
+ */
+export interface AiGateCopy {
+  /** What is not available, as a statement of fact. */
+  title: string;
+  /** The one thing a person can do about it. */
+  remedy: string;
+}
+
+const AI_GATE_COPY: Readonly<Record<string, AiGateCopy>> = {
+  ai_features_disabled: {
+    title: "AI is switched off for this organization",
+    remedy: "An owner or admin can switch it on under Settings, AI.",
+  },
+  ai_surface_disabled: {
+    title: "This AI surface is switched off",
+    remedy: "An owner or admin can enable the surface under Settings, AI.",
+  },
+  ai_surface_not_granted: {
+    title: "No grant covers you on this surface",
+    remedy: "Ask an owner or admin to grant it under Settings, AI, which is deny-by-default.",
+  },
+  ai_surface_internal: {
+    title: "That surface is internal",
+    remedy: "Drafting here uses the general chat surface; an internal surface cannot be called directly.",
+  },
+  ai_hard_cap_reached: {
+    title: "AI usage has reached its cap for this period",
+    remedy: "Wait for the period to reset, or ask an owner or admin to raise the cap under Settings, AI.",
+  },
+  ai_no_credential: {
+    title: "No model credential is available",
+    remedy: "An owner or admin can add a provider key under Settings, AI, credentials.",
+  },
+  ai_no_models_configured: {
+    title: "No model is configured",
+    remedy: "An owner or admin can add one to the catalog under Settings, AI.",
+  },
+  ai_model_not_allowed: {
+    title: "That model is not on this organization's allowlist",
+    remedy: "Pick an allowlisted model, or ask an owner or admin to add it under Settings, AI.",
+  },
+  ai_model_not_capable: {
+    title: "The selected model cannot draft reports",
+    remedy: "Drafting needs tool calling; ask an owner or admin to allow a model that carries it.",
+  },
+  ai_agent_capability_not_granted: {
+    title: "The agent capability this run needs is not granted",
+    remedy: "Ask an owner or admin to grant the capability under Settings, AI.",
+  },
+};
+
+const AI_GATE_FALLBACK: AiGateCopy = {
+  title: "AI is not available for this organization right now",
+  remedy: "An owner or admin can check the switch, the grant, the model and the credential under Settings, AI.",
+};
+
+/**
+ * Reads one refusal reason into a stated reason plus its remedy.
+ *
+ * Returns null for anything that is not an AI admission refusal, so a caller
+ * keeps the ordinary error copy for a validation or permission failure.
+ */
+export function aiGateCopy(reason: string): AiGateCopy | null {
+  if (!reason.startsWith("ai_")) return null;
+  return AI_GATE_COPY[reason] ?? AI_GATE_FALLBACK;
+}
+
 /** Offline / timeout copy. Two registers per the instant-first doctrine:
  * surfaces WITH the durable queue (instant runtime) tell the user the
  * change is saved and will replay; direct surfaces (envelope-write) tell
