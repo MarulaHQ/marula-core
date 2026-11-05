@@ -49,16 +49,13 @@
 ## Why we built it
 
 > “I nearly got fired over *time entry.*” — the first line of
-> [`MANIFESTO.md`](MANIFESTO.md), by Tumi Lengoasa, who built Marula after
-> years of working tickets in a PSA that needed four screens and a handful of
-> save buttons to record an hour.
+> [`MANIFESTO.md`](MANIFESTO.md)
 
-So we built the one we wanted on our own desks. A ticket takes one screen:
-notes, timer, conversation and documents live in the same view because they
-are the same job. The timer follows you across tickets and rough notes become
+After years of working in a PSA that takes just as much work to manage as it does to work the ticket, we've decided we've had enough. 
+
+In Marula, a ticket takes one screen. Notes, timer, conversation and documents live in the same view because they're part of the same job. The timer follows you across tickets and rough notes become
 a proper time entry. The assistant does the mechanical work (surfacing the
-runbook, drafting the note, proposing the fix) and hands it to a person, who
-decides. Anything a client can see waits for a human click, always.
+runbook, drafting the note, proposing the fix) and hands it all the the person doing the work. Anything a client can see waits for a human click, always.
 
 <!-- > [TODO: one or two sentences on who maintains Marula and what sustains it.
 > MSPs will ask “what happens if you disappear?”, and a plain answer up front
