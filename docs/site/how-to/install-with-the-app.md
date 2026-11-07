@@ -28,9 +28,11 @@ descriptor that ships inside it and measures the host.
 2. **This machine.** Cores, memory, free disk at the install path, whether
    Docker answers, and a GPU if one is visible. The recommendation names the
    numbers it was chosen on, so you can disagree with it.
-3. **Shape.** The two topologies side by side, each floor marked against this
-   host. What each one runs is one disclosure away rather than in the reading
-   path. See [deployment shapes](../reference/deployment-shapes.md).
+3. **Shape.** Every shape the build ships, each floor marked against this host.
+   What each one runs is one disclosure away rather than in the reading path.
+   The demo tier is here too, and is never marked recommended: its sign-in is
+   published and its reset surface stays on loopback. See
+   [deployment shapes](../reference/deployment-shapes.md).
 4. **Settings.** Seven decisions in recommended mode, the whole catalogue in
    developer mode.
 5. **Review.** The plan as steps, then the config it writes, then what stays

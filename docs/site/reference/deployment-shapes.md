@@ -17,14 +17,14 @@ numbers below are the same numbers the plan checks.
 
 ## The two shapes
 
-| | `split` | `all-in-one` |
-|---|---|---|
-| Application processes | core-api and worker, separate | one core-api process, worker loops inside |
-| Containers | 7 | 5 |
-| Cores | 4 | 4 |
-| Memory | 8192 MB | 8192 MB |
-| Free disk | 40 GB | 30 GB |
-| Ports | 8080 (API), 8082 (worker health) | 8080 and 8082 on the one process |
+| | `split` | `all-in-one` | `demo` |
+|---|---|---|---|
+| Application processes | core-api and worker, separate | one core-api process, worker loops inside | core-api and worker, separate |
+| Containers | 7 | 5 | 9 |
+| Cores | 4 | 4 | 4 |
+| Memory | 8192 MB | 8192 MB | 8192 MB |
+| Free disk | 40 GB | 30 GB | 30 GB |
+| Ports | 8080 (API), 8082 (worker health) | 8080 and 8082 on the one process | 8080 and 8082, **loopback only** |
 
 Containers counts the whole stack: the application, Postgres, Valkey, the
 migration one-shot and the web console. `split` adds a worker and PgBouncer.
@@ -53,6 +53,31 @@ than the team can justify.
 It sets eleven values that `split` leaves alone: the pooler is out of the path,
 so the API talks to Postgres directly and the statement cache has to be off, and
 the worker's health endpoint moves into the API process.
+
+## demo
+
+The only shape with a published password. It runs the split stack with the demo
+overlay: a seeded organisation, a one-shot seeder that runs before the API, and
+the surface that replaces the demo data between showings.
+
+Two things make it different rather than convenient:
+
+- **The API is pinned to loopback.** The reset surface that shape carries has no
+  authentication, so it must not face a network. Reach it through an SSH tunnel
+  or a proxy on the same host. The public edge in front of a demo answers 404 for
+  those routes as a second lock, not the only one.
+- **It is never recommended.** The installer will not pick it because the machine
+  happens to fit, and no scoring function should hand somebody an instance whose
+  sign-in is in the documentation. It is chosen by name: `--profile demo`, or the
+  card in the wizard.
+
+Outbound mail is off. The demo data includes webhook endpoints and an alert
+source the seed creates, so nothing a visitor triggers reaches a real address.
+
+Resetting it is `marula demo reset`, which re-runs the overlay's seeder with
+`--force`. That replaces the demo organisation's data; it does not snapshot it
+first. Use the documented reset ritual when you need the snapshot, the BYOK
+restore and the time-travel step.
 
 ## Where the floors come from
 
@@ -100,6 +125,7 @@ mode never offers it.
 |---|---|
 | A server that serves a team | `split` |
 | A demo, a laptop, or one small box | `all-in-one` |
+| A box you show the product on, reset between showings | `demo` |
 | 30–40 GB free disk and nothing else spare | `all-in-one`, then grow the disk before moving to `split` |
 | No local model, cloud embeddings configured | either, with the memory floor still applying to Postgres and Valkey |
 

@@ -45,7 +45,12 @@ takes the highest one it meets, preferring `split`. Naming one is an override:
 
 ```sh
 marula install --dir /srv/marula --profile all-in-one
+marula install --dir /srv/demo   --profile demo       # the seeded demo tier
 ```
+
+`demo` is the one shape never chosen for you: it carries a published sign-in and
+an unauthenticated reset surface pinned to loopback, so it is picked by name. See
+[deployment shapes](../reference/deployment-shapes.md#demo).
 
 A shape the machine cannot carry is refused with the number it misses, in that
 number's own units:
@@ -63,6 +68,7 @@ the same host is scored again.
 
 ```sh
 marula install --dir /srv/marula --apply
+marula demo reset --dir /srv/demo     # replace the demo data between showings
 ```
 
 `--apply` writes one environment file and runs Compose with it, adding the

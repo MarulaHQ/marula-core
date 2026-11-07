@@ -58,6 +58,9 @@ impl ComposeTarget {
         let base = self.compose_file.parent().unwrap_or_else(|| Path::new("."));
         match profile.name {
             "all-in-one" => vec![base.join("docker-compose.all-in-one.yml")],
+            // The demo overlay is the documented posture: loopback-pinned API,
+            // the dev surface mounted, a one-shot seed before core-api.
+            "demo" => vec![base.join("docker-compose.demo.yml")],
             _ => Vec::new(),
         }
     }
@@ -248,20 +251,8 @@ impl DeploymentTarget for ComposeTarget {
             overrides.push(images_path);
         }
 
-        let mut args = vec![
-            "compose".to_string(),
-            "--env-file".to_string(),
-            env_path.display().to_string(),
-            "-f".to_string(),
-            self.compose_file.display().to_string(),
-        ];
-        for overlay in self.overlays(profile) {
-            if overlay.exists() {
-                args.push("-f".to_string());
-                args.push(overlay.display().to_string());
-            }
-        }
-        for overlay in overrides {
+        let mut args = self.compose_prefix(&env_path, profile);
+        for overlay in &overrides {
             args.push("-f".to_string());
             args.push(overlay.display().to_string());
         }
@@ -276,6 +267,20 @@ impl DeploymentTarget for ComposeTarget {
                 .to_string(),
             source: format!("profiles.{}.services", profile.name),
         });
+
+        // A demo is not a demo until it has something to show, and the seed
+        // needs the owner connection the migrate one-shot already holds. It runs
+        // in that container rather than from the host, because the stack does
+        // not publish Postgres and should not start doing so for this.
+        //
+        // `MARULA_DEV_TOOLS=1` is passed to this one container and to nothing
+        // else: the long-running services never see it, so the dev router stays
+        // unmounted and the secret fallbacks stay off. The flag here exists only
+        // because the seeder refuses to run without it.
+        // No seed step: the demo overlay's `demo-seed` service runs before
+        // core-api and is a dependency of it, so `up` seeds and the plan cannot
+        // get the order wrong. A second seed path here would be a second answer
+        // to "what is in this demo".
 
         Ok(Plan {
             target: self.name(),
@@ -499,7 +504,79 @@ fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
 
 /// What the installer deliberately leaves to a person, named rather than
 /// implied (W60-3 renders the same list).
+impl ComposeTarget {
+    /// The `docker compose` command that seeds or reseeds the demo org.
+    ///
+    /// Public because `marula demo reset` runs exactly this, and a second copy
+    /// of the overlay rules is how the terminal and the installer drift apart.
+    /// The dev-tools flag goes to this one container: the long-running services
+    /// never see it, so the dev router stays unmounted and the secret fallbacks
+    /// stay off while the seeder still refuses to run without it.
+    #[must_use]
+    pub fn demo_seed_args(
+        &self,
+        env_path: &std::path::Path,
+        profile: &Profile,
+        overrides: &[std::path::PathBuf],
+    ) -> Vec<String> {
+        let mut seed = self.compose_prefix(env_path, profile);
+        for overlay in overrides {
+            seed.push("-f".to_string());
+            seed.push(overlay.display().to_string());
+        }
+        // `run` replaces the service's command, so the command is spelled out:
+        // the seeder, forced. The service already carries the owner connection,
+        // the dev flag and the object volume that the seeder needs.
+        seed.extend([
+            "run".to_string(),
+            "--rm".to_string(),
+            "demo-seed".to_string(),
+            "seed-demo".to_string(),
+            "--force".to_string(),
+        ]);
+        seed
+    }
+
+    /// `docker compose` with the env file, the base file and the profile's own
+    /// overlays. Shared by the `up` step and the demo seed so the two cannot
+    /// disagree about which files define this install.
+    fn compose_prefix(&self, env_path: &std::path::Path, profile: &Profile) -> Vec<String> {
+        let mut args = vec!["compose".to_string()];
+        // The demo overlay puts `demo-seed` and its other one-shots behind a
+        // compose profile, so the flag is part of running it, not a preference.
+        if profile.name == crate::install::plan::DEMO_PROFILE {
+            args.extend(["--profile".to_string(), "demo".to_string()]);
+        }
+        args.extend([
+            "--env-file".to_string(),
+            env_path.display().to_string(),
+            "-f".to_string(),
+            self.compose_file.display().to_string(),
+        ]);
+        for overlay in self.overlays(profile) {
+            if overlay.exists() {
+                args.push("-f".to_string());
+                args.push(overlay.display().to_string());
+            }
+        }
+        args
+    }
+}
+
 fn manual_items(profile: &Profile) -> Vec<String> {
+    // A demo answers different questions from a production install: it needs no
+    // certificate, because the overlay refuses a public binding, and its data is
+    // meant to be thrown away.
+    if profile.name == crate::install::plan::DEMO_PROFILE {
+        return vec![
+            "the demo sign-in: owner@demo.local, password demo-password-123. It is published on \
+             purpose, which is why the API is pinned to loopback"
+                .to_string(),
+            "how you reach it: an SSH tunnel or a proxy on the same host. Do not widen the \
+             binding: the reset surface it carries has no authentication"
+                .to_string(),
+        ];
+    }
     let mut items = vec![
         "a TLS certificate and the public hostname it is issued for".to_string(),
         "the backup destination and its retention window".to_string(),
