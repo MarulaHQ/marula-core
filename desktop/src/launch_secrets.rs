@@ -7,10 +7,13 @@
 //! `127.0.0.1`, so any other local process could mint an owner token against
 //! the API or connect to Postgres as a superuser.
 //!
-//! A debug build keeps those published values on purpose. The demo seed's
-//! sealed columns, compose parity (`deploy/docker-compose.yml`) and a
-//! developer's existing `pgdata` all carry them, so rotating them under a
-//! `cargo run` would break the local workflow that ADR 0005 exists for.
+//! The published dev value that REMAINS is the JWT secret alone (ADR 0005:
+//! the demo seed's sealed columns, compose parity (`deploy/docker-compose.yml`)
+//! and a developer's existing data directory all carry it). The role passwords
+//! a debug build runs its embedded cluster with are derived from that secret,
+//! so no credential beyond one dev value ships in this source — and a data
+//! directory an OLDER build created opens through the one-time rotation that
+//! resolves [`legacy_superuser_password`] from the environment at runtime.
 //!
 //! A release build (the `desktop` profile `scripts/build-desktop.sh` and the
 //! bundler use) reads a per-install secret from the app data dir and mints one
@@ -32,14 +35,14 @@ const SECRET_HEX_LEN: usize = SECRET_BYTES * 2;
 /// The compose/dev JWT secret. Debug builds, and only debug builds, pin it:
 /// the demo seed's at-rest seal key derives from it, which is what keeps a
 /// developer's existing data dir readable and the compose stack in parity.
+/// The role passwords a debug build uses derive from it too — see
+/// [`PgCredentials::dev_pg`] — so no other credential ships in this source.
 pub const DEV_JWT_SECRET: &str = "dev-only-insecure-secret-change-me";
 
-/// Embedded-Postgres passwords the pre-hardening shell created. Debug builds
-/// keep them; a release build uses only the first as a one-time migration
-/// credential for a cluster an older build initialized.
-pub const LEGACY_SUPERUSER_PASSWORD: &str = "postgres";
-pub const LEGACY_OWNER_PASSWORD: &str = "marula";
-pub const LEGACY_APP_PASSWORD: &str = "marula_app";
+/// The environment variable that carries the ONE-TIME rotation credential
+/// for an embedded cluster a pre-hardening build created (see the module
+/// doc). It is read, and never stored, only when such a cluster is opened.
+pub const LEGACY_PG_PASSWORD_VAR: &str = "MARULA_DESKTOP_LEGACY_PG_PASSWORD";
 
 /// Under the app data dir: the per-install secret a release build mints.
 pub const SECRET_FILE: &str = "desktop-secret";
@@ -56,12 +59,17 @@ pub struct PgCredentials {
 }
 
 impl PgCredentials {
-    /// The credentials every desktop build used before this module existed.
-    pub fn published_defaults() -> Self {
+    /// The credentials a debug build runs its embedded cluster with:
+    /// derived from the published dev JWT secret, so they are stable across
+    /// launches — a developer's existing cluster keeps opening — while
+    /// carrying no credential besides that one dev value. The labels are
+    /// the ones [`select`] derives for a release build; one derivation
+    /// serves both postures.
+    pub fn dev_pg() -> Self {
         Self {
-            superuser: LEGACY_SUPERUSER_PASSWORD.to_string(),
-            owner: LEGACY_OWNER_PASSWORD.to_string(),
-            app: LEGACY_APP_PASSWORD.to_string(),
+            superuser: derive(DEV_JWT_SECRET, "pg-superuser"),
+            owner: derive(DEV_JWT_SECRET, "pg-owner"),
+            app: derive(DEV_JWT_SECRET, "pg-app"),
         }
     }
 }
@@ -71,9 +79,10 @@ pub struct LaunchSecrets {
     /// HS256 signing secret for access/refresh tokens.
     pub jwt_secret: String,
     pub pg: PgCredentials,
-    /// True when this launch uses the published dev values. Drives the loud
-    /// boot warning, and is what a reviewer should read as "this build
-    /// exposes the repository's defaults".
+    /// True when this launch signs with the published dev JWT secret (the
+    /// one dev value ADR 0005 keeps published). Drives the loud boot
+    /// warning, and is what a reviewer should read as "this build exposes
+    /// the repository's dev secret".
     pub publishes_dev_defaults: bool,
 }
 
@@ -84,16 +93,16 @@ impl LaunchSecrets {
         core_db::demo::derive_dev_seal_key(&self.jwt_secret)
     }
 
-    fn published_defaults() -> Self {
+    fn dev_defaults() -> Self {
         Self {
             jwt_secret: DEV_JWT_SECRET.to_string(),
-            pg: PgCredentials::published_defaults(),
+            pg: PgCredentials::dev_pg(),
             publishes_dev_defaults: true,
         }
     }
 }
 
-/// The secrets this binary should use: published defaults in a debug build,
+/// The secrets this binary should use: the dev posture in a debug build,
 /// a per-install secret in a release build.
 pub fn for_this_build(root: &Path) -> anyhow::Result<LaunchSecrets> {
     select(root, !cfg!(debug_assertions))
@@ -103,7 +112,7 @@ pub fn for_this_build(root: &Path) -> anyhow::Result<LaunchSecrets> {
 /// argument so both branches are testable from one `cargo test` run.
 pub fn select(root: &Path, release_build: bool) -> anyhow::Result<LaunchSecrets> {
     if !release_build {
-        return Ok(LaunchSecrets::published_defaults());
+        return Ok(LaunchSecrets::dev_defaults());
     }
     let secret = install_secret(root)?;
     Ok(LaunchSecrets {
@@ -190,6 +199,26 @@ fn is_secret(candidate: &str) -> bool {
     candidate.len() == SECRET_HEX_LEN && candidate.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// The superuser credential an embedded cluster older than the per-install
+/// secret was initialized with. It is deliberately nowhere in this source —
+/// a release binary must not carry a credential from the repository — so a
+/// legacy cluster's one-time rotation resolves it from the environment at
+/// the moment it is needed. `None` means "no legacy cluster to open": the
+/// caller surfaces operator copy instead of trying a second credential.
+#[must_use]
+pub fn legacy_superuser_password() -> Option<String> {
+    resolved_from_env(std::env::var(LEGACY_PG_PASSWORD_VAR))
+}
+
+/// The pure half of [`legacy_superuser_password`]: a candidate env value,
+/// trimmed and blank-refused — testable without touching process env.
+fn resolved_from_env(candidate: Result<String, std::env::VarError>) -> Option<String> {
+    candidate
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
 #[cfg(unix)]
 fn write_owner_only_new(path: &Path, contents: &str) -> std::io::Result<()> {
     use std::io::Write;
@@ -253,11 +282,11 @@ mod tests {
     }
 
     #[test]
-    fn a_debug_build_keeps_the_published_dev_secret() {
+    fn a_debug_build_signs_with_the_published_secret_and_derives_its_pg_credentials() {
         let root = app_data_dir();
         let secrets = select(root.path(), false).expect("select");
         assert_eq!(secrets.jwt_secret, DEV_JWT_SECRET);
-        assert_eq!(secrets.pg, PgCredentials::published_defaults());
+        assert_eq!(secrets.pg, PgCredentials::dev_pg());
         assert!(secrets.publishes_dev_defaults);
         assert!(
             !root.path().join(SECRET_FILE).exists(),
@@ -300,26 +329,45 @@ mod tests {
     }
 
     #[test]
-    fn release_database_passwords_are_distinct_and_not_the_published_defaults() {
+    fn release_database_passwords_are_distinct_from_the_dev_derivation_and_each_other() {
         let root = app_data_dir();
-        let pg = select(root.path(), true).expect("select").pg;
-        let published = PgCredentials::published_defaults();
-        assert_ne!(pg.superuser, published.superuser);
-        assert_ne!(pg.owner, published.owner);
-        assert_ne!(pg.app, published.app);
-        for (label, password) in [
-            ("superuser", &pg.superuser),
-            ("owner", &pg.owner),
-            ("app", &pg.app),
+        let release_pg = select(root.path(), true).expect("release select").pg;
+        let debug_pg = PgCredentials::dev_pg();
+        assert_ne!(
+            release_pg, debug_pg,
+            "a release build must not share the debug derivation: its seed is this \
+             install's secret, not the published dev value"
+        );
+        for (label, released, dev) in [
+            ("superuser", &release_pg.superuser, &debug_pg.superuser),
+            ("owner", &release_pg.owner, &debug_pg.owner),
+            ("app", &release_pg.app, &debug_pg.app),
         ] {
+            assert_ne!(
+                released, dev,
+                "the {label} password must differ between postures"
+            );
             assert!(
-                password.len() >= 16,
-                "the {label} password is too short to be a credential"
+                released.len() >= 16,
+                "the release {label} password is too short to be a credential"
             );
         }
-        assert_ne!(pg.superuser, pg.owner);
-        assert_ne!(pg.owner, pg.app);
-        assert_ne!(pg.superuser, pg.app);
+        assert_ne!(release_pg.superuser, release_pg.owner);
+        assert_ne!(release_pg.owner, release_pg.app);
+        assert_ne!(release_pg.superuser, release_pg.app);
+    }
+
+    #[test]
+    fn the_legacy_cluster_credential_is_resolved_from_the_environment_only() {
+        // The pure half of the resolver: unset and blank read as "no legacy
+        // cluster", whitespace is not part of the credential.
+        assert!(resolved_from_env(Err(std::env::VarError::NotPresent)).is_none());
+        assert!(resolved_from_env(Ok(String::new())).is_none());
+        assert!(resolved_from_env(Ok("   ".to_owned())).is_none());
+        assert_eq!(
+            resolved_from_env(Ok("  value  ".to_owned())).as_deref(),
+            Some("value")
+        );
     }
 
     #[cfg(unix)]
