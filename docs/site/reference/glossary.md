@@ -24,6 +24,10 @@ product and is missing here, that is a gap worth reporting through
 | **Ticket** | One piece of work. It carries a client and a board, notes and time, and usually a status. |
 | **Board** | The set of columns a ticket moves through. Columns are yours to rename; the **stage** underneath is what SLA, billing, automation and reporting actually bind to. See [Customizations are data](../explanation/customizations-are-data.md). |
 | **Dispatch** | Assigning unscheduled work to a technician's day, usually by dragging on a calendar. See [Dispatch from the board](../how-to/staff-dispatch.md). |
+| **Dispatcher** | The staff role that places work and keeps the schedule. It holds the full ticket and scheduling matrix, view-and-edit on time and projects, and no invoicing. See [Understand role permissions](../how-to/admin-roles-and-permissions.md). |
+| **Travel draft** | A trip logged against a ticket before it becomes a time entry. A submitted trip is immutable on this side. See [Log travel and reconcile mileage](../how-to/staff-dispatch-travel.md). |
+| **Meeting type** | The bookable template a scheduling link is minted from: duration, buffer, booking window and who the booking assigns to. See [Set up meeting types and scheduling groups](../how-to/staff-dispatch-scheduling.md). |
+| **Scheduling group** | A pool of staff that a group-scoped meeting type draws availability from. It is a list of people, not a rota. |
 | **Day pack** | The list of parts and tools a technician needs for today's trips, and where each item comes from. See [Work a day pack](../how-to/staff-day-pack.md). |
 | **Workbar** | The panel on a ticket where notes and tasks are entered, along with time. |
 | **CSAT** | The satisfaction survey a client answers after a ticket closes. See [Set up CSAT surveys](../how-to/admin-csat-surveys.md). |

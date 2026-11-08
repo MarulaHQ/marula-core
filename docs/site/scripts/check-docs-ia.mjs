@@ -45,6 +45,7 @@ const START_PAGES = [
   "start/index.md",
   "start/owners.md",
   "start/admins.md",
+  "start/dispatchers.md",
   "start/technicians.md",
   "start/operators.md",
   "start/agents.md",

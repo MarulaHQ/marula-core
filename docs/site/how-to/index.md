@@ -14,6 +14,9 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 
 - [Work a ticket](staff-work-a-ticket.md) — Open a ticket from your morning queue, run the timer, post internal or customer-visible notes, and send your hours to approvals.
 - [Dispatch from the board](staff-dispatch.md) — See technician capacity across the day, drag unassigned tickets onto open calendar slots, and resolve scheduling conflicts.
+- [Plan the week ahead](staff-dispatch-planning.md) — Read the seven-day horizon: demand by priority against roster hours, capacity per technician, skill gaps, and project load already committed.
+- [Log travel and reconcile mileage](staff-dispatch-travel.md) — Record trips against tickets, check the 14-day reconciliation, merge duplicate trips, and turn drafts into time entries and expenses.
+- [Set up meeting types and scheduling groups](staff-dispatch-scheduling.md) — Create the bookable templates and availability pools behind ticket scheduling links, including duration, buffer, window and auto-email.
 - [Run a service day from the phone](technician-service-day.md) — Accept scheduled site visits, clock in and out on tickets, log mileage between stops, and work offline when you lose signal in a server room.
 - [Work a day pack](staff-day-pack.md) — Review the tools and parts you need for today's scheduled stops before your van leaves the lot.
 - [Check out tools and use parts on site](technician-tools-and-parts.md) — Check out tool kits, record parts used on a ticket from your phone, and return equipment when the job wraps up.
@@ -48,6 +51,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 
 - [Bootstrap your first organization](admin-org-bootstrap.md) — Create your organization on the sign-in screen and set your workspace name, ticket prefix, default timezone, and base currency.
 - [Manage users and invites](admin-users-invites.md) — Invite teammates by email, set up two-factor authentication (TOTP and passkeys), and configure notification quiet hours.
+- [Understand role permissions](admin-roles-and-permissions.md) — Read what each built-in role grants, which special grants sit beside the module matrix, and how to fork a preset into a custom role.
 - [Connect an IdP (SSO)](admin-sso.md) — Connect Google Workspace, Microsoft Entra ID, Okta, Keycloak, or any standard OIDC identity provider.
 - [Set up the portal](admin-portal-setup.md) — Choose which ticket boards each client can see and create portal accounts for their contacts.
 - [Set workflow categories](admin-workflow-categories.md) — Customize board columns and ticket categories while keeping SLA timers and billing tied to stable underlying stages.
