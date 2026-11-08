@@ -160,6 +160,9 @@ impl Selection {
     }
 }
 
+/// The one profile the installer will never choose for you.
+pub const DEMO_PROFILE: &str = "demo";
+
 /// Why a selection cannot become a plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanError {
@@ -287,6 +290,12 @@ pub fn recommend(desc: &DeployDescriptor, facts: &HostFacts) -> Recommendation {
     let mut fitting: Vec<&Profile> = Vec::new();
     let mut shortfalls: Vec<Shortfall> = Vec::new();
     for profile in &desc.profiles {
+        // A demo has a published password and seeded data. Fitting the machine
+        // is not a reason to hand somebody one, so it never wins a score — it is
+        // chosen by name, and only by name.
+        if profile.name == DEMO_PROFILE {
+            continue;
+        }
         let needs = missing_for(profile, facts);
         if needs.is_empty() {
             why.push(format!(

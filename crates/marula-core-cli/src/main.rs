@@ -61,6 +61,13 @@ enum Command {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
+    /// The demo tier: a one-box install with a seeded organisation, for showing
+    /// the product to somebody. `marula install --profile demo --apply` creates
+    /// one; this command resets it between showings.
+    Demo {
+        #[command(subcommand)]
+        action: DemoAction,
+    },
     /// Seed the deterministic demo org (the private build tracker DX1). Dev-only: refuses
     /// unless MARULA_DEV_TOOLS=1.
     SeedDemo {
@@ -411,6 +418,7 @@ async fn main() -> anyhow::Result<()> {
                 std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
             fixture::emit_manifest(&url, org_id, out).await
         }
+        Command::Demo { action } => demo_command(action),
         Command::SeedDemo { force } => seed_demo(force).await,
         Command::PluginKey { action } => plugin_key(action).await,
         Command::Deploy { action } => deploy_command(action).await,
@@ -1232,6 +1240,68 @@ async fn report_db_copy(url: &str) {
     }
 }
 
+#[derive(Debug, Subcommand)]
+enum DemoAction {
+    /// Wipe the demo organisation and seed it again. Keeps the install, its
+    /// keys and its volumes; only the demo org's data is replaced.
+    Reset {
+        /// The install directory holding `marula.env`.
+        #[arg(long, default_value = ".")]
+        dir: std::path::PathBuf,
+        /// The compose file that install runs.
+        #[arg(long, default_value = "deploy/docker-compose.yml")]
+        compose_file: std::path::PathBuf,
+    },
+}
+
+/// `marula demo reset`: the same seed the installer runs, on demand.
+///
+/// It goes through Compose rather than connecting to Postgres directly: the
+/// stack does not publish the database, and publishing it so a CLI could reach
+/// it would change the install's attack surface to save one argument.
+fn demo_command(action: DemoAction) -> anyhow::Result<()> {
+    let DemoAction::Reset { dir, compose_file } = action;
+    let descriptor = deploy::descriptor();
+    let profile = descriptor
+        .profiles
+        .iter()
+        .find(|candidate| candidate.name == install::plan::DEMO_PROFILE)
+        .cloned()
+        .ok_or_else(|| {
+            anyhow::anyhow!("this build ships no demo profile, so there is nothing to reset")
+        })?;
+    let env_path = dir.join("marula.env");
+    anyhow::ensure!(
+        env_path.is_file(),
+        "{} holds no marula.env. Create a demo first: marula install --profile demo --dir {} --apply",
+        dir.display(),
+        dir.display()
+    );
+    // The overlays an install writes beside the env file. They are part of what
+    // defines this install, so the seed runs with the same compose shape.
+    let overrides: Vec<std::path::PathBuf> = ["marula.restart.yml", "marula.images.yml"]
+        .iter()
+        .map(|name| dir.join(name))
+        .filter(|path| path.is_file())
+        .collect();
+    let target = install::ComposeTarget::new(descriptor, compose_file);
+    let args = target.demo_seed_args(&env_path, &profile, &overrides);
+    let status = std::process::Command::new("docker")
+        .args(&args)
+        .status()
+        .context("running docker compose to reseed the demo")?;
+    anyhow::ensure!(status.success(), "the demo reset failed ({status})");
+    println!(
+        "\ndemo reset. sign in as {} with password {}",
+        core_db::demo::DEMO_OWNER_EMAIL,
+        core_db::demo::DEMO_PASSWORD
+    );
+    println!(
+        "this is a published password: do not put this instance on a network you do not control."
+    );
+    Ok(())
+}
+
 /// Runtime gate for the dev-tool surface (hard rule: never default-on).
 fn dev_tools_enabled() -> bool {
     std::env::var("MARULA_DEV_TOOLS").as_deref() == Ok("1")
@@ -1239,7 +1309,9 @@ fn dev_tools_enabled() -> bool {
 
 /// The at-rest seal key for demo secrets, using the same precedence as
 /// core-api's config: `MARULA_SECRET_KEY` (64 hex chars) when set, else
-/// the documented dev fallback derived from `JWT_SECRET`.
+/// derived from an explicitly exported `JWT_SECRET` — no compiled-in
+/// default, so a dev tool can never seal demo secrets with a key the
+/// source carries.
 fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
     let key = match std::env::var("MARULA_SECRET_KEY") {
         Ok(hex_key) if hex_key.len() == 64 => {
@@ -1249,8 +1321,14 @@ fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
             bytes
         }
         _ => {
-            let jwt = std::env::var("JWT_SECRET")
-                .unwrap_or_else(|_| "dev-only-insecure-secret-change-me".into());
+            let jwt = std::env::var("JWT_SECRET").map_err(|_| {
+                anyhow::anyhow!(
+                    "no MARULA_SECRET_KEY, so seed-demo derives the seal key from \
+                     JWT_SECRET; export JWT_SECRET (the value the compose/dev install \
+                     runs with) or set MARULA_SECRET_KEY first — this dev surface \
+                     falls back to no compiled-in default"
+                )
+            })?;
             core_db::demo::derive_dev_seal_key(&jwt)
         }
     };

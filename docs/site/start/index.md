@@ -13,11 +13,12 @@ that is what the links are for.
 |---|---|---|
 | **Owner** | Own the business: contracts, margin, month close, who has access | [Owner tasks](owners.md) |
 | **Admin** | Own the workspace: people, boards, SLA, email, portal, automations | [Admin tasks](admins.md) |
+| **Dispatcher** | Own the schedule: place work, forecast the week, travel, booking links | [Dispatcher tasks](dispatchers.md) |
 | **Technician** | Work tickets, run a service day, move stock, log billable time | [Technician tasks](technicians.md) |
 | **Operator** | Run the instance: stand it up, back it up, upgrade it, watch it | [Operator tasks](operators.md) |
 | **Agent author** | Wire an AI agent, script or plugin against Marula | [Agent tasks](agents.md) |
 
-Two pages cut across all five:
+Two pages cut across all six:
 
 - [Troubleshooting](../troubleshooting.md) starts from a symptom, not from a feature.
 - [Glossary](../reference/glossary.md) defines the vocabulary these pages assume.

@@ -91,6 +91,10 @@ Every change lands as a reviewed pull request. Contributions follow
   them for both architectures.
 - A guide to checking a release before installing it: the signed checksum list,
   the archive, the extracted tree, and the image digests.
+- A demo tier the installer can stand up. `marula install --profile demo` and a
+  card in the wizard run the documented demo overlay — seeded, loopback-only, no
+  outbound mail — and `marula demo reset` replaces the demo data between
+  showings.
 
 ### Changed
 

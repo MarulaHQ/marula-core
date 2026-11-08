@@ -16,7 +16,7 @@ Marula is an open-source PSA (professional services automation) platform for IT 
 ## Start by role
 
 - **Technicians and service desk staff:** Start with [Your first ticket](tutorials/first-ticket.md), then check [Work a ticket](how-to/staff-work-a-ticket.md), [Run a field service day](how-to/technician-service-day.md), and [Close your day with the day pack](how-to/staff-day-pack.md).
-- **Dispatchers and service leads:** Jump to [Dispatch from the board](how-to/staff-dispatch.md), [Set up SLA policies and business-hours calendars](how-to/admin-sla-calendars.md), and [Build dashboards and scheduled reports](how-to/admin-dashboards-reports.md).
+- **Dispatchers and service leads:** Start with [Dispatcher tasks](start/dispatchers.md), then [Dispatch from the board](how-to/staff-dispatch.md), [Plan the week ahead](how-to/staff-dispatch-planning.md), and [Set up SLA policies and business-hours calendars](how-to/admin-sla-calendars.md).
 - **Office managers and bookkeepers:** Walk through [Your first invoice](tutorials/first-invoice.md), [Set up contract billing models](how-to/admin-contract-types.md), [Verify a billing period before invoicing](how-to/admin-billing-verification.md), and [Portal onboarding](tutorials/portal-onboarding.md).
 - **Systems administrators and developers:** See [Self-host local stack reference](reference/self-host-local-stack.md), [Upgrade to the latest release](how-to/upgrade.md), and [Call the API from TypeScript or curl](how-to/call-the-api.md).
 
@@ -30,6 +30,7 @@ answers them.
 |---|---|
 | Owner — contracts, margin, month close, access | [Owner tasks](start/owners.md) |
 | Admin — people, boards, SLA, email, portal, automations | [Admin tasks](start/admins.md) |
+| Dispatcher — board placement, capacity, travel, booking links | [Dispatcher tasks](start/dispatchers.md) |
 | Technician — tickets, service days, stock, billable time | [Technician tasks](start/technicians.md) |
 | Operator — stand-up, backup, upgrades, monitoring | [Operator tasks](start/operators.md) |
 | Agent author — API, read model, grants, plugins | [Agent and automation tasks](start/agents.md) |

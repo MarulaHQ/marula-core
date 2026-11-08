@@ -769,7 +769,61 @@ fn profiles() -> Vec<Profile> {
         }],
     };
 
-    vec![split, all_in_one]
+    // The demo is a shape rather than a modifier: it runs the same stack as
+    // all-in-one and differs in what is in the database and who can sign in.
+    // It is deliberately invisible to the recommendation — nobody should be
+    // steered into a seeded instance with a published password by a scoring
+    // function — and it is only ever chosen by name.
+    // The demo tier is the posture `deploy/docker-compose.demo.yml` already
+    // documents: the split topology on one host, loopback-pinned, with the dev
+    // surface mounted so a demo can be reset between showings, and a one-shot
+    // seed that runs before core-api. The overlay does the wiring; this profile
+    // is what makes the installer able to stand it up and what makes the
+    // settings screen show its decisions.
+    let demo = Profile {
+        name: "demo",
+        title: "Demo (seeded, loopback only)",
+        description: "The split stack on one host with the demo overlay: a seeded organisation, core-api pinned to loopback, and the reset surface mounted so the data can be replaced between showings. Sign in as owner@demo.local. Outbound mail stays off. This is the only shape whose API is reachable only from the host it runs on, because the reset surface it carries has no authentication and must not face a network.",
+        floors: ResourceFloors {
+            cores: 4,
+            ram_mb: 8192,
+            disk_gb: 30,
+        },
+        sets: BTreeMap::from([
+            // The base file's split preset. The overlay replaces the database
+            // URLs per service (direct Postgres, no pooler hop on a demo box),
+            // so these are what everything else reads.
+            (
+                "DATABASE_URL",
+                "postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula",
+            ),
+            (
+                "MARULA_LISTEN_DATABASE_URL",
+                "postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula",
+            ),
+            ("MARULA_DB_STATEMENT_CACHE", "0"),
+            ("MARULA_REPORTING_POOL_MAX", "8"),
+            // A demo that emails a real client is not a demo.
+            ("EMAIL_TRANSPORT", "none"),
+        ]),
+        services: vec![
+            Service {
+                name: "core-api",
+                role: "core-api",
+                ports: vec![8080],
+                needs: vec!["postgres", "redis", "pgbouncer"],
+            },
+            Service {
+                name: "worker",
+                role: "worker",
+                ports: vec![8082],
+                needs: vec!["postgres", "redis", "pgbouncer"],
+            },
+        ],
+    };
+
+    // Order matters only to `recommend`, which skips the demo by name.
+    vec![split, all_in_one, demo]
 }
 
 #[allow(clippy::too_many_lines)]
@@ -3424,7 +3478,11 @@ mod tests {
         let json = describe_json(None).expect("json");
         let v: serde_json::Value = serde_json::from_str(&json).expect("valid json");
         assert_eq!(v["schema_version"], SCHEMA_VERSION);
-        assert_eq!(v["profiles"].as_array().map(Vec::len), Some(2));
+        assert_eq!(
+            v["profiles"].as_array().map(Vec::len),
+            Some(3),
+            "split, all-in-one and the demo tier"
+        );
         assert!(!v["core_version"].as_str().unwrap_or("").is_empty());
     }
 

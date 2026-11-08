@@ -44,6 +44,10 @@ pub const DEMO_ORG_ID: Uuid = demo_uuid(1);
 pub const DEMO_ORG_NAME: &str = "Marula Demo";
 pub const DEMO_ORG_SLUG: &str = "marula-demo";
 pub const DEMO_TICKET_PREFIX: &str = "DEMO";
+/// The demo org's owner sign-in. Published on purpose: a demo whose login
+/// nobody can find is a demo nobody opens. `marula demo reset`, the installer's
+/// plan and the deployment-shapes page all print this one value.
+pub const DEMO_OWNER_EMAIL: &str = "owner@demo.local";
 /// Shared demo login password (argon2-hashed once per seed run).
 pub const DEMO_PASSWORD: &str = "demo-password-123";
 /// Deterministic alert-source HMAC secret. Dev-only; printed once at seed
@@ -417,7 +421,7 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     // --- users (argon2 hashed once, shared) -------------------------------
     let password_hash = hash_demo_password()?;
     let users: [(&str, &str, u64, &str); 4] = [
-        ("owner@demo.local", "Fiona Owner", 10, "Owner"),
+        (DEMO_OWNER_EMAIL, "Fiona Owner", 10, "Owner"),
         (
             "dispatcher@demo.local",
             "Diego Dispatcher",

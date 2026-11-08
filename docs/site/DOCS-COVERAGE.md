@@ -173,13 +173,21 @@ Since then the site was re-organised around the reader rather than the product
 menu:
 
 - [`start/`](start/index.md) holds one entry page per reader (owner, admin,
-  technician, operator, agent author). Each lists tasks in the words people use
-  and links the page that answers them. Tasks with no page are listed as gaps
-  rather than filled with invented behaviour.
+  dispatcher, technician, operator, agent author). Each lists tasks in the words
+  people use and links the page that answers them. Tasks with no page are listed
+  as gaps rather than filled with invented behaviour.
 - [`troubleshooting.md`](troubleshooting.md) is entered by symptom, and sits
   outside the four quadrants for that reason.
 - [`reference/glossary.md`](reference/glossary.md) defines the recurring PSA and
   Marula vocabulary.
+- Dispatch is covered as four surfaces rather than one: the
+  [board](how-to/staff-dispatch.md), the read-only
+  [planning horizon](how-to/staff-dispatch-planning.md), the
+  [travel reconciliation](how-to/staff-dispatch-travel.md), and the
+  [meeting types and scheduling groups](how-to/staff-dispatch-scheduling.md).
+  The [dispatcher entry page](start/dispatchers.md) routes them, and
+  [role permissions](how-to/admin-roles-and-permissions.md) records what the
+  dispatcher preset actually grants.
 - `node docs/site/scripts/check-docs-ia.mjs` fails on an orphan page, a page
   missing from its quadrant index, a dead `#anchor`, or an unknown audience tag.
   It runs inside `check-docs-site.mjs`, so the existing gate covers it.

@@ -398,7 +398,7 @@ export function App() {
               : step === 1
                 ? "Measured the way the product measures itself at boot, so the recommendation and the refusal agree."
                 : step === 2
-                  ? "One decision. Both shapes run the product. They differ in what they ask of the machine."
+                  ? "One decision. Every shape runs the product. They differ in what they ask of the machine, and in what they come with."
                   : step === 3
                     ? mode === "developer"
                       ? "Every setting, with what it changes and what it needs."

@@ -11,6 +11,7 @@
         "start/index",
         "start/owners",
         "start/admins",
+        "start/dispatchers",
         "start/technicians",
         "start/operators",
         "start/agents",

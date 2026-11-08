@@ -44,8 +44,9 @@ The bottom bar helps you catch problems before a technician is double-booked:
 
 Under the Dispatch section you can also open:
 
-- **Scheduling (`/dispatch/scheduling`):** Set up appointment types (duration, buffer minutes before/after, booking window, and active status) and **scheduling groups** (the technician pools used when a client books a slot).
-- **Planning and Travel (`/dispatch/planning` and `/dispatch/travel`):** Check multi-day capacity, review route drive times between stops, and approve technician mileage drafts (see [Turn on travel time & mileage reconciliation](admin-routing-travel.md)).
+- **Scheduling (`/dispatch/scheduling`):** Set up meeting types (duration, buffer minutes before/after, booking window, and active status) and **scheduling groups** (the technician pools used when a client books a slot). See [Set up meeting types and scheduling groups](staff-dispatch-scheduling.md).
+- **Planning (`/dispatch/planning`):** Read the seven-day horizon: demand by priority against roster hours, utilization per technician, and skill gaps. See [Plan the week ahead](staff-dispatch-planning.md).
+- **Travel (`/dispatch/travel`):** Log trips against tickets, read the 14-day reconciliation, and settle mileage drafts into time entries and expenses. See [Log travel and reconcile mileage](staff-dispatch-travel.md).
 - **Client booking links:** Clients can pick an open slot using your published scheduling links or from the **Schedule** tab in the client portal. If someone opens an expired or disabled booking link, Marula shows a clear `"This scheduling link is not available."` message.
 
 ## 5. Moving from Dispatch to working the ticket
