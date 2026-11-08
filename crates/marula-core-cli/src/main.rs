@@ -1309,7 +1309,9 @@ fn dev_tools_enabled() -> bool {
 
 /// The at-rest seal key for demo secrets, using the same precedence as
 /// core-api's config: `MARULA_SECRET_KEY` (64 hex chars) when set, else
-/// the documented dev fallback derived from `JWT_SECRET`.
+/// derived from an explicitly exported `JWT_SECRET` — no compiled-in
+/// default, so a dev tool can never seal demo secrets with a key the
+/// source carries.
 fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
     let key = match std::env::var("MARULA_SECRET_KEY") {
         Ok(hex_key) if hex_key.len() == 64 => {
@@ -1319,8 +1321,14 @@ fn dev_seal_key() -> anyhow::Result<core_db::demo::DemoSeedOptions> {
             bytes
         }
         _ => {
-            let jwt = std::env::var("JWT_SECRET")
-                .unwrap_or_else(|_| "dev-only-insecure-secret-change-me".into());
+            let jwt = std::env::var("JWT_SECRET").map_err(|_| {
+                anyhow::anyhow!(
+                    "no MARULA_SECRET_KEY, so seed-demo derives the seal key from \
+                     JWT_SECRET; export JWT_SECRET (the value the compose/dev install \
+                     runs with) or set MARULA_SECRET_KEY first — this dev surface \
+                     falls back to no compiled-in default"
+                )
+            })?;
             core_db::demo::derive_dev_seal_key(&jwt)
         }
     };

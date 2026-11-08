@@ -312,11 +312,11 @@ async fn alter_role_password(
 
 /// Connect as the bootstrap superuser.
 ///
-/// A cluster an older build initialized carries the published default
-/// password. A release build cannot connect with its own credential until the
-/// cluster has been rotated, so the published one is accepted exactly once,
-/// for the migration, and replaced before anything else runs. Debug builds
-/// hold the published value already and never take that path.
+/// A cluster an older build initialized carries the credential that build
+/// published. Neither build posture carries that value in the binaries
+/// anymore, so the rotation credential is resolved from the environment
+/// exactly once, when a legacy cluster actually fails its own-password
+/// connect, and replaced before anything else runs.
 async fn open_super_pool(
     postgresql: &postgresql_embedded::PostgreSQL,
     credentials: &launch_secrets::PgCredentials,
@@ -328,33 +328,33 @@ async fn open_super_pool(
     };
     match sqlx::postgres::PgPool::connect(&url_with(&credentials.superuser)).await {
         Ok(pool) => Ok(pool),
-        Err(current) => {
-            if credentials.superuser == launch_secrets::LEGACY_SUPERUSER_PASSWORD {
-                return Err(current).context(
-                    "connecting as the embedded Postgres superuser with the published default \
-                     password (a debug build). A data directory created by a release build \
-                     carries a per-install password instead: run a release build again, or move \
-                     that pgdata aside to start a fresh demo database",
+        Err(current) => match launch_secrets::legacy_superuser_password() {
+            None => Err(current).context(
+                "connecting as the embedded Postgres superuser with this install's credential. \
+                 If this pgdata predates the per-install credentials, set \
+                 MARULA_DESKTOP_LEGACY_PG_PASSWORD to the superuser password the older build \
+                 published and launch once — every role is rotated onto this install's \
+                 credentials — or move the pgdata aside to start a fresh demo database",
+            ),
+            Some(legacy_password) => {
+                let legacy = sqlx::postgres::PgPool::connect(&url_with(&legacy_password))
+                    .await
+                    .context(
+                        "connecting as the embedded Postgres superuser, both with this \
+                         install's credential and with MARULA_DESKTOP_LEGACY_PG_PASSWORD \
+                         (the credential an older cluster was initialized with)",
+                    )?;
+                tracing::warn!(
+                    "this data directory was created with the credentials an older build \
+                     published; rotating every role onto this install's credentials"
                 );
+                alter_role_password(&legacy, "postgres", &credentials.superuser).await?;
+                legacy.close().await;
+                sqlx::postgres::PgPool::connect(&url_with(&credentials.superuser))
+                    .await
+                    .context("connecting after rotating the superuser password")
             }
-            let legacy = sqlx::postgres::PgPool::connect(&url_with(
-                launch_secrets::LEGACY_SUPERUSER_PASSWORD,
-            ))
-            .await
-            .context(
-                "connecting as the embedded Postgres superuser, both with this install's \
-                 credential and with the published default an older cluster was created with",
-            )?;
-            tracing::warn!(
-                "this data directory was created with the published Postgres passwords; \
-                 rotating every role onto this install's credentials"
-            );
-            alter_role_password(&legacy, "postgres", &credentials.superuser).await?;
-            legacy.close().await;
-            sqlx::postgres::PgPool::connect(&url_with(&credentials.superuser))
-                .await
-                .context("connecting after rotating the superuser password")
-        }
+        },
     }
 }
 
@@ -414,6 +414,16 @@ async fn cut_pg17_to_pg18(root: &Path) -> anyhow::Result<Option<PathBuf>> {
     let dump = root.join("pg17-restore.sql");
     let old_port = free_port(15499);
 
+    // A PG17 cluster predates this shell's credential split, so its superuser
+    // carries the password the pre-hardening build published — resolved at
+    // runtime from the environment, and never carried in code.
+    let legacy_password = launch_secrets::legacy_superuser_password().context(
+        "the PG17 cluster predates the per-install credentials: set \
+         MARULA_DESKTOP_LEGACY_PG_PASSWORD to the superuser password the pre-hardening \
+         build published and relaunch to cut it, or move the pgdata aside to start a \
+         fresh demo database",
+    )?;
+
     let mut start = tokio::process::Command::new(old_bin.join("pg_ctl"));
     start
         .arg("-D")
@@ -426,10 +436,7 @@ async fn cut_pg17_to_pg18(root: &Path) -> anyhow::Result<Option<PathBuf>> {
 
     let mut dumpall = tokio::process::Command::new(old_bin.join("pg_dumpall"));
     dumpall
-        // A PG17 cluster predates this shell's credential split, so its
-        // superuser carries the published password — that is the credential
-        // the cut needs and the only place it is still used.
-        .env("PGPASSWORD", launch_secrets::LEGACY_SUPERUSER_PASSWORD)
+        .env("PGPASSWORD", legacy_password)
         .args(["-h", "127.0.0.1", "-U", "postgres"])
         .arg("-p")
         .arg(old_port.to_string())
@@ -492,16 +499,15 @@ async fn bootstrap_backend() -> anyhow::Result<(Backend, String, String)> {
     let root = data_root();
     std::fs::create_dir_all(&root)?;
     // Which loopback credentials this build uses. A debug build keeps the
-    // repository's published dev secret and Postgres passwords (demo-seed
-    // parity, compose parity, existing data dirs); a release build mints a
-    // per-install secret and derives the passwords from it. See
-    // `launch_secrets` for why the split exists.
+    // repository's published dev JWT secret and derives its Postgres
+    // passwords from it (demo-seed parity, compose parity, existing data
+    // dirs); a release build mints a per-install secret and derives
+    // everything from it. See `launch_secrets` for why the split exists.
     let secrets = launch_secrets::for_this_build(&root)?;
     if secrets.publishes_dev_defaults {
         tracing::warn!(
             "DEBUG BUILD: the in-process API trusts the repository's published dev JWT \
-             secret and the embedded Postgres keeps its published passwords — every local \
-             process can forge an owner token or connect as superuser. A release build \
+             secret — every local process can forge an owner token. A release build \
              mints a per-install secret instead; never ship this build."
         );
     }
