@@ -103,6 +103,14 @@ base32 = "0.5"
 base64 = "0.22"
 bytes = { workspace = true }
 
+# Windows has no system OpenSSL for the TLS chain (reqwest → native-tls,
+# webauthn-rs) to link against — release runners and local Windows builds fail
+# in openssl-sys with "Could not find directory of OpenSSL installation".
+# The vendored feature compiles OpenSSL from source on Windows targets only;
+# macOS and Linux keep linking the platform package.
+[target.'cfg(target_os = "windows")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 # The `openapi` cfg is set by SDK-generation feature unification (handlers
 # annotate `cfg_attr(feature = "openapi", ...)`) — declared here so
 # unexpected_cfgs stops flagging the established pattern.
