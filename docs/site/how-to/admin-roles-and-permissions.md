@@ -58,7 +58,7 @@ Each module grants five actions: view, create, edit, delete and export.
 | Admin | F | F | — | — | — | — | V | V |
 | Plugins | F | F | — | — | — | — | V | V |
 
-Two reads that surprise people:
+Two rows that are easy to misread:
 
 - **Dispatcher holds the full Tickets and Scheduling matrix plus Clients**, and
   view-and-edit on Time, Projects, Commercial, Knowledge base and Reporting. That
@@ -87,7 +87,7 @@ still cannot approve the hours logged against it.
 
 ## 4. Know what narrows a grant
 
-Three things sit on top of the role, and each can only take access away:
+Three things sit beside the role. The first two can only take access away:
 
 - **Board roles.** Membership on a board carries **viewer**, **member** or
   **admin**. A viewer reads the board and nothing else. A member also opens and

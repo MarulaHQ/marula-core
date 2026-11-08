@@ -40,8 +40,8 @@ description: "The dispatcher's day in Marula: place unassigned work on the board
 - [Set up meeting types and scheduling groups](../how-to/staff-dispatch-scheduling.md) —
   duration, buffer, booking window, the pool a link draws from, and the email
   that fires with it.
-- [Set up the portal](../how-to/admin-portal-setup.md) — the client-side
-  account a booking link lands next to.
+- [Set up the portal](../how-to/admin-portal-setup.md) — the account a client
+  signs in to beside a booking link.
 
 ## "I am stuck"
 

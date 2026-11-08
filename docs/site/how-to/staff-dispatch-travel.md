@@ -16,8 +16,8 @@ landed.
 
 - A signed-in session with **Dispatch** access.
 - A mileage rate and a reimbursement decision on the organization. Without them
-  the reconciliation still totals distance and time, but the money columns have
-  nothing to apply. See [Turn on travel time and mileage reconciliation](admin-routing-travel.md).
+  the reconciliation still totals distance and time, but **Expenses** and
+  **Reimbursable** stay empty. See [Turn on travel time and mileage reconciliation](admin-routing-travel.md).
 
 ## 1. Know what a draft is
 
@@ -25,8 +25,8 @@ A draft is a trip waiting to be confirmed. It carries a ticket, a start and end
 time, a distance in kilometres or miles, an optional vehicle, a note, and
 whether the client is billed for the drive.
 
-Drafts are not billed and do not appear in approvals. Submitting one turns it
-into a time entry and makes it immutable here.
+A draft is not a time entry yet, so it cannot be billed or sent to approvals.
+Submitting one creates the time entry and makes the trip immutable here.
 
 ## 2. Add a trip
 

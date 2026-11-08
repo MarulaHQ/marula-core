@@ -40,8 +40,8 @@ P2, then P3 and P4. The dashed line is the roster's hours for that day.
 - The label under each column is total demand against total capacity, for example
   `54h of 60h`.
 
-The chart is a team question. To find the person behind an over-capacity day,
-use the table under it.
+The chart adds the team together, so an over-capacity day does not say who is
+overloaded. The table under it does.
 
 ## 3. Find whose day is full
 

@@ -79,9 +79,8 @@ Leaving them in the pool keeps offering their time.
 
 ## 4. Change a template without breaking old links
 
-Editing a template changes future links. A link already sent keeps the settings
-it was minted with, so a client holding one from last week still sees last week's
-duration and window.
+Editing a template changes what future links offer. A link already sent is
+managed from the ticket's scheduling panel, not from here.
 
 If a template is wrong in a way that hurts, pause it and create a corrected one.
 That stops fresh links without changing any appointment already booked.
