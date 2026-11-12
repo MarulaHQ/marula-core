@@ -194,3 +194,19 @@ menu:
 
 The measured audit, the gaps it found and what was left open are recorded in
 `internal/design/qa-p52-docs-ia/REVIEW.md` in the repository.
+
+## 9. Wave 65 lift note (`p65-installers-doc`, 2026-11-12)
+
+The desktop client and the installer artifacts are now documented from the
+operator's side. [Which installer do I want?](how-to/choose-your-installer.md)
+is the decision page over every artifact: the server's three ways in (the
+installer app, `marula install --ui`, plain `marula install`), the desktop
+client per platform, the macOS embedded app, and the unsigned posture with the
+warning each OS shows. [Install the desktop app](how-to/install-the-desktop-app.md)
+is the task page: the GitHub Releases channel (`desktop-v*` tags), per-format
+install steps, the connected-vs-embedded first-run choice, and the uninstall
+path. The matrix these pages document is the one ADR 0031 shipped: macOS
+carries both modes, Linux and Windows are connected clients, and signing is
+still in flight, so both pages name the OS warning to expect instead of
+promising a date. The maintainer's half of the same story stays in
+`docs/desktop-release.md`; these two pages do not fork it.

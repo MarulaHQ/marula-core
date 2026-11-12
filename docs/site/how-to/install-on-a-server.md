@@ -170,3 +170,9 @@ A developer installing on a machine that is genuinely too small can plan past
 the floors with `--allow-unfit`. The plan runs and repeats the numbers it misses.
 Nothing in it prevents the stack failing later, which is why it is not the
 default and not offered in the app's recommended mode.
+
+The server is half the story. The desktop client on each workstation is the
+other half, and it points back at this install at first run:
+[install the desktop app](install-the-desktop-app.md). Not sure which download
+each machine wants? [Which installer do I want?](choose-your-installer.md)
+sorts the release page in one table.

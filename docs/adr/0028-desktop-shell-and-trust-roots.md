@@ -94,6 +94,17 @@ Windows signing exists, those platforms ship without update payloads and the
 updater reports that it cannot update them, rather than offering an artifact it
 cannot verify.
 
+## Amendment 2026-11-12: the update payload is conditional, not per-platform
+
+W61-4 (Wave 65) made signing conditional in `release-desktop.yml` instead of
+per-platform: every leg emits an updater payload when
+`TAURI_SIGNING_PRIVATE_KEY` is in CI, and none when it is absent — with the job
+Summary stating the posture and a `desktop-v*` tag failing closed rather than
+shipping an artifact the updater could not verify. §5's "those platforms ship
+without update payloads" described the dispatch that existed then and no longer
+holds; the refusal to offer an unverifiable artifact is what remains binding.
+`docs/desktop-release.md` §9 carries the secret names and the go-live order.
+
 ## Consequences
 
 - A desktop story that needs a screen the web application does not have becomes

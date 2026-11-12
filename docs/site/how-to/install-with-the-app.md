@@ -121,3 +121,8 @@ call, so another page in the same browser cannot drive it.
 
 The screens, the plan and the apply are the same. Only the transport differs:
 the app talks to the engine over IPC, the fallback over HTTP.
+
+Once the install lands, the workstations want the desktop client pointed at
+this instance. Its page is [install the desktop app](install-the-desktop-app.md),
+and [which installer do I want?](choose-your-installer.md) sorts every download
+the release pages carry.

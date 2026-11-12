@@ -333,6 +333,24 @@ export default function LoginPage() {
           </button>
         </form>
 
+        {/* The admin bootstrap path. This mode is where the docs say a first
+            admin lands, and the one thing the wizard cannot do from a browser
+            is hand them the workstation client — so the pointer is one quiet
+            line, not a banner. */}
+        {mode === "register" && (
+          <p className="entry-hint" style={{ textAlign: "center", margin: 0 }}>
+            Run Marula on your workstation too — the desktop app connects to this server.{" "}
+            <a
+              className="entry-link"
+              href="https://getmarula.com/docs/psa/v0.3/how-to/install-the-desktop-app"
+              target="_blank"
+              rel="noreferrer"
+            >
+              How to install it
+            </a>
+          </p>
+        )}
+
         {mode === "signin" && (
           <>
             <p className="entry-or">or</p>

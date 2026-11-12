@@ -1182,6 +1182,7 @@ dependencies = [
  "jsonwebtoken",
  "mapbox-routing",
  "openssl",
+ "openssl",
  "plugin-host",
  "qrcode",
  "rand 0.8.8",

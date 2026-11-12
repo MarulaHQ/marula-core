@@ -109,29 +109,31 @@ script started. It never kills a listener it does not recognize.
 
 ## The desktop alternative: no Docker, double-clickable
 
-A second way to run a demo needs no Docker at all. The desktop test app
-([ADR 0005](../../adr/0005-local-desktop-test-app.md)) bundles an
-embedded Postgres, core-api, and the web console into one application
-you launch by double-clicking. Same demo org, same four logins.
+The desktop app bundles an embedded Postgres, core-api, and the web console
+into one application you launch by double-clicking
+([ADR 0005](../../adr/0005-local-desktop-test-app.md)). Two ways to get it,
+for two different jobs:
 
-Choose it when:
+- **A released build, for a demo you hand to someone.** Download it from the
+  desktop releases and launch it; the steps are in
+  [install the desktop app](install-the-desktop-app.md). A released build
+  seeds no demo org, so you stage the demo yourself by creating the account
+  you want to show. Choose this when Docker is not on the machine, or when
+  "clone the repo and run this script" is not something you can hand to a
+  prospect.
+- **A developer build, for the seeded demo org.** Build it in this repo with
+  `scripts/build-desktop.sh`; the vendored `rebuild-local-test-app` skill
+  documents the rebuild loop, and the only prerequisites are the repo, node,
+  and `brew install pgvector`. The first build on a machine takes roughly
+  three minutes, because it downloads the Postgres binaries and compiles the
+  app. Every rebuild after that is dominated by the web build. This is the
+  build that carries the same demo org and the same four logins as
+  `demo-up.sh`. The app's data lives in `~/Library/Application
+  Support/Marula/` and survives rebuilds, migrations included. Delete that
+  directory to start from a blank machine.
 
-- **Docker is not on the machine.** The app carries its own Postgres, so
-  the only prerequisites are the repo, node, and `brew install pgvector`.
-- **You are handing the demo to someone else.** A double-clickable
-  artifact beats "clone the repo and run this script" when the person on
-  the other end is a prospect, not an engineer.
-
-Build it with `scripts/build-desktop.sh`; the vendored
-`rebuild-local-test-app` skill documents the rebuild loop. The first
-build on a machine takes roughly three minutes, because it downloads the
-Postgres binaries and compiles the app. Every rebuild after that is
-dominated by the web build. The app's data lives in `~/Library/Application
-Support/Meridian/` and survives rebuilds, migrations included. Delete
-that directory to start from a blank machine.
-
-Where it gives ground, so you can choose honestly: the desktop app runs
-a local-mode config with external integrations off, and its port space
+Where the desktop route gives ground, so you can choose honestly: the app
+runs a local-mode config with external integrations off, and its port space
 is not the one `demo-up.sh` uses. Anything involving real email,
 Stripe, or shared testing is compose territory, so run
 `scripts/demo-up.sh` or the full compose stack for that.

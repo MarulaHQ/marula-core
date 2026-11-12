@@ -37,7 +37,7 @@ import {
   warningsFor,
   type PathMode,
 } from "./lib/model";
-import { PlanList, Proof, Section, ValueTable } from "./ui";
+import { DocsLink, PlanList, Proof, Section, ValueTable } from "./ui";
 import type { ApplyState, Check, Doctor, HostFacts, Param, Plan, Profile, State } from "./types";
 
 /* ---------------------------------------------------------------- 1. path */
@@ -841,6 +841,7 @@ export function ReviewStep({
   onOpen,
   onMode,
   mode,
+  desktopDocsHref,
 }: {
   state: State;
   profile: string;
@@ -854,6 +855,7 @@ export function ReviewStep({
   onOpen: () => void;
   onMode: (mode: PathMode) => void;
   mode: PathMode;
+  desktopDocsHref: string;
 }) {
   const [terminal, setTerminal] = useState(false);
   const chosen = state.profiles.find((candidate) => candidate.name === profile);
@@ -947,7 +949,13 @@ export function ReviewStep({
           </Button>
         </div>
       ) : (
-        <ApplyPanel apply={apply} progress={progress} onApply={onApply} />
+        <ApplyPanel
+          apply={apply}
+          progress={progress}
+          onApply={onApply}
+          doctorOk={doctor?.ok ?? false}
+          desktopDocsHref={desktopDocsHref}
+        />
       )}
 
       {doctor ? <DoctorPanel doctor={doctor} onDoctor={onDoctor} onOpen={onOpen} /> : null}
@@ -973,10 +981,15 @@ function ApplyPanel({
   apply,
   progress,
   onApply,
+  doctorOk,
+  desktopDocsHref,
 }: {
   apply: ApplyState;
   progress: number;
   onApply: () => void;
+  /** The doctor's verdict on the installed server; the pointer waits for it. */
+  doctorOk: boolean;
+  desktopDocsHref: string;
 }) {
   if (apply.running) {
     return (
@@ -1021,9 +1034,22 @@ function ApplyPanel({
   }
 
   return (
-    <Callout icon={<Icon name="check" size={16} className="mt-0.5 shrink-0 text-[var(--mc-green)]" />}>
-      Applied. {apply.done.length} steps ran and the stack answered.
-    </Callout>
+    <>
+      <Callout icon={<Icon name="check" size={16} className="mt-0.5 shrink-0 text-[var(--mc-green)]" />}>
+        Applied. {apply.done.length} steps ran and the stack answered.
+      </Callout>
+      {/* The one next step the wizard leaves behind: the workstation client.
+          Stated only once the doctor confirms the server answers, and styled
+          quieter than the doctor panel so the screen stays calm. */}
+      {doctorOk ? (
+        <div className="rounded-ctl border border-border px-3.5 py-2.5">
+          <p className="m-0 text-[12.5px] leading-[1.55] text-muted-foreground">
+            Run Marula on your workstation. The desktop client connects to this server —{" "}
+            <DocsLink href={desktopDocsHref}>how to install it</DocsLink>.
+          </p>
+        </div>
+      ) : null}
+    </>
   );
 }
 
