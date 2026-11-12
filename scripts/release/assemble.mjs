@@ -62,6 +62,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, relative, resolve, sep } from "node:path";
+import { platform } from "node:os";
 
 const ROOT = resolve(import.meta.dirname, "..", "..");
 
@@ -302,8 +303,12 @@ export function assemble(options) {
       rmSync(archive, { force: true });
       // `tar` is on macOS, Linux and Windows 10+ (bsdtar). The path is passed
       // relative to `-C` so the archive unpacks into a directory named after
-      // the release rather than into a developer's home directory.
-      execFileSync("tar", ["-czf", archive, "-C", out, name], { stdio: "inherit" });
+      // the release rather than into a developer's home directory. On Windows
+      // the tar in PATH is GNU tar, which reads `D:\a\...` as a remote host —
+      // --force-local pins it to a local file. bsdtar ignores the flag.
+      const args = ["-czf", archive, "-C", out, name];
+      if (platform() === "win32") args.unshift("--force-local");
+      execFileSync("tar", args, { stdio: "inherit" });
       archiveSums = join(out, `SHA256SUMS-${os}-${arch}`);
       writeFileSync(archiveSums, renderSums([[sha256File(archive), basename(archive)]]));
     }
