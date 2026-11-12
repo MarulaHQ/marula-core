@@ -119,14 +119,16 @@ pub struct PortalProfile {
 
 /// POST /api/portal/login — argon2 verify against `portal_users`. No MFA in
 /// portal v1 (documented deferral). Disabled accounts resolve to nothing →
-/// uniform 401, never revealing which half failed; an address that is a live
-/// portal identity in two tenants also resolves to nothing (0183), so the
-/// bridge can never pick a tenant on the visitor's behalf.
+/// uniform 401, never revealing which half failed.
 #[utoipa::path(operation_id = "portal_login", post, path = "/api/portal/login", tag = "portal",
     request_body = PortalLoginRequest, responses(
         (status = 200, body = PortalLoginResponse),
         (status = 401, description = "bad credentials")
 ))]
+// An ambiguous address (a live portal identity in two tenants) also resolves
+// to nothing (0183). This stays in a plain comment rather than the doc block
+// above: `utoipa` turns that block into the operation summary, which is the
+// pinned API contract, and a behaviour note should not move `fixtures/openapi`.
 pub async fn login(
     State(state): State<AppState>,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
