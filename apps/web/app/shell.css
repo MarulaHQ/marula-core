@@ -210,21 +210,27 @@ button.m-workbar-wrapup:focus-visible {
   outline-offset: 1px;
 }
 
-/* ---- Compact rail below 768px (survives 480) --------------------------- */
+/* ---- Compact rail below 768px (survives 480) ---------------------------
+   The rail's width belongs to the shell (64px icons-only, 188px expanded), so
+   a phone gets a narrower column here rather than a narrower tile: the old
+   block targeted `.m-rail-item`, a class the kit's RailItem has not used since
+   Wave41, and squeezed the nav to 36px while its tiles stayed 44px — the tiles
+   overflowed the column on every phone. Shrink both together, and only in the
+   collapsed state: an expanded rail is the person's own choice. */
 
 @media (max-width: 767px) {
-  [data-testid="nav-rail"] {
-    width: 36px !important;
+  [data-testid="nav-rail"][data-collapsed="true"] {
+    width: 48px !important;
   }
 
-  [data-testid="nav-rail"] .m-rail-item {
-    height: 28px;
-    width: 28px;
+  [data-testid="nav-rail"][data-collapsed="true"] [data-slot="rail-item"] {
+    height: 40px;
+    width: 40px;
   }
 
-  [data-testid="nav-rail"] .m-rail-item > svg {
-    width: 15px;
-    height: 15px;
+  [data-testid="nav-rail"][data-collapsed="true"] [data-slot="rail-item"] svg {
+    width: 18px;
+    height: 18px;
   }
 }
 

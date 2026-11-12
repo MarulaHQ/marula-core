@@ -9,12 +9,13 @@
 "use client";
 
 import { Button } from "@marula-core/ui";
-import { Icon } from "@marula-core/ui/kit";
+import { Icon, IconButton } from "@marula-core/ui/kit";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { kindLabel, useNotifications, type NotificationItem } from "../lib/use-notifications";
 import { requestFocus } from "../lib/popout/window-bus";
 import { routeMarulaLink } from "../lib/desktop/windows";
+import { NavCounter } from "./shell/nav-counter";
 
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -151,33 +152,32 @@ export function NotificationDock() {
 
   return (
     <div ref={rootRef} className="relative">
-      <Button
-        variant="ghost"
-        size="sm"
+      {/*
+        The bell is a 40px bordered square like its neighbours in the dock
+        cluster, and the unread count rides the corner rather than sitting
+        beside the glyph: a badge in the flow shifts the bell sideways the
+        moment a notification arrives, so the control moves under the pointer.
+        The chip is aria-hidden; the count reaches a screen reader through the
+        button's name.
+      */}
+      <IconButton
         aria-label={`Notifications${safeUnread > 0 ? ` (${safeUnread} unread)` : ""}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
         <BellIcon />
-        {safeUnread > 0 && (
-          <span
-            data-testid="unread-badge"
-            className="ml-1 min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded-full text-[11px] font-medium"
-            style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
-          >
-            {safeUnread > 9 ? "9+" : safeUnread}
-          </span>
-        )}
-      </Button>
+        <NavCounter count={safeUnread} className="absolute -right-1 -top-1" />
+      </IconButton>
 
       {open && (
         <div
           role="dialog"
           aria-label="Notifications"
-          className="absolute right-0 top-full mt-1 w-[360px] max-w-[calc(100vw-24px)] rounded-md border shadow-lg z-50 overflow-hidden"
+          className="absolute right-0 top-full mt-2 w-[360px] max-w-[calc(100vw-24px)] rounded-lg border shadow-mc z-50 overflow-hidden"
           style={{
             background: "var(--m-surface)",
             borderColor: "var(--m-border)",
-            boxShadow: "var(--m-shadow-strong)",
           }}
         >
           <div
