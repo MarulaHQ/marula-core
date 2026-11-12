@@ -35,6 +35,8 @@
 #                                        every artifact already built
 #   scripts/p13-build-env.sh disable     delete the overlay
 #   scripts/p13-build-env.sh check       exit 1 when the overlay disagrees with this host
+#   scripts/p13-build-env.sh probe       exit 1 when a cached dylib dyld will refuse to load
+#                                        (macOS 27.x: LC_SYMTAB string-pool alignment)
 #   scripts/p13-build-env.sh selftest    prove the generate/disable/check paths
 #
 #   --dry-run     with `enable`: print the overlay, write nothing
@@ -386,6 +388,40 @@ cmd_disable() {
   return 0
 }
 
+# probe_dylibs — name the cached dylibs dyld will refuse to load.
+#
+# dyld 27.x requires LC_SYMTAB's string table to start on an 8-byte boundary,
+# and Apple's ld sometimes lands it on a 4. The build then fails as an E0432
+# "unresolved imports" in whichever crate uses the proc macro — a linker
+# defect wearing a code defect's clothes. scripts/check-dylib-alignment.py
+# parses the header and says so in one line.
+#
+# Exit status is the python script's: 0 clean or nothing to scan, 1 a dylib
+# cannot load. Non-Mach-O files are skipped, so this is harmless on Linux.
+probe_dylibs() {
+  local td dirs=()
+  if [ -n "${P13_TARGET_DIR:-}" ]; then
+    td="$P13_TARGET_DIR"
+  else
+    td="$(share_target_path)"
+    if [ -z "$td" ]; then
+      td="$(sed -n 's/^[[:space:]]*target-dir[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
+            "$TRACKED_CONFIG" 2>/dev/null | head -1)"
+    fi
+  fi
+  [ -n "$td" ] || td="$ROOT/target"
+  local profile
+  for profile in debug release; do
+    [ -d "$td/$profile/deps" ] && dirs+=("$td/$profile/deps")
+  done
+  [ "${#dirs[@]}" -gt 0 ] || return 0
+  python3 "$ROOT/scripts/check-dylib-alignment.py" "${dirs[@]}"
+}
+
+cmd_probe() {
+  probe_dylibs
+}
+
 cmd_check() {
   # An overlay written with --no-accelerators must not read as drift on the
   # next flagless check; the marker is a comment, so it never enters the
@@ -417,6 +453,15 @@ cmd_check() {
       "$([ "$rc" = 0 ] && echo true || echo false)" "$detail" "$OVERLAY"
   else
     say "p13-build-env: $detail"
+    # A cached dylib that cannot load fails the NEXT build in a crate that
+    # looks unrelated, so name it at lane start. Advisory: a dylib left by a
+    # flag set this tree no longer uses is not drift, and check must not fail
+    # for it. `probe` is the command that exits non-zero.
+    if [ "$(host_os)" = "Darwin" ] && command -v python3 >/dev/null 2>&1; then
+      if ! probe_dylibs >/dev/null 2>&1; then
+        say "p13-build-env: warning: a cached dylib cannot be loaded by dyld — run 'scripts/p13-build-env.sh probe' for the file and the remedy"
+      fi
+    fi
   fi
   return "$rc"
 }
@@ -548,7 +593,7 @@ FORCE=0
 NO_ACCEL=0
 for arg in "$@"; do
   case "$arg" in
-    info|enable|disable|check|selftest) CMD="$arg" ;;
+    info|enable|disable|check|probe|selftest) CMD="$arg" ;;
     --json) JSON=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --force) FORCE=1 ;;
@@ -566,5 +611,6 @@ case "$CMD" in
   enable) cmd_enable ;;
   disable) cmd_disable ;;
   check) cmd_check ;;
+  probe) cmd_probe ;;
   selftest) cmd_selftest ;;
 esac
