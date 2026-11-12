@@ -281,6 +281,9 @@ pub async fn register(
     // Without this the pad has no wording to show and capture is unreachable.
     core_db::orgs::seed_default_sign_off_consent(&mut tx, org_id).await?;
     core_db::templates::seed_default_templates(&mut tx, org_id).await?;
+    // The system-outbound email copies (migration 0182): editable org
+    // rows the enqueue lookup reads by the outbound kind's fixed slug.
+    core_db::templates::seed_outbound_email_templates(&mut tx, org_id).await?;
 
     core_db::users::create_user(
         &mut *tx,

@@ -81,6 +81,10 @@ pub struct TemplateView {
     #[schema(nullable = true)]
     pub subject: Option<String>,
     pub body: String,
+    /// The optional branded HTML part of an email-kind template
+    /// (migration 0182). `null` for every text-only template.
+    #[schema(nullable = true)]
+    pub html: Option<String>,
     pub variables: Vec<TemplateVariableView>,
     /// Shipped preset tag, `null` for org-created rows.
     #[schema(nullable = true)]
@@ -115,6 +119,7 @@ impl TemplateView {
             description: e.description,
             subject: e.subject,
             body: e.body,
+            html: e.html,
             variables: variables
                 .into_iter()
                 .map(|v| TemplateVariableView {
@@ -166,6 +171,10 @@ pub struct CreateTemplateRequest {
     #[serde(default)]
     pub subject: Option<String>,
     pub body: String,
+    /// The optional branded HTML part (email kind). Placeholders must be
+    /// inside the kind's closed vocabulary, like the text body.
+    #[serde(default)]
+    pub html: Option<String>,
     /// Declared variables; every key must be inside the kind's closed
     /// vocabulary (typed 400 `template_unknown_variable` otherwise).
     #[serde(default)]
@@ -195,6 +204,9 @@ pub struct UpdateTemplateRequest {
     pub subject: Option<String>,
     #[serde(default)]
     pub body: Option<String>,
+    /// Same PATCH semantics as `subject`: absent keeps the stored value.
+    #[serde(default)]
+    pub html: Option<String>,
     #[serde(default)]
     pub variables: Option<Vec<TemplateVariableView>>,
     /// Instant-first autosave parameters (IF1): idempotency key + version.
@@ -232,6 +244,12 @@ pub struct RenderedTemplate {
     #[schema(nullable = true)]
     pub subject: Option<String>,
     pub body: String,
+    /// The rendered HTML part, when the template carries one. Context
+    /// values are HTML-escaped at insertion — the same escape the
+    /// outbound render applies — so a preview is as injection-proof as
+    /// the mail it previews.
+    #[schema(nullable = true)]
+    pub html: Option<String>,
 }
 
 // --- validation helpers --------------------------------------------------------
@@ -410,6 +428,18 @@ pub async fn create(
     }
     validate_variables(kind, &req.variables)?;
     tmpl::validate_content(kind, req.subject.as_deref(), &req.body).map_err(render_error)?;
+    if let Some(html) = req.html.as_deref() {
+        // Same size cap as the text body, and the HTML part is a template
+        // text like any other: its placeholders must live in the same
+        // closed vocabulary, so the enqueue renderer can never meet an
+        // unknown key in stored markup.
+        if html.len() > 64_000 {
+            return Err(ApiError::Validation(
+                "template html must be null or at most 64000 characters".into(),
+            ));
+        }
+        tmpl::validate_content(kind, None, html).map_err(render_error)?;
+    }
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
 
@@ -418,6 +448,7 @@ pub async fn create(
     let vars = variables_json(&req.variables);
     let body = req.body.clone();
     let subject = req.subject.clone();
+    let html = req.html.clone();
     let description = req.description.trim().to_string();
     let kind_str = kind.as_str().to_string();
 
@@ -433,7 +464,7 @@ pub async fn create(
         let id = Uuid::now_v7();
         let entry = core_db::templates::insert_template(
             &mut ctx.tx, id, org_id, &kind_str, &slug, &name, &description,
-            subject.as_deref(), &body, &vars, None,
+            subject.as_deref(), &body, html.as_deref(), &vars, None,
         )
         .await?;
 
@@ -554,6 +585,7 @@ pub async fn fork(
             &origin.description,
             origin.subject.as_deref(),
             &origin.body,
+            origin.html.as_deref(),
             &origin.variables,
             forked_from.as_deref(),
         )
@@ -691,6 +723,8 @@ pub async fn update(
             .unwrap_or_else(|| before.description.clone());
         let subject = req.subject.clone().or_else(|| before.subject.clone());
         let body = req.body.clone().unwrap_or_else(|| before.body.clone());
+        // PATCH semantics match `subject`: absent keeps the stored part.
+        let html = req.html.clone().or_else(|| before.html.clone());
         if body.trim().is_empty() || body.len() > 64_000 {
             return Err(ApiError::Validation(
                 "template body is required (1..=64000 characters)".into(),
@@ -699,6 +733,11 @@ pub async fn update(
         if subject.as_deref().is_some_and(str::is_empty) {
             return Err(ApiError::Validation(
                 "subject must be null or non-empty".into(),
+            ));
+        }
+        if html.as_deref().is_some_and(|h| h.len() > 64_000) {
+            return Err(ApiError::Validation(
+                "template html must be null or at most 64000 characters".into(),
             ));
         }
         let vars_view = req.variables.clone().unwrap_or_else(|| {
@@ -713,6 +752,9 @@ pub async fn update(
         });
         validate_variables(kind, &vars_view)?;
         tmpl::validate_content(kind, subject.as_deref(), &body).map_err(render_error)?;
+        if let Some(html) = html.as_deref() {
+            tmpl::validate_content(kind, None, html).map_err(render_error)?;
+        }
 
         let after = core_db::templates::update_template(
             &mut ctx.tx,
@@ -722,6 +764,7 @@ pub async fn update(
             &description,
             subject.as_deref(),
             &body,
+            html.as_deref(),
             &variables_json(&vars_view),
         )
         .await
@@ -856,6 +899,7 @@ pub async fn restore(
             id,
             canonical.subject,
             canonical.body,
+            canonical.html,
         )
         .await
         .map_err(ApiError::from)
@@ -1109,5 +1153,23 @@ pub async fn render(
     let (subject, body) =
         tmpl::render_template(kind, entry.subject.as_deref(), &entry.body, &row.to_map())
             .map_err(render_error)?;
-    Ok(Json(RenderedTemplate { subject, body }))
+    // The HTML part previews through the same engine and the same escape
+    // the outbound render uses, so what an admin previews is what the
+    // mail carries.
+    let html = match entry.html.as_deref() {
+        Some(html) => {
+            let escaped: tmpl::RenderContext = row
+                .to_map()
+                .into_iter()
+                .map(|(k, v)| (k, core_mail::outbound::escape_html(&v)))
+                .collect();
+            Some(tmpl::render(kind, html, &escaped).map_err(render_error)?)
+        }
+        None => None,
+    };
+    Ok(Json(RenderedTemplate {
+        subject,
+        body,
+        html,
+    }))
 }

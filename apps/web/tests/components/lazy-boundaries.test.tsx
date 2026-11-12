@@ -141,7 +141,10 @@ const SOURCE = /\.(ts|tsx)$/;
 
 /** Files allowed to touch the heavy library directly. */
 const ALLOWED_RECHARTS = new Set(["components/dashboards/widget-charts.tsx", "components/report-preview.tsx"]);
-const ALLOWED_TIPTAP = new Set(["lib/editor/kb-article-editor.tsx"]);
+const ALLOWED_TIPTAP = new Set([
+  "lib/editor/kb-article-editor.tsx",
+  "lib/editor/email-template-editor.tsx",
+]);
 
 function walk(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -181,6 +184,7 @@ describe("heavy libraries stay behind their boundary", () => {
       "components/dashboards/report-widget.tsx": "widget-charts-lazy",
       "components/report-builder.tsx": "report-chart-lazy",
       "app/kb/page.tsx": "kb-article-editor-lazy",
+      "app/settings/email/templates/[id]/page.tsx": "email-template-editor-lazy",
     };
     for (const [file, boundary] of Object.entries(consumers)) {
       const source = readFileSync(path.join(WEB_ROOT, file), "utf8");

@@ -522,6 +522,9 @@ impl MailHarness {
                     to_addresses: claimed.to_addresses.clone(),
                     subject: claimed.subject.clone(),
                     body_text: claimed.body_text.clone(),
+                    // The simulated transport passes the 0181 HTML part
+                    // through like any other content.
+                    body_html: claimed.body_html.clone(),
                     in_reply_to: claimed.in_reply_to.clone(),
                     references: claimed.references.clone(),
                     attempts: claimed.attempts,

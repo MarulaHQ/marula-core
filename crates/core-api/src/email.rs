@@ -25,8 +25,10 @@ use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use chrono::Utc;
 use core_db::emails::{self, InboundRoute, NewMessage};
+use core_db::templates as db_templates;
 use core_domain::email_signature as signature;
 use core_domain::email_signature::{SignaturePolicy, SignatureSource};
+use core_domain::entities::templates::TemplateKind;
 use core_domain::entities::{
     EmailDirection, ScanStatus, SenderBindingDecisionSource, SenderBindingLevel, SenderBindingState,
 };
@@ -35,6 +37,7 @@ use core_domain::events::{
 };
 use core_domain::settings as registry;
 use core_domain::status::{NoteKind, Priority};
+use core_domain::templates as tmpl;
 use core_mail::inbound::{normalize_message_key, plan_inbound, InboundOutcome};
 use serde_json::json;
 use sqlx::{PgConnection, Postgres, Transaction};
@@ -1444,6 +1447,119 @@ impl<'a> OutboundEnqueue<'a> {
     }
 }
 
+/// Which copy a system-sent mail carried (mirrors
+/// `signature_source`/`greeting_source`): `stored` when the org's
+/// template row supplied the rendering, `builtin` when the hardcoded
+/// fallback did — row missing, lookup failed, or the stored text failed
+/// to render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateSource {
+    Stored,
+    Builtin,
+}
+
+impl TemplateSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TemplateSource::Stored => "stored",
+            TemplateSource::Builtin => "builtin",
+        }
+    }
+}
+
+/// The rendered content of one system-sent mail: the subject, the text
+/// body (which then rides the resolved envelope like any other body),
+/// and the optional HTML part.
+#[derive(Debug, Clone)]
+struct OutboundContent {
+    subject: String,
+    body: String,
+    html: Option<String>,
+    template_source: TemplateSource,
+}
+
+/// Resolves the content of one system-sent mail: look up the org's
+/// template row for the kind's slug, render it through the typed
+/// variable engine, and fall back to the kind's builtin rendering the
+/// moment anything in that chain does not hold. One indexed read on an
+/// already-cold path; a template that does not exist, a lookup that
+/// fails, or a stored text that renders an error must never fail the
+/// enqueue — the builtin copy ships in the binary, so the mail still
+/// goes out.
+///
+/// Part-by-part rules when a row IS found: the stored body (a NOT NULL
+/// column) always applies; a stored subject applies when present and the
+/// builtin subject stands in otherwise (the ledger row needs a subject);
+/// a stored HTML part applies when present, and `None` means the org
+/// cleared it — no HTML part, not a resurrected builtin one. A render
+/// ERROR, though, is a fault in the stored text as a whole, so the whole
+/// message falls back to builtin rather than going out half-rendered.
+///
+/// The HTML part renders with HTML-escaped context values (an email has
+/// no DOM and no sanitizer; this is the same escape the builtin
+/// renderer applies), the text parts with the plain values.
+async fn resolve_outbound_content(
+    tx: &mut Tx,
+    org_id: Uuid,
+    kind: &core_mail::outbound::OutboundKind,
+) -> ApiResult<OutboundContent> {
+    let builtin = |source| {
+        Ok(OutboundContent {
+            subject: kind.subject(),
+            body: kind.body(),
+            html: kind.html(),
+            template_source: source,
+        })
+    };
+    let Some(slug) = kind.template_slug() else {
+        return builtin(TemplateSource::Builtin);
+    };
+    let row = match db_templates::find_org_template(&mut **tx, org_id, "email", slug).await {
+        Ok(row) => row,
+        // A cold-path read error is not worth a lost mail: the fallback
+        // copy is the honest next-best outcome, and the event records it.
+        Err(_) => return builtin(TemplateSource::Builtin),
+    };
+    let Some(entry) = row else {
+        return builtin(TemplateSource::Builtin);
+    };
+
+    let ctx = kind.render_context();
+    let render =
+        |text: &str, ctx: &tmpl::RenderContext| tmpl::render(TemplateKind::Email, text, ctx);
+    // The HTML part inserts user data into markup, so every context
+    // value is escaped with the same escape the builtin renderer uses.
+    let html_ctx: tmpl::RenderContext = ctx
+        .iter()
+        .map(|(k, v)| (k.clone(), core_mail::outbound::escape_html(v)))
+        .collect();
+
+    let rendered = (|| -> Result<OutboundContent, tmpl::RenderError> {
+        let subject = match entry.subject.as_deref() {
+            Some(subject) => render(subject, &ctx)?,
+            None => kind.subject(),
+        };
+        let body = render(&entry.body, &ctx)?;
+        let html = match entry.html.as_deref() {
+            Some(html) => Some(render(html, &html_ctx)?),
+            None => None,
+        };
+        Ok(OutboundContent {
+            subject,
+            body,
+            html,
+            template_source: TemplateSource::Stored,
+        })
+    })();
+    match rendered {
+        Ok(content) => Ok(content),
+        // A stored row that renders an error (an out-of-vocabulary
+        // placeholder written outside the write gate, say) must not go
+        // out half-rendered: the whole message falls back to builtin.
+        Err(_) => builtin(TemplateSource::Builtin),
+    }
+}
+
 /// Shared outbound enqueue: resolves the from/reply-to identity (org, then
 /// the ticket's board when there is one), resolves the greeting and
 /// signature for the SENDER, renders the kind, writes the ledger + retry
@@ -1453,7 +1569,11 @@ impl<'a> OutboundEnqueue<'a> {
 /// The greeting and signature are the resolved values, not the org's
 /// stored text: the board rung and the personal rungs live in
 /// `resolve_envelope`, and the two sources land on the ledger row so the
-/// delivery log can say which one applied.
+/// delivery log can say which one applied. The same is true of the
+/// content itself since migration 0182: the org's stored template row
+/// supplies subject/body/HTML when one exists for the kind, and the
+/// builtin rendering is the fallback — `template_source` on the ledger
+/// row and the event say which copy went out.
 pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResult<()> {
     if req.to_addresses.is_empty() {
         return Ok(());
@@ -1461,7 +1581,8 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
     let identity = resolve_mail_identity(tx, req.org_id, req.ticket_id, req.mail).await?;
     let envelope =
         resolve_envelope(tx, req.org_id, req.ticket_id, req.signer, &req.overrides).await?;
-    let body = assemble_body(&envelope, &req.kind.body());
+    let content = resolve_outbound_content(tx, req.org_id, req.kind).await?;
+    let body = assemble_body(&envelope, &content.body);
     let message_id = emails::enqueue_outbound(
         tx,
         emails::NewOutbound {
@@ -1473,15 +1594,17 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
                 .iter()
                 .map(|r| normalize_message_key(r))
                 .collect(),
-            subject: req.kind.subject(),
+            subject: content.subject,
             from_address: identity.from_address.clone(),
             from_name: identity.from_name.clone(),
             to_addresses: req.to_addresses.clone(),
             body_text: body,
+            body_html: content.html,
             ticket_id: req.ticket_id,
             transport: identity.transport_label,
             signature_source: Some(envelope.signature_source.as_str().to_string()),
             greeting_source: Some(envelope.greeting_source.as_str().to_string()),
+            template_source: Some(content.template_source.as_str().to_string()),
         },
     )
     .await?;
@@ -1499,6 +1622,7 @@ pub async fn enqueue_outbound(tx: &mut Tx, req: OutboundEnqueue<'_>) -> ApiResul
             "comment_id": null,
             "signature_source": envelope.signature_source.as_str(),
             "greeting_source": envelope.greeting_source.as_str(),
+            "template_source": content.template_source.as_str(),
         }),
     )
     .await?;
@@ -1560,10 +1684,13 @@ pub async fn enqueue_rendered_outbound(
             from_name: identity.from_name.clone(),
             to_addresses: vec![to.to_string()],
             body_text: body.to_string(),
+            body_html: None,
             ticket_id,
             transport: identity.transport_label,
             signature_source: sources.signature,
             greeting_source: sources.greeting,
+            // Caller-rendered: no system template applied to this copy.
+            template_source: None,
         },
     )
     .await?;

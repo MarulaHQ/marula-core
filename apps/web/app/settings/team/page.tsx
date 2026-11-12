@@ -46,9 +46,11 @@ import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { RoleMatrixEditor, type EditableRole } from "./role-editor";
-import { ConfirmDestructive, SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
-import { OFFLINE_RETRY_COPY, reasonCopy } from "../../../lib/error-copy";
+import { ConfirmDestructive, SettingsHeader } from "../../../components/settings/settings-shell";
+import { InviteMemberFlow, type InviteMemberBody, type InviteSendResult } from "../../../components/onboarding/invite-member-flow";
+import { reasonCopy } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { BUILTIN_ROLES } from "../../../lib/settings/roles";
 
 type OrgUser = components["schemas"]["OrgUser"];
 type OrgUserListResponse = components["schemas"]["OrgUserListResponse"];
@@ -60,31 +62,8 @@ type PortalTierView = components["schemas"]["PortalTierView"];
 
 const PAGE_SIZE = 50;
 
-const BUILTIN_ROLES = [
-  "owner",
-  "admin",
-  "dispatcher",
-  "senior_tech",
-  "technician",
-  "bookkeeper",
-  "auditor",
-  "read_only",
-] as const;
-type BuiltinRole = (typeof BUILTIN_ROLES)[number];
-
 const MANAGE_USERS = "special:manage_users";
 const MANAGE_BOARDS = "special:manage_boards";
-
-const ROLE_HINT: Record<BuiltinRole, string> = {
-  owner: "Full control incl. billing and the org itself",
-  admin: "Everything except org-level ownership actions",
-  dispatcher: "Schedules and assigns work",
-  senior_tech: "Escalation tier: full ticket + KB control, time approvals, no financial visibility",
-  technician: "Works tickets",
-  bookkeeper: "Invoicing control and financial visibility, no ticket work",
-  auditor: "Read everything plus the audit trail; writes nothing",
-  read_only: "View only",
-};
 
 function roleTone(role: string | null | undefined): "success" | "warning" | "neutral" {
   if (role === "owner") return "success";
@@ -127,13 +106,10 @@ export default function TeamSettingsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
 
-  // Invite dialog state
+  // Invite dialog state — the guided flow owns the draft (intent, role,
+  // name, email) internally; the page keeps only what it must survive a
+  // dialog close: whether it is open and the copy-once result.
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteName, setInviteName] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<BuiltinRole>("technician");
-  const [inviteBusy, setInviteBusy] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteResult, setInviteResult] = useState<{ user: OrgUser; invite: InviteInfo } | null>(null);
   // Per-row action state
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -278,40 +254,22 @@ export default function TeamSettingsPage() {
 
   /** Direct invite call that KEEPS the response body — the one-time setup
    * token exists ONLY in the POST response (no read-back), so this cannot
-   * go through runEnvelopeMutation's reconcile-and-discard flow. */
-  const inviteDirect = async () => {
-    setInviteBusy(true);
-    setInviteError(null);
-    try {
-      const { data, error } = await api.api.POST("/api/v1/org/users", {
-        body: {
-          display_name: inviteName.trim(),
-          email: inviteEmail.trim(),
-          role: inviteRole,
-        },
-      });
-      if (error !== undefined || data === undefined) {
-        const err = error as { error?: { reason?: string; message?: string } } | undefined;
-        setInviteError(friendlyUserError(err?.error?.reason, err?.error?.message));
-        return;
-      }
-      // `invite` is optional in the type but always present on a fresh
-      // invite; if the server ever omits it, fail honestly rather than
-      // show a dead link.
-      if (data.invite == null) {
-        setInviteError("The invite was created but no setup token came back — try again.");
-        return;
-      }
-      setInviteResult({ user: data, invite: data.invite });
-      setInviteName("");
-      setInviteEmail("");
-      setInviteRole("technician");
-      void fetchPage(0, true);
-    } catch {
-      setInviteError(OFFLINE_RETRY_COPY);
-    } finally {
-      setInviteBusy(false);
+   * go through runEnvelopeMutation's reconcile-and-discard flow. The body
+   * carries the flow's per-episode idempotency key, so a retry can never
+   * double-invite (instant-first envelope). */
+  const inviteSend = async (body: InviteMemberBody): Promise<InviteSendResult> => {
+    const { data, error } = await api.api.POST("/api/v1/org/users", { body });
+    if (error !== undefined || data === undefined) {
+      const err = error as { error?: { reason?: string; message?: string } } | undefined;
+      return { ok: false, message: friendlyUserError(err?.error?.reason, err?.error?.message) };
     }
+    // `invite` is optional in the type but always present on a fresh
+    // invite; if the server ever omits it, fail honestly rather than
+    // show a dead link.
+    if (data.invite == null) {
+      return { ok: false, message: "The invite was created but no setup token came back — try again." };
+    }
+    return { ok: true, data };
   };
 
   const setStatus = async (user: OrgUser, active: boolean) => {
@@ -387,7 +345,6 @@ export default function TeamSettingsPage() {
             open={inviteOpen}
             onOpenChange={(o) => {
               setInviteOpen(o);
-              setInviteError(null);
               if (!o) setInviteResult(null);
             }}
           >
@@ -445,48 +402,19 @@ export default function TeamSettingsPage() {
                   </DialogActions>
                 </div>
               ) : (
-                <div className="grid gap-3 p-4">
-                  <div>
-                    <Label htmlFor="invite-name">Display name</Label>
-                    <Input id="invite-name" value={inviteName} onChange={(e) => setInviteName(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label htmlFor="invite-email">Email</Label>
-                    <Input
-                      id="invite-email"
-                      type="email"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="invite-role">Org role</Label>
-                    <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as BuiltinRole)}>
-                      <SelectTrigger id="invite-role" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {BUILTIN_ROLES.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r} — {ROLE_HINT[r]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <DialogActions>
-                    <Button variant="ghost" onClick={() => setInviteOpen(false)}>
-                      Cancel
-                    </Button>
-                    <SaveBar
-                      dirty={inviteName.trim() !== "" && inviteEmail.trim() !== ""}
-                      saving={inviteBusy}
-                      error={inviteError}
-                      onSave={() => void inviteDirect()}
-                      saveTestId="create-invite"
-                      saveLabel="Create invite"
-                    />
-                  </DialogActions>
+                <div className="p-4">
+                  <InviteMemberFlow
+                    send={inviteSend}
+                    onSent={(data) => {
+                      // send() already proved invite is present; the type
+                      // still allows null, so assert the fact it established.
+                      setInviteResult({ user: data, invite: data.invite as InviteInfo });
+                      void fetchPage(0, true);
+                    }}
+                    cancel={{ label: "Cancel", onClick: () => setInviteOpen(false) }}
+                    wide
+                    testIds={{ send: "create-invite" }}
+                  />
                 </div>
               )}
             </DialogContent>

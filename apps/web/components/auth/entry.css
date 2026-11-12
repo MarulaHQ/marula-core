@@ -692,6 +692,89 @@
   background: var(--m-canopy);
 }
 
+/* ---- /accept-invite's guided steps: a compact meter inside the card ------ */
+
+.entry-progress--card {
+  height: 4px;
+  margin-top: 6px;
+}
+
+/* A step's plain sans heading. The serif stays for the greeting on the first
+   step; the middle step is a field, not a page title. */
+.entry-mhead {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+@keyframes entry-mstep-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Each step's body arrives with a small rise. Transform and opacity only,
+   per the motion law. */
+.entry-mstep {
+  animation: entry-mstep-in 120ms ease;
+}
+
+/* ---- The desktop-app card on the accept flow's last step ------------------ */
+
+.entry-appcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-surface-2);
+  padding: 14px 40px 14px 14px;
+}
+
+.entry-appcard__hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--m-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.entry-appcard__hd svg {
+  flex-shrink: 0;
+}
+
+.entry-appcard__x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--m-text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.entry-appcard__x:hover {
+  background: var(--m-surface);
+}
+
+.entry-appcard .entry-hint {
+  margin: 0;
+}
+
 /* ---- Welcome back: the resumed list ------------------------------------- */
 
 .entry-resume {
@@ -961,5 +1044,10 @@
   .entry-band-action,
   .entry-menu button {
     transition: none;
+  }
+
+  /* The guided step's arrival rise is motion, so it collapses with the rest. */
+  .entry-mstep {
+    animation: none;
   }
 }

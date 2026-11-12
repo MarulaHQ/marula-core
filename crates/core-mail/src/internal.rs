@@ -40,6 +40,8 @@ pub struct ClaimedOutbound {
     #[serde(default)]
     pub body_text: Option<String>,
     #[serde(default)]
+    pub body_html: Option<String>,
+    #[serde(default)]
     pub in_reply_to: Option<String>,
     #[serde(default)]
     pub references: Vec<String>,
@@ -63,6 +65,7 @@ impl ClaimedOutbound {
             to_addresses: self.to_addresses,
             subject: self.subject.unwrap_or_default(),
             body_text: self.body_text.unwrap_or_default(),
+            body_html: self.body_html,
             rfc_message_id: self.rfc_message_id,
             in_reply_to: self.in_reply_to,
             references: self.references,
@@ -182,6 +185,7 @@ mod tests {
             to_addresses: vec!["t@a".into()],
             subject: Some("s".into()),
             body_text: None,
+            body_html: Some("<p>h</p>".into()),
             in_reply_to: None,
             references: vec![],
             attempts: 1,
@@ -189,6 +193,7 @@ mod tests {
         let m = claimed.clone().into_outbound();
         assert_eq!(m.subject, "s");
         assert_eq!(m.body_text, "");
+        assert_eq!(m.body_html.as_deref(), Some("<p>h</p>"));
         // Round-trips through serde for the wire.
         let json = serde_json::to_string(&claimed).unwrap();
         let back: ClaimedOutbound = serde_json::from_str(&json).unwrap();

@@ -276,6 +276,7 @@ mod tests {
             to_addresses: vec!["a@x.test".into()],
             subject: "Your ticket".into(),
             body_text: "Body.".into(),
+            body_html: None,
             rfc_message_id: "<m1@acme.test>".into(),
             in_reply_to: Some("p@x.test".into()),
             references: vec!["p@x.test".into()],

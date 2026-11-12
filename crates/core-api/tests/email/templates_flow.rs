@@ -478,3 +478,156 @@ async fn authed_user_id(state: &AppState, org_id: &str) -> Uuid {
         .expect("user");
     user_id
 }
+
+/// The outbound mail (migration 0182) goes out from the org's stored
+/// template row when one exists, and from the builtin rendering when the
+/// row is absent — and the ledger row records which copy applied in
+/// `email_messages.template_source`. The seeded outbound copies are
+/// editable org rows, so the override is reachable through the same
+/// template API this file tests: edit the row, the next invite carries
+/// the edited copy; delete it, the builtin fallback applies.
+#[tokio::test]
+async fn outbound_mail_uses_the_stored_row_and_falls_back_when_it_is_gone() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("outbound-flow-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+
+    // The registration seeded the system-outbound copies as editable org
+    // rows; find the invitation row.
+    let list = {
+        let response = send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/templates?kind=email",
+            &bearer,
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), 200);
+        body_json(response).await
+    };
+    let org_id = list["templates"][0]["org_id"].as_str().unwrap().to_string();
+    let invite_row_id = list["templates"]
+        .as_array()
+        .expect("templates array")
+        .iter()
+        .find(|t| t["slug"] == "user_invited")
+        .and_then(|t| t["id"].as_str())
+        .expect("seeded invitation copy")
+        .to_string();
+
+    // The org edits its copy — exactly like any other org template.
+    let patched = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/templates/{invite_row_id}"),
+        &bearer,
+        Some(json!({
+            "subject": "Custom invite to {{org.name}} — you're in",
+        })),
+    )
+    .await;
+    assert_eq!(
+        patched.status(),
+        200,
+        "the seeded outbound copy is org data"
+    );
+    assert_eq!(
+        body_json(patched).await["subject"],
+        "Custom invite to {{org.name}} — you're in"
+    );
+
+    // The next invitation mail carries the edited copy: stored source.
+    let invitee_a = format!("invitee-a-{slug}@template.test");
+    let invited_a = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/org/users",
+        &bearer,
+        Some(json!({
+            "email": invitee_a,
+            "display_name": "Invitee A",
+            "role": "technician",
+        })),
+    )
+    .await;
+    assert_eq!(invited_a.status(), 200, "invite must succeed");
+    let mail_a: (String, String, String) = {
+        let mut tx = state.pool.begin().await.expect("tx");
+        core_db::set_org(&mut tx, Uuid::parse_str(&org_id).unwrap())
+            .await
+            .expect("set org");
+        let row: (String, String, String) = sqlx::query_as(
+            "SELECT subject, template_source::text, body_text FROM email_messages \
+             WHERE direction = 'outbound' AND $1::text = ANY (to_addresses) \
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(&invitee_a)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("invite mail queued");
+        tx.commit().await.expect("commit");
+        row
+    };
+    assert_eq!(
+        mail_a.0, "Custom invite to Template Co — you're in",
+        "the stored copy supplied the subject"
+    );
+    assert_eq!(mail_a.1, "stored", "the ledger says which copy applied");
+    assert!(
+        mail_a.2.contains("Invitee A"),
+        "the stored body rendered the invitee context"
+    );
+
+    // Deleting the org's copy is how the builtin fallback becomes
+    // reachable; the next mail goes out from the hardcoded rendering and
+    // the ledger records `builtin`.
+    let deleted = send(
+        &app,
+        axum::http::Method::DELETE,
+        &format!("/api/v1/templates/{invite_row_id}"),
+        &bearer,
+        None,
+    )
+    .await;
+    assert_eq!(deleted.status(), 200, "org rows delete");
+
+    let invitee_b = format!("invitee-b-{slug}@template.test");
+    let invited_b = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/org/users",
+        &bearer,
+        Some(json!({
+            "email": invitee_b,
+            "display_name": "Invitee B",
+            "role": "technician",
+        })),
+    )
+    .await;
+    assert_eq!(invited_b.status(), 200, "invite must succeed");
+    let mail_b: (String, String) = {
+        let mut tx = state.pool.begin().await.expect("tx");
+        core_db::set_org(&mut tx, Uuid::parse_str(&org_id).unwrap())
+            .await
+            .expect("set org");
+        let row: (String, String) = sqlx::query_as(
+            "SELECT subject, template_source::text FROM email_messages \
+             WHERE direction = 'outbound' AND $1::text = ANY (to_addresses) \
+             ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(&invitee_b)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("invite mail queued");
+        tx.commit().await.expect("commit");
+        row
+    };
+    assert_eq!(
+        mail_b.0, "You've been invited to join Template Co",
+        "the builtin fallback supplied the subject"
+    );
+    assert_eq!(mail_b.1, "builtin", "the ledger says the fallback applied");
+}

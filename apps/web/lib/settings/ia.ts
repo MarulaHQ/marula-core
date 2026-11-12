@@ -192,6 +192,7 @@ export const SETTINGS_RAIL: Record<string, SettingsPage[]> = {
   ],
   communication: [
     { label: "Email", description: "Mailboxes and routing", href: "/settings/email" },
+    { label: "Email templates", description: "What outbound mail says", href: "/settings/email/templates" },
     { label: "Portal", description: "What clients see", href: "/settings/portal" },
     { label: "Surveys", description: "CSAT collection", href: "/settings/surveys" },
   ],

@@ -109,6 +109,9 @@ pub async fn claim_outbound(
             to_addresses: r.to_addresses,
             subject: r.subject,
             body_text: r.body_text,
+            // The 0181 HTML part rides the claim bridge the same way the
+            // worker's row mapping already reads it.
+            body_html: r.body_html,
             in_reply_to: r.in_reply_to,
             references: r.references,
             attempts: r.attempts,

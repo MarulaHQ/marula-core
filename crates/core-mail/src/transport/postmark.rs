@@ -46,7 +46,7 @@ fn build_request(message: &OutboundEmail) -> serde_json::Value {
             .join(" ");
         headers.push(serde_json::json!({ "Name": "References", "Value": refs }));
     }
-    serde_json::json!({
+    let mut request = serde_json::json!({
         "From": from,
         "To": message.to_addresses.join(", "),
         "ReplyTo": message.reply_to.clone().unwrap_or_default(),
@@ -59,7 +59,14 @@ fn build_request(message: &OutboundEmail) -> serde_json::Value {
             .trim_start_matches('<')
             .trim_end_matches('>'),
         "Headers": headers,
-    })
+    });
+    // Conditional, not `Option` inside `json!`: a literal null `HtmlBody`
+    // reads as "strip my text body" to Postmark, where absent means
+    // "text-only message".
+    if let Some(html) = &message.body_html {
+        request["HtmlBody"] = serde_json::Value::String(html.clone());
+    }
+    request
 }
 
 #[async_trait]
@@ -120,6 +127,7 @@ mod tests {
             to_addresses: vec!["a@x.test".into(), "b@x.test".into()],
             subject: "S".into(),
             body_text: "B".into(),
+            body_html: None,
             rfc_message_id: "m1@acme.test".into(),
             in_reply_to: Some("p@x.test".into()),
             references: vec!["p@x.test".to_string(), "q@x.test".to_string()],
@@ -177,6 +185,7 @@ mod tests {
                 to_addresses: vec!["t@a.test".into()],
                 subject: "s".into(),
                 body_text: "hello".into(),
+                body_html: None,
                 rfc_message_id: "<m@a.test>".into(),
                 in_reply_to: None,
                 references: vec![],
@@ -215,6 +224,7 @@ mod tests {
                 to_addresses: vec!["t@a.test".into()],
                 subject: "s".into(),
                 body_text: "b".into(),
+                body_html: None,
                 rfc_message_id: "<m@a.test>".into(),
                 in_reply_to: None,
                 references: vec![],

@@ -165,6 +165,7 @@ mod tests {
             to_addresses: vec!["t@a.test".into()],
             subject: "s".into(),
             body_text: "b".into(),
+            body_html: None,
             rfc_message_id: id.into(),
             in_reply_to: None,
             references: vec![],

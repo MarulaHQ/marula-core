@@ -19,7 +19,7 @@ mod common;
 use common::{fixed_uuid, org_tx, test_db, FUTURE};
 use core_db::{boards, orgs, templates, tickets, users};
 use core_domain::status::Priority;
-use core_domain::templates::DEFAULT_TEMPLATES;
+use core_domain::templates::{DEFAULT_TEMPLATES, OUTBOUND_EMAIL_TEMPLATES};
 use sqlx::PgConnection;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -46,6 +46,11 @@ async fn seed_org(app: &PgPool, n: u64) -> Seeded {
     templates::seed_default_templates(&mut tx, org)
         .await
         .expect("template seeds");
+    // The system-outbound email copies (migration 0182): editable org
+    // rows the enqueue lookup reads by the outbound kind's fixed slug.
+    templates::seed_outbound_email_templates(&mut tx, org)
+        .await
+        .expect("outbound template seeds");
     tx.commit().await.expect("commit seed");
     let mut tx = org_tx(app, org).await;
     let board = boards::list_boards(&mut *tx, org).await.expect("boards")[0].id;
@@ -115,6 +120,7 @@ async fn insert_org_template(
         "org-owned",
         None,
         body,
+        None,
         &serde_json::json!([]),
         None,
     )
@@ -134,7 +140,11 @@ async fn shipped_defaults_seed_byte_identical_to_canonical() {
         .expect("list");
     tx.commit().await.expect("commit");
 
-    assert_eq!(rows.len(), DEFAULT_TEMPLATES.len(), "one seed per kind");
+    assert_eq!(
+        rows.len(),
+        DEFAULT_TEMPLATES.len() + OUTBOUND_EMAIL_TEMPLATES.len(),
+        "one seed per shipped default, plus the system-outbound set"
+    );
     for d in DEFAULT_TEMPLATES {
         let row = rows
             .iter()
@@ -151,6 +161,7 @@ async fn shipped_defaults_seed_byte_identical_to_canonical() {
             d.builtin
         );
         assert_eq!(row.body, d.body, "body drift on `{}`", d.builtin);
+        assert_eq!(row.html.as_deref(), d.html, "html drift on `{}`", d.builtin);
         assert!(row.is_system);
         assert_eq!(row.forked_from, None);
     }
@@ -175,6 +186,7 @@ async fn org_rows_crud_but_system_rows_immutable() {
         "desc",
         None,
         "new body",
+        None,
         &serde_json::json!([]),
     )
     .await
@@ -201,6 +213,7 @@ async fn org_rows_crud_but_system_rows_immutable() {
             "x",
             None,
             "x",
+            None,
             &serde_json::json!([])
         )
         .await
@@ -242,13 +255,14 @@ async fn restore_resets_preset_content_only() {
         "forked",
         None,
         "drifted body",
+        None,
         &serde_json::json!([]),
         Some("ticket_resolution_note"),
     )
     .await
     .expect("fork insert");
     assert!(
-        templates::restore_default_template(&mut tx, s.org, fork.id, None, "x")
+        templates::restore_default_template(&mut tx, s.org, fork.id, None, "x", None)
             .await
             .is_err(),
         "org-owned fork must not restore"
@@ -265,10 +279,12 @@ async fn restore_resets_preset_content_only() {
         builtin.id,
         canonical.subject,
         canonical.body,
+        canonical.html,
     )
     .await
     .expect("restore");
     assert_eq!(restored.body, canonical.body);
+    assert_eq!(restored.html.as_deref(), canonical.html);
 
     // Cross-check: even after a hypothetical drift the restore returns the
     // compiled canonical copy (already asserted by equality above).
@@ -286,14 +302,23 @@ async fn list_filters_by_kind_and_defaults_first() {
     let all = templates::list_templates(&mut *tx, s.org, None, 200, 0)
         .await
         .expect("list");
-    assert_eq!(all.len(), DEFAULT_TEMPLATES.len() + 1);
+    assert_eq!(
+        all.len(),
+        DEFAULT_TEMPLATES.len() + OUTBOUND_EMAIL_TEMPLATES.len() + 1
+    );
     let system_count = all.iter().take_while(|r| r.is_system).count();
     assert_eq!(system_count, DEFAULT_TEMPLATES.len(), "defaults sort first");
 
     let emails = templates::list_templates(&mut *tx, s.org, Some("email"), 50, 0)
         .await
         .expect("email filter");
-    assert_eq!(emails.len(), 2, "the shipped email default + the org row");
+    // The shipped email default, the seven outbound rows (seeded as
+    // editable org rows, 0182), and the org row this test inserted.
+    assert_eq!(
+        emails.len(),
+        OUTBOUND_EMAIL_TEMPLATES.len() + 2,
+        "the shipped email default + the outbound rows + the org row"
+    );
     assert!(emails.iter().all(|r| r.kind == "email"));
     tx.commit().await.expect("commit");
 }
@@ -314,8 +339,8 @@ async fn rls_scopes_templates_per_org() {
         .expect("list");
     assert_eq!(
         rows_b.len(),
-        DEFAULT_TEMPLATES.len(),
-        "org B sees only its seeds"
+        DEFAULT_TEMPLATES.len() + OUTBOUND_EMAIL_TEMPLATES.len(),
+        "org B sees only its seeds (defaults + its own outbound rows)"
     );
     tx_b.commit().await.expect("commit");
 }
@@ -420,6 +445,80 @@ async fn render_contexts_resolve_joined_entity_snapshot() {
     assert_eq!(qmap.get("quote.total").unwrap(), "123.45 USD");
     assert_eq!(qmap.get("quote.currency").unwrap(), "USD");
     assert_eq!(qmap.get("client.name").unwrap(), "Client 162");
+
+    tx.commit().await.expect("commit");
+}
+
+/// The outbound lookup (migration 0182): the seeded system-outbound
+/// copies are EDITABLE ORG ROWS findable by the enqueue path's fixed
+/// slug — the org edits this row to change what the mail says — and a
+/// deleted row answers `None` (the builtin-fallback signal), never an
+/// error.
+#[tokio::test]
+async fn outbound_lookup_reads_the_org_row_and_a_missing_row_signals_fallback() {
+    let db = test_db().await;
+    let app = &db.app;
+    let s = seed_org(app, 168).await;
+    let mut tx = org_tx(app, s.org).await;
+
+    // The seeded invite copy exists and is org-owned data, byte-identical
+    // to the canonical list (the seed function's drift is pinned here the
+    // way 0070's drift test pins the shipped defaults).
+    let row = templates::find_org_template(&mut *tx, s.org, "email", "user_invited")
+        .await
+        .expect("lookup")
+        .expect("seeded outbound copy");
+    assert!(!row.is_system, "outbound copies are editable org rows");
+    let canonical = OUTBOUND_EMAIL_TEMPLATES
+        .iter()
+        .find(|d| d.builtin == "user_invited")
+        .expect("canonical invite copy");
+    assert_eq!(row.subject.as_deref(), canonical.subject);
+    assert_eq!(row.body, canonical.body);
+    assert_eq!(row.html.as_deref(), canonical.html);
+    assert_eq!(row.builtin, None, "no shipped-default tag: the org owns it");
+
+    // The org's edited copy is what the lookup returns — this IS the
+    // stored-template-overrides-builtin path, one indexed read later.
+    let edited = templates::update_template(
+        &mut tx,
+        s.org,
+        row.id,
+        &row.name,
+        &row.description,
+        Some("Edited invite subject {{org.name}}"),
+        &row.body,
+        row.html.as_deref(),
+        &serde_json::json!([]),
+    )
+    .await
+    .expect("org rows edit");
+    assert_eq!(
+        edited.subject.as_deref(),
+        Some("Edited invite subject {{org.name}}")
+    );
+    let reread = templates::find_org_template(&mut *tx, s.org, "email", "user_invited")
+        .await
+        .expect("lookup")
+        .expect("row survives the edit");
+    assert_eq!(
+        reread.subject.as_deref(),
+        Some("Edited invite subject {{org.name}}")
+    );
+
+    // Deleting the row is how the builtin fallback becomes reachable: the
+    // lookup answers None, which the enqueue path reads as "use the
+    // hardcoded copy", not as a failure.
+    templates::delete_template(&mut tx, s.org, row.id)
+        .await
+        .expect("org rows delete");
+    assert!(
+        templates::find_org_template(&mut *tx, s.org, "email", "user_invited")
+            .await
+            .expect("lookup")
+            .is_none(),
+        "a missing outbound row signals the builtin fallback"
+    );
 
     tx.commit().await.expect("commit");
 }

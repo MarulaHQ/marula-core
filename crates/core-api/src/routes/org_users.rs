@@ -214,7 +214,10 @@ pub async fn invite(
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
-    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+    // `state` is Arc-backed and cheap to clone: the async-move closure
+    // below needs the web base URL and the mail stack by value, and the
+    // borrow that `with_org_tx` holds must not fight those moves.
+    let outcome = org_tx::with_org_tx(&state.clone(), org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -287,6 +290,42 @@ pub async fn invite(
                 detail: serde_json::json!({ "email": entry.email, "role": role.as_str() }),
                 ip: None,
                 occurred_at: chrono::Utc::now(),
+            },
+        )
+        .await?;
+
+        // The invitation email rides the same transaction as the invite
+        // itself: a replayed response must not re-queue a second mail, and
+        // a failed enqueue rolls the whole invite back rather than leaving
+        // an invited user nobody told. The kind renders the branded HTML
+        // part; the text body rides the resolved org envelope like every
+        // other system mail.
+        let org = core_db::orgs::get_org(&mut *ctx.tx, org_id).await?;
+        let invite_url = format!(
+            "{}/accept-invite?token={}",
+            state.config.web_base_url.trim_end_matches('/'),
+            setup_token
+        );
+        crate::email::enqueue_outbound(
+            &mut ctx.tx,
+            crate::email::OutboundEnqueue {
+                mail: &state.mail,
+                org_id,
+                to_addresses: vec![entry.email.clone()],
+                kind: &core_mail::outbound::OutboundKind::UserInvited {
+                    display_name: display_name.clone(),
+                    org_name: org.name,
+                    inviter_name: authed.principal.user.display_name.clone(),
+                    invite_url,
+                    expires_at: expires_at.format("%d %B %Y").to_string(),
+                },
+                in_reply_to: None,
+                references: vec![],
+                ticket_id: None,
+                // The product writes to someone who has never signed in:
+                // the workspace closes the mail, nobody signs it personally.
+                signer: None,
+                overrides: crate::email::EnvelopeOverrides::default(),
             },
         )
         .await?;
@@ -696,6 +735,15 @@ pub async fn accept_invite(
         return Err(ApiError::Validation("token is required".into()));
     }
     validate_password(&req.password)?;
+    // Same rules the profile PATCH applies (auth/handlers.rs patch_me), so
+    // the two writers of `users.timezone` cannot disagree on what is valid.
+    if let Some(tz) = req.timezone.as_deref() {
+        if tz.trim().is_empty() || tz.len() > 64 {
+            return Err(ApiError::Validation(
+                "timezone must be a non-empty IANA zone name of at most 64 characters".into(),
+            ));
+        }
+    }
     let token_hash = hash_token(token);
 
     // Raw pool: no session exists yet, so the 0047 SECURITY DEFINER
@@ -738,13 +786,21 @@ pub async fn accept_invite(
             .map_err(ApiError::from)?;
         // In the same transaction as the activation, so an account is never
         // active under one name and then renamed by a second, separately
-        // failing write. `update_profile` leaves the timezone alone when it is
+        // failing write. `update_profile` leaves a field alone when it is
         // None, and the account is already `is_active` by this point (set by
-        // `complete_invite` above), so its `is_active` filter matches.
-        if let Some(name) = display_name.as_deref() {
-            core_db::users::update_profile(&mut *ctx.tx, user_id, Some(name), None)
-                .await
-                .map_err(ApiError::from)?;
+        // `complete_invite` above), so its `is_active` filter matches. The
+        // timezone rides the same write: the accept screen confirms it from
+        // the browser's zone, and a person who closes the tab before the
+        // profile step still lands on their own clock.
+        if display_name.is_some() || req.timezone.is_some() {
+            core_db::users::update_profile(
+                &mut *ctx.tx,
+                user_id,
+                display_name.as_deref(),
+                req.timezone.as_deref().map(str::trim),
+            )
+            .await
+            .map_err(ApiError::from)?;
         }
         core_db::audit::insert(
             &mut *ctx.tx,

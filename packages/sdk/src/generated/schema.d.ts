@@ -27449,6 +27449,13 @@ export interface components {
         };
         RenderedTemplate: {
             body: string;
+            /**
+             * @description The rendered HTML part, when the template carries one. Context
+             *     values are HTML-escaped at insertion — the same escape the
+             *     outbound render applies — so a preview is as injection-proof as
+             *     the mail it previews.
+             */
+            html?: string | null;
             subject?: string | null;
         };
         ReorderCategoriesRequest: components["schemas"]["MutationParams"] & {
@@ -30390,6 +30397,11 @@ export interface components {
             description: string;
             /** @description For a forked copy: the origin's builtin tag. */
             forked_from?: string | null;
+            /**
+             * @description The optional branded HTML part of an email-kind template
+             *     (migration 0182). `null` for every text-only template.
+             */
+            html?: string | null;
             /** Format: uuid */
             id: string;
             /**

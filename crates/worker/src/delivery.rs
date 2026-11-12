@@ -485,6 +485,8 @@ async fn run_one(
                     to_addresses: vec![plan.user.email.clone()],
                     subject: format!("Scheduled report: {}", row.name),
                     body_text: csv.clone(),
+                    // Reports are tabular text; no HTML twin.
+                    body_html: None,
                     // Stable threading anchor minted per (slot, recipient)
                     // pair — redeliveries of the same slot stay one thread.
                     rfc_message_id: format!("<report-{delivery_id}-{user_id}@marula.local>"),
@@ -812,6 +814,8 @@ async fn retry_one(
                     to_addresses: vec![plan.user.email.clone()],
                     subject: format!("Scheduled report: {}", row.name),
                     body_text: csv.clone(),
+                    // Reports are tabular text; no HTML twin.
+                    body_html: None,
                     // The FAILED row's id, not a fresh one: a retry of one
                     // message carries one Message-ID, so a client that already
                     // holds a copy (the send succeeded and the report was lost)

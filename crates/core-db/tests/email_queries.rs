@@ -284,12 +284,15 @@ fn outbound_fixture(org: Uuid) -> emails::NewOutbound {
         from_name: Some("Acme".into()),
         to_addresses: vec!["client@example.test".into()],
         body_text: "we got it".into(),
+        body_html: None,
         ticket_id: None,
         transport: "recording".into(),
         // Wave 42 provenance: this fixture is the org's own block, and the
         // column is what the delivery view reads.
         signature_source: Some("org_default".into()),
         greeting_source: Some("org_default".into()),
+        // Caller-rendered fixture: no system template applied.
+        template_source: None,
     }
 }
 

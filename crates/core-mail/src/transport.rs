@@ -25,6 +25,10 @@ pub struct OutboundEmail {
     pub to_addresses: Vec<String>,
     pub subject: String,
     pub body_text: String,
+    /// Optional styled HTML part. Transports render it alongside the text
+    /// body (`multipart/alternative` on SMTP/SES, `HtmlBody` on Postmark);
+    /// `None` sends exactly the pre-HTML message.
+    pub body_html: Option<String>,
     pub rfc_message_id: String,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
