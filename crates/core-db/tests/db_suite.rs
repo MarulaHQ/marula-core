@@ -10624,3 +10624,93 @@ async fn plugin_kv_sweep_reclaims_expired_bytes_from_the_right_counters() {
         tx.commit().await.expect("commit checks");
     }
 }
+
+/// A mailbox that is a portal identity in two tenants resolves to nothing, so
+/// the pre-tenant bridge cannot pick a tenant for the visitor (migration 0183).
+/// Ambiguity counts live rows only: disabling one identity restores the other.
+#[tokio::test]
+async fn portal_login_ambiguity_refuses_to_guess_a_tenant() {
+    let db = test_db().await;
+    let org_a = seed_org(&db.app, 115).await;
+    let org_b = seed_org(&db.app, 116).await;
+    let client_a = seed_client(&db.app, &org_a, 1170, "Shared A").await;
+    let client_b = seed_client(&db.app, &org_b, 1171, "Shared B").await;
+
+    let user_a = {
+        let mut tx = org_tx(&db.app, org_a.org).await;
+        let u = create_portal_user(
+            &mut tx,
+            &org_a,
+            client_a,
+            1172,
+            "shared@client.test",
+            PortalRole::Contact,
+        )
+        .await
+        .expect("portal user in tenant A");
+        tx.commit().await.expect("commit A");
+        u
+    };
+    let user_b = {
+        let mut tx = org_tx(&db.app, org_b.org).await;
+        let u = create_portal_user(
+            &mut tx,
+            &org_b,
+            client_b,
+            1173,
+            "shared@client.test",
+            PortalRole::Contact,
+        )
+        .await
+        .expect("portal user in tenant B");
+        tx.commit().await.expect("commit B");
+        u
+    };
+
+    let ambiguous = resolve_portal_login(&db, "shared@client.test").await;
+    assert_eq!(
+        ambiguous, None,
+        "two live identities for one address must not resolve to a guess"
+    );
+    // Case folding is still the bridge's job; ambiguity is case-insensitive too.
+    assert_eq!(
+        resolve_portal_login(&db, "SHARED@CLIENT.TEST").await,
+        None,
+        "the refusal is not escaped by changing the address's case"
+    );
+
+    // Disabling tenant A's identity leaves exactly one live match: B resolves,
+    // and it resolves to B's own tenant rather than A's.
+    {
+        let mut tx = org_tx(&db.app, org_a.org).await;
+        portal::update_portal_user(
+            &mut *tx,
+            org_a.org,
+            user_a.id,
+            portal::PortalUserPatch {
+                display_name: None,
+                role: None,
+                status: Some(PortalUserStatus::Disabled),
+                password_hash: None,
+            },
+        )
+        .await
+        .expect("disable A");
+        tx.commit().await.expect("commit disable");
+    }
+    assert_eq!(
+        resolve_portal_login(&db, "shared@client.test").await,
+        Some((user_b.id, org_b.org, client_b)),
+        "the surviving identity resolves to its own tenant"
+    );
+}
+
+async fn resolve_portal_login(db: &TestDb, email: &str) -> Option<(Uuid, Uuid, Uuid)> {
+    sqlx::query_as::<_, (Uuid, Uuid, Uuid)>(
+        "SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)",
+    )
+    .bind(email)
+    .fetch_optional(&db.admin)
+    .await
+    .expect("login resolve")
+}

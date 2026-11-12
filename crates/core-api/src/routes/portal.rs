@@ -125,6 +125,10 @@ pub struct PortalProfile {
         (status = 200, body = PortalLoginResponse),
         (status = 401, description = "bad credentials")
 ))]
+// An ambiguous address (a live portal identity in two tenants) also resolves
+// to nothing (0183). This stays in a plain comment rather than the doc block
+// above: `utoipa` turns that block into the operation summary, which is the
+// pinned API contract, and a behaviour note should not move `fixtures/openapi`.
 pub async fn login(
     State(state): State<AppState>,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
@@ -156,7 +160,11 @@ pub async fn login(
         Ok(permit) => permit,
         Err(refused) => return Ok(crate::auth::handlers::hash_slots_exhausted(refused)),
     };
-    // Narrow SECURITY DEFINER bridge (migration 0021): identity only.
+    // Narrow SECURITY DEFINER bridge (migration 0021): identity only. An
+    // address that is a portal identity in more than one tenant resolves to
+    // nothing (0183) rather than picking one: the unresolved arm below pays
+    // the same dummy verify and returns the same 401, so the refusal cannot
+    // tell an anonymous caller which tenant held the mailbox.
     let resolved: Option<(Uuid, Uuid, Uuid)> =
         sqlx::query_as("SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)")
             .bind(&req.email)
@@ -420,7 +428,9 @@ pub async fn magic_link_request(
 
     // `portal_resolve_login` (0021) is the narrow cross-org bridge and already
     // restricts itself to `status IN ('active','invited')`, so a disabled
-    // contact is never a candidate for a link.
+    // contact is never a candidate for a link. An address shared by two live
+    // identities resolves to nothing (0183): no link is minted, and the caller
+    // still sees the uniform `{"ok":true}` below.
     let resolved: Option<(Uuid, Uuid, Uuid)> =
         sqlx::query_as("SELECT portal_user_id, org_id, client_id FROM portal_resolve_login($1)")
             .bind(email)

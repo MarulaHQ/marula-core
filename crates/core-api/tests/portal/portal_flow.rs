@@ -1598,3 +1598,63 @@ async fn the_portal_pre_check_refuses_a_locked_identity_before_the_password_hash
         "exactly the one real guess is audited; the gate-denied attempt is not"
     );
 }
+
+/// A mailbox that is a portal identity in two tenants cannot sign in by
+/// guessing a tenant (migration 0183). The password path answers the same
+/// uniform 401 a wrong password gets, and the magic-link request mints nothing
+/// while still answering `{"ok":true}` — neither becomes a tenant oracle.
+#[tokio::test]
+async fn portal_login_refuses_an_address_shared_across_tenants() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let tag = Uuid::now_v7().simple().to_string()[..8].to_string();
+    let org_a = seed_org(&app, &format!("{tag}a")).await;
+    let org_b = seed_org(&app, &format!("{tag}b")).await;
+
+    // Portal email uniqueness is per org (`uq_portal_users_org_email`), so both
+    // tenants legitimately take the same address.
+    let shared = format!("shared-{tag}@portal.test");
+    invite_portal_user(&app, &org_a.token, &org_a.client_a, &shared, "contact").await;
+    invite_portal_user(&app, &org_b.token, &org_b.client_a, &shared, "contact").await;
+
+    let login = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/login",
+        None,
+        Some(json!({"email": shared, "password": "portal-passphrase-1"})),
+    )
+    .await;
+    assert_eq!(
+        login.status(),
+        401,
+        "an address naming two tenants must be refused, never resolved to one"
+    );
+
+    let request = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/portal/magic-link/request",
+        None,
+        Some(json!({"email": shared})),
+    )
+    .await;
+    assert_eq!(request.status(), 200);
+    assert_eq!(
+        body_json(request).await,
+        json!({"ok": true}),
+        "the request side stays uniform and mints no link for an ambiguous address"
+    );
+
+    // Nothing was minted for the ambiguous address in either tenant.
+    let minted: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM portal_auth_one_use_tokens t \
+         JOIN portal_users pu ON pu.id = t.portal_user_id \
+         WHERE lower(pu.email) = lower($1)",
+    )
+    .bind(&shared)
+    .fetch_one(&state.pool)
+    .await
+    .expect("count portal tokens");
+    assert_eq!(minted, 0, "an ambiguous request mints no magic link");
+}
