@@ -391,10 +391,12 @@ cmd_disable() {
 # probe_dylibs — name the cached dylibs dyld will refuse to load.
 #
 # dyld 27.x requires LC_SYMTAB's string table to start on an 8-byte boundary,
-# and Apple's ld sometimes lands it on a 4. The build then fails as an E0432
-# "unresolved imports" in whichever crate uses the proc macro — a linker
-# defect wearing a code defect's clothes. scripts/check-dylib-alignment.py
-# parses the header and says so in one line.
+# and stripping a linked dylib moves it. Dependency artifacts are unstripped
+# by the workspace's profiles now; this probe catches a cache that predates
+# that setting, where the build fails as an E0432 "unresolved imports" in
+# whichever crate uses the proc macro — a broken artifact wearing a code
+# defect's clothes. scripts/check-dylib-alignment.py parses the header and
+# says so in one line.
 #
 # Exit status is the python script's: 0 clean or nothing to scan, 1 a dylib
 # cannot load. Non-Mach-O files are skipped, so this is harmless on Linux.

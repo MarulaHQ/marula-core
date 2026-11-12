@@ -2,10 +2,17 @@
 """Find macOS dylibs dyld will refuse to load.
 
 dyld 27.x requires the LC_SYMTAB string table to start on an 8-byte boundary
-(`stroff % 8 == 0`). Apple's ld sometimes lands it on a 4 instead, and the
-dylib then fails to load with "mis-aligned LINKEDIT string pool". rustc
-reports that as unresolved imports in the crate that uses the proc macro, so
-the failure reads like a code defect in `sqlx`, not a linker defect.
+(`stroff % 8 == 0`), and refuses a dylib where it does not with "mis-aligned
+LINKEDIT string pool". Stripping a linked dylib rewrites LINKEDIT, and the
+string table then begins wherever the reduced nlist array ends, so the
+alignment is a coin flip decided by the crate's symbol count. The workspace
+answer is that dependency artifacts are never stripped
+(`[profile.*.package."*"] strip = "none"` in Cargo.toml); this script is how a
+cache that predates that setting gets named.
+
+rustc reports the failure as unresolved imports in the crate that uses the
+proc macro, so it reads like a code defect in `sqlx` rather than a build
+artifact that cannot load.
 
 This walks the dylibs a build left behind and reports the ones that cannot
 load, which turns a confusing E0432 into one line naming the file and the
@@ -37,14 +44,16 @@ FAT_MAGIC_64 = 0xCAFEBABF
 LC_SYMTAB = 0x2
 ALIGN = 8
 REMEDY = (
-    'export RUSTFLAGS="-C strip=none" CARGO_TARGET_APPLIES_TO_HOST=true, '
-    "then rebuild the crate that owns the dylib (a relink changes the layout)"
+    "the workspace keeps dependency artifacts unstripped "
+    "([profile.*.package.\"*\"] strip = \"none\" in Cargo.toml); delete this "
+    "dylib and rebuild so it relinks under that setting. For a one-command "
+    "stopgap, RUSTFLAGS=\"-C strip=none\" aligns it without a Cargo.toml change"
 )
 
 
 def _symtab(data: bytes, base: int) -> tuple[int, int] | None:
     """(stroff, nsyms) for a thin Mach-O image at base, or None."""
-    if len(data) < base + 32:
+    if len(data) < base + 24:
         return None
     magic = struct.unpack_from("<I", data, base)[0]
     if magic == MH_CIGAM_64:
@@ -62,7 +71,12 @@ def _symtab(data: bytes, base: int) -> tuple[int, int] | None:
         if size < 8:
             return None
         if cmd == LC_SYMTAB and off + 24 <= len(data):
-            stroff, nsyms = struct.unpack_from(endian + "II", data, off + 16)
+            # cmd, cmdsize, symoff, nsyms, stroff, strsize. Read all six: the
+            # word at +16 is the string table's offset and the word at +12 is
+            # the symbol count. Reading only two words from +16 yields
+            # (stroff, strsize), which prints string-table bytes as a symbol
+            # count — the first version of this script did exactly that.
+            _, _, _, nsyms, stroff, _ = struct.unpack_from(endian + "IIIIII", data, off)
             return stroff, nsyms
         off += size
     return None
@@ -159,7 +173,7 @@ def main(argv: list[str]) -> int:
     return 1
 
 
-def _thin(stroff: int) -> bytes:
+def _thin(stroff: int, nsyms: int = 0, strsize: int = 0) -> bytes:
     """A minimal 64-bit Mach-O with one LC_SYMTAB at stroff."""
     header = struct.pack(
         "<IiiIIIII",
@@ -172,7 +186,7 @@ def _thin(stroff: int) -> bytes:
         0,
         0,
     )
-    command = struct.pack("<IIIIII", LC_SYMTAB, 24, 0, 0, stroff, 0)
+    command = struct.pack("<IIIIII", LC_SYMTAB, 24, 0, nsyms, stroff, strsize)
     return header + command
 
 
@@ -194,6 +208,13 @@ def selftest() -> int:
             fh.write(_thin(0x1004))
 
         check("aligned stroff parses", symtabs(_thin(0x1000)), [(0x1000, 0)])
+        # The count must come from nsyms (+12), not from the string size (+20):
+        # they are different words and the report quotes the first.
+        check(
+            "symbol count is nsyms, not strsize",
+            symtabs(_thin(0x1000, nsyms=38_008, strsize=3_249_336)),
+            [(0x1000, 38_008)],
+        )
         check("aligned dylib scans clean", scan([aligned]), [])
         check(
             "skewed dylib is reported",
@@ -217,7 +238,7 @@ def selftest() -> int:
     if failures:
         print(f"dylib-alignment selftest: {failures} failure(s)")
         return 1
-    print("dylib-alignment selftest: 5 checks passed")
+    print("dylib-alignment selftest: 6 checks passed")
     return 0
 
 
