@@ -18,6 +18,7 @@ import {
   Badge,
   Button,
 } from "@marula-core/ui";
+import { IconButton } from "@marula-core/ui/kit";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../lib/api";
@@ -115,7 +116,7 @@ function HelpDocRow({ doc }: { doc: HelpDoc }) {
 
 function QuestionMarkIcon() {
   return (
-    <svg aria-hidden="true" width="15" height="15" viewBox="0 0 16 16" fill="none">
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 16 16" fill="none">
       <path
         d="M6 5.6A2.1 2.1 0 0 1 10.1 6c0 1.4-2.1 1.6-2.1 3"
         stroke="currentColor"
@@ -175,18 +176,15 @@ export function HelpPanel() {
 
   return (
     <div ref={rootRef} className="relative">
-      <Button
-        variant="ghost"
-        size="sm"
+      <IconButton
         data-testid="help-button"
         aria-label="Help"
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((v) => !v)}
-        className="px-2"
       >
         <QuestionMarkIcon />
-      </Button>
+      </IconButton>
       {open && (
         <div
           data-testid="help-panel"

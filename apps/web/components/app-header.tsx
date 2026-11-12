@@ -1,20 +1,33 @@
-// AppHeader — the SLIM top bar (Wave 15 lane 6, mockup paradigm).
+// AppHeader — the top bar (mockup paradigm, staff surfaces).
 //
-// Purpose: brand mark, the unified-search entry pill (⌘K), connection
-// status (riding the existing ConnectionBanner state + the IF6 outbox
-// dock), notifications, theme toggle, identity menu with sign out. The
-// old grouped page nav (MainNav) moved to the left icon rail (NavRail) —
-// this bar is chrome only. Chrome-quiet per docs/theme.md — tokens only,
-// one hairline border, no marketing surface.
+// Purpose: brand, the unified-search field (⌘K), and the dock cluster —
+// connection presence, the outbox chip when there is anything queued, help,
+// theme, notifications with its unread count, and the identity menu. The old
+// grouped page nav (MainNav) lives on the left icon rail (NavRail); this bar is
+// chrome only. Chrome-quiet per docs/theme.md: tokens only, one hairline
+// border, no marketing surface.
 //
-// Non-purpose: no navigation state of its own; the search page owns
-// results; notification preferences live at /settings/notifications.
+// Composition, in the order the mockup draws it: a fixed-width brand column so
+// the search always starts at the same x, the search field, then a cluster
+// pinned right. Every control in the cluster is the kit's 40px `IconButton`
+// (one bordered square each) except the avatar, which is unframed — that
+// rhythm is what makes the bar read as chrome rather than a toolbar.
+//
+// Non-purpose: no navigation state of its own; the search page owns results;
+// notification preferences live at /settings/notifications.
+
 "use client";
 
-import { useTheme } from "@marula-core/ui";
-import { Icon, TopBar } from "@marula-core/ui/kit";
+import { Button, cn, useTheme } from "@marula-core/ui";
+import {
+  Avatar,
+  Icon,
+  IconButton,
+  Kbd,
+  TopBar,
+  topBarSearchClasses,
+} from "@marula-core/ui/kit";
 import type { Theme } from "@marula-core/ui";
-import { Button, Kbd } from "@marula-core/ui";
 import { useRouter } from "next/navigation";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -23,34 +36,30 @@ import { BrandLockup, BrandMark, LOCKUP_COMPLIANT_HEIGHT } from "./brand";
 import { NotificationDock } from "./notification-dock";
 import { HelpPanel } from "./help/help-panel";
 import { OutboxDock } from "./instant/outbox-dock";
-import { ConnectionBanner } from "./instant/connection-banner";
+import { ConnectionPresence } from "./instant/connection-presence";
 import { isHeaderlessPath } from "./shell/chrome";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const dark = theme === "dark";
   return (
-    <Button
-      variant="ghost"
-      size="sm"
+    <IconButton
+      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      title={dark ? "Switch to light mode" : "Switch to dark mode"}
       onClick={() => setTheme(dark ? "light" : "dark")}
-      aria-label={`Switch to ${dark ? "light" : "dark"} mode`}
-      className="px-2"
     >
-      {dark ? (
-        <Icon name="sun" size={15} />
-      ) : (
-        <Icon name="moon" size={15} />
-      )}
-    </Button>
+      <Icon name={dark ? "sun" : "moon"} size={18} />
+    </IconButton>
   );
 }
 
 /**
- * Unified-search entry: a quiet pill that reads like the mockup's search
- * field (placeholder + ⌘K) and jumps to /search. Results live on the
- * search page. The global ⌘K / Ctrl+K chord now rides the Wave 29 command
- * registry (components/shortcuts) — one dispatcher, no duplicate listener.
+ * Unified-search entry: the mockup's search field, opening /search instead of
+ * filtering in place, because results live on their own page (grouped by kind
+ * with a keyboard cursor). It borrows the kit field's shell rather than
+ * restyling a lookalike, so the launcher and any real field stay identical.
+ * The global ⌘K / Ctrl+K chord rides the Wave 29 command registry
+ * (components/shortcuts) — one dispatcher, no duplicate listener.
  */
 function SearchLauncher() {
   const router = useRouter();
@@ -60,24 +69,15 @@ function SearchLauncher() {
       data-testid="search-launcher"
       onClick={() => router.push("/search")}
       aria-label="Search (Command K)"
-      className="m-top-search flex h-[var(--m-density-control)] min-w-0 max-w-[420px] flex-1 cursor-pointer items-center gap-2 rounded-lg border px-3 text-left"
-      style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)" }}
+      className={cn(topBarSearchClasses, "m-top-search cursor-pointer text-left")}
     >
-      <Icon name="search" size={13} className="shrink-0" />
-      <span
-        className="min-w-0 flex-1 truncate text-[12.5px] max-md:hidden"
-        style={{ color: "var(--m-text-muted)" }}
-      >
+      <Icon name="search" size={16} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-sm max-md:hidden">
         Search tickets, clients, devices…
       </span>
-      <span
-        className="md:hidden min-w-0 flex-1 truncate text-[12.5px]"
-        style={{ color: "var(--m-text-muted)" }}
-      >
-        Search
-      </span>
+      <span className="min-w-0 flex-1 truncate text-sm md:hidden">Search</span>
       <span className="hidden shrink-0 md:inline">
-        <Kbd>⌘K</Kbd>
+        <Kbd className="shrink-0">⌘K</Kbd>
       </span>
     </button>
   );
@@ -121,7 +121,8 @@ function initialsOf(name: string | undefined): string {
   return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
 }
 
-/** Identity menu: avatar + name, sign out, and (when enabled) dev tools. */
+/** Identity menu: the unframed avatar (the mockup's one soft edge in the cluster),
+ *  the name at wide widths, and a menu with sign out plus (when enabled) dev tools. */
 function UserMenu() {
   const { me, logout } = useAuth();
   const [open, setOpen] = useState(false);
@@ -145,6 +146,7 @@ function UserMenu() {
     };
   }, [open]);
 
+  const name = me?.display_name ?? "";
   return (
     <div ref={rootRef} className="relative" data-testid="user-menu">
       <button
@@ -152,40 +154,23 @@ function UserMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex cursor-pointer items-center gap-2 rounded-lg border-0 bg-transparent py-1 pl-1 pr-1.5"
-        aria-label="Account menu"
+        className="flex cursor-pointer items-center gap-2 rounded-full border-0 bg-transparent p-0.5 hover:bg-muted"
+        aria-label={name ? `Account menu, ${name}` : "Account menu"}
       >
-        <span
-          aria-hidden="true"
-          className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold"
-          style={{ background: "var(--m-ink)", color: "var(--m-paper)" }}
-        >
-          {initialsOf(me?.display_name)}
+        <Avatar initials={initialsOf(me?.display_name)} size="lg" />
+        <span className="hidden max-w-32 truncate text-sm text-muted-foreground lg:inline">
+          {name}
         </span>
-        <span
-          className="hidden max-w-28 truncate text-xs lg:inline"
-          style={{ color: "var(--m-text-secondary)" }}
-        >
-          {me?.display_name ?? ""}
-        </span>
-        <Icon name="down" size={10} />
+        <Icon name="down" size={10} className="mr-1 hidden sm:inline" />
       </button>
       {open && (
         <div
           role="menu"
           aria-label="Account"
-          className="absolute right-0 top-full z-50 mt-1 min-w-44 rounded-lg border py-1"
-          style={{
-            background: "var(--m-overlay-surface)",
-            borderColor: "var(--m-border)",
-            boxShadow: "var(--m-shadow-overlay)",
-          }}
+          className="absolute right-0 top-full z-50 mt-2 min-w-48 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-mc"
         >
-          <div
-            className="truncate px-3 py-1.5 text-[12px]"
-            style={{ color: "var(--m-text-muted)", borderBottom: "1px solid var(--m-border)" }}
-          >
-            {me?.email ?? me?.display_name ?? "Signed in"}
+          <div className="truncate border-b border-border px-3 py-2 text-xs text-muted-foreground">
+            {me?.email ?? name ?? "Signed in"}
           </div>
           <div className="p-1">
             <DevToolsLink onNavigate={() => setOpen(false)} />
@@ -203,51 +188,47 @@ export function AppHeader() {
   const pathname = usePathname();
   if (isHeaderlessPath(pathname)) return null;
   return (
-    // Wave41 lane 20: the container is the kit's TopBar. The contents stay the
-    // app's: the canonical SVG lockup (no font dependency, unlike the kit's
-    // text logo), the search launcher that opens /search, and the dock
-    // cluster. TopBar supplies the height, border and surface.
+    // Wave41 lane 20: the container is the kit's TopBar (56px, one hairline,
+    // surface colour). The contents stay the app's: the canonical SVG lockup
+    // (no font dependency, unlike the kit's text wordmark), the launcher that
+    // opens /search, and the dock cluster.
     <TopBar data-testid="top-bar">
-      <div className="flex shrink-0 items-center gap-2">
-        {/*
-          The canonical lockup: gold fruit, green leaf, outlined lowercase
-          wordmark — one asset, with no font dependency, which is the point of
-          the kit drawing the wordmark as outlines.
+      {/*
+        The canonical lockup: gold fruit, green leaf, outlined lowercase
+        wordmark — one asset, with no font dependency, which is the point of
+        the kit drawing the wordmark as outlines.
 
-          This header was the one surface that re-drew the identity: it took
-          the mark from the kit and then re-typed the wordmark as live text in
-          Fraunces, which put a capital "Marula" beside a lowercase brand and
-          depended on a webfont being installed. It also reached for the MONO
-          lockup, a single-colour silhouette — right where one colour is
-          required, wrong everywhere else, because it renders the fruit as a
-          dark blob. `brand.tsx` now defaults to the colour variant, so this
-          header just asks for the brand and gets the brand.
+        `BrandMark` drops to the favicon dot below the kit's MARK_MIN_SIZE
+        (32), so the narrow call below passes 32 and renders as itself. Below
+        md the wordmark collides with the dock cluster, so the mark alone
+        carries the identity there.
 
-          `BrandMark` drops to the favicon dot below the kit's MARK_MIN_SIZE
-          (32), so the narrow call below passes 32 and renders as itself.
-        */}
-        <span className="hidden md:inline-flex items-center">
+        The column is fixed-width from sm up (150px, 200px at md) so the search
+        field starts at the same x on every surface and every zoom level, the
+        way the mockup draws it. It used to be an auto-width span, so a wider
+        lockup pushed the whole bar right.
+      */}
+      <div className="flex shrink-0 items-center sm:w-37.5 md:w-50">
+        <span className="hidden items-center md:inline-flex">
           <BrandLockup size={LOCKUP_COMPLIANT_HEIGHT} />
         </span>
-        {/*
-          Below the md breakpoint the wordmark collides with the right dock
-          cluster at ~480px, so the mark alone carries the identity there.
-        */}
-        <span className="inline-flex md:hidden items-center">
+        <span className="inline-flex items-center md:hidden">
           <BrandMark size={32} />
         </span>
       </div>
 
-      <div className="flex min-w-0 flex-1 justify-center px-1 md:mx-auto md:max-w-[520px] md:px-4">
-        <SearchLauncher />
-      </div>
+      <SearchLauncher />
 
-      <div className="flex shrink-0 items-center gap-1 md:gap-1.5">
-        <ConnectionBanner />
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
         <OutboxDock />
-        <NotificationDock />
-        <HelpPanel />
+        <span className="hidden pr-1.5 sm:inline-flex">
+          <ConnectionPresence />
+        </span>
+        <span className="hidden sm:inline-flex">
+          <HelpPanel />
+        </span>
         <ThemeToggle />
+        <NotificationDock />
         <UserMenu />
       </div>
     </TopBar>

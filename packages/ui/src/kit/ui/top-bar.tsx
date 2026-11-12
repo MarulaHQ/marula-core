@@ -22,9 +22,17 @@ export function TopBarLogo({ className, ...props }: React.ComponentProps<"div">)
   )
 }
 
+/**
+ * The search field's shell. Exported because a surface that opens a search page
+ * instead of filtering in place still draws the same field: the launcher is a
+ * button wearing this, so the two can never drift into a lookalike.
+ */
+export const topBarSearchClasses =
+  "flex h-10 min-w-0 flex-[0_1_520px] items-center gap-2.5 rounded-[10px] border border-border bg-background px-3 text-muted-foreground";
+
 export function TopBarSearch({ icon, shortcut = "⌘K", placeholder = "Search tickets, clients, devices…", className, ...props }: { icon?: React.ReactNode; shortcut?: string } & Omit<React.ComponentProps<"input">, "type">) {
   return (
-    <label data-slot="top-bar-search" className={cn("flex h-10 min-w-0 flex-[0_1_520px] items-center gap-2.5 rounded-[10px] border border-border bg-background px-3 text-muted-foreground", className)}>
+    <label data-slot="top-bar-search" className={cn(topBarSearchClasses, className)}>
       {icon}
       <span className="sr-only">Search</span>
       <input type="search" placeholder={placeholder} className="min-w-0 flex-1 border-0 bg-transparent px-0.5 py-px text-foreground outline-none placeholder:text-muted-foreground" {...props} />
