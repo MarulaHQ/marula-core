@@ -121,7 +121,17 @@ export function NavRail({
                       <RailItem
                         asChild
                         icon={<Icon name={iconName} size={20} />}
-                        label={section.label}
+                        /* The rail's own name, and the only place the count can
+                           reach a screen reader while the rail is icons-only:
+                           RailItem owns `aria-label` on the collapsed row, so
+                           the sr-only text below is inside a subtree that the
+                           label masks. Expanded rows have no aria-label and get
+                           the count from that sr-only text instead. */
+                        label={
+                          collapsed && section.id === "tickets" && openCount !== null && openCount > 0
+                            ? `${section.label}, ${openCount} open`
+                            : section.label
+                        }
                         current={sectionActive}
                         href={section.href}
                       >
