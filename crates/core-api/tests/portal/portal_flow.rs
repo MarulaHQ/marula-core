@@ -1648,7 +1648,7 @@ async fn portal_login_refuses_an_address_shared_across_tenants() {
 
     // Nothing was minted for the ambiguous address in either tenant.
     let minted: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM portal_one_use_tokens t \
+        "SELECT count(*) FROM portal_auth_one_use_tokens t \
          JOIN portal_users pu ON pu.id = t.portal_user_id \
          WHERE lower(pu.email) = lower($1)",
     )
