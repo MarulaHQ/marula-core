@@ -1182,7 +1182,6 @@ dependencies = [
  "jsonwebtoken",
  "mapbox-routing",
  "openssl",
- "openssl",
  "plugin-host",
  "qrcode",
  "rand 0.8.8",
@@ -2312,7 +2311,7 @@ checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
 dependencies = [
  "curve25519-dalek 5.0.0",
  "ed25519 3.0.0",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "subtle",
  "zeroize",
 ]
@@ -5574,7 +5573,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.11.1",
  "tar",
  "target-tuple",
  "tempfile",

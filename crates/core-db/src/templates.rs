@@ -29,6 +29,11 @@ pub struct TemplateEntry {
     pub description: String,
     pub subject: Option<String>,
     pub body: String,
+    /// The optional branded HTML part of an email-kind template
+    /// (migration 0182), riding beside the text body the way
+    /// `email_messages.body_html` rides beside `body_text`. `None` for
+    /// every text-only template.
+    pub html: Option<String>,
     pub variables: Value,
     pub builtin: Option<String>,
     pub is_system: bool,
@@ -48,6 +53,7 @@ fn entry_from_row(row: sqlx::postgres::PgRow) -> DbResult<TemplateEntry> {
         description: row.get("description"),
         subject: row.get("subject"),
         body: row.get("body"),
+        html: row.get("html"),
         variables: row.get("variables"),
         builtin: row.get("builtin"),
         is_system: row.get("is_system"),
@@ -57,7 +63,7 @@ fn entry_from_row(row: sqlx::postgres::PgRow) -> DbResult<TemplateEntry> {
     })
 }
 
-const TEMPLATE_COLS: &str = "id, org_id, kind, slug, name, description, subject, body, \
+const TEMPLATE_COLS: &str = "id, org_id, kind, slug, name, description, subject, body, html, \
      variables, builtin, is_system, forked_from, created_at, updated_at";
 
 /// The org's templates, shipped defaults first (by builtin tag), then
@@ -103,8 +109,36 @@ pub async fn get_template(
         .ok_or(DbError::NotFound)?
 }
 
+/// The one outbound lookup: the org's template row for a slug within one
+/// kind. The enqueue path calls this once per system-sent mail on an
+/// already-cold path — the `(org_id, kind, slug)` unique index is the
+/// read's whole cost, and a missing row (`None`) is the builtin-fallback
+/// signal, not an error: a template that does not exist must never fail
+/// the mail that was on its way out.
+pub async fn find_org_template(
+    executor: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    org_id: Uuid,
+    kind: &str,
+    slug: &str,
+) -> DbResult<Option<TemplateEntry>> {
+    let sql = format!(
+        "SELECT {TEMPLATE_COLS} FROM templates WHERE org_id = $1 AND kind = $2 AND slug = $3"
+    );
+    sqlx::query(&sql)
+        .bind(org_id)
+        .bind(kind)
+        .bind(slug)
+        .fetch_optional(executor)
+        .await?
+        .map(entry_from_row)
+        .transpose()
+}
+
 /// Inserts an org-owned row (create or fork). System rows are only ever
 /// written by the migration — this always writes `is_system = false`.
+/// `html` carries the branded part of an email-kind template; a fork
+/// passes the origin's value so forking a branded template cannot drop
+/// its HTML part on the floor.
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_template(
     conn: &mut sqlx::PgConnection,
@@ -116,13 +150,14 @@ pub async fn insert_template(
     description: &str,
     subject: Option<&str>,
     body: &str,
+    html: Option<&str>,
     variables: &Value,
     forked_from: Option<&str>,
 ) -> DbResult<TemplateEntry> {
     let sql = format!(
-        "INSERT INTO templates (id, org_id, kind, slug, name, description, subject, body, \
+        "INSERT INTO templates (id, org_id, kind, slug, name, description, subject, body, html, \
          variables, builtin, is_system, forked_from) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, false, $10) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, false, $11) \
          RETURNING {TEMPLATE_COLS}"
     );
     let row = sqlx::query(&sql)
@@ -134,6 +169,7 @@ pub async fn insert_template(
         .bind(description)
         .bind(subject)
         .bind(body)
+        .bind(html)
         .bind(variables)
         .bind(forked_from)
         .fetch_one(&mut *conn)
@@ -153,11 +189,12 @@ pub async fn update_template(
     description: &str,
     subject: Option<&str>,
     body: &str,
+    html: Option<&str>,
     variables: &Value,
 ) -> DbResult<TemplateEntry> {
     let sql = format!(
         "UPDATE templates SET name = $3, description = $4, subject = $5, body = $6, \
-         variables = $7, updated_at = now() \
+         html = $7, variables = $8, updated_at = now() \
          WHERE org_id = $1 AND id = $2 AND NOT is_system \
          RETURNING {TEMPLATE_COLS}"
     );
@@ -168,6 +205,7 @@ pub async fn update_template(
         .bind(description)
         .bind(subject)
         .bind(body)
+        .bind(html)
         .bind(variables)
         .fetch_optional(&mut *conn)
         .await?
@@ -184,9 +222,10 @@ pub async fn restore_default_template(
     template_id: Uuid,
     subject: Option<&str>,
     body: &str,
+    html: Option<&str>,
 ) -> DbResult<TemplateEntry> {
     let sql = format!(
-        "UPDATE templates SET subject = $3, body = $4, variables = '[]'::jsonb, \
+        "UPDATE templates SET subject = $3, body = $4, html = $5, variables = '[]'::jsonb, \
          updated_at = now() \
          WHERE org_id = $1 AND id = $2 AND is_system AND builtin IS NOT NULL \
          RETURNING {TEMPLATE_COLS}"
@@ -196,6 +235,7 @@ pub async fn restore_default_template(
         .bind(template_id)
         .bind(subject)
         .bind(body)
+        .bind(html)
         .fetch_optional(&mut *conn)
         .await?
         .map(entry_from_row)
@@ -255,6 +295,7 @@ pub async fn seed_default_templates(
                 d.description,
                 d.subject,
                 d.body,
+                d.html,
                 &serde_json::json!([]),
                 None,
             )
@@ -267,6 +308,51 @@ pub async fn seed_default_templates(
                 .bind(d.slug)
                 .execute(&mut *conn)
                 .await?;
+        }
+        seeded += 1;
+    }
+    Ok(seeded)
+}
+
+/// Seeds the system-outbound email templates for a NEW org at
+/// registration (migration 0182 backfills pre-lane orgs; this covers
+/// orgs created after it). These seed as EDITABLE ORG ROWS on purpose —
+/// the enqueue lookup reads the org's row by the kind's fixed slug, so
+/// forking cannot rewire it and an immutable system row would make the
+/// builtin fallback unreachable. Content comes from
+/// `core_domain::templates::OUTBOUND_EMAIL_TEMPLATES`, the canonical
+/// copy; the drift test pins a fresh seed byte-identical to it.
+pub async fn seed_outbound_email_templates(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+) -> DbResult<usize> {
+    use core_domain::templates::OUTBOUND_EMAIL_TEMPLATES;
+    let mut seeded = 0;
+    for d in OUTBOUND_EMAIL_TEMPLATES {
+        let exists: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM templates WHERE org_id = $1 AND kind = $2 AND slug = $3 LIMIT 1",
+        )
+        .bind(org_id)
+        .bind(d.kind.as_str())
+        .bind(d.slug)
+        .fetch_optional(&mut *conn)
+        .await?;
+        if exists.is_none() {
+            insert_template(
+                conn,
+                Uuid::now_v7(),
+                org_id,
+                d.kind.as_str(),
+                d.slug,
+                d.name,
+                d.description,
+                d.subject,
+                d.body,
+                d.html,
+                &serde_json::json!([]),
+                None,
+            )
+            .await?;
         }
         seeded += 1;
     }

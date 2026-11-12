@@ -645,7 +645,7 @@ pub async fn claim_due_outbound_for_app(
     let rows = sqlx::query!(
         r#"SELECT r_ledger_id, r_org_id, r_attempts, r_max_attempts,
                   r_rfc_message_id, r_from_address, r_from_name, r_to_addresses,
-                  r_subject, r_body_text, r_in_reply_to, r_refs
+                  r_subject, r_body_text, r_body_html, r_in_reply_to, r_refs
            FROM claim_due_email_outbound($1, make_interval(secs => $2))"#,
         limit,
         lease_secs as f64,
@@ -667,6 +667,7 @@ pub async fn claim_due_outbound_for_app(
             to_addresses: r.r_to_addresses.unwrap_or_default(),
             subject: r.r_subject,
             body_text: r.r_body_text,
+            body_html: r.r_body_html,
             in_reply_to: r.r_in_reply_to,
             references: r.r_refs.unwrap_or_default(),
         })
@@ -1071,6 +1072,10 @@ pub struct NewOutbound {
     pub from_name: Option<String>,
     pub to_addresses: Vec<String>,
     pub body_text: String,
+    /// The styled HTML part when the kind renders one. `None` keeps the
+    /// message text-only — the column exists so a branded email can ride
+    /// the same ledger, not so every email grows a twin.
+    pub body_html: Option<String>,
     pub ticket_id: Option<Uuid>,
     /// Transport label chosen from config at enqueue time.
     pub transport: String,
@@ -1082,6 +1087,12 @@ pub struct NewOutbound {
     /// block at all is the same shape as "not recorded", and both read as
     /// `unset`: the column says what was recorded, not what was true.
     pub greeting_source: Option<String>,
+    /// Which content source applied to a system-sent mail (migration
+    /// 0182): `stored` when the org's template row supplied the copy,
+    /// `builtin` when the hardcoded fallback did (row missing, lookup
+    /// failed, or render failed). `None` for caller-rendered messages,
+    /// which read as `unset` like every other not-recorded source.
+    pub template_source: Option<String>,
 }
 
 pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResult<Uuid> {
@@ -1089,9 +1100,10 @@ pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResu
     sqlx::query!(
         r#"INSERT INTO email_messages (id, org_id, direction, rfc_message_id, in_reply_to,
                                        email_refs, subject, from_address, from_name,
-                                       to_addresses, body_text, ticket_id, scan_status,
-                                       transport, signature_source, greeting_source)
-           VALUES ($1, $2, 'outbound', $3, $4, $5, $6, $7, $8, $9, $10, $11, 'skipped', $12, $13, $14)"#,
+                                       to_addresses, body_text, body_html, ticket_id,
+                                       scan_status, transport, signature_source, greeting_source,
+                                       template_source)
+           VALUES ($1, $2, 'outbound', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'skipped', $13, $14, $15, $16)"#,
         msg_id,
         o.org_id,
         o.rfc_message_id,
@@ -1102,10 +1114,12 @@ pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResu
         o.from_name,
         &o.to_addresses,
         o.body_text,
+        o.body_html,
         o.ticket_id,
         o.transport,
         o.signature_source,
         o.greeting_source,
+        o.template_source,
     )
     .execute(&mut *conn)
     .await?;
@@ -1136,6 +1150,7 @@ pub struct ClaimedOutboundRow {
     pub to_addresses: Vec<String>,
     pub subject: Option<String>,
     pub body_text: Option<String>,
+    pub body_html: Option<String>,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
 }
@@ -1173,7 +1188,7 @@ where
            )
            SELECT c.id, c.org_id, c.attempts, c.max_attempts,
                   m.rfc_message_id, m.from_address, m.from_name, m.to_addresses,
-                  m.subject, m.body_text, m.in_reply_to, m.email_refs
+                  m.subject, m.body_text, m.body_html, m.in_reply_to, m.email_refs
            FROM claimed c
            JOIN email_messages m ON m.id = c.email_message_id
            ORDER BY c.id"#,
@@ -1197,6 +1212,7 @@ where
             to_addresses: r.to_addresses,
             subject: r.subject,
             body_text: r.body_text,
+            body_html: r.body_html,
             in_reply_to: r.in_reply_to,
             references: r.email_refs,
         })

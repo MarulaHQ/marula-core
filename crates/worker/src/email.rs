@@ -221,6 +221,8 @@ mod tests {
             to_addresses: vec!["client@example.test".into()],
             subject: Some("Re: hi".into()),
             body_text: Some("body".into()),
+            // The 0181 HTML part: a text-only fixture keeps None.
+            body_html: None,
             in_reply_to: None,
             references: vec![],
             attempts: 1,

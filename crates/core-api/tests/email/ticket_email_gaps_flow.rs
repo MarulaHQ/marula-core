@@ -203,10 +203,12 @@ async fn ticket_emails_list_inbound_outbound_reply_chains_and_scope() {
             from_name: None,
             to_addresses: vec!["client@example.test".into()],
             body_text: "On it.".into(),
+            body_html: None,
             ticket_id: Some(ticket_id),
             transport: "recording".into(),
             signature_source: Some("org_default".into()),
             greeting_source: Some("org_default".into()),
+            template_source: None,
         },
     )
     .await

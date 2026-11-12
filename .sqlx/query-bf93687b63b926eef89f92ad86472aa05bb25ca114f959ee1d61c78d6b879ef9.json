@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH claimed AS (\n             UPDATE email_outbound\n             SET status = 'sending', claimed_at = $3, updated_at = $3,\n                 attempts = attempts + 1\n             WHERE id IN (\n               SELECT id FROM email_outbound\n               WHERE (($4::uuid IS NULL OR org_id = $4)\n                 AND ((status = 'queued' AND next_attempt_at <= $3)\n                   OR (status = 'sending' AND claimed_at < $3 - make_interval(secs => $2))))\n               ORDER BY next_attempt_at\n               LIMIT $1\n               FOR UPDATE SKIP LOCKED\n             )\n             RETURNING id, org_id, email_message_id, attempts, max_attempts\n           )\n           SELECT c.id, c.org_id, c.attempts, c.max_attempts,\n                  m.rfc_message_id, m.from_address, m.from_name, m.to_addresses,\n                  m.subject, m.body_text, m.in_reply_to, m.email_refs\n           FROM claimed c\n           JOIN email_messages m ON m.id = c.email_message_id\n           ORDER BY c.id",
+  "query": "WITH claimed AS (\n             UPDATE email_outbound\n             SET status = 'sending', claimed_at = $3, updated_at = $3,\n                 attempts = attempts + 1\n             WHERE id IN (\n               SELECT id FROM email_outbound\n               WHERE (($4::uuid IS NULL OR org_id = $4)\n                 AND ((status = 'queued' AND next_attempt_at <= $3)\n                   OR (status = 'sending' AND claimed_at < $3 - make_interval(secs => $2))))\n               ORDER BY next_attempt_at\n               LIMIT $1\n               FOR UPDATE SKIP LOCKED\n             )\n             RETURNING id, org_id, email_message_id, attempts, max_attempts\n           )\n           SELECT c.id, c.org_id, c.attempts, c.max_attempts,\n                  m.rfc_message_id, m.from_address, m.from_name, m.to_addresses,\n                  m.subject, m.body_text, m.body_html, m.in_reply_to, m.email_refs\n           FROM claimed c\n           JOIN email_messages m ON m.id = c.email_message_id\n           ORDER BY c.id",
   "describe": {
     "columns": [
       {
@@ -55,11 +55,16 @@
       },
       {
         "ordinal": 10,
-        "name": "in_reply_to",
+        "name": "body_html",
         "type_info": "Text"
       },
       {
         "ordinal": 11,
+        "name": "in_reply_to",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
         "name": "email_refs",
         "type_info": "TextArray"
       }
@@ -84,8 +89,9 @@
       true,
       true,
       true,
+      true,
       false
     ]
   },
-  "hash": "381db153a3152cba672446d9bd528408b2f15b38ac7529815e27c72d903b8269"
+  "hash": "bf93687b63b926eef89f92ad86472aa05bb25ca114f959ee1d61c78d6b879ef9"
 }

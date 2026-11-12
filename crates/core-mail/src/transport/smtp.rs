@@ -55,10 +55,36 @@ impl SmtpTransport {
             m.push_str(&format!("References: {refs}\r\n"));
         }
         m.push_str("MIME-Version: 1.0\r\n");
-        m.push_str("Content-Type: text/plain; charset=utf-8\r\n");
-        m.push_str("Content-Transfer-Encoding: 8bit\r\n\r\n");
-        m.push_str(&dot_stuff(&message.body_text));
-        m.push_str("\r\n");
+        match &message.body_html {
+            None => {
+                m.push_str("Content-Type: text/plain; charset=utf-8\r\n");
+                m.push_str("Content-Transfer-Encoding: 8bit\r\n\r\n");
+                m.push_str(&dot_stuff(&message.body_text));
+                m.push_str("\r\n");
+            }
+            Some(html) => {
+                // multipart/alternative: the client picks the richest part
+                // it can render, and the text part stays the guaranteed
+                // fallback. The boundary constant is fine — email bodies
+                // here never contain it, and `dot_stuff` below only adds
+                // dots at line starts.
+                const BOUNDARY: &str = "=_marula_alt";
+                m.push_str(&format!(
+                    "Content-Type: multipart/alternative; boundary=\"{BOUNDARY}\"\r\n\r\n"
+                ));
+                m.push_str(&format!("--{BOUNDARY}\r\n"));
+                m.push_str("Content-Type: text/plain; charset=utf-8\r\n");
+                m.push_str("Content-Transfer-Encoding: 8bit\r\n\r\n");
+                m.push_str(&dot_stuff(&message.body_text));
+                m.push_str("\r\n");
+                m.push_str(&format!("--{BOUNDARY}\r\n"));
+                m.push_str("Content-Type: text/html; charset=utf-8\r\n");
+                m.push_str("Content-Transfer-Encoding: 8bit\r\n\r\n");
+                m.push_str(&dot_stuff(html));
+                m.push_str("\r\n");
+                m.push_str(&format!("--{BOUNDARY}--\r\n"));
+            }
+        }
         m
     }
 
@@ -286,6 +312,7 @@ mod tests {
             to_addresses: vec!["client@example.test".into()],
             subject: "Re: Printer".into(),
             body_text: "line\n.dot".into(),
+            body_html: None,
             rfc_message_id: "m1@acme.test".into(),
             in_reply_to: Some("orig@example.test".into()),
             references: vec!["orig@example.test".to_string()],
@@ -298,6 +325,54 @@ mod tests {
         assert!(rendered.contains("\r\n..dot\r\n") || rendered.ends_with("..dot\r\n"));
     }
 
+    /// An HTML part turns the render into multipart/alternative with the
+    /// text part first: the guaranteed fallback, then the styled twin.
+    #[test]
+    fn html_body_renders_multipart_alternative() {
+        let m = OutboundEmail {
+            from_address: "support@acme.test".into(),
+            from_name: None,
+            reply_to: None,
+            to_addresses: vec!["client@example.test".into()],
+            subject: "You've been invited".into(),
+            body_text: "Accept: http://x/accept".into(),
+            body_html: Some("<html>Accept your invitation</html>".into()),
+            rfc_message_id: "m1@acme.test".into(),
+            in_reply_to: None,
+            references: vec![],
+        };
+        let rendered = SmtpTransport::render_message(&m);
+        assert!(rendered.contains("MIME-Version: 1.0\r\n"));
+        assert!(rendered.contains("multipart/alternative"));
+        let text_pos = rendered.find("text/plain").expect("text part");
+        let html_pos = rendered.find("text/html").expect("html part");
+        assert!(text_pos < html_pos, "text part must come first");
+        assert!(rendered.contains("Accept: http://x/accept"));
+        assert!(rendered.contains("<html>Accept your invitation</html>"));
+        assert!(rendered.contains("\r\n--=_marula_alt--\r\n"));
+    }
+
+    /// Without an HTML part the render stays the pre-existing single-part
+    /// text/plain message.
+    #[test]
+    fn text_only_render_is_unchanged() {
+        let m = OutboundEmail {
+            from_address: "support@acme.test".into(),
+            from_name: None,
+            reply_to: None,
+            to_addresses: vec!["client@example.test".into()],
+            subject: "s".into(),
+            body_text: "b".into(),
+            body_html: None,
+            rfc_message_id: "m1@acme.test".into(),
+            in_reply_to: None,
+            references: vec![],
+        };
+        let rendered = SmtpTransport::render_message(&m);
+        assert!(rendered.contains("Content-Type: text/plain; charset=utf-8\r\n"));
+        assert!(!rendered.contains("multipart"));
+    }
+
     #[test]
     fn no_reply_to_header_when_unset() {
         let m = OutboundEmail {
@@ -307,6 +382,7 @@ mod tests {
             to_addresses: vec!["t@a.test".into()],
             subject: "s".into(),
             body_text: "b".into(),
+            body_html: None,
             rfc_message_id: "m@a.test".into(),
             in_reply_to: None,
             references: vec![],
@@ -376,6 +452,7 @@ mod tests {
                 to_addresses: vec!["a@x.test".into(), "b@x.test".into()],
                 subject: "Hi".into(),
                 body_text: "body text".into(),
+                body_html: None,
                 rfc_message_id: "id1@acme.test".into(),
                 in_reply_to: None,
                 references: vec![],
@@ -414,6 +491,7 @@ mod tests {
                 to_addresses: vec!["t@a".into()],
                 subject: "s".into(),
                 body_text: "b".into(),
+                body_html: None,
                 rfc_message_id: "<m@a>".into(),
                 in_reply_to: None,
                 references: vec![],

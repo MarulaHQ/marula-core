@@ -33,11 +33,13 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import type { components } from "@marula-core/sdk";
 import { Spinner } from "@marula-core/ui";
 import { useRequireAuth } from "../../lib/api";
 import { api } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { inviteSetupToken } from "./wizard-links";
+import { InviteMemberFlow, type InviteMemberBody, type InviteSendResult } from "../../components/onboarding/invite-member-flow";
 import {
   ORG_STEP_LABELS,
   ORG_STEP_ORDER,
@@ -65,16 +67,6 @@ import {
 /** The last step, named, so the "nothing left to focus" case is not an index
  *  into a tuple that TypeScript has to treat as possibly empty. */
 const ORG_LAST_STEP = ORG_STEP_ORDER[ORG_STEP_ORDER.length - 1] as string;
-
-const ROLES = [
-  ["admin", "Admin"],
-  ["dispatcher", "Dispatcher"],
-  ["senior_tech", "Senior tech"],
-  ["technician", "Technician"],
-  ["bookkeeper", "Bookkeeper"],
-  ["auditor", "Auditor"],
-  ["read_only", "Read only"],
-] as const;
 
 /** The rail's own reading of a step, from what the server knows. */
 /** The label for a step, with a total fallback: an unknown key must not
@@ -123,9 +115,6 @@ export default function WelcomeWizardPage() {
   const [clientName, setClientName] = useState("");
   const [boardName, setBoardName] = useState("");
   const [ticketTitle, setTicketTitle] = useState("");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteName, setInviteName] = useState("");
-  const [inviteRole, setInviteRole] = useState<string>("technician");
   const [inviteLink, setInviteLink] = useState<string | null>(null);
 
   const loadSummary = useCallback(async (): Promise<OnboardingSummary | null> => {
@@ -275,30 +264,27 @@ export default function WelcomeWizardPage() {
     }
   };
 
-  const sendInvite = async () => {
-    setError(null);
-    setBusy(true);
-    try {
-      const { data, error: apiError } = await api.api.POST("/api/v1/org/users", {
-        body: { email: inviteEmail.trim(), display_name: inviteName.trim(), role: inviteRole } as never,
-      });
-      if (apiError !== undefined || data === undefined) {
-        setError(friendlyMutationText(apiError ?? null));
-        return;
-      }
-      const setup = inviteSetupToken(data);
-      if (setup) setInviteLink(`${window.location.origin}/accept-invite?token=${setup}`);
-      setInviteEmail("");
-      setInviteName("");
-      const res = await completeOrgStep("invites");
-      if (res.error !== undefined) {
-        setError(friendlyMutationText(res.error));
-        return;
-      }
-      await refresh("feeder");
-    } finally {
-      setBusy(false);
+  /** The wizard's invite send: the POST shape is the flow's (idempotency key
+   *  included); success wiring is this step's own — complete the org step,
+   *  hold the one-time link for the note, move the rail on. Kept in the
+   *  page because completeOrgStep("invites") belongs to the wizard. */
+  const sendInvite = async (body: InviteMemberBody): Promise<InviteSendResult> => {
+    const { data, error: apiError } = await api.api.POST("/api/v1/org/users", { body });
+    if (apiError !== undefined || data === undefined) {
+      return { ok: false, message: friendlyMutationText(apiError ?? null) };
     }
+    return { ok: true, data };
+  };
+
+  const inviteSent = async (data: components["schemas"]["OrgUserMutationResponse"]) => {
+    const setup = inviteSetupToken(data);
+    if (setup) setInviteLink(`${window.location.origin}/accept-invite?token=${setup}`);
+    const res = await completeOrgStep("invites");
+    if (res.error !== undefined) {
+      setError(friendlyMutationText(res.error));
+      return;
+    }
+    await refresh("feeder");
   };
 
   const enableAi = async () => {
@@ -648,39 +634,21 @@ export default function WelcomeWizardPage() {
 
           {focus === "invites" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
-                <input
-                  className="entry-input"
-                  value={inviteName}
-                  onChange={(e) => setInviteName(e.target.value)}
-                  placeholder="Their name"
-                  aria-label="Invitee full name"
-                  data-testid="wizard-invite-name"
-                />
-                <input
-                  className="entry-input"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="Their email"
-                  aria-label="Invitee email"
-                  type="email"
-                  data-testid="wizard-invite-email"
-                />
-              </div>
-              <select
-                aria-label="Role"
-                value={inviteRole}
-                onChange={(e) => setInviteRole(e.target.value)}
-                className="entry-input"
-                style={{ padding: "0 12px" }}
-                data-testid="wizard-invite-role"
-              >
-                {ROLES.map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              {/* The same guided flow the team settings dialog renders, so
+                  inviting reads one way everywhere. The card's own actions
+                  (rail Back, Skip, Mark done) stay in the row below; the
+                  flow owns its internal steps and the send button. */}
+              <InviteMemberFlow
+                send={sendInvite}
+                onSent={inviteSent}
+                testIds={{
+                  intent: "wizard-invite-intent",
+                  role: "wizard-invite-role",
+                  name: "wizard-invite-name",
+                  email: "wizard-invite-email",
+                  send: "wizard-invite-send",
+                }}
+              />
               {inviteLink !== null && (
                 <div className="entry-note" data-testid="wizard-invite-link">
                   <span>
@@ -708,17 +676,7 @@ export default function WelcomeWizardPage() {
                   >
                     Mark done
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="entry-btn"
-                    onClick={() => void sendInvite()}
-                    disabled={busy || inviteEmail.trim() === "" || inviteName.trim() === ""}
-                    data-testid="wizard-invite-send"
-                  >
-                    {busy ? "Sending…" : meta.cta}
-                  </button>
-                )}
+                ) : null}
               </div>
             </div>
           )}

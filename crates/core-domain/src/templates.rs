@@ -34,12 +34,45 @@ pub type RenderContext = BTreeMap<String, String>;
 
 /// The closed variable vocabulary per kind (KB3). Common keys resolve for
 /// every kind; kind-specific keys extend it.
+///
+/// The `email` kind carries the system-outbound keys in addition to the
+/// common entity keys: the seeded outbound templates (migration 0182 —
+/// invitation, ticket confirmation, comment notification, invoice
+/// statement, and the auth-token links) and every fork of them can only
+/// reference what the enqueue path actually feeds. A key outside this
+/// list can never be written into an email template, so the enqueue
+/// renderer can never meet an unknown placeholder it cannot resolve.
 pub fn variables_for_kind(kind: TemplateKind) -> &'static [&'static str] {
     match kind {
-        TemplateKind::Ticket
-        | TemplateKind::Note
-        | TemplateKind::Email
-        | TemplateKind::Workflow => &[
+        TemplateKind::Email => &[
+            "org.name",
+            "user.name",
+            "client.name",
+            "contact.name",
+            "contact.email",
+            "contact.phone",
+            "ticket.number",
+            "ticket.summary",
+            "ticket.priority",
+            "ticket.status",
+            "assignee.name",
+            // System-outbound keys. Each names a value the enqueue path
+            // builds for exactly one outbound kind (`OutboundKind::
+            // template_slug` + `render_context` are the feed side); a key
+            // absent from that kind's context renders empty, never an
+            // error — the variable was typed and permitted, the message
+            // simply carries no value for it.
+            "comment.excerpt",
+            "invoice.currency",
+            "invoice.total_outstanding",
+            "invoice.lines",
+            "invite.display_name",
+            "invite.inviter_name",
+            "invite.url",
+            "invite.expires_at",
+            "link.url",
+        ],
+        TemplateKind::Ticket | TemplateKind::Note | TemplateKind::Workflow => &[
             "org.name",
             "user.name",
             "client.name",
@@ -265,9 +298,20 @@ pub struct DefaultTemplate {
     pub description: &'static str,
     pub subject: Option<&'static str>,
     pub body: &'static str,
+    /// The optional branded HTML part, stored beside the text body the
+    /// same way `email_messages.body_html` rides beside `body_text`
+    /// (migration 0182). `None` for every text-only template: the column
+    /// exists so a branded email can carry its styled twin, not so every
+    /// template grows one.
+    pub html: Option<&'static str>,
 }
 
-/// The shipped default roster: one per kind.
+/// The shipped default roster: the seven entity-kind scaffolds (one per
+/// kind), seeded as immutable system rows. The system-outbound email
+/// set lives in [`OUTBOUND_EMAIL_TEMPLATES`] and seeds as editable org
+/// rows. Both migrations carry their own copies of these definitions —
+/// core-db tests pin the rows byte-identical to these lists (0071's
+/// drift guard).
 pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
     DefaultTemplate {
         builtin: "standard_service_ticket",
@@ -277,6 +321,7 @@ pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         description: "Standard intake skeleton for a managed-service request.",
         subject: None,
         body: "## Request\n{{client.name}} reported: {{ticket.summary}}\n\n## Triage\nPriority: {{ticket.priority}}\nStatus: {{ticket.status}}\n\n## Steps\n- [ ] Confirm scope with {{contact.name}}\n- [ ] Investigate\n- [ ] Document resolution\n",
+        html: None,
     },
     DefaultTemplate {
         builtin: "ticket_resolution_note",
@@ -286,6 +331,7 @@ pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         description: "Closing-note skeleton: what was wrong, what fixed it.",
         subject: None,
         body: "Root cause: \nResolution: \nVerified with {{contact.name}} on {{ticket.number}}.\n",
+        html: None,
     },
     DefaultTemplate {
         builtin: "ticket_first_response",
@@ -295,6 +341,7 @@ pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         description: "Warm acknowledgement email for a newly triaged ticket.",
         subject: Some("Re: {{ticket.summary}} ({{ticket.number}})"),
         body: "Hi {{contact.name}},\n\nThanks for reaching out — {{ticket.summary}} is logged as {{ticket.number}} and is currently {{ticket.priority}} priority.\n\nWe will keep you posted here. Reply to this email to add detail.\n\n{{user.name}}\n",
+        html: None,
     },
     DefaultTemplate {
         builtin: "article_starter",
@@ -304,6 +351,7 @@ pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         description: "Problem/cause/fix skeleton for a staff KB article.",
         subject: None,
         body: "## Problem\n\n## Environment\n\n## Cause\n\n## Fix\n\nMaintained by {{user.name}}.\n",
+        html: None,
     },
     DefaultTemplate {
         builtin: "standard_quote_cover",
@@ -313,6 +361,7 @@ pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         description: "Cover-email body for a sent quote from the quote catalog.",
         subject: Some("Quote {{quote.number}} from {{org.name}}"),
         body: "Hi {{contact.name}},\n\nPlease find our quote {{quote.number}}: {{quote.total}} {{quote.currency}}, valid as sent.\n\nHappy to walk through any line.\n\n{{user.name}}\n",
+        html: None,
     },
     DefaultTemplate {
         builtin: "client_onboarding_scaffold",
@@ -322,6 +371,7 @@ pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         description: "Phase/plan skeleton for onboarding a new client.",
         subject: None,
         body: "## Onboarding: {{client.name}}\n\n1. Kickoff with {{contact.name}}\n2. Asset inventory\n3. Access and credentials handover\n4. Monitoring baseline\n5. First review\n",
+        html: None,
     },
     DefaultTemplate {
         builtin: "escalation_playbook",
@@ -331,6 +381,132 @@ pub const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         description: "Escalation runbook body for out-of-SLA tickets.",
         subject: None,
         body: "## Escalate {{ticket.number}}\n\nTrigger: SLA at risk for {{client.name}}.\n\n1. Notify {{assignee.name}}\n2. Engage {{contact.name}}\n3. Escalate internally if unresolved in 2h\n",
+        html: None,
+    },
+];
+
+/// The system-outbound email templates (migration 0182): one per
+/// `core_mail::outbound::OutboundKind` variant that renders a system-sent
+/// email. Each mirrors the kind's hardcoded fallback rendering
+/// byte-for-byte (subject + text body; the branded HTML for the
+/// invitation), with the fallback's format arguments expressed as the
+/// email-kind placeholders — so a fresh org's mail is unchanged whether
+/// the stored row or the fallback applies, and an org can edit the copy
+/// without touching the binary.
+///
+/// These seed as EDITABLE ORG ROWS (`is_system = false`), not shipped
+/// defaults — deliberately off the defaults-first doctrine, for a reason
+/// the enqueue path dictates: the lookup reads the org's row by the
+/// kind's FIXED slug, so forking cannot rewire it, and an immutable
+/// system row would make the stored copy uneditable and the builtin
+/// fallback unreachable. Orgs own these rows exactly like any other
+/// template: edit them, delete them (the fallback then applies and
+/// `email_messages.template_source` records which copy went out), and
+/// the auth-token templates carry friendlier TTL wording than the
+/// fallback's raw seconds ("valid 900" → "valid 15 minutes"); the
+/// fallbacks stay byte-identical to what shipped before this lane.
+pub const OUTBOUND_EMAIL_TEMPLATES: &[DefaultTemplate] = &[
+    DefaultTemplate {
+        builtin: "user_invited",
+        kind: TemplateKind::Email,
+        slug: "user_invited",
+        name: "Workspace invitation",
+        description: "The invitation email a new member receives when an admin adds them to the workspace.",
+        subject: Some("You've been invited to join {{org.name}}"),
+        body: "Hi {{invite.display_name}},\n\n{{invite.inviter_name}} invited you to join {{org.name}} on Marula, the workspace your team runs service work in.\n\nAccept your invitation:\n{{invite.url}}\n\nThe link expires on {{invite.expires_at}}. If you weren't expecting this invitation you can ignore this email — your address won't be added to the workspace until you accept.\n",
+        html: Some(r#"<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F8F7F4;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8F7F4;padding:32px 16px;">
+<tr><td align="center">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#FFFFFF;border:1px solid #E2E0DA;border-radius:16px;font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <tr><td style="padding:32px 36px 0 36px;">
+    <p style="margin:0 0 4px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:32px;color:#2B2A33;font-weight:500;">
+      Hi {{invite.display_name}}, you've been invited</p>
+    <p style="margin:0;font-size:15px;line-height:24px;color:#6F685D;">
+      {{invite.inviter_name}} invited you to join <strong style="color:#2B2A33;">{{org.name}}</strong> on Marula —
+      the workspace your team runs service work in.</p>
+  </td></tr>
+  <tr><td style="padding:28px 36px 0 36px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr><td align="center">
+      <a href="{{invite.url}}" style="display:inline-block;background:#2B2A33;color:#E8B83A;font-size:15px;font-weight:600;line-height:20px;padding:12px 28px;border-radius:10px;text-decoration:none;">Accept your invitation</a>
+    </td></tr></table>
+    <p style="margin:14px 0 0 0;text-align:center;font-size:13px;line-height:20px;color:#6F685D;">
+      If the button doesn't work, copy this link into your browser:<br>
+      <a href="{{invite.url}}" style="color:#9A5B0F;word-break:break-all;">{{invite.url}}</a></p>
+  </td></tr>
+  <tr><td style="padding:28px 36px 32px 36px;">
+    <p style="margin:0;padding-top:16px;border-top:1px solid #E2E0DA;font-size:13px;line-height:20px;color:#6F685D;">
+      This link expires on {{invite.expires_at}}. If you weren't expecting this invitation,
+      you can ignore this email — your address won't be added to the workspace
+      until you accept.</p>
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"#),
+    },
+    DefaultTemplate {
+        builtin: "ticket_created_confirmation",
+        kind: TemplateKind::Email,
+        slug: "ticket_created_confirmation",
+        name: "Ticket created confirmation",
+        description: "Auto-responder acknowledging an email that opened a new ticket.",
+        subject: Some("[{{ticket.number}}] {{ticket.summary}} — we received your request"),
+        body: "Your request \"{{ticket.summary}}\" was received and registered as ticket {{ticket.number}}.\nReply to this email to add information — keep the [{{ticket.number}}] tag in the subject.\n",
+        html: None,
+    },
+    DefaultTemplate {
+        builtin: "comment_notification",
+        kind: TemplateKind::Email,
+        slug: "comment_notification",
+        name: "Comment notification",
+        description: "Requester notification that a client-visible reply landed on their ticket.",
+        subject: Some("Re: [{{ticket.number}}] {{ticket.summary}}"),
+        body: "New reply on ticket {{ticket.number}}:\n\n{{comment.excerpt}}\n\nReply to this email to respond.\n",
+        html: None,
+    },
+    DefaultTemplate {
+        builtin: "invoice_statement",
+        kind: TemplateKind::Email,
+        slug: "invoice_statement",
+        name: "Invoice statement",
+        description: "Account statement on the dunning path: the client's open invoices with outstanding balances.",
+        subject: Some("Account statement — {{client.name}}"),
+        body: "Your current account statement:\n\n{{invoice.lines}}\n\nTotal outstanding: {{invoice.total_outstanding}} {{invoice.currency}}\n\nIf you have already sent payment, please disregard this notice.\n",
+        html: None,
+    },
+    DefaultTemplate {
+        builtin: "magic_link",
+        kind: TemplateKind::Email,
+        slug: "magic_link",
+        name: "Magic-link sign-in",
+        description: "The single-use sign-in link email for orgs with magic-link sign-in enabled.",
+        subject: Some("Your Marula sign-in link"),
+        body: "Open this single-use link to sign in (valid 15 minutes):\n{{link.url}}\n\nIf it wasn't you, ignore this mail.\n",
+        html: None,
+    },
+    DefaultTemplate {
+        builtin: "password_reset",
+        kind: TemplateKind::Email,
+        slug: "password_reset",
+        name: "Password reset",
+        description: "The single-use password reset link email.",
+        subject: Some("Reset your Marula password"),
+        body: "A password reset was requested for your account.\n\nOpen this single-use link (valid 30 minutes):\n{{link.url}}\n\nIf it wasn't you, ignore this mail.\n",
+        html: None,
+    },
+    DefaultTemplate {
+        builtin: "email_verification",
+        kind: TemplateKind::Email,
+        slug: "email_verification",
+        name: "Email verification",
+        description: "The single-use email-verification link email.",
+        subject: Some("Verify your Marula email"),
+        body: "Confirm your Marula account email.\n\nOpen this single-use link (valid 24 hours):\n{{link.url}}\n",
+        html: None,
     },
 ];
 
@@ -342,12 +518,20 @@ mod default_vocab_tests {
 
     #[test]
     fn shipped_defaults_use_only_in_vocab_variables() {
-        for d in DEFAULT_TEMPLATES {
+        for d in DEFAULT_TEMPLATES.iter().chain(OUTBOUND_EMAIL_TEMPLATES) {
             for text in [d.body, d.subject.unwrap_or_default()] {
                 // Render against an empty context: only in-vocab keys pass
                 // the vocabulary gate (missing values render empty).
                 render(d.kind, text, &RenderContext::new())
                     .unwrap_or_else(|e| panic!("default `{}` invalid: {e}", d.builtin));
+            }
+            // The HTML part is a template text like any other: its
+            // placeholders must live in the same closed vocabulary, so the
+            // enqueue renderer can never meet an unknown key in stored
+            // markup.
+            if let Some(html) = d.html {
+                render(d.kind, html, &RenderContext::new())
+                    .unwrap_or_else(|e| panic!("default `{}` html invalid: {e}", d.builtin));
             }
         }
     }

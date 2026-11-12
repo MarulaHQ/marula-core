@@ -12,9 +12,10 @@
 //! * Every one of these surfaces rides the durable rate gates; the
 //!   request paths throttle aggressively so one mailbox cannot be
 //!   mail-bombed.
-//! * Mail issuance flows through the core-mail outbox (`Templated`
-//!   kind); the plain `none` dev transport keeps mail queued (the
-//!   documented dev posture — nothing silently dropped).
+//! * Mail issuance flows through the core-mail outbox (`TokenMail`
+//!   kind, template-backed with the hardcoded copy as fallback); the
+//!   plain `none` dev transport keeps mail queued (the documented dev
+//!   posture — nothing silently dropped).
 //! * Magic-link sign-in issues sessions through `handlers::issue_tokens`
 //!   — the SAME machinery as password login. PORTAL IS NOT INCLUDED
 //!   (portal_users is a different principal family with its own
@@ -97,7 +98,7 @@ async fn issue_mail_token(
     user_id: Uuid,
     org_id: Uuid,
     spec: MailTokenSpec,
-    render: impl FnOnce(String) -> (String, String),
+    render: impl FnOnce(String) -> core_mail::outbound::OutboundKind,
 ) -> ApiResult<()> {
     let MailTokenSpec {
         kind,
@@ -163,14 +164,14 @@ async fn issue_mail_token(
         .map_err(ApiError::from)?
         .flatten();
     if let Some(address) = address {
-        let (subject, body) = render(link(&state.config, page, &raw));
+        let kind = render(link(&state.config, page, &raw));
         crate::email::enqueue_outbound(
             &mut mail_tx,
             crate::email::OutboundEnqueue {
                 mail: &state.mail,
                 org_id,
                 to_addresses: vec![address],
-                kind: &core_mail::outbound::OutboundKind::Templated { subject, body },
+                kind: &kind,
                 in_reply_to: None,
                 references: vec![],
                 ticket_id: None,
@@ -234,15 +235,20 @@ pub async fn password_reset_request(
                 page: "password-reset",
                 audit_action: "auth.password_reset_requested",
             },
-            |reset_link| {
-                (
-                    "Reset your Marula password".to_string(),
-                    format!(
-                        "A password reset was requested for your account.\n\n\
+            // The caller-rendered subject/body stay the FALLBACK content:
+            // when the org's `password_reset` template row exists (it is
+            // seeded, migration 0182), its stored copy — which receives
+            // the link through `{{link.url}}` — goes out instead, and the
+            // URL/token behavior below is untouched either way.
+            |reset_link| core_mail::outbound::OutboundKind::TokenMail {
+                slug: "password_reset",
+                link: reset_link.clone(),
+                subject: "Reset your Marula password".to_string(),
+                body: format!(
+                    "A password reset was requested for your account.\n\n\
                      Open this single-use link (valid {RESET_TTL_SECS} minutes):\n{reset_link}\n\n\
                      If it wasn't you, ignore this mail."
-                    ),
-                )
+                ),
             },
         )
         .await?;
@@ -348,14 +354,14 @@ pub async fn email_verification_request(
                     page: "verify-email",
                     audit_action: "auth.email_verification_requested",
                 },
-                |verify_link| {
-                    (
-                        "Verify your Marula email".to_string(),
-                        format!(
-                            "Confirm your Marula account email.\n\n\
+                |verify_link| core_mail::outbound::OutboundKind::TokenMail {
+                    slug: "email_verification",
+                    link: verify_link.clone(),
+                    subject: "Verify your Marula email".to_string(),
+                    body: format!(
+                        "Confirm your Marula account email.\n\n\
                          Open this single-use link (valid {VERIFY_TTL_SECS}):\n{verify_link}"
-                        ),
-                    )
+                    ),
                 },
             )
             .await?;
@@ -458,13 +464,15 @@ pub async fn magic_link_request(
                 page: "magic-link",
                 audit_action: "auth.magic_link_requested",
             },
-            |signin_link| (
-                "Your Marula sign-in link".to_string(),
-                format!(
+            |signin_link| core_mail::outbound::OutboundKind::TokenMail {
+                slug: "magic_link",
+                link: signin_link.clone(),
+                subject: "Your Marula sign-in link".to_string(),
+                body: format!(
                     "Open this single-use link to sign in (valid {MAGIC_TTL_SECS}):\n{signin_link}\n\n\
                      If it wasn't you, ignore this mail."
                 ),
-            ),
+            },
         )
         .await?;
     }
