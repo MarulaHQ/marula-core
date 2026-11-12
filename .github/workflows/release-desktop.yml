@@ -1,6 +1,6 @@
 name: Release desktop
 
-# Desktop client artifacts (W61-2, extended by ADR 0031).
+# Desktop client artifacts (W61-2, extended by ADR 0031; conditional signing is W61-4).
 #
 # macOS ships the embedded app (ADR 0005): Postgres, core-api and the Next
 # standalone tree inside the bundle. Linux and Windows ship the connected
@@ -8,8 +8,39 @@ name: Release desktop
 # database. That is a scope decision, not a missing step, and the platform
 # configs say so in the bundle description.
 #
-# Unproven while F89 blocks CI: no job here has run. The first run must be a
-# manual dispatch on a branch, not a tag.
+# Signing is conditional and per platform; the job Summary always states the
+# posture this run produced (docs/desktop-release.md §7 names what to verify):
+#
+#   Updater payload (Linux + Windows legs)
+#     TAURI_SIGNING_PRIVATE_KEY              minisign private half; when set the
+#                                            bundler signs the updater artifacts
+#                                            (.sig beside each bundle)
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD     the key's password, optional
+#
+#   macOS leg
+#     APPLE_CERTIFICATE                      base64 of the Developer ID Application .p12
+#     APPLE_CERTIFICATE_PASSWORD             the .p12 password
+#     APPLE_SIGNING_IDENTITY                 "Developer ID Application: <Org> (<TEAMID>)"
+#     APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+#                                            the Apple account that submits the
+#                                            notarisation, its app-specific
+#                                            password, and the team id
+#
+#   Windows leg
+#     WINDOWS_CERTIFICATE                    base64 of the Authenticode .pfx
+#     WINDOWS_CERTIFICATE_PASSWORD           the .pfx password
+#     WINDOWS_TIMESTAMP_URL                  the RFC 3161 endpoint your CA
+#                                            publishes (empty means no timestamp)
+#
+# A workflow_dispatch without the secrets still builds: the bundler's updater
+# artifacts are switched off for that run (without the key it refuses to emit
+# any), and the job Summary states that the output is unsigned. It never
+# silently ships a posture it did not get secrets for. A desktop-v* tag is the
+# opposite gate, matching release-installer.yml: a missing secret fails the leg
+# and names what is missing, because a tagged release is not cut unsigned.
+#
+# Unproven until the first run: no job here has run yet. The first run must be
+# a manual dispatch on a branch, not a tag.
 on:
   workflow_dispatch:
   push:
@@ -17,6 +48,12 @@ on:
 
 permissions:
   contents: read
+
+# Signing must not be cancelled halfway through: a leg that dies between
+# codesigning and stapling produces an artifact that is neither posture.
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -46,8 +83,12 @@ jobs:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
       WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
@@ -79,6 +120,118 @@ jobs:
             libxdo-dev \
             libssl-dev
 
+      # Which of the three postures this leg can reach, decided once and read
+      # by every later step. On a dispatch a missing set is a notice and the
+      # leg goes unsigned; on a desktop-v* tag the same missing set fails the
+      # leg and names the secrets, because a tagged release is not cut unsigned.
+      - name: Signing prerequisites
+        id: signing
+        shell: bash
+        run: |
+          set -u
+          updater=false
+          macos=false
+          windows=false
+
+          check () {
+            missing=()
+            for name in "$@"; do
+              [ -n "$(printenv "$name" || true)" ] || missing+=("$name")
+            done
+          }
+
+          case "${RUNNER_OS}" in
+            macOS)
+              # The embedded app is assembled by hand and emits no updater
+              # artifacts, so the updater key is irrelevant to this leg.
+              required=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+              check "${required[@]}"
+              if [ "${#missing[@]}" -eq 0 ]; then
+                macos=true
+              else
+                echo "::notice::macOS leg runs ad-hoc signed (unsigned) — missing secrets: ${missing[*]} (docs/desktop-release.md §2)"
+              fi
+              ;;
+            Windows)
+              required=(WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD)
+              check "${required[@]}"
+              if [ "${#missing[@]}" -eq 0 ]; then
+                windows=true
+              else
+                echo "::notice::Windows leg runs unsigned — missing secrets: ${missing[*]} (SmartScreen will warn; docs/desktop-release.md §7)"
+              fi
+              ;;
+          esac
+
+          if [ "${RUNNER_OS}" != "macOS" ]; then
+            # The bundler emits updater artifacts (and needs the key to sign
+            # them) on the Linux and Windows legs. macOS produces none.
+            if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+              updater=true
+            else
+              echo "::notice::updater payload runs unsigned — TAURI_SIGNING_PRIVATE_KEY is not set for this run (docs/desktop-release.md §2)"
+            fi
+          fi
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            missing_all=()
+            case "${RUNNER_OS}" in
+              macOS)  [ "${macos}"   = "true" ] || missing_all+=(macOS signing/notarisation) ;;
+              Windows) [ "${windows}" = "true" ] || missing_all+=(Windows Authenticode) ;;
+            esac
+            if [ "${RUNNER_OS}" != "macOS" ] && [ "${updater}" != "true" ]; then
+              missing_all+=(TAURI_SIGNING_PRIVATE_KEY)
+            fi
+            if [ "${#missing_all[@]}" -gt 0 ]; then
+              printf '::error::This is a tagged desktop release and these signing inputs are missing: %s\n' "${missing_all[*]}"
+              printf 'A tagged release is not cut unsigned. Rehearse on a branch with workflow_dispatch first,\n'
+              printf 'or run the dispatch without the secrets and read the unsigned posture from the Summary.\n'
+              exit 1
+            fi
+          fi
+
+          {
+            echo "updater=$updater"
+            echo "macos=$macos"
+            echo "windows=$windows"
+          } >> "$GITHUB_OUTPUT"
+
+      # macOS: import the Developer ID certificate into a throwaway keychain.
+      # The keychain password is generated here; it protects a temporary file
+      # on an ephemeral runner and is not a secret anyone has to keep.
+      - name: Import the macOS signing certificate
+        if: matrix.os == 'macos' && steps.signing.outputs.macos == 'true'
+        shell: bash
+        run: |
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 20)
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+      # Windows: import the .pfx into the user store and hand Tauri its
+      # thumbprint. The certificate itself never becomes a committed file or
+      # an artifact, and the secret is never used as a thumbprint directly —
+      # a .pfx is a certificate, not a hash of one.
+      - name: Import the Windows signing certificate
+        id: wincert
+        if: matrix.os == 'windows' && steps.signing.outputs.windows == 'true'
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP "certificate.pfx"
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate -FilePath $path -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $path
+          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+          Write-Output "imported a signing certificate into Cert:\CurrentUser\My"
+
       # macOS assembles the embedded app: the script stages the Next standalone
       # tree into desktop/resources/web and writes the .app by hand, because the
       # Tauri CLI's bundler does not carry that resource tree.
@@ -89,20 +242,51 @@ jobs:
         run: bash scripts/build-desktop.sh
 
       # Linux and Windows are the connected client. The CLI reads
-      # desktop/tauri.<os>.conf.json on top of the base config, which is what
-      # names this platform's bundle targets. Nothing is staged because there is
-      # no embedded tree in these builds.
+      # desktop/tauri.<os>.conf.json on top of the base config, and --config is
+      # applied last, so a run without secrets can turn the updater artifacts
+      # off without editing anything. Nothing is staged because there is no
+      # embedded tree in these builds.
       - name: Build the connected client
         if: matrix.os != 'macos'
         shell: bash
         working-directory: desktop
+        env:
+          UPDATER: ${{ steps.signing.outputs.updater }}
+          THUMBPRINT: ${{ steps.wincert.outputs.thumbprint }}
         run: |
           set -euo pipefail
           ARGS=(build --ci)
-          if [ "${RUNNER_OS}" = "Windows" ] && [ -n "${WINDOWS_CERTIFICATE:-}" ]; then
-            ARGS+=(--config '{"bundle":{"windows":{"certificateThumbprint":"'"${WINDOWS_CERTIFICATE}"'"}}}')
+          parts=()
+          if [ "${UPDATER}" != "true" ]; then
+            # Without the private key the bundler refuses to emit updater
+            # artifacts rather than shipping payloads nothing can verify, so
+            # an unsigned run asks for none — and the Summary says so.
+            parts+=('"createUpdaterArtifacts":false')
+          fi
+          if [ "${RUNNER_OS}" = "Windows" ] && [ -n "${THUMBPRINT:-}" ]; then
+            WIN='"windows":{"certificateThumbprint":"'"${THUMBPRINT}"'","digestAlgorithm":"sha256"'
+            if [ -n "${WINDOWS_TIMESTAMP_URL:-}" ]; then
+              WIN+=",\"timestampUrl\":\"${WINDOWS_TIMESTAMP_URL}\""
+            fi
+            WIN+='}'
+            parts+=("$WIN")
+          fi
+          if [ "${#parts[@]}" -gt 0 ]; then
+            ARGS+=(--config "{\"bundle\":{$(IFS=,; echo "${parts[*]}")}}")
           fi
           node ../node_modules/@tauri-apps/cli/tauri.js "${ARGS[@]}"
+
+      - name: Codesign the embedded macOS app
+        if: matrix.os == 'macos' && steps.signing.outputs.macos == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Replace the ad-hoc signature the build script applied. runtime is
+          # what notarisation requires, --timestamp stamps the signature so it
+          # stays valid after the certificate expires.
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" dist/Marula.app
+          codesign --verify --deep --strict dist/Marula.app
 
       - name: Package the macOS app
         if: matrix.os == 'macos'
@@ -112,6 +296,24 @@ jobs:
           OUT="Marula-macos-${{ matrix.arch }}.zip"
           ditto -c -k --keepParent "dist/Marula.app" "$OUT"
           echo "ARTIFACT=$OUT" >> "$GITHUB_ENV"
+
+      # The zip is what Apple notarises, the .app is what a person opens, so
+      # the ticket is stapled onto the .app and the zip is rebuilt from the
+      # stapled bundle: the archive a person downloads then carries the proof.
+      - name: Notarize the macOS app
+        if: matrix.os == 'macos' && steps.signing.outputs.macos == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun notarytool submit "$ARTIFACT" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple dist/Marula.app
+          rm -f "$ARTIFACT"
+          ditto -c -k --keepParent "dist/Marula.app" "$ARTIFACT"
+          spctl -a -vv dist/Marula.app
 
       - name: Collect the Linux and Windows bundles
         if: matrix.os != 'macos'
@@ -124,7 +326,8 @@ jobs:
             "target/release/bundle/deb/*.deb" \
             "target/release/bundle/appimage/*.AppImage" \
             "target/release/bundle/nsis/*-setup.exe" \
-            "target/release/bundle/msi/*.msi"; do
+            "target/release/bundle/msi/*.msi" \
+            "target/release/bundle/*/*.sig"; do
             for file in $pattern; do
               [ -e "$file" ] || continue
               cp "$file" "dist/$(basename "$file" .deb)-${SUFFIX}.$(basename "$file" | sed 's/.*\.//')"
@@ -142,4 +345,50 @@ jobs:
             dist/*.AppImage
             dist/*.exe
             dist/*.msi
+            dist/*.sig
           if-no-files-found: error
+
+      # The posture statement, never omitted when artifacts exist: a reader of
+      # this run must be able to tell signed from unsigned without opening a
+      # bundle. It runs only after the gate produced its outputs — a leg that
+      # failed earlier uploads nothing and is answered by the failing step's
+      # own error, not by a summary that would have to guess.
+      - name: State the signing posture
+        shell: bash
+        env:
+          UPDATER: ${{ steps.signing.outputs.updater }}
+          MACOS: ${{ steps.signing.outputs.macos }}
+          WINDOWS: ${{ steps.signing.outputs.windows }}
+        run: |
+          {
+            echo "### Desktop ${{ matrix.os }}-${{ matrix.arch }} — signing posture"
+            case "${RUNNER_OS}" in
+              macOS)
+                if [ "${MACOS}" = "true" ]; then
+                  echo "- macOS: signed and notarized — Developer ID identity applied, notarytool accepted the build, ticket stapled"
+                else
+                  echo "- macOS: unsigned — the Apple signing secrets were not set for this run; the bundle is ad-hoc signed"
+                fi
+                echo "- updater payload: none on this leg — the embedded app is assembled without the bundler, so it emits no updater artifacts (docs/desktop-release.md §7)"
+                ;;
+              Windows)
+                if [ "${UPDATER}" = "true" ]; then
+                  echo "- updater payload: signed — the minisign signatures (.sig) sit beside the bundles"
+                else
+                  echo "- updater payload: unsigned — TAURI_SIGNING_PRIVATE_KEY was not set for this run (docs/desktop-release.md §7)"
+                fi
+                if [ "${WINDOWS}" = "true" ]; then
+                  echo "- Windows: signed — Authenticode applied to the NSIS and MSI bundles"
+                else
+                  echo "- Windows: unsigned — the Authenticode secrets were not set for this run; SmartScreen will warn"
+                fi
+                ;;
+              Linux)
+                if [ "${UPDATER}" = "true" ]; then
+                  echo "- updater payload: signed — the AppImage carries the minisign signature; the deb is covered by checksums only"
+                else
+                  echo "- updater payload: unsigned — TAURI_SIGNING_PRIVATE_KEY was not set for this run, so no AppImage signature and no .sig files (docs/desktop-release.md §7)"
+                fi
+                ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -13,6 +13,15 @@ correct. Where the two overlap, this page says so.
 
 ## "Stand it up"
 
+- [Which installer do I want?](../how-to/choose-your-installer.md) — the
+  release page in one table: server install, desktop client, or the app that
+  runs Marula by itself.
+- [Install on a server from the terminal](../how-to/install-on-a-server.md) —
+  the plan as text, applied with `--apply`.
+- [Install with the app](../how-to/install-with-the-app.md) — the same
+  installer behind a window.
+- [Install the desktop app](../how-to/install-the-desktop-app.md) — Marula in
+  a window on the workstations, connected to your server.
 - [Run the local demo stack](../how-to/local-demo-stack.md) — a seeded copy on one
   machine, for trying the product before you bet a client on it.
 - [The local stack](../reference/self-host-local-stack.md) — services and ports,

@@ -49,6 +49,7 @@ const THEME_KEY = "marula.installer.theme";
 const DOCS = {
   shapes: "https://getmarula.com/docs/psa/v0.3/reference/deployment-shapes",
   settings: "https://getmarula.com/docs/psa/v0.3/how-to/install-with-the-app#the-settings-screen",
+  desktopApp: "https://getmarula.com/docs/psa/v0.3/how-to/install-the-desktop-app",
 };
 
 export function App() {
@@ -554,6 +555,7 @@ export function App() {
                 setStep(3);
               }}
               mode={mode}
+              desktopDocsHref={DOCS.desktopApp}
             />
             <div className="mt-5 flex items-center justify-end gap-2.5 border-t border-border pt-4">
               <button

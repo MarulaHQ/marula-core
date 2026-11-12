@@ -10,12 +10,17 @@ The decisions behind the shape are in ADR 0026 (the deployment target and the
 plan) and ADR 0027 (the app, and the fallback). This page is the operator's side
 of them.
 
-Two published guides cover the same ground for someone doing the install:
+Four published guides cover the same ground for someone doing the install:
+[which installer do I want](https://getmarula.com/docs/psa/v0.3/how-to/choose-your-installer)
+sorts every download on the release pages,
 [install on a server from the terminal](https://getmarula.com/docs/psa/v0.3/how-to/install-on-a-server)
-and [install with the app](https://getmarula.com/docs/psa/v0.3/how-to/install-with-the-app).
+and [install with the app](https://getmarula.com/docs/psa/v0.3/how-to/install-with-the-app)
+walk the server install, and
+[install the desktop app](https://getmarula.com/docs/psa/v0.3/how-to/install-the-desktop-app)
+covers the client that connects to what you installed.
 What each shape runs, and the floors it asks for, is in
 [deployment shapes](https://getmarula.com/docs/psa/v0.3/reference/deployment-shapes).
-This page stays the repository's account of the mechanics; those three are what a
+This page stays the repository's account of the mechanics; those are what a
 self-hoster reads first.
 
 ## The app

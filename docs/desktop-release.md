@@ -1,12 +1,20 @@
 # Desktop release workflow — packaging, connecting, updating, removing
 
-Status: GA packaging (Wave 20 lane 1 `p20-ga-packaging`) · Shell: Tauri 2 (ADR 0005, ADR 0028)
+Status: GA packaging (Wave 20 lane 1 `p20-ga-packaging`) · Shell: Tauri 2 (ADR 0005, ADR 0028) · Conditional signing: W61-4 (ADR 0031 decision 7)
 
 This document is the operator workflow for the desktop client: point it at an
 instance, cut a signed release, publish an update channel, and take it off a
 machine. **No private key, password, or notarization credential is ever
 committed** — everything below runs from local secrets or CI secrets injected as
 environment variables.
+
+## What a person installs
+
+This runbook is the maintainer's. If you are the person installing the app, the
+docs answer the shorter questions:
+
+- Which installer do I want — <https://getmarula.com/docs/psa/v0.3/how-to/choose-your-installer>
+- Install the desktop app — <https://getmarula.com/docs/psa/v0.3/how-to/install-the-desktop-app>
 
 ## What's wired in the repo
 
@@ -15,7 +23,7 @@ environment variables.
 | Icons (multi-size .ico, .icns, .png) regenerated from `marula-ci/source/*.svg` | `scripts/generate-desktop-icons.sh` → `desktop/icons/` |
 | Bundle config (targets `app`+`dmg`, category, copyright, min macOS 12, updater artifacts) | `desktop/tauri.conf.json` |
 | Platform bundle targets (`deb`+`appimage`, `nsis`+`msi`) | `desktop/tauri.linux.conf.json`, `desktop/tauri.windows.conf.json` |
-| Desktop release pipeline (macOS embedded, Linux/Windows connected) | `.github/workflows/release-desktop.yml` (unrun while F89 blocks CI) |
+| Desktop release pipeline (macOS embedded, Linux/Windows connected, conditional signing) | `.github/workflows/release-desktop.yml` (unrun; the first run is a manual dispatch on a branch) |
 | Updater plugin (channel endpoint + pubkey) | `desktop/tauri.conf.json` `plugins.updater` + `desktop/src/main.rs` registration |
 | Dev/test build (no bundle, `desktop` profile, shared target dir) | `scripts/build-desktop.sh` |
 | First-run connect screen (the shell's own page, embedded) | `desktop/connect/` → `desktop/tauri.conf.json` `build.frontendDist` |
@@ -26,19 +34,26 @@ environment variables.
 
 | Platform | Mode | Bundle targets | Signing |
 |---|---|---|---|
-| macOS | embedded and connected | `app`, `dmg` | the Apple identity and notarization secrets when present, ad-hoc otherwise |
-| Linux | connected | `deb`, `appimage` | unsigned |
-| Windows | connected | `nsis`, `msi` | Authenticode when the certificate secret is present. Unsigned otherwise, and SmartScreen will warn |
+| macOS | embedded and connected | `app` (CI ships the `.app` zipped), `dmg` locally | Developer ID signature + notarization when the Apple secrets are set (`§2`); ad-hoc otherwise |
+| Linux | connected | `deb`, `appimage` | the `.AppImage` carries the updater's minisign signature when `TAURI_SIGNING_PRIVATE_KEY` is set; the `deb` is checksum-only |
+| Windows | connected | `nsis`, `msi` | Authenticode when `WINDOWS_CERTIFICATE` is set; unsigned otherwise, and SmartScreen will warn |
 
 The Linux and Windows builds are connected clients: they ask for an instance and
 refuse `--local`. Embedded Linux and Windows is a named follow-up (ADR 0031),
 because it needs a per-OS Postgres sidecar and a decision on whether the
 installer carries the database or downloads it.
 
-**Unsigned is the accepted posture until W61-4 lands** (ADR 0031 decision 7). A
-bundle without a certificate installs and runs. The OS adds a warning, and the
-warning is named here instead of being discovered. Signing is its own lane, and
-it is not what blocks the first build: the billing block (F89) does.
+**Signing is conditional on the secrets, and the posture is never silent.**
+`release-desktop.yml` checks the secrets for the leg it is about to run. A
+`workflow_dispatch` without them still builds: the bundler's updater artifacts
+are switched off for that run (with the flag on and no key, `tauri build`
+refuses to emit ones it cannot sign), and the job Summary states unsigned. A
+`desktop-v*` tag is the opposite gate — a missing secret fails the leg and
+names it, because a tagged release is not cut unsigned
+(`release-installer.yml` runs the same rule). A bundle without a certificate
+installs and runs; the OS adds a warning, and the warning is named here instead
+of being discovered. What each posture produces and how a user verifies it is
+§7.
 
 ## 1. Point the client at an instance
 
@@ -101,36 +116,66 @@ A hosted instance serves its own HTTPS certificate, so nothing extra is needed
 there. A self-hosted instance behind a private CA needs that CA trusted by the
 system, because the webview uses the platform trust store.
 
-## 2. The signing keypair
+## 2. The signing keys and certificates
 
-Tauri's updater uses minisign signatures (`TAURI_SIGNING_PRIVATE_KEY`), a
-different key from the SSH key that signs release artifacts. The pair already
-exists:
+Four credentials sign a desktop release, and they are deliberately not one key
+(ADR 0028): the updater channel and the OS install paths are separate trust
+roots with separate lifetimes. Everything below lives in the repository's
+Actions secrets on MarulaHQ/marula-core, never in the tree.
+
+### The updater keypair (minisign)
+
+Tauri's updater uses minisign signatures, a different key from the SSH key that
+signs release artifacts:
 
 | Half | Where |
 |---|---|
 | Public key | committed in `desktop/tauri.conf.json` → `plugins.updater.pubkey` |
-| Private key | `~/.tauri/marula-desktop-updater.key` (0600), to be held in the release secret store |
+| Private key | `~/.tauri/marula-desktop-updater.key` (0600), uploaded as `TAURI_SIGNING_PRIVATE_KEY` |
+| Password | set at generation time, uploaded as `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (omit the secret if the key was generated with none) |
 
-Store the private key before the first desktop release, and never in the repo:
+When `TAURI_SIGNING_PRIVATE_KEY` is set, the bundler signs the updater
+artifacts and drops a `.sig` beside each bundle. When it is not, the workflow
+switches `createUpdaterArtifacts` off for that run — with the flag left on and
+no key, `tauri build` refuses to build at all, which is the right failure for a
+local release build and an unusable one for a rehearsal. Rotation is not
+symmetric (ADR 0028): clients older than the rotation stop accepting updates
+until they are reinstalled, because the key they trust is the one compiled into
+the build they already have. A rotation therefore ships a release first, then
+takes effect: generate a new pair
+(`pnpm tauri signer generate -w ~/.tauri/marula-desktop-updater.key`), commit
+the new public key, store the new private half, and say in the release notes
+which build is the last one the old key reaches.
 
-```sh
-infisical secrets set TAURI_SIGNING_PRIVATE_KEY --env prod --path /release
-# paste the file's contents at the prompt, not `$(cat …)`, so the key
-# does not land in your shell history
-```
+### The certificates (per OS)
 
-Then delete the local copy once the secret store holds it. To rotate, generate a
-new pair (`pnpm tauri signer generate -w ~/.tauri/marula-desktop-updater.key`),
-commit the new public key, store the new private key, and say in the release
-notes that clients older than the rotation will not accept updates until they
-are reinstalled. `scripts/check-desktop-trust.mjs` refuses a placeholder, a key
-that is not a minisign document, and a plaintext endpoint.
+| Secret | What it holds | What it signs |
+|---|---|---|
+| `APPLE_CERTIFICATE` | base64 of the Developer ID Application `.p12` | the macOS `.app` (codesign) |
+| `APPLE_CERTIFICATE_PASSWORD` | the `.p12` password | — |
+| `APPLE_SIGNING_IDENTITY` | `Developer ID Application: <Org> (<TEAMID>)` | the identity codesign uses |
+| `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | the Apple account that submits the notarisation, its app-specific password, and the team id | notarytool |
+| `WINDOWS_CERTIFICATE` | base64 of the Authenticode `.pfx` | the NSIS and MSI bundles (signtool, via Tauri's bundler) |
+| `WINDOWS_CERTIFICATE_PASSWORD` | the `.pfx` password | — |
+| `WINDOWS_TIMESTAMP_URL` | the RFC 3161 endpoint your CA publishes; empty means no timestamp | — |
+
+On macOS the workflow imports the `.p12` into a throwaway keychain (its
+password is generated on the runner and never stored), re-signs the assembled
+app with the Developer ID identity, submits the zip to `notarytool`, and
+staples the ticket onto the `.app`. On Windows the `.pfx` is imported into the
+runner's user store, and the thumbprint the import produces is what the bundler
+is handed — never the certificate blob itself, which is a certificate, not a
+hash of one. Local builds need none of these: `scripts/build-desktop.sh` stays
+ad-hoc signed by design.
+
+`scripts/check-desktop-trust.mjs` refuses a placeholder pubkey, a key that is
+not a minisign document, a plaintext endpoint, and a workflow whose secrets or
+whose unsigned posture have drifted from the list above.
 
 ## 3. Build a signed bundle
 
 ```sh
-export TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/marula.key)
+export TAURI_SIGNING_PRIVATE_KEY=$(cat ~/.tauri/marula-desktop-updater.key)
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD='…'
 pnpm tauri build            # full bundler: .app + .dmg + updater artifacts (.tar.gz + .sig)
 ```
@@ -148,7 +193,9 @@ Notes:
   and stays ad-hoc signed — it never needs any of the secrets above.
 - With `createUpdaterArtifacts: true`, a full `pnpm tauri build` needs
   `TAURI_SIGNING_PRIVATE_KEY`. Without it the bundle step fails rather than
-  shipping update artifacts nothing can verify: that is deliberate.
+  shipping update artifacts nothing can verify: that is deliberate. CI's
+  unsigned rehearsal opts out of the flag explicitly (`release-desktop.yml`)
+  instead of failing, and says so in the Summary.
 
 ## 4. Publish the update channel
 
@@ -234,17 +281,65 @@ that leg does not install (`.github/workflows/ci.yml`).
 
 | Deliverable | State |
 |---|---|
-| macOS install (`.app`, `.dmg`) | Configured in `desktop/tauri.conf.json`. Assembled locally by `scripts/build-desktop.sh` (no bundle, ad-hoc signed) or by `pnpm tauri build` (full bundle). |
-| Linux desktop bundles (`deb`, `appimage`) | Configured in `desktop/tauri.linux.conf.json`. Built by `.github/workflows/release-desktop.yml`, which has not run while F89 blocks CI. |
-| Windows desktop bundles (`nsis`, `msi`) | Configured in `desktop/tauri.windows.conf.json`, same workflow, same block. Authenticode applies when the certificate secret is present. |
-| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds five legs. These belong to the installer app, not to the client. macOS and Windows ship unsigned until the trust chain exists (`docs/release.md`). |
-| Signed desktop artifacts (updater payloads, notarization) | **Blocked on the signing trust chain, and tracked as W61-4.** The key, the endpoint and the checker exist (`scripts/check-desktop-trust.mjs`, §2 and §4 above). No signed desktop release has been cut, and this document does not claim one has. |
+| macOS install (`.app`, zipped) | Configured in `desktop/tauri.conf.json` and assembled by hand in CI, because the Tauri bundler does not carry the embedded resource tree. Developer ID-signed and notarized when the Apple secrets exist; ad-hoc signed otherwise. Ships no updater payload: updater artifacts come from the bundler, and the macOS leg builds without it — that arrives with the bundler migration, not with this signing wiring. |
+| Linux desktop bundles (`deb`, `appimage`) | Configured in `desktop/tauri.linux.conf.json`. The `.AppImage` carries the updater's minisign signature when the updater key exists; the `deb` is checksum-only until an apt repository publishes (the reason is below). |
+| Windows desktop bundles (`nsis`, `msi`) | Configured in `desktop/tauri.windows.conf.json`. Authenticode-signed when `WINDOWS_CERTIFICATE` exists; unsigned otherwise, and SmartScreen will warn. |
+| Updater artifacts (`.sig` files) | Signed with the minisign updater key when `TAURI_SIGNING_PRIVATE_KEY` exists, and collected beside the bundles. Without the key the run emits none and says so. |
+| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds five legs. These belong to the installer app, not to the client (`docs/release.md`). |
 
-Unsigned bundles are the accepted posture until W61-4 lands. The updater key in
-`desktop/tauri.conf.json` is independent of the OS signing certificate: a bundle
-can verify updates while the OS still warns about the installer. `pnpm tauri
-build` fails closed without `TAURI_SIGNING_PRIVATE_KEY`, which is the loud
-outcome and the one to keep.
+**What a dispatch produces.** With every secret set in place: macOS signed and
+notarized, the Linux AppImage minisign-signed, Windows Authenticode-signed, and
+`.sig` files beside every bundler-emitted artifact. With none: the same
+bundles, an ad-hoc macOS app, no `.sig` files, and a job Summary whose lines
+say exactly that. The Summary is the posture statement — read it before
+reading a bundle to learn what was signed.
+
+**Why the AppImage carries the signature, not the deb.** CI produces a
+standalone deb and an AppImage attached to a workflow run; it publishes no apt
+repository. Repository signing (`debsign`, `reprepro`) signs repository
+metadata: the `Release` files a person's apt checks with `Signed-By`. Signing
+metadata for a repository nobody serves is theater. The AppImage is
+the artifact the updater itself verifies, its `.sig` is minisign-format that
+`minisign` verifies (the tool is packaged in the Debian, Ubuntu and Fedora
+archives), and the public half is already committed in this repository. The
+deb's honest story is checksum plus dpkg's install-time integrity check until
+a repository exists, and when one does, its `Release` signing belongs to the
+deployment that serves it, not to this build.
+
+### Verifying a downloaded bundle
+
+macOS:
+
+```sh
+codesign --verify --deep --strict Marula.app
+spctl -a -vv Marula.app          # a notarized build answers "source=Notarized Developer ID"
+```
+
+Windows (PowerShell):
+
+```powershell
+Get-AuthenticodeSignature .\Marula-setup.exe | Format-List
+# Status: Valid, and the signer is the certificate owner you expect. An
+# unsigned installer shows NotSigned here and a SmartScreen warning at install.
+```
+
+Linux, the AppImage — the public half is the `plugins.updater.pubkey` field of
+`desktop/tauri.conf.json`, base64 of a minisign key document:
+
+```sh
+jq -r '.plugins.updater.pubkey' desktop/tauri.conf.json | base64 -d > marula-updater.pub
+minisign -Vm Marula_*.AppImage -p marula-updater.pub
+```
+
+Linux, the deb: compare its sha256 against the checksums on the workflow run.
+`dpkg` checks archive integrity at install time, not origin; the signed origin
+arrives with the apt repository, not before.
+
+Unsigned bundles are the rehearsal posture, and the job Summary names them.
+The updater key in `desktop/tauri.conf.json` is independent of the OS signing
+certificate: a bundle can verify updates while the OS still warns about the
+installer. `pnpm tauri build` fails closed without
+`TAURI_SIGNING_PRIVATE_KEY`, which is the loud outcome and the one to keep.
 
 ## 8. Uninstall
 
@@ -265,3 +360,64 @@ embedded install that removes `pgdata` and `desktop-secret`, and sealed rows
 written under that secret cannot be opened by a later install. On a connected
 client the only local state is `connection.json`, which is usually worth keeping
 if you are about to reinstall.
+
+## 9. Go-live checklist
+
+The signing is wired and unproven: no leg of this workflow has ever run, with
+or without secrets. The order below is the one the workflow's gates expect.
+None of it is an agent's to execute — uploading secrets and firing dispatches
+are the maintainer's calls.
+
+### 9.1 The free interim (until the certificates are bought)
+
+Every certificate below costs money; the updater key does not. The interim
+posture is therefore: sign the updater payloads now, leave macOS ad-hoc, and
+optionally self-sign Windows. Steps 1 and 4 below are the whole interim.
+
+1. Upload `TAURI_SIGNING_PRIVATE_KEY` (+ password) — step 1 below. With it in
+   place, every leg's updater payload carries a verifiable minisign signature
+   and the AppImage ships with a `.sig` a user checks with `minisign -V`
+   against the public half committed in `desktop/tauri.conf.json`. That is
+   tamper-evidence, not a trusted-install promise, and it is the part that
+   does not expire when a subscription lapses.
+2. Windows, optionally: a self-signed Authenticode PFX costs nothing
+   (`New-SelfSignedCertificate -Type CodeSigningCert` in PowerShell, exported
+   as PFX) and passes through the same import step as a paid one — the
+   workflow reads `WINDOWS_CERTIFICATE` as base64 PFX and does not care who
+   issued it. Set only `WINDOWS_CERTIFICATE` and
+   `WINDOWS_CERTIFICATE_PASSWORD`; leave `WINDOWS_TIMESTAMP_URL` unset, since
+   a timestamp server would be a third party and a self-signed chain has none.
+   Be honest about what it buys: the bundles stop being *unsigned*, but a
+   machine that has not imported the certificate still shows "Unknown
+   publisher". An org that wants a quiet install imports the exported `.cer`
+   into its Trusted People store, which is a real chain you control; a
+   stranger's machine sees the same warning an unsigned bundle gets.
+3. macOS: no interim. A self-signed Apple-style certificate imports and
+   codesigns, but it cannot be notarized, so Gatekeeper shows a user the same
+   warning the ad-hoc fallback already produces. The ad-hoc path the workflow
+   already takes when the Apple secrets are absent is the interim.
+4. State the posture in the release notes per §7, per platform, every time:
+   AppImage signed (minisign), Windows self-signed or unsigned, macOS ad-hoc.
+
+### 9.2 The full run
+
+1. Upload the updater key to the repository's Actions secrets:
+   `TAURI_SIGNING_PRIVATE_KEY` (the contents of
+   `~/.tauri/marula-desktop-updater.key`, pasted at the prompt, not `$(cat …)`,
+   so the key stays out of your shell history) and
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if the key was generated with one.
+   Keep the local copy until step 5 succeeds, then delete it.
+2. Obtain and upload the Apple identity: `APPLE_CERTIFICATE`,
+   `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+   `APPLE_PASSWORD`, `APPLE_TEAM_ID` (§2).
+3. Obtain and upload the Windows certificate: `WINDOWS_CERTIFICATE`,
+   `WINDOWS_CERTIFICATE_PASSWORD`, and `WINDOWS_TIMESTAMP_URL` if the CA
+   publishes one (§2).
+4. Fire one manual `workflow_dispatch` on a branch — the workflow's first run
+   ever, and the rehearsal. A missing secret makes a leg go unsigned with a
+   notice naming the gap; fix the secret and dispatch again.
+5. Verify the artifacts that run produced, per §7: `spctl` on macOS,
+   `Get-AuthenticodeSignature` on Windows, `minisign -V` on the AppImage, and
+   the Summary's posture lines against what you actually downloaded.
+6. Only then tag `desktop-v*` — its gate fails closed if a secret has gone
+   missing since the rehearsal.
