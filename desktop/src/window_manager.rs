@@ -135,6 +135,94 @@ fn next_index(app: &AppHandle, registry: &WindowRegistry, role: &str) -> usize {
 /// renderer can scope per-instance state to (windowScopedKey stays
 /// role-keyed per lane 1's contract; wid disambiguates ephemeral things
 /// like the bus window id).
+///
+/// One shape, two callers: a window being created, and a window a deep link
+/// sends to another record. If they disagreed, following a link would move a
+/// window off its own identity and the renderer's per-window state with it.
+pub fn role_window_url(web_url: &str, role: &str, label: &str, path_suffix: &str) -> String {
+    let base = web_url.trim_end_matches('/');
+    let path = if path_suffix.contains('?') {
+        format!("{path_suffix}&")
+    } else {
+        format!("{path_suffix}?")
+    };
+    format!("{base}/{path}popout={role}&wid={label}")
+}
+
+/// An in-app path as an absolute URL on the shell's own web origin — what the
+/// main window loads (`"/tickets/<id>"` → `<web_url>/tickets/<id>`).
+pub fn absolute_url(web_url: &str, path: &str) -> String {
+    format!(
+        "{}{}",
+        web_url.trim_end_matches('/'),
+        if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        }
+    )
+}
+
+/// Send a window to `url` unless it is already there. `Ok(false)` means the
+/// window was left alone, which is the common case for a link that names what
+/// the window already shows (reloading it would throw away unsaved work).
+pub fn navigate_window(window: &tauri::WebviewWindow, url: &str) -> Result<bool, String> {
+    let target: tauri::Url = url
+        .parse()
+        .map_err(|e| format!("invalid window URL {url}: {e}"))?;
+    if let Ok(current) = window.url() {
+        if current == target {
+            return Ok(false);
+        }
+    }
+    window
+        .navigate(target)
+        .map_err(|e| format!("navigating to {url}: {e}"))?;
+    Ok(true)
+}
+
+/// Follow a deep link into the role window that already exists: focus it and
+/// move it to the record the link names. Open-or-focus without this leaves the
+/// window showing whatever it showed before, which reads as the wrong record.
+pub fn navigate_role_window(
+    app: &AppHandle,
+    label: &str,
+    role: &str,
+    path_suffix: &str,
+) -> Result<bool, String> {
+    let Some(window) = app.get_webview_window(label) else {
+        return Err(format!("window {label} is gone"));
+    };
+    let web_url = app
+        .try_state::<crate::WebUrl>()
+        .map(|w| w.0.clone())
+        .ok_or_else(|| "shell web URL not initialized".to_string())?;
+    let url = role_window_url(&web_url, role, label, path_suffix);
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    navigate_window(&window, &url)
+}
+
+/// The fallback a deep link takes when its role window cannot be opened: the
+/// main window, at the same record's in-app route (`DeepLinkTarget::main_path`).
+pub fn navigate_main_window(app: &AppHandle, path: &str) -> Result<bool, String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Err(String::from("no main window"));
+    };
+    let web_url = app
+        .try_state::<crate::WebUrl>()
+        .map(|w| w.0.clone())
+        .ok_or_else(|| "shell web URL not initialized".to_string())?;
+    let url = absolute_url(&web_url, path);
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+    navigate_window(&window, &url)
+}
+
+/// Create (or focus) the window for one role and instance, restoring the frame
+/// that role and instance last had and capturing it from then on.
 async fn create_role_window(
     app: &AppHandle,
     role: &str,
@@ -150,14 +238,7 @@ async fn create_role_window(
         let _ = existing.set_focus();
         return Ok(label);
     }
-    let url = format!(
-        "{web_url}/{path}popout={role}&wid={label}",
-        path = if path_suffix.contains('?') {
-            format!("{path_suffix}&")
-        } else {
-            format!("{path_suffix}?")
-        }
-    );
+    let url = role_window_url(web_url, role, &label, path_suffix);
     let (dw, dh) = default_size(role);
     let mut builder = WebviewWindowBuilder::new(
         app,
@@ -352,6 +433,65 @@ pub async fn focus_native_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn role_window_url_carries_role_and_identity() {
+        assert_eq!(
+            role_window_url(
+                "http://127.0.0.1:15435/",
+                "ticket-detail",
+                "subwindow::ticket-detail::0",
+                "tickets/abc",
+            ),
+            "http://127.0.0.1:15435/tickets/abc?popout=ticket-detail&wid=subwindow::ticket-detail::0"
+        );
+    }
+
+    #[test]
+    fn role_window_url_keeps_an_existing_query() {
+        assert_eq!(
+            role_window_url(
+                "http://127.0.0.1:15435",
+                "stock-lookup",
+                "subwindow::stock-lookup::0",
+                "stock?highlight=abc",
+            ),
+            "http://127.0.0.1:15435/stock?highlight=abc&popout=stock-lookup&wid=subwindow::stock-lookup::0"
+        );
+    }
+
+    /// The point of the deep-link fix: the URL a link computes for a second
+    /// record differs from the one the window shows, and the window's own
+    /// identity survives the move.
+    #[test]
+    fn another_record_moves_the_window_without_losing_its_identity() {
+        let first = role_window_url(
+            "http://127.0.0.1:15435",
+            "ticket-detail",
+            "subwindow::ticket-detail::0",
+            "tickets/aaa",
+        );
+        let second = role_window_url(
+            "http://127.0.0.1:15435",
+            "ticket-detail",
+            "subwindow::ticket-detail::0",
+            "tickets/bbb",
+        );
+        assert_ne!(first, second);
+        assert!(second.ends_with("?popout=ticket-detail&wid=subwindow::ticket-detail::0"));
+    }
+
+    #[test]
+    fn main_window_routes_are_absolute_on_one_origin() {
+        assert_eq!(
+            absolute_url("http://127.0.0.1:15435", "/tickets/x"),
+            "http://127.0.0.1:15435/tickets/x"
+        );
+        assert_eq!(
+            absolute_url("https://psa.example.com/", "dispatch"),
+            "https://psa.example.com/dispatch"
+        );
+    }
 
     #[test]
     fn state_file_round_trip_and_defaults() {
