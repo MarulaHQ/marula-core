@@ -17725,8 +17725,18 @@ export interface components {
         CreateAvailabilityRequest: {
             effective_from?: string | null;
             effective_until?: string | null;
+            /**
+             * @description Local wall-clock "HH:MM" where the window closes. `24:00` is accepted
+             *     and means end-of-day (through local midnight), so a round-the-clock
+             *     window is `00:00`–`24:00`. Every other value keeps its exact second:
+             *     `23:59` still means 23:59:00.
+             */
             end_local: string;
-            /** @description Local wall-clock "HH:MM" (window is `[start, end)`). */
+            /**
+             * @description Local wall-clock "HH:MM" where the window opens (the window is
+             *     `[start, end)`). `00:00` means start-of-day; `24:00` is rejected here,
+             *     it is only valid as an end.
+             */
             start_local: string;
             /** @description IANA timezone the wall-clock bounds live in. */
             timezone: string;

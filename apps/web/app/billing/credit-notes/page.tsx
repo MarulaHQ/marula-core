@@ -15,6 +15,7 @@
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
+import { ErrorNote } from "../../../components/knowledge/ledger";
 import {
   Badge,
   Button,
@@ -605,9 +606,7 @@ function CreditNotesInner() {
       ) : null}
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">
-          {loadError}
-        </p>
+        <ErrorNote>{loadError}</ErrorNote>
       ) : notes === null ? (
         <Card>
           <div className="flex justify-center p-6">

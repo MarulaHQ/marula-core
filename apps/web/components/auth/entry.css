@@ -252,13 +252,16 @@
   gap: 6px;
 }
 
-/* A validation error is the status danger pair — red, with an icon and words —
-   because error copy wears the status pair and the destructive red stays for
-   controls that destroy (docs/theme.md §3.4). The message is never colour
-   alone: it carries the icon and the sentence. The field EDGE is separate, and
-   §6 governs it. */
+/* A validation error's MESSAGE is the status danger pair — red text with an
+   icon and words — because error copy wears the status pair and the
+   destructive red stays for controls that destroy (docs/theme.md §3.4). The
+   message is never colour alone: it carries the icon and the sentence. The
+   field EDGE is separate, and §6 governs it: `--m-destructive`, the same red
+   on every screen, including this one. */
 .entry-field--error .entry-input {
-  border: 2px solid var(--m-blush);
+  border: 2px solid var(--m-destructive);
+  /* The border grew by 1px on each side, so the padding gives that back and
+     the text stays where it was. */
   padding: 0 13px;
 }
 

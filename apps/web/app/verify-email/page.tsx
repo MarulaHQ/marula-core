@@ -133,7 +133,15 @@ function VerifyEmailInner(): ReactNode {
             <>
               <div className="entry-centred">
                 <EntryHeadline>Not quite.</EntryHeadline>
-                <p className="entry-sub">{error}</p>
+                <p
+                  className="entry-sub"
+                  role="alert"
+                  // A refused verification link is error copy: the status
+                  // danger pair, not secondary body (§3.4).
+                  style={{ color: "var(--m-status-danger-fg)" }}
+                >
+                  {error}
+                </p>
               </div>
               <button
                 type="button"
