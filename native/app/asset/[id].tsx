@@ -14,7 +14,8 @@ import { StyleSheet, Text, View } from "react-native";
 import { REASON_COPY } from "@/core/errors";
 import { MODELS, fetchAsset } from "@/core/models";
 import { useModel } from "@/data/sync-context";
-import { EmptyState, Loading } from "@/ui/primitives";
+import { EmptyState } from "@/ui/primitives";
+import { SkeletonDetail } from "@/ui/skeleton";
 import {
   FactRow,
   Facts,
@@ -51,7 +52,7 @@ export default function AssetScreen() {
   if (asset.status === "loading" && asset.data === undefined) {
     return (
       <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
-        <Loading label="Loading asset" />
+        <SkeletonDetail label="Loading asset" sentence="Loading the asset record." facts={4} />
       </View>
     );
   }

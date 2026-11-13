@@ -18,7 +18,9 @@ import { MODELS, fetchNotifications, type Notification } from "@/core/models";
 import { markAllNotificationsRead, markNotificationRead } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
 import { RequireAuth } from "@/ui/require-auth";
-import { ErrorNote, Loading } from "@/ui/primitives";
+import { FadeIn } from "@/ui/motion";
+import { ErrorNote } from "@/ui/primitives";
+import { SkeletonRows } from "@/ui/skeleton";
 import { PACK_ICONS, PackHeader, pack, statusPairFor } from "@/ui/pack";
 import { type, useTheme, type ThemeTokens , chrome } from "@/ui/tokens";
 
@@ -130,43 +132,52 @@ export default function NotificationsRoute() {
           />
         ) : null}
         {notifications.status === "loading" && notifications.data === undefined ? (
-          <Loading label="Loading notifications" />
+          <SkeletonRows
+            label="Loading notifications"
+            sentence="Loading notifications."
+            rows={5}
+            minHeight={72}
+            pills={false}
+            chevron={false}
+          />
         ) : null}
         <View style={styles.list}>
-          {BUCKETS.map((bucket) => {
+          {BUCKETS.map((bucket, bucketIndex) => {
             const group = grouped.get(bucket.key) ?? [];
             if (group.length === 0) return null;
             return (
-              <View key={bucket.key}>
-                <Text style={[styles.bucketLabel, { color: tokens.textSecondary }]}>
-                  {bucket.label}
-                </Text>
-                {group.map((row) => {
-                  const visual = kindVisual(row.kind, tokens);
-                  const unread = row.read_at == null;
-                  return (
-                    <Pressable
-                      key={row.id}
-                      testID={`notification-${row.id}`}
-                      onPress={() => open(row)}
-                      style={({ pressed }) => [styles.row, { borderBottomColor: tokens.border, opacity: pressed ? 0.85 : 1 }]}
-                    >
-                      <View style={[styles.iconDisc, { backgroundColor: visual.pair.background }]}>
-                        <Ionicons name={visual.icon as never} size={19} color={visual.pair.text} />
-                      </View>
-                      <View style={styles.rowBody}>
-                        <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={2}>
-                          {row.title}
-                        </Text>
-                        <Text style={[styles.rowMeta, { color: tokens.textSecondary }]} numberOfLines={1}>
-                          {[row.body, clockStamp(row.created_at)].filter(Boolean).join(" · ")}
-                        </Text>
-                      </View>
-                      {unread ? <View style={[styles.unreadDot, { backgroundColor: GOLD }]} /> : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <FadeIn key={bucket.key} index={bucketIndex}>
+                <View>
+                  <Text style={[styles.bucketLabel, { color: tokens.textSecondary }]}>
+                    {bucket.label}
+                  </Text>
+                  {group.map((row) => {
+                    const visual = kindVisual(row.kind, tokens);
+                    const unread = row.read_at == null;
+                    return (
+                      <Pressable
+                        key={row.id}
+                        testID={`notification-${row.id}`}
+                        onPress={() => open(row)}
+                        style={({ pressed }) => [styles.row, { borderBottomColor: tokens.border, opacity: pressed ? 0.85 : 1 }]}
+                      >
+                        <View style={[styles.iconDisc, { backgroundColor: visual.pair.background }]}>
+                          <Ionicons name={visual.icon as never} size={19} color={visual.pair.text} />
+                        </View>
+                        <View style={styles.rowBody}>
+                          <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={2}>
+                            {row.title}
+                          </Text>
+                          <Text style={[styles.rowMeta, { color: tokens.textSecondary }]} numberOfLines={1}>
+                            {[row.body, clockStamp(row.created_at)].filter(Boolean).join(" · ")}
+                          </Text>
+                        </View>
+                        {unread ? <View style={[styles.unreadDot, { backgroundColor: GOLD }]} /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </FadeIn>
             );
           })}
           {notifications.data !== undefined && rows.length === 0 ? (

@@ -59,11 +59,11 @@ import {
   EmptyState,
   ErrorNote,
   Field,
-  Loading,
   Mono,
   Pill,
   SectionHeader,
 } from "@/ui/primitives";
+import { SkeletonDetail } from "@/ui/skeleton";
 import { elapsedMs, clock, isPaused } from "@/ui/timer-bar";
 import { infoPair, shape, type, useTheme, type StatusPair } from "@/ui/tokens";
 
@@ -241,7 +241,12 @@ export function TicketDetail({ id }: { id: string }) {
   if (ticket.status === "loading" && ticket.data === undefined) {
     return (
       <View style={[styles.screen, { backgroundColor: tokens.background }]}>
-        <Loading label="Loading ticket" />
+        <SkeletonDetail
+          label="Loading ticket"
+          sentence="Loading the ticket and its activity."
+          facts={0}
+          inset={false}
+        />
       </View>
     );
   }

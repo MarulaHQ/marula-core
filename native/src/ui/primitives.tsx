@@ -103,12 +103,17 @@ export function Card({
   children,
   style,
   onPress,
+  onPressIn,
+  onPressOut,
   accessibilityLabel,
   testID,
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
+  /** Press lifecycle hooks, so a caller can animate the card it is given. */
+  onPressIn?: () => void;
+  onPressOut?: () => void;
   accessibilityLabel?: string;
   testID?: string;
 }) {
@@ -126,6 +131,8 @@ export function Card({
     <Pressable
       testID={testID}
       onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => [...cardStyle, pressed ? styles.pressed : null]}

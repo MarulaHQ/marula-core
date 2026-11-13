@@ -23,7 +23,9 @@ import { useModel, useMutation } from "@/data/sync-context";
 import { ScanStation } from "@/scan/scan-station";
 import { RequireAuth } from "@/ui/require-auth";
 import { commitConfirmed } from "@/ui/haptics";
+import { FadeIn } from "@/ui/motion";
 import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
+import { SkeletonRows } from "@/ui/skeleton";
 import {
   PackHeader,
   PackLabel,
@@ -170,52 +172,61 @@ export default function ToolsScreen() {
             <ErrorNote text={checkouts.error?.text ?? "Couldn't load checkouts."} onRetry={checkouts.refresh} />
           ) : null}
           {checkouts.status === "loading" && checkouts.data === undefined ? (
-            <Loading label="Loading checkouts" />
+            <SkeletonRows
+              label="Loading checkouts"
+              sentence="Loading what is out."
+              rows={4}
+              minHeight={64}
+              leading={false}
+              pills={false}
+              chevron={false}
+            />
           ) : null}
           {checkouts.data !== undefined && rows.length === 0 ? (
             <EmptyState message="No tools are out right now." />
           ) : null}
           {rows.length > 0 ? <PackLabel style={{ marginTop: 8 }}>Out now</PackLabel> : null}
           <View style={[styles.list, { borderColor: tokens.border }]}>
-            {rows.map((row: ToolCheckoutDetail) => {
+            {rows.map((row: ToolCheckoutDetail, index: number) => {
               const mine = me !== null && row.checkout.holder_user_id === me.user_id;
               const due = new Date(row.checkout.due_at);
               return (
-                <View
-                  key={row.checkout.id}
-                  testID={`checkout-${row.checkout.id}`}
-                  style={[styles.row, { borderBottomColor: tokens.border }]}
-                >
-                  <View style={styles.rowBody}>
-                    <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={1}>
-                      {row.lines.length === 1
-                        ? serialLabel(row.lines[0]?.serial_id ?? null, row.lines[0]?.stock_item_id ?? "")
-                        : `${row.lines.length} tools`}
-                    </Text>
-                    <Text style={[styles.rowDue, { color: tokens.textSecondary }]}>
-                      Due{" "}
-                      {due.toLocaleString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {mine ? " · yours" : ""}
-                    </Text>
-                    {row.lines.length > 1
-                      ? row.lines.slice(0, 3).map((line) => (
-                          <Text key={line.id} style={[styles.line, { color: tokens.textSecondary }]} numberOfLines={1}>
-                            {serialLabel(line.serial_id, line.stock_item_id)}
-                          </Text>
-                        ))
-                      : null}
+                <FadeIn key={row.checkout.id} index={index}>
+                  <View
+                    testID={`checkout-${row.checkout.id}`}
+                    style={[styles.row, { borderBottomColor: tokens.border }]}
+                  >
+                    <View style={styles.rowBody}>
+                      <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={1}>
+                        {row.lines.length === 1
+                          ? serialLabel(row.lines[0]?.serial_id ?? null, row.lines[0]?.stock_item_id ?? "")
+                          : `${row.lines.length} tools`}
+                      </Text>
+                      <Text style={[styles.rowDue, { color: tokens.textSecondary }]}>
+                        Due{" "}
+                        {due.toLocaleString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                        {mine ? " · yours" : ""}
+                      </Text>
+                      {row.lines.length > 1
+                        ? row.lines.slice(0, 3).map((line) => (
+                            <Text key={line.id} style={[styles.line, { color: tokens.textSecondary }]} numberOfLines={1}>
+                              {serialLabel(line.serial_id, line.stock_item_id)}
+                            </Text>
+                          ))
+                        : null}
+                    </View>
+                    {row.checkout.overdue ? (
+                      <PackPill pair={tokens.danger} label="OVERDUE" />
+                    ) : (
+                      <PackPill pair={tokens.neutral} label="OUT" />
+                    )}
                   </View>
-                  {row.checkout.overdue ? (
-                    <PackPill pair={tokens.danger} label="OVERDUE" />
-                  ) : (
-                    <PackPill pair={tokens.neutral} label="OUT" />
-                  )}
-                </View>
+                </FadeIn>
               );
             })}
           </View>

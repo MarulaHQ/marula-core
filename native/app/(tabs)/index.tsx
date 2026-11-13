@@ -19,7 +19,7 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { router } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useAuth } from "@/auth/auth-context";
 import { DayPackCard } from "@/fieldops/day-pack-card";
@@ -59,12 +59,13 @@ import {
   Card,
   EmptyState,
   ErrorNote,
-  Loading,
   Pill,
   SectionHeader,
   Screen,
   SuccessNote,
 } from "@/ui/primitives";
+import { FadeIn, usePressScale } from "@/ui/motion";
+import { SkeletonRows } from "@/ui/skeleton";
 import { type, useTheme } from "@/ui/tokens";
 
 /** Time-of-day greeting, the pack's "Afternoon, Thabo". */
@@ -390,38 +391,49 @@ export default function TodayScreen() {
       {work.status === "error" && work.data === undefined ? (
         <ErrorNote text={work.error?.text ?? "Couldn't load your work."} onRetry={work.refresh} />
       ) : null}
-      {work.status === "loading" && work.data === undefined ? <Loading label="Loading work" /> : null}
+      {work.status === "loading" && work.data === undefined ? (
+        <SkeletonRows
+          label="Loading work"
+          sentence="Loading today's work."
+          rows={5}
+          minHeight={56}
+          pills={false}
+          chevron={false}
+        />
+      ) : null}
       {work.data !== undefined && work.data.length === 0 ? (
         <EmptyState message="Nothing assigned to you right now." />
       ) : null}
-      {laterGroups.map((group) => (
-        <View key={group.key} style={styles.laterGroup}>
-          {group.label !== null ? (
-            <Text style={[styles.laterDayLabel, { color: tokens.textMuted }]}>{group.label}</Text>
-          ) : null}
-          <Card style={styles.listCard}>
-            {group.items.map((item: MyWorkItem) => {
-              const due = item.sla_resolution_due ?? item.due_at;
-              const dueDate = due !== null && due !== undefined ? new Date(due) : null;
-              const startOfToday = new Date(now).setHours(0, 0, 0, 0);
-              const dueTime =
-                dueDate !== null && !Number.isNaN(dueDate.getTime())
-                  ? dueDate.getTime() >= startOfToday
-                    ? clockLabel(dueDate)
-                    : null
-                  : null;
-              return (
-                <LaterRow
-                  key={item.id}
-                  item={item}
-                  dueTime={dueTime}
-                  onPress={() => router.push(`/ticket/${item.id}`)}
-                  trailing={slaPill(tokens, slaState(item.sla_resolution_due, now))}
-                />
-              );
-            })}
-          </Card>
-        </View>
+      {laterGroups.map((group, index) => (
+        <FadeIn key={group.key} index={index}>
+          <View style={styles.laterGroup}>
+            {group.label !== null ? (
+              <Text style={[styles.laterDayLabel, { color: tokens.textMuted }]}>{group.label}</Text>
+            ) : null}
+            <Card style={styles.listCard}>
+              {group.items.map((item: MyWorkItem) => {
+                const due = item.sla_resolution_due ?? item.due_at;
+                const dueDate = due !== null && due !== undefined ? new Date(due) : null;
+                const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+                const dueTime =
+                  dueDate !== null && !Number.isNaN(dueDate.getTime())
+                    ? dueDate.getTime() >= startOfToday
+                      ? clockLabel(dueDate)
+                      : null
+                    : null;
+                return (
+                  <LaterRow
+                    key={item.id}
+                    item={item}
+                    dueTime={dueTime}
+                    onPress={() => router.push(`/ticket/${item.id}`)}
+                    trailing={slaPill(tokens, slaState(item.sla_resolution_due, now))}
+                  />
+                );
+              })}
+            </Card>
+          </View>
+        </FadeIn>
       ))}
       {work.offline && work.data !== undefined ? (
         <Text style={[styles.offlineNote, { color: tokens.textMuted }]}>
@@ -659,18 +671,25 @@ function Action({
   onPress?: () => void;
 }) {
   const { tokens } = useTheme();
+  const press = usePressScale();
   return (
-    <Card
-      style={styles.action}
-      onPress={
-        onPress ??
-        (href !== undefined ? () => router.push(href as never) : undefined)
-      }
-      accessibilityLabel={label}
-    >
-      <Ionicons name={icon} size={22} color={tokens.textSecondary} />
-      <Text style={[styles.actionLabel, { color: tokens.text }]}>{label}</Text>
-    </Card>
+    // The wrapper carries the dip and the tile's share of the row, so the
+    // card keeps its own layout inside it.
+    <Animated.View style={[styles.actionSlot, press.style]}>
+      <Card
+        style={styles.action}
+        onPress={
+          onPress ??
+          (href !== undefined ? () => router.push(href as never) : undefined)
+        }
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+        accessibilityLabel={label}
+      >
+        <Ionicons name={icon} size={22} color={tokens.textSecondary} />
+        <Text style={[styles.actionLabel, { color: tokens.text }]}>{label}</Text>
+      </Card>
+    </Animated.View>
   );
 }
 
@@ -814,6 +833,9 @@ const styles = StyleSheet.create({
   actionGrid: {
     flexDirection: "row",
     gap: 12,
+  },
+  actionSlot: {
+    flex: 1,
   },
   action: {
     flex: 1,

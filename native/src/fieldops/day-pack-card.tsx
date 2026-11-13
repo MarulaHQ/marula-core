@@ -26,11 +26,12 @@ import { tick as tickHaptic } from "@/ui/haptics";
 import {
   Button,
   Card,
-  Loading,
   Mono,
   Pill,
   SectionHeader,
 } from "@/ui/primitives";
+import { FadeIn } from "@/ui/motion";
+import { SkeletonCard } from "@/ui/skeleton";
 import { type, useTheme, type StatusPair } from "@/ui/tokens";
 
 export function DayPackCard() {
@@ -87,7 +88,7 @@ export function DayPackCard() {
         </View>
 
         {pack.status === "loading" && data === undefined ? (
-          <Loading label="Loading today's pack" />
+          <SkeletonCard label="Loading today's pack" sentence="Loading today's pack." lines={3} bare />
         ) : null}
 
         {data !== undefined && trips.length === 0 ? (
@@ -97,38 +98,40 @@ export function DayPackCard() {
           </Text>
         ) : null}
 
-        {trips.map((trip) => (
-          <View key={`trip-${trip.index}`} style={styles.trip}>
-            <Text style={[styles.tripTitle, { color: tokens.textSecondary }]}>
-              {tripLabel(trip)}
-            </Text>
-            {trip.lines.map((line) => (
-              <LineRow
-                key={line.line_key}
-                line={line}
-                busy={busyKey === line.line_key}
-                onToggle={() =>
-                  void toggle(line.line_key, line.tick !== null && line.tick !== undefined, line.ticket_id)
-                }
-              />
-            ))}
-            {trip.kits.map((kit) => (
-              <KitRow
-                key={kit.line_key}
-                kit={kit}
-                busy={busyKey === kit.line_key}
-                onToggle={() =>
-                  void toggle(kit.line_key, kit.tick !== null && kit.tick !== undefined, kit.ticket_id)
-                }
-                onGrab={() => router.push(`/tool-kit/${kit.kit_id}` as never)}
-              />
-            ))}
-            {(trip.coverage_warnings ?? []).map((warning) => (
-              <Text key={warning} style={[styles.hint, { color: tokens.warning.text }]}>
-                {warning}
+        {trips.map((trip, index) => (
+          <FadeIn key={`trip-${trip.index}`} index={index}>
+            <View style={styles.trip}>
+              <Text style={[styles.tripTitle, { color: tokens.textSecondary }]}>
+                {tripLabel(trip)}
               </Text>
-            ))}
-          </View>
+              {trip.lines.map((line) => (
+                <LineRow
+                  key={line.line_key}
+                  line={line}
+                  busy={busyKey === line.line_key}
+                  onToggle={() =>
+                    void toggle(line.line_key, line.tick !== null && line.tick !== undefined, line.ticket_id)
+                  }
+                />
+              ))}
+              {trip.kits.map((kit) => (
+                <KitRow
+                  key={kit.line_key}
+                  kit={kit}
+                  busy={busyKey === kit.line_key}
+                  onToggle={() =>
+                    void toggle(kit.line_key, kit.tick !== null && kit.tick !== undefined, kit.ticket_id)
+                  }
+                  onGrab={() => router.push(`/tool-kit/${kit.kit_id}` as never)}
+                />
+              ))}
+              {(trip.coverage_warnings ?? []).map((warning) => (
+                <Text key={warning} style={[styles.hint, { color: tokens.warning.text }]}>
+                  {warning}
+                </Text>
+              ))}
+            </View>
+          </FadeIn>
         ))}
       </Card>
     </>
