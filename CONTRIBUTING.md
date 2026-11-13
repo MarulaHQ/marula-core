@@ -14,6 +14,36 @@ pnpm dev                                              # Next.js on :3000 against
 
 `deploy/dev.env` carries the published development secrets, so the stack warns at boot and belongs on a machine you own. Without the `stop web` step the container serves the UI on `:3000` and `pnpm dev` has nowhere to bind.
 
+## macOS 27: `E0432: unresolved imports` is a build artifact, not your code
+
+On macOS 27 a proc-macro dylib can fail to load, and rustc reports it as
+missing imports inside the crate that uses the macro — usually `sqlx`:
+
+```
+error: .../libsqlx_macros-<hash>.dylib: dlopen(...): mis-aligned LINKEDIT string pool
+error[E0432]: unresolved imports `self::encode::Encode`, ...
+```
+
+dyld 27 checks that a dylib's `LC_SYMTAB` string table starts on an 8-byte
+boundary. Stripping a linked dylib moves that table to wherever the shortened
+symbol list ends, so the alignment depends on how many symbols the crate
+happens to have. Dependencies are therefore never stripped here: the profiles
+in `Cargo.toml` set `strip = "none"` on `[profile.*.package."*"]`, and only our
+own artifacts follow the profile's strip setting. A fresh clone needs nothing.
+
+A build cache created before that setting still holds the bad files, and they
+stay bad until relinked. Name them, then delete and rebuild:
+
+```bash
+scripts/p13-build-env.sh probe                  # exits 1 and names each dylib
+rm .kilo/target-shared/debug/deps/libsqlx_macros-*.dylib   # or your target dir
+cargo build -p core-api                          # relinks; probe is clean after
+```
+
+`python3 scripts/check-dylib-alignment.py --selftest` proves the parser on
+synthetic Mach-O images. Swapping in `ld64.lld` does not help: it lands on the
+same offsets, so the fix belongs in the profile, not the linker.
+
 ## Ground rules
 
 1. **Conventional commits** (`feat:`, `fix:`, `docs:`, `refactor:` …). Release notes are generated from them.
