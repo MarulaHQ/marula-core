@@ -28,9 +28,40 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+/// The one spelling of "through midnight" the availability API accepts. It is
+/// not a `chrono::NaiveTime`, so the two bounds treat it differently: an end
+/// may say it, a start may not.
+const END_OF_DAY_HHMM: &str = "24:00";
+
 fn parse_hhmm(s: &str) -> ApiResult<chrono::NaiveTime> {
     chrono::NaiveTime::parse_from_str(s, "%H:%M")
         .map_err(|_| ApiError::Validation(format!("bad time '{s}' (expected HH:MM)")))
+}
+
+/// `start_local` bound. `00:00` is how a caller says start-of-day; `24:00` is
+/// rejected here because a window that opens at midnight closes on the *next*
+/// day, which weekly templates cannot express — the half-open window is
+/// `[start, end)` inside one local day.
+fn parse_start_hhmm(s: &str) -> ApiResult<chrono::NaiveTime> {
+    if s == END_OF_DAY_HHMM {
+        return Err(ApiError::Validation(format!(
+            "bad time '{s}' (start must be before end; {END_OF_DAY_HHMM} is only valid as an end)"
+        )));
+    }
+    parse_hhmm(s)
+}
+
+/// `end_local` bound. `24:00` means end-of-day, which no `NaiveTime` can hold,
+/// so it maps to the domain's own bound (`core_domain::scheduling::end_of_day`)
+/// rather than to a second sentinel here: `ends_at_end_of_day` must keep
+/// recognising exactly one definition. Every other string keeps its meaning
+/// byte for byte — `23:59` is `23:59:00`, a minute short of midnight, not
+/// end-of-day.
+fn parse_end_hhmm(s: &str) -> ApiResult<chrono::NaiveTime> {
+    if s == END_OF_DAY_HHMM {
+        return Ok(core_domain::scheduling::end_of_day());
+    }
+    parse_hhmm(s)
 }
 
 // --- availability windows ------------------------------------------------------
@@ -43,8 +74,14 @@ pub struct CreateAvailabilityRequest {
     pub user_id: Option<Uuid>,
     /// 0 = Monday … 6 = Sunday.
     pub weekday: i16,
-    /// Local wall-clock "HH:MM" (window is `[start, end)`).
+    /// Local wall-clock "HH:MM" where the window opens (the window is
+    /// `[start, end)`). `00:00` means start-of-day; `24:00` is rejected here,
+    /// it is only valid as an end.
     pub start_local: String,
+    /// Local wall-clock "HH:MM" where the window closes. `24:00` is accepted
+    /// and means end-of-day (through local midnight), so a round-the-clock
+    /// window is `00:00`–`24:00`. Every other value keeps its exact second:
+    /// `23:59` still means 23:59:00.
     pub end_local: String,
     /// IANA timezone the wall-clock bounds live in.
     pub timezone: String,
@@ -108,8 +145,8 @@ pub async fn create_availability(
         org_id: authed.principal.user.org_id,
         user_id,
         weekday: req.weekday,
-        start_local: parse_hhmm(&req.start_local)?,
-        end_local: parse_hhmm(&req.end_local)?,
+        start_local: parse_start_hhmm(&req.start_local)?,
+        end_local: parse_end_hhmm(&req.end_local)?,
         timezone: req.timezone.clone(),
         effective_from: req.effective_from,
         effective_until: req.effective_until,
@@ -434,4 +471,89 @@ pub async fn delete_exclusion(
     })
     .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
+/// The `HH:MM` bound parsers are pure, so these run without a database.
+/// They pin the property the write path protects: `24:00` is end-of-day and
+/// only an end, while `23:59` stays exactly `23:59:00` — a window an operator
+/// deliberately closed one second before midnight is not silently widened.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn validation_message(err: ApiError) -> String {
+        match err {
+            ApiError::Validation(m) => m,
+            other => panic!("expected a validation error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_end_of_24_00_is_the_domain_end_of_day_bound() {
+        let end = parse_end_hhmm("24:00").expect("24:00 is a valid end");
+        assert_eq!(end, core_domain::scheduling::end_of_day());
+        assert_eq!(
+            end,
+            chrono::NaiveTime::from_hms_nano_opt(23, 59, 59, 999_999_999).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_start_of_24_00_is_rejected_and_names_the_rule() {
+        let msg = validation_message(parse_start_hhmm("24:00").unwrap_err());
+        assert!(msg.contains("24:00"), "{msg}");
+        assert!(msg.contains("start must be before end"), "{msg}");
+        assert!(msg.contains("only valid as an end"), "{msg}");
+    }
+
+    #[test]
+    fn start_of_day_is_00_00() {
+        assert_eq!(
+            parse_start_hhmm("00:00").unwrap(),
+            chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()
+        );
+    }
+
+    /// The ruling's protected property: the latest ordinary end stays a
+    /// minute short of midnight, nowhere near the end-of-day bound.
+    #[test]
+    fn an_end_of_23_59_is_exactly_23_59_00() {
+        assert_eq!(
+            parse_end_hhmm("23:59").unwrap(),
+            chrono::NaiveTime::from_hms_opt(23, 59, 0).unwrap()
+        );
+        assert_ne!(
+            parse_end_hhmm("23:59").unwrap(),
+            core_domain::scheduling::end_of_day()
+        );
+    }
+
+    #[test]
+    fn other_bounds_keep_their_seconds() {
+        assert_eq!(
+            parse_end_hhmm("09:30").unwrap(),
+            chrono::NaiveTime::from_hms_opt(9, 30, 0).unwrap()
+        );
+        assert_eq!(
+            parse_start_hhmm("00:00").unwrap(),
+            parse_end_hhmm("00:00").unwrap()
+        );
+    }
+
+    #[test]
+    fn garbage_still_errors_with_the_existing_message_shape() {
+        for (parsed, bad) in [
+            (parse_start_hhmm("garbage").unwrap_err(), "garbage"),
+            (parse_end_hhmm("garbage").unwrap_err(), "garbage"),
+            (parse_start_hhmm("24:00:00").unwrap_err(), "24:00:00"),
+            (parse_end_hhmm("24:00:00").unwrap_err(), "24:00:00"),
+            (parse_end_hhmm("23:60").unwrap_err(), "23:60"),
+            (parse_end_hhmm("").unwrap_err(), ""),
+        ] {
+            assert_eq!(
+                validation_message(parsed),
+                format!("bad time '{bad}' (expected HH:MM)")
+            );
+        }
+    }
 }
