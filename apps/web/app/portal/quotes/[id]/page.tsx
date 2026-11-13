@@ -76,7 +76,8 @@ export default function PortalQuotePage() {
     e.preventDefault();
     if (quote === null) return;
     if (name.trim().length === 0) {
-      // Blush, with the reason and the fix — never red, never a bare "invalid".
+      // Status-pair copy: the reason and the fix, never a bare "invalid". The
+      // field's red edge is docs/theme.md §6's, not the copy's.
       setNameError("Type your full name so we know who agreed.");
       return;
     }

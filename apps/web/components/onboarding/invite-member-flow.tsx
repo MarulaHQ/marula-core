@@ -20,12 +20,18 @@
 // role="radio", roving tabindex and arrow-key movement, matching the preset
 // picker pattern in settings/appearance. Step headings take focus on step
 // changes (tabIndex -1), and the permission preview is a labelled section
-// whose one-line reading is announced politely when the role changes.
+// whose one-line reading is announced politely when the role changes. On the
+// last step a missing name or a malformed address is marked on the field
+// itself — `aria-invalid` plus the message as its description, focus moved
+// there — because a form-level sentence leaves the person to work out which
+// input it means. The form-level line stays for a refusal that is genuinely
+// about the whole form.
 
 import { useEffect, useRef, useState } from "react";
 import type { components } from "@marula-core/sdk";
 import {
   Button,
+  FieldError,
   Input,
   Label,
   Select,
@@ -34,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import {
   BUILTIN_ROLES,
   INVITE_DEFAULT_ROLE,
@@ -85,6 +92,15 @@ function newIdempotencyKey(): string {
     ? crypto.randomUUID()
     : `invite-${Date.now()}`;
 }
+
+/** One address shape, checked here so the common typo is answered on the
+ *  field itself instead of as a form-level sentence the person has to map
+ *  back to an input. The server stays the authority. */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** The two fields on the last step, and nothing else: a refusal that names no
+ *  field stays on the form-level line. */
+type FieldProblems = { name?: string; email?: string };
 
 /** One intent chip: a real radio button (role, aria-checked, roving
  * tabindex) styled as a chip — the appearance page's preset-card pattern. */
@@ -211,8 +227,14 @@ export function InviteMemberFlow({
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Per-field validation, kept apart from `error`: the form-level line is for
+   *  a request the server refused, these two are the fields the person can fix
+   *  without asking anyone. */
+  const [fieldErrors, setFieldErrors] = useState<FieldProblems>({});
 
   const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -242,8 +264,37 @@ export function InviteMemberFlow({
     });
   };
 
+  const clearFieldError = (field: "name" | "email") => {
+    setFieldErrors((current) =>
+      current[field] === undefined ? current : { ...current, [field]: undefined },
+    );
+  };
+
   const sendIt = async () => {
     setError(null);
+
+    // The two fields a person can fix themselves are answered on the field and
+    // the cursor goes to the first one that needs work. Everything else stays
+    // on the form-level line below the form, where a server refusal belongs.
+    const problems: FieldProblems = {};
+    if (name.trim() === "") {
+      problems.name = "Add this person's name so the invite has someone to address.";
+    }
+    if (email.trim() === "") {
+      problems.email = "Add their work email so the invite has somewhere to go.";
+    } else if (!EMAIL_PATTERN.test(email.trim())) {
+      problems.email = "That doesn't look like an email address. Use the form name@company.com.";
+    }
+    if (problems.name !== undefined || problems.email !== undefined) {
+      setFieldErrors(problems);
+      // Focus after the message is in the DOM, so the field's description is
+      // already there when the screen reader announces the focus move.
+      const target = problems.name !== undefined ? nameRef : emailRef;
+      requestAnimationFrame(() => target.current?.focus());
+      return;
+    }
+    setFieldErrors({});
+
     setBusy(true);
     try {
       const result = await send({
@@ -342,22 +393,40 @@ export function InviteMemberFlow({
             <Label htmlFor="invite-member-name">Display name</Label>
             <Input
               id="invite-member-name"
+              ref={nameRef}
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearFieldError("name");
+              }}
               disabled={busy}
+              aria-invalid={fieldErrors.name !== undefined || undefined}
+              aria-describedby={fieldErrors.name !== undefined ? "invite-member-name-error" : undefined}
               data-testid={testIds?.name}
             />
+            {fieldErrors.name !== undefined ? (
+              <FieldError id="invite-member-name-error">{fieldErrors.name}</FieldError>
+            ) : null}
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="invite-member-email">Email</Label>
             <Input
               id="invite-member-email"
+              ref={emailRef}
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                clearFieldError("email");
+              }}
               disabled={busy}
+              aria-invalid={fieldErrors.email !== undefined || undefined}
+              aria-describedby={fieldErrors.email !== undefined ? "invite-member-email-error" : undefined}
               data-testid={testIds?.email}
             />
+            {fieldErrors.email !== undefined ? (
+              <FieldError id="invite-member-email-error">{fieldErrors.email}</FieldError>
+            ) : null}
           </div>
           <p className="m-0 text-xs" style={{ color: "var(--m-text-muted)" }}>
             {entry.label} — {entry.does}
@@ -366,8 +435,13 @@ export function InviteMemberFlow({
       ) : null}
 
       {error !== null ? (
-        <p role="alert" className="m-0 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {error}
+        <p
+          role="alert"
+          className="m-0 flex items-start gap-1.5 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
+        >
+          <Icon name="alert" size={14} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
         </p>
       ) : null}
 
@@ -404,7 +478,10 @@ export function InviteMemberFlow({
         ) : (
           <Button
             variant="primary"
-            disabled={busy || name.trim() === "" || email.trim() === ""}
+            // Not disabled on empty fields: a disabled button cannot be focused
+            // and says nothing, so the person is left to guess. Pressing it
+            // marks the field that needs work and puts the cursor there.
+            disabled={busy}
             onClick={() => void sendIt()}
             data-testid={testIds?.send}
           >

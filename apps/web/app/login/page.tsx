@@ -5,12 +5,14 @@
 // screen also carries "Create org". The card carries the brand's serif
 // headline and the pattern sits behind it, with the fruit peeking out.
 //
-// THE WRONG-PASSWORD STATE IS BLUSH AND SAYS WHAT HAPPENS NEXT. State 02 in
-// the pack: a 2px blush border on the password field and a line with an alert
-// icon reading "That email and password don't match. You have 2 tries left
-// before a short wait." That is not red and not a bare "invalid": it names the
-// problem and the consequence, because a person signing in needs to know
-// whether to try again or stop.
+// THE WRONG-PASSWORD STATE MARKS THE FIELD AND SAYS WHAT HAPPENS NEXT. State
+// 02 in the pack: a 2px red edge on the password field and a line with an
+// alert icon reading "That email and password don't match. You have 2 tries
+// left before a short wait." The edge is `--m-destructive` — the same edge
+// every other screen draws on an invalid field (docs/theme.md §6) — and the
+// line is the §3.4 status pair. The line still names the problem and the
+// consequence rather than saying "invalid", because a person signing in needs
+// to know whether to try again or stop.
 //
 // Non-purpose: no enrollment, no MFA management (see /settings/security), and
 // no "forgot your username" — the address is the identity.
