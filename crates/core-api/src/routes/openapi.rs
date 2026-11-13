@@ -795,6 +795,11 @@ use utoipa::OpenApi;
         crate::routes::dead_work::cancel,
         crate::routes::dead_work::destinations,
         crate::routes::dead_work::resume_destination,
+        // Wave 67 lane `w67-read-surfaces`: the object-integrity finding ledger,
+        // the event-type registry read, and one inbound source's ingest log.
+        crate::routes::object_integrity_admin::list_findings,
+        crate::routes::event_registry::list,
+        crate::routes::webhook_source_log::ingest_log,
         // Wave 52 lane R10 (migration 0148): directory groups, their members
         // and the roles a group carries.
         crate::routes::directory_groups::list,
@@ -2342,6 +2347,7 @@ use utoipa::OpenApi;
         (name = "projects", description = "Projects: phases/tasks/dependencies/views/templates + milestone billing events"),
         (name = "attachments", description = "File attachments on tickets/comments (ObjectStore-backed)"),
         (name = "quarantine", description = "Quarantine admin: objects the malware scanner rejected, with the release override, its reason, and the delete path (org admin only)"),
+        (name = "object_integrity", description = "Object-integrity findings: orphaned bytes the GC pass reclaimed and rows whose bytes are missing (org admin, read-only)"),
         // Wave 43 track 2 lane 12 (migration 0127)
         (name = "sign_offs", description = "Customer sign-off capture: witnessed signatures, their revocation trail, and consent wording"),
         (name = "kb", description = "Native knowledge base: categories, articles, client-facing flags"),

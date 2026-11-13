@@ -135,6 +135,31 @@ export function alertIngestRows(alerts: AlertView[]): IngestLogRow[] {
   }));
 }
 
+/**
+ * One row of `GET /api/v1/alert-sources/{id}/ingest-log` (Wave 67 lane
+ * `w67-read-surfaces`). The server already filtered the audit trail to
+ * `webhook.ingested` events for this source, so the shape is the envelope's
+ * identity and nothing else — no client-side scan, no cross-source rows.
+ */
+export interface IngestLogApiRow {
+  id: string;
+  occurred_at: string;
+  dedup_key: string | null;
+  entity_id: string | null;
+}
+
+/** M2M ingest rows from the source's own log endpoint, newest first. */
+export function m2mIngestLogRows(rows: IngestLogApiRow[]): IngestLogRow[] {
+  return rows.map((row) => ({
+    id: row.id,
+    at: row.occurred_at,
+    dedupKey: row.dedup_key,
+    entityId: row.entity_id,
+    tone: "neutral" as DeliveryStatusTone,
+    label: "emitted",
+  }));
+}
+
 function alertTone(status: string): DeliveryStatusTone {
   if (status === "resolved") return "success";
   if (status === "acknowledged") return "warning";

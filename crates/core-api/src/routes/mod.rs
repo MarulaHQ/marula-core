@@ -79,6 +79,7 @@ pub mod edge;
 pub mod email_admin;
 pub mod entitlements;
 pub mod entity_dedupe;
+pub mod event_registry;
 pub mod events;
 pub mod export;
 pub mod fx;
@@ -93,6 +94,7 @@ pub mod loans;
 pub mod loop_termination;
 pub mod manifest;
 pub mod notifications;
+pub mod object_integrity_admin;
 pub mod oidc;
 pub mod onboarding;
 pub mod openapi;
@@ -155,6 +157,7 @@ pub mod undo;
 pub mod verification;
 pub mod webhook_admin;
 pub mod webhook_receiver;
+pub mod webhook_source_log;
 pub mod webhooks;
 pub mod workflow_authoring;
 pub mod workflow_documents;
@@ -979,6 +982,30 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/admin/dead-work/{source}/{id}/cancel"),
             post(dead_work::cancel),
+        )
+        // Object integrity (Wave 67 lane `w67-read-surfaces`): what the
+        // worker's object-GC pass found — orphaned bytes it deleted, and rows
+        // whose bytes are gone — read back so an operator does not need SQL to
+        // see the ledger. Admin:View, read-only by design: the pass is the
+        // writer and repairing a finding is an upload, not a button.
+        .route(
+            &rp("/admin/object-integrity/findings"),
+            get(object_integrity_admin::list_findings),
+        )
+        // Event-type registry read (Wave 67 lane `w67-read-surfaces`): the
+        // platform types, the org's grants and the plugin-declared trigger
+        // types, so the webhook and automations surfaces can list what this org
+        // may subscribe to instead of re-typing a catalogue. ManagePlugins,
+        // the same grant the webhook admin routes take.
+        .route(&rp("/event-types"), get(event_registry::list))
+        // One inbound source's accepted-envelope log (Wave 67 lane
+        // `w67-read-surfaces`): the `webhook.ingested` slice of the audit trail
+        // for a source the caller can see, gated on ManagePlugins rather than
+        // ViewAuditLog so the person who tends inbound surfaces reads their own
+        // log. The full trail is unchanged.
+        .route(
+            &rp("/alert-sources/{id}/ingest-log"),
+            get(webhook_source_log::ingest_log),
         )
         // Customer sign-offs (Wave 43 track 2 lane 12, migration 0127):
         // one JSON route carries the whole capture (base64 PNG + signer

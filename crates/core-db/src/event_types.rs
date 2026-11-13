@@ -50,6 +50,98 @@ pub async fn check_event_types_scoped(
     Ok(ungranted)
 }
 
+/// One row of the global catalogue, as the registry read returns it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryEntry {
+    pub event_type: String,
+    pub label: String,
+    pub description: Option<String>,
+}
+
+/// One of the org's grants, with whatever the catalogue knows about the type.
+///
+/// A grant is valid for a type the catalogue has never heard of — that is what
+/// `event_type_grants` is FOR (migration 0124) — so `label` is absent for a bare
+/// string and `in_registry` says which case the caller is looking at. A surface
+/// that treated a missing label as an error would hide the grants that matter
+/// most: the escape hatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantedEventType {
+    pub event_type: String,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub in_registry: bool,
+    pub granted_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// The platform types: the ones Marula itself emits, always subscribable
+/// without a grant. Ordered by type so the surface does not jitter between
+/// reads.
+pub async fn list_platform_event_types<'e, E>(executor: E) -> DbResult<Vec<RegistryEntry>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT event_type, label, description
+        FROM event_types
+        WHERE source = 'platform'
+        ORDER BY event_type
+        "#,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(event_type, label, description)| RegistryEntry {
+            event_type,
+            label,
+            description,
+        })
+        .collect())
+}
+
+/// The org's grants, joined to the catalogue by a LEFT JOIN so a grant for a
+/// type no install declares still reads back.
+pub async fn list_org_grants_detailed<'e, E>(
+    executor: E,
+    org_id: Uuid,
+) -> DbResult<Vec<GrantedEventType>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let rows: Vec<(
+        String,
+        Option<String>,
+        Option<String>,
+        bool,
+        chrono::DateTime<chrono::Utc>,
+    )> = sqlx::query_as(
+        r#"
+        SELECT g.event_type, et.label, et.description, et.event_type IS NOT NULL, g.created_at
+        FROM event_type_grants g
+        LEFT JOIN event_types et ON et.event_type = g.event_type
+        WHERE g.org_id = $1
+        ORDER BY g.event_type
+        "#,
+    )
+    .bind(org_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(event_type, label, description, in_registry, granted_at)| GrantedEventType {
+                event_type,
+                label,
+                description,
+                in_registry,
+                granted_at,
+            },
+        )
+        .collect())
+}
+
 pub async fn list_event_type_grants(
     tx: &mut Transaction<'_, Postgres>,
     org_id: Uuid,

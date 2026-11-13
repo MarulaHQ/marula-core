@@ -36,7 +36,7 @@ import {
 import { LocalTime } from "../../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useReducer, useState } from "react";
-import { api, useRequireAuth } from "../../../lib/api";
+import { api, apiBaseUrl, authHeaders, useRequireAuth } from "../../../lib/api";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
 import Link from "next/link";
 import {
@@ -44,38 +44,33 @@ import {
   EVENT_CATALOG,
   classifyDelivery,
   eventSelectionReducer,
-  eventTypeOrigin,
-  eventTypeOriginLabel,
+  registryOriginLabel,
   selectionToPayload,
   ungrantedTypesFromError,
 } from "../../../lib/admin/webhook-events";
+import type { EventRegistry, RegistryEventType } from "../../../lib/admin/webhook-events";
 import {
   EVENT_TYPE_RE,
   SOURCE_REF_RE,
   alertIngestRows,
   eventTypeProblem,
   ingestUrl,
-  m2mIngestRows,
+  m2mIngestLogRows,
   sourceProfile,
   sourceRefProblem,
 } from "../../../lib/admin/webhook-sources";
-import type { IngestLogRow } from "../../../lib/admin/webhook-sources";
+import type { IngestLogApiRow, IngestLogRow } from "../../../lib/admin/webhook-sources";
 
 type WebhookView = components["schemas"]["WebhookView"];
 type DeliveryAttemptView = components["schemas"]["DeliveryAttemptView"];
 type WebhookSecretResponse = components["schemas"]["WebhookSecretResponse"];
 type AlertSourceView = components["schemas"]["AlertSourceView"];
 type AlertView = components["schemas"]["AlertView"];
-type AuditEvent = components["schemas"]["AuditEvent"];
 type BoardNavEntry = components["schemas"]["BoardNavEntry"];
 
 const PAGE_SIZE = 20;
-/** Ledger page for the per-source ingest log (audit trail or alerts). */
+/** Ledger page for the per-source ingest log (source log or alerts). */
 const LOG_PAGE = 25;
-/** How many audit pages one log open walks past another source's traffic. */
-const M2M_SCAN_PAGES = 5;
-/** The audit action the generic receiver writes per accepted envelope. */
-const WEBHOOK_INGESTED_ACTION = "webhook.ingested";
 
 function idempotencyKey(prefix: string): string {
   return typeof crypto !== "undefined" && crypto.randomUUID !== undefined
@@ -117,6 +112,11 @@ export default function IntegrationsSettingsPage() {
   const [sources, setSources] = useState<AlertSourceView[] | null>(null);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [boards, setBoards] = useState<BoardNavEntry[]>([]);
+  /** The event registry this org can read (Wave 67): platform types, its
+   * grants, and the trigger types its plugins declare. Null until it loads —
+   * the surface then falls back to the platform catalogue and marks custom
+   * types "needs grant" as it did before. */
+  const [registry, setRegistry] = useState<EventRegistry | null>(null);
 
   // Register dialog state.
   const [registerOpen, setRegisterOpen] = useState(false);
@@ -141,8 +141,8 @@ export default function IntegrationsSettingsPage() {
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  // Per-source ingest log: raw ledger pages per source id.
-  const [auditPages, setAuditPages] = useState<Map<string, AuditEvent[]>>(new Map());
+  // Per-source ingest log: the source's own log (M2M) or the alerts ledger.
+  const [auditPages, setAuditPages] = useState<Map<string, IngestLogApiRow[]>>(new Map());
   const [auditCursors, setAuditCursors] = useState<Map<string, string | undefined>>(new Map());
   const [alertPages, setAlertPages] = useState<Map<string, AlertView[]>>(new Map());
   /** Alert-log sources whose ledger came back short — no older page left. */
@@ -171,6 +171,26 @@ export default function IntegrationsSettingsPage() {
     setSources(data.sources);
   }, []);
 
+  const refreshRegistry = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBaseUrl()}/api/v1/event-types`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as EventRegistry;
+      setRegistry({
+        platform: Array.isArray(body.platform) ? body.platform : [],
+        granted: Array.isArray(body.granted) ? body.granted : [],
+        plugin_declared: Array.isArray(body.plugin_declared) ? body.plugin_declared : [],
+      });
+    } catch {
+      // A registry read that fails leaves the catalogue fallback in place: the
+      // surface must still be able to offer platform types and accept a
+      // server-side refusal.
+    }
+  }, []);
+
   const refreshBoards = useCallback(async () => {
     const { data } = await api.api.GET("/api/v1/boards/nav");
     if (data !== undefined) setBoards(data);
@@ -181,7 +201,8 @@ export default function IntegrationsSettingsPage() {
     void refresh();
     void refreshSources();
     void refreshBoards();
-  }, [auth.status, refresh, refreshSources, refreshBoards]);
+    void refreshRegistry();
+  }, [auth.status, refresh, refreshSources, refreshBoards, refreshRegistry]);
 
   if (auth.status !== "authed") return null;
 
@@ -312,7 +333,14 @@ export default function IntegrationsSettingsPage() {
 
   const customAdd = () => {
     const value = customType.trim();
-    if (value.length > 0 && !ALL_CATALOG_TYPES.includes(value)) {
+    // A type the picker above already offers is not "custom": adding it again
+    // would render the same row twice, so the field refuses it instead.
+    const alreadyOffered =
+      ALL_CATALOG_TYPES.includes(value) ||
+      (registry?.platform.some((t) => t.event_type === value) ?? false) ||
+      (registry?.granted.some((t) => t.event_type === value) ?? false) ||
+      (registry?.plugin_declared.includes(value) ?? false);
+    if (value.length > 0 && !alreadyOffered) {
       dispatchSelection({ type: "add-custom", raw: value });
     }
     setCustomType("");
@@ -428,42 +456,31 @@ export default function IntegrationsSettingsPage() {
 
   // --- per-source ingest logs -----------------------------------------------------
 
-  /** Generic receivers log one audit event per accepted envelope. The ledger
-   * is org-wide while this surface shows one source, so a page carrying none
-   * of this source's rows keeps walking forward — bounded, so a long tail of
-   * another source's traffic cannot spin forever. */
+  /** The generic receiver's log is its own read (Wave 67): the server filters
+   * the audit trail to this source's `webhook.ingested` events and pages it,
+   * so the surface neither needs `ViewAuditLog` nor walks another source's
+   * traffic to find its own rows. */
   const loadM2mLog = async (source: AlertSourceView, cursor?: string) => {
     setIngestLogBusy(source.id);
     setIngestLogError(null);
     try {
-      let nextCursor = cursor;
-      let first = cursor === undefined;
-      for (let walked = 0; walked < M2M_SCAN_PAGES; walked += 1) {
-        const res = await api.api.GET("/api/v1/audit-events", {
-          params: {
-            query: {
-              action: WEBHOOK_INGESTED_ACTION,
-              limit: LOG_PAGE,
-              cursor: nextCursor ?? undefined,
-            },
-          },
-        });
-        if (res.error || res.data === undefined) throw new Error("ingest log failed to load");
-        const page = res.data;
-        setAuditPages((prev) => {
-          const existing = prev.get(source.id) ?? [];
-          const merged = first ? page.events : [...existing, ...page.events];
-          return new Map(prev).set(source.id, merged);
-        });
-        setAuditCursors((prev) =>
-          new Map(prev).set(source.id, page.next_cursor ?? undefined),
-        );
-        first = false;
-        nextCursor = page.next_cursor ?? undefined;
-        if (m2mIngestRows(page.events, source.source_ref).length > 0 || nextCursor === undefined) {
-          break;
-        }
-      }
+      const query = new URLSearchParams({ limit: String(LOG_PAGE) });
+      if (cursor !== undefined) query.set("cursor", cursor);
+      const res = await fetch(
+        `${apiBaseUrl()}/api/v1/alert-sources/${source.id}/ingest-log?${query.toString()}`,
+        { headers: authHeaders(), cache: "no-store" },
+      );
+      if (!res.ok) throw new Error("ingest log failed to load");
+      const page = (await res.json()) as {
+        items: IngestLogApiRow[];
+        next_cursor?: string;
+      };
+      setAuditPages((prev) => {
+        const existing = prev.get(source.id) ?? [];
+        const merged = cursor === undefined ? page.items : [...existing, ...page.items];
+        return new Map(prev).set(source.id, merged);
+      });
+      setAuditCursors((prev) => new Map(prev).set(source.id, page.next_cursor));
     } catch (e) {
       setIngestLogError(friendlyMutationText(e, "The ingest log could not be loaded."));
     } finally {
@@ -532,10 +549,63 @@ export default function IntegrationsSettingsPage() {
   const ingestRowsFor = (source: AlertSourceView): IngestLogRow[] => {
     const profile = sourceProfile(source);
     if (profile.kind === "m2m") {
-      return m2mIngestRows(auditPages.get(source.id) ?? [], source.source_ref);
+      return m2mIngestLogRows(auditPages.get(source.id) ?? []);
     }
     return alertIngestRows(alertPages.get(source.id) ?? []);
   };
+
+  // The event-type picker. With the registry read it lists what this org can
+  // actually subscribe to — platform types, its grants, and the trigger types
+  // its plugins declare — instead of a catalogue re-typed in TypeScript. With
+  // no registry (read refused or failed) it keeps the old platform catalogue,
+  // so the surface still offers the always-valid types.
+  const pluginTypes = (registry?.plugin_declared ?? []).filter(
+    (t) =>
+      !(registry?.platform ?? []).some((p) => p.event_type === t) &&
+      !(registry?.granted ?? []).some((g) => g.event_type === t),
+  );
+  const eventGroups: {
+    group: string;
+    hint: string | null;
+    types: { type: string; label: string }[];
+  }[] =
+    registry === null
+      ? EVENT_CATALOG.map((g) => ({
+          group: g.group,
+          hint: null,
+          types: g.types.map((t) => ({ type: t, label: t })),
+        }))
+      : [
+          {
+            group: "Platform events",
+            hint: "Marula emits these; every org may subscribe without a grant.",
+            types: registry.platform.map((t: RegistryEventType) => ({
+              type: t.event_type,
+              label: t.label ?? t.event_type,
+            })),
+          },
+          ...(registry.granted.length > 0
+            ? [
+                {
+                  group: "Granted to this org",
+                  hint: "Custom types an owner has granted you. Selecting one needs no further approval.",
+                  types: registry.granted.map((t: RegistryEventType) => ({
+                    type: t.event_type,
+                    label: t.label ?? t.event_type,
+                  })),
+                },
+              ]
+            : []),
+          ...(pluginTypes.length > 0
+            ? [
+                {
+                  group: "Declared by your connectors",
+                  hint: "Your installed plugins emit these. Subscribing needs a grant unless the type is listed above.",
+                  types: pluginTypes.map((t) => ({ type: t, label: t })),
+                },
+              ]
+            : []),
+        ];
 
   return (
     <div className="grid gap-6 max-w-2xl">
@@ -639,21 +709,29 @@ export default function IntegrationsSettingsPage() {
               grant; anything else must be granted to this org before the server
               accepts it.
             </FieldHint>
-            {EVENT_CATALOG.map((group) => (
-              <div key={group.group}>
+            {eventGroups.map((group) => (
+              <div key={group.group} data-testid={`event-group-${group.group}`}>
                 <p className="text-[11px] uppercase tracking-wide mt-1" style={{ color: "var(--m-text-muted)" }}>
                   {group.group}
                 </p>
+                {group.hint !== null ? (
+                  <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                    {group.hint}
+                  </p>
+                ) : null}
                 <div className="flex flex-wrap gap-x-3">
                   {group.types.map((t) => (
-                    <label key={t} className="inline-flex items-center gap-1.5 text-[12px] py-0.5">
+                    <label key={t.type} className="inline-flex items-center gap-1.5 text-[12px] py-0.5">
                       <input
                         type="checkbox"
-                        checked={selection.selected.has(t)}
-                        onChange={() => dispatchSelection({ type: "toggle", eventType: t })}
-                        aria-label={t}
+                        checked={selection.selected.has(t.type)}
+                        onChange={() => dispatchSelection({ type: "toggle", eventType: t.type })}
+                        aria-label={t.type}
                       />
-                      <code>{t}</code>
+                      <code>{t.type}</code>
+                      {t.label !== t.type ? (
+                        <span style={{ color: "var(--m-text-muted)" }}>{t.label}</span>
+                      ) : null}
                     </label>
                   ))}
                 </div>
@@ -665,6 +743,8 @@ export default function IntegrationsSettingsPage() {
               customType={customType}
               setCustomType={setCustomType}
               onAdd={customAdd}
+              known={new Set(eventGroups.flatMap((g) => g.types.map((t) => t.type)))}
+              registry={registry}
             />
           </fieldset>
           {formError !== null ? (
@@ -718,7 +798,9 @@ export default function IntegrationsSettingsPage() {
                     wh.event_types.map((t) => (
                       <span key={t} className="inline-flex items-center gap-1">
                         <code>{t}</code>
-                        {eventTypeOrigin(t) === "grant" ? (
+                        {registryOriginLabel(t, registry) === "granted" ? (
+                          <Badge tone="success">granted</Badge>
+                        ) : registryOriginLabel(t, registry) === "needs grant" ? (
                           <Badge tone="warning">needs grant</Badge>
                         ) : null}
                       </span>
@@ -1147,14 +1229,19 @@ function CustomTypesBar({
   customType,
   setCustomType,
   onAdd,
+  known,
+  registry,
 }: {
   selected: Set<string>;
   onToggle: (t: string) => void;
   customType: string;
   setCustomType: (v: string) => void;
   onAdd: () => void;
+  /** Every type the picker above already offered, so "Custom" means custom. */
+  known: Set<string>;
+  registry: EventRegistry | null;
 }) {
-  const extras = [...selected].filter((t) => !ALL_CATALOG_TYPES.includes(t));
+  const extras = [...selected].filter((t) => !known.has(t));
   return (
     <>
       {extras.length > 0 && (
@@ -1166,7 +1253,11 @@ function CustomTypesBar({
             <label key={t} className="inline-flex items-center gap-1.5 text-[12px] py-0.5">
               <input type="checkbox" checked onChange={() => onToggle(t)} aria-label={t} />
               <code>{t}</code>
-              <Badge tone="warning">{eventTypeOriginLabel(t)}</Badge>
+              {registryOriginLabel(t, registry) === "granted" ? (
+                <Badge tone="success">granted</Badge>
+              ) : registryOriginLabel(t, registry) === "needs grant" ? (
+                <Badge tone="warning">needs grant</Badge>
+              ) : null}
             </label>
           ))}
         </div>

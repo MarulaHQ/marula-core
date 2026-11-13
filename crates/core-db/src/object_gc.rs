@@ -192,6 +192,151 @@ impl FindingKind {
             Self::BytesMissing => "bytes_missing",
         }
     }
+
+    /// The inverse of [`Self::as_str`]. `None` for anything the column's CHECK
+    /// would refuse, so a caller filtering by kind turns a typo into a 422
+    /// instead of a silently empty page.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "orphan_deleted" => Some(Self::OrphanDeleted),
+            "bytes_missing" => Some(Self::BytesMissing),
+            _ => None,
+        }
+    }
+}
+
+/// One finding, read back. The write side is [`Finding`]; this is the same row
+/// once the pass has committed it, with the identity and timestamps the ledger
+/// assigns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrityFinding {
+    pub id: Uuid,
+    /// Groups every finding of one pass, so a pass is reviewable as a unit.
+    pub pass_id: Uuid,
+    pub found_at: chrono::DateTime<chrono::Utc>,
+    pub kind: FindingKind,
+    pub storage_key: String,
+    /// Bytes reclaimed (orphan) or bytes that should have been there (missing).
+    pub size_bytes: Option<i64>,
+    /// Which table referenced the key, for a missing-bytes finding.
+    pub source_table: Option<String>,
+    /// Set when a later pass saw the key healthy again.
+    pub resolved_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub note: Option<String>,
+}
+
+/// What an operator asked to see of the finding ledger.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FindingFilter {
+    pub kind: Option<FindingKind>,
+    /// Resolved findings are history: the default list is what is still open,
+    /// because that is what needs a decision.
+    pub include_resolved: bool,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// Open findings by direction, for the surface's header counts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OpenFindingCounts {
+    pub orphans: i64,
+    pub missing: i64,
+}
+
+/// One page of the finding ledger, newest first.
+///
+/// The org scope is the row's own: a finding's `org_id` is derived from the key
+/// prefix (`org/<uuid>/...`), and a key that predates that convention is stored
+/// with NULL and is visible to every org — migration 0146's policy says so. The
+/// explicit `$1` predicate is therefore belt AND braces beside RLS: it keeps the
+/// statement's intent readable, and it is what the RLS pool-read gate looks for.
+pub async fn list_findings<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    filter: FindingFilter,
+) -> DbResult<Vec<IntegrityFinding>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let rows: Vec<(
+        Uuid,
+        Uuid,
+        chrono::DateTime<chrono::Utc>,
+        String,
+        String,
+        Option<i64>,
+        Option<String>,
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<String>,
+    )> = sqlx::query_as(
+        r#"SELECT id, pass_id, found_at, kind, storage_key, size_bytes, source_table,
+                  resolved_at, note
+           FROM object_integrity_findings
+           WHERE (org_id = $1 OR org_id IS NULL)
+             AND ($2::text IS NULL OR kind = $2)
+             AND ($3::boolean OR resolved_at IS NULL)
+           ORDER BY found_at DESC, id DESC
+           LIMIT $4 OFFSET $5"#,
+    )
+    .bind(org_id)
+    .bind(filter.kind.map(FindingKind::as_str))
+    .bind(filter.include_resolved)
+    .bind(filter.limit.clamp(1, 200))
+    .bind(filter.offset.max(0))
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(
+            |(
+                id,
+                pass_id,
+                found_at,
+                kind,
+                storage_key,
+                size_bytes,
+                source_table,
+                resolved_at,
+                note,
+            )| {
+                // The column's CHECK admits exactly two tokens, so a parse miss is
+                // a schema drift: dropping the row would hide it, and inventing a
+                // kind would mislabel it. `parse` returning None is unreachable
+                // through this table, and the type says so rather than panicking.
+                Some(IntegrityFinding {
+                    id,
+                    pass_id,
+                    found_at,
+                    kind: FindingKind::parse(&kind)?,
+                    storage_key,
+                    size_bytes,
+                    source_table,
+                    resolved_at,
+                    note,
+                })
+            },
+        )
+        .collect())
+}
+
+/// How many findings are still open, by direction. Two numbers on one scan.
+pub async fn open_finding_counts<'e, E>(executor: E, org_id: Uuid) -> DbResult<OpenFindingCounts>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let (orphans, missing): (i64, i64) = sqlx::query_as(
+        r#"SELECT
+             count(*) FILTER (WHERE kind = 'orphan_deleted'),
+             count(*) FILTER (WHERE kind = 'bytes_missing')
+           FROM object_integrity_findings
+           WHERE (org_id = $1 OR org_id IS NULL)
+             AND resolved_at IS NULL"#,
+    )
+    .bind(org_id)
+    .fetch_one(executor)
+    .await?;
+    Ok(OpenFindingCounts { orphans, missing })
 }
 
 /// Records one pass's findings in as few statements as the shape allows.
