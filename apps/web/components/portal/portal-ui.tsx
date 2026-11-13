@@ -6,9 +6,10 @@
 // real px values (48px primary, 40px secondary, 16px cards, 26px titles).
 //
 // THE FOUR RULES THIS KIT ENFORCES, so no page can forget them:
-// 1. No red on this surface. `StatusPill` has no red variant to reach for, and
-//    `FieldError` is blush. Red means a genuine breach and the client is never
-//    shown one, because a breach is not hers to fix.
+// 1. No breach mark on this surface. `StatusPill` has no breach variant to
+//    reach for, because a breach is not the client's to fix. Red appears only
+//    where the client is told something did not land: error copy in the §3.4
+//    status pair, and the field edge §6 owns.
 // 2. Colour is never alone. Every pill pairs its colour with the word, and the
 //    two that mean "you act" also carry a clock icon.
 // 3. Gold is where you act: "Waiting for you" and "Waiting for your answer".
@@ -148,7 +149,9 @@ export function PortalCard({
   );
 }
 
-/** A field with a label, a hint, and an error that is always blush + words. */
+/** A field with a label, a hint, and an error. The message is the §3.4 status
+ *  pair with an icon and words; the edge it puts on the wrapper is §6's
+ *  destructive red, the same edge every other screen draws. */
 export function Field({
   label,
   htmlFor,
