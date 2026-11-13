@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@marula-core/ui";
+import { Icon } from "@marula-core/ui/kit";
 import {
   BUILTIN_ROLES,
   INVITE_DEFAULT_ROLE,
@@ -434,8 +435,13 @@ export function InviteMemberFlow({
       ) : null}
 
       {error !== null ? (
-        <p role="alert" className="m-0 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {error}
+        <p
+          role="alert"
+          className="m-0 flex items-start gap-1.5 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
+        >
+          <Icon name="alert" size={14} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
         </p>
       ) : null}
 
