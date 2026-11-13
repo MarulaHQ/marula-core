@@ -110,13 +110,16 @@ pub async fn list_org_grants_detailed<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let rows: Vec<(
+    // A named row shape, because clippy is right that a five-field tuple inline
+    // is harder to read than the query's column list.
+    type GrantRow = (
         String,
         Option<String>,
         Option<String>,
         bool,
         chrono::DateTime<chrono::Utc>,
-    )> = sqlx::query_as(
+    );
+    let rows: Vec<GrantRow> = sqlx::query_as(
         r#"
         SELECT g.event_type, et.label, et.description, et.event_type IS NOT NULL, g.created_at
         FROM event_type_grants g

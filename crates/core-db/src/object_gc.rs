@@ -259,7 +259,9 @@ pub async fn list_findings<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let rows: Vec<(
+    // A named row shape; nine fields inline fail clippy's `type_complexity` and
+    // read worse than the SELECT they map.
+    type FindingRow = (
         Uuid,
         Uuid,
         chrono::DateTime<chrono::Utc>,
@@ -269,7 +271,8 @@ where
         Option<String>,
         Option<chrono::DateTime<chrono::Utc>>,
         Option<String>,
-    )> = sqlx::query_as(
+    );
+    let rows: Vec<FindingRow> = sqlx::query_as(
         r#"SELECT id, pass_id, found_at, kind, storage_key, size_bytes, source_table,
                   resolved_at, note
            FROM object_integrity_findings
