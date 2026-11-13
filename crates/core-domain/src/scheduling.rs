@@ -151,13 +151,39 @@ fn end_of_day() -> chrono::NaiveTime {
         .expect("end-of-day constant is valid")
 }
 
+/// Does this local end bound name the END OF THE LOCAL DAY rather than a
+/// wall-clock instant an operator picked?
+///
+/// `24:00` is not representable, so "through midnight" gets written two
+/// ways: the largest representable instant ([`end_of_day`]), and the last
+/// whole second, `23:59:59` — which is what a direct insert or a seed
+/// naturally writes (the `%H:%M` write path cannot reach past `23:59:00`,
+/// and the `time` column's microsecond resolution cannot hold the sentinel's
+/// nanos). Both mean the same schedule, so both round up to the next local
+/// midnight in [`window_occurrence`]; otherwise every day's block would end
+/// in a one-second hole, and a booking that crossed midnight would fit in no
+/// single free interval.
+///
+/// The tolerance is exactly the final second — the resolution at which
+/// `23:59:59` and `24:00` are indistinguishable to a human and where the
+/// write path effectively bottoms out. Anything coarser (`23:59:58`, `17:00`)
+/// keeps its own wall-clock meaning, so an ordinary window is never widened
+/// into a round-the-clock one. This governs day arithmetic only: the
+/// window's own half-open containment (`AvailabilityWindow::contains`) still
+/// stops at the stored bound.
+fn ends_at_end_of_day(end_local: chrono::NaiveTime) -> bool {
+    end_of_day().signed_duration_since(end_local) < chrono::Duration::seconds(1)
+}
+
 /// Resolves the window's UTC occurrence(s) on local day `day`, clipping to
 /// `[from, to]`. Fall-back ambiguity resolves like the SLA calendar: first
 /// occurrence; spring-forward gaps contribute nothing rather than
-/// inventing time. An end-of-day bound (`NaiveTime::MAX`) rounds up to the
-/// next local midnight so round-the-clock windows are exactly 24h.
-/// Overnight windows are not expressible as templates — `start_local <
-/// end_local` is enforced upstream.
+/// inventing time. An end-of-day bound ([`ends_at_end_of_day`]) rounds up to
+/// the next local midnight so round-the-clock windows are exactly 24h and
+/// adjacent days abut exactly — two all-day windows behave as one continuous
+/// block, which is what lets a booking cross midnight. Overnight windows are
+/// not expressible as templates — `start_local < end_local` is enforced
+/// upstream.
 fn window_occurrence(
     window: &AvailabilityWindow,
     tz: Tz,
@@ -173,12 +199,13 @@ fn window_occurrence(
         .from_local_datetime(&day.and_time(window.start_local))
         .earliest()?
         .with_timezone(&Utc);
-    let end_naive_day = if window.end_local == end_of_day() {
+    let through_midnight = ends_at_end_of_day(window.end_local);
+    let end_naive_day = if through_midnight {
         day.succ_opt()?
     } else {
         day
     };
-    let end_naive_time = if window.end_local == end_of_day() {
+    let end_naive_time = if through_midnight {
         chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap()
     } else {
         window.end_local
@@ -556,6 +583,134 @@ mod tests {
         ];
         assert_eq!(booked_minutes(spans, day.0, day.1), 150);
         assert_eq!(booked_minutes([], day.0, day.1), 0);
+    }
+
+    // --- adjacent all-day windows behave as one continuous block -----------
+
+    /// A window with explicit wall-clock bounds, seconds included: the shape
+    /// a direct insert or a seed writes (`23:59:59`), as opposed to the
+    /// `eh == 24` sentinel [`win`] builds.
+    fn win_at(
+        user: uuid::Uuid,
+        weekday: i16,
+        start: (u32, u32, u32),
+        end: (u32, u32, u32),
+    ) -> AvailabilityWindow {
+        let at = |(h, m, s): (u32, u32, u32)| chrono::NaiveTime::from_hms_opt(h, m, s).unwrap();
+        AvailabilityWindow {
+            id: uuid::Uuid::now_v7(),
+            org_id: uuid::Uuid::now_v7(),
+            user_id: user,
+            weekday,
+            start_local: at(start),
+            end_local: at(end),
+            timezone: "UTC".into(),
+            effective_from: None,
+            effective_until: None,
+            created_at: utc(2026, 1, 1, 0, 0),
+        }
+    }
+
+    /// A booking may cross midnight when the windows on both sides cover it.
+    /// Two days written 00:00–23:59:59 — the way a seed says "all day", and
+    /// NOT the `23:59:59.999999999` sentinel — are one continuous block, so a
+    /// 30-minute slot at 23:56 sits inside a single free interval instead of
+    /// straddling a one-second hole.
+    #[test]
+    fn cross_midnight_booking_inside_two_all_day_windows_is_free() {
+        let u = uuid::Uuid::now_v7();
+        // 2026-05-18 is a Monday; the pair is Monday then Tuesday.
+        let windows = [
+            win_at(u, 0, (0, 0, 0), (23, 59, 59)),
+            win_at(u, 1, (0, 0, 0), (23, 59, 59)),
+        ];
+        let starts_at = utc(2026, 5, 18, 23, 56);
+        let ends_at = starts_at + Duration::minutes(30);
+
+        let free = free_intervals(&windows, &[], &[], starts_at, ends_at);
+        assert!(
+            free.iter().any(|(s, e)| *s <= starts_at && ends_at <= *e),
+            "23:56–00:26 must fit one free interval, got {free:?}"
+        );
+
+        // The two days are one block: 48 hours of coverage, no seam.
+        let mins = covered_minutes(
+            &windows,
+            &[],
+            utc(2026, 5, 18, 0, 0),
+            utc(2026, 5, 20, 0, 0),
+        );
+        assert_eq!(mins, 48 * 60);
+    }
+
+    /// The tolerance is the final second only: a booking that runs past a
+    /// real 09:00–17:00 window is still refused, and one that ends flush with
+    /// the close is still fine.
+    #[test]
+    fn booking_past_a_real_window_end_is_still_refused() {
+        let u = uuid::Uuid::now_v7();
+        let windows = [win(u, 0, 9, 17)];
+        let close = utc(2026, 5, 18, 17, 0);
+
+        let starts_at = utc(2026, 5, 18, 16, 45);
+        let ends_at = starts_at + Duration::minutes(30);
+        let free = free_intervals(&windows, &[], &[], starts_at, ends_at);
+        assert_eq!(free, vec![(starts_at, close)], "coverage stops at 17:00");
+        assert!(!free.iter().any(|(s, e)| *s <= starts_at && ends_at <= *e));
+
+        let flush = utc(2026, 5, 18, 16, 30);
+        let ok = free_intervals(&windows, &[], &[], flush, close);
+        assert!(
+            ok.iter().any(|(s, e)| *s <= flush && close <= *e),
+            "16:30–17:00 fits exactly, got {ok:?}"
+        );
+    }
+
+    /// A closed lunch hour is a real gap, not a rounding artefact: two
+    /// windows with 12:00–13:00 closed are never merged.
+    #[test]
+    fn a_real_gap_between_windows_is_not_merged() {
+        let u = uuid::Uuid::now_v7();
+        let windows = [win(u, 0, 9, 12), win(u, 0, 13, 17)];
+        let day = (utc(2026, 5, 18, 0, 0), utc(2026, 5, 19, 0, 0));
+        assert_eq!(
+            available_intervals(&windows, &[], day.0, day.1),
+            vec![
+                (utc(2026, 5, 18, 9, 0), utc(2026, 5, 18, 12, 0)),
+                (utc(2026, 5, 18, 13, 0), utc(2026, 5, 18, 17, 0)),
+            ]
+        );
+
+        let starts_at = utc(2026, 5, 18, 11, 45);
+        let ends_at = starts_at + Duration::minutes(90); // straight through lunch
+        let free = free_intervals(&windows, &[], &[], starts_at, ends_at);
+        assert!(!free.iter().any(|(s, e)| *s <= starts_at && ends_at <= *e));
+    }
+
+    /// The edge of the tolerance: 23:59:58 is an ordinary bound, so it keeps
+    /// its own end and the day keeps its hole instead of becoming 24 hours.
+    #[test]
+    fn a_bound_one_second_short_of_midnight_is_not_end_of_day() {
+        let u = uuid::Uuid::now_v7();
+        let windows = [
+            win_at(u, 0, (0, 0, 0), (23, 59, 58)),
+            win_at(u, 1, (0, 0, 0), (23, 59, 58)),
+        ];
+        assert_eq!(
+            covered_minutes(
+                &windows,
+                &[],
+                utc(2026, 5, 18, 0, 0),
+                utc(2026, 5, 20, 0, 0)
+            ),
+            2_879,
+            "48h minus two two-second holes, floored to minutes"
+        );
+
+        let starts_at = utc(2026, 5, 18, 23, 57);
+        let ends_at = starts_at + Duration::minutes(5);
+        let free = free_intervals(&windows, &[], &[], starts_at, ends_at);
+        assert!(!free.iter().any(|(s, e)| *s <= starts_at && ends_at <= *e));
     }
 
     #[test]
