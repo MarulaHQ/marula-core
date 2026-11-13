@@ -25,13 +25,15 @@
 use crate::crypto;
 use crate::error::{ApiError, ApiResult};
 use crate::org_tx;
+use crate::routes::ingest_log;
 use crate::state::AppState;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
+use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use core_db::alerting;
+use core_db::alerting::{self, AlertSourceAuth};
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
 use serde::{Deserialize, Serialize};
@@ -94,10 +96,63 @@ pub async fn webhook_ingest(
     Path(source_ref): Path<String>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<WebhookIngestResponse>> {
+) -> Response {
+    let (source, event_type) =
+        match authorized_webhook_source(&state, source_ref.trim(), &headers, &body).await {
+            Ok(source) => source,
+            Err(err) => return err.into_response(),
+        };
+
+    // Per-org ingest volume (Wave 52 lane R12). Counted HERE, not on the
+    // response: the signature just proved which org this request belongs to,
+    // and every later exit — rate limit, replay fence, a malformed envelope —
+    // is still that org's traffic, which is what a metering consumer wants to
+    // see. A request with a bad signature is deliberately not counted: nothing
+    // about it names a tenant, so counting it would let a stranger add to any
+    // org's number by guessing a source ref.
+    core_otel::metrics::org_ingest(&source.r_org_id.to_string(), "webhook");
+
+    // The durable half of that counter (Wave 67 lane `w67-ingest-store`): one
+    // row per counted request, written once the answer exists so the status in
+    // the row is the status the caller got.
+    let mut logged = ingest_log::IngestRecord::new();
+    let mut outcome = None;
+    let response: Response =
+        match ingest_counted(&state, &source, &event_type, &body, &mut logged).await {
+            Ok(payload) => {
+                outcome = Some(payload.0.status.clone());
+                payload.into_response()
+            }
+            Err(err) => err.into_response(),
+        };
+    ingest_log::record(
+        &state,
+        &source,
+        ingest_log::Endpoint::Webhook,
+        body.len(),
+        &logged,
+        response.status(),
+        outcome.as_deref(),
+    )
+    .await;
+    response
+}
+
+/// The pre-count half of the generic door: resolve the source, refuse a
+/// disabled one, refuse an alert-profile ref, and verify the signature.
+///
+/// Returns the declared `event_type` beside the source. Nothing here is counted
+/// or logged: until the signature proves the tenant there is no org to attribute
+/// the request to, and a 404 on an alert-source ref cannot attribute one either.
+async fn authorized_webhook_source(
+    state: &AppState,
+    source_ref: &str,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> ApiResult<(AlertSourceAuth, String)> {
     // 2. Resolve org + sealed secret (pre-auth lookup; the ref is routing
     //    info, not a credential). Same seam as the alert ingestor.
-    let source = alerting::auth_lookup_source(&state.pool, source_ref.trim())
+    let source = alerting::auth_lookup_source(&state.pool, source_ref)
         .await?
         .ok_or(ApiError::NotFound)?;
     if !source.r_enabled {
@@ -119,21 +174,23 @@ pub async fn webhook_ingest(
     }
     let secret = crypto::open(&state.config.secret_key, &source.r_secret_encrypted)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("webhook source secret: {e}")))?;
-    if !core_mail::hmac::verify(&secret, &body, presented) {
+    if !core_mail::hmac::verify(&secret, body, presented) {
         return Err(ApiError::Unauthorized("invalid webhook signature".into()));
     }
+    Ok((source, event_type))
+}
 
-    // Per-org ingest volume (Wave 52 lane R12). Counted HERE, not on the
-    // response: the signature just proved which org this request belongs to,
-    // and every later exit — rate limit, replay fence, a malformed envelope —
-    // is still that org's traffic, which is what a metering consumer wants to
-    // see. A request with a bad signature is deliberately not counted: nothing
-    // about it names a tenant, so counting it would let a stranger add to any
-    // org's number by guessing a source ref.
-    core_otel::metrics::org_ingest(&source.r_org_id.to_string(), "webhook");
-
+/// The counted half of the generic door: parse, rate-limit, replay-fence, and
+/// emit the envelope. Every exit from here is one logged row.
+async fn ingest_counted(
+    state: &AppState,
+    source: &AlertSourceAuth,
+    event_type: &str,
+    body: &Bytes,
+    logged: &mut ingest_log::IngestRecord,
+) -> ApiResult<Json<WebhookIngestResponse>> {
     // 5. Parse the generic envelope document.
-    let req: WebhookIngestRequest = serde_json::from_slice(&body).map_err(|e| {
+    let req: WebhookIngestRequest = serde_json::from_slice(body).map_err(|e| {
         tracing::debug!(error = %e, "webhook payload failed to parse");
         ApiError::Validation("webhook payload is malformed or has the wrong shape".into())
     })?;
@@ -143,12 +200,14 @@ pub async fn webhook_ingest(
     if !req.payload.is_object() {
         return Err(ApiError::Validation("payload must be a JSON object".into()));
     }
+    logged.dedup_key = Some(req.dedup_key.trim().to_string());
 
     let entity_id = req
         .entity_id
         .as_ref()
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| req.dedup_key.trim().to_string());
+    logged.entity_id = Some(entity_id.clone());
     let now = chrono::Utc::now();
 
     // 6. All DB writes happen inside one org-bound transaction. `source`
@@ -158,7 +217,7 @@ pub async fn webhook_ingest(
     let source_id = source.r_id;
 
     let response = org_tx::with_org_tx(
-        &state,
+        state,
         source.r_org_id,
         source.r_org_id,
         |mut ctx| async move {
@@ -215,7 +274,7 @@ pub async fn webhook_ingest(
                 &mut ctx.tx,
                 event_id,
                 source.r_org_id,
-                event_type.as_str(),
+                event_type,
                 "webhook",
                 Some(entity_id.as_str()),
                 &envelope_payload,

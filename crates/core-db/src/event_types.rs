@@ -103,6 +103,17 @@ where
 
 /// The org's grants, joined to the catalogue by a LEFT JOIN so a grant for a
 /// type no install declares still reads back.
+/// The `query_as` row shape behind [`list_org_grants_detailed`]. A named alias
+/// because the tuple is wider than clippy's complexity budget, and the shape
+/// belongs to one statement.
+type GrantDetailRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    bool,
+    chrono::DateTime<chrono::Utc>,
+);
+
 pub async fn list_org_grants_detailed<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -110,16 +121,7 @@ pub async fn list_org_grants_detailed<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    // A named row shape, because clippy is right that a five-field tuple inline
-    // is harder to read than the query's column list.
-    type GrantRow = (
-        String,
-        Option<String>,
-        Option<String>,
-        bool,
-        chrono::DateTime<chrono::Utc>,
-    );
-    let rows: Vec<GrantRow> = sqlx::query_as(
+    let rows: Vec<GrantDetailRow> = sqlx::query_as(
         r#"
         SELECT g.event_type, et.label, et.description, et.event_type IS NOT NULL, g.created_at
         FROM event_type_grants g

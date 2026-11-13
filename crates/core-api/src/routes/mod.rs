@@ -84,6 +84,7 @@ pub mod events;
 pub mod export;
 pub mod fx;
 pub mod imports;
+pub mod ingest_log;
 pub mod integrations;
 pub mod internal;
 pub mod invoices;
@@ -157,7 +158,6 @@ pub mod undo;
 pub mod verification;
 pub mod webhook_admin;
 pub mod webhook_receiver;
-pub mod webhook_source_log;
 pub mod webhooks;
 pub mod workflow_authoring;
 pub mod workflow_documents;
@@ -1005,7 +1005,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // log. The full trail is unchanged.
         .route(
             &rp("/alert-sources/{id}/ingest-log"),
-            get(webhook_source_log::ingest_log),
+            get(ingest_log::ingest_log),
         )
         // Customer sign-offs (Wave 43 track 2 lane 12, migration 0127):
         // one JSON route carries the whole capture (base64 PNG + signer

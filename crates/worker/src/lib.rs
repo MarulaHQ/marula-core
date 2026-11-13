@@ -559,7 +559,7 @@ pub async fn run(
     // Event-outbox retention (Wave 52 lane P1): declared alongside, for the
     // same reason — /healthz reads it long after the spawn block closes.
     let outbox_alive = Arc::new(AtomicBool::new(true));
-    // The retention MATRIX (Wave 52 lane R6) — nine tables, two mechanisms —
+    // The retention MATRIX (Wave 52 lane R6) — ten tables, two mechanisms —
     // and the object-integrity pass that reclaims bytes. Separate flags from
     // the run-ledger `retention_alive` above because they are separate loops: a
     // single flag for three sweeps would hide which one died.
