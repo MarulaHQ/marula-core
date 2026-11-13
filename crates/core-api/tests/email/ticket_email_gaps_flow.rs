@@ -22,7 +22,6 @@
 
 use crate::common::{body_json, boot_with_mail, send};
 use axum::Router;
-use chrono::{SubsecRound, Timelike};
 use core_api::state::AppState;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -785,6 +784,104 @@ async fn create_meeting_type(app: &Router, org: &Org, window_days: i32, auto_ema
     body_json(response).await["meeting_type"].clone()
 }
 
+/// Seeds an all-week availability window for the org owner, so the book-time
+/// member gate has a free backdrop (a freshly registered user has none).
+///
+/// `end_local` is 23:59:59: the last second of the day, but NOT the
+/// end-of-day sentinel `window_occurrence` rounds up (23:59:59.999999999).
+/// Each day's window therefore stops one second short of the next, and a
+/// meeting that crosses midnight fits in no single window. [`slot_for`]
+/// keeps every slot in the middle of the day so that never matters here.
+async fn seed_all_week_availability(state: &AppState, org: &Org) {
+    let mut tx = state.pool.begin().await.unwrap();
+    core_db::set_org(&mut tx, org.org_id).await.unwrap();
+    for weekday in 0..7 {
+        core_db::scheduling::create_availability_window(
+            &mut *tx,
+            &core_domain::entities::AvailabilityWindow {
+                id: Uuid::now_v7(),
+                org_id: org.org_id,
+                user_id: org.user_id,
+                weekday,
+                start_local: chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+                end_local: chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap(),
+                timezone: "UTC".into(),
+                effective_from: None,
+                effective_until: None,
+                created_at: chrono::Utc::now(),
+            },
+        )
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
+}
+
+/// The booking slot for one test: the UTC day `days_ahead` from today, at a
+/// minute drawn from `seed` (the test's own org id), between 09:00 and 17:00
+/// UTC. A 30-minute meeting therefore ends by 17:30, far from either edge of
+/// the day.
+///
+/// Deterministic on purpose. The previous form was
+/// `Utc::now() + Duration::days(N)` truncated to the second, which put the
+/// meeting at whatever time of day the suite happened to run. A start after
+/// 23:30 UTC ends after midnight, in the one-second gap between two
+/// end-of-day windows, and the book-time free-interval gate answers 409
+/// "that slot is no longer free". That is the CI failure of 2026-11-12
+/// 23:56 UTC — both tests in this file chose their slot the same way, so
+/// both failed at their first booking at once.
+///
+/// Two tests cannot pick the same instant: their horizons differ (`days_ahead`
+/// is the property under test), and the minute comes from their own uuid
+/// rather than from the wall clock.
+fn slot_for(seed: Uuid, days_ahead: i64, duration_minutes: u32) -> chrono::DateTime<chrono::Utc> {
+    let day = (chrono::Utc::now() + chrono::Duration::days(days_ahead)).date_naive();
+    let first_minute = 9 * 60;
+    let last_start = 17 * 60 - duration_minutes;
+    let minute = first_minute + (seed.as_u128() % u128::from(last_start - first_minute)) as u32;
+    day.and_hms_opt(0, 0, 0).unwrap().and_utc() + chrono::Duration::minutes(i64::from(minute))
+}
+
+/// Reads a response body once and asserts its status, quoting the whole
+/// error envelope when it is not what the test expected.
+async fn assert_booking_status(
+    response: axum::response::Response,
+    expected: u16,
+    context: &str,
+) -> Value {
+    let status = response.status().as_u16();
+    let body = body_json(response).await;
+    assert_eq!(status, expected, "{context}: got {status} — body: {body}");
+    body
+}
+
+/// Asserts the booking answered 409 from `branch`, and says which branch it
+/// came from when it did not.
+///
+/// `public_book` has seven distinct 409s: link not active, meeting type
+/// retired, link expired, no staff calendars, slot not free, link already
+/// used, and the EXCLUDE-constraint backstop. A status-only assertion cannot
+/// tell them apart, which is why the 2026-11-12 flake took four local
+/// reproduction attempts instead of one look at the body.
+async fn assert_booking_conflict(
+    response: axum::response::Response,
+    branch: &str,
+    context: &str,
+) -> Value {
+    let status = response.status().as_u16();
+    let body = body_json(response).await;
+    let message = body["error"]["message"].as_str().unwrap_or("<no message>");
+    assert_eq!(
+        status, 409,
+        "{context}: expected 409 ({branch}), got {status} — body: {body}"
+    );
+    assert!(
+        message.contains(branch),
+        "{context}: 409 from a different branch — expected {branch:?}, got {message:?} (body: {body})"
+    );
+    body
+}
+
 #[tokio::test]
 async fn auto_email_rides_the_outbound_ledger_exactly_once() {
     let recording = Arc::new(core_mail::RecordingTransport::new());
@@ -811,37 +908,11 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
     assert!(response.status().is_success(), "link minted");
     let link = body_json(response).await;
     let token = link["token"].as_str().expect("raw token returned once");
-    let starts_at = (chrono::Utc::now() + chrono::Duration::days(5))
-        .trunc_subsecs(0)
-        .with_nanosecond(0)
-        .unwrap();
+    let starts_at = slot_for(org.org_id, 5, 30);
 
     // Availability for the owner: a fresh org user has no windows, so the
     // member_free gate would reject; seed an all-week window directly.
-    {
-        let mut tx = state.pool.begin().await.unwrap();
-        core_db::set_org(&mut tx, org.org_id).await.unwrap();
-        for weekday in 0..7 {
-            core_db::scheduling::create_availability_window(
-                &mut *tx,
-                &core_domain::entities::AvailabilityWindow {
-                    id: Uuid::now_v7(),
-                    org_id: org.org_id,
-                    user_id: org.user_id,
-                    weekday,
-                    start_local: chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-                    end_local: chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap(),
-                    timezone: "UTC".into(),
-                    effective_from: None,
-                    effective_until: None,
-                    created_at: chrono::Utc::now(),
-                },
-            )
-            .await
-            .unwrap();
-        }
-        tx.commit().await.unwrap();
-    }
+    seed_all_week_availability(&state, &org).await;
 
     // Wave 19 lane 5: registration ships the email-verification leg, so
     // the baseline is ONE queued (unsent) outbound; the BOOKING must add
@@ -852,24 +923,27 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
         1,
         "exactly the register-time verification mail enqueued"
     );
-    let response = send(
-        &app,
-        axum::http::Method::POST,
-        &format!("/api/public/scheduling-links/{token}/book"),
-        None,
-        Some(json!({
-            "starts_at": starts_at.to_rfc3339(),
-            "booker_name": "Dana",
-            "booker_email": "dana@client.example",
-            "idempotency_key": "book-exactly-once",
-        })),
+    let booked = assert_booking_status(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/public/scheduling-links/{token}/book"),
+            None,
+            Some(json!({
+                "starts_at": starts_at.to_rfc3339(),
+                "booker_name": "Dana",
+                "booker_email": "dana@client.example",
+                "idempotency_key": "book-exactly-once",
+            })),
+        )
+        .await,
+        201,
+        "first booking on a fresh link",
     )
     .await;
-    assert_eq!(response.status(), 201, "booking succeeds");
-    let booked = body_json(response).await;
     assert!(
         booked["mutation"].is_object(),
-        "booking keeps the IF2 envelope"
+        "booking keeps the IF2 envelope: {booked}"
     );
 
     // Exactly-once: ONE ledger row + ONE message row, threaded to the
@@ -897,23 +971,28 @@ async fn auto_email_rides_the_outbound_ledger_exactly_once() {
     );
     assert!(ticket_set, "confirmation lands on the ticket timeline");
 
-    // A second booking attempt through the same (now used) token is a
-    // typed 409 — the link's single-winner gate plus the in-tx idempotency
-    // claim are the exactly-once story: no second enqueue is reachable.
-    let response = send(
-        &app,
-        axum::http::Method::POST,
-        &format!("/api/public/scheduling-links/{token}/book"),
-        None,
-        Some(json!({
-            "starts_at": starts_at.to_rfc3339(),
-            "booker_name": "Dana",
-            "booker_email": "dana@client.example",
-            "idempotency_key": "book-exactly-once",
-        })),
+    // A second booking attempt through the same (now used) token is a typed
+    // 409 from the LINK-STATUS gate, which runs before the transaction: the
+    // token reads `used`, so the idempotency claim and the single-winner
+    // flip are never reached and no second enqueue is possible.
+    assert_booking_conflict(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/public/scheduling-links/{token}/book"),
+            None,
+            Some(json!({
+                "starts_at": starts_at.to_rfc3339(),
+                "booker_name": "Dana",
+                "booker_email": "dana@client.example",
+                "idempotency_key": "book-exactly-once",
+            })),
+        )
+        .await,
+        "no longer active",
+        "a used link cannot book again",
     )
     .await;
-    assert_eq!(response.status(), 409, "a used link cannot book again");
     assert_eq!(
         org_outbound_count(&state, org.org_id).await,
         2,
@@ -954,31 +1033,7 @@ async fn booking_horizon_follows_the_window_past_day_31() {
         .to_string();
 
     // Availability for the owner across the whole horizon.
-
-    {
-        let mut tx = state.pool.begin().await.unwrap();
-        core_db::set_org(&mut tx, org.org_id).await.unwrap();
-        for weekday in 0..7 {
-            core_db::scheduling::create_availability_window(
-                &mut *tx,
-                &core_domain::entities::AvailabilityWindow {
-                    id: Uuid::now_v7(),
-                    org_id: org.org_id,
-                    user_id: org.user_id,
-                    weekday,
-                    start_local: chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
-                    end_local: chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap(),
-                    timezone: "UTC".into(),
-                    effective_from: None,
-                    effective_until: None,
-                    created_at: chrono::Utc::now(),
-                },
-            )
-            .await
-            .unwrap();
-        }
-        tx.commit().await.unwrap();
-    }
+    seed_all_week_availability(&state, &org).await;
 
     // The preview now reaches past the old 31-day calendar cap.
     let view = body_json(
@@ -1007,25 +1062,26 @@ async fn booking_horizon_follows_the_window_past_day_31() {
 
     // …and a booking at day 35 is ACCEPTED (the old cap previewed nothing
     // past day 31, making such bookings unreachable through the UI flow).
-    let day35 = (chrono::Utc::now() + chrono::Duration::days(35))
-        .trunc_subsecs(0)
-        .with_nanosecond(0)
-        .unwrap();
-    let response = send(
-        &app,
-        axum::http::Method::POST,
-        &format!("/api/public/scheduling-links/{token}/book"),
-        None,
-        Some(json!({
-            "starts_at": day35.to_rfc3339(),
-            "booker_name": "Late planner",
-            "booker_email": "late@client.example",
-        })),
+    let day35 = slot_for(org.org_id, 35, 30);
+    assert!(
+        day35 > day31,
+        "the day-35 slot ({day35}) must sit past day 31 ({day31})"
+    );
+    assert_booking_status(
+        send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/public/scheduling-links/{token}/book"),
+            None,
+            Some(json!({
+                "starts_at": day35.to_rfc3339(),
+                "booker_name": "Late planner",
+                "booker_email": "late@client.example",
+            })),
+        )
+        .await,
+        201,
+        "day-35 booking inside a 45-day window",
     )
     .await;
-    assert_eq!(
-        response.status(),
-        201,
-        "day-35 booking inside a 45-day window"
-    );
 }
