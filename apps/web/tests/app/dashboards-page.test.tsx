@@ -736,7 +736,9 @@ describe("/dashboards integration", () => {
 
     const notice = await screen.findByTestId("dashboard-save-error", {}, { timeout: 5000 });
     expect(notice).toHaveTextContent(/did not save/i);
-    // Blush family, never the danger family: a failed save is not a breach.
+    // The status danger pair, never `--m-destructive`: a failed save is an
+    // error message, and destructive red stays for things that destroy
+    // (docs/theme.md §3.4).
     //
     // Read the declaration, not the computed value. jsdom 26 handed `var(...)`
     // straight back from getComputedStyle; jsdom 31 substitutes it, and with no
@@ -744,8 +746,8 @@ describe("/dashboards integration", () => {
     // back to the initial values (`color: rgb(0, 0, 0)`), so `toHaveStyle` sees
     // black and fails on a page that is painted correctly. The inline style is
     // the statement the component makes, and it is where the token lives.
-    expect(notice.style.background).toBe("var(--m-status-due-bg)");
-    expect(notice.style.color).toBe("var(--m-status-due-fg)");
+    expect(notice.style.background).toBe("var(--m-status-danger-bg)");
+    expect(notice.style.color).toBe("var(--m-status-danger-fg)");
     // The arrangement the user just built is still on screen.
     expect(await screen.findByText("Acme Corp", PAGE_TEXT_QUERY, { timeout: 5000 })).toBeInTheDocument();
     cleanup();

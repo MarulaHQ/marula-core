@@ -121,10 +121,12 @@ describe("/audit integration", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
     expect(screen.getByRole("radiogroup", { name: "Density" })).toBeInTheDocument();
-    // A failed read is not a breach: the cross on the mark is the blush
-    // family and nothing in the state wears the danger token.
-    expect(alert.innerHTML).toContain("--m-status-due-fg");
-    expect(alert.innerHTML).not.toContain("--m-status-danger");
+    // A failed read is an error message: the cross on the mark wears the status
+    // danger pair, and nothing in the state wears the destructive red
+    // (docs/theme.md §3.4 — error copy is the status pair, destructive red is
+    // for things that destroy).
+    expect(alert.innerHTML).toContain("--m-status-danger-fg");
+    expect(alert.innerHTML).not.toContain("--m-destructive");
     await waitFor(() => {
       expect(mock.callsTo("GET", "/api/v1/audit-events").length).toBeGreaterThan(0);
     });

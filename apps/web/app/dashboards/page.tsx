@@ -519,14 +519,15 @@ export default function DashboardsPage() {
           </Card>
         )}
 
-        {/* Save failure SURFACES: fixed-position blush notice, never swallowed. */}
+        {/* Save failure SURFACES: fixed-position notice in the status danger
+            pair, never swallowed. */}
         {saveError !== null && (
           <div
             role="alert"
             className="flex items-center gap-2 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
             style={{
-              background: "var(--m-status-due-bg)",
-              color: "var(--m-status-due-fg)",
+              background: "var(--m-status-danger-bg)",
+              color: "var(--m-status-danger-fg)",
             }}
             data-testid="dashboard-save-error"
           >
