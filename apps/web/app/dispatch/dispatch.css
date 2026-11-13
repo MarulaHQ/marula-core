@@ -1319,7 +1319,8 @@
   margin: 10px 12px 0;
   padding: 12px;
   border-radius: 12px;
-  /* A failed action, not a date that is coming up: status danger pair. */
+  /* A failed action or a failed load, not a date that is coming up: status
+     danger pair. */
   background: var(--m-status-danger-bg);
   color: var(--m-status-danger-fg);
   display: flex;
