@@ -7,6 +7,7 @@ import {
   alertIngestRows,
   eventTypeProblem,
   ingestUrl,
+  m2mIngestLogRows,
   m2mIngestRows,
   sourceProfile,
   sourceRefProblem,
@@ -153,5 +154,33 @@ describe("alertIngestRows — the alerts-ledger reader", () => {
       label: "critical · open",
     });
     expect(rows[0]?.label).toBe("warning · resolved");
+  });
+});
+
+describe("m2mIngestLogRows — the source's own log read", () => {
+  it("carries the envelope identity off the server rows, in order", () => {
+    const rows = m2mIngestLogRows([
+      {
+        id: "ev-1",
+        occurred_at: "2026-01-02T03:04:05Z",
+        dedup_key: "prov-123",
+        entity_id: "envelope-1",
+      },
+      { id: "ev-2", occurred_at: "2026-01-02T02:00:00Z", dedup_key: null, entity_id: null },
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      id: "ev-1",
+      at: "2026-01-02T03:04:05Z",
+      dedupKey: "prov-123",
+      entityId: "envelope-1",
+      tone: "neutral",
+      label: "emitted",
+    });
+    expect(rows[1]?.dedupKey).toBeNull();
+  });
+
+  it("an empty log is an empty list, not an error", () => {
+    expect(m2mIngestLogRows([])).toEqual([]);
   });
 });

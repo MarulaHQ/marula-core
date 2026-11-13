@@ -10,9 +10,12 @@ import {
   eventSelectionReducer,
   eventTypeOrigin,
   eventTypeOriginLabel,
+  registryOrigin,
+  registryOriginLabel,
   selectionToPayload,
   ungrantedTypesFromError,
 } from "../../lib/admin/webhook-events";
+import type { EventRegistry } from "../../lib/admin/webhook-events";
 import type { components } from "@marula-core/sdk";
 
 type DeliveryAttemptView = components["schemas"]["DeliveryAttemptView"];
@@ -154,5 +157,38 @@ describe("ungrantedTypesFromError — the registry refusal parser", () => {
     expect(ungrantedTypesFromError(null)).toEqual([]);
     expect(ungrantedTypesFromError(undefined)).toEqual([]);
     expect(ungrantedTypesFromError({})).toEqual([]);
+  });
+});
+
+describe("registryOrigin — three admission rules, not two", () => {
+  const registry: EventRegistry = {
+    platform: [{ event_type: "ticket.created", label: "Ticket created" }],
+    granted: [
+      {
+        event_type: "rmm.device_offline",
+        label: "Device offline",
+        in_registry: true,
+        granted_at: "2026-01-01T00:00:00Z",
+      },
+      { event_type: "acme.crm.contact_created", label: null, in_registry: false },
+    ],
+    plugin_declared: ["acme.backup_finished"],
+  };
+
+  it("separates platform, granted and unknown", () => {
+    expect(registryOrigin("ticket.created", registry)).toBe("platform");
+    expect(registryOrigin("rmm.device_offline", registry)).toBe("grant");
+    expect(registryOrigin("nobody.declared_this", registry)).toBe("unknown");
+  });
+
+  it("a granted custom type is not marked 'needs grant'", () => {
+    expect(registryOriginLabel("ticket.created", registry)).toBeNull();
+    expect(registryOriginLabel("rmm.device_offline", registry)).toBe("granted");
+    expect(registryOriginLabel("nobody.declared_this", registry)).toBe("needs grant");
+  });
+
+  it("without a registry it falls back to the platform catalogue and says unknown", () => {
+    expect(registryOrigin(ALL_CATALOG_TYPES[0] ?? "", null)).toBe("platform");
+    expect(registryOrigin("rmm.device_offline", null)).toBe("unknown");
   });
 });

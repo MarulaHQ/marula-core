@@ -175,6 +175,52 @@ where
     Ok(rows.into_iter().map(event_from_row).collect())
 }
 
+/// One page of an inbound webhook source's accepted-envelope log, keyed on
+/// `(occurred_at, id)` DESCENDING.
+///
+/// The receiver writes one `webhook.ingested` audit event per accepted envelope
+/// (`source_ref` and `dedup_key` in the detail), so the log IS a slice of the
+/// audit trail — but the trail is an admin read (`ViewAuditLog`), and the person
+/// who tends inbound sources holds `ManagePlugins`. Reading the slice here,
+/// filtered by the source the caller already proved access to, is what lets that
+/// surface show its own log without granting it the whole ledger.
+///
+/// `detail->>'source_ref'` is a string comparison over the event the receiver
+/// wrote, not a caller-supplied pattern; the source ref itself came from
+/// `alert_sources` under the same org scope. A source that has never ingested
+/// returns an empty page, which is the honest answer, not an error.
+pub async fn list_ingest_for_source<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    source_ref: &str,
+    cursor: Option<(chrono::DateTime<chrono::Utc>, Uuid)>,
+    limit: i64,
+) -> DbResult<Vec<AuditEvent>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
+        r#"SELECT id, org_id, actor_kind, actor_id, action, entity_type, entity_id,
+                  detail, ip, occurred_at
+           FROM audit_events
+           WHERE org_id = $1
+             AND action = 'webhook.ingested'
+             AND detail->>'source_ref' = $2
+             AND ($3::timestamptz IS NULL OR $4::uuid IS NULL OR
+                  (occurred_at, id) < ($3::timestamptz, $4::uuid))
+           ORDER BY occurred_at DESC, id DESC
+           LIMIT $5"#,
+    )
+    .bind(org_id)
+    .bind(source_ref)
+    .bind(cursor.map(|c| c.0))
+    .bind(cursor.map(|c| c.1))
+    .bind(limit.clamp(1, 500))
+    .fetch_all(executor)
+    .await?;
+    Ok(rows.into_iter().map(event_from_row).collect())
+}
+
 /// Forward (oldest-first) listing for an external export consumer, keyed on
 /// `(occurred_at, id)` ASCENDING and resumable from an opaque cursor.
 ///

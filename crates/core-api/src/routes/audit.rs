@@ -93,7 +93,7 @@ fn default_limit() -> i64 {
 ///
 /// Accepts the versioned form (`v1|ts|uuid`) and the pre-versioning form
 /// (`ts|uuid`) so a checkpoint written by an older build still resumes.
-fn decode_cursor(raw: &str) -> Option<(chrono::DateTime<chrono::Utc>, Uuid)> {
+pub(crate) fn decode_cursor(raw: &str) -> Option<(chrono::DateTime<chrono::Utc>, Uuid)> {
     let decoded = B64.decode(raw.as_bytes()).ok()?;
     let text = String::from_utf8(decoded).ok()?;
     // Split from the RIGHT: the uuid carries no '|', but the prefix may grow.
@@ -108,7 +108,7 @@ fn decode_cursor(raw: &str) -> Option<(chrono::DateTime<chrono::Utc>, Uuid)> {
     Some((ts.parse().ok()?, id))
 }
 
-fn encode_cursor(at: chrono::DateTime<chrono::Utc>, id: Uuid) -> String {
+pub(crate) fn encode_cursor(at: chrono::DateTime<chrono::Utc>, id: Uuid) -> String {
     B64.encode(format!("{CURSOR_VERSION}|{}|{}", at.to_rfc3339(), id).as_bytes())
 }
 

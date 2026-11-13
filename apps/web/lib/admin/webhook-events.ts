@@ -71,6 +71,57 @@ export function eventTypeOriginLabel(eventType: string): string {
   return eventTypeOrigin(eventType) === "platform" ? "platform" : "needs grant";
 }
 
+/** The registry read (`GET /api/v1/event-types`) as the surface needs it. */
+export interface RegistryEventType {
+  event_type: string;
+  label: string | null;
+  description?: string | null;
+  in_registry?: boolean;
+  granted_at?: string;
+}
+
+export interface EventRegistry {
+  platform: RegistryEventType[];
+  granted: RegistryEventType[];
+  plugin_declared: string[];
+}
+
+/**
+ * Where a type stands for THIS org, once the registry can be read (Wave 67).
+ *
+ * Three answers, because there are three admission rules and the surface used
+ * to collapse two of them:
+ *   * `platform` — Marula emits it; no grant needed.
+ *   * `granted` — the org holds a grant row; subscribable, and the badge the
+ *     old code drew ("needs grant") was wrong for exactly these.
+ *   * `unknown` — nothing admits it; the server will refuse the subscription.
+ *
+ * With no registry loaded the fallback is the old behaviour: the platform
+ * catalogue is known, everything else is unproven.
+ */
+export function registryOrigin(
+  eventType: string,
+  registry: EventRegistry | null,
+): EventTypeOrigin | "unknown" {
+  if (registry === null) {
+    return ALL_CATALOG_TYPES.includes(eventType) ? "platform" : "unknown";
+  }
+  if (registry.platform.some((t) => t.event_type === eventType)) return "platform";
+  if (registry.granted.some((t) => t.event_type === eventType)) return "grant";
+  return "unknown";
+}
+
+/** Badge label for [`registryOrigin`]; null when no badge is warranted. */
+export function registryOriginLabel(
+  eventType: string,
+  registry: EventRegistry | null,
+): string | null {
+  const origin = registryOrigin(eventType, registry);
+  if (origin === "platform") return null;
+  if (origin === "grant") return "granted";
+  return "needs grant";
+}
+
 /**
  * Extracts the refused event types from the registry validation failure
  * (`webhook_admin::validate_event_types`): "unknown or ungranted event
