@@ -18,7 +18,13 @@ import { availableParallelism } from "node:os";
 process.env.TZ ??= "UTC";
 
 export default defineConfig({
-  esbuild: { jsx: "automatic" },
+  // Vite 8 transforms with Oxc, not esbuild, and `esbuild.*` is deprecated in
+  // favour of `oxc.*`. The setting itself is still load-bearing: apps/web's
+  // tsconfig says `"jsx": "preserve"` because Next.js compiles the JSX, so
+  // without an explicit automatic runtime the test transform emits the JSX
+  // verbatim and `vite:import-analysis` rejects every .tsx spec with
+  // "Failed to parse source ... invalid JS syntax".
+  oxc: { jsx: { runtime: "automatic" } },
   resolve: {
     // The lib layer uses "@/..." imports (tsconfig paths); tests that pull
     // lib modules through the registry (Wave 29 commands) need the alias.
