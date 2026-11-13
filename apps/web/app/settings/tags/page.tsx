@@ -35,6 +35,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { SettingsHeader } from "../../../components/settings/settings-shell";
+import { ErrorNote } from "../../../components/knowledge/ledger";
 
 type TagView = components["schemas"]["TagView"];
 type Tag = components["schemas"]["Tag"];
@@ -220,9 +221,7 @@ export default function TagsSettingsPage() {
       </div>
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">
-          {loadError}
-        </p>
+        <ErrorNote>{loadError}</ErrorNote>
       ) : tags === null ? (
         <Card>
           <div className="flex justify-center p-6">
