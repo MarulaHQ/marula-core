@@ -215,6 +215,47 @@ groups:
           metric: marula.consumer.lag
           runbook: deploy/observability/runbooks/backlog.md
 
+      # The one reconciliation gauge that is loss rather than backlog, and the one
+      # the coverage table in `deploy/observability/README.md` has promised a rule.
+      #
+      # `marula.consumer.gap_lost` is 1 when a group's last-delivered id is older
+      # than the stream's first entry: entries it never processed were trimmed by
+      # the stream bound (`MARULA_EVENT_STREAM_MAXLEN`, default 50,000) before the
+      # group reached them, and no replay can bring them back (`classify` in
+      # `crates/worker/src/stream_health.rs`). Both gap series are written for
+      # every group on every pass — zero is a true reading for a caught-up group
+      # — so this rule fires on a value and never on absence. The gauge is
+      # dimensionless (`unit: 1`), so the OTel translation exports it as
+      # `_ratio`.
+      #
+      # 30 minutes: the probe runs inside the reconciliation sweep, every 15
+      # minutes by default (`MARULA_RECONCILE_SECS`, `docs/worker-cadence.md`), so
+      # the `for` asks two consecutive passes to agree. One pass can be a group
+      # recreated while the stream was being trimmed; two passes 15 minutes apart
+      # is a position that stayed behind the floor. A page, because the entries
+      # are gone: this is the severity definition's "losing events".
+      #
+      # What this rule cannot see: `classify` sets `lost` only when the server
+      # withholds a lag figure, so a server that always states lag reports zero
+      # here even after a trim. Exposing the rest is a change to the probe, not a
+      # threshold this pack can supply.
+      - alert: MarulaConsumerGapLost
+        expr: max by (group) (marula_consumer_gap_lost_ratio) > 0
+        for: 30m
+        labels:
+          severity: page
+          surface: pipeline
+        annotations:
+          summary: "Consumer group {{ $labels.group }} lost stream entries to trimming"
+          description: >-
+            {{ $labels.group }} has been reading from a position behind the
+            stream's first entry at two consecutive reconciliation passes, so
+            entries it never processed were trimmed away. The stream cannot
+            replay them; the runbook goes to the outbox and the dead-entry
+            ledger, which are the only surviving copies.
+          metric: marula.consumer.gap_lost
+          runbook: deploy/observability/runbooks/consumer-gap-lost.md
+
   # ---------------------------------------------------------------------------
   # The job queue and its dead letters.
   # ---------------------------------------------------------------------------
@@ -414,3 +455,47 @@ groups:
             sweep's own claim window starts to overlap.
           metric: marula.sla.sweep.duration
           runbook: deploy/observability/runbooks/backlog.md
+
+  # ---------------------------------------------------------------------------
+  # Search. The retrieval mode is a deployment lever, and one tenant crossing the
+  # threshold is the fact that decides it.
+  # ---------------------------------------------------------------------------
+  - name: marula-search
+    interval: 30s
+    rules:
+      # 20,000 is the code's own predicate rather than a number chosen here:
+      # `INDEX_THRESHOLD_EMBEDDINGS` and `index_recommended(embeddings) ->
+      # embeddings >= 20_000` in `crates/core-domain/src/retrieval.rs` are the
+      # test that marks a row in `marula deploy describe`, and
+      # `docs/site/how-to/operator-retrieval-mode.md` sends a tenant past this
+      # count to `iterative` or `index`. At it, the exact sequential scan alone
+      # takes more than the 50 ms search leg.
+      #
+      # A ticket, not a page: retrieval keeps answering and the answer stays
+      # correct, so nothing is lost while it waits. The lever is a deployment
+      # change (`MARULA_RETRIEVAL_MODE`) that a person makes with the install's
+      # Postgres in front of them, and that is a next-business-day act by
+      # construction.
+      #
+      # 1 hour of agreement: the gauge is written every
+      # `MARULA_RETRIEVAL_WATCH_SECS` (default 300,
+      # `docs/reference/reliability-levers.md`), and a tenant's count moves only
+      # when the re-index embeds rows, never with request traffic. An hour is
+      # twelve reports of a number that cannot spike and fall back.
+      - alert: MarulaRetrievalCrossover
+        expr: max by (org) (marula_embedding_count) >= 20000
+        for: 1h
+        labels:
+          severity: ticket
+          surface: search
+        annotations:
+          summary: "Tenant {{ $labels.org }} holds {{ $value }} embeddings, past the 20,000 crossover"
+          description: >-
+            Tenant {{ $labels.org }} is at or past the count where the exact
+            vector scan alone exceeds the 50 ms search leg, so search answers
+            with the scan as its long pole. Read
+            `marula deploy describe --json` for the distribution and set
+            `MARULA_RETRIEVAL_MODE`: `iterative` where pgvector 0.8 is
+            available, `index` where VectorChord is.
+          metric: marula.embedding.count
+          runbook: deploy/observability/runbooks/retrieval-crossover.md
