@@ -13,7 +13,6 @@
 import type { components } from "@marula-core/sdk";
 
 export type AlertSourceView = components["schemas"]["AlertSourceView"];
-export type AuditEvent = components["schemas"]["AuditEvent"];
 export type AlertView = components["schemas"]["AlertView"];
 
 export type DeliveryStatusTone = "success" | "warning" | "danger" | "neutral";
@@ -88,37 +87,6 @@ export interface IngestLogRow {
   entityId: string | null;
   tone: DeliveryStatusTone;
   label: string;
-}
-
-/**
- * M2M ingest rows from the audit trail: the receiver writes one
- * `webhook.ingested` audit event per ACCEPTED envelope (duplicates hit
- * the replay fence and write nothing), with `source_ref` and `dedup_key`
- * in the detail. Cursor pagination is the caller's; filtering by
- * `source_ref` is here.
- */
-export function m2mIngestRows(events: AuditEvent[], sourceRef: string): IngestLogRow[] {
-  return events
-    .filter((event) => {
-      const detail = event.detail as { source_ref?: unknown } | null;
-      return (
-        event.action === "webhook.ingested" &&
-        detail !== null &&
-        typeof detail === "object" &&
-        detail.source_ref === sourceRef
-      );
-    })
-    .map((event) => {
-      const detail = event.detail as { dedup_key?: unknown };
-      return {
-        id: event.id,
-        at: event.occurred_at,
-        dedupKey: typeof detail.dedup_key === "string" ? detail.dedup_key : null,
-        entityId: event.entity_id ?? null,
-        tone: "neutral" as DeliveryStatusTone,
-        label: "emitted",
-      };
-    });
 }
 
 /** Alert-profile ingest rows from the alerts ledger, newest first. */
