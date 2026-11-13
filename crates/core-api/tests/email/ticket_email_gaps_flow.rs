@@ -787,11 +787,11 @@ async fn create_meeting_type(app: &Router, org: &Org, window_days: i32, auto_ema
 /// Seeds an all-week availability window for the org owner, so the book-time
 /// member gate has a free backdrop (a freshly registered user has none).
 ///
-/// `end_local` is 23:59:59: the last second of the day, but NOT the
-/// end-of-day sentinel `window_occurrence` rounds up (23:59:59.999999999).
-/// Each day's window therefore stops one second short of the next, and a
-/// meeting that crosses midnight fits in no single window. [`slot_for`]
-/// keeps every slot in the middle of the day so that never matters here.
+/// `end_local` is 23:59:59, which `ends_at_end_of_day` treats as the end of
+/// the local day: adjacent days therefore form one continuous block, and a
+/// meeting that crosses midnight is bookable. That is the behaviour F106
+/// ruled for. [`slot_for`] still keeps every slot in the middle of the day,
+/// because these tests are about the mail ledger, not about the boundary.
 async fn seed_all_week_availability(state: &AppState, org: &Org) {
     let mut tx = state.pool.begin().await.unwrap();
     core_db::set_org(&mut tx, org.org_id).await.unwrap();
