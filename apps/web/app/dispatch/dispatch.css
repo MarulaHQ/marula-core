@@ -1319,8 +1319,9 @@
   margin: 10px 12px 0;
   padding: 12px;
   border-radius: 12px;
-  background: var(--m-status-due-bg);
-  color: var(--m-status-due-fg);
+  /* A failed action, not a date that is coming up: status danger pair. */
+  background: var(--m-status-danger-bg);
+  color: var(--m-status-danger-fg);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1801,7 +1802,8 @@
 }
 .dp-fld .err {
   font-size: 13px;
-  color: var(--m-status-due-fg);
+  /* Field error copy: the status danger pair, not the due pair (§3.4). */
+  color: var(--m-status-danger-fg);
   font-weight: 600;
   display: flex;
   gap: 6px;
