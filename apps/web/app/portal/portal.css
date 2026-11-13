@@ -18,8 +18,11 @@
  * 1. No inverted surface on this surface at all — the portal has no assistant,
  *    so it has no inversion. (The one place the staff app inverts, the client
  *    never sees.)
- * 2. Red means breach. Overdue is blush with the number of days; a validation
- *    error is blush with an icon and words. Red never appears here.
+ * 2. Red means breach in a status mark, and it means "this did not land" in
+ *    error copy: a validation error wears the status danger PAIR (soft fill,
+ *    deep red text), never the solid destructive red. Overdue is still blush
+ *    with the number of days, because a date is not an error,
+ *    docs/theme.md §3.4.
  * 3. Gold is where you act: "Waiting for you" and "Waiting for your answer".
  * 4. No gradients, glass or glow. Depth is flat colour plus a 1px border.
  * 5. Figtree runs the interface. Fraunces is not used in the portal.
@@ -597,7 +600,9 @@ button.portal-row:hover {
   color: var(--m-status-success-fg);
 }
 
-/* ---- Fields: a validation error is BLUSH, with an icon and words ---------- */
+/* ---- Fields: a validation error wears the status danger pair, with an icon
+   and words. The due pair belongs to dates that are coming up, not to a
+   message that a value was refused. ---------------------------------------- */
 
 .portal-field {
   display: flex;
@@ -655,7 +660,7 @@ button.portal-row:hover {
   display: flex;
   gap: 6px;
   align-items: flex-start;
-  color: var(--m-status-due-fg);
+  color: var(--m-status-danger-fg);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
