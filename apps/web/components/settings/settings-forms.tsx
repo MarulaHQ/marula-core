@@ -258,9 +258,10 @@ export function Note({
 }
 
 /**
- * The failed-save banner. Blush, never red: nothing is wrong with the input,
- * the request did not land. It says what happened and that the work is still
- * in the drawer, and it carries the retry.
+ * The failed-save banner. The status danger pair, not the destructive red:
+ * nothing is wrong with the input, the request did not land, and nothing was
+ * destroyed (docs/theme.md §3.4). It says what happened and that the work is
+ * still in the drawer, and it carries the retry.
  */
 export function SaveFailedBanner({
   children,
@@ -280,8 +281,8 @@ export function SaveFailedBanner({
         gap: 10,
         padding: "12px 14px",
         borderRadius: 12,
-        background: "var(--m-status-due-bg)",
-        color: "var(--m-status-due-fg)",
+        background: "var(--m-status-danger-bg)",
+        color: "var(--m-status-danger-fg)",
         fontSize: 13,
         lineHeight: 1.5,
       }}

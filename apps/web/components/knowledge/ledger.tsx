@@ -504,10 +504,11 @@ export function RuleStep({
 }
 
 /**
- * The validation failure the document-type editor shows: blush, an icon and
- * words. Never red — red is a breach (DESIGN-NOTES-tickets.md §9).
+ * The message a failed request shows: the status danger pair, an icon and
+ * words. Not the destructive red — nothing was destroyed (docs/theme.md §3.4),
+ * and not the due pair — a failure is not a date.
  */
-export function BlushNote({
+export function ErrorNote({
   children,
   title,
 }: {
@@ -518,7 +519,7 @@ export function BlushNote({
     <div
       role="alert"
       className="flex items-start gap-2 rounded-[12px] p-3 text-[13px]"
-      style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+      style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
     >
       <span style={{ marginTop: 1 }}>
         <AlertIcon size={16} />
