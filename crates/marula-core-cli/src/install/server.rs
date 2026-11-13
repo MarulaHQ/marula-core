@@ -466,8 +466,11 @@ fn harden(response: &mut Response, api: bool) {
 }
 
 fn generate() -> String {
+    use rand::TryRng;
     let mut bytes = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     hex::encode(bytes)
 }
 

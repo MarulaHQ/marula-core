@@ -110,9 +110,11 @@ pub fn verify_access_token(config: &Config, token: &str) -> Option<AccessClaims>
 /// Generates a cryptographically random refresh token (returned to the
 /// client once; only its SHA-256 is stored).
 pub fn new_refresh_token() -> String {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     hex::encode(bytes)
 }
 

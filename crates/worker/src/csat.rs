@@ -390,10 +390,12 @@ async fn survey_recipient(
 /// 32 random bytes, hex; stored as SHA-256 hex (64 chars) — same shape the
 /// auth one-use tokens use.
 fn new_token() -> (String, String) {
-    use rand::RngCore;
+    use rand::TryRng;
     use sha2::{Digest, Sha256};
     let mut bytes = [0_u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     let raw = hex::encode(bytes);
     let hash = hex::encode(Sha256::digest(raw.as_bytes()));
     (raw, hash)

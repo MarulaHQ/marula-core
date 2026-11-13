@@ -24,7 +24,7 @@
 //! fresh value per launch would make yesterday's sealed data unreadable.
 
 use anyhow::Context;
-use rand::RngCore;
+use rand::TryRng;
 use std::path::Path;
 
 /// Byte length of the per-install secret before hex encoding.
@@ -146,7 +146,7 @@ fn install_secret(root: &Path) -> anyhow::Result<String> {
         }
         Err(_) => {
             let mut bytes = [0u8; SECRET_BYTES];
-            let mut rng = rand::rngs::OsRng;
+            let mut rng = rand::rngs::SysRng;
             rng.try_fill_bytes(&mut bytes)
                 .context("reading the OS CSPRNG for the install secret")?;
             let secret = hex::encode(bytes);

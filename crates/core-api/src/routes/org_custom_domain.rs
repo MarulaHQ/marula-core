@@ -53,7 +53,7 @@ use axum::{
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
 use core_domain::policy::{check_any, Action, Module, Permission};
-use rand::RngCore;
+use rand::TryRng;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -101,11 +101,13 @@ fn authorize_manage(authed: &AuthedUser, org_id: Uuid) -> ApiResult<()> {
     Ok(())
 }
 
-/// Issues a fresh verification token. Random (OsRng) and prefixed so it is
+/// Issues a fresh verification token. Random (the OS CSPRNG) and prefixed so it is
 /// recognisable in a DNS record; the seam matcher compares it verbatim.
 fn issue_token() -> String {
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     format!("{TOKEN_PREFIX}{}", hex::encode(bytes))
 }
 

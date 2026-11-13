@@ -5834,9 +5834,12 @@ fn pdf_string(line: &str) -> String {
 fn seal(key: &[u8; 32], plaintext: &[u8]) -> DemoResult<Vec<u8>> {
     use aes_gcm::aead::{Aead, KeyInit};
     use aes_gcm::Aes256Gcm;
+    use rand::TryRng;
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| DemoError::Crypto(e.to_string()))?;
     let mut nonce_bytes = [0u8; 12];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce_bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut nonce_bytes)
+        .expect("OS CSPRNG unavailable");
     let nonce = aes_gcm::Nonce::from(nonce_bytes);
     let ct = cipher
         .encrypt(&nonce, plaintext)
