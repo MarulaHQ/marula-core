@@ -244,6 +244,21 @@ pub struct OpenFindingCounts {
     pub missing: i64,
 }
 
+/// The `query_as` row shape behind [`list_findings`]. A named alias because the
+/// tuple is wider than clippy's complexity budget, and the shape belongs to one
+/// statement.
+type FindingRow = (
+    Uuid,
+    Uuid,
+    chrono::DateTime<chrono::Utc>,
+    String,
+    String,
+    Option<i64>,
+    Option<String>,
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<String>,
+);
+
 /// One page of the finding ledger, newest first.
 ///
 /// The org scope is the row's own: a finding's `org_id` is derived from the key
@@ -259,17 +274,7 @@ pub async fn list_findings<'e, E>(
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
-    let rows: Vec<(
-        Uuid,
-        Uuid,
-        chrono::DateTime<chrono::Utc>,
-        String,
-        String,
-        Option<i64>,
-        Option<String>,
-        Option<chrono::DateTime<chrono::Utc>>,
-        Option<String>,
-    )> = sqlx::query_as(
+    let rows: Vec<FindingRow> = sqlx::query_as(
         r#"SELECT id, pass_id, found_at, kind, storage_key, size_bytes, source_table,
                   resolved_at, note
            FROM object_integrity_findings
