@@ -2,7 +2,10 @@ import * as React from "react"
 import { cn } from "../../lib/cn"
 import { Icon } from "../icons/Icon"
 
-const base = "inline-flex h-[calc(var(--mc-ctl)-8px)] shrink-0 items-center whitespace-nowrap rounded-pill border text-[13px]"
+/** `ctl - 8px`, floored at the 32px pointer target in docs/theme.md §5 —
+ *  the same step and floor the kit Button's `sm` uses. Without the floor the
+ *  chip renders 28px at `compact` and 24px at `dense`. */
+const base = "inline-flex h-[calc(var(--mc-ctl)-8px)] min-h-[32px] shrink-0 items-center whitespace-nowrap rounded-pill border text-[13px]"
 
 /** An applied filter: "Status  In progress  (x)". */
 export function Chip({ label, value, onRemove, removeLabel, removeIcon, className }: { label?: string; value: React.ReactNode; onRemove?: () => void; removeLabel?: string; removeIcon?: React.ReactNode; className?: string }) {
