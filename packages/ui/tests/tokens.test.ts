@@ -251,6 +251,19 @@ describe("density steps (wave41 D7)", () => {
     }
   });
 
+  /**
+   * docs/theme.md §5 sets 32px as the pointer-target floor, and a pointer
+   * target may sit there under `dense`. The small-control step used to ask for
+   * 28px, so `.m-btn-sm` and the four other consumers of the same token
+   * rendered under the floor on the tightest step.
+   */
+  it("keeps the small-control step on the 32px pointer floor", () => {
+    for (const step of DENSITY_STEPS) {
+      const sm = Number.parseFloat(block(step).get("--m-density-control-sm") ?? "0");
+      expect(sm).toBeGreaterThanOrEqual(32);
+    }
+  });
+
   it("a control in components.css is token-driven", () => {
     expect(componentsCss).toContain("height: var(--m-density-control)");
     expect(componentsCss).toContain("height: var(--m-density-row)");

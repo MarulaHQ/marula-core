@@ -55,7 +55,7 @@ export function PopoutButton({
         data-testid="popout-open"
         aria-haspopup="dialog"
         onClick={open}
-        className="flex h-7.5 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-xs font-semibold"
+        className="flex h-[var(--m-density-control-sm)] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-xs font-semibold"
         style={{
           borderColor: "var(--m-border)",
           background: "var(--m-surface)",
@@ -69,7 +69,7 @@ export function PopoutButton({
         <span
           role="status"
           data-testid="popout-blocked-hint"
-          className="absolute right-0 top-8.5 z-50 w-64 rounded-[var(--m-radius-control)] border p-2.5 text-xs leading-snug"
+          className="absolute right-0 top-[calc(var(--m-density-control-sm)+4px)] z-50 w-64 rounded-[var(--m-radius-control)] border p-2.5 text-xs leading-snug"
           style={{
             borderColor: "var(--m-border)",
             background: "var(--m-surface)",

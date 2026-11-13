@@ -390,11 +390,13 @@
   cursor: not-allowed;
 }
 
-/* The plan's `border-destructive` on error: the invalid field takes the
-   destructive red. The error TEXT under it reads `--m-status-danger-fg`, the
-   kit's breach red, which is deeper on purpose (8.96:1 on white where
-   destructive is 6.57:1). Two values, one red family, and a follow-up in
-   the private build tracker about collapsing them. */
+/* The invalid field takes the destructive red, the same red a destructive
+   button and the P1 chip carry. The error TEXT under it reads
+   `--m-status-danger-fg`, the kit's breach red, which is deeper on purpose
+   (8.96:1 on white where `--m-destructive` is 6.57:1). docs/theme.md §3.4
+   keeps the two reds apart by role — destructive is the solid mark, breach is
+   the status pair — so collapsing the two error-copy treatments is a design
+   decision, not a rename. */
 
 .m-input[aria-invalid="true"],
 .m-textarea[aria-invalid="true"] {

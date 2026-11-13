@@ -265,6 +265,14 @@
   background: var(--m-surface-hover) !important;
 }
 
+/* The ticket header's action strip. Every control in the strip takes its
+   height from the density ladder instead of a literal 30px, so the strip
+   moves with the user's step. `--m-density-control-sm` is the small-control
+   token `.m-btn-sm` uses, and it stops at the 32px pointer floor. */
+.m-wb-action {
+  height: var(--m-density-control-sm);
+}
+
 /* Take It — the header's competing-accent primary; hover lifts via
    background mix only (transform/opacity law, ≤120ms). */
 .m-wb-take-it {
