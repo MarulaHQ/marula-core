@@ -721,13 +721,16 @@ async fn audit_in_tx(
 /// hashing, no database: the caller decides when and under which slot the
 /// batch gets hashed.
 fn mint_recovery_codes() -> (Vec<String>, Vec<Uuid>) {
-    use rand::Rng;
+    use rand::rand_core::UnwrapErr;
+    use rand::rngs::SysRng;
+    use rand::RngExt;
     const ALPHABET: &[u8] = b"23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+    let mut rng = UnwrapErr(SysRng);
     let mut plain = Vec::with_capacity(RECOVERY_CODE_COUNT);
     let mut ids = Vec::with_capacity(RECOVERY_CODE_COUNT);
     for _ in 0..RECOVERY_CODE_COUNT {
         let raw: String = (0..10)
-            .map(|_| ALPHABET[rand::rngs::OsRng.gen_range(0..ALPHABET.len())] as char)
+            .map(|_| ALPHABET[rng.random_range(0..ALPHABET.len())] as char)
             .collect();
         plain.push(format!("{}-{}", &raw[..5], &raw[5..]));
         ids.push(Uuid::now_v7());

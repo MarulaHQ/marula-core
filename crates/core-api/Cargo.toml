@@ -15,7 +15,7 @@ testcontainers = { version = "0.28", features = ["reusable-containers"] }
 # ed25519 signature rather than asserting against a mock there is no seam for.
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
-rsa = { version = "0.9", features = ["sha2"] }
+rsa = { version = "0.9", features = ["sha2", "getrandom"] }
 serial_test = "3"
 # The CI feeder gate drives the REAL feeder adapters over the wire
 # (public API contract) against this router — test-only edge; the

@@ -9,7 +9,7 @@
 
 use data_encoding::BASE64URL_NOPAD;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use rand::RngCore;
+use rand::TryRng;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use uuid::Uuid;
@@ -131,7 +131,9 @@ pub fn verify_state_token(
 
 pub fn new_verifier() -> String {
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     BASE64URL_NOPAD.encode(&bytes)
 }
 
@@ -142,7 +144,9 @@ pub fn challenge_s256(verifier: &str) -> String {
 
 pub fn new_nonce() -> String {
     let mut bytes = [0u8; 16];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     hex::encode(bytes)
 }
 

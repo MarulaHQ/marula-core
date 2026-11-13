@@ -47,9 +47,11 @@ use axum::http::Extensions;
 /// 32 bytes of OS randomness, URL-safe — unguessable by construction
 /// (mirrors the scheduling-links token shape).
 fn generate_token() -> String {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut bytes = [0_u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     use base64::Engine as _;
     URL_SAFE_NO_PAD.encode(bytes)
 }

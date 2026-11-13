@@ -29,7 +29,7 @@ use core_db::org_users::OrgUserEntry;
 use core_domain::entities::{Actor, AuditEvent};
 use core_domain::events::types;
 use core_domain::policy::{check_any, BuiltinRole, Permission};
-use rand::RngCore;
+use rand::TryRng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -184,7 +184,9 @@ pub(crate) fn hash_token(token: &str) -> String {
 
 pub(crate) fn new_setup_token() -> String {
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     hex::encode(bytes)
 }
 

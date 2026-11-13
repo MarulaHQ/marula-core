@@ -754,6 +754,7 @@ mod tests {
         StreamId {
             id: id.to_string(),
             map,
+            ..Default::default()
         }
     }
 

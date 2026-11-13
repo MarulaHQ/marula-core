@@ -15,7 +15,7 @@
 
 use crate::{DbError, DbResult};
 use chrono::{DateTime, Utc};
-use rand::RngCore;
+use rand::TryRng;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -95,7 +95,9 @@ pub async fn create_invited_user(
 ) -> DbResult<OrgUserEntry> {
     // Random per-user hash; nobody ever presents a password against it.
     let mut seed = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut seed);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut seed)
+        .expect("OS CSPRNG unavailable");
     let unusable_hash = format!("$invited$${}", hex::encode(seed));
     let row = sqlx::query(
         "INSERT INTO users (id, org_id, email, display_name, password_hash, is_active) \

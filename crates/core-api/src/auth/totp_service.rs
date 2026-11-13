@@ -5,7 +5,7 @@
 //! matched step feeds the replay watermark stored on `totp_secrets`.
 //! Non-purpose: persistence (core-db/mfa) and HTTP concerns.
 
-use rand::RngCore;
+use rand::TryRng;
 use totp_rs::{Algorithm, Builder, Totp};
 
 pub const STEP_SECONDS: u64 = 30;
@@ -23,7 +23,9 @@ pub struct Enrollment {
 /// Generates a new 160-bit TOTP secret (RFC 4226 recommends ≥160 bits).
 pub fn new_enrollment(account_email: &str, issuer: &str) -> Result<Enrollment, String> {
     let mut bytes = vec![0u8; 20];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     let b32 = data_encoding::BASE32_NOPAD.encode(&bytes);
     let totp = build_totp(&bytes, account_email, issuer)?;
     Ok(Enrollment {

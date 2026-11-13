@@ -157,9 +157,11 @@ fn check_rate_limit(limit_per_min: u32, key: &str) -> ApiResult<()> {
 
 /// 32 bytes of OS randomness, URL-safe — unguessable by construction.
 fn generate_token() -> String {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut bytes = [0_u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
