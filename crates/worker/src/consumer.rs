@@ -1152,6 +1152,7 @@ mod tests {
         StreamId {
             id: id.to_string(),
             map,
+            ..Default::default()
         }
     }
 
@@ -1396,6 +1397,7 @@ mod tests {
         let entry = StreamId {
             id: "1-0".to_string(),
             map,
+            ..Default::default()
         };
         assert!(parse_entry(&entry).is_err());
         assert!(parse_entry(&unparseable("2-0")).is_err());

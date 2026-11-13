@@ -132,6 +132,10 @@ pub async fn read_group(conn: &mut MultiplexedConnection, group: &str) -> Option
                 tracing::debug!(%error, group, "consumer health: xpending failed");
                 None
             }
+            // `StreamPendingReply` is `#[non_exhaustive]` since redis 1.6, so
+            // a variant this build does not know reports no backlog rather
+            // than a start id it cannot back up.
+            Ok(_) => None,
         }
     };
 
