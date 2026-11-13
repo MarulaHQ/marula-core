@@ -11,10 +11,12 @@ export function Callout({ className, icon, children, ...props }: React.Component
   )
 }
 
-/** A blush banner for something that went wrong or needs attention, with its action on the right. */
+/** An error banner for a request that did not land, with its action on the
+ *  right. The status danger pair, not the destructive red: nothing here
+ *  destroyed anything (§3.4). */
 export function Banner({ className, icon, action, children, ...props }: React.ComponentProps<"div"> & { icon?: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div data-slot="banner" role="alert" className={cn("flex gap-2.5 rounded-ctl bg-mc-attn px-3.5 py-3 text-[13px] leading-[1.5] text-mc-attn-fg", className)} {...props}>
+    <div data-slot="banner" role="alert" className={cn("flex gap-2.5 rounded-ctl bg-mc-st-breach px-3.5 py-3 text-[13px] leading-[1.5] text-mc-st-breach-fg", className)} {...props}>
       {icon}
       <span className="flex-1">{children}</span>
       {action}
