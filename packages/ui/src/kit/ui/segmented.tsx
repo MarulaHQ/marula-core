@@ -4,7 +4,10 @@ import { cn } from "../../lib/cn"
 
 /**
  * Segmented control (views, density, theme). One choice, always one selected.
- * size "default" is the views height (ctl - 6px); "sm" is 30px (footer density); "viewer" is 32px.
+ * size "default" is the views height (ctl - 6px); "sm" asks for 30px (footer
+ * density); "viewer" is 32px. Every size is floored at the 32px pointer target
+ * in docs/theme.md §5: the bar is a button, and `default` rendered 30px at
+ * `compact` and 26px at `dense` before the floor.
  */
 export function Segmented({ className, ...props }: React.ComponentProps<typeof ToggleGroup.Root>) {
   return <ToggleGroup.Root data-slot="segmented" className={cn("flex w-fit flex-wrap gap-1 rounded-ctl bg-muted p-[3px]", className)} {...props} />
@@ -17,7 +20,7 @@ export function SegmentedItem({ className, size = "default", ...props }: React.C
     <ToggleGroup.Item
       data-slot="segmented-item"
       className={cn(
-        "inline-flex cursor-pointer items-center whitespace-nowrap rounded-[9px] border-0 bg-transparent px-[14px] text-[14px] font-medium text-muted-foreground",
+        "inline-flex min-h-[32px] cursor-pointer items-center whitespace-nowrap rounded-[9px] border-0 bg-transparent px-[14px] text-[14px] font-medium text-muted-foreground",
         "data-[state=on]:bg-card data-[state=on]:font-semibold data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgba(0,0,0,.08)]",
         sizes[size],
         className

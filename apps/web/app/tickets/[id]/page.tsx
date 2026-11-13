@@ -977,7 +977,7 @@ async function changeStatus(statusId: string): Promise<void> {
                 <button
                 type="button"
                 data-testid="wb-take-it"
-                className="m-wb-take-it flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold"
+                className="m-wb-take-it flex m-wb-action shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold"
                 style={{
                   borderColor: "var(--m-accent)",
                   background: "var(--m-accent)",
@@ -1008,7 +1008,7 @@ async function changeStatus(statusId: string): Promise<void> {
                 type="button"
                 data-testid="wb-parts-used"
                 disabled={isMerged}
-                className="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
+                className="flex m-wb-action shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
                 style={{
                   borderColor: "var(--m-border)",
                   background: "var(--m-surface)",
@@ -1023,7 +1023,7 @@ async function changeStatus(statusId: string): Promise<void> {
                 type="button"
                 data-testid="wb-pin-day-pack"
                 disabled={isMerged}
-                className="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
+                className="flex m-wb-action shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
                 style={{
                   borderColor: "var(--m-border)",
                   background: "var(--m-surface)",
@@ -1038,11 +1038,10 @@ async function changeStatus(statusId: string): Promise<void> {
                 href={`/tickets/classic/${ticket.id}`}
                 data-testid="wb-open-classic"
                 title={iconOnlyActions ? "Classic workspace" : "Open the preserved classic workspace for comparison"}
-                className="no-underline"
+                className="m-wb-action no-underline"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  height: 30,
                   padding: "0 10px",
                   borderRadius: "var(--m-radius-control)",
                   border: "1px solid var(--m-border)",
@@ -1058,7 +1057,7 @@ async function changeStatus(statusId: string): Promise<void> {
               <PopoutButton iconOnly={iconOnlyActions} params={{ id: ticket.id }} />
               <button
                 type="button"
-                className="flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"
+                className="flex m-wb-action shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text-secondary)" }}
                 title="More actions"
               >
@@ -1066,7 +1065,7 @@ async function changeStatus(statusId: string): Promise<void> {
               </button>
               <button
                 type="button"
-                className="flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"
+                className="flex m-wb-action shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"
                 style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: "var(--m-text-secondary)" }}
                 onClick={() => {
                   void navigator.clipboard?.writeText(`${window.location.origin}/tickets/${ticket.id}`);
@@ -1079,7 +1078,7 @@ async function changeStatus(statusId: string): Promise<void> {
               <button
                 type="button"
                 disabled={isMerged}
-                className="flex h-[30px] shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold disabled:cursor-not-allowed"
+                className="flex m-wb-action shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold disabled:cursor-not-allowed"
                 style={{ borderColor: "var(--m-border)", background: "var(--m-surface)", color: isMerged ? "var(--m-text-muted)" : "var(--m-text-secondary)" }}
                 title="Escalate: move to the escalation board through the board-move flow"
                 onClick={() => {
@@ -1094,7 +1093,7 @@ async function changeStatus(statusId: string): Promise<void> {
                 data-testid="wb-close-ticket"
                 disabled={isMerged}
                 onClick={() => setWrapUpOpen(true)}
-                className="flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
+                className="flex m-wb-action shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 leading-none text-[12px] font-semibold disabled:cursor-not-allowed"
                 style={{
                   borderColor: "var(--m-accent)",
                   background: isMerged ? "var(--m-accent-muted)" : "var(--m-accent)",

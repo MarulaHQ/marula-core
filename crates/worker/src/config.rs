@@ -704,10 +704,13 @@ mod tests {
     fn at_rest_key_parses_hex_and_decrypts_roundtrip() {
         use aes_gcm::aead::{Aead, KeyInit};
         use aes_gcm::Aes256Gcm;
+        use rand::TryRng;
         let key = AtRestKey([7_u8; 32]);
         let cipher = Aes256Gcm::new_from_slice(&key.0).expect("key");
         let mut nonce_bytes = [0u8; 12];
-        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce_bytes);
+        rand::rngs::SysRng
+            .try_fill_bytes(&mut nonce_bytes)
+            .expect("OS CSPRNG unavailable");
         let nonce = aes_gcm::Nonce::from(nonce_bytes);
         let mut sealed = cipher.encrypt(&nonce, b"whsec".as_ref()).expect("encrypt");
         let mut out = nonce.to_vec();

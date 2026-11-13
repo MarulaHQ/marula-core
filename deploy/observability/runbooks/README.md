@@ -20,6 +20,7 @@ first check in the runbook it pages.
 | `MarulaConsumerPendingAgeHigh` | page | oldest pending entry > 5 min | [dead-letter](dead-letter.md) |
 | `MarulaConsumerPelDepthHigh` | ticket | pending list > 500 | [dead-letter](dead-letter.md) |
 | `MarulaConsumerLagHigh` | ticket | lag > 5000 entries | [backlog](backlog.md) |
+| `MarulaConsumerGapLost` | page | a group's position is behind the stream floor | [consumer-gap-lost](consumer-gap-lost.md) |
 | `MarulaQueueDeadDetected` | ticket | dead depth > 0 | [dead-letter](dead-letter.md) |
 | `MarulaQueueDeadAgeHigh` | page | oldest dead job > 24 h | [dead-letter](dead-letter.md) |
 | `MarulaWebhookDeliveryDead` | ticket | a delivery gave up | [dead-letter](dead-letter.md) |
@@ -36,6 +37,7 @@ first check in the runbook it pages.
 | `MarulaBackupUnobserved` | ticket | backup gauge absent (opt-in) | [restore-from-backup](restore-from-backup.md) |
 | `MarulaPage1P95PastTrigger` | ticket | page-1 p95 > 100 ms (two thirds of the 150 ms budget) | [capacity-trigger](capacity-trigger.md) |
 | `MarulaPage1SortPlanLostItsIndex` | ticket | page-1 sort plan lost its index scan (opt-in) | [capacity-trigger](capacity-trigger.md) |
+| `MarulaRetrievalCrossover` | ticket | a tenant holds ≥ 20,000 embeddings | [retrieval-crossover](retrieval-crossover.md) |
 
 `scripts/check-alert-rules.mjs` fails if an alert has no runbook, if a runbook
 names an alert that does not exist, or if a row in this table disagrees with the

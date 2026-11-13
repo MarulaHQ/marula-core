@@ -106,9 +106,11 @@ pub fn clear_csrf_cookie(secure: bool) -> String {
 
 /// Same entropy class as refresh tokens.
 pub fn new_csrf_token() -> String {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     hex::encode(bytes)
 }
 

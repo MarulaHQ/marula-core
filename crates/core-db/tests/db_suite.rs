@@ -4448,9 +4448,12 @@ fn sealed_secret(key: [u8; 32], secret: &str) -> Vec<u8> {
     // Mirrors core-api crypto::seal(): nonce(12) || AES-256-GCM ct.
     use aes_gcm::aead::{Aead, KeyInit};
     use aes_gcm::Aes256Gcm;
+    use rand::TryRng;
     let cipher = Aes256Gcm::new_from_slice(&key).expect("key");
     let mut nonce_bytes = [0u8; 12];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut nonce_bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut nonce_bytes)
+        .expect("OS CSPRNG unavailable");
     let nonce = aes_gcm::Nonce::from(nonce_bytes);
     let mut out = nonce.to_vec();
     out.extend(cipher.encrypt(&nonce, secret.as_bytes()).expect("seal"));

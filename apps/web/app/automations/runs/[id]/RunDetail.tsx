@@ -33,7 +33,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BlushNote,
+  ErrorNote,
   HEAD_CELL_CLASS,
   PageFrame,
   SELECTED_ROW_STYLE,
@@ -167,7 +167,7 @@ export default function RunDetail({ runId }: { runId: string }) {
       <PageFrame>
         <SurfaceHeader eyebrow="Workflows / Runs" title="Run not found" />
         <div role="alert">
-          <BlushNote title="That run is not visible in your workspace.">
+          <ErrorNote title="That run is not visible in your workspace.">
             <p className="mt-1">
               It may have aged out of the retention window, or it belongs to a workflow you cannot
               see.
@@ -175,7 +175,7 @@ export default function RunDetail({ runId }: { runId: string }) {
             <Button className="mt-2" size="sm" variant="secondary" asChild>
               <Link href="/automations/runs">Back to runs</Link>
             </Button>
-          </BlushNote>
+          </ErrorNote>
         </div>
       </PageFrame>
     );
@@ -186,14 +186,14 @@ export default function RunDetail({ runId }: { runId: string }) {
       <PageFrame>
         <SurfaceHeader eyebrow="Workflows / Runs" title="Run" />
         <div role="alert">
-          <BlushNote title="The run did not load.">
+          <ErrorNote title="The run did not load.">
             <div className="flex items-center gap-3">
               <span>{errorMsg ?? "Try again."}</span>
               <Button size="sm" variant="secondary" onClick={() => void load()}>
                 Try again
               </Button>
             </div>
-          </BlushNote>
+          </ErrorNote>
         </div>
       </PageFrame>
     );
@@ -270,7 +270,7 @@ export default function RunDetail({ runId }: { runId: string }) {
 
       {refusal !== null ? (
         <div className="mb-2" role="alert">
-          <BlushNote title="The retry was refused.">{refusal}</BlushNote>
+          <ErrorNote title="The retry was refused.">{refusal}</ErrorNote>
         </div>
       ) : null}
 

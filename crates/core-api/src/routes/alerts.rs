@@ -36,10 +36,12 @@ use crate::crypto;
 use crate::error::{ApiError, ApiResult};
 use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
+use crate::routes::ingest_log;
 use crate::state::AppState;
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::{Extensions, HeaderMap};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use core_db::alerting::{
@@ -245,10 +247,59 @@ pub async fn ingest(
     Path(source_ref): Path<String>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<IngestResponse>> {
+) -> Response {
+    let source = match authorized_source(&state, source_ref.trim(), &headers, &body).await {
+        Ok(source) => source,
+        Err(err) => return err.into_response(),
+    };
+
+    // Per-org ingest volume (Wave 52 lane R12). Same point and same reasoning
+    // as the generic receiver: the signature is the proof of the tenant, and
+    // every rejection after this line is still that tenant's request. An
+    // unauthenticated request proves no org, so it is not counted.
+    core_otel::metrics::org_ingest(&source.r_org_id.to_string(), "alert");
+
+    // The durable half of that counter (Wave 67 lane `w67-ingest-store`): one
+    // row per counted request. Filled in below as the handler learns things,
+    // and written once the answer exists — the row's question is what the
+    // caller was told, so it cannot be written before the answer is known.
+    let mut logged = ingest_log::IngestRecord::new();
+    let mut outcome = None;
+    let response: Response = match ingest_counted(&state, &source, &body, &mut logged).await {
+        Ok(payload) => {
+            outcome = Some(payload.0.status.clone());
+            payload.into_response()
+        }
+        Err(err) => err.into_response(),
+    };
+    ingest_log::record(
+        &state,
+        &source,
+        ingest_log::Endpoint::Alert,
+        body.len(),
+        &logged,
+        response.status(),
+        outcome.as_deref(),
+    )
+    .await;
+    response
+}
+
+/// The pre-count half of the alert door: resolve the source, refuse a disabled
+/// one, and verify the signature over the raw body.
+///
+/// Separate from [`ingest`] so every refusal that happens before the counter
+/// still leaves as the same typed error it always did: until the signature
+/// proves the tenant, there is no org to count against and no org to log for.
+async fn authorized_source(
+    state: &AppState,
+    source_ref: &str,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> ApiResult<AlertSourceAuth> {
     // Resolve org + sealed secret BEFORE anything else (pre-auth lookup;
     // the ref is public routing info, not a credential).
-    let source = alerting::auth_lookup_source(&state.pool, source_ref.trim())
+    let source = alerting::auth_lookup_source(&state.pool, source_ref)
         .await?
         .ok_or(ApiError::NotFound)?;
     if !source.r_enabled {
@@ -266,16 +317,20 @@ pub async fn ingest(
     }
     let secret = crypto::open(&state.config.secret_key, &source.r_secret_encrypted)
         .map_err(|e| ApiError::Internal(anyhow::anyhow!("alert source secret: {e}")))?;
-    if !core_mail::hmac::verify(&secret, &body, presented) {
+    if !core_mail::hmac::verify(&secret, body, presented) {
         return Err(ApiError::Unauthorized("invalid webhook signature".into()));
     }
+    Ok(source)
+}
 
-    // Per-org ingest volume (Wave 52 lane R12). Same point and same reasoning
-    // as the generic receiver: the signature is the proof of the tenant, and
-    // every rejection after this line is still that tenant's request. An
-    // unauthenticated request proves no org, so it is not counted.
-    core_otel::metrics::org_ingest(&source.r_org_id.to_string(), "alert");
-
+/// The counted half of the alert door: profile gate, parse, validate, and the
+/// correlation pipeline. Every exit from here is one logged row.
+async fn ingest_counted(
+    state: &AppState,
+    source: &AlertSourceAuth,
+    body: &Bytes,
+    logged: &mut ingest_log::IngestRecord,
+) -> ApiResult<Json<IngestResponse>> {
     // Wave 55 lane `p55-alert-source-profile` (decision 8): the profile is a
     // property of the SOURCE, not of the URL the caller happened to hit. A
     // source promoted to a generic M2M receiver emits envelopes through
@@ -287,7 +342,7 @@ pub async fn ingest(
     if let Some(refusal) =
         alert_profile_refusal(source.r_event_type.as_deref(), &source.r_source_ref)
     {
-        if let Err(e) = record_profile_refusal(&state, &source).await {
+        if let Err(e) = record_profile_refusal(state, source).await {
             // The refusal is the act; a failed audit write must not turn it
             // into a 5xx and hide the reason from the operator.
             tracing::warn!(
@@ -299,12 +354,13 @@ pub async fn ingest(
         return Err(refusal);
     }
 
-    let req: IngestAlertRequest = serde_json::from_slice(&body).map_err(|e| {
+    let req: IngestAlertRequest = serde_json::from_slice(body).map_err(|e| {
         // Raw serde text stays server-side (Wave 13 lane 1).
         tracing::debug!(error = %e, "alert payload failed to parse");
         ApiError::Validation("alert payload is malformed or has the wrong shape".into())
     })?;
     validate_ingest(&req)?;
+    logged.dedup_key = Some(req.dedup_key.trim().to_string());
 
     let correlation_key = req
         .correlation_key
@@ -315,7 +371,7 @@ pub async fn ingest(
     let now = chrono::Utc::now();
 
     let response =
-        ingest_correlated(&state, &source, &req, &correlation_key, occurred_at, now).await?;
+        ingest_correlated(state, source, &req, &correlation_key, occurred_at, now).await?;
     Ok(Json(response))
 }
 

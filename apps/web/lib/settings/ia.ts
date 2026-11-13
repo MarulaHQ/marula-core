@@ -216,6 +216,16 @@ export const SETTINGS_RAIL: Record<string, SettingsPage[]> = {
     { label: "Label templates", description: "What a scan means", href: "/settings/labels" },
     { label: "Toolboxes", description: "The day pack", href: "/settings/toolboxes" },
     { label: "Self-host services", description: "The ops stack", href: "/settings/self-host" },
+    {
+      label: "Dead work",
+      description: "Abandoned jobs, email, deliveries and events",
+      href: "/settings/dead-work",
+    },
+    {
+      label: "Object integrity",
+      description: "What the bytes-and-rows pass found",
+      href: "/settings/object-integrity",
+    },
   ],
 };
 

@@ -168,3 +168,69 @@ tests:
               description: "The backup stamp says the last pass that finished without an error was 1d 3h 46m 40s ago, against a nightly schedule. Either last night's pass failed or the runner is not running; the runner's own log says which, and the stamp is only written when every layer succeeded."
               metric: "marula.backup.age_seconds"
               runbook: "deploy/observability/runbooks/restore-from-backup.md"
+
+  # A lost gap is data loss and pages after two reconciliation passes (30 min, so
+  # at t=35m when the flag goes up at t=5m). The quiet arm is a caught-up group
+  # reporting an honest zero, which is the reading the probe writes for every
+  # group rather than staying silent.
+  - interval: 1m
+    input_series:
+      - series: 'marula_consumer_gap_lost_ratio{group="tickets"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: MarulaConsumerGapLost
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'marula_consumer_gap_lost_ratio{group="tickets"}'
+        values: '0x5 1x40'
+    alert_rule_test:
+      - eval_time: 34m
+        alertname: MarulaConsumerGapLost
+        exp_alerts: []
+      - eval_time: 36m
+        alertname: MarulaConsumerGapLost
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              surface: pipeline
+              group: tickets
+            exp_annotations:
+              summary: "Consumer group tickets lost stream entries to trimming"
+              description: "tickets has been reading from a position behind the stream's first entry at two consecutive reconciliation passes, so entries it never processed were trimmed away. The stream cannot replay them; the runbook goes to the outbox and the dead-entry ledger, which are the only surviving copies."
+              metric: "marula.consumer.gap_lost"
+              runbook: "deploy/observability/runbooks/consumer-gap-lost.md"
+
+  # The retrieval crossover: one embedding below 20,000 is quiet forever, and the
+  # threshold itself is a ticket after an hour of agreement.
+  - interval: 1m
+    input_series:
+      - series: 'marula_embedding_count{org="6d650000-0000-0000-0000-000000000001"}'
+        values: '19999x80'
+    alert_rule_test:
+      - eval_time: 65m
+        alertname: MarulaRetrievalCrossover
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'marula_embedding_count{org="6d650000-0000-0000-0000-000000000001"}'
+        values: '20000x80'
+    alert_rule_test:
+      - eval_time: 59m
+        alertname: MarulaRetrievalCrossover
+        exp_alerts: []
+      - eval_time: 65m
+        alertname: MarulaRetrievalCrossover
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              surface: search
+              org: "6d650000-0000-0000-0000-000000000001"
+            exp_annotations:
+              summary: "Tenant 6d650000-0000-0000-0000-000000000001 holds 20000 embeddings, past the 20,000 crossover"
+              description: "Tenant 6d650000-0000-0000-0000-000000000001 is at or past the count where the exact vector scan alone exceeds the 50 ms search leg, so search answers with the scan as its long pole. Read `marula deploy describe --json` for the distribution and set `MARULA_RETRIEVAL_MODE`: `iterative` where pgvector 0.8 is available, `index` where VectorChord is."
+              metric: "marula.embedding.count"
+              runbook: "deploy/observability/runbooks/retrieval-crossover.md"

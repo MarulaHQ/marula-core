@@ -68,7 +68,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BlushNote,
+  ErrorNote,
   HEAD_CELL_CLASS,
   InlineVerdict,
   NoMatches,
@@ -873,12 +873,12 @@ export default function AutomationsPage() {
 
       {errorMsg !== null ? (
         <div className="mb-2">
-          <BlushNote title="The rules did not load.">{errorMsg}</BlushNote>
+          <ErrorNote title="The rules did not load.">{errorMsg}</ErrorNote>
         </div>
       ) : null}
       {rowError !== null ? (
         <div className="mb-2" role="alert">
-          <BlushNote title="The last action on a rule was rejected.">{rowError}</BlushNote>
+          <ErrorNote title="The last action on a rule was rejected.">{rowError}</ErrorNote>
         </div>
       ) : null}
 
@@ -1151,7 +1151,7 @@ export default function AutomationsPage() {
               footer and the toolbar instead of scrolling with the ledger. */}
           {testError !== null ? (
             <div className="px-4 pb-3" role="alert">
-              <BlushNote title="The test run did not come back.">{testError}</BlushNote>
+              <ErrorNote title="The test run did not come back.">{testError}</ErrorNote>
             </div>
           ) : null}
           {testRun !== null ? (

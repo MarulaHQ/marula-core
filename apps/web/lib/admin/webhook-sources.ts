@@ -4,18 +4,15 @@
 // Purpose: classify a source between its two shipped profiles (generic
 // M2M receiver per lane 1 vs the classic alert ingestor), build the
 // public ingest URL, validate the optional custom `source_ref`, and shape
-// per-source ingest-log rows off the two EXISTING ledger reads — the
-// cursor-paged audit trail (`webhook.ingested` audit events for M2M
-// sources) and the alerts ledger (alert-profile sources). Unit-testable
-// pure functions only.
+// per-source ingest-log rows off the server's ingest log for an M2M source or
+// off the alerts ledger for an alert-profile source. Unit-testable pure
+// functions only.
 //
 // Non-purpose: no network I/O; the HMAC signing posture lives server-side
-// (webhook_receiver.rs); no route is invented here — when the platform
-// grows a dedicated ingest-log endpoint this lib swaps its row source.
+// (webhook_receiver.rs); no route is invented here.
 import type { components } from "@marula-core/sdk";
 
 export type AlertSourceView = components["schemas"]["AlertSourceView"];
-export type AuditEvent = components["schemas"]["AuditEvent"];
 export type AlertView = components["schemas"]["AlertView"];
 
 export type DeliveryStatusTone = "success" | "warning" | "danger" | "neutral";
@@ -92,37 +89,6 @@ export interface IngestLogRow {
   label: string;
 }
 
-/**
- * M2M ingest rows from the audit trail: the receiver writes one
- * `webhook.ingested` audit event per ACCEPTED envelope (duplicates hit
- * the replay fence and write nothing), with `source_ref` and `dedup_key`
- * in the detail. Cursor pagination is the caller's; filtering by
- * `source_ref` is here.
- */
-export function m2mIngestRows(events: AuditEvent[], sourceRef: string): IngestLogRow[] {
-  return events
-    .filter((event) => {
-      const detail = event.detail as { source_ref?: unknown } | null;
-      return (
-        event.action === "webhook.ingested" &&
-        detail !== null &&
-        typeof detail === "object" &&
-        detail.source_ref === sourceRef
-      );
-    })
-    .map((event) => {
-      const detail = event.detail as { dedup_key?: unknown };
-      return {
-        id: event.id,
-        at: event.occurred_at,
-        dedupKey: typeof detail.dedup_key === "string" ? detail.dedup_key : null,
-        entityId: event.entity_id ?? null,
-        tone: "neutral" as DeliveryStatusTone,
-        label: "emitted",
-      };
-    });
-}
-
 /** Alert-profile ingest rows from the alerts ledger, newest first. */
 export function alertIngestRows(alerts: AlertView[]): IngestLogRow[] {
   return alerts.map((alert) => ({
@@ -133,6 +99,53 @@ export function alertIngestRows(alerts: AlertView[]): IngestLogRow[] {
     tone: alertTone(alert.status),
     label: `${alert.severity} · ${alert.status}`,
   }));
+}
+
+/**
+ * One row of `GET /api/v1/alert-sources/{id}/ingest-log`. The server reads the
+ * durable ingest log (`ingest_requests`) for this source, so a row carries the
+ * answer the endpoint gave that delivery: `accepted` with the terminal
+ * `outcome`, or a refusal with its `refusal_reason`.
+ *
+ * The acceptance fields are optional because a row from an older build has
+ * none — such a row was an accepted envelope by construction, which is why
+ * `m2mIngestLogRows` defaults to accepted.
+ */
+export interface IngestLogApiRow {
+  id: string;
+  occurred_at: string;
+  dedup_key: string | null;
+  entity_id: string | null;
+  endpoint?: string;
+  http_status?: number;
+  accepted?: boolean;
+  outcome?: string | null;
+  refusal_reason?: string | null;
+  byte_count?: number;
+}
+
+/**
+ * M2M ingest rows from the source's own log endpoint, newest first.
+ *
+ * A refused delivery renders as the refusal, not as an emit: the row is the
+ * evidence that the source sent something and the endpoint said no, and
+ * labelling it "emitted" would hide the only thing an operator is looking for
+ * when a connector reports that it did send.
+ */
+export function m2mIngestLogRows(rows: IngestLogApiRow[]): IngestLogRow[] {
+  return rows.map((row) => {
+    const accepted = row.accepted ?? true;
+    return {
+      id: row.id,
+      at: row.occurred_at,
+      dedupKey: row.dedup_key,
+      entityId: row.entity_id,
+      tone: accepted ? ("neutral" as DeliveryStatusTone) : ("warning" as DeliveryStatusTone),
+      label: accepted
+        ? (row.outcome ?? "emitted")
+        : (row.refusal_reason ?? `http ${row.http_status ?? "error"}`),
+    };
+  });
 }
 
 function alertTone(status: string): DeliveryStatusTone {

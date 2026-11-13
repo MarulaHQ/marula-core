@@ -275,7 +275,7 @@ export default function LoginPage() {
                 <Icon name="eye" size={16} />
               </button>
             </div>
-            {/* Blush, with an icon and words. Never red. */}
+            {/* Status-pair copy with an icon and words; the field edge is the kit's. */}
             {signInError !== null && (
               <p className="entry-error" role="alert" id="login-password-error" data-testid="login-error">
                 <EntryIcon name="info" size={14} />

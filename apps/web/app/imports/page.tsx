@@ -43,7 +43,7 @@ import {
 import { formatInTimeZone, formatNumber } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import {
-  BlushNote,
+  ErrorNote,
   HEAD_CELL_CLASS,
   InlineVerdict,
   NoMatches,
@@ -437,12 +437,12 @@ export default function ImportsPage() {
 
       {loadError !== null ? (
         <div className="mb-2">
-          <BlushNote title="Import data did not load.">{loadError}</BlushNote>
+          <ErrorNote title="Import data did not load.">{loadError}</ErrorNote>
         </div>
       ) : null}
       {error !== null ? (
         <div className="mb-2" role="alert" data-testid="imports-error">
-          <BlushNote title="The last import action did not finish.">{error}</BlushNote>
+          <ErrorNote title="The last import action did not finish.">{error}</ErrorNote>
         </div>
       ) : null}
       {savedNote !== null ? (

@@ -2,8 +2,8 @@
 // multiselect (wildcard-empty payload), registry refusal copy, show-once
 // secret, paged delivery log, rotate flow (create replacement → delete
 // original), test-fire, and the inbound-source surface (register with a
-// show-once secret, ingest log off the audit ledger for generic receivers
-// and the alerts ledger for the alert profile).
+// show-once secret, the source's own ingest log for generic receivers and the
+// alerts ledger for the alert profile, and the registry-read event picker).
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -50,17 +50,12 @@ function sourceView(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function auditEvent(overrides: Record<string, unknown> = {}) {
+function ingestLogRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "a-1",
-    org_id: "00000000-0000-4000-8000-000000000002",
-    actor: { Connector: "alert-source:rmm-prod" },
-    action: "webhook.ingested",
-    entity_type: "webhook",
-    entity_id: "envelope-1",
-    detail: { source_ref: "rmm-prod", source_id: SRC_ID, dedup_key: "prov-123" },
-    ip: null,
     occurred_at: "2026-01-02T03:04:05Z",
+    dedup_key: "prov-123",
+    entity_id: "envelope-1",
     ...overrides,
   };
 }
@@ -334,20 +329,20 @@ describe("/settings/integrations — inbound sources", () => {
     cleanup();
   });
 
-  it("reads a generic source's ingest log off the cursor-paged audit ledger", async () => {
+  it("reads a generic source's ingest log off the source's own endpoint", async () => {
     const mock = setupApi();
     mock.on("GET", "/api/v1/alert-sources", () => ({
       json: { sources: [sourceView({ event_type: "rmm.device_offline" })] },
     }));
-    let auditCalls = 0;
-    mock.on("GET", "/api/v1/audit-events", ({ query }) => {
-      auditCalls += 1;
-      if (auditCalls === 1) {
-        expect(query["action"]).toBe("webhook.ingested");
-        return { json: { events: [auditEvent()], next_cursor: "audit-cursor-2" } };
+    let logCalls = 0;
+    mock.on("GET", `/api/v1/alert-sources/${SRC_ID}/ingest-log`, ({ query }) => {
+      logCalls += 1;
+      if (logCalls === 1) {
+        expect(query["limit"]).toBe("25");
+        return { json: { items: [ingestLogRow()], next_cursor: "log-cursor-2" } };
       }
-      expect(query["cursor"]).toBe("audit-cursor-2");
-      return { json: { events: [auditEvent({ id: "a-2" })], next_cursor: null } };
+      expect(query["cursor"]).toBe("log-cursor-2");
+      return { json: { items: [ingestLogRow({ id: "a-2", dedup_key: "prov-456" })], next_cursor: null } };
     });
 
     render(
@@ -357,49 +352,60 @@ describe("/settings/integrations — inbound sources", () => {
     );
     fireEvent.click(await screen.findByTestId(`ingest-log-${SRC_ID}`));
 
-    // The accepted envelope renders from the audit row (label + dedup key).
+    // The accepted envelope renders from the source's own log row.
     await screen.findByText("emitted");
     expect(screen.getByText(/prov-123/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Load older" }));
-    await waitFor(() => expect(auditCalls).toBe(2));
-    expect(await screen.findByText("Beginning of log.")).toBeInTheDocument();
+    await waitFor(() => expect(logCalls).toBe(2));
+    expect(await screen.findByText(/prov-456/)).toBeInTheDocument();
+    expect(screen.getByText("Beginning of log.")).toBeInTheDocument();
+    // The whole audit ledger is never read: the log endpoint is the only read.
+    expect(mock.callsTo("GET", "/api/v1/audit-events").length).toBe(0);
     cleanup();
   });
 
-  it("walks past another source's envelopes to fill one source's ingest log", async () => {
+  it("lists the registry's platform, granted and plugin-declared types", async () => {
     const mock = setupApi();
-    mock.on("GET", "/api/v1/alert-sources", () => ({
-      json: { sources: [sourceView({ event_type: "rmm.device_offline" })] },
+    // One subscription already names a granted custom type: the row must say
+    // "granted", which is the badge the read endpoint made answerable.
+    mock.on("GET", "/api/v1/webhooks", () => ({
+      json: { webhooks: [webhookView({ event_types: ["rmm.device_offline"] })] },
     }));
-    let auditCalls = 0;
-    mock.on("GET", "/api/v1/audit-events", () => {
-      auditCalls += 1;
-      if (auditCalls === 1) {
-        // The first page belongs to a different source entirely.
-        return {
-          json: {
-            events: [
-              auditEvent({ id: "other-1", detail: { source_ref: "other-src", dedup_key: null } }),
-            ],
-            next_cursor: "audit-cursor-2",
+    mock.on("GET", "/api/v1/event-types", () => ({
+      json: {
+        platform: [
+          { event_type: "ticket.created", label: "Ticket created", description: null },
+        ],
+        granted: [
+          {
+            event_type: "rmm.device_offline",
+            label: "Device offline",
+            description: null,
+            in_registry: true,
+            granted_at: "2026-01-01T00:00:00Z",
           },
-        };
-      }
-      return { json: { events: [auditEvent({ id: "a-2" })], next_cursor: null } };
-    });
+        ],
+        plugin_declared: ["acme.backup_finished"],
+      },
+    }));
 
     render(
       <AuthProvider>
         <IntegrationsSettingsPage />
       </AuthProvider>,
     );
-    fireEvent.click(await screen.findByTestId(`ingest-log-${SRC_ID}`));
 
-    // One click walks to the page that carries this source's row.
-    await waitFor(() => expect(auditCalls).toBe(2));
-    expect(await screen.findByText("emitted")).toBeInTheDocument();
-    expect(screen.getByText("Beginning of log.")).toBeInTheDocument();
+    // The three admission rules are three groups, not one catalogue.
+    expect(await screen.findByText("Granted to this org")).toBeInTheDocument();
+    expect(screen.getByText("Platform events")).toBeInTheDocument();
+    expect(screen.getByText("Declared by your connectors")).toBeInTheDocument();
+    expect(screen.getByLabelText("acme.backup_finished")).toBeInTheDocument();
+
+    // The subscription's granted custom type reads "granted", not "needs
+    // grant" — the uncertainty the read endpoint removed.
+    expect(await screen.findByText("granted")).toBeInTheDocument();
+    expect(screen.queryByText("needs grant")).not.toBeInTheDocument();
     cleanup();
   });
 

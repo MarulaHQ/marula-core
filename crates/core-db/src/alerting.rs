@@ -665,3 +665,121 @@ where
     .await?;
     Ok(row.0)
 }
+
+// --- ingest request log (0184) ----------------------------------------------
+
+/// One request the ingest endpoints counted, as the durable log holds it.
+///
+/// This is the table half of `marula.org.ingest_requests`: the counter says how
+/// much traffic an org's sources generate, and a row here says which source
+/// sent which request, when, and what the endpoint answered.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct IngestRequestRow {
+    pub request_id: Uuid,
+    /// The routing id from the URL, kept verbatim.
+    pub source_ref: String,
+    /// `alert` or `webhook` — which door served the request.
+    pub endpoint: String,
+    pub received_at: DateTime<Utc>,
+    /// The status the endpoint returned.
+    pub http_status: i16,
+    /// What an accepted delivery did; NULL on a refusal.
+    pub outcome: Option<String>,
+    /// Why a delivery was refused; NULL on an acceptance.
+    pub refusal_reason: Option<String>,
+    pub byte_count: i32,
+    pub dedup_key: Option<String>,
+    pub entity_id: Option<String>,
+}
+
+/// The row one handled request writes.
+pub struct NewIngestRequest<'a> {
+    pub request_id: Uuid,
+    pub org_id: Uuid,
+    pub alert_source_id: Uuid,
+    pub source_ref: &'a str,
+    pub endpoint: &'a str,
+    pub received_at: DateTime<Utc>,
+    pub http_status: i16,
+    pub outcome: Option<&'a str>,
+    pub refusal_reason: Option<&'a str>,
+    pub byte_count: i32,
+    pub dedup_key: Option<&'a str>,
+    pub entity_id: Option<&'a str>,
+}
+
+/// Records one handled ingest request.
+///
+/// Called after the request has been answered, on its own org-bound
+/// transaction: the log row is evidence about the delivery, never part of it.
+/// A caller that treats a failure here as a delivery failure would turn a
+/// logging fault into an ingest outage, so the caller logs and moves on.
+pub async fn insert_ingest_request<'e, E>(executor: E, r: NewIngestRequest<'_>) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        r#"INSERT INTO ingest_requests
+             (request_id, org_id, alert_source_id, source_ref, endpoint, received_at,
+              http_status, outcome, refusal_reason, byte_count, dedup_key, entity_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"#,
+    )
+    .bind(r.request_id)
+    .bind(r.org_id)
+    .bind(r.alert_source_id)
+    .bind(r.source_ref)
+    .bind(r.endpoint)
+    .bind(r.received_at)
+    .bind(r.http_status)
+    .bind(r.outcome)
+    .bind(r.refusal_reason)
+    .bind(r.byte_count)
+    .bind(r.dedup_key)
+    .bind(r.entity_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// One source's ingest log, newest first, resumable from an opaque cursor.
+///
+/// Keyset on `(received_at, request_id)` descending, the same shape the audit
+/// reader it replaces used: `received_at` is written once at insert, ties are
+/// broken by the uuid v7 primary key, and the row comparison means a page
+/// boundary that lands mid-timestamp neither repeats nor drops the rest of
+/// that timestamp. Rows arrive after a cursor, never before it, so walking
+/// backwards cannot skip one.
+///
+/// `org_id` and the source id are both predicates, not filters applied after
+/// the fact: a source in another org returns nothing here, and the caller has
+/// already proved the source is this org's.
+pub async fn list_ingest_requests<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    source_id: Uuid,
+    cursor: Option<(DateTime<Utc>, Uuid)>,
+    limit: i64,
+) -> DbResult<Vec<IngestRequestRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query_as::<_, IngestRequestRow>(
+        r#"SELECT request_id, source_ref, endpoint, received_at, http_status,
+                  outcome, refusal_reason, byte_count, dedup_key, entity_id
+             FROM ingest_requests
+            WHERE org_id = $1
+              AND alert_source_id = $2
+              AND ($3::timestamptz IS NULL OR $4::uuid IS NULL OR
+                   (received_at, request_id) < ($3::timestamptz, $4::uuid))
+            ORDER BY received_at DESC, request_id DESC
+            LIMIT $5"#,
+    )
+    .bind(org_id)
+    .bind(source_id)
+    .bind(cursor.map(|c| c.0))
+    .bind(cursor.map(|c| c.1))
+    .bind(limit.clamp(1, 500))
+    .fetch_all(executor)
+    .await
+    .map_err(Into::into)
+}

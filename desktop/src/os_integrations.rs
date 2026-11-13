@@ -54,7 +54,14 @@ pub fn parse_deep_link(raw: &str) -> DeepLinkTarget {
     // Drop any query; take the path segments.
     let path = rest.split('?').next().unwrap_or("");
     let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-    let uuid = |s: &str| s.len() == 36 && s.chars().filter(|c| *c == '-').count() == 4;
+    // Shape check only (version nibble included in the hex range): the id is
+    // pasted into a path, so anything that is not hex and dashes is refused
+    // rather than carried into a window URL.
+    let uuid = |s: &str| {
+        s.len() == 36
+            && s.chars().filter(|c| *c == '-').count() == 4
+            && s.chars().all(|c| c == '-' || c.is_ascii_hexdigit())
+    };
     match segments.as_slice() {
         ["ticket", id] if uuid(id) => DeepLinkTarget::Ticket((*id).to_string()),
         ["notifications"] => DeepLinkTarget::Notifications,
@@ -103,12 +110,8 @@ impl DeepLinkTarget {
     }
 
     /// Where the MAIN window routes for this link (always Some: unknown
-    /// links still surface somewhere honest).
-    // Pinned by `main_paths_route_entities`; the deep-link handler wires
-    // its call site next. Deleting an API the tests already hold would
-    // throw that coverage away, so the dead-code expectation carries the
-    // reason instead.
-    #[allow(dead_code, reason = "routing helper with a test but no call site yet")]
+    /// links still surface somewhere honest; a role window that cannot be
+    /// opened falls back here).
     pub fn main_path(&self) -> String {
         match self {
             DeepLinkTarget::Ticket(id) => format!("/tickets/{id}"),
@@ -134,18 +137,36 @@ pub async fn route_deep_link(app: &AppHandle, raw: &str) -> Result<String, Strin
     let target = parse_deep_link(raw);
     match target.window_target() {
         Some((role, path)) => {
-            // Open-or-focus: an existing window of the role is focused (and
-            // told via the widened wid param — future: navigate it), else a
-            // new one opens at the path.
+            // Open-or-focus, then FOLLOW the link. A window of the right role
+            // showing the previous record is the wrong answer to
+            // `marula://ticket/<new id>`; `navigate_role_window` moves it and
+            // leaves it alone when it already shows what the link names.
             if let Some(label) = super::window_manager::find_by_role(app, &role) {
-                if let Some(w) = app.get_webview_window(&label) {
-                    let _ = w.show();
-                    let _ = w.unminimize();
-                    let _ = w.set_focus();
+                if app.get_webview_window(&label).is_some() {
+                    if let Err(e) =
+                        super::window_manager::navigate_role_window(app, &label, &role, &path)
+                    {
+                        tracing::warn!("deep link could not move {label}: {e}");
+                    }
                     return Ok(label);
                 }
             }
-            super::window_manager::open_native_window(app.clone(), role, path).await
+            match super::window_manager::open_native_window(app.clone(), role, path).await {
+                Ok(label) => Ok(label),
+                Err(open_error) => {
+                    // A role window that cannot open still leaves a route for
+                    // this record: the main window, at the same in-app path.
+                    match super::window_manager::navigate_main_window(app, &target.main_path()) {
+                        Ok(_) => {
+                            tracing::warn!("{open_error}; routed the link to the main window");
+                            Ok(String::from("main"))
+                        }
+                        Err(fallback_error) => Err(format!(
+                            "{open_error}; main window fallback failed: {fallback_error}"
+                        )),
+                    }
+                }
+            }
         }
         None => {
             // At minimum surface the main window.
@@ -407,6 +428,16 @@ mod tests {
         ));
     }
 
+    /// A 36-character string with four dashes is not an id. An id that is not
+    /// hex stays out of the window URL it would otherwise be pasted into.
+    #[test]
+    fn a_36_character_non_hex_id_is_unrecognized() {
+        assert!(matches!(
+            parse_deep_link("marula://ticket/zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz"),
+            DeepLinkTarget::Unrecognized(_)
+        ));
+    }
+
     #[test]
     fn foreign_scheme_never_parses() {
         assert!(matches!(
@@ -446,5 +477,25 @@ mod tests {
         // Notifications route to home (no dedicated page; the dock owns them).
         assert_eq!(DeepLinkTarget::Notifications.main_path(), "/");
         assert!(DeepLinkTarget::Notifications.window_target().is_none());
+    }
+
+    /// The two places a link can land (its role window, and the main window
+    /// when that role window cannot open) must name the same record, or the
+    /// fallback shows someone a different ticket than the link did.
+    #[test]
+    fn a_link_lands_on_the_same_record_in_a_window_and_in_the_main_view() {
+        let id = "0198c7a2-7b1c-7000-8000-000000000005";
+        let link = parse_deep_link(&format!("marula://ticket/{id}"));
+        let (role, window_path) = link.window_target().expect("ticket has a window target");
+        assert_eq!(role, "ticket-detail");
+        assert!(
+            window_path.ends_with(id),
+            "window path {window_path} should name the ticket"
+        );
+        assert!(
+            link.main_path().ends_with(id),
+            "main path {} should name the same ticket",
+            link.main_path()
+        );
     }
 }

@@ -279,7 +279,7 @@ export default function QuarantineSettingsPage() {
           role="alert"
           data-testid="quarantine-load-error"
           className="flex flex-wrap items-center gap-3 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
         >
           <span className="flex-1">{loadError}</span>
           <Button variant="secondary" size="sm" onClick={() => void load()}>
@@ -293,7 +293,7 @@ export default function QuarantineSettingsPage() {
           role="alert"
           data-testid="quarantine-action-error"
           className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
         >
           {actionError}
         </div>

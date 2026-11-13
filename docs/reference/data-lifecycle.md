@@ -34,6 +34,7 @@ that trade).
 | `email_messages` | 180 | 365 | 730 | 90 | batched delete |
 | `auth_attempt_log` | 14 | 30 | 90 | 7 | partition drop |
 | `audit_events` | 400 | 730 | 2555 | 365 | batched delete |
+| `ingest_requests` | 7 | 30 | 90 | 7 | batched delete |
 
 Two tables that already had sweeps keep their own windows and are not in the
 matrix: `workflow_runs` (per-org setting, 30 days by default) and
@@ -58,6 +59,7 @@ whatever its age:
 | `consumer_deliveries` | settled or dead — never a row awaiting another attempt |
 | `webhook_deliveries` | any age past the window. This is an attempt log, and the retrying surface is the `jobs` row |
 | `notifications`, `email_messages`, `audit_events`, `dead_events` | age only |
+| `ingest_requests` | age only. Every row describes a request that already has its answer |
 
 Retention also bounds the dead-work list: a dead job leaves `ops.dead_work` when
 its row is pruned, which is 30 days on the standard profile. The cancellation
@@ -105,6 +107,15 @@ Everything else has a property that makes partitioning the wrong tool:
 * `notifications` and `email_messages` are read by user or ticket and pruned by an
   age predicate that is not the leading column of their indexes.
 * `consumer_deliveries` has a composite primary key on identity columns.
+* `ingest_requests` would qualify on shape (append-only, ordered by one
+  timestamp, nothing pointing at it), but its volume follows the ingest rate,
+  and the generic door already refuses more than 300 requests a minute per
+  source. A month at that ceiling is 432,000 rows a day for one source, which
+  the monthly delete still clears as a short range scan. A partition earns its
+  keep where an attacker sets the write rate, which is the attempt log, not
+  this table. An instance watching one source sit at its ceiling should move
+  this table toward the 7-day floor with
+  `MARULA_RETENTION_INGEST_REQUESTS_DAYS`.
 * `dead_events` carries a unique index on `(consumer_group, entry_id)` that would
   have to include the partition key, and that shape is a contract another lane
   set deliberately.

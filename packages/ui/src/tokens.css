@@ -399,7 +399,10 @@
 
 [data-density="dense"] {
   --m-density-control: 32px;
-  --m-density-control-sm: 28px;
+  /* Small controls stop at the 32px pointer-target floor (docs/theme.md §5).
+     This step used to ask for 28px, so every `.m-btn-sm`, select item,
+     toolbar and view-switch control on the step sat under it. */
+  --m-density-control-sm: 32px;
   --m-density-row: 32px;
   --m-card-padding: 12px;
   --m-density-fs: 13px;

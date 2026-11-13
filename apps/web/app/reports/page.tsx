@@ -7,8 +7,10 @@
 // sort and filters persist per user under the surface key
 // `reports.saved` via the appearance.data_surfaces document (the lane 2b
 // pattern). Export says what it will export and respects the view.
-// Validation trouble is blush (`--m-status-due`), never red; red is reserved
-// for breach — a failed save is a loading sentence, not an error.
+// Validation trouble is the status danger pair (`--m-status-danger-*`), never
+// the destructive red — destructive red is reserved for things that destroy.
+// A failed save is still an error message, not a warning that something is
+// coming due.
 //
 // Wave 46 lane 6 adds the "describe it" entry: a dialog that borrows the
 // authoring panel, so a described report is reviewed and then saved through
@@ -630,7 +632,7 @@ function ReportsInner() {
         <div
           role="alert"
           className="flex items-center gap-2 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
           data-testid="prefs-save-error"
         >
           {prefs.error}
@@ -640,7 +642,7 @@ function ReportsInner() {
       {tab === "builder" && (
         <div className="grid gap-4">
           {catalogError !== null ? (
-            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {catalogError}
             </p>
           ) : null}
@@ -744,7 +746,7 @@ function ReportsInner() {
           ) : null}
 
           {defsError !== null && (
-            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {defsError}
             </p>
           )}
@@ -846,7 +848,7 @@ function ReportsInner() {
           </div>
 
           {rowError !== null ? (
-            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {rowError.text}
             </p>
           ) : null}
@@ -1014,7 +1016,7 @@ function ReportsInner() {
                   </div>
 
                   {schedFormError !== null && (
-                    <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+                    <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
                       {schedFormError}
                     </p>
                   )}
@@ -1045,7 +1047,7 @@ function ReportsInner() {
           <ScheduleProposal defaultTimezone={schedTimezone} onUse={handleUseProposal} />
 
           {schedulesError !== null && (
-            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+            <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
               {schedulesError}
             </p>
           )}
@@ -1098,7 +1100,7 @@ function ReportsInner() {
                       </Td>
                       <Td className="whitespace-nowrap text-[13px] tabular-nums">
                         {s.last_error !== null && s.last_error !== undefined && s.last_error !== "" ? (
-                          <span title={s.last_error} style={{ color: "var(--m-status-due-fg)" }}>
+                          <span title={s.last_error} style={{ color: "var(--m-status-danger-fg)" }}>
                             Failed · needs attention
                           </span>
                         ) : s.last_run_at ? (

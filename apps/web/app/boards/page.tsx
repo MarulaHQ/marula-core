@@ -421,8 +421,9 @@ function BoardCell({ entry, columnKey }: { entry: NavEntry; columnKey: string })
 }
 
 // The three marks, the same family the tickets ledger uses (a magnifier, a
-// sparkles cluster and the blush cross — blush, never red, because a failed
-// read is not a breach).
+// sparkles cluster and a cross for "we could not load it" — the cross wears the
+// status danger pair, because a failed read is an error message, docs/theme.md
+// §3.4).
 function EmptyMarkBase({ children }: { children: ReactNode }): React.JSX.Element {
   return (
     <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="var(--m-text-secondary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -452,7 +453,7 @@ function SparklesMark(): React.JSX.Element {
 
 function ErrorMark(): React.JSX.Element {
   return (
-    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="var(--m-blush)" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="var(--m-status-danger-fg)" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
       <circle cx="24" cy="24" r="13" />
       <path d="M24 16v9" />
       <path d="M24 29v.4" />

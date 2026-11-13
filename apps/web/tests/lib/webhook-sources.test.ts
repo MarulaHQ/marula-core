@@ -7,7 +7,7 @@ import {
   alertIngestRows,
   eventTypeProblem,
   ingestUrl,
-  m2mIngestRows,
+  m2mIngestLogRows,
   sourceProfile,
   sourceRefProblem,
 } from "../../lib/admin/webhook-sources";
@@ -15,7 +15,6 @@ import type { components } from "@marula-core/sdk";
 
 type AlertSourceView = components["schemas"]["AlertSourceView"];
 type AlertView = components["schemas"]["AlertView"];
-type AuditEvent = components["schemas"]["AuditEvent"];
 
 const source = (patch: Partial<AlertSourceView> = {}): AlertSourceView => ({
   id: "70000000-0000-4000-8000-000000000001",
@@ -33,18 +32,6 @@ const source = (patch: Partial<AlertSourceView> = {}): AlertSourceView => ({
   ...patch,
 });
 
-const ingestEvent = (patch: Partial<AuditEvent> = {}): AuditEvent => ({
-  id: "a-1",
-  org_id: "org-1",
-  actor: { id: "connector-1", kind: "connector" },
-  action: "webhook.ingested",
-  entity_type: "webhook",
-  entity_id: "envelope-1",
-  detail: { source_ref: "rmm-prod", dedup_key: "prov-123" },
-  ip: null,
-  occurred_at: "2026-01-02T03:04:05Z",
-  ...patch,
-});
 
 const alert = (patch: Partial<AlertView> = {}): AlertView => ({
   id: "al-1",
@@ -111,33 +98,6 @@ describe("form grammars", () => {
   });
 });
 
-describe("m2mIngestRows — the audit-trail reader", () => {
-  it("keeps only this source's accepted envelopes and maps their fields", () => {
-    const rows = m2mIngestRows(
-      [
-        ingestEvent(),
-        ingestEvent({ id: "a-2", entity_id: "envelope-2", detail: { source_ref: "other", dedup_key: null } }),
-        ingestEvent({ id: "a-3", action: "webhook.test" }),
-      ],
-      "rmm-prod",
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      id: "a-1",
-      at: "2026-01-02T03:04:05Z",
-      dedupKey: "prov-123",
-      entityId: "envelope-1",
-      tone: "neutral",
-      label: "emitted",
-    });
-  });
-
-  it("an unknown detail shape yields no rows rather than a crash", () => {
-    expect(m2mIngestRows([ingestEvent({ detail: null })], "rmm-prod")).toEqual([]);
-    expect(m2mIngestRows([], "rmm-prod")).toEqual([]);
-  });
-});
-
 describe("alertIngestRows — the alerts-ledger reader", () => {
   it("tones rows by status and carries the incident ticket when correlated", () => {
     const rows = alertIngestRows([
@@ -153,5 +113,33 @@ describe("alertIngestRows — the alerts-ledger reader", () => {
       label: "critical · open",
     });
     expect(rows[0]?.label).toBe("warning · resolved");
+  });
+});
+
+describe("m2mIngestLogRows — the source's own log read", () => {
+  it("carries the envelope identity off the server rows, in order", () => {
+    const rows = m2mIngestLogRows([
+      {
+        id: "ev-1",
+        occurred_at: "2026-01-02T03:04:05Z",
+        dedup_key: "prov-123",
+        entity_id: "envelope-1",
+      },
+      { id: "ev-2", occurred_at: "2026-01-02T02:00:00Z", dedup_key: null, entity_id: null },
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      id: "ev-1",
+      at: "2026-01-02T03:04:05Z",
+      dedupKey: "prov-123",
+      entityId: "envelope-1",
+      tone: "neutral",
+      label: "emitted",
+    });
+    expect(rows[1]?.dedupKey).toBeNull();
+  });
+
+  it("an empty log is an empty list, not an error", () => {
+    expect(m2mIngestLogRows([])).toEqual([]);
   });
 });

@@ -234,7 +234,9 @@ async fn spawn_idp(
     email: &str,
     delays: (Duration, Duration, Duration),
 ) -> (String, Arc<IdpState>) {
-    let mut rng = rand::rngs::OsRng;
+    // `rsa` 0.9 key generation takes a `rand_core` 0.6 generator, so the
+    // OS source comes from rsa's own re-export rather than `rand` 0.10.
+    let mut rng = rsa::rand_core::OsRng;
     let private = rsa::RsaPrivateKey::new(&mut rng, 2048).expect("rsa keygen (test-only)");
     let public = rsa::RsaPublicKey::from(&private);
     let pem = private

@@ -110,7 +110,12 @@ pub struct TableWindow {
 ///   down. The delete is not a statement of this module's own: the table is
 ///   append-only under migration 0168's trigger, so each batch is a call into
 ///   the SECURITY DEFINER `purge_audit_events()` (see [`Batch::AuditPurge`]).
-pub const MATRIX: [TableWindow; 9] = [
+/// * `ingest_requests` — 30 days. One row per inbound ingest request the two
+///   endpoints counted: the log an operator reads to answer "which source sent
+///   what" and "which source went quiet". A month covers a weekly connector
+///   failing twice; the volume is bounded by the per-source rate ceiling, so a
+///   batched delete costs a range scan and not a rewrite.
+pub const MATRIX: [TableWindow; 10] = [
     TableWindow {
         table: "jobs",
         compact_days: 7,
@@ -181,6 +186,14 @@ pub const MATRIX: [TableWindow; 9] = [
         standard_days: 730,
         extended_days: 2555,
         floor_days: 365,
+        mechanism: Mechanism::BatchedDelete,
+    },
+    TableWindow {
+        table: "ingest_requests",
+        compact_days: 7,
+        standard_days: 30,
+        extended_days: 90,
+        floor_days: 7,
         mechanism: Mechanism::BatchedDelete,
     },
 ];
@@ -494,6 +507,16 @@ fn batch_statement(table: &str) -> Option<Batch> {
         // SECURITY DEFINER function the trigger accepts (migration 0168). A
         // `DELETE` here would be refused, owner pool or not.
         "audit_events" => Batch::AuditPurge,
+        // Age only: every row is a finished observation about a request that
+        // already has its answer, so nothing here is ever owed work.
+        "ingest_requests" => Batch::Delete(
+            r#"DELETE FROM ingest_requests WHERE ctid IN (
+                 SELECT ctid FROM ingest_requests
+                  WHERE received_at < now() - make_interval(days => $1)
+                  ORDER BY received_at
+                  LIMIT $2
+               )"#,
+        ),
         _ => return None,
     };
     Some(batch)
@@ -544,15 +567,15 @@ mod tests {
         assert!(matches!(batch_statement("jobs"), Some(Batch::Delete(_))));
     }
 
-    /// The row says nine tables have no window. Nine rows, nine names, no
+    /// The row says ten tables have no window. Ten rows, ten names, no
     /// duplicates: the matrix IS the answer to "what does this instance keep".
     #[test]
-    fn the_matrix_covers_the_nine_tables_with_no_duplicates() {
+    fn the_matrix_covers_the_ten_tables_with_no_duplicates() {
         let mut names: Vec<&str> = MATRIX.iter().map(|r| r.table).collect();
-        assert_eq!(names.len(), 9);
+        assert_eq!(names.len(), 10);
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 9);
+        assert_eq!(names.len(), 10);
         for expected in [
             "jobs",
             "audit_events",
@@ -563,6 +586,7 @@ mod tests {
             "auth_attempt_log",
             "dead_events",
             "consumer_deliveries",
+            "ingest_requests",
         ] {
             assert!(
                 MATRIX.iter().any(|r| r.table == expected),

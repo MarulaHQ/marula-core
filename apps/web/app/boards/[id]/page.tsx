@@ -947,15 +947,16 @@ export default function BoardPage() {
           </div>
 
           {moveError !== null && (
-            /* A rejected move is a decision/problem, not a breach: it takes the
-               warning pair and says the reason plainly ("Not placed. {reason}"),
-               never the red pair — red means a real SLA breach, a P1, or the
-               destructive confirm (DESIGN-NOTES red-means-breach law). */
+            /* A rejected move is an error message: the status danger pair, and
+               it says the reason plainly ("Not placed. {reason}"). Not the
+               destructive red — nothing was destroyed — and not the warning
+               pair, which is a state that needs watching rather than a request
+               that did not land. docs/theme.md §3.4. */
             <p
               role="alert"
               data-testid="board-move-error"
               className="rounded-[var(--m-radius-control)] px-3 py-1.5 text-xs"
-              style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}
+              style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
             >
               {moveError}
             </p>

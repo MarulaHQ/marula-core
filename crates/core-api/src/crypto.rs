@@ -27,8 +27,11 @@ const NONCE_LEN: usize = 12;
 /// here. The wire format (`nonce || ciphertext`) is unchanged, so values
 /// sealed before the bump still open.
 fn fresh_nonce() -> [u8; NONCE_LEN] {
+    use rand::TryRng;
     let mut bytes = [0u8; NONCE_LEN];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS CSPRNG unavailable");
     bytes
 }
 

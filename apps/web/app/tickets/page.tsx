@@ -1408,10 +1408,11 @@ function exportValue(
 //
 // The pack's three empty shapes each carry their own small line drawing, so a
 // reader tells the cause apart before reading a word: a magnifier for "your
-// filters matched nothing", sparkles for "this queue is quiet", and a blush
-// cross for "we could not load it" — the cross is blush, never red, because a
-// failed read is not a breach. All three are stroked in text-secondary on the
-// same 48px grid the kit's default mark uses.
+// filters matched nothing", sparkles for "this queue is quiet", and a cross for
+// "we could not load it" — that cross wears the status danger pair, because a
+// failed read is an error message (docs/theme.md §3.4), not the destructive red
+// and not the due pair. The other two are stroked in text-secondary on the same
+// 48px grid the kit's default mark uses.
 
 function EmptyMarkBase({ children }: { children: ReactNode }): React.JSX.Element {
   return (
@@ -1457,7 +1458,7 @@ function ErrorMark(): React.JSX.Element {
       height="48"
       viewBox="0 0 48 48"
       fill="none"
-      stroke="var(--m-blush)"
+      stroke="var(--m-status-danger-fg)"
       strokeWidth="2"
       strokeLinecap="round"
       aria-hidden="true"

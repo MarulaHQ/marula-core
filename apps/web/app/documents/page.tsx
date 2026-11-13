@@ -51,7 +51,7 @@ import {
 import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import {
-  BlushNote,
+  ErrorNote,
   HEAD_CELL_CLASS,
   PageFrame,
   PlusIcon,
@@ -347,7 +347,7 @@ export default function DocumentsPage() {
           {filtered === null ? (
             loadError !== null ? (
               <div className="p-4">
-                <BlushNote title="The list did not load.">{loadError}</BlushNote>
+                <ErrorNote title="The list did not load.">{loadError}</ErrorNote>
               </div>
             ) : (
               <SkeletonRows sentence="Loading documents." columns={4} />
@@ -746,12 +746,12 @@ function LayoutEditForm({
         />
         {schemaState.ok ? null : (
           <div id="layout-schema-problem" className="mt-2" data-testid="documents-invalid-schema">
-            <BlushNote title="The schema does not parse.">{schemaState.message}</BlushNote>
+            <ErrorNote title="The schema does not parse.">{schemaState.message}</ErrorNote>
           </div>
         )}
       </div>
       {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
           {error}
         </p>
       ) : null}

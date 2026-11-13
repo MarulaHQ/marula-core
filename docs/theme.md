@@ -157,6 +157,20 @@ Breach is the status pair, and it is not the destructive red. The pack draws
 the SLA dot). It draws breach as the tinted pair above. Destructive buttons
 keep that solid red, and the native app already splits the two the same way.
 
+**Error copy is the status pair; the destructive red is for destruction (ruled
+2026-11-13).** A message that something did not land, such as a field error, an
+inline alert, a failed-load banner or a refused action, wears
+`--m-status-danger-fg` on `--m-status-danger-bg` and says what to do next. The
+destructive red stays on what destroys: a delete button, the confirm of an
+irreversible dialog, the P1 chip, a destructive mark. The due pair is not a
+third answer for failures. Amber means a date is coming up or an SLA is at
+risk, and a refused save is neither. Error copy is never colour alone: an icon
+or a word travels with it. This paragraph rules on the message; the error
+*edge* around a control belongs to §6, not here. It is written down because the
+codebase ran all three treatments side by side, and a surface-by-surface
+argument about which red an error is has no good answer. The roles already had
+one.
+
 ### 3.5 Chart ramp
 
 `--m-chart-1..5` is gold, canopy, blush, bark, lime. Light leads with the ring
@@ -306,8 +320,8 @@ not carry.
 - **Cards:** `rounded-xl`, 1px border, 24px padding.
 - **Charts:** the §3.5 ramp. Gridlines at border colour. No gradients.
 - **Forms:** labels above fields. Validation renders **on the field**, with
-  `border-destructive` and inline text, never a page-level banner, never
-  colour alone.
+  `border-destructive` and inline text in the §3.4 status pair, never a
+  page-level banner, never colour alone.
 - **Disabled:** a muted fill with muted text, not reduced opacity. Opacity
   drags the label under the readability floor.
 - **Empty states:** one sentence, one action, and a small line illustration in

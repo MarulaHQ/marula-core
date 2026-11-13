@@ -18,7 +18,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BlushNote,
+  ErrorNote,
   HEAD_CELL_CLASS,
   NoMatches,
   PageFrame,
@@ -212,14 +212,14 @@ export default function RunLedger({
 
       {errorMsg !== null ? (
         <div className="mb-2" role="alert">
-          <BlushNote title="The runs did not load.">
+          <ErrorNote title="The runs did not load.">
             <div className="flex items-center gap-3">
               <span>{errorMsg}</span>
               <Button size="sm" variant="secondary" onClick={() => void loadFirst()}>
                 Try again
               </Button>
             </div>
-          </BlushNote>
+          </ErrorNote>
         </div>
       ) : null}
 

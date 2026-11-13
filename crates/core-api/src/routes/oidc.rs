@@ -884,9 +884,11 @@ pub(crate) async fn provision_jit_user(
     display_name: &str,
     permit: tokio::sync::SemaphorePermit<'static>,
 ) -> ApiResult<Uuid> {
-    use rand::RngCore;
+    use rand::TryRng;
     let mut random = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut random);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut random)
+        .expect("OS CSPRNG unavailable");
     let unusable_password_hash = crate::auth::password::hash_async(hex::encode(random))
         .await
         .map_err(ApiError::Internal)?;
