@@ -111,7 +111,9 @@
         "/settings/shortcuts",
         "/settings/export",
         "/settings/plugins",
-        "/settings/self-host"
+        "/settings/self-host",
+        "/settings/dead-work",
+        "/settings/object-integrity"
       ],
       "ceiling_bytes": 212992
     },
