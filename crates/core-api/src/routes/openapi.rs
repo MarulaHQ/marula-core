@@ -799,7 +799,7 @@ use utoipa::OpenApi;
         // the event-type registry read, and one inbound source's ingest log.
         crate::routes::object_integrity_admin::list_findings,
         crate::routes::event_registry::list,
-        crate::routes::webhook_source_log::ingest_log,
+        crate::routes::ingest_log::ingest_log,
         // Wave 52 lane R10 (migration 0148): directory groups, their members
         // and the roles a group carries.
         crate::routes::directory_groups::list,
