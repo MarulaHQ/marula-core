@@ -21,6 +21,7 @@
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
+import { ErrorNote } from "../../../components/knowledge/ledger";
 import {
   Badge,
   Button,
@@ -378,7 +379,7 @@ export default function InvoiceDetailPage() {
     return (
       <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-8">
         {loadError !== null ? (
-          <p role="alert" className="text-[13px]">{loadError}</p>
+          <ErrorNote>{loadError}</ErrorNote>
         ) : (
           <Spinner />
         )}

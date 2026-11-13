@@ -42,6 +42,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { ConfirmDestructive, SaveBar, SettingsHeader } from "../../../components/settings/settings-shell";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
+import { ErrorNote } from "../../../components/knowledge/ledger";
 
 type PmSchedule = components["schemas"]["PmSchedule"];
 type PmRun = components["schemas"]["PmRun"];
@@ -405,9 +406,7 @@ export default function PmSchedulesSettingsPage() {
       </div>
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">
-          {loadError}
-        </p>
+        <ErrorNote>{loadError}</ErrorNote>
       ) : schedules === null ? (
         <Card>
           <div className="flex justify-center p-6">

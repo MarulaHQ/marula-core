@@ -146,7 +146,16 @@ fn merge_intervals(
 
 /// Largest representable wall-clock time (23:59:59.999999999); used as the
 /// half-open "round-the-clock" day bound since 24:00 is not representable.
-fn end_of_day() -> chrono::NaiveTime {
+///
+/// This is the one definition of "through midnight" in the product: the
+/// availability write path maps a literal `24:00` onto it (it cannot be a
+/// second sentinel — [`ends_at_end_of_day`] would have to learn about both),
+/// and [`ends_at_end_of_day`] recognises it. `23:59:59` also lands here by
+/// the one-second tolerance, because that is what a direct insert writes.
+///
+/// The `time` column stores microsecond precision, so this instant survives
+/// the round trip as `23:59:59.999999` — still inside the tolerance.
+pub fn end_of_day() -> chrono::NaiveTime {
     chrono::NaiveTime::from_hms_nano_opt(23, 59, 59, 999_999_999)
         .expect("end-of-day constant is valid")
 }
@@ -157,20 +166,20 @@ fn end_of_day() -> chrono::NaiveTime {
 /// `24:00` is not representable, so "through midnight" gets written two
 /// ways: the largest representable instant ([`end_of_day`]), and the last
 /// whole second, `23:59:59` — which is what a direct insert or a seed
-/// naturally writes (the `%H:%M` write path cannot reach past `23:59:00`,
-/// and the `time` column's microsecond resolution cannot hold the sentinel's
-/// nanos). Both mean the same schedule, so both round up to the next local
-/// midnight in [`window_occurrence`]; otherwise every day's block would end
-/// in a one-second hole, and a booking that crossed midnight would fit in no
-/// single free interval.
+/// naturally writes (and what the `time` column's microsecond resolution
+/// leaves of the sentinel's nanos). Both mean the same schedule, so both
+/// round up to the next local midnight in [`window_occurrence`]; otherwise
+/// every day's block would end in a one-second hole, and a booking that
+/// crossed midnight would fit in no single free interval.
 ///
 /// The tolerance is exactly the final second — the resolution at which
 /// `23:59:59` and `24:00` are indistinguishable to a human and where the
-/// write path effectively bottoms out. Anything coarser (`23:59:58`, `17:00`)
-/// keeps its own wall-clock meaning, so an ordinary window is never widened
-/// into a round-the-clock one. This governs day arithmetic only: the
-/// window's own half-open containment (`AvailabilityWindow::contains`) still
-/// stops at the stored bound.
+/// stored value bottoms out. Anything coarser (`23:59:58`, `17:00`, and so
+/// in particular an operator's deliberate `23:59`) keeps its own wall-clock
+/// meaning, so an ordinary window is never widened into a round-the-clock
+/// one. This governs day arithmetic only: the window's own half-open
+/// containment (`AvailabilityWindow::contains`) still stops at the stored
+/// bound.
 fn ends_at_end_of_day(end_local: chrono::NaiveTime) -> bool {
     end_of_day().signed_duration_since(end_local) < chrono::Duration::seconds(1)
 }
@@ -711,6 +720,25 @@ mod tests {
         let ends_at = starts_at + Duration::minutes(5);
         let free = free_intervals(&windows, &[], &[], starts_at, ends_at);
         assert!(!free.iter().any(|(s, e)| *s <= starts_at && ends_at <= *e));
+    }
+
+    /// The bound the availability write path maps a literal `24:00` onto is
+    /// the one this classifier recognises — and so is the `23:59:59` a direct
+    /// insert writes, and the microsecond remnant the `time` column keeps of
+    /// it. `23:59:00` (what an operator's `23:59` parses to) is not: an
+    /// ordinary window is never widened into a round-the-clock one.
+    #[test]
+    fn the_exposed_end_of_day_bound_is_recognised_as_such() {
+        assert!(ends_at_end_of_day(end_of_day()));
+        assert!(ends_at_end_of_day(
+            chrono::NaiveTime::from_hms_opt(23, 59, 59).unwrap()
+        ));
+        assert!(ends_at_end_of_day(
+            chrono::NaiveTime::from_hms_micro_opt(23, 59, 59, 999_999).unwrap()
+        ));
+        assert!(!ends_at_end_of_day(
+            chrono::NaiveTime::from_hms_opt(23, 59, 0).unwrap()
+        ));
     }
 
     #[test]

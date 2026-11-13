@@ -8,7 +8,8 @@
  * `DESIGN-NOTES-settings.md` §3, so no page draws its own:
  *
  *   - `SettingsDrawer` 480px from the right over a dimmed page (04, 05, 07, 10)
- *   - `FormField` — label, control, hint; validation on SUBMIT, blush not red
+ *   - `FormField` — label, control, hint; validation on SUBMIT, in the status
+ *     danger pair (§3.4) and never the destructive red
  *   - `SaveFailedBanner` — what happened, and that the work is still here
  *   - `StagedSaveBar` — "N unsaved changes. Nothing has changed for anyone yet"
  *   - `BulkActionBar` — selection replacing the column header in place
@@ -494,8 +495,9 @@ export interface FormFieldProps {
   htmlFor?: string;
   /** The hint under an untouched, valid field. */
   hint?: ReactNode;
-  /** A submit-time error. Blush, with an icon and words — never red, never
-   * on keystroke, and the primary button is never disabled to hint at it. */
+  /** A submit-time error: the status danger pair, with an icon and words —
+   * never the due pair, never colour alone, never on keystroke, and the
+   * primary button is never disabled to hint at it. */
   error?: string | null;
   children: ReactNode;
   testId?: string;
@@ -532,7 +534,9 @@ export function FormField({
             margin: "6px 0 0",
             fontSize: 13,
             fontWeight: 600,
-            color: "var(--m-status-due-fg)",
+            // Error copy is the status danger pair, never the due pair: a
+            // refused value is not a date that is coming up (§3.4).
+            color: "var(--m-status-danger-fg)",
             display: "flex",
             alignItems: "center",
             gap: 6,
@@ -575,9 +579,9 @@ export function FieldInput({
         width: "100%",
         height: 44,
         borderRadius: 10,
-        // Validation is BLUSH (rule 2: overdue, at risk and validation errors
-        // are blush, never red), and 2px so the state is visible without
-        // colour.
+        // The edge around the control is the field's own state, a §6 matter;
+        // the message under it is error copy, and error copy is the status
+        // danger pair (§3.4).
         border: `2px solid ${invalid ? "var(--m-status-due-fg)" : "var(--m-input)"}`,
         background: "var(--m-surface)",
         color: "var(--m-text)",

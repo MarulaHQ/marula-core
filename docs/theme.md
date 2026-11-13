@@ -321,7 +321,8 @@ not carry.
 - **Charts:** the §3.5 ramp. Gridlines at border colour. No gradients.
 - **Forms:** labels above fields. Validation renders **on the field**, with
   `border-destructive` and inline text in the §3.4 status pair, never a
-  page-level banner, never colour alone.
+  page-level banner, never colour alone. Every screen draws that edge the same
+  way, the sign-in entry screens and the client portal included.
 - **Disabled:** a muted fill with muted text, not reduced opacity. Opacity
   drags the label under the readability floor.
 - **Empty states:** one sentence, one action, and a small line illustration in

@@ -32,6 +32,7 @@ import {
   Tr,
 } from "@marula-core/ui";
 import { LocalTime } from "../../../components/local-time";
+import { ErrorNote } from "../../../components/knowledge/ledger";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
@@ -237,7 +238,7 @@ export default function AgentPlatformPage() {
       ) : null}
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">{loadError}</p>
+        <ErrorNote>{loadError}</ErrorNote>
       ) : grants === null || skills === null || proposals === null ? (
         <Spinner />
       ) : (

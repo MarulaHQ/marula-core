@@ -58,6 +58,7 @@ import { rejectionText } from "../../lib/error-copy";
 import { phaseProgress, type PhaseProgress } from "../../lib/projects-metrics";
 import { projectPosture, formatPackDate } from "../../lib/renewal-signals";
 import { api, useRequireAuth } from "../../lib/api";
+import { ErrorNote } from "../../components/knowledge/ledger";
 import { money } from "../../lib/format";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
@@ -502,13 +503,13 @@ export default function ProjectsPage() {
         className="overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
-        {filtered === null ? (
+        {loadError !== null ? (
           <div className="p-4">
-            {loadError !== null ? (
-              <p role="alert" className="text-[13px]">{loadError}</p>
-            ) : (
-              <Spinner />
-            )}
+            <ErrorNote>{loadError}</ErrorNote>
+          </div>
+        ) : filtered === null ? (
+          <div className="p-4">
+            <Spinner />
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-4">

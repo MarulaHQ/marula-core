@@ -487,7 +487,7 @@ export default function DispatchSchedulingPage() {
       </div>
 
       {loadError !== null ? (
-        <p role="alert" className="dp-hint2" style={{ paddingBottom: 8 }}>
+        <p role="alert" className="dp-fail" style={{ margin: 0 }}>
           {loadError}
         </p>
       ) : templates === null || groups === null || users === null ? (

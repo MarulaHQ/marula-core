@@ -427,7 +427,11 @@ export default function TeamSettingsPage() {
           <EmptyState message="Your role cannot read the directory." />
         </Card>
       ) : loadError !== null ? (
-        <p role="alert" className="text-[13px]">
+        <p
+          role="alert"
+          className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
+        >
           {loadError}
         </p>
       ) : users === null ? (
@@ -550,7 +554,11 @@ export default function TeamSettingsPage() {
       )}
 
       {rolesError !== null ? (
-        <p role="alert" className="text-[13px]">
+        <p
+          role="alert"
+          className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
+        >
           {rolesError}
         </p>
       ) : null}

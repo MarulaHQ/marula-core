@@ -145,7 +145,7 @@ export default function DevPage() {
       </div>
 
       {notice !== null && (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-danger, #b00)" }}>
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
           {notice}
         </p>
       )}
