@@ -518,8 +518,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/v1/alert-sources/{id}/ingest-log — the envelopes one inbound source
-         *     accepted, newest first.
+         * GET /api/v1/alert-sources/{id}/ingest-log — what one inbound source sent,
+         *     newest first.
          * @description `ManagePlugins`, the same grant the source list takes: the log is the read
          *     half of a surface only that grant can configure.
          */
@@ -21762,19 +21762,43 @@ export interface components {
             /** @description Opaque cursor for the next page; absent when this page is the last. */
             next_cursor?: string | null;
         };
-        /** @description One accepted envelope, as the source's log shows it. */
+        /** @description One row of a source's log. */
         IngestLogRowView: {
+            /** @description True when the endpoint accepted the delivery. */
+            accepted: boolean;
+            /**
+             * Format: int32
+             * @description The request body's length.
+             */
+            byte_count: number;
             /** @description The provider's per-event identity: the replay fence's key. */
             dedup_key?: string | null;
+            /** @description The door that served it: `alert` or `webhook`. */
+            endpoint: string;
             /** @description The entity the envelope carried, when the source set one. */
             entity_id?: string | null;
             /**
+             * Format: int32
+             * @description The status the endpoint returned to the caller.
+             */
+            http_status: number;
+            /**
              * Format: uuid
-             * @description The audit event's id — stable across pages.
+             * @description The request id — the correlation id, stable across pages.
              */
             id: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the endpoint received the request.
+             */
             occurred_at: string;
+            /**
+             * @description What an accepted delivery did (`emitted`, `duplicate`, `collapsed`,
+             *     `incident_created`); absent on a refusal.
+             */
+            outcome?: string | null;
+            /** @description Why a delivery was refused; absent on an acceptance. */
+            refusal_reason?: string | null;
         };
         /** @description POST /api/alerts/ingest — outcome of one signed delivery. */
         IngestResponse: {
