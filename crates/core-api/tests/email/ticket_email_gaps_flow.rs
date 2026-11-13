@@ -1050,14 +1050,20 @@ async fn booking_horizon_follows_the_window_past_day_31() {
     assert_eq!(view["booking_window_days"], 45);
     let slots = view["slots"].as_array().expect("slots array");
     let day31 = chrono::Utc::now() + chrono::Duration::days(31);
+    // The horizon is proven by COVERAGE, not by a slot that starts late.
+    // The preview returns free intervals, and since F106 adjacent all-day
+    // windows merge into one continuous block — so an all-week seed yields a
+    // single interval opening now and closing at the horizon's end. Asserting
+    // a late `starts_at` was really asserting the old one-interval-per-day
+    // shape that the one-second seam used to produce.
+    let latest_end = slots
+        .iter()
+        .filter_map(|s| s["ends_at"].as_str())
+        .filter_map(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+        .max();
     assert!(
-        slots.iter().any(|s| {
-            s["starts_at"]
-                .as_str()
-                .map(|t| chrono::DateTime::parse_from_rfc3339(t).unwrap() > day31)
-                .unwrap_or(false)
-        }),
-        "slot preview covers beyond day 31 (chunked horizon)"
+        latest_end.map(|end| end > day31).unwrap_or(false),
+        "slot preview covers beyond day 31 (chunked horizon): latest end was {latest_end:?}"
     );
 
     // …and a booking at day 35 is ACCEPTED (the old cap previewed nothing
