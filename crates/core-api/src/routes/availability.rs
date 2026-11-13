@@ -21,7 +21,7 @@ use axum::{
     http::Extensions,
     Json,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use core_domain::entities::{AvailabilityWindow, CalendarExclusion, OnCallBlock};
 use core_domain::events::{types, AvailabilityChanged, CalendarExclusionChanged, OnCallChanged};
 use serde::{Deserialize, Serialize};
@@ -59,9 +59,27 @@ fn parse_start_hhmm(s: &str) -> ApiResult<chrono::NaiveTime> {
 /// end-of-day.
 fn parse_end_hhmm(s: &str) -> ApiResult<chrono::NaiveTime> {
     if s == END_OF_DAY_HHMM {
-        return Ok(core_domain::scheduling::end_of_day());
+        return Ok(end_of_day_at_column_precision());
     }
     parse_hhmm(s)
+}
+
+/// The `time` columns keep microseconds, so the nanosecond sentinel cannot
+/// survive a write. `24:00` is therefore mapped onto the last microsecond the
+/// column can hold: a create response and a later read then carry the same
+/// string, where echoing the sentinel would have answered `23:59:59.999999999`
+/// once and `23:59:59.999999` from then on. Truncating at the boundary keeps
+/// one value rather than two, and `ends_at_end_of_day` accepts it because the
+/// tolerance is the final second.
+fn end_of_day_at_column_precision() -> chrono::NaiveTime {
+    let end = core_domain::scheduling::end_of_day();
+    chrono::NaiveTime::from_hms_micro_opt(
+        end.hour(),
+        end.minute(),
+        end.second(),
+        end.nanosecond() / 1_000,
+    )
+    .expect("the truncated end-of-day bound is valid")
 }
 
 // --- availability windows ------------------------------------------------------
@@ -488,13 +506,34 @@ mod tests {
         }
     }
 
+    /// `24:00` maps onto the domain's end-of-day bound, truncated to what the
+    /// `time` column keeps, so the create response and a later read agree.
     #[test]
-    fn an_end_of_24_00_is_the_domain_end_of_day_bound() {
+    fn an_end_of_24_00_is_the_end_of_day_at_column_precision() {
         let end = parse_end_hhmm("24:00").expect("24:00 is a valid end");
-        assert_eq!(end, core_domain::scheduling::end_of_day());
         assert_eq!(
             end,
-            chrono::NaiveTime::from_hms_nano_opt(23, 59, 59, 999_999_999).unwrap()
+            chrono::NaiveTime::from_hms_micro_opt(23, 59, 59, 999_999).unwrap()
+        );
+        let sentinel = core_domain::scheduling::end_of_day();
+        assert!(sentinel - end < chrono::Duration::microseconds(1), "{end}");
+    }
+
+    /// The property the truncation exists for: what a create echoes and what a
+    /// read returns are the same string, while the nanosecond sentinel — which
+    /// no read can ever return — is not.
+    #[test]
+    fn an_end_of_24_00_round_trips_through_the_column_representation() {
+        let echoed = serde_json::to_string(&parse_end_hhmm("24:00").unwrap()).unwrap();
+        let as_stored = serde_json::to_string(
+            &chrono::NaiveTime::from_hms_micro_opt(23, 59, 59, 999_999).unwrap(),
+        )
+        .unwrap();
+        let as_sentinel = serde_json::to_string(&core_domain::scheduling::end_of_day()).unwrap();
+        assert_eq!(echoed, as_stored, "a create echoes what the column returns");
+        assert_ne!(
+            as_sentinel, as_stored,
+            "the sentinel is not a value a read can return"
         );
     }
 
