@@ -19,10 +19,11 @@
  *    so it has no inversion. (The one place the staff app inverts, the client
  *    never sees.)
  * 2. Red means breach in a status mark, and it means "this did not land" in
- *    error copy: a validation error wears the status danger PAIR (soft fill,
- *    deep red text), never the solid destructive red. Overdue is still blush
- *    with the number of days, because a date is not an error,
- *    docs/theme.md §3.4.
+ *    error copy: a validation error's COPY wears the status danger PAIR (soft
+ *    fill, deep red text), never the solid destructive red. Overdue is still
+ *    blush with the number of days, because a date is not an error,
+ *    docs/theme.md §3.4. The invalid field's EDGE is the destructive red, and
+ *    §6 owns it here exactly as it owns it on the sign-in screens.
  * 3. Gold is where you act: "Waiting for you" and "Waiting for your answer".
  * 4. No gradients, glass or glow. Depth is flat colour plus a 1px border.
  * 5. Figtree runs the interface. Fraunces is not used in the portal.
@@ -650,9 +651,14 @@ button.portal-row:hover {
   color: var(--m-text-secondary);
 }
 
+/* The invalid field's edge is `--m-destructive` on every screen, the entry
+   ones included (docs/theme.md §6). Error COPY, above, is the §3.4 status
+   pair; this rule is the edge and nothing else. */
 .portal-field--error .portal-input,
 .portal-field--error .portal-select {
-  border: 2px solid var(--m-blush);
+  border: 2px solid var(--m-destructive);
+  /* The border grew by 1px on each side, so the padding gives that back and
+     the text stays where it was. */
   padding: 0 13px;
 }
 

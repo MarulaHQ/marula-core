@@ -149,4 +149,28 @@ describe("ProjectsPage", () => {
     ).toBeInTheDocument();
     cleanup();
   });
+
+  it("marks a failed load with the status danger pair, not body copy", async () => {
+    const mock = setupApi();
+    mock.on("GET", "/api/v1/projects", () => ({
+      status: 503,
+      json: { error: { message: "the project ledger is unreachable" } },
+    }));
+    render(
+      <AuthProvider>
+        <ProjectsPage />
+      </AuthProvider>,
+    );
+
+    const text = await screen.findByText("Failed to load projects.");
+    // The panel used to print the failure as ordinary 13px body text inside
+    // `role="alert"`; it now wears the pair, with the glyph, the way the
+    // settings load failures already did (§3.4).
+    const note = text.closest('[role="alert"]') as HTMLElement | null;
+    expect(note).not.toBeNull();
+    expect(note?.style.background).toBe("var(--m-status-danger-bg)");
+    expect(note?.style.color).toBe("var(--m-status-danger-fg)");
+    expect(note?.querySelector("svg")).not.toBeNull();
+    cleanup();
+  });
 });

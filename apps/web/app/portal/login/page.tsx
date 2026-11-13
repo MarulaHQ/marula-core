@@ -131,8 +131,9 @@ function PortalLoginInner(): ReactNode {
       await auth.signIn(email.trim(), password);
       router.replace("/portal/tickets");
     } catch (err) {
-      // Blush, with words that say what happens next — never red, and never
-      // "something went wrong" (DESIGN-NOTES-portal §2, contract rule 2).
+      // The status-pair copy, with words that say what happens next — never
+      // "something went wrong" (DESIGN-NOTES-portal §2, contract rule 2). The
+      // field's red edge is docs/theme.md §6's, not the copy's.
       setError(
         friendlyMutationText(
           err,

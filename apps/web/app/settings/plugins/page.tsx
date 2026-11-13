@@ -29,6 +29,7 @@ import { AgentSkillsTab } from "./agent-skills-tab";
 import { RegistryTab } from "./registry-tab";
 import { StagedApprovalsTab } from "./staged-approvals";
 import { MarketplaceViewTab } from "./marketplace-v2";
+import { ErrorNote } from "../../../components/knowledge/ledger";
 
 type InstallView = components["schemas"]["InstallView"];
 type StagedItemView = components["schemas"]["StagedItemView"];
@@ -104,7 +105,7 @@ export default function PluginsSettingsPage() {
         )}
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">{loadError}</p>
+        <ErrorNote>{loadError}</ErrorNote>
       ) : installs === null ? (
         <Spinner />
       ) : (

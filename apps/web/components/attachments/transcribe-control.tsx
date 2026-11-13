@@ -93,7 +93,13 @@ export function TranscribeControl({ attachmentId, contentType }: { attachmentId:
         {busy ? <Spinner /> : null} Transcribe
       </Button>
       {error !== null ? (
-        <p role="alert" className="text-[11px]" style={{ color: "var(--m-text-muted)" }} data-testid={`transcribe-state-${attachmentId}`}>
+        <p
+          role="alert"
+          className="text-[11px]"
+          // A refused transcription is error copy, not a muted hint (§3.4).
+          style={{ color: "var(--m-status-danger-fg)" }}
+          data-testid={`transcribe-state-${attachmentId}`}
+        >
           {error}
         </p>
       ) : null}
