@@ -107,6 +107,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/object-integrity/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/admin/object-integrity/findings — what the object-integrity
+         *     pass found, newest first, with the open counts per direction.
+         */
+        get: operations["object_integrity_findings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/quarantine": {
         parameters: {
             query?: never;
@@ -488,6 +508,28 @@ export interface paths {
          *     storm window, or disable. Instant-first (IF1/IF2).
          */
         patch: operations["alert_sources_update"];
+        trace?: never;
+    };
+    "/api/v1/alert-sources/{id}/ingest-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/alert-sources/{id}/ingest-log — the envelopes one inbound source
+         *     accepted, newest first.
+         * @description `ManagePlugins`, the same grant the source list takes: the log is the read
+         *     half of a surface only that grant can configure.
+         */
+        get: operations["alert_source_ingest_log"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/alerts": {
@@ -5141,6 +5183,26 @@ export interface paths {
         put?: never;
         /** POST /api/entity-dedupe/merges/{id}/split — undo a contact merge (IF7). */
         post: operations["entity_dedupe_split_merge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/event-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/v1/event-types — the registry: platform types, the org's grants,
+         *     and the plugin-declared trigger types.
+         */
+        get: operations["event_type_registry"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -20932,6 +20994,21 @@ export interface components {
             /** Format: int32 */
             uplift_bps: number;
         };
+        /** @description The registry as one read. */
+        EventRegistryView: {
+            /** @description The org's grants, including those for types outside the catalogue. */
+            granted: components["schemas"]["GrantedEventTypeView"][];
+            /** @description Marula's own types: subscribable without a grant. */
+            platform: components["schemas"]["EventTypeEntryView"][];
+            /** @description Trigger types the org's live plugin installs declare. */
+            plugin_declared: string[];
+        };
+        /** @description One catalogue type. */
+        EventTypeEntryView: {
+            description?: string | null;
+            event_type: string;
+            label: string;
+        };
         EventsListResponse: {
             /** Format: uuid */
             connection_id: string;
@@ -21537,6 +21614,20 @@ export interface components {
              */
             volumes: string[];
         };
+        /** @description One of the org's grants, with what the catalogue knows about the type. */
+        GrantedEventTypeView: {
+            description?: string | null;
+            event_type: string;
+            /** Format: date-time */
+            granted_at: string;
+            /** @description False for a grant whose type no catalogue row declares. */
+            in_registry: boolean;
+            /**
+             * @description Absent when the grant names a type the catalogue has never seen — the
+             *     escape hatch migration 0124 deliberately allows.
+             */
+            label?: string | null;
+        };
         GroupMutation: {
             group: components["schemas"]["SchedulingGroup"];
             mutation: components["schemas"]["MutationMeta"];
@@ -21665,6 +21756,26 @@ export interface components {
             severity: components["schemas"]["AlertSeverity"];
             title: string;
         };
+        /** @description One page of the log, newest first. */
+        IngestLogPage: {
+            items: components["schemas"]["IngestLogRowView"][];
+            /** @description Opaque cursor for the next page; absent when this page is the last. */
+            next_cursor?: string | null;
+        };
+        /** @description One accepted envelope, as the source's log shows it. */
+        IngestLogRowView: {
+            /** @description The provider's per-event identity: the replay fence's key. */
+            dedup_key?: string | null;
+            /** @description The entity the envelope carried, when the source set one. */
+            entity_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The audit event's id — stable across pages.
+             */
+            id: string;
+            /** Format: date-time */
+            occurred_at: string;
+        };
         /** @description POST /api/alerts/ingest — outcome of one signed delivery. */
         IngestResponse: {
             alert: components["schemas"]["AlertView"];
@@ -21782,6 +21893,54 @@ export interface components {
             linked_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description One page of the ledger, with the two open counts beside it. */
+        IntegrityFindingPage: {
+            /** @description Newest finding first. */
+            items: components["schemas"]["IntegrityFindingView"][];
+            /**
+             * Format: int64
+             * @description Offset for the next page; absent when this page is the last.
+             */
+            next_offset?: number | null;
+            /** Format: int64 */
+            open_missing: number;
+            /**
+             * Format: int64
+             * @description Open findings by direction, over the whole org — not just this page.
+             */
+            open_orphans: number;
+        };
+        /** @description One finding as the operator surface reads it. */
+        IntegrityFindingView: {
+            /** Format: date-time */
+            found_at: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description `orphan_deleted` — bytes with no row referencing them.
+             *     `bytes_missing` — a row whose bytes are gone.
+             */
+            kind: string;
+            note?: string | null;
+            /**
+             * Format: uuid
+             * @description Groups every finding of one pass.
+             */
+            pass_id: string;
+            /**
+             * Format: date-time
+             * @description Set when a later pass saw the same key healthy again.
+             */
+            resolved_at?: string | null;
+            /**
+             * Format: int64
+             * @description Bytes reclaimed (orphan) or bytes that should have been there (missing).
+             */
+            size_bytes?: number | null;
+            /** @description Which table claimed the key, for a missing-bytes finding. */
+            source_table?: string | null;
+            storage_key: string;
         };
         /**
          * @description The one-time setup token an admin delivers to the invitee (shown once;
@@ -33078,6 +33237,37 @@ export interface operations {
             };
         };
     };
+    object_integrity_findings: {
+        parameters: {
+            query?: {
+                /** @description Restrict to one direction: `orphan_deleted` or `bytes_missing`. */
+                kind?: string | null;
+                /**
+                 * @description Include findings a later pass resolved. Off by default: the list exists
+                 *     to show what is still broken.
+                 */
+                include_resolved?: boolean | null;
+                /** @description Page size, clamped to 1..=200. */
+                limit?: number | null;
+                /** @description Rows to skip, from a previous page's `next_offset`. */
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntegrityFindingPage"];
+                };
+            };
+        };
+    };
     quarantine_admin_list: {
         parameters: {
             query?: {
@@ -33873,6 +34063,32 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    alert_source_ingest_log: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor from a previous page's `next_cursor`. */
+                cursor?: string | null;
+                /** @description Page size, clamped to 1..=200. */
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IngestLogPage"];
+                };
             };
         };
     };
@@ -42562,6 +42778,25 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    event_type_registry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventRegistryView"];
+                };
             };
         };
     };
