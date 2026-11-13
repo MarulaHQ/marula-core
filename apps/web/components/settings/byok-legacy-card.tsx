@@ -15,6 +15,7 @@ import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
 import { SettingsHeader } from "./settings-shell";
+import { ErrorNote } from "../knowledge/ledger";
 import { rejectionText } from "../../lib/error-copy";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 
@@ -216,7 +217,7 @@ export function ByokLegacyCard() {
       </p>
 
       {loadError !== null ? (
-        <p role="alert" className="text-[13px]">{loadError}</p>
+        <ErrorNote>{loadError}</ErrorNote>
       ) : overview === null ? (
         <Spinner />
       ) : (

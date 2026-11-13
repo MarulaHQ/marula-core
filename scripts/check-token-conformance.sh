@@ -48,7 +48,6 @@ ledger_hits() {
 2|apps/web/components/auth/entry.css|Auth entry accents pending token extraction
 2|packages/ui/src/kit/ui/brand.tsx|Kit mark glyphs: brand hex inline in the mark component; tokenise at launch
 2|packages/ui/src/kit/ui/data-row.tsx|Data-row status accents inline; tokenise at launch
-1|apps/web/app/dev/page.tsx|Dev surface accent pending token extraction
 1|apps/web/app/inventory/workbench/page.tsx|Workbench accent pending token extraction
 1|apps/web/app/stock/locations/page.tsx|Stock accent pending token extraction
 EOF

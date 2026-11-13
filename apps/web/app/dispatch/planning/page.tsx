@@ -192,7 +192,7 @@ export default function DispatchPlanningPage() {
       </div>
 
       {loadError !== null ? (
-        <p role="alert" className="dp-hint2" style={{ padding: 12 }}>
+        <p role="alert" className="dp-fail" style={{ margin: 0 }}>
           {loadError}
         </p>
       ) : null}

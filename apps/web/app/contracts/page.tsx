@@ -58,6 +58,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { rejectionText } from "../../lib/error-copy";
 import { api, useRequireAuth } from "../../lib/api";
 import { money } from "../../lib/format";
+import { ErrorNote } from "../../components/knowledge/ledger";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
 import { formatPackDate, renewalSignal } from "../../lib/renewal-signals";
@@ -499,13 +500,13 @@ export default function ContractsPage() {
         className="overflow-hidden rounded-2xl border"
         style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
       >
-        {filtered === null ? (
+        {loadError !== null ? (
           <div className="p-4">
-            {loadError !== null ? (
-              <p role="alert" className="text-[13px]">{loadError}</p>
-            ) : (
-              <Spinner />
-            )}
+            <ErrorNote>{loadError}</ErrorNote>
+          </div>
+        ) : filtered === null ? (
+          <div className="p-4">
+            <Spinner />
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-4">

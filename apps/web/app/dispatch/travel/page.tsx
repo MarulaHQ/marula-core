@@ -585,7 +585,7 @@ export default function TravelDraftsPage() {
             </div>
           ) : loadError !== null ? (
             <div className="dp-card">
-              <p role="alert" className="dp-hint2">
+              <p role="alert" className="dp-fail" style={{ margin: 0 }}>
                 {loadError}
               </p>
             </div>
