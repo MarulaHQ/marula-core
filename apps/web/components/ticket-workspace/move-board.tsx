@@ -303,9 +303,9 @@ export function MoveBoardDialog({
               data-testid="board-move-conflict"
               role="alert"
               className="grid gap-2 rounded-[var(--m-radius-container)] border px-3 py-2"
-              style={{ borderColor: "var(--m-status-warning-fg)", background: "var(--m-status-warning-bg)" }}
+              style={{ borderColor: "var(--m-status-danger-fg)", background: "var(--m-status-danger-bg)" }}
             >
-              <p className="text-[13px]" style={{ color: "var(--m-status-warning-fg)" }}>
+              <p className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
                 {error ??
                   "No status on the target board matches this ticket's semantic category. Choose one to move to."}
               </p>

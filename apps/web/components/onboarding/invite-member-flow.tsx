@@ -366,7 +366,7 @@ export function InviteMemberFlow({
       ) : null}
 
       {error !== null ? (
-        <p role="alert" className="m-0 text-[13px]" style={{ color: "var(--m-destructive)" }}>
+        <p role="alert" className="m-0 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
           {error}
         </p>
       ) : null}

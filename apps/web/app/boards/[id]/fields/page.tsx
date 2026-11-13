@@ -553,12 +553,14 @@ export default function BoardFieldsPage() {
           </SurfaceHeader>
 
           {error !== null && (
-            /* A failed save is a validation problem, not a breach: the warning
-               pair, never the red one. */
+            /* A failed save is an error message, so it wears the status danger
+               pair — not the warning pair (a warning is a state that needs
+               watching) and not the destructive red (nothing was destroyed).
+               docs/theme.md §3.4. */
             <p
               role="alert"
               className="rounded-[var(--m-radius-control)] px-3 py-1.5 text-xs"
-              style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}
+              style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
             >
               {error}
             </p>

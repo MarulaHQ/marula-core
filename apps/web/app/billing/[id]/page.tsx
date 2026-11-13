@@ -470,7 +470,7 @@ export default function InvoiceDetailPage() {
                       aria-invalid={payBlock !== null}
                     />
                     {payBlock !== null ? (
-                      <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+                      <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
                         {payBlock}
                       </p>
                     ) : null}

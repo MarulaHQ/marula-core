@@ -204,7 +204,7 @@ export function DecisionSuggestionsCard({
         </span>
       </div>
       {error != null && (
-        <p role="alert" className="mb-1.5 text-[11px]" style={{ color: "var(--m-status-warning-fg)" }}>
+        <p role="alert" className="mb-1.5 text-[11px]" style={{ color: "var(--m-status-danger-fg)" }}>
           {error}
         </p>
       )}
