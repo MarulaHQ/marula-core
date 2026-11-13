@@ -7,16 +7,27 @@ const control = {
   default: "h-[44px] rounded-field px-3 data-[invalid=true]:px-[11px]",
   lg: "h-12 rounded-ctl px-[14px] data-[invalid=true]:px-[13px]",
 } as const
-const controlBase = "w-full border border-input bg-card text-foreground placeholder:text-muted-foreground data-[invalid=true]:border-2 data-[invalid=true]:border-mc-p2"
+const controlBase = "w-full border border-input bg-card text-foreground placeholder:text-muted-foreground data-[invalid=true]:border-2 data-[invalid=true]:border-destructive"
+
+// `aria-invalid` counts as invalid on its own. A caller that marks the field
+// the accessible way (and does not also pass `invalid`) must still get the
+// edge, otherwise the message renders under a control that looks untouched —
+// which is exactly what happened on the staff sign-in until 2026-11-13.
+function invalidFlag(invalid: boolean | undefined, aria: React.AriaAttributes["aria-invalid"]): boolean {
+  return invalid === true || aria === true || aria === "true";
+}
 
 export function Input({ className, size = "default", invalid, ...props }: Omit<React.ComponentProps<"input">, "size"> & { size?: Size; invalid?: boolean }) {
-  return <input data-slot="input" data-invalid={invalid || undefined} aria-invalid={invalid || undefined} className={cn(controlBase, control[size], className)} {...props} />
+  const marked = invalidFlag(invalid, props["aria-invalid"]);
+  return <input data-slot="input" data-invalid={marked || undefined} aria-invalid={marked || undefined} className={cn(controlBase, control[size], className)} {...props} />
 }
 export function Select({ className, size = "default", invalid, ...props }: Omit<React.ComponentProps<"select">, "size"> & { size?: Size; invalid?: boolean }) {
-  return <select data-slot="select" data-invalid={invalid || undefined} aria-invalid={invalid || undefined} className={cn(controlBase, control[size], className)} {...props} />
+  const marked = invalidFlag(invalid, props["aria-invalid"]);
+  return <select data-slot="select" data-invalid={marked || undefined} aria-invalid={marked || undefined} className={cn(controlBase, control[size], className)} {...props} />
 }
 export function Textarea({ className, invalid, ...props }: React.ComponentProps<"textarea"> & { invalid?: boolean }) {
-  return <textarea data-slot="textarea" data-invalid={invalid || undefined} aria-invalid={invalid || undefined} className={cn(controlBase, "h-[76px] resize-none rounded-field px-3 py-2.5 data-[invalid=true]:px-[11px]", className)} {...props} />
+  const marked = invalidFlag(invalid, props["aria-invalid"]);
+  return <textarea data-slot="textarea" data-invalid={marked || undefined} aria-invalid={marked || undefined} className={cn(controlBase, "h-[76px] resize-none rounded-field px-3 py-2.5 data-[invalid=true]:px-[11px]", className)} {...props} />
 }
 
 /**
