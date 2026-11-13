@@ -173,4 +173,28 @@ describe("/settings/agent-platform integration", () => {
     await screen.findByText("writes nothing");
     cleanup();
   });
+
+  it("marks a failed load with the status danger pair, not body copy", async () => {
+    const mock = setupApi();
+    mock.on("GET", "/api/v1/mcp/capabilities", () => ({
+      status: 503,
+      json: { error: { message: "the capability registry is unreachable" } },
+    }));
+    render(
+      <AuthProvider>
+        <AgentPlatformPage />
+      </AuthProvider>,
+    );
+
+    const text = await screen.findByText("Failed to load the agent platform surfaces.");
+    // A failed read is error copy: the status danger pair on its own fill,
+    // with the glyph beside it. It used to be plain body text, so the same
+    // failure looked urgent on one settings page and like a paragraph here.
+    const note = text.closest('[role="alert"]') as HTMLElement | null;
+    expect(note).not.toBeNull();
+    expect(note?.style.background).toBe("var(--m-status-danger-bg)");
+    expect(note?.style.color).toBe("var(--m-status-danger-fg)");
+    expect(note?.querySelector("svg")).not.toBeNull();
+    cleanup();
+  });
 });
