@@ -235,7 +235,7 @@ export default function AppearanceSettingsPage() {
           control is no harder to hit on a touchscreen at any density.
         </FieldHint>
         {prefs.error ? (
-          <p className="text-[12px]" style={{ color: "var(--m-destructive)" }} role="alert">
+          <p className="text-[12px]" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
             {prefs.error}
           </p>
         ) : null}

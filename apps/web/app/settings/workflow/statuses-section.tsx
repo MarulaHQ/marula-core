@@ -577,7 +577,7 @@ export function StatusesSection({
       </div>
 
       {loadError !== null ? (
-        <p role="alert" style={{ padding: "0 16px 12px", fontSize: 13, color: "var(--m-status-due-fg)" }}>
+        <p role="alert" style={{ padding: "0 16px 12px", fontSize: 13, color: "var(--m-status-danger-fg)" }}>
           {loadError}
         </p>
       ) : null}
@@ -871,7 +871,7 @@ export function StatusesSection({
             <p
               role="alert"
               data-testid="statuses-save-error"
-              style={{ margin: "10px 0 0", fontSize: 13, color: "var(--m-status-due-fg)" }}
+              style={{ margin: "10px 0 0", fontSize: 13, color: "var(--m-status-danger-fg)" }}
             >
               {saveError}
             </p>
@@ -1120,7 +1120,7 @@ export function StatusesSection({
             />
           )}
           {importError !== null ? (
-            <p role="alert" style={{ margin: 0, fontSize: 13, color: "var(--m-status-due-fg)" }}>
+            <p role="alert" style={{ margin: 0, fontSize: 13, color: "var(--m-status-danger-fg)" }}>
               {importError}
             </p>
           ) : null}

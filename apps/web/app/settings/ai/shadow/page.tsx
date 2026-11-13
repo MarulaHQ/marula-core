@@ -243,7 +243,7 @@ export default function ShadowRunsPage(): React.JSX.Element {
       ) : null}
 
       {error !== null ? (
-        <p role="alert" style={{ fontSize: 13, color: "var(--m-status-due-fg)", margin: "0 0 12px" }}>
+        <p role="alert" style={{ fontSize: 13, color: "var(--m-status-danger-fg)", margin: "0 0 12px" }}>
           {error}
         </p>
       ) : null}
