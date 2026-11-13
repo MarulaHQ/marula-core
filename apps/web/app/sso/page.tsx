@@ -126,10 +126,11 @@ function SsoInner() {
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: 999,
-                  // Blush, not red: a refused sign-in is not a breach, and the
-                  // page that says so also says what to do next.
-                  background: "var(--m-status-due-bg)",
-                  color: "var(--m-status-due-fg)",
+                  // Error copy wears the status danger pair: a refused sign-in
+                  // is a message, and this page also says what to do next
+                  // (docs/theme.md §3.4).
+                  background: "var(--m-status-danger-bg)",
+                  color: "var(--m-status-danger-fg)",
                 }}
               >
                 <EntryIcon name="alert" size={22} />
@@ -145,7 +146,7 @@ function SsoInner() {
             <p
               role={status === "error" ? "alert" : "status"}
               className="entry-sub"
-              style={status === "error" ? { color: "var(--m-status-due-fg)", fontWeight: 600 } : undefined}
+              style={status === "error" ? { color: "var(--m-status-danger-fg)", fontWeight: 600 } : undefined}
             >
               {message}
             </p>

@@ -361,7 +361,7 @@ export default function SearchPage() {
           <div
             role="alert"
             className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-            style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+            style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
           >
             {pinError}
           </div>
@@ -583,7 +583,7 @@ export default function SearchPage() {
           <div
             role="alert"
             className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-            style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+            style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
           >
             {rowPinError}
           </div>

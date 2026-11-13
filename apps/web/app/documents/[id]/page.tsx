@@ -50,7 +50,7 @@ import {
 } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import {
-  BlushNote,
+  ErrorNote,
   HEAD_CELL_CLASS,
   PageFrame,
 } from "../../../components/knowledge/ledger";
@@ -348,7 +348,7 @@ export default function DocumentDetailPage() {
       <PageFrame>
         <SurfaceHeader title="Document" />
         <div className="mb-2">
-          <BlushNote title="This document did not load.">{loadError}</BlushNote>
+          <ErrorNote title="This document did not load.">{loadError}</ErrorNote>
         </div>
       </PageFrame>
     );
@@ -410,12 +410,12 @@ export default function DocumentDetailPage() {
 
       {error !== null ? (
         <div className="mb-2" role="alert">
-          <BlushNote title="The last save did not land.">
+          <ErrorNote title="The last save did not land.">
             {error}{" "}
             <button className="underline underline-offset-2" onClick={() => void refresh()}>
               Reload
             </button>
-          </BlushNote>
+          </ErrorNote>
         </div>
       ) : null}
 

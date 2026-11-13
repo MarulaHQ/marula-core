@@ -53,7 +53,7 @@ import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  BlushNote,
+  ErrorNote,
   HEAD_CELL_CLASS,
   PageFrame,
   SkeletonRows,
@@ -540,7 +540,7 @@ export default function AlertsPage() {
           <div className="flex min-h-0 flex-1 flex-col gap-0">
           {alertsError !== null ? (
             <div className="mb-2" role="alert">
-              <BlushNote title="The alert feed did not load.">{alertsError}</BlushNote>
+              <ErrorNote title="The alert feed did not load.">{alertsError}</ErrorNote>
             </div>
           ) : null}
 

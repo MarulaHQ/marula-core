@@ -310,7 +310,7 @@ export default function ScorecardsPage() {
         <div
           role="alert"
           className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
         >
           {ownError}
         </div>
@@ -356,7 +356,7 @@ export default function ScorecardsPage() {
               </span>
             </label>
             {settingsError !== null && (
-              <p role="alert" className="mt-1 text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+              <p role="alert" className="mt-1 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
                 {settingsError}
               </p>
             )}
@@ -373,7 +373,7 @@ export default function ScorecardsPage() {
             <div
               role="alert"
               className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-              style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+              style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
             >
               {teamError}
             </div>
@@ -483,7 +483,7 @@ function ClientsCsat({ from, to }: { from: string; to: string }) {
         <div
           role="alert"
           className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
         >
           {error}
         </div>

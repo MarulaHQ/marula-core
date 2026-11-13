@@ -338,7 +338,9 @@
 .m-assistant-error {
   margin: 8px 0 0;
   font-size: 12px;
-  color: var(--m-destructive);
+  /* The status danger pair, never `--m-destructive`: this is a message, and
+     destructive red belongs to controls that destroy (§3.4). */
+  color: var(--m-status-danger-fg);
 }
 
 /* ---------- Inputs ---------- */
@@ -390,13 +392,12 @@
   cursor: not-allowed;
 }
 
-/* The invalid field takes the destructive red, the same red a destructive
-   button and the P1 chip carry. The error TEXT under it reads
-   `--m-status-danger-fg`, the kit's breach red, which is deeper on purpose
-   (8.96:1 on white where `--m-destructive` is 6.57:1). docs/theme.md §3.4
-   keeps the two reds apart by role — destructive is the solid mark, breach is
-   the status pair — so collapsing the two error-copy treatments is a design
-   decision, not a rename. */
+/* The invalid field's BORDER takes the destructive red, the same red a
+   destructive button and the P1 chip carry; docs/theme.md §6 sets that edge.
+   The error TEXT under it reads `--m-status-danger-fg`, the status pair, which
+   is deeper on purpose (8.96:1 on white where `--m-destructive` is 6.57:1).
+   docs/theme.md §3.4 rules on the split so it stops being relitigated: error
+   copy wears the status pair, destructive red stays for things that destroy. */
 
 .m-input[aria-invalid="true"],
 .m-textarea[aria-invalid="true"] {
@@ -1693,7 +1694,8 @@
   margin: 0;
   width: 100%;
   font-size: 12px;
-  color: var(--m-destructive);
+  /* A message, not a control: status danger pair (§3.4). */
+  color: var(--m-status-danger-fg);
 }
 
 /* Reorder and resize affordances. The grip and the divider are the only two

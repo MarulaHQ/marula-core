@@ -120,7 +120,7 @@ export function DraftRow({
             </p>
           ) : null}
           {status === "refused" && refusalMessage ? (
-            <p role="alert" className="mt-1.5 text-[13px] font-medium text-mc-attn-fg">
+            <p role="alert" className="mt-1.5 text-[13px] font-medium text-mc-st-breach-fg">
               {refusalMessage}
             </p>
           ) : null}

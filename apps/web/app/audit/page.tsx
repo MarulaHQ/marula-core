@@ -6,8 +6,9 @@
 // place to the full structured detail. **No bulk actions** — the selection
 // bulk bar does not exist here; the pack is explicit that audit and
 // provenance take the view switch, column chooser, filter bar and export
-// control and nothing else. Validation trouble renders blush
-// (`--m-status-due`), never red; red is reserved for breach.
+// control and nothing else. Validation trouble renders in the status danger
+// pair (`--m-status-danger-*`), never the destructive red; destructive red is
+// reserved for things that destroy (docs/theme.md §3.4).
 //
 // Non-purpose: no editing (append-only), no selection model.
 "use client";
@@ -281,12 +282,12 @@ export default function AuditPage() {
       />
 
       {/* A rejected appearance.data_surfaces write reverts the user's
-          columns and sort; it says so in blush, never red. */}
+          columns and sort; it says so in the status danger pair. */}
       {prefs.error !== null && (
         <div
           role="alert"
           className="flex items-center gap-2 rounded-[var(--m-radius-control)] px-3 py-2 text-[13px] font-medium"
-          style={{ background: "var(--m-status-due-bg)", color: "var(--m-status-due-fg)" }}
+          style={{ background: "var(--m-status-danger-bg)", color: "var(--m-status-danger-fg)" }}
           data-testid="prefs-save-error"
         >
           {prefs.error}

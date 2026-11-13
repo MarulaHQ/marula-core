@@ -252,7 +252,11 @@
   gap: 6px;
 }
 
-/* A validation error is BLUSH, with an icon and words. Never red. */
+/* A validation error is the status danger pair — red, with an icon and words —
+   because error copy wears the status pair and the destructive red stays for
+   controls that destroy (docs/theme.md §3.4). The message is never colour
+   alone: it carries the icon and the sentence. The field EDGE is separate, and
+   §6 governs it. */
 .entry-field--error .entry-input {
   border: 2px solid var(--m-blush);
   padding: 0 13px;
@@ -262,7 +266,7 @@
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  color: var(--m-status-due-fg);
+  color: var(--m-status-danger-fg);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;

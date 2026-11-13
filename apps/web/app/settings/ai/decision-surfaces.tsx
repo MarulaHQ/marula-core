@@ -310,7 +310,7 @@ export function DecisionSurfaces({
       </p>
 
       {error !== null ? (
-        <p role="alert" style={{ margin: "8px 0 0", fontSize: 13, color: "var(--m-status-due-fg)" }}>
+        <p role="alert" style={{ margin: "8px 0 0", fontSize: 13, color: "var(--m-status-danger-fg)" }}>
           {error}
         </p>
       ) : null}

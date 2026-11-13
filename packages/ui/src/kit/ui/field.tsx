@@ -20,7 +20,9 @@ export function Textarea({ className, invalid, ...props }: React.ComponentProps<
 }
 
 /**
- * Label, control, hint and error in one place. The error is BLUSH, never red, says what to do, and is announced.
+ * Label, control, hint and error in one place. The error wears the status
+ * danger pair (§3.4 "error copy = status pair, destructive control =
+ * destructive red"), says what to do, and is announced.
  *   <Field label="Work email" error="Enter the address your admin invited."><Input /></Field>
  */
 export function Field({ label, hint, error, errorIcon, children, className }: { label: string; hint?: React.ReactNode; error?: React.ReactNode; errorIcon?: React.ReactNode; children: React.ReactElement<Record<string, unknown>>; className?: string }) {
@@ -33,7 +35,7 @@ export function Field({ label, hint, error, errorIcon, children, className }: { 
       <label htmlFor={id} className="text-[14px] font-semibold">{label}</label>
       {control}
       {error ? (
-        <div id={errId} role="alert" className="flex items-center gap-1.5 text-[13px] font-semibold text-mc-attn-fg">
+        <div id={errId} role="alert" className="flex items-center gap-1.5 text-[13px] font-semibold text-mc-st-breach-fg">
           {errorIcon ?? <Icon name="alert" size={14} />}
           <span>{error}</span>
         </div>

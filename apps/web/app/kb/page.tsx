@@ -641,11 +641,11 @@ export default function KbPage() {
                 background:
                   bulkNote.tone === "good"
                     ? "var(--m-status-success-bg)"
-                    : "var(--m-status-due-bg)",
+                    : "var(--m-status-danger-bg)",
                 color:
                   bulkNote.tone === "good"
                     ? "var(--m-status-success-fg)"
-                    : "var(--m-status-due-fg)",
+                    : "var(--m-status-danger-fg)",
               }}
             >
               {bulkNote.tone === "good" ? <CheckIcon size={16} /> : <AlertIcon size={16} />}
@@ -1008,7 +1008,7 @@ function PublishRow({
         <p
           role="alert"
           className="inline-flex items-center gap-2 text-[13px]"
-          style={{ color: "var(--m-status-due-fg)" }}
+          style={{ color: "var(--m-status-danger-fg)" }}
         >
           <AlertIcon size={14} />
           {error}
@@ -1138,7 +1138,7 @@ function NewArticleForm({
         New articles start as drafts. Nothing reaches a client until you publish.
       </FieldHint>
       {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
           {error}
         </p>
       ) : null}
@@ -1427,7 +1427,7 @@ function CategoryForm({ category, onDone }: { category: KbCategory | null; onDon
         </FieldHint>
       </div>
       {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-due-fg)" }}>
+        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
           {error}
         </p>
       ) : null}
