@@ -206,7 +206,9 @@ export default function PublicBookingPage(): ReactNode {
       <div className="share-root">
         <div className="share-card">
           <h1 className="share-card__h">This link isn&apos;t available.</h1>
-          <p className="share-card__p">{errorText}</p>
+          <p className="share-card__p" style={{ color: "var(--m-status-danger-fg)" }}>
+            {errorText}
+          </p>
           <p className="share-card__p" style={{ color: "var(--m-text-secondary)" }}>
             Ask {desk} for a new one and it will arrive in a moment.
           </p>
