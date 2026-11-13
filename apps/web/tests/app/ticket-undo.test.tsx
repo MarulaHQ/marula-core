@@ -2,7 +2,7 @@
 // stack loading, Ctrl/Cmd+Z whole-record revert in `open` mode, and the
 // per-field revert affordance (whole-record rejected) in `reverts_only`.
 import { describe, expect, it, beforeEach } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TicketUndo } from "../../components/ticket-undo";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
@@ -107,8 +107,19 @@ describe("TicketUndo (IF7)", () => {
     renderPanel();
     await screen.findByText(/Undo: update by you/);
     expect(screen.getByRole("button", { name: /Undo: update/ })).toHaveAttribute("title", "Ctrl/Cmd+Z");
+    // `fireEvent` dispatches synchronously, so a keypress fired before React has
+    // flushed the PASSIVE effect that binds the window listener is dropped
+    // silently: no listener, no revert, and the assertion below sees zero calls
+    // with the panel fully rendered. `findByText` resolves on the DOM mutation,
+    // and under a loaded runner the effect can land after it. Flush first, then
+    // press. In a browser this cannot bite a person — passive effects flush
+    // before paint, so no keystroke arrives in between — it is a harness race.
+    await act(async () => {});
     fireEvent.keyDown(window, { key: "z", ctrlKey: true });
-    await waitFor(() => expect(revertCalls.length).toBe(1));
+    // Five seconds for the same reason the `onChanged` wait below uses five:
+    // a CI runner running 133 jsdom environments starves the timer that
+    // completes a mock POST far more than a laptop does.
+    await waitFor(() => expect(revertCalls.length).toBe(1), { timeout: 5000 });
     expect(revertCalls[0]?.body.seq).toBe(14);
     expect(revertCalls[0]?.body.idempotency_key).toBeTruthy();
     // onChanged fires after the handler's refresh() settles — a tick after
@@ -128,6 +139,10 @@ describe("TicketUndo (IF7)", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
+    // Same flush as the case above — and here it matters for the opposite
+    // reason: this asserts a NEGATIVE, so a listener that had not attached yet
+    // would make the test pass without the input guard ever running.
+    await act(async () => {});
     fireEvent.keyDown(input, { key: "z", ctrlKey: true, bubbles: true });
     await new Promise((r) => setTimeout(r, 50));
     expect(revertCalls.length).toBe(0);
