@@ -1,0 +1,17 @@
+{
+  "uid": "5f0c2a9e-6a7b-4c1d-9e2f-8a1b2c3d4e5f",
+  "deviceId": 4242,
+  "deviceName": "ACME-MAIL-01",
+  "severity": "CRITICAL",
+  "condition": "DISK_SPACE",
+  "message": "Drive C: is 96% full",
+  "status": "STARTED",
+  "createTime": "2026-11-14T09:12:00Z",
+  "lastSeen": "2026-11-14T09:40:00Z",
+  "source": "CONDITION",
+  "ticketNumber": 0,
+  "data": {
+    "drive": "C:",
+    "percentFree": 4
+  }
+}

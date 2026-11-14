@@ -39,10 +39,10 @@ changed.
 
 | Connector | Kind | Home | Record types it acts on |
 |---|---|---|---|
-| NinjaOne | `rmm` | `ninjaone/` + `ci-feeders/vendors/ninjaone.rs` | configuration |
-| Hudu | `dms` | `hudu/` + `dms-sync` (export, live, render) | kb_article, configuration |
+| NinjaOne | `rmm` | `ninjaone/` + `ci-feeders/vendors/{ninjaone,ninjaone_alerts}.rs` | configuration |
+| Hudu | `dms` | `hudu/` + `dms-sync` (export, live, render, link check) | kb_article, configuration |
 | Microsoft 365 Graph | `identity` | `m365-graph/` | configuration |
-| UniFi | `network` | `unifi/` | configuration |
+| UniFi | `network` | `unifi/` + `unifi/manifest.json` | configuration |
 | QuickBooks Online | `accounting` | `qbo-export-sync/` | invoice, payment, credit_note |
 | Xero | `accounting` | `xero-export-sync/` | invoice, payment, credit_note |
 | 3CX | `telephony` | `threecx/` | contact, ticket, configuration |
@@ -122,6 +122,54 @@ Two rules make the subset safe to store against:
   returns no value for any of them.
 
 
+### The record type an asset hangs off
+
+G10 asked for an `external_refs` block on the "asset" record, and offered to add
+`asset` to `RecordType` if it was missing. It is missing, and it should stay
+that way: **the configuration item is the asset in this product.** `assets` is
+the table behind `RecordType::Configuration`, the resolver already scopes a
+configuration to its client, and the chip row already draws it. A second
+`asset` value would give one row two names and force every connector to pick
+between them. UniFi therefore declares its block on `configuration`, and
+`plugins/connectors/unifi/manifest.json` is the single place that says so.
+
+The vocabulary is unchanged by this wave. Adding a record type still costs the
+list page, detail page, permissions, export mapping and search placement that
+§5 of [connector-capabilities.md](connector-capabilities.md) describes.
+
+### Document sync: link checking and article visibility
+
+Two DMS behaviours are contract, not polish, and both are tested in `dms-sync`:
+
+- **A document's link targets are checked on sync.** A target that answers
+  `404`/`410` lands as a broken link with the target retained, and the run
+  report counts it. The check is an SSRF surface because the target comes from
+  customer content: only `http`/`https`, loopback, link-local, private, CGNAT,
+  unique-local and RFC 5737 documentation ranges refused, DNS resolved once and
+  every answer judged, the connection pinned to the judged addresses, no
+  redirect followed, a bounded timeout, and `HEAD` only so no response body is
+  read. A refused target is `unverified`, never `dead`, because "we would not
+  fetch this" and "the document is broken" are different facts.
+- **A KB article's visibility crosses with it.** Hudu's `public` and Marula's
+  `client_visible` are one flag with two names: the pull maps it onto the
+  article, the push renders it back, and an article with no flag is never made
+  public by default.
+
+The guard's ranges and ordering are stated in
+`plugins/connectors/dms-sync/src/links.rs`, beside the code that applies them.
+They mirror `core-domain::egress::address_is_public`; the duplication is the R2
+boundary (a connector may not import a `crates/` module), and the two lists are
+kept in step by review.
+
+### Per-client connections in one run
+
+R6 is a schema rule, but a connector has to honour it at runtime. `unifi` reads
+a client's own connection first and the org-scoped connection only as a
+fallback (`connection_for_client`). A refused credential is recorded against
+that client, in its `ClientRun` and in one report entry, and the next client's
+leg still runs. It never aborts the run, and one client's base URL is never used for
+another client.
+
 ## 4. The enforcement matrix, and what it does not cover
 
 Mechanical where it can be, honest where it cannot. This table exists so that
@@ -163,7 +211,7 @@ Recorded so it is not discovered twice. Each item is a row, not a wish.
 |---|---|---|
 | Microsoft 365 Graph pulls devices, not seats | It was included because "seat counts drive billing correctness" (planning doc 22 §3.1) and it cannot serve that | `m365-graph` |
 | NinjaOne and Hudu connectors are unverified TypeScript | No test file, no `test` script, and `pnpm-workspace.yaml` does not include `plugins/**`, so CI never typechecks them. They are also the two the README tells newcomers to copy (R10, R13) | `plugins/connectors/{ninjaone,hudu}` |
-| `app-bridges`, `mapbox`, `adapters-core` and `ci-feeders` have no README | R13. `app-bridges` also documents no none mode (R3), and it is three standard-set rows | those folders |
+| `app-bridges`, `mapbox` and `adapters-core` have no README | R13. `app-bridges` also documents no none mode (R3), and it is three standard-set rows | those folders |
 | QuickBooks and Xero export invoices and payments only | Both call themselves a "first tranche". No credit note, no void, no refund (R7 for the record types they claim) | `qbo-export-sync`, `xero-export-sync` |
 | Rewst triggers workflows and has no results path | The promise is "workflow triggers and results over the public API" | `app-bridges` |
 | `document_links` and `record_links` are two edge tables | Deliberate, documented in ADR 0033, and the shapes match so a merge stays mechanical | — |

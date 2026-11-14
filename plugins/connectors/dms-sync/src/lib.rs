@@ -82,6 +82,7 @@
 //! push ships the export renderers first).
 
 pub mod identity;
+pub mod links;
 pub mod model;
 pub mod push;
 pub mod sink;
@@ -94,6 +95,7 @@ pub mod sync;
 mod tests;
 
 pub use identity::{Identity, IdentityKey, IdentityKeyKind};
+pub use links::{BrokenLink, HttpLinkProbe, LinkProbe, LinkVerdict, NoLinkProbe};
 pub use model::{
     Credential, DmsSnapshot, FieldKind, LinkEndpoint, LinkKind, Relation, SyncField, SyncLayout,
     SyncRecord,

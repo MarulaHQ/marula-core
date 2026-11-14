@@ -33,6 +33,10 @@ pub struct HuduExportFiles {
     pub asset_layouts: Option<Value>,
     pub assets: Option<Value>,
     pub websites: Option<Value>,
+    /// Knowledge-base articles. Hudu carries a client-visible article with
+    /// `public: true`; that is the field Marula receives as
+    /// `client_visible`.
+    pub articles: Option<Value>,
     /// Hudu's password vault export.
     pub passwords: Option<Value>,
 }
@@ -74,6 +78,33 @@ fn scalar_id(value: Option<&Value>) -> String {
         Some(Value::String(s)) => s.trim().to_string(),
         _ => String::new(),
     }
+}
+
+fn first_string(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| match value.get(*key) {
+        Some(Value::String(s)) if !s.trim().is_empty() => Some(s.clone()),
+        _ => None,
+    })
+}
+
+/// Hudu's visibility flag. `public` is the export's spelling; `is_public` and
+/// `client_visible` are accepted so a live API payload or a re-imported export
+/// maps the same way. A missing flag is `None` — the engine then keeps
+/// Marula's current value rather than defaulting an internal article to public.
+fn article_visible(article: &Value) -> Option<bool> {
+    for key in ["public", "is_public", "client_visible"] {
+        match article.get(key) {
+            Some(Value::Bool(b)) => return Some(*b),
+            Some(Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+                "true" | "1" | "yes" => return Some(true),
+                "false" | "0" | "no" => return Some(false),
+                _ => {}
+            },
+            Some(Value::Number(n)) => return Some(n.as_i64().unwrap_or(0) != 0),
+            _ => {}
+        }
+    }
+    None
 }
 
 fn map_field_type(field_type: &str) -> FieldKind {
@@ -322,6 +353,33 @@ fn parse(
                 type_name: Some("Website".into()),
                 fields,
                 body: String::new(),
+                tag: None,
+                credentials: Vec::new(),
+            });
+        }
+    }
+
+    // Articles → KB articles, with visibility carried explicitly. Hudu marks
+    // a client-visible article `public`; the neutral field is the same one the
+    // push renderer reads back, so the flag survives a round trip.
+    if let Some(articles) = files.articles.as_ref().and_then(Value::as_array) {
+        for article in articles {
+            let external_id = scalar_id(article.get("id"));
+            if external_id.is_empty() {
+                continue;
+            }
+            let mut fields = std::collections::BTreeMap::new();
+            if let Some(visible) = article_visible(article) {
+                fields.insert(crate::model::CLIENT_VISIBLE_KEY.into(), visible.to_string());
+            }
+            snapshot.records.push(SyncRecord {
+                external_id,
+                kind: LinkKind::KbArticle,
+                client_ref: Some(scalar_id(article.get("company_id"))).filter(|s| !s.is_empty()),
+                title: first_string(article, &["name", "title"]).unwrap_or_default(),
+                type_name: Some("Article".into()),
+                fields,
+                body: first_string(article, &["content", "body"]).unwrap_or_default(),
                 tag: None,
                 credentials: Vec::new(),
             });

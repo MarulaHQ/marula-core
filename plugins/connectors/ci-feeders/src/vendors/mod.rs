@@ -10,8 +10,13 @@
 //! identity-key path (ADR 0013).
 
 pub mod ninjaone;
+pub mod ninjaone_alerts;
 
 pub use ninjaone::map_device as map_ninjaone_device;
+pub use ninjaone_alerts::{
+    map_alert as map_ninjaone_alert, map_batch as map_ninjaone_alerts, AlertSeverity, BatchRefusal,
+    NinjaOneAlert, NinjaOneEvent, StormCoalescer, StormDecision,
+};
 
 use serde_json::{Map, Value};
 use thiserror::Error;
