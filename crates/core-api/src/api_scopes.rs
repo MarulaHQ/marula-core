@@ -240,6 +240,20 @@ pub const RULES: &[MachineRule] = &[
         methods: &[],
         scopes: &["rag:write"],
     },
+    // The docs connector's article surface (the middleware's
+    // `kb_article_sync_allowed`): list reads, create/update write, deletion
+    // still has no rule because the path gate refuses it. The scopes are the
+    // RAG pair because that is the mintable name for the KB grants.
+    MachineRule {
+        prefix: "/api/v1/kb/articles",
+        methods: &["get"],
+        scopes: &["rag:read"],
+    },
+    MachineRule {
+        prefix: "/api/v1/kb/articles",
+        methods: &["post", "patch"],
+        scopes: &["rag:write"],
+    },
     MachineRule {
         prefix: "/api/v1/directory-groups",
         methods: &["get"],

@@ -89,7 +89,7 @@ async fn seed_article(
         None,
         status,
         visible,
-        author,
+        Some(author),
     )
     .await
     .expect("article insert");

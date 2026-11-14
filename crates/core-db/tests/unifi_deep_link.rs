@@ -11,7 +11,7 @@
 mod common;
 
 use common::{fixed_uuid, org_tx, test_db, TestDb};
-use core_db::connector_connections::{resolve_external_actions, upsert_live_ref};
+use core_db::connector_connections::{resolve_external_actions, upsert_live_ref, ConnectionViewer};
 use core_db::{assets, clients, orgs, plugins};
 use core_domain::connectors::{ConnectionStatus, RecordType};
 use core_domain::entities::{
@@ -165,9 +165,19 @@ async fn seed_ref(db: &TestDb, org: Uuid, asset: Uuid, connection: Uuid, externa
 
 async fn open_url(db: &TestDb, org: Uuid, asset: Uuid) -> String {
     let mut tx = org_tx(&db.app, org).await;
-    let capabilities = resolve_external_actions(&mut tx, org, RecordType::Configuration, asset)
-        .await
-        .expect("resolve");
+    // An unrestricted viewer: this suite is about the ORIGIN each asset
+    // resolves to, not about the connection's audience. Audience filtering has
+    // its own suite; the sync paths that read this resolver have already
+    // decided access above it (`ConnectionViewer::unrestricted`'s contract).
+    let capabilities = resolve_external_actions(
+        &mut tx,
+        org,
+        RecordType::Configuration,
+        asset,
+        &ConnectionViewer::unrestricted(),
+    )
+    .await
+    .expect("resolve");
     tx.commit().await.expect("commit");
     capabilities
         .iter()

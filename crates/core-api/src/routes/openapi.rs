@@ -316,6 +316,10 @@ use utoipa::OpenApi;
         crate::routes::settings::user_email_envelope_get,
         crate::routes::settings::org_profile_get,
         crate::routes::settings::org_profile_patch,
+        // labour cost rate (migration 0188): the write surface the client
+        // margin report was missing
+        crate::routes::user_cost_rates::get,
+        crate::routes::user_cost_rates::patch,
         // org-scoped pod-visibility matrix (Wave 12 lane 6)
         crate::routes::org_config::pod_visibility_get,
         crate::routes::org_config::pod_visibility_put,
@@ -1501,6 +1505,8 @@ use utoipa::OpenApi;
         crate::routes::settings::EmailTokenView,
         crate::routes::settings::OrgProfileResponse,
         crate::routes::settings::PatchOrgRequest,
+        crate::routes::user_cost_rates::UserCostRateResponse,
+        crate::routes::user_cost_rates::PatchUserCostRateRequest,
         crate::routes::email_admin::InboundSettingsResponse,
         crate::routes::email_admin::PutInboundSettingsRequest,
         crate::routes::email_admin::PutBoardAddressRequest,
