@@ -60,6 +60,7 @@ pub mod checklists;
 pub mod clients;
 pub mod config_items;
 pub mod connector;
+pub mod connector_actions;
 pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
@@ -741,6 +742,17 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/clients/{id}/assets"),
             get(clients::list_assets).post(clients::create_asset),
         )
+        // Connector read surfaces (ADR 0032/0033, migration 0185): one
+        // resolver payload for every contextual surface, and the settings
+        // roster (installation-first, so an unconfigured install still shows
+        // its Connect action). The old `connector_installations` seam above
+        // (`/connectors`) is untouched and still serves Slack/Teams; the
+        // static `/connectors/roster` outranks its `{kind}` parameter.
+        .route(
+            &rp("/records/{record_type}/{record_id}/external-actions"),
+            get(connector_actions::external_actions),
+        )
+        .route(&rp("/connectors/roster"), get(connector_actions::roster))
         // boards + statuses + workflow customization + organization/RBAC
         .route(&rp("/boards"), get(boards::list).post(boards::create))
         .route(&rp("/boards/nav"), get(board_access::nav))

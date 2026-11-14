@@ -21,5 +21,6 @@ mod common;
 
 mod change_order_cas_flow;
 mod conditional_read_flow;
+mod connector_actions_flow;
 mod fx_flow;
 mod scorecards_flow;

@@ -3458,6 +3458,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connectors/roster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/connectors/roster — every installed HTTP connector with its
+         *     connections.
+         * @description Gated on the Plugins matrix rather than the record modules: this is the
+         *     admin settings list, and it carries connection health for every client.
+         *     The per-client visibility rule still applies to the CONNECTIONS: a
+         *     restricted client's connection is absent rather than listed with a client
+         *     the caller cannot open. The connector itself always appears, because an
+         *     install is not secret the way a client is — a card with no visible
+         *     connections still has to say the connector is installed.
+         *
+         *     Still absent, deliberately: binding rows and the audience. Both are a later
+         *     route, not a field this one omits by accident.
+         */
+        get: operations["connectors_roster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connectors/voip/call-logs": {
         parameters: {
             query?: never;
@@ -9824,6 +9854,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/records/{record_type}/{record_id}/external-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/records/{record_type}/{record_id}/external-actions — every
+         *     provider that can act on this record, grouped by capability.
+         */
+        get: operations["records_external_actions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reply-snippets": {
         parameters: {
             query?: never;
@@ -13970,6 +14020,12 @@ export interface components {
         AcceptObservedRequest: components["schemas"]["MutationParams"] & {
             field_key: string;
         };
+        ActionView: {
+            /** @description `open` | `launch`. */
+            kind: string;
+            label: string;
+            url?: string | null;
+        };
         /**
          * @description Who performed the audited action. Append-only provenance record.
          *     Portal variants carry the client-side tier so audit trails distinguish
@@ -16097,6 +16153,12 @@ export interface components {
          * @enum {string}
          */
         CapabilityMode: "proposed" | "autonomous";
+        /** @description One capability's providers on this record — the chip row's unit. */
+        CapabilityView: {
+            /** @description An open product kind (`rmm`, `remote_access`, …, or one nobody planned). */
+            kind: string;
+            providers: components["schemas"]["ProviderView"][];
+        };
         /**
          * @description One technician's line in the forecast: committed project load beside
          *     booked appointments.
@@ -16936,13 +16998,41 @@ export interface components {
             starts_at: string;
             title: string;
         };
+        /**
+         * @description One connection inside a connector's roster entry.
+         *
+         *     No status rollup is computed here or in SQL: the UI derives "worst wins"
+         *     and "1 of 4" from these rows, and a second answer would be a second place
+         *     to disagree with it.
+         */
         ConnectionView: {
-            connection: components["schemas"]["CalendarSyncConnectionView"];
             /**
-             * @description The raw outbound feed token — returned ONLY here (creation) and
-             *     by the rotate endpoint. Never readable again afterwards.
+             * Format: int64
+             * @description Enabled destinations only.
              */
-            feed_token?: string | null;
+            bindings_count: number;
+            /**
+             * @description The installed manifest's name, repeated so per-connection rendering
+             *     does not have to walk back to the parent.
+             */
+            connector: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            installation_id: string;
+            label: string;
+            /** Format: date-time */
+            last_failure_at?: string | null;
+            /** Format: date-time */
+            last_success_at?: string | null;
+            /** Format: uuid */
+            scope_client_id?: string | null;
+            /** @description The scoped client's name. `None` for the org-wide connection. */
+            scope_client_name?: string | null;
+            status: string;
+            status_detail?: string | null;
+            /** @description The vendor's own words, verbatim. */
+            status_detail_vendor?: string | null;
         };
         /** @description One booking as the connector sees it. */
         ConnectorAppointment: {
@@ -17028,6 +17118,33 @@ export interface components {
              */
             webhook_endpoints?: string[];
         };
+        ConnectorRosterResponse: {
+            connectors: components["schemas"]["ConnectorRosterView"][];
+        };
+        /**
+         * @description One installed connector, with its configured uses nested.
+         *
+         *     The installation is the unit because the first-run state is an install with
+         *     zero connections; an entry with `connections: []` is the card whose action
+         *     is `Connect`, not a missing row.
+         */
+        ConnectorRosterView: {
+            connections: components["schemas"]["ConnectionView"][];
+            /** @description The pinned manifest's name (the catalog slug when the version is gone). */
+            connector: string;
+            /**
+             * @description The pinned manifest's own one-line purpose, verbatim. Empty when it
+             *     declares none; Core never re-authors it.
+             */
+            description: string;
+            /** Format: uuid */
+            installation_id: string;
+            /**
+             * @description What kind of vendor this is. Empty means the connector declared none and
+             *     contributes no contextual chip.
+             */
+            product_kinds: string[];
+        };
         /**
          * @description GET /api/dispatch-connector/schedule query. The window is bounded at
          *     62 days so one pull cannot scan the whole calendar.
@@ -17056,6 +17173,36 @@ export interface components {
             /** @description `connector` | `staff`. */
             source: string;
             status: string;
+        };
+        /**
+         * @description The staff-UI surfaces a connector declares (ADR 0032, ADR 0033).
+         *
+         *     A DATA document, like the rest of the manifest: nothing here executes. The
+         *     renderer reads it, so a marketplace connector that declares the same block
+         *     reaches the same surfaces as a core one with no code change.
+         *
+         *     Additive to the v2 shape, and deliberately NOT an `interface_version` bump:
+         *     that field is the runtime ABI and its check is equality, so bumping it would
+         *     refuse every manifest already published. Older cores ignore this block
+         *     (serde defaults, unknown keys tolerated), which degrades to "no chips"
+         *     rather than to "will not install".
+         */
+        ConnectorSurfaces: {
+            /**
+             * @description Which settings key holds the connection's origin, used by `{base_url}`.
+             *
+             *     Declared rather than assumed: the resolver has to read one field out of
+             *     the connection's settings to build a link, and a hardcoded key would be
+             *     a second contract nobody wrote down. `base_url` when absent, so a
+             *     connector that names it conventionally says nothing.
+             */
+            base_url_key?: string | null;
+            /**
+             * @description One block per record type the connector can be acted on from. A
+             *     connector that spans configurations and invoices declares two blocks,
+             *     which is why this is a list and not one `record` field.
+             */
+            external_refs?: components["schemas"]["ExternalRefBlock"][];
         };
         /** @description GET /api/dispatch-connector/technicians entry. */
         ConnectorTechnician: {
@@ -21289,6 +21436,9 @@ export interface components {
             user_id: string;
             work_type?: string | null;
         };
+        ExternalActionsResponse: {
+            capabilities: components["schemas"]["CapabilityView"][];
+        };
         /**
          * @description The closed external-document vocabulary. The classifier in `core-kb`
          *     maps a URL to exactly one of these; `other` is the honest fallback for
@@ -21336,6 +21486,26 @@ export interface components {
         ExternalLinkKind: "order_portal" | "tracking" | "invoice" | "other";
         /** @enum {string} */
         ExternalLinkSubject: "vendor" | "purchase_order" | "purchase_order_line" | "device_asset";
+        /** @description One record type's external presence in this vendor. */
+        ExternalRefBlock: {
+            /**
+             * @description What the vendor calls this kind of object (`device`, `invoice`), so the
+             *     resolver can pick the right reference out of one connection.
+             */
+            external_kind: string;
+            launch?: components["schemas"]["LaunchBlock"] | null;
+            /**
+             * @description The `open` behaviour. Used verbatim where the vendor documents a deep
+             *     link; absent where it does not (QuickBooks invoices), which is the
+             *     honest declaration rather than a composed URL.
+             */
+            open_url?: string | null;
+            /**
+             * @description A [`RecordType`](crate::connectors::RecordType) value. Held as a string
+             *     and validated at the gate, the same posture as `capabilities`.
+             */
+            record: string;
+        };
         FavoriteRequest: {
             /** Format: uuid */
             board_id: string;
@@ -22670,6 +22840,26 @@ export interface components {
             step_index: number;
             /** @description 'risk' | 'breach' | 'escalate' (notification-center kinds). */
             trigger_kind: string;
+        };
+        /**
+         * @description A launch declared as a URL the browser opens, spending no secret.
+         *
+         *     ScreenConnect's `/Join` suffix and `tel:` both work this way. They are still
+         *     audited when pressed, because starting a session is an action.
+         */
+        LaunchBlock: {
+            /**
+             * @description Which of the connector's product kinds this launch belongs to.
+             *
+             *     Absent means every declared kind, which is right for a connector with
+             *     one kind and wrong for a vendor that is both an RMM and a remote-access
+             *     tool: without this, "Start session" would appear under the RMM chip too,
+             *     because a chip is per capability and the block is per record type. The
+             *     launch is the one action that must be attributed, since starting a
+             *     session is a different intent from opening a device page.
+             */
+            capability?: string | null;
+            url_template: string;
         };
         /**
          * @description One field in a layout's schema. The `fields` column stores an array of
@@ -24804,7 +24994,14 @@ export interface components {
             artifact_kind?: components["schemas"]["PluginRuntimeKind"] | null;
             capabilities: string[];
             connector_profile?: components["schemas"]["ConnectorProfile"] | null;
+            connector_surfaces?: components["schemas"]["ConnectorSurfaces"] | null;
             description?: string;
+            /**
+             * @description What kind of vendor a connector is (ADR 0032). Open vocabulary with a
+             *     closed format, so a publisher can declare a category nobody modelled
+             *     and the staff UI still draws it.
+             */
+            product_kinds?: string[];
             /** @description ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings. */
             settings_schema?: unknown;
             surface_profile?: components["schemas"]["PluginSurfaceProfile"] | null;
@@ -24825,6 +25022,7 @@ export interface components {
              */
             capabilities: string[];
             connector_profile?: components["schemas"]["ConnectorProfile"] | null;
+            connector_surfaces?: components["schemas"]["ConnectorSurfaces"] | null;
             description?: string;
             /**
              * Format: int32
@@ -24834,6 +25032,15 @@ export interface components {
              */
             interface_version: number;
             name: string;
+            /**
+             * @description What kind of vendor this is: `rmm`, `remote_access`, `telephony`,
+             *     `accounting`, `dms`, `dns`, `identity`, `network`, `inventory`,
+             *     `notifications`, `crm`, or a kind nobody planned yet. Open on purpose
+             *     (see `docs/reference/connector-capabilities.md` §5) — the format is
+             *     validated, the list is not, so a connector for a category we never
+             *     modelled still gets its chip drawn.
+             */
+            product_kinds?: string[];
             /**
              * @description ADR 0009 §4 — the optional JSON-Schema the manifest declares for
              *     its per-install settings. The Plugins surface renders config FROM
@@ -26101,6 +26308,29 @@ export interface components {
         /** @description Instant-first mutation response (IF2) for provider rows. */
         ProviderMutationResponse: components["schemas"]["KbEmbedProvider"] & {
             mutation: components["schemas"]["MutationMeta"];
+        };
+        ProviderView: {
+            actions: components["schemas"]["ActionView"][];
+            /** Format: uuid */
+            connection_id: string;
+            /** @description The installed manifest's name. */
+            connector: string;
+            /**
+             * @description True when this is the capability's default for the record's client, or
+             *     the only provider. False with several providers and no default: the UI
+             *     opens the menu rather than guessing.
+             */
+            is_primary: boolean;
+            /**
+             * @description The operator's label for the connection, so two controllers of one
+             *     vendor are distinguishable.
+             */
+            label: string;
+            /**
+             * @description `connected` | `needs_attachment` | `auth_failed` | `degraded` |
+             *     `disabled` (never `disabled` here — the resolver skips those).
+             */
+            status: string;
         };
         /**
          * @description What the public page needs to render the booking UI: the template's
@@ -39311,6 +39541,25 @@ export interface operations {
             };
         };
     };
+    connectors_roster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorRosterResponse"];
+                };
+            };
+        };
+    };
     connectors_voip_ingest: {
         parameters: {
             query?: never;
@@ -51921,6 +52170,43 @@ export interface operations {
                 content?: never;
             };
             /** @description invalid namespace or source identifier */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    records_external_actions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description configuration | client | contact | ticket | invoice */
+                record_type: string;
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalActionsResponse"];
+                };
+            };
+            /** @description the record does not exist or is not visible to the caller */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown or unsupported record type */
             422: {
                 headers: {
                     [name: string]: unknown;

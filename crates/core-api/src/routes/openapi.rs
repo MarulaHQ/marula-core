@@ -512,6 +512,10 @@ use utoipa::OpenApi;
         crate::routes::integrations::voip_ingest,
         crate::routes::integrations::create_feed,
         crate::routes::integrations::apply_feed,
+        // Connector read surfaces (ADR 0032/0033): the resolver every
+        // contextual surface reads, and the installation-first roster.
+        crate::routes::connector_actions::external_actions,
+        crate::routes::connector_actions::roster,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::magic_link_request,
@@ -1907,6 +1911,14 @@ use utoipa::OpenApi;
         crate::routes::integrations::PricingFeedBatchResponse,
         crate::routes::integrations::PricingFeedApplyResponse,
         crate::routes::integrations::PricingFeedOutcomeView,
+        // Connector read surfaces (ADR 0032/0033)
+        crate::routes::connector_actions::ExternalActionsResponse,
+        crate::routes::connector_actions::CapabilityView,
+        crate::routes::connector_actions::ProviderView,
+        crate::routes::connector_actions::ActionView,
+        crate::routes::connector_actions::ConnectorRosterResponse,
+        crate::routes::connector_actions::ConnectorRosterView,
+        crate::routes::connector_actions::ConnectionView,
         crate::routes::roles::UpdateRoleRequest,
         core_domain::entities::PluginPublisherVerification,
         core_domain::entities::PluginRating,
