@@ -148,7 +148,7 @@ async fn patch_rate(
     send(
         app,
         axum::http::Method::PATCH,
-        &format!("/api/users/{user}/cost-rate"),
+        &format!("/api/org/users/{user}/cost-rate"),
         Some(token),
         Some(body),
     )
@@ -159,7 +159,7 @@ async fn get_rate(app: &Router, token: &str, user: Uuid) -> axum::response::Resp
     send(
         app,
         axum::http::Method::GET,
-        &format!("/api/users/{user}/cost-rate"),
+        &format!("/api/org/users/{user}/cost-rate"),
         Some(token),
         None,
     )

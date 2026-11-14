@@ -155,7 +155,7 @@ async fn a_machine_key_syncs_articles_and_nothing_else_under_kb() {
     let response = as_key(
         &app,
         axum::http::Method::GET,
-        &format!("/api/v1/users/{}/cost-rate", Uuid::now_v7()),
+        &format!("/api/v1/org/users/{}/cost-rate", Uuid::now_v7()),
         &key,
         None,
     )

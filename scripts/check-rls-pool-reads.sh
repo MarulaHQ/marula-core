@@ -115,6 +115,14 @@ allowlist=(
   # org-bound tx bound to the returned org. (The authorize_start write, same
   # file, is org-bound and never appears here.)
   'calendar_sync.rs:consume_oauth_state('
+  # Pre-auth connector callbacks (G7/G9): a Slack or Teams delivery arrives
+  # with no session, and the connection has to be found before its sealed
+  # secret can verify the signature — so there is nothing to scope the first
+  # read to. `connector_callback_candidates` is the 0190 SECURITY DEFINER
+  # bridge: it returns one indexed shape filtered by the vendor and the
+  # selector the caller already sent, never a tenant table scan. Every read
+  # after a verified signature rides an org-bound tx.
+  'connector_inbound.rs:callback_candidates(&state.pool'
   # Self-host health probe (p36 selfhost-visibility): SELECT 1 liveness
   # only — no tenant column is read, nothing to scope.
   'self_host.rs:query_scalar::<_, i32>("SELECT 1")'

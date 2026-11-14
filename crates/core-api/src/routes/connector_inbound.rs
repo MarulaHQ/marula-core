@@ -257,7 +257,7 @@ async fn audit_auth_failure(
     candidates: &[CallbackCandidate],
     code: &'static str,
     body: &[u8],
-) -> Response {
+) -> Box<Response> {
     if let [one] = candidates {
         let org_id = one.r_org_id;
         let connection_id = one.r_id;
@@ -290,7 +290,10 @@ async fn audit_auth_failure(
             tracing::warn!(error = %e, "connector callback auth refusal was not audited");
         }
     }
-    auth_failure()
+    // Boxed: a `Response` is larger than clippy's error-size threshold, and the
+    // resolver hands it straight back to axum, so the box costs one allocation
+    // on a refusal path and keeps the return type lint-clean.
+    Box::new(auth_failure())
 }
 
 /// Verifies a Slack callback and returns the connection it authenticates.
@@ -299,7 +302,7 @@ async fn resolve_slack(
     headers: &HeaderMap,
     body: &Bytes,
     selector: &str,
-) -> Result<VerifiedConnection, Response> {
+) -> Result<VerifiedConnection, Box<Response>> {
     let candidates = candidates(state, Vendor::Slack, selector)
         .await
         .map_err(|_| auth_failure())?;
@@ -407,7 +410,7 @@ async fn resolve_teams(
     body: &Bytes,
     selector: &str,
     service_url: Option<&str>,
-) -> Result<VerifiedConnection, Response> {
+) -> Result<VerifiedConnection, Box<Response>> {
     let candidates = candidates(state, Vendor::Teams, selector)
         .await
         .map_err(|_| auth_failure())?;
@@ -1346,7 +1349,7 @@ pub async fn slack_interactive(
 
     let connection = match resolve_slack(&state, &headers, &body, team_id).await {
         Ok(connection) => connection,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     // Authenticated. From here a malformed body is the caller's problem, and
@@ -1411,7 +1414,7 @@ pub async fn slack_command(
     };
     let connection = match resolve_slack(&state, &headers, &body, &command.team_id).await {
         Ok(connection) => connection,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let key = callback_key(&body);
@@ -1488,7 +1491,7 @@ pub async fn teams_interactive(
     .await
     {
         Ok(connection) => connection,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let Some(action_id) = activity.action_id() else {
@@ -1559,7 +1562,7 @@ pub async fn teams_messages(
     .await
     {
         Ok(connection) => connection,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
 
     let query: app_bridges::teams_inbound::MessagingExtensionQuery =
