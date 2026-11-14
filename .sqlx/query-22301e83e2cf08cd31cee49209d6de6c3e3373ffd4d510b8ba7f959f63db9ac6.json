@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, kind::text AS \"kind!\", ticket_id, ticket_comment_id, filename,\n                content_type, size_bytes, sha256, uploaded_by_user_id, created_at\n         FROM attachments\n         WHERE org_id = $1 AND ticket_id IS NOT NULL\n         ORDER BY created_at, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "ticket_comment_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "filename",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "content_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "size_bytes",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "sha256",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "uploaded_by_user_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "22301e83e2cf08cd31cee49209d6de6c3e3373ffd4d510b8ba7f959f63db9ac6"
+}
