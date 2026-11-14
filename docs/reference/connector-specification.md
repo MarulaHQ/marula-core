@@ -203,6 +203,52 @@ Mechanical where it can be, honest where it cannot. This table exists so that
 - **Live-credential smoke tests.** A connector that needs a real tenant to
   demonstrate its contract has not described the contract.
 
+## 5a. The surfaces a plugin speaks to
+
+A connector is one artifact against Core's public API. That only works if the
+API is complete: a plugin that needs a Core change to exist is not a plugin,
+it is a fork. And it only stays safe if every surface a machine credential can
+reach is named and scoped, with everything else refused at the door.
+
+Two crates are engines rather than products. `dms-sync` pulls a documentation
+system through a `DmsSource` adapter and pushes into Core through a `DmsSink`.
+`ci-feeders` pulls an RMM or network controller through a vendor module and
+pushes into the same feed-upsert seam. A new vendor supplies the adapter and
+touches no Core code. So the table below is the contract those engines
+publish, and the test of a new plugin is whether it can work against it.
+
+| Surface | Who calls it | Reachable by | Scope |
+|---|---|---|---|
+| `POST /api/v1/config-items/feed-upsert` | `ci-feeders`, `m365-graph`, `unifi` | API key | `clients:write` |
+| `POST /api/v1/config-items/{id}/interfaces` | `unifi` | API key | `clients:write` |
+| `GET/POST/PATCH /api/v1/documents*`, `/api/v1/assets*`, their `/links` and `/layouts` | `dms-sync` | API key | `documents:read` / `documents:write`, assets on the client pair |
+| `GET/POST/PATCH /api/v1/kb/articles` | `dms-sync` | API key | `rag:read` / `rag:write` |
+| `POST /api/v1/connectors/voip/call-logs` | `threecx` | API key | `voip:write` |
+| `GET/POST/PATCH /api/v1/tickets`, `/api/v1/clients` | the TypeScript receivers, `dms-sync` | API key | `tickets:*`, `clients:*` |
+| `POST /api/v1/alerts/ingest/{source_ref}` | `unifi`, NinjaOne | signature | none: the HMAC is the credential |
+| `GET /api/v1/rag`, `POST /api/v1/rag/query` | vector connectors | API key | `rag:read` |
+| `GET /api/v1/audit-events` | trail exporters | API key | `observability:read` |
+| `* /api/v1/directory-groups` | the identity pack's SCIM connector | API key | `directory_groups:*` |
+
+Three rules hold this together, and each one was learned by breaking it:
+
+- **A route behind an authenticated handler must sit behind `require_auth`.**
+  The router is built as `public.merge(protected)` and only `protected` layers
+  the middleware. A route added to the public block that reads `AuthedUser`
+  answers 401 to everyone, forever, and no test notices because no test calls
+  it. The connector install surface and the VoIP ingest were both in that
+  state.
+- **An allowance is not a grant, and neither is a complete surface.** A path
+  the key may reach still runs the handler's own matrix check, so a read-scoped
+  key gets a typed 403 on a write. That is why the path gate can stay coarse
+  where the scope table is precise.
+- **Deletion and credentials are never inherited from a sync.** No machine
+  scope carries a delete grant on a synced surface, and the vault
+  (`/api/passwords`, `/api/assets/{id}/vault`) is outside the DMS allowance on
+  purpose: a key that can write credentials can exfiltrate them, so credential
+  migration is a decision an operator makes, not a side effect of syncing
+  documents.
+
 ## 6. Open conformance debt
 
 Recorded so it is not discovered twice. Each item is a row, not a wish.
