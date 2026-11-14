@@ -40,6 +40,20 @@ npm run verify
 npm run listen                            # PORT defaults to 8788
 ```
 
+## Delivery contract
+
+`listen` accepts `POST /marula/hook` and nothing else (`404` elsewhere). A body
+over 64 KiB is refused with `413` while it is still being read, before the
+signature is checked. A failed push answers `502`, so the sender retries: there
+is no queue behind this receiver, and `200` means the work happened.
+
+A `ticket.*` event must carry `payload.ticket_id` and `payload.device_id` (the
+NinjaOne device id to post against). Missing either is `400`, with the field
+named in the body. There is no ticket-to-device mapping in Marula's public
+payload today, so an event without a device is refused rather than posted to a
+guessed one. `payload.ticket_number` and `payload.ticket_title` are optional and
+only refine the note's label.
+
 ## None mode
 
 Without `NINJAONE_*` variables the connector runs fully functional against
