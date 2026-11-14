@@ -681,7 +681,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // margin report was missing. Own-rate read for any member; another
         // user's rate needs the money read; writes are user administration.
         .route(
-            &rp("/users/{id}/cost-rate"),
+            &rp("/org/users/{id}/cost-rate"),
             get(user_cost_rates::get).patch(user_cost_rates::patch),
         )
         // role directory + preset lifecycle (Wave 13 lane 6, RB1): the

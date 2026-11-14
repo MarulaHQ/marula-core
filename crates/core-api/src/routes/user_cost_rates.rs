@@ -95,8 +95,8 @@ fn view(rate: Option<i32>) -> Json<UserCostRateResponse> {
     })
 }
 
-/// GET /api/users/{id}/cost-rate
-#[utoipa::path(operation_id = "user_cost_rate_get", get, path = "/api/users/{id}/cost-rate",
+/// GET /api/org/users/{id}/cost-rate
+#[utoipa::path(operation_id = "user_cost_rate_get", get, path = "/api/org/users/{id}/cost-rate",
     tag = "org-users", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = UserCostRateResponse),
@@ -123,8 +123,8 @@ pub async fn get(
     Ok(view(rate.cost_rate_minor))
 }
 
-/// PATCH /api/users/{id}/cost-rate
-#[utoipa::path(operation_id = "user_cost_rate_patch", patch, path = "/api/users/{id}/cost-rate",
+/// PATCH /api/org/users/{id}/cost-rate
+#[utoipa::path(operation_id = "user_cost_rate_patch", patch, path = "/api/org/users/{id}/cost-rate",
     tag = "org-users", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = PatchUserCostRateRequest,
     responses((status = 200, body = UserCostRateResponse),

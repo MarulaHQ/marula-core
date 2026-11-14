@@ -524,7 +524,7 @@ pub struct PatchOrgRequest {
     #[serde(default)]
     pub base_currency: Option<String>,
     /// Fallback labour cost rate the client-margin report uses when a user
-    /// has none. Same tri-state as `PATCH /api/users/{id}/cost-rate`:
+    /// has none. Same tri-state as `PATCH /api/org/users/{id}/cost-rate`:
     /// absent = leave unchanged, `null` = clear (cost unknown), integer =
     /// set. Minor units per hour; negative/out-of-range answers 422.
     #[serde(default, deserialize_with = "crate::routes::double_option")]
