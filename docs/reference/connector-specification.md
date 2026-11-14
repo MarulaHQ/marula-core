@@ -210,10 +210,11 @@ Recorded so it is not discovered twice. Each item is a row, not a wish.
 | Item | Why it fails a requirement | Owner |
 |---|---|---|
 | Microsoft 365 Graph pulls devices, not seats | It was included because "seat counts drive billing correctness" (planning doc 22 §3.1) and it cannot serve that | `m365-graph` |
-| NinjaOne and Hudu connectors are unverified TypeScript | No test file, no `test` script, and `pnpm-workspace.yaml` does not include `plugins/**`, so CI never typechecks them. They are also the two the README tells newcomers to copy (R10, R13) | `plugins/connectors/{ninjaone,hudu}` |
-| `app-bridges`, `mapbox` and `adapters-core` have no README | R13. `app-bridges` also documents no none mode (R3), and it is three standard-set rows | those folders |
-| QuickBooks and Xero export invoices and payments only | Both call themselves a "first tranche". No credit note, no void, no refund (R7 for the record types they claim) | `qbo-export-sync`, `xero-export-sync` |
-| Rewst triggers workflows and has no results path | The promise is "workflow triggers and results over the public API" | `app-bridges` |
+| NinjaOne and Hudu connectors are outside the workspace | R10, R13. They now have 85 tests between them, but `pnpm-workspace.yaml` still does not include `plugins/**`, so CI never typechecks them and they are the two packages the README tells newcomers to copy | `plugins/connectors/{ninjaone,hudu}` |
+| The NinjaOne receiver refuses every ticket event | It posts an activity onto a device, and Core's ticket event carries no device reference, so the honest answer is a typed refusal. Fixing it needs `record_links` surfaced as `linked_devices` on the ticket event | `plugins/connectors/ninjaone` |
+| QuickBooks and Xero do not yet send a void or a refund | Invoices and payments are sent, and so are credit notes. R7 stays unmet for the two record types they still do not claim. A free-standing credit note is refused; only one that adjusts an exported invoice is sent | `qbo-export-sync`, `xero-export-sync` |
+| The accounting orchestration has no end-to-end route test | Adapter wire shapes, the store and the held/failed routing are tested; the route itself compiles and its pure pieces are covered. A sandbox run would still have to confirm token refresh. It would also have to answer whether a paged read behaves the same against a real tenant, and how a rotated credential reads | `crates/core-api` |
+| Rewst triggers workflows and has no results path | The promise is "workflow triggers and results over the public API". The trigger is signed and returns; nothing accepts a result | `app-bridges` |
 | `document_links` and `record_links` are two edge tables | Deliberate, documented in ADR 0033, and the shapes match so a merge stays mechanical | — |
 
 ## 7. Answering the two questions a reviewer asks
