@@ -262,7 +262,7 @@ pub struct ConnectorRosterView {
     /// What kind of vendor this is. Empty means the connector declared none and
     /// contributes no contextual chip.
     pub product_kinds: Vec<String>,
-    pub connections: Vec<ConnectionView>,
+    pub connections: Vec<ConnectorConnectionView>,
 }
 
 /// One connection inside a connector's roster entry.
@@ -271,7 +271,7 @@ pub struct ConnectorRosterView {
 /// and "1 of 4" from these rows, and a second answer would be a second place
 /// to disagree with it.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
-pub struct ConnectionView {
+pub struct ConnectorConnectionView {
     #[schema(value_type = uuid::Uuid)]
     pub id: Uuid,
     #[schema(value_type = uuid::Uuid)]
@@ -403,8 +403,8 @@ fn view_of(
     row: ConnectionRosterRow,
     schema: Option<&SettingsSchema>,
     key: &crate::config::SecretKey,
-) -> ConnectionView {
-    ConnectionView {
+) -> ConnectorConnectionView {
+    ConnectorConnectionView {
         id: row.id,
         installation_id: row.installation_id,
         connector: row.connector,
@@ -755,8 +755,8 @@ fn connection_view(
     schema: Option<&SettingsSchema>,
     key: &crate::config::SecretKey,
     sealed: Option<&[u8]>,
-) -> ConnectionView {
-    ConnectionView {
+) -> ConnectorConnectionView {
+    ConnectorConnectionView {
         id: row.id,
         installation_id: row.installation_id,
         connector: connector.to_string(),
@@ -780,7 +780,7 @@ fn connection_view(
 // Deliberately no `Debug`: this body carries credentials, and a derived Debug is
 // how one reaches a tracing field the day somebody adds `debug!(?req)`.
 #[derive(Deserialize, utoipa::ToSchema)]
-pub struct CreateConnectionRequest {
+pub struct ConnectorCreateConnectionRequest {
     /// What the operator calls it ("NinjaOne — Acme"). Two connections of one
     /// install differ by label, so this is required.
     pub label: String,
@@ -804,9 +804,9 @@ pub struct CreateConnectionRequest {
     tag = "connectors",
     security(("bearer" = [])),
     params(("installation_id" = Uuid, Path)),
-    request_body = CreateConnectionRequest,
+    request_body = ConnectorCreateConnectionRequest,
     responses(
-        (status = 201, body = ConnectionView),
+        (status = 201, body = ConnectorConnectionView),
         (status = 404, description = "no such installation in this org, or the client is not visible"),
         (status = 422, description = "settings or credentials do not satisfy the pinned schema"),
     ))]
@@ -814,8 +814,8 @@ pub async fn connections_create(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(installation_id): Path<Uuid>,
-    Json(req): Json<CreateConnectionRequest>,
-) -> ApiResult<(axum::http::StatusCode, Json<ConnectionView>)> {
+    Json(req): Json<ConnectorCreateConnectionRequest>,
+) -> ApiResult<(axum::http::StatusCode, Json<ConnectorConnectionView>)> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_connector_admin(&authed)?;
     let org_id = authed.principal.user.org_id;
@@ -894,9 +894,9 @@ pub async fn connections_create(
 
 // --- PATCH /api/connector-connections/{id} ----------------------------------
 
-// No `Debug`, for the same reason as `CreateConnectionRequest`.
+// No `Debug`, for the same reason as `ConnectorCreateConnectionRequest`.
 #[derive(Deserialize, utoipa::ToSchema)]
-pub struct UpdateConnectionRequest {
+pub struct ConnectorUpdateConnectionRequest {
     pub label: Option<String>,
     /// `null` moves the connection back to org-wide; absent leaves it alone.
     #[serde(default, deserialize_with = "double_option")]
@@ -926,9 +926,9 @@ where
     tag = "connectors",
     security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    request_body = UpdateConnectionRequest,
+    request_body = ConnectorUpdateConnectionRequest,
     responses(
-        (status = 200, body = ConnectionView),
+        (status = 200, body = ConnectorConnectionView),
         (status = 404, description = "no such connection, or its client is not visible"),
         (status = 409, description = "the stored credential cannot be opened with this server's key"),
         (status = 422, description = "settings or credentials do not satisfy the pinned schema"),
@@ -937,8 +937,8 @@ pub async fn connections_update(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-    Json(req): Json<UpdateConnectionRequest>,
-) -> ApiResult<Json<ConnectionView>> {
+    Json(req): Json<ConnectorUpdateConnectionRequest>,
+) -> ApiResult<Json<ConnectorConnectionView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_connector_admin(&authed)?;
     let org_id = authed.principal.user.org_id;

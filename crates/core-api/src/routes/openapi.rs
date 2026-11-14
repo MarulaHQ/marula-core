@@ -1958,10 +1958,10 @@ use utoipa::OpenApi;
         crate::routes::connector_actions::ActionView,
         crate::routes::connector_actions::ConnectorRosterResponse,
         crate::routes::connector_actions::ConnectorRosterView,
-        crate::routes::connector_actions::ConnectionView,
+        crate::routes::connector_actions::ConnectorConnectionView,
         // Connector write surfaces (migration 0186)
-        crate::routes::connector_actions::CreateConnectionRequest,
-        crate::routes::connector_actions::UpdateConnectionRequest,
+        crate::routes::connector_actions::ConnectorCreateConnectionRequest,
+        crate::routes::connector_actions::ConnectorUpdateConnectionRequest,
         crate::routes::connector_actions::CreateBindingRequest,
         crate::routes::connector_actions::UpdateBindingRequest,
         crate::routes::connector_actions::BindingView,
