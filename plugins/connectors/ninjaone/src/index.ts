@@ -6,16 +6,17 @@
 //!   verify   — typed SDK read (proves key + scope + connectivity)
 //!   listen   — HTTP receiver for Marula's signed webhooks; matched
 //!              ticket events are pushed to NinjaOne, or LOGGED ONLY in
-//!              documented none mode when NinjaOne is unconfigured.
+//!              documented none mode when NinjaOne is unconfigured. The
+//!              delivery is acknowledged only after the push settles.
 //!
 //! Non-purpose: no Marula internals imported, no ticket writes back
 //! into Marula beyond the scoped key's grants, no credential vaulting.
 
 import { createServer } from "node:http";
 import { loadConfig, noneMode } from "./config.js";
+import { forwardTicketEvent } from "./delivery.js";
 import { connectMarula, verifyAccess } from "./marula.js";
-import { SIGNATURE_HEADER, verifyDelivery } from "./receiver.js";
-import { buildActivity, pushActivity } from "./ninjaone.js";
+import { WEBHOOK_PATH, createWebhookHandler } from "./server.js";
 
 async function commandVerify(): Promise<void> {
   const config = loadConfig();
@@ -37,58 +38,17 @@ async function commandListen(): Promise<void> {
       "MARULA_WEBHOOK_SECRET is required for listen — copy it from webhook creation.",
     );
   }
-  const server = createServer((req, res) => {
-    if (req.method !== "POST") {
-      res.writeHead(405).end();
-      return;
-    }
-    const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
-    req.on("end", () => {
-      const rawBody = Buffer.concat(chunks);
-      // Verify RAW BYTES before parsing anything.
-      const presented = req.headers[SIGNATURE_HEADER];
-      const signatureHeader = Array.isArray(presented) ? presented[0] : presented;
-      const outcome = verifyDelivery(
-        config.marulaWebhookSecret,
-        rawBody,
-        signatureHeader,
-      );
-      if (!outcome.ok) {
-        console.warn(`rejected delivery: ${outcome.reason}`);
-        res.writeHead(401).end();
-        return;
-      }
-      res.writeHead(200).end(); // ACK fast; processing is best-effort below.
-
-      try {
-        const envelope = JSON.parse(rawBody.toString("utf8")) as {
-          type?: string;
-          payload?: { ticket_id?: string };
-        };
-        const type = envelope.type ?? "unknown";
-        if (!type.startsWith("ticket.")) return;
-        const activity = buildActivity({
-          type,
-          ticket: envelope.payload?.ticket_id
-            ? {
-                id: envelope.payload.ticket_id,
-                number: "(fetch via SDK)",
-                title: type,
-              }
-            : undefined,
-        });
-        void pushActivity(config, "unassigned", activity).catch((err) =>
-          console.error("push failed:", err),
-        );
-      } catch (err) {
-        console.error("malformed JSON after valid signature:", err);
-      }
-    });
-  });
+  const server = createServer(
+    createWebhookHandler({
+      secret: config.marulaWebhookSecret,
+      forward: async (rawBody) => {
+        await forwardTicketEvent(config, rawBody);
+      },
+    }),
+  );
   server.listen(config.port, () => {
     console.log(
-      `receiver listening on :${config.port}` +
+      `receiver listening on :${config.port}${WEBHOOK_PATH}` +
         (noneMode(config) ? " (NONE MODE)" : ""),
     );
   });

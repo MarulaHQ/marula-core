@@ -91,6 +91,11 @@ pub struct SyncConfig {
     /// External client/organization name → Marula client name
     /// overrides (applied before case-insensitive name matching).
     pub client_aliases: BTreeMap<String, String>,
+    /// Check the URL targets a synced document carries. On by default: the
+    /// connector's promise is that a dead link is flagged, and an opt-in check
+    /// is a check that never runs. A none-mode or dry run still performs no
+    /// I/O, because the engine's probe is [`crate::links::NoLinkProbe`] there.
+    pub check_links: bool,
 }
 
 impl Default for SyncConfig {
@@ -101,6 +106,7 @@ impl Default for SyncConfig {
             auto_link_conflicts: false,
             use_system_layouts: true,
             client_aliases: Default::default(),
+            check_links: true,
         }
     }
 }
@@ -119,9 +125,22 @@ pub struct SyncReport {
     pub assets_updated: usize,
     pub documents_created: usize,
     pub documents_updated: usize,
+    /// KB articles created and updated. Articles carry no layout, so they are
+    /// counted apart from documents rather than forced through `document_layouts`.
+    pub articles_created: usize,
+    pub articles_updated: usize,
     pub records_skipped: usize,
     pub links_created: usize,
     pub links_existing: usize,
+    /// Document URL targets the run checked.
+    pub links_checked: usize,
+    /// Targets that answered `404`/`410` (or were not a URL at all). Each entry
+    /// retains the target as the document carried it.
+    pub broken_links: Vec<crate::links::BrokenLink>,
+    /// Targets that could not be verified — the guard refused them, the host
+    /// failed, or the policy disabled checking. Counted apart from broken links
+    /// so "we would not fetch this" never reads as "the document is dead".
+    pub links_unverified: usize,
     /// Relationship ends that resolved to nothing — surfaced, never
     /// silently dropped, never cascade-deleted.
     pub unresolved_links: Vec<UnresolvedLink>,
@@ -305,6 +324,100 @@ impl FieldShape {
     }
 }
 
+/// The connector-owned field a broken or unverifiable link is recorded in.
+/// Present only on layouts the connector itself created; a system layout keeps
+/// its own schema, and the run report carries the flag there.
+pub const LINK_STATUS_KEY: &str = "link_status";
+pub const LINK_TARGET_KEY: &str = "link_target";
+pub const LINK_CHECKED_AT_KEY: &str = "link_checked_at";
+
+/// The link verdicts for one record, ready to be written into its fields.
+#[derive(Debug, Default)]
+struct LinkEvidence {
+    /// (field key, target, verdict) in layout order.
+    checks: Vec<(String, String, crate::links::LinkVerdict)>,
+}
+
+impl LinkEvidence {
+    /// The rolled-up status: one dead target marks the document broken; a
+    /// refusal or a network failure is `unverified`, which is a different fact.
+    fn status(&self) -> Option<&'static str> {
+        if self.checks.is_empty() {
+            return None;
+        }
+        if self.checks.iter().any(|(_, _, v)| v.is_dead()) {
+            return Some("broken");
+        }
+        if self
+            .checks
+            .iter()
+            .any(|(_, _, v)| !matches!(v, crate::links::LinkVerdict::Ok { .. }))
+        {
+            return Some("unverified");
+        }
+        Some("ok")
+    }
+
+    /// The target the status is about: the first dead one, then the first
+    /// unverified one, then the first target checked.
+    fn flagged_target(&self) -> Option<&str> {
+        self.checks
+            .iter()
+            .find(|(_, _, v)| v.is_dead())
+            .or_else(|| {
+                self.checks
+                    .iter()
+                    .find(|(_, _, v)| !matches!(v, crate::links::LinkVerdict::Ok { .. }))
+            })
+            .or_else(|| self.checks.first())
+            .map(|(_, target, _)| target.as_str())
+    }
+
+    /// The deterministic part of the record's fingerprint. A verdict change
+    /// must update the document, or a link that died after the first sync would
+    /// stay flagged `ok` forever.
+    fn fingerprint_suffix(&self) -> String {
+        if self.checks.is_empty() {
+            return String::new();
+        }
+        let mut suffix = String::new();
+        for (key, target, verdict) in &self.checks {
+            suffix.push('|');
+            suffix.push_str(key);
+            suffix.push('=');
+            suffix.push_str(verdict.code());
+            suffix.push(':');
+            suffix.push_str(target);
+        }
+        suffix
+    }
+
+    /// Writes the flag into the shaped fields when (and only when) the target
+    /// layout declares the connector's link columns.
+    fn apply(&self, shaped: &mut FieldShape, layout: &LayoutRecord) {
+        let declares = |key: &str| layout.fields.iter().any(|f| f.key == key);
+        if let Some(status) = self.status() {
+            if declares(LINK_STATUS_KEY) {
+                shaped
+                    .fields
+                    .insert(LINK_STATUS_KEY.into(), status.to_string());
+            }
+        }
+        if let Some(target) = self.flagged_target() {
+            if declares(LINK_TARGET_KEY) {
+                shaped
+                    .fields
+                    .insert(LINK_TARGET_KEY.into(), target.to_string());
+            }
+        }
+        if !self.checks.is_empty() && declares(LINK_CHECKED_AT_KEY) {
+            shaped
+                .fields
+                .insert(LINK_CHECKED_AT_KEY.into(), chrono::Utc::now().to_rfc3339());
+        }
+    }
+}
+
 /// Shape a source record's fields to a target layout schema: keys in
 /// the schema carry; keys outside it are REPORTED, never dropped from
 /// the run's visibility and never invented into the schema.
@@ -331,9 +444,10 @@ fn shape_fields(record: &SyncRecord, layout: &LayoutRecord) -> FieldShape {
     }
 }
 
-/// The engine. Stateless beyond its configuration.
+/// The engine. Stateless beyond its configuration and the link probe.
 pub struct SyncEngine {
     config: SyncConfig,
+    probe: std::sync::Arc<dyn crate::links::LinkProbe>,
 }
 
 /// A resolved Marula endpoint for link building.
@@ -344,12 +458,26 @@ struct ResolvedEndpoint {
 }
 
 impl SyncEngine {
+    /// The shipped engine: link checking runs through [`crate::links::HttpLinkProbe`].
     pub fn new(config: SyncConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            probe: std::sync::Arc::new(crate::links::HttpLinkProbe::default()),
+        }
+    }
+
+    /// The engine with a caller-supplied probe: [`crate::links::NoLinkProbe`] for
+    /// none mode, or a deterministic stub in a test. One probe per engine, so a
+    /// run cannot mix "checked" and "unchecked" silently.
+    pub fn with_link_probe(
+        config: SyncConfig,
+        probe: std::sync::Arc<dyn crate::links::LinkProbe>,
+    ) -> Self {
+        Self { config, probe }
     }
 
     /// Run one sync pass: layouts → client index → records (assets,
-    /// documents) → links → credentials. Returns the reviewable
+    /// documents, articles) → links → credentials. Returns the reviewable
     /// report.
     pub async fn run(
         &self,
@@ -475,6 +603,27 @@ impl SyncEngine {
             Err(SinkError::Disabled) => return Ok(report),
             Err(e) => return Err(crate::model::SyncError::Sink(e.to_string())),
         };
+        let (articles_by_slug, articles_available) = match sink.list_articles().await {
+            Ok(articles) => (
+                articles
+                    .into_iter()
+                    .map(|article| (article.slug.clone(), article))
+                    .collect::<HashMap<String, crate::sink::ArticleRecord>>(),
+                true,
+            ),
+            Err(SinkError::Disabled) => return Ok(report),
+            Err(e) => {
+                // A KB surface the connector's credential cannot read must not
+                // abort the document sync. The run reports it and leaves every
+                // article alone, because creating without read-back is how a
+                // second run becomes a pile of slug conflicts.
+                report.errors.push(RunError {
+                    external_id: "*".into(),
+                    error: format!("articles unavailable this run: {e}"),
+                });
+                (HashMap::new(), false)
+            }
+        };
         let asset_index = RecordIndexes::from_assets(&assets);
         let document_index = RecordIndexes::from_documents(&documents);
         let assets_by_id: HashMap<Uuid, &AssetRecord> = assets.iter().map(|a| (a.id, a)).collect();
@@ -483,6 +632,26 @@ impl SyncEngine {
 
         // ---- Records -----------------------------------------------------------
         for record in &snapshot.records {
+            // Articles are not documents: Marula stores them in `kb_articles`
+            // with their own visibility flag, not in `document_layouts`. They
+            // are handled before the layout lookup so a layout-less record type
+            // is not counted as skipped.
+            if record.kind == LinkKind::KbArticle {
+                if !articles_available {
+                    report.records_skipped += 1;
+                    continue;
+                }
+                self.sync_article(
+                    snapshot,
+                    record,
+                    &articles_by_slug,
+                    sink,
+                    dry_run,
+                    &mut report,
+                )
+                .await;
+                continue;
+            }
             let type_name = record.type_name.clone().unwrap_or_default();
             let layout_id = layout_by_type.get(&type_name).copied().flatten();
             let Some(layout_id) = layout_id else {
@@ -529,7 +698,7 @@ impl SyncEngine {
             };
 
             // Schema shaping.
-            let shaped = shape_fields(record, layout);
+            let mut shaped = shape_fields(record, layout);
             if !shaped.missing_required.is_empty() {
                 report.missing_required.push(UnmappedRecord {
                     external_id: record.external_id.clone(),
@@ -551,7 +720,23 @@ impl SyncEngine {
                 });
             }
 
+            // Link targets on a document are customer content, so the check is
+            // guarded (see `crate::links`). The verdict is part of the record's
+            // fingerprint, so a link that dies between runs updates the document
+            // instead of being skipped as unchanged.
+            let link_evidence = if record.kind == LinkKind::Document && self.config.check_links {
+                self.check_links(record, layout, &mut report).await
+            } else {
+                LinkEvidence::default()
+            };
+            link_evidence.apply(&mut shaped, layout);
+
             let identity = record.identity(&snapshot.source);
+            let fingerprint = format!(
+                "{}{}",
+                Identity::fingerprint(record),
+                link_evidence.fingerprint_suffix()
+            );
             match record.kind {
                 LinkKind::Asset => {
                     let outcome = self
@@ -586,6 +771,8 @@ impl SyncEngine {
                             snapshot,
                             record,
                             &identity,
+                            &fingerprint,
+                            &link_evidence,
                             layout,
                             client_id,
                             &document_index,
@@ -781,17 +968,6 @@ impl SyncEngine {
         dry_run: bool,
     ) -> Result<LayoutRecord, SinkError> {
         let slug = connector_slug(&snapshot.source, &source_layout.name);
-        if dry_run {
-            // Distinct pseudo-ids keep the dry-run catalog lookups
-            // unambiguous (a nil id would collide across types).
-            return Ok(LayoutRecord {
-                id: dry_run_id(&slug),
-                slug,
-                name: format!("{} {}", source_label(&snapshot.source), source_layout.name),
-                is_system: false,
-                fields: source_layout.fields.clone(),
-            });
-        }
         let mut fields = source_layout.fields.clone();
         if !fields.iter().any(|f| f.key == SOURCE_REF_KEY) {
             fields.push(SyncField::new(
@@ -800,6 +976,45 @@ impl SyncEngine {
                 FieldKind::Text,
                 i32::try_from(fields.len()).unwrap_or(i32::MAX),
             ));
+        }
+        // A layout the connector creates declares the link columns, so a dead
+        // target lands ON the record (`link_status`/`link_target`) instead of
+        // only in the run report. A seeded system layout keeps its own schema;
+        // there the report is the flag.
+        let has_links = source_layout
+            .fields
+            .iter()
+            .any(|f| f.kind == FieldKind::Url)
+            || snapshot.records.iter().any(|r| {
+                r.type_name.as_deref() == Some(source_layout.name.as_str())
+                    && r.fields.values().any(|v| is_absolute_http(v))
+            });
+        if has_links {
+            for (key, label, kind) in [
+                (LINK_STATUS_KEY, "Link status", FieldKind::Text),
+                (LINK_TARGET_KEY, "Link target", FieldKind::Url),
+                (LINK_CHECKED_AT_KEY, "Link checked at", FieldKind::Text),
+            ] {
+                if !fields.iter().any(|f| f.key == key) {
+                    fields.push(SyncField::new(
+                        key,
+                        label,
+                        kind,
+                        i32::try_from(fields.len()).unwrap_or(i32::MAX),
+                    ));
+                }
+            }
+        }
+        if dry_run {
+            // Distinct pseudo-ids keep the dry-run catalog lookups
+            // unambiguous (a nil id would collide across types).
+            return Ok(LayoutRecord {
+                id: dry_run_id(&slug),
+                slug,
+                name: format!("{} {}", source_label(&snapshot.source), source_layout.name),
+                is_system: false,
+                fields,
+            });
         }
         let new_layout = crate::sink::NewLayout {
             slug: slug.clone(),
@@ -829,6 +1044,63 @@ impl SyncEngine {
             }
             Err(e) => Err(e),
         }
+    }
+
+    // ---- link checking ------------------------------------------------------
+
+    /// Checks every `url`-typed field the record carries under its layout.
+    ///
+    /// A target that is not an absolute `http(s)` URL is not fetched and not
+    /// called dead: it is `unchecked`, because a relative path is resolved by
+    /// the vendor's own site and this connector has no base to resolve it
+    /// against.
+    async fn check_links(
+        &self,
+        record: &SyncRecord,
+        layout: &LayoutRecord,
+        report: &mut SyncReport,
+    ) -> LinkEvidence {
+        let mut evidence = LinkEvidence::default();
+        let mut seen: Vec<String> = Vec::new();
+        for field in &layout.fields {
+            if field.kind != FieldKind::Url {
+                continue;
+            }
+            let Some(target) = record.fields.get(&field.key).map(|v| v.trim()) else {
+                continue;
+            };
+            if target.is_empty() || seen.iter().any(|s| s == target) {
+                continue;
+            }
+            seen.push(target.to_string());
+
+            let verdict = if target.starts_with("http://") || target.starts_with("https://") {
+                report.links_checked += 1;
+                self.probe.check(target).await
+            } else {
+                crate::links::LinkVerdict::Unchecked {
+                    reason: "not an absolute http(s) target".into(),
+                }
+            };
+
+            match &verdict {
+                crate::links::LinkVerdict::Ok { .. } => {}
+                crate::links::LinkVerdict::Dead { reason } => {
+                    report.broken_links.push(crate::links::BrokenLink {
+                        external_id: record.external_id.clone(),
+                        field: field.key.clone(),
+                        target: target.to_string(),
+                        verdict: verdict.code(),
+                        reason: reason.clone(),
+                    });
+                }
+                _ => report.links_unverified += 1,
+            }
+            evidence
+                .checks
+                .push((field.key.clone(), target.to_string(), verdict));
+        }
+        evidence
     }
 
     // ---- asset phase ---------------------------------------------------------
@@ -1083,6 +1355,100 @@ impl SyncEngine {
         }
     }
 
+    // ---- article phase -------------------------------------------------------
+
+    /// Syncs one KB article.
+    ///
+    /// Articles are keyed by the slug the connector mints
+    /// (`dms-<source>-article-<external id>`); Marula's KB has no custom-field
+    /// column to carry `source_ref`, and a title match is not identity. The
+    /// visibility flag is written on create and on every change, in both
+    /// directions: `client_visible` out of the source, `client_visible` into
+    /// Marula's article.
+    async fn sync_article(
+        &self,
+        snapshot: &crate::model::DmsSnapshot,
+        record: &SyncRecord,
+        articles_by_slug: &HashMap<String, crate::sink::ArticleRecord>,
+        sink: &dyn DmsSink,
+        dry_run: bool,
+        report: &mut SyncReport,
+    ) {
+        let slug = slugify(&format!(
+            "dms-{}-article-{}",
+            snapshot.source, record.external_id
+        ));
+        // An absent flag is never "public" on create: an internal article must
+        // not become client-visible because the source omitted a field. On an
+        // update, an absent flag leaves the stored value alone for the same
+        // reason.
+        let source_visibility = record.client_visible();
+        let remote = articles_by_slug.get(&slug);
+
+        match remote {
+            None => {
+                let client_visible = source_visibility.unwrap_or(false);
+                if dry_run {
+                    report.articles_created += 1;
+                    return;
+                }
+                let plan = crate::sink::ArticleCreate {
+                    title: record.title.clone(),
+                    slug: slug.clone(),
+                    body: record.body.clone(),
+                    client_visible,
+                    status: "published".into(),
+                    idempotency_key: format!(
+                        "dms-{}-article-{}",
+                        snapshot.source, record.external_id
+                    ),
+                    change_note: format!("synced from {}", snapshot.source),
+                };
+                match sink.create_article(&plan).await {
+                    Ok(_) => report.articles_created += 1,
+                    Err(e) => report.errors.push(RunError {
+                        external_id: record.external_id.clone(),
+                        error: format!("article create: {e}"),
+                    }),
+                }
+            }
+            Some(current) => {
+                let title_changed = current.title != record.title;
+                let body_changed = current.body != record.body;
+                let next_visibility = source_visibility.unwrap_or(current.client_visible);
+                let visibility_changed =
+                    source_visibility.is_some_and(|visible| visible != current.client_visible);
+                if !(title_changed || body_changed || visibility_changed) {
+                    return;
+                }
+                if dry_run {
+                    report.articles_updated += 1;
+                    return;
+                }
+                let plan = crate::sink::ArticleUpdate {
+                    title: title_changed.then(|| record.title.clone()),
+                    body: body_changed.then(|| record.body.clone()),
+                    client_visible: visibility_changed.then_some(next_visibility),
+                    status: None,
+                    idempotency_key: format!(
+                        "dms-{}-article-{}-{}",
+                        snapshot.source,
+                        record.external_id,
+                        short(&Identity::fingerprint(record))
+                    ),
+                    change_note: format!("synced from {}", snapshot.source),
+                };
+                match sink.update_article(current.id, &plan).await {
+                    Ok(_) => report.articles_updated += 1,
+                    Err(e) => report.errors.push(RunError {
+                        external_id: record.external_id.clone(),
+                        error: format!("article update: {e}"),
+                    }),
+                }
+            }
+        }
+    }
+
     // ---- document phase -------------------------------------------------------
 
     #[allow(clippy::too_many_arguments)]
@@ -1091,6 +1457,8 @@ impl SyncEngine {
         snapshot: &crate::model::DmsSnapshot,
         record: &SyncRecord,
         identity: &Identity,
+        fingerprint: &str,
+        link_evidence: &LinkEvidence,
         layout: &LayoutRecord,
         client_id: Option<Uuid>,
         index: &RecordIndexes,
@@ -1103,8 +1471,9 @@ impl SyncEngine {
     ) -> Outcome {
         let handle = identity.handle();
         let ledger_key = format!("document:{}", handle);
-        let fingerprint = Identity::fingerprint(record);
-        let shaped = shape_fields(record, layout);
+        let fingerprint = fingerprint.to_string();
+        let mut shaped = shape_fields(record, layout);
+        link_evidence.apply(&mut shaped, layout);
 
         // 1) Ledger + provenance-field resolution (same as assets).
         let mut ours: Option<Uuid> = None;
@@ -1498,15 +1867,23 @@ fn synthesize_layout(source: &str, records: &[SyncRecord], type_name: &str) -> S
         .iter()
         .filter(|r| r.type_name.as_deref() == Some(type_name))
     {
-        for key in record.fields.keys() {
-            if !fields.iter().any(|f| &f.key == key) {
-                fields.push(SyncField::new(
-                    key.clone(),
-                    key.clone(),
-                    FieldKind::Text,
-                    i32::try_from(fields.len()).unwrap_or(i32::MAX),
-                ));
+        for (key, value) in &record.fields {
+            if fields.iter().any(|f| &f.key == key) {
+                continue;
             }
+            // A value that is an absolute http(s) URL is a link, not free text:
+            // typing it here is what lets the link check find it later.
+            let kind = if is_absolute_http(value) {
+                FieldKind::Url
+            } else {
+                FieldKind::Text
+            };
+            fields.push(SyncField::new(
+                key.clone(),
+                key.clone(),
+                kind,
+                i32::try_from(fields.len()).unwrap_or(i32::MAX),
+            ));
         }
     }
     SyncLayout {
@@ -1516,6 +1893,11 @@ fn synthesize_layout(source: &str, records: &[SyncRecord], type_name: &str) -> S
         icon: "file".into(),
         fields,
     }
+}
+
+fn is_absolute_http(value: &str) -> bool {
+    let value = value.trim();
+    value.starts_with("http://") || value.starts_with("https://")
 }
 
 /// Client resolution: the snapshot's client-ref names (id → display

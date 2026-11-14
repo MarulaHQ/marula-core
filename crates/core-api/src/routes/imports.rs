@@ -2077,7 +2077,7 @@ async fn commit_insert(
                 None, // imports carry plain/markdown text; 0077 wrap-on-write applies only to editor writes
                 article.status.unwrap_or(KbArticleStatus::Draft),
                 article.client_visible,
-                ctx.user_id,
+                Some(ctx.user_id),
             )
             .await
             .map_err(|e| slug_conflict(e, "kb article"))?;

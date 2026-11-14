@@ -26,6 +26,9 @@ export const VIEW_LABELS: Record<ViewId, string> = {
   sla_outcomes: "SLA outcomes",
   gap_days: "Coverage gaps",
   first_response: "First response",
+  // The margin view is report-only: the builder refuses it as an authoring
+  // source, but the label map is keyed by every view the API can name.
+  client_margin: "Client margin",
 };
 
 export const AGG_LABELS: Record<Aggregate, string> = {

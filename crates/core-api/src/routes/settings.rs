@@ -506,6 +506,11 @@ pub struct OrgProfileResponse {
     pub ticket_prefix: String,
     /// The org's ONE base (reporting) currency (ADR 0002, FX1).
     pub base_currency: String,
+    /// Fallback labour cost rate, minor units per hour (migration 0188).
+    /// `null` = cost unknown (the margin report shows those minutes as
+    /// uncosted, never as zero-cost).
+    #[schema(nullable = true)]
+    pub default_cost_rate_minor: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -518,6 +523,13 @@ pub struct PatchOrgRequest {
     /// refused with a typed conflict while conversion snapshots exist.
     #[serde(default)]
     pub base_currency: Option<String>,
+    /// Fallback labour cost rate the client-margin report uses when a user
+    /// has none. Same tri-state as `PATCH /api/org/users/{id}/cost-rate`:
+    /// absent = leave unchanged, `null` = clear (cost unknown), integer =
+    /// set. Minor units per hour; negative/out-of-range answers 422.
+    #[serde(default, deserialize_with = "crate::routes::double_option")]
+    #[schema(value_type = Option<i64>, nullable = true)]
+    pub default_cost_rate_minor: Option<Option<i64>>,
 }
 
 /// GET /api/org — profile fields shown on General settings / the wizard.
@@ -544,6 +556,8 @@ pub async fn org_profile_get(
         .await
         .map_err(ApiError::from)?;
     let org = core_db::orgs::get_org(&mut *tx, org_id).await?;
+    let default_cost_rate_minor =
+        core_db::cost_rates::org_default_cost_rate(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     let profile = OrgProfileResponse {
         id: org.id,
@@ -551,6 +565,7 @@ pub async fn org_profile_get(
         slug: org.slug,
         ticket_prefix: org.ticket_prefix,
         base_currency: org.base_currency,
+        default_cost_rate_minor: default_cost_rate_minor.map(i64::from),
     };
     cache::caches().put_ref(key, profile.clone());
     Ok(Json(profile))
@@ -596,6 +611,15 @@ pub async fn org_profile_patch(
                 .to_string(),
         ),
     };
+    // Tri-state, validated before the transaction opens: absent leaves the
+    // column alone, `null` clears it (cost unknown), a number sets it.
+    let default_cost_rate = match req.default_cost_rate_minor {
+        None => None,
+        Some(rate) => Some(
+            rate.map(crate::routes::user_cost_rates::stored_rate)
+                .transpose()?,
+        ),
+    };
 
     crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         // Base-currency change is governed (ADR 0002): refused with a
@@ -639,11 +663,22 @@ pub async fn org_profile_patch(
             }
         }
         let org = core_db::orgs::update_profile(&mut *ctx.tx, org_id, name, prefix).await?;
+        // The fallback rate is written in the same commit as the profile: a
+        // margin run must never see the new name with the old default.
+        if let Some(rate) = default_cost_rate {
+            core_db::cost_rates::set_org_default_cost_rate(&mut *ctx.tx, org_id, rate).await?;
+        }
+        let default_cost_rate_minor =
+            core_db::cost_rates::org_default_cost_rate(&mut *ctx.tx, org_id).await?;
         ctx.emit(
             types::ORG_UPDATED,
             "org",
             Some(org_id.to_string().as_str()),
-            &serde_json::json!({ "name": org.name, "ticket_prefix": org.ticket_prefix }),
+            &serde_json::json!({
+                "name": org.name,
+                "ticket_prefix": org.ticket_prefix,
+                "default_cost_rate_minor": default_cost_rate_minor,
+            }),
         )
         .await?;
         core_db::audit::insert(
@@ -658,6 +693,7 @@ pub async fn org_profile_patch(
                 detail: serde_json::json!({
                     "name": org.name,
                     "ticket_prefix": org.ticket_prefix,
+                    "default_cost_rate_minor": default_cost_rate_minor,
                 }),
                 ip: None,
                 occurred_at: chrono::Utc::now(),
@@ -672,11 +708,19 @@ pub async fn org_profile_patch(
                 slug: org.slug,
                 ticket_prefix: org.ticket_prefix,
                 base_currency: org.base_currency,
+                default_cost_rate_minor: default_cost_rate_minor.map(i64::from),
             },
         ))
     })
     .await
-    .map(Json)
+    .map(|profile| {
+        // Read-your-write: the profile is cached under the org-settings
+        // namespace and the `org.updated` NOTIFY that clears it can land a
+        // moment later. Drop it now so a GET immediately after this PATCH
+        // cannot serve the old default.
+        cache::caches().invalidate_refs(&Caches::ref_key(Caches::NS_ORG_SETTINGS, org_id));
+        Json(profile)
+    })
 }
 
 #[cfg(test)]
@@ -710,6 +754,7 @@ mod tests {
             slug: "marula".to_string(),
             ticket_prefix: "MAR".to_string(),
             base_currency: "USD".to_string(),
+            default_cost_rate_minor: Some(4_500),
         }
     }
 

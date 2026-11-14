@@ -1,6 +1,6 @@
 //! Operational reports endpoints (the private build tracker R1; ADR 0001).
 //!
-//! Purpose: serve the eight prebuilt report kinds over HTTP — cursor-paged
+//! Purpose: serve the nine prebuilt report kinds over HTTP — cursor-paged
 //! JSON rows plus a whole-window summary block, `?format=csv` output, and
 //! RBAC scoping where managers see org-wide data and everyone else is
 //! structurally narrowed to their own rows.
@@ -64,7 +64,7 @@ fn default_limit() -> i64 {
 /// GET /api/reports/{kind} — prebuilt operational report over the read-model
 /// views. Kinds: time_by_user | time_by_client | time_by_ticket |
 /// sla_attainment | sla_breaches | ticket_throughput | ticket_aging |
-/// first_response.
+/// first_response | client_margin.
 #[utoipa::path(
     operation_id = "report_get",
     get,
@@ -91,6 +91,20 @@ pub async fn report(
         },
     )?;
     let kind = ReportKind::parse(&kind_slug).ok_or(ApiError::NotFound)?;
+    // Financial kinds carry a second gate. Margin is client-level revenue and
+    // cost: it has no personal dimension to self-scope on, so `reporting:view`
+    // alone would hand every staff member the org's profitability per client.
+    // `invoicing:view` is the permission that already governs the invoices the
+    // revenue comes from.
+    if kind == ReportKind::ClientMargin {
+        require_permission(
+            &authed.principal,
+            Permission::Matrix {
+                module: Module::Invoicing,
+                action: Action::View,
+            },
+        )?;
+    }
     core_reports::validate_limit_raw(q.limit).map_err(|e| ApiError::Validation(e.to_string()))?;
     let limit = core_reports::clamp_limit(Some(q.limit));
     let now = Utc::now();
@@ -213,6 +227,9 @@ fn kind_params(kind: ReportKind, q: &ReportQuery, now: DateTime<Utc>) -> ApiResu
         FirstResponse => KindParams::FirstResponse(core_reports::FirstResponseParams {
             window: core_reports::WindowParams { from, to },
             user_id: q.user_id,
+        }),
+        ClientMargin => KindParams::ClientMargin(core_reports::MarginParams {
+            window: core_reports::WindowParams { from, to },
         }),
     };
     Ok(p)

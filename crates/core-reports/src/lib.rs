@@ -42,11 +42,11 @@ pub use card::{
     CardRun, CardShape, CardSize, CardSpan, CardSpec, Scalar, ShapeInfo, MAX_REFRESH_MINUTES,
     MIN_REFRESH_MINUTES,
 };
-pub use catalog::{lookup_column, resolve_filter_column, ViewId};
+pub use catalog::{lookup_column, resolve_filter_column, ViewId, CLIENTS_VIEW};
 pub use error::ReportsError;
 pub use kinds::{
-    AgingParams, FirstResponseParams, KindParams, ReportKind, SlaOutcomesParams, ThroughputParams,
-    TimeByUserParams, TimeReportParams, WindowParams,
+    AgingParams, FirstResponseParams, KindParams, MarginParams, ReportKind, SlaOutcomesParams,
+    ThroughputParams, TimeByUserParams, TimeReportParams, WindowParams,
 };
 pub use params::{
     clamp_limit, resolve_window, validate_limit_raw, Scope, Window, PAGE_LIMIT_DEFAULT,

@@ -16,6 +16,9 @@ sha2 = { workspace = true }
 hmac = { workspace = true }
 subtle = { workspace = true }
 url = { workspace = true }
+# Settings-schema `pattern` (connector write path, lane writepath): the same
+# workspace `regex` core-kb already links, so this adds no new supply chain.
+regex = { workspace = true }
 utoipa = { workspace = true, optional = true, features = ["uuid", "chrono"] }
 
 sqlx = { workspace = true, optional = true }

@@ -40,6 +40,19 @@ npm run verify
 npm run listen                            # PORT defaults to 8789
 ```
 
+## Delivery contract
+
+`listen` accepts `POST /marula/hook` and nothing else (`404` elsewhere). A body
+over 64 KiB is refused with `413` while it is still being read, before the
+signature is checked. A failed push answers `502`, so the sender retries: there
+is no queue behind this receiver, and `200` means the work happened.
+
+A `client.*` event must carry `payload.id` and `payload.name`. Missing either is
+`400`, with the field named in the body, because a placeholder company in
+someone's Hudu would outlive the mistake. The Hudu nickname is built from the
+Marula client id, so two clients with similar names stay distinct and a rename
+leaves the nickname alone.
+
 ## None mode
 
 Without `HUDU_*` variables the connector runs fully functional against

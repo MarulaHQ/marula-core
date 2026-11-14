@@ -7,24 +7,43 @@
 
 import type { Config } from "./config.js";
 import { noneMode } from "./config.js";
-import type { TicketSummary } from "./marula.js";
 
-interface NinjaActivity {
+export interface TicketReference {
+  /** Marula ticket id. */
+  id: string;
+  /** Human ticket number, when the event carries it. */
+  number?: string;
+  /** Ticket title, when the event carries it. */
+  title?: string;
+}
+
+export interface NinjaActivity {
   activityType: string;
   activityContent: string;
+}
+
+/**
+ * The closest label the event can honestly support: number and title when both
+ * arrive, the number alone, then the title with its id, then the id. An absent
+ * field shortens the label; nothing is invented to fill the gap.
+ */
+function ticketLabel(ticket: TicketReference): string {
+  if (ticket.number && ticket.title) {
+    return `[${ticket.number}] ${ticket.title}`;
+  }
+  if (ticket.number) return `[${ticket.number}]`;
+  if (ticket.title) return `${ticket.title} (${ticket.id})`;
+  return ticket.id;
 }
 
 /** Builds the NinjaOne device-activity note for one Marula event. */
 export function buildActivity(event: {
   type: string;
-  ticket?: TicketSummary;
+  ticket: TicketReference;
 }): NinjaActivity {
-  const ticket = event.ticket
-    ? `[${event.ticket.number}] ${event.ticket.title}`
-    : "(ticket details not included)";
   return {
     activityType: "MARULA_EVENT",
-    activityContent: `Marula event ${event.type} for ${ticket}`,
+    activityContent: `Marula event ${event.type} for ${ticketLabel(event.ticket)}`,
   };
 }
 

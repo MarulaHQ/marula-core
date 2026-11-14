@@ -11,9 +11,12 @@
 //! ALREADY-provisioned app webhook/endpoint URL from the connector
 //! installation (the consent store) — app-level OAuth setup is the
 //! admin's provisioning step that ends before this adapter ever runs.
+pub mod card;
 pub mod rewst;
 pub mod slack;
+pub mod slack_inbound;
 pub mod teams;
+pub mod teams_inbound;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

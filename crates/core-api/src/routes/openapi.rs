@@ -316,6 +316,10 @@ use utoipa::OpenApi;
         crate::routes::settings::user_email_envelope_get,
         crate::routes::settings::org_profile_get,
         crate::routes::settings::org_profile_patch,
+        // labour cost rate (migration 0188): the write surface the client
+        // margin report was missing
+        crate::routes::user_cost_rates::get,
+        crate::routes::user_cost_rates::patch,
         // org-scoped pod-visibility matrix (Wave 12 lane 6)
         crate::routes::org_config::pod_visibility_get,
         crate::routes::org_config::pod_visibility_put,
@@ -512,6 +516,30 @@ use utoipa::OpenApi;
         crate::routes::integrations::voip_ingest,
         crate::routes::integrations::create_feed,
         crate::routes::integrations::apply_feed,
+        // Connector read surfaces (ADR 0032/0033): the resolver every
+        // contextual surface reads, and the installation-first roster.
+        crate::routes::connector_actions::external_actions,
+        crate::routes::connector_actions::roster,
+        // Connector write surfaces (migration 0186): connection, destination
+        // and capability-default mutations. Paths frozen by the contract.
+        crate::routes::connector_actions::connections_create,
+        crate::routes::connector_actions::connections_update,
+        crate::routes::connector_actions::connections_delete,
+        crate::routes::connector_actions::bindings_list,
+        crate::routes::connector_actions::bindings_create,
+        crate::routes::connector_actions::bindings_update,
+        crate::routes::connector_actions::bindings_delete,
+        crate::routes::connector_actions::capability_default_put,
+        crate::routes::connector_actions::capability_default_delete,
+
+        // Connector callbacks and the ticket share (G7/G8/G9). The four
+        // callbacks are unauthenticated transport endpoints — the vendor
+        // signature is the credential — and the share is a staff surface.
+        crate::routes::connector_inbound::slack_interactive,
+        crate::routes::connector_inbound::slack_command,
+        crate::routes::connector_inbound::teams_interactive,
+        crate::routes::connector_inbound::teams_messages,
+        crate::routes::connector_inbound::share_ticket,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::magic_link_request,
@@ -649,6 +677,15 @@ use utoipa::OpenApi;
         crate::routes::credit_notes::apply,
         crate::routes::credit_notes::refund,
         crate::routes::credit_notes::void,
+        // accounting export (claims-gaps G1–G3)
+        crate::routes::accounting_export::export_invoice,
+        crate::routes::accounting_export::export_credit_note,
+        crate::routes::accounting_export::list_runs,
+        crate::routes::accounting_export::get_run,
+        crate::routes::accounting_export::read_ledger,
+        crate::routes::accounting_export::list_tax_mappings,
+        crate::routes::accounting_export::upsert_tax_mapping,
+        crate::routes::accounting_export::delete_tax_mapping,
         // quote builder + catalog + sales pipeline (Wave 12 lane 2)
         crate::routes::catalog::create,
         crate::routes::catalog::list,
@@ -1075,6 +1112,35 @@ use utoipa::OpenApi;
         core_domain::entities::export::ExportComment,
         core_domain::entities::export::ExportTimeEntry,
         core_domain::entities::export::ExportFieldValue,
+        // G13 coverage: the money documents, assets, knowledge base, docs
+        // platform, audit stream and plugin/connector state the bundle
+        // carries so a move does not silently drop them.
+        core_domain::entities::export::ExportContract,
+        core_domain::entities::export::ExportInvoiceRun,
+        core_domain::entities::export::ExportInvoice,
+        core_domain::entities::export::ExportInvoiceLine,
+        core_domain::entities::export::ExportInvoicePayment,
+        core_domain::entities::export::ExportCreditNote,
+        core_domain::entities::export::ExportCreditNoteApplication,
+        core_domain::entities::export::ExportAsset,
+        core_domain::entities::export::ExportKbCategory,
+        core_domain::entities::export::ExportKbArticle,
+        core_domain::entities::export::ExportBoardOperational,
+        core_domain::entities::export::ExportBoardDetails,
+        core_domain::entities::export::ExportBoardStatusDetails,
+        core_domain::entities::export::ExportAuditEvent,
+        core_domain::entities::export::ExportPluginInstall,
+        core_domain::entities::export::ExportConnectorConnection,
+        core_domain::entities::export::ExportConnectorBinding,
+        core_domain::entities::export::ExportCapabilityDefault,
+        core_domain::entities::export::ExportExternalRef,
+        core_domain::entities::export::ExportRecordLink,
+        core_domain::entities::export::ExportDocument,
+        core_domain::entities::export::ExportDocumentVersion,
+        core_domain::entities::export::ExportDocumentLink,
+        core_domain::entities::export::ExportTag,
+        core_domain::entities::export::ExportTicketTag,
+        core_domain::entities::export::ExportAttachment,
         crate::auth::handlers::RegisterRequest,
         crate::auth::handlers::LoginRequest,
         // Wave 19 lane 5 recovery-flow DTOs (Scope B) + admin override.
@@ -1477,6 +1543,8 @@ use utoipa::OpenApi;
         crate::routes::settings::EmailTokenView,
         crate::routes::settings::OrgProfileResponse,
         crate::routes::settings::PatchOrgRequest,
+        crate::routes::user_cost_rates::UserCostRateResponse,
+        crate::routes::user_cost_rates::PatchUserCostRateRequest,
         crate::routes::email_admin::InboundSettingsResponse,
         crate::routes::email_admin::PutInboundSettingsRequest,
         crate::routes::email_admin::PutBoardAddressRequest,
@@ -1710,6 +1778,17 @@ use utoipa::OpenApi;
         crate::routes::credit_notes::VoidCreditNoteRequest,
         crate::routes::credit_notes::CreditNoteMutationResponse,
         crate::routes::credit_notes::CreditNoteAllocationResponse,
+        // accounting export (claims-gaps G1–G3)
+        crate::routes::accounting_export::ExportRequest,
+        crate::routes::accounting_export::ExportRunView,
+        crate::routes::accounting_export::ExportReceiptView,
+        crate::routes::accounting_export::RunListQuery,
+        crate::routes::accounting_export::LedgerView,
+        crate::routes::accounting_export::LedgerAccountView,
+        crate::routes::accounting_export::TaxCodeView,
+        crate::routes::accounting_export::TaxMappingView,
+        crate::routes::accounting_export::UpsertTaxMappingRequest,
+        crate::routes::accounting_export::TaxMappingListQuery,
         // quote builder + catalog + sales pipeline (Wave 12 lane 2)
         crate::routes::catalog::CreateCatalogItemRequest,
         crate::routes::catalog::UpdateCatalogItemRequest,
@@ -1907,6 +1986,29 @@ use utoipa::OpenApi;
         crate::routes::integrations::PricingFeedBatchResponse,
         crate::routes::integrations::PricingFeedApplyResponse,
         crate::routes::integrations::PricingFeedOutcomeView,
+        // Connector read surfaces (ADR 0032/0033)
+        crate::routes::connector_actions::ExternalActionsResponse,
+        crate::routes::connector_actions::CapabilityView,
+        crate::routes::connector_actions::ProviderView,
+        crate::routes::connector_actions::ActionView,
+        crate::routes::connector_actions::ConnectorRosterResponse,
+        crate::routes::connector_actions::ConnectorRosterView,
+        crate::routes::connector_actions::ConnectorConnectionView,
+        // Connector write surfaces (migration 0186)
+        crate::routes::connector_actions::ConnectorCreateConnectionRequest,
+        crate::routes::connector_actions::ConnectorUpdateConnectionRequest,
+        crate::routes::connector_actions::CreateBindingRequest,
+        crate::routes::connector_actions::UpdateBindingRequest,
+        crate::routes::connector_actions::BindingView,
+        crate::routes::connector_actions::BindingListResponse,
+        crate::routes::connector_actions::CapabilityDefaultRequest,
+        crate::routes::connector_actions::CapabilityDefaultView,
+        crate::routes::connector_actions::CapabilityScopeQuery,
+
+        // Connector callbacks and the ticket share (G7/G8/G9)
+        crate::routes::connector_inbound::ShareTicketRequest,
+        crate::routes::connector_inbound::ShareTicketResponse,
+        crate::routes::connector_inbound::SharedChannelView,
         crate::routes::roles::UpdateRoleRequest,
         core_domain::entities::PluginPublisherVerification,
         core_domain::entities::PluginRating,

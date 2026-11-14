@@ -2,8 +2,8 @@
 
 First-party documentation-system (DMS) sync adapter for Project Marula —
 **IT Glue / Hudu exports + generic REST**, riding the PUBLIC Marula API
-only (Apache-2.0; separate license from the AGPL core, same posture as the
-QBO/Xero export-sync crates).
+only (Apache-2.0, a separate license from the AGPL core, with the same posture
+as the QBO/Xero export-sync crates).
 
 ## Purpose
 
@@ -20,8 +20,8 @@ the API/connector seam:
   identity keys (source GUID, serial, hostname+domain). A source's second
   sync updates its own record, never creates a twin. Ambiguous or foreign
   deterministic matches become reviewable merge candidates with evidence —
-  never silent overwrites. Curated (human-edited) fields beat observed
-  source churn; the source's newer value is reported as one-click
+  never silent overwrites. A field a technician edited beats observed source
+  churn. The source's newer value is reported as one-click
   "accept the new value" evidence. Adoption of foreign matches exists
   behind `auto_link_conflicts` (default OFF).
 * **Sink** — the Marula side over public v1 REST (`x-api-key` machine
@@ -39,10 +39,34 @@ the API/connector seam:
   out in the SAME export formats (`render_it_glue_export`,
   `render_hudu_export`), or push neutral records to a generic REST
   endpoint (`RestPushTarget`).
+* **Link checking** — a document's URL targets are verified during the
+  sync. A dead target (`404`/`410`) lands flagged on the record and in the
+  run report, with the target retained. The check is guarded, as the next section explains.
+* **Articles** — Hudu articles become Marula KB articles through
+  `/api/kb/articles`, and the visibility flag crosses in both directions
+  (Hudu `public` ↔ Marula `client_visible`).
 * **None mode** — `NoneDmsSink` is the shipped default sink: zero network,
   every call returns `Disabled`, and the engine's report honestly says
   "would have synced". A connector is an enhancement, never a
   prerequisite.
+
+## Link checking is an SSRF surface
+
+A link target comes from the customer's documentation, so fetching it is a
+server-side request on the opposite party's behalf. `links.rs` refuses
+anything that is not `http`/`https`. It refuses loopback, link-local,
+private, CGNAT, unique-local and the RFC 5737 documentation ranges. It
+resolves a name once and judges every answer, then pins the connection to
+the addresses it judged. It follows no redirect, bounds the timeout, and
+sends `HEAD` so no response body is read. The verdicts are separate facts:
+`dead` (404 or 410), `unreachable`, `refused`, and `unchecked`. A refused
+address is not a broken document.
+
+The ranges mirror `core-domain::egress::address_is_public`. The duplication is
+deliberate: a connector may not import a `crates/` module (R2).
+
+`SyncConfig::check_links` is on by default. A none-mode run passes
+`NoLinkProbe`, which performs no I/O.
 
 ## Vault boundary (binding)
 
@@ -53,7 +77,7 @@ explicitly maps them. Two gates hold by default:
    when constructed with `include_credentials()`; without it, password
    records are skipped entirely (never leaked as document content).
 2. **Engine gate** — `SyncConfig::map_credentials` (default `false`)
-   counts and skips credentials; when turned on, each secret crosses the
+   counts and skips credentials. When turned on, each secret crosses the
    seam EXACTLY ONCE to the audited `POST /api/passwords` vault path
    (sealed AES-256-GCM at rest server-side).
 
@@ -89,7 +113,7 @@ let report = SyncEngine::new(SyncConfig::default())
     .await?;
 
 // 4. The report is the review surface: created/updated, merge
-//    candidates (never auto-merged), curated conflicts, unmapped
+//    candidates (never auto-merged), human-edited conflicts, unmapped
 //    fields, unresolved links, credentials skipped/mapped.
 println!("{}", serde_json::to_string_pretty(&report)?);
 ```
@@ -106,15 +130,14 @@ No OAuth/token refresh (operators rotate scoped keys in their own secret
 store), no Marula schema changes (external shapes map onto
 `document_layouts` / `device_assets` / `document_links` as-is — expected
 migration: NONE), no new event families (writes ride the registered
-`asset.*` / `document.*` contract events by construction), no server-side
-merge-queue UI (the ADR 0003 merge-queue surface is a future
-ConfigItem-track concern), and no vendor write-API clients (parity push
+`asset.*` / `document.*` contract events by construction), no merge queue UI on the server (that surface belongs to the ADR 0003
+ConfigItem track), and no vendor write-API clients (parity push
 ships the export renderers + generic REST first).
 
 ## Tests
 
 `cargo test -p dms-sync` — fixture round-trips (sample IT Glue / Hudu
 exports under `tests/fixtures/`), engine conformance (no twins, merge
-candidates, curated-beats-observed, vault boundary, system-layout
-mapping, dry run, none mode), and stub-server wire conformance for the
+candidates, edited values that beat observed churn, vault boundary, system-layout
+mapping, dry run, none mode), plus stub-server wire conformance for the
 REST sink/source/push targets.

@@ -371,7 +371,7 @@ async fn kb_article_events_index_content_and_deleted_drops_it() {
         None,
         core_domain::entities::KbArticleStatus::Published,
         true,
-        author,
+        Some(author),
     )
     .await
     .expect("article insert");
@@ -465,7 +465,7 @@ async fn draft_articles_index_and_archived_drop_the_entry() {
         None,
         core_domain::entities::KbArticleStatus::Draft,
         true,
-        author,
+        Some(author),
     )
     .await
     .expect("article insert");

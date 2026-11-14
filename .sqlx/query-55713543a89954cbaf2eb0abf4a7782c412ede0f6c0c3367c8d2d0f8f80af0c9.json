@@ -1,0 +1,190 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, client_id, site_id, tag, name, kind, status, layout_id, fields,\n                  curated_fields, identity_keys, ownership, rental_vendor, rental_start,\n                  rental_end, rental_cost_minor, rental_currency, rental_cycle,\n                  purchase_date, purchase_cost_minor, purchase_currency,\n                  depreciation_method, useful_life_months, salvage_value_minor,\n                  depreciation_rate_bps, merged_into_id, scope, created_at, updated_at\n           FROM device_assets WHERE org_id = $1\n           ORDER BY client_id NULLS FIRST, tag, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "site_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "layout_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "curated_fields",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "identity_keys",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "ownership",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "rental_vendor",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "rental_start",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 14,
+        "name": "rental_end",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 15,
+        "name": "rental_cost_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 16,
+        "name": "rental_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "rental_cycle",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "purchase_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 19,
+        "name": "purchase_cost_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 20,
+        "name": "purchase_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
+        "name": "depreciation_method",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 22,
+        "name": "useful_life_months",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 23,
+        "name": "salvage_value_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 24,
+        "name": "depreciation_rate_bps",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 25,
+        "name": "merged_into_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 26,
+        "name": "scope",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 27,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 28,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "55713543a89954cbaf2eb0abf4a7782c412ede0f6c0c3367c8d2d0f8f80af0c9"
+}

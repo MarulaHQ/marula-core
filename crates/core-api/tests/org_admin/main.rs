@@ -2,11 +2,14 @@
 //! of 13).
 //!
 //! Cargo treats `tests/<dir>/main.rs` as a single target named `<dir>`, so the
-//! eight `mod` lines below compile and link into one binary instead of eight.
+//! `mod` lines below compile and link into one binary instead of eight.
 //! Each module is one former `tests/` target, moved with its tests unchanged:
 //! only the duplicated harness at the top of each file now comes from
 //! `common`, so `cargo test --test org_admin <name>` selects the same
-//! functions it did in the separate targets.
+//! functions it did in the separate targets. Two later modules joined the
+//! same binary rather than paying for a target of their own: the labour
+//! cost-rate routes (`user_cost_rate_flow`) and the docs connector's
+//! machine-key article surface (`kb_machine_key_flow`).
 //!
 //! What the merged binary shares that separate ones did not: one process, one
 //! tracing subscriber, one set of process-global statics and one pool per
@@ -17,6 +20,7 @@
 mod common;
 
 mod byok_flow;
+mod kb_machine_key_flow;
 mod onboarding_flow;
 mod org_custom_domain_flow;
 mod org_suspension_flow;
@@ -24,3 +28,4 @@ mod org_usage_flow;
 mod org_users_flow;
 mod settings_flow;
 mod settings_gaps_flow;
+mod user_cost_rate_flow;

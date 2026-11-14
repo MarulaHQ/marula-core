@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, installation_id, scope_client_id, label, settings,\n                (secrets_encrypted IS NOT NULL) AS \"has_sealed_credential!\", status,\n                status_detail, last_success_at, last_failure_at, created_at, updated_at\n         FROM connector_connections WHERE org_id = $1 ORDER BY label, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "installation_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "scope_client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "settings",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "has_sealed_credential!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "status_detail",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "last_success_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "last_failure_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      null,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "523b9404fc293c45ef48bf3c8654a1ffbe0905c830b5e711d42ff3dcd5b1e67a"
+}

@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, actor_kind, actor_id, action, entity_type, entity_id, detail, ip,\n                occurred_at\n         FROM audit_events WHERE org_id = $1 ORDER BY occurred_at, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "actor_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "actor_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "action",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "entity_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "entity_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "detail",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "ip",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "occurred_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "87673d88d564f36edaf9197fe3ed47b644413a7852431bc81200ff2aa2c15e5d"
+}

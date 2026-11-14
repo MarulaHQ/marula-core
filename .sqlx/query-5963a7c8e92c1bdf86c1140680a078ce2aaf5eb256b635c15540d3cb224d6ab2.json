@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, description, inbound_address, board_group_id\n         FROM boards WHERE org_id = $1 ORDER BY name, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "inbound_address",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "board_group_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "5963a7c8e92c1bdf86c1140680a078ce2aaf5eb256b635c15540d3cb224d6ab2"
+}

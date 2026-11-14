@@ -287,3 +287,152 @@ async fn per_record_failure_never_aborts_the_batch() {
     assert_eq!(report.errors[0].external_id, "9001");
     assert_eq!(seen.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
+
+// --- NinjaOne alerts (G4) ----------------------------------------------------
+
+fn ninjaone_alert_fixture() -> Value {
+    serde_json::from_str(include_str!("../tests/fixtures/ninjaone_alert.json")).unwrap()
+}
+
+#[test]
+fn ninjaone_alert_maps_to_one_ingest_document() {
+    let mapped = vendors::map_ninjaone_alert(&ninjaone_alert_fixture()).expect("maps");
+    let vendors::NinjaOneEvent::Alert(alert) = mapped else {
+        panic!("an active condition is an alert");
+    };
+
+    // Stable identity: the vendor's uid, unchanged across deliveries.
+    assert_eq!(alert.dedup_key, "5f0c2a9e-6a7b-4c1d-9e2f-8a1b2c3d4e5f");
+    // Storm identity: device + condition, not the alert id.
+    assert_eq!(alert.correlation_key, "4242:DISK_SPACE");
+    assert_eq!(alert.severity.as_str(), "critical");
+    assert_eq!(alert.title, "Drive C: is 96% full (ACME-MAIL-01)");
+    assert_eq!(alert.occurred_at.as_deref(), Some("2026-11-14T09:12:00Z"));
+    assert_eq!(alert.attributes["condition"], json!("DISK_SPACE"));
+    assert_eq!(alert.attributes["data"]["percentFree"], json!(4));
+
+    // The body is the published ingest request, correlation_key included.
+    let body = alert.ingest_body();
+    assert_eq!(body["dedup_key"], json!(alert.dedup_key));
+    assert_eq!(body["correlation_key"], json!("4242:DISK_SPACE"));
+    assert_eq!(body["severity"], json!("critical"));
+    assert_eq!(body["title"], json!("Drive C: is 96% full (ACME-MAIL-01)"));
+}
+
+#[test]
+fn ninjaone_severity_is_total_and_never_guesses_critical() {
+    use vendors::AlertSeverity;
+    assert_eq!(
+        vendors::ninjaone_alerts::severity_of(Some("CRITICAL")),
+        AlertSeverity::Critical
+    );
+    assert_eq!(
+        vendors::ninjaone_alerts::severity_of(Some("MAJOR")),
+        AlertSeverity::Warning
+    );
+    assert_eq!(
+        vendors::ninjaone_alerts::severity_of(Some("WARNING")),
+        AlertSeverity::Warning
+    );
+    assert_eq!(
+        vendors::ninjaone_alerts::severity_of(Some("MINOR")),
+        AlertSeverity::Info
+    );
+    assert_eq!(
+        vendors::ninjaone_alerts::severity_of(Some("NONE")),
+        AlertSeverity::Info
+    );
+    // Unknown and absent default to warning: visible, and P2 rather than P1.
+    assert_eq!(
+        vendors::ninjaone_alerts::severity_of(Some("BANANA")),
+        AlertSeverity::Warning
+    );
+    assert_eq!(
+        vendors::ninjaone_alerts::severity_of(None),
+        AlertSeverity::Warning
+    );
+}
+
+#[test]
+fn ninjaone_storm_alerts_share_a_key_and_keep_their_own_dedupe_keys() {
+    let first = vendors::map_ninjaone_alert(&ninjaone_alert_fixture()).unwrap();
+    // The same condition on the same device, reported again with a new uid.
+    let mut second_payload = ninjaone_alert_fixture();
+    second_payload["uid"] = json!("9b8c7d6e-5f4a-3b2c-1d0e-9f8a7b6c5d4e");
+    second_payload["createTime"] = json!("2026-11-14T09:20:00Z");
+    let second = vendors::map_ninjaone_alert(&second_payload).unwrap();
+
+    let (vendors::NinjaOneEvent::Alert(a), vendors::NinjaOneEvent::Alert(b)) = (first, second)
+    else {
+        panic!("both are alerts");
+    };
+    assert_eq!(a.correlation_key, b.correlation_key, "one storm");
+    assert_ne!(
+        a.dedup_key, b.dedup_key,
+        "two distinct alerts, so the count can rise"
+    );
+}
+
+#[test]
+fn a_repeated_delivery_is_one_event_and_the_count_moves() {
+    use vendors::StormDecision;
+    let mut coalescer = vendors::StormCoalescer::new(600);
+    let payload = ninjaone_alert_fixture();
+
+    // One payload from a batch of three: a repeat and a different alert.
+    let mut repeated = payload.clone();
+    repeated["status"] = json!("STARTED");
+    let mut other_device = payload.clone();
+    other_device["deviceId"] = json!(9001);
+    other_device["uid"] = json!("11111111-2222-3333-4444-555555555555");
+
+    let (decisions, refusals) = vendors::map_ninjaone_alerts(
+        &[payload.clone(), repeated, other_device],
+        &mut coalescer,
+        1_700_000_000,
+    );
+    assert!(refusals.is_empty());
+    assert_eq!(decisions.len(), 3);
+    assert!(matches!(&decisions[0], StormDecision::Send(a) if a.dedup_key.starts_with("5f0c")));
+    assert!(matches!(
+        &decisions[1],
+        StormDecision::Repeat { repeats: 2, .. }
+    ));
+    assert!(matches!(&decisions[2], StormDecision::Send(_)));
+
+    // The same uid after the window is a new delivery again.
+    let (later, _) = vendors::map_ninjaone_alerts(&[payload], &mut coalescer, 1_700_000_000 + 601);
+    assert!(matches!(&later[0], StormDecision::Send(_)));
+}
+
+#[test]
+fn ninjaone_resolved_conditions_do_not_open_a_ticket() {
+    let mut resolved = ninjaone_alert_fixture();
+    resolved["status"] = json!("RESOLVED");
+    let event = vendors::map_ninjaone_alert(&resolved).unwrap();
+    let vendors::NinjaOneEvent::Resolved {
+        dedup_key,
+        correlation_key,
+    } = event
+    else {
+        panic!("a resolved condition is not an alert");
+    };
+    assert_eq!(dedup_key, "5f0c2a9e-6a7b-4c1d-9e2f-8a1b2c3d4e5f");
+    assert_eq!(correlation_key, "4242:DISK_SPACE");
+
+    // A payload with no identity at all is refused, never fabricated.
+    assert!(vendors::map_ninjaone_alert(&json!({"message": "mystery"})).is_err());
+}
+
+#[test]
+fn ninjaone_alert_without_uid_keys_on_device_and_condition() {
+    let mut payload = ninjaone_alert_fixture();
+    payload.as_object_mut().unwrap().remove("uid");
+    let vendors::NinjaOneEvent::Alert(alert) = vendors::map_ninjaone_alert(&payload).unwrap()
+    else {
+        panic!("alert");
+    };
+    // Stable: derived from the condition's start time, never receipt time.
+    assert_eq!(alert.dedup_key, "4242:DISK_SPACE:2026-11-14T09:12:00Z");
+    assert_eq!(alert.correlation_key, "4242:DISK_SPACE");
+}

@@ -8,6 +8,7 @@
 //! Non-purpose: no business rules. Decisions belong in core-domain; this
 //! crate persists and retrieves.
 
+pub mod accounting_export;
 pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerting;
@@ -27,6 +28,8 @@ pub mod client_completeness;
 pub mod clients;
 pub mod config_identity;
 pub mod connector;
+pub mod connector_connections;
+pub mod connector_messaging;
 pub mod consumer;
 pub mod contracts;
 pub mod csat;
@@ -36,6 +39,7 @@ pub mod decision;
 // Dev-tool surface (the private build tracker DX1–DX2): only reachable behind
 // MARULA_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
 // without it.
+pub mod cost_rates;
 pub mod costs;
 pub mod credit_notes;
 pub mod dead_work;
@@ -163,6 +167,11 @@ pub enum DbError {
     /// already-billed cost line). The API layer maps this to 409.
     #[error("conflict: {0}")]
     Conflict(String),
+    /// A stored value outside the closed vocabulary its column's CHECK allows.
+    /// Reachable only when a migration and the code have drifted, so it is
+    /// corruption rather than a caller error, and a 500 is the honest answer.
+    #[error("corrupt row: {0}")]
+    Corrupt(String),
 }
 
 impl DbError {

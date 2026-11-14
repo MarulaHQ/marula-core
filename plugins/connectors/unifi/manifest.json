@@ -1,0 +1,41 @@
+{
+  "name": "unifi",
+  "version": "1.0.0",
+  "interface_version": 1,
+  "description": "UniFi Network inventory and alerts. Reads adopted devices from each client's controller, feeds configurations and interfaces, forwards signed alerts, and links a configuration to its device page in the controller that owns it.",
+  "artifact_kind": "http_connector",
+  "capabilities": ["clients.write"],
+  "product_kinds": ["network"],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "controller_url": {
+        "type": "string",
+        "title": "Controller origin",
+        "description": "The controller's own origin, for example https://unifi.example.com. Each client connection names its own controller."
+      },
+      "site": {
+        "type": "string",
+        "title": "Site",
+        "description": "The controller site this connection serves, as the controller names it in its URL."
+      },
+      "api_key": {
+        "type": "string",
+        "title": "API key",
+        "writeOnly": true,
+        "description": "Minted in Network > Settings > Control Plane > Integrations."
+      }
+    },
+    "required": ["controller_url", "api_key"]
+  },
+  "connector_surfaces": {
+    "base_url_key": "controller_url",
+    "external_refs": [
+      {
+        "record": "configuration",
+        "external_kind": "device",
+        "open_url": "{base_url}/manage/{settings.site}/devices/{external_id}"
+      }
+    ]
+  }
+}

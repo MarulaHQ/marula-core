@@ -7,15 +7,16 @@
 //!   listen   — HTTP receiver for Marula's signed webhooks; matched
 //!              client events are mirrored to Hudu companies, or LOGGED
 //!              ONLY in documented none mode when Hudu is unconfigured.
+//!              The delivery is acknowledged only after the push settles.
 //!
 //! Non-purpose: no Marula internals imported, no credential vaulting,
 //! no asset/KB sync (that is a Stage 3 adapter concern).
 
 import { createServer } from "node:http";
 import { loadConfig, noneMode } from "./config.js";
+import { forwardClientEvent } from "./delivery.js";
 import { connectMarula, verifyAccess, type ClientSummary } from "./marula.js";
-import { SIGNATURE_HEADER, verifyDelivery } from "./receiver.js";
-import { buildCompany, pushCompany } from "./hudu.js";
+import { WEBHOOK_PATH, createWebhookHandler } from "./server.js";
 
 async function commandVerify(): Promise<void> {
   const config = loadConfig();
@@ -37,50 +38,17 @@ async function commandListen(): Promise<void> {
       "MARULA_WEBHOOK_SECRET is required for listen — copy it from webhook creation.",
     );
   }
-  const server = createServer((req, res) => {
-    if (req.method !== "POST") {
-      res.writeHead(405).end();
-      return;
-    }
-    const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
-    req.on("end", () => {
-      const rawBody = Buffer.concat(chunks);
-      const presented = req.headers[SIGNATURE_HEADER];
-      const signatureHeader = Array.isArray(presented) ? presented[0] : presented;
-      const outcome = verifyDelivery(
-        config.marulaWebhookSecret,
-        rawBody,
-        signatureHeader,
-      );
-      if (!outcome.ok) {
-        console.warn(`rejected delivery: ${outcome.reason}`);
-        res.writeHead(401).end();
-        return;
-      }
-      res.writeHead(200).end();
-
-      try {
-        const envelope = JSON.parse(rawBody.toString("utf8")) as {
-          type?: string;
-          payload?: Record<string, unknown>;
-        };
-        const type = envelope.type ?? "unknown";
-        if (!type.startsWith("client.")) return;
-        const name =
-          (envelope.payload?.["name"] as string | undefined) ??
-          "(fetch via SDK)";
-        void pushCompany(config, buildCompany({ id: name, name })).catch(
-          (err) => console.error("push failed:", err),
-        );
-      } catch (err) {
-        console.error("malformed JSON after valid signature:", err);
-      }
-    });
-  });
+  const server = createServer(
+    createWebhookHandler({
+      secret: config.marulaWebhookSecret,
+      forward: async (rawBody) => {
+        await forwardClientEvent(config, rawBody);
+      },
+    }),
+  );
   server.listen(config.port, () => {
     console.log(
-      `receiver listening on :${config.port}` +
+      `receiver listening on :${config.port}${WEBHOOK_PATH}` +
         (noneMode(config) ? " (NONE MODE)" : ""),
     );
   });

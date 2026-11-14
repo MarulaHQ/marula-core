@@ -456,7 +456,7 @@ async fn deletion_propagation_and_append_only_receipts() {
         None,
         KbArticleStatus::Published,
         false,
-        author,
+        Some(author),
     )
     .await
     .expect("create kb article");

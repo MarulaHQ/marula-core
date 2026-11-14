@@ -127,6 +127,11 @@ pub fn view_blurb(view: ViewId) -> &'static str {
                                   the minutes it took — the view behind response-time medians and \
                                   slowest-first lists"
         }
+        ViewId::ClientMargin => {
+            "one row per client per money event, with invoiced revenue, costed \
+                                  labour and the margin between them — read-only here: it backs the \
+                                  built-in client_margin report, and authoring a spec on it is refused"
+        }
     }
 }
 
@@ -134,6 +139,14 @@ pub fn view_blurb(view: ViewId) -> &'static str {
 /// view reads correctly the day it ships, as `gap_days` already does.
 fn view_words(view: ViewId) -> String {
     view.slug().replace('_', " ")
+}
+
+/// The views report authoring may target. Financial read models back one
+/// prebuilt report and are refused to stored specs (`ViewId::authorable`), so
+/// the authoring prompt must not offer them either — a model that picks one
+/// would produce a draft the registry rejects.
+fn authorable_views() -> impl Iterator<Item = ViewId> {
+    ViewId::ALL.into_iter().filter(|v| v.authorable())
 }
 
 /// One catalogue shape as the prompt sees it. Mirrors
@@ -239,7 +252,7 @@ pub fn report_authoring_system_prompt() -> String {
     );
 
     prompt.push_str("VIEW CATALOGUE (slug — what it holds):\n");
-    for view in ViewId::ALL {
+    for view in authorable_views() {
         prompt.push_str(&format!("- {} — {}\n", view.slug(), view_blurb(view)));
     }
 
@@ -1769,7 +1782,9 @@ pub fn measure_verification(outcomes: &[ReportAuthoringOutcome]) -> Verification
 pub fn measure_prompt_footprint() -> (usize, usize, usize) {
     let compact = report_authoring_system_prompt().len();
     let mut inline = String::new();
-    for view in ViewId::ALL {
+    let mut views = 0usize;
+    for view in authorable_views() {
+        views += 1;
         inline.push_str(view.slug());
         inline.push_str(view_blurb(view));
         for column in view.columns() {
@@ -1778,7 +1793,7 @@ pub fn measure_prompt_footprint() -> (usize, usize, usize) {
         }
         inline.push_str(&view.filterable().join(","));
     }
-    (compact, inline.len(), ViewId::ALL.len())
+    (compact, inline.len(), views)
 }
 
 // ---------------------------------------------------------------------------
@@ -2037,7 +2052,7 @@ pub async fn author(
             resolution: call.resolution.to_string(),
         },
         catalogue: AuthorReportCatalogue {
-            views: ViewId::ALL.len(),
+            views: authorable_views().count(),
             shapes: core_reports::shape_catalogue().len(),
             rules: core_reports::rules().len(),
             prompt_chars: report_authoring_system_prompt().len(),
