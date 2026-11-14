@@ -61,6 +61,7 @@ pub mod clients;
 pub mod config_items;
 pub mod connector;
 pub mod connector_actions;
+pub mod connector_inbound;
 pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
@@ -532,6 +533,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // Calendar sync (Wave 14 lane 2): the unauthenticated, token-
         // scoped OUTBOUND feed — the external calendar subscribes to it.
         .merge(calendar_sync::public_routes(gen))
+        // Connector callbacks (G7/G9): Slack and Teams post here with no
+        // Marula session, because the vendor signature IS the credential.
+        // The handlers read the raw bytes first and verify a timestamped HMAC
+        // (Slack) or the Bot Framework token (Teams) before anything parses.
+        .merge(connector_inbound::public_routes(gen))
         // Stripe webhook receiver (Wave 22): unauthenticated by design —
         // the Stripe-Signature HMAC is the auth; the handler rejects
         // typed 403 without a valid signature or configured secret.
@@ -834,6 +840,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         .route(&rp("/tickets/{id}/status"), post(tickets::change_status))
         .route(&rp("/tickets/{id}/sla"), get(tickets::sla_status))
+        // Share the ticket card into a bound channel (G8). Staff surface: the
+        // caller must be able to read the ticket, and a restricted client's
+        // ticket is refused rather than redacted into a wider audience.
+        .route(
+            &rp("/tickets/{id}/share"),
+            post(connector_inbound::share_ticket),
+        )
         // ephemeral presence (Wave 12 lane 12): who is viewing/editing
         // what; in-memory TTL store, transitions ride the event stream.
         .route(

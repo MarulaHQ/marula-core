@@ -516,6 +516,14 @@ use utoipa::OpenApi;
         // contextual surface reads, and the installation-first roster.
         crate::routes::connector_actions::external_actions,
         crate::routes::connector_actions::roster,
+        // Connector callbacks and the ticket share (G7/G8/G9). The four
+        // callbacks are unauthenticated transport endpoints — the vendor
+        // signature is the credential — and the share is a staff surface.
+        crate::routes::connector_inbound::slack_interactive,
+        crate::routes::connector_inbound::slack_command,
+        crate::routes::connector_inbound::teams_interactive,
+        crate::routes::connector_inbound::teams_messages,
+        crate::routes::connector_inbound::share_ticket,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::magic_link_request,
@@ -1919,6 +1927,10 @@ use utoipa::OpenApi;
         crate::routes::connector_actions::ConnectorRosterResponse,
         crate::routes::connector_actions::ConnectorRosterView,
         crate::routes::connector_actions::ConnectionView,
+        // Connector callbacks and the ticket share (G7/G8/G9)
+        crate::routes::connector_inbound::ShareTicketRequest,
+        crate::routes::connector_inbound::ShareTicketResponse,
+        crate::routes::connector_inbound::SharedChannelView,
         crate::routes::roles::UpdateRoleRequest,
         core_domain::entities::PluginPublisherVerification,
         core_domain::entities::PluginRating,

@@ -28,6 +28,7 @@ pub mod clients;
 pub mod config_identity;
 pub mod connector;
 pub mod connector_connections;
+pub mod connector_messaging;
 pub mod consumer;
 pub mod contracts;
 pub mod csat;

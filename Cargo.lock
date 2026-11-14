@@ -170,6 +170,7 @@ dependencies = [
  "chrono",
  "hex",
  "hmac 0.13.0",
+ "jsonwebtoken",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
