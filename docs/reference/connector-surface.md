@@ -94,17 +94,25 @@ Four sections, in this order:
 
 1. **Settings**, rendered from the manifest's `settings_schema`. Field
    types map onto the existing form primitives: string → `Input`, enum →
-   `Select`, boolean → `Switch`, number → `Input type=number`,
-   client-reference → a `Select` fed by the client list, `writeOnly` → a
+   `Select`, boolean → `Switch`, integer and number → `Input type=number`,
+   array → a repeatable row, nested object → a fieldset, `writeOnly` → a
    secret field that renders as a masked placeholder after save and can only
-   be replaced, never read back. Validation happens on blur and on submit. Server errors land on the field that caused them.
+   be replaced, never read back. Validation happens on blur and on submit.
+   Server errors land on the field that caused them.
+
+   There is no client-reference field type, and there should not be: which
+   client a connection belongs to is the connection's `scope_client_id`, not
+   a setting a manifest declares. A connector that needs a per-client value
+   gets it from its own client-scoped connection, which is why the reference
+   belongs on the connection and not inside the form.
 2. **Destinations** (bindings). A list of named channels or targets with a
-   label the operator chose. `Add destination` opens a picker that queries
-   the connection's own vendor surface (Slack channel list, Teams
-   conversation list) where the credential allows it, and falls back to a
-   paste field where it does not. A destination can be disabled without
-   being deleted. A share to a disabled destination is refused with the
-   reason, not silently dropped.
+   label the operator chose. `Add destination` asks for the vendor's own
+   identifier today, because no route lists a vendor's channels yet. A picker
+   over the connection's own vendor surface (Slack channel list, Teams
+   conversation list) is the intended shape and needs a route behind it, not
+   a component. A destination can be disabled without being deleted, and a
+   share to a disabled destination is refused with the reason rather than
+   silently dropped.
 3. **Health.** Status, last success, last failure with the vendor's message
    verbatim, and a `Test connection` button that runs the connector's canary
    and writes the result. The canary result is not a toast. It updates the
@@ -464,7 +472,8 @@ disabled *with the step in its hint*.
 - `Menu` — the record and message overflow. Anchored, keyboard-navigable,
   closes on escape, traps nothing.
 - `SchemaForm` — renders `settings_schema` onto the existing field
-  primitives, with `writeOnly` secrets and a client-reference source.
+  primitives, with `writeOnly` secrets split out of the settings object so a
+  credential is never sent in the wrong field.
 - `StatusPill` — the four-state connector pill, driven by the same status
   vocabulary everywhere.
 - `CapabilityChip` — one capability's provider set, with the primary action
@@ -475,7 +484,7 @@ disabled *with the step in its hint*.
 - `ConfirmDialog` — the destructive confirm (remove connection, disable
   destination), already close to `Dialog`.
 
-Four components, each used by every connector. That is the whole UI cost of
+Six components, each used by every connector. That is the whole UI cost of
 the ecosystem.
 
 ## 10. Motion and density
@@ -492,7 +501,7 @@ than setting its own.
 | Surface | Test |
 |---|---|
 | S1 | Roster renders one card per installed connector. A connector with one failed client connection reads `Needs attention` and its action is `Fix`, not `Manage` |
-| S2 | A `settings_schema` with a client reference and a `writeOnly` secret renders without a per-connector component. Saving re-reads the secret as a placeholder and never returns it |
+| S2 | A `settings_schema` with a nested object and a `writeOnly` secret renders without a per-connector component. Saving re-reads the secret as a placeholder and never returns it |
 | S3 | Share from a ticket and from a message land the same card shape. The dialog lists only the caller's permitted destinations. The permalink is returned and a repeated submit does not post twice |
 | S4 | A press by a linked user with the scope takes the ticket and writes one audit row. An unlinked press answers the link step. An unpermitted press answers a typed refusal that does not disclose the ticket |
 | S5 | A configuration with a NinjaOne presence and a ScreenConnect presence shows an RMM chip and a Remote chip. Opening the RMM chip resolves through the right connection for that client, and two clients on two controllers each link to their own device page |
