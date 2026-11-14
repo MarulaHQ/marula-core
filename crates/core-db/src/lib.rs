@@ -8,6 +8,7 @@
 //! Non-purpose: no business rules. Decisions belong in core-domain; this
 //! crate persists and retrieves.
 
+pub mod accounting_export;
 pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerting;

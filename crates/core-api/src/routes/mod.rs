@@ -36,6 +36,7 @@
 //! parity holds because the legacy generation reconstructs the historical
 //! literal paths.
 
+pub mod accounting_export;
 pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerts;
@@ -1459,6 +1460,38 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/credit-notes/{id}/apply"), post(credit_notes::apply))
         .route(&rp("/credit-notes/{id}/refund"), post(credit_notes::refund))
         .route(&rp("/credit-notes/{id}/void"), post(credit_notes::void))
+        // Accounting export (claims-gaps G1–G3, migration 0187): send one
+        // document to one QuickBooks/Xero connection, read the customer's own
+        // chart of accounts and tax codes, and manage the per-connection tax
+        // mapping. The run report is how a held invoice is found.
+        .route(
+            &rp("/invoices/{id}/export"),
+            post(accounting_export::export_invoice),
+        )
+        .route(
+            &rp("/credit-notes/{id}/export"),
+            post(accounting_export::export_credit_note),
+        )
+        .route(
+            &rp("/accounting/export-runs"),
+            get(accounting_export::list_runs),
+        )
+        .route(
+            &rp("/accounting/export-runs/{id}"),
+            get(accounting_export::get_run),
+        )
+        .route(
+            &rp("/accounting/connections/{id}/ledger"),
+            get(accounting_export::read_ledger),
+        )
+        .route(
+            &rp("/accounting/tax-mappings"),
+            get(accounting_export::list_tax_mappings).put(accounting_export::upsert_tax_mapping),
+        )
+        .route(
+            &rp("/accounting/tax-mappings/{id}"),
+            axum::routing::delete(accounting_export::delete_tax_mapping),
+        )
         // import framework (the private build tracker D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.
