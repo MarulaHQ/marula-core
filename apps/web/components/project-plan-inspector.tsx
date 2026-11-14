@@ -191,7 +191,7 @@ export function ProjectPlanInspector(props: PlanInspectorProps): React.JSX.Eleme
 
   if (narrow) {
     return (
-      <BottomSheet label={`Task: ${task.title}`}>
+      <BottomSheet label={`Task: ${task.title}`} fixed>
         <div className="flex items-center gap-2">
           <WorkTypeMark type={task.work_type ?? "coordination"} />
           <b className="min-w-0 flex-1 truncate text-[15px]">{task.title}</b>

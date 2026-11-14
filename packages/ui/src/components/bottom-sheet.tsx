@@ -20,10 +20,17 @@ import { cn } from "../lib/cn";
 
 export function BottomSheet({
   label,
+  fixed = false,
   className,
   children,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { label: string; children: ReactNode }) {
+}: HTMLAttributes<HTMLDivElement> & {
+  label: string;
+  /** Anchor to the viewport instead of the surface, when the surface can be
+   *  shorter than the screen (a short plan at 1024). */
+  fixed?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div
       data-slot="bottom-sheet"
@@ -31,7 +38,8 @@ export function BottomSheet({
       aria-label={label}
       aria-modal={false}
       className={cn(
-        "absolute inset-x-6 bottom-4 z-40 flex flex-col gap-[10px] rounded-[16px_16px_12px_12px] border border-border bg-card px-4 py-[14px] text-foreground shadow-mc",
+        "z-40 flex flex-col gap-[10px] rounded-[16px_16px_12px_12px] border border-border bg-card px-4 py-[14px] text-foreground shadow-mc",
+        fixed ? "fixed inset-x-6 bottom-20" : "absolute inset-x-6 bottom-4",
         className,
       )}
       {...props}
