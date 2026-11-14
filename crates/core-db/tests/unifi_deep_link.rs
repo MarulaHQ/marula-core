@@ -165,9 +165,17 @@ async fn seed_ref(db: &TestDb, org: Uuid, asset: Uuid, connection: Uuid, externa
 
 async fn open_url(db: &TestDb, org: Uuid, asset: Uuid) -> String {
     let mut tx = org_tx(&db.app, org).await;
-    let capabilities = resolve_external_actions(&mut tx, org, RecordType::Configuration, asset)
-        .await
-        .expect("resolve");
+    // This test is about which origin a link resolves against, not about who
+    // may see it: the unrestricted viewer is the audience-free caller.
+    let capabilities = resolve_external_actions(
+        &mut tx,
+        org,
+        RecordType::Configuration,
+        asset,
+        &core_db::connector_connections::ConnectionViewer::unrestricted(),
+    )
+    .await
+    .expect("resolve");
     tx.commit().await.expect("commit");
     capabilities
         .iter()
