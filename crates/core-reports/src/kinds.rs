@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::catalog::ViewId;
 
-/// The eight v1 report kinds. Slugs are snake_case URL path segments.
+/// The v1 report kinds. Slugs are snake_case URL path segments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReportKind {
     TimeByUser,
@@ -21,10 +21,13 @@ pub enum ReportKind {
     TicketThroughput,
     TicketAging,
     FirstResponse,
+    /// Financial: invoiced revenue against costed time, one row per client
+    /// for the requested period. Answers "which clients make us money".
+    ClientMargin,
 }
 
 impl ReportKind {
-    pub const ALL: [ReportKind; 8] = [
+    pub const ALL: [ReportKind; 9] = [
         ReportKind::TimeByUser,
         ReportKind::TimeByClient,
         ReportKind::TimeByTicket,
@@ -33,6 +36,7 @@ impl ReportKind {
         ReportKind::TicketThroughput,
         ReportKind::TicketAging,
         ReportKind::FirstResponse,
+        ReportKind::ClientMargin,
     ];
 
     /// Stable URL/API slug. Constants only.
@@ -46,6 +50,7 @@ impl ReportKind {
             ReportKind::TicketThroughput => "ticket_throughput",
             ReportKind::TicketAging => "ticket_aging",
             ReportKind::FirstResponse => "first_response",
+            ReportKind::ClientMargin => "client_margin",
         }
     }
 
@@ -59,6 +64,7 @@ impl ReportKind {
             ReportKind::SlaAttainment | ReportKind::SlaBreaches => ViewId::SlaOutcomes,
             ReportKind::TicketThroughput | ReportKind::TicketAging => ViewId::Tickets,
             ReportKind::FirstResponse => ViewId::FirstResponse,
+            ReportKind::ClientMargin => ViewId::ClientMargin,
         }
     }
 
@@ -68,19 +74,11 @@ impl ReportKind {
         Self::ALL.into_iter().find(|k| k.slug() == slug)
     }
 
-    /// Whether the kind supports `?user_id=` narrowing at all.
+    /// Whether the kind supports `?user_id=` narrowing at all. False for
+    /// `client_margin`: margin belongs to a client, so narrowing by staff
+    /// member would silently drop revenue while keeping cost.
     pub const fn has_user_dimension(self) -> bool {
-        matches!(
-            self,
-            ReportKind::TimeByUser
-                | ReportKind::TimeByClient
-                | ReportKind::TimeByTicket
-                | ReportKind::SlaAttainment
-                | ReportKind::SlaBreaches
-                | ReportKind::FirstResponse
-                | ReportKind::TicketThroughput
-                | ReportKind::TicketAging
-        )
+        !matches!(self, ReportKind::ClientMargin)
     }
 }
 
@@ -143,6 +141,15 @@ pub struct FirstResponseParams {
     pub user_id: Option<Uuid>,
 }
 
+/// Client margin shares the period shape of the other windowed reports.
+/// There is no user narrowing (see [`ReportKind::has_user_dimension`]) and
+/// no billable toggle: revenue is defined by the invoice set and cost by
+/// every client-attributed entry, both stated in migration 0188.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MarginParams {
+    pub window: WindowParams,
+}
+
 /// Everything the compiler needs per request. The API layer maps query
 /// parameters into these after validation.
 #[derive(Debug, Clone, PartialEq)]
@@ -155,6 +162,7 @@ pub enum KindParams {
     TicketThroughput(ThroughputParams),
     TicketAging(AgingParams),
     FirstResponse(FirstResponseParams),
+    ClientMargin(MarginParams),
 }
 
 impl KindParams {
@@ -168,6 +176,7 @@ impl KindParams {
             KindParams::TicketThroughput(p) => &p.window,
             KindParams::TicketAging(_) => unreachable!("aging takes no window"),
             KindParams::FirstResponse(p) => &p.window,
+            KindParams::ClientMargin(p) => &p.window,
         }
     }
 }
@@ -183,7 +192,8 @@ pub fn validate_kind(kind: ReportKind, params: &KindParams) {
         | (ReportKind::SlaBreaches, KindParams::SlaBreaches(_))
         | (ReportKind::TicketThroughput, KindParams::TicketThroughput(_))
         | (ReportKind::TicketAging, KindParams::TicketAging(_))
-        | (ReportKind::FirstResponse, KindParams::FirstResponse(_)) => {}
+        | (ReportKind::FirstResponse, KindParams::FirstResponse(_))
+        | (ReportKind::ClientMargin, KindParams::ClientMargin(_)) => {}
         _ => panic!("kind/params mismatch: {kind:?} given {params:?}"),
     }
 }

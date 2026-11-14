@@ -70,6 +70,9 @@ const EXPECTED_V1_VIEWS: &[&str] = &[
     // carry the same mechanical tenancy proof as the other sixteen, since
     // `marula_app` reads it directly (0131's GRANT).
     "v1_org_usage",
+    // 0188 client margin: invoiced revenue against costed time, per client
+    // per money event (the view backing the client_margin report).
+    "v1_client_margin",
 ];
 
 /// (view, [(column, data_type)]) — the 0059 tranche column contracts,
@@ -181,6 +184,21 @@ const TRANCHE_CONTRACTS: &[(&str, &[(&str, &str)])] = &[
             ("amount_minor", "bigint"),
             ("currency", "text"),
             ("position", "integer"),
+        ],
+    ),
+    (
+        "v1_client_margin",
+        &[
+            ("org_id", "uuid"),
+            ("client_id", "uuid"),
+            ("client_name", "text"),
+            ("period_day", "date"),
+            ("revenue_minor", "bigint"),
+            ("cost_minor", "bigint"),
+            ("costed_minutes", "integer"),
+            ("uncosted_minutes", "integer"),
+            ("margin_minor", "bigint"),
+            ("unconverted_credit_minor", "bigint"),
         ],
     ),
     (

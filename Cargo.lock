@@ -1242,6 +1242,7 @@ dependencies = [
  "chrono-tz",
  "core-domain",
  "core-kb",
+ "core-reports",
  "core-store",
  "hex",
  "hmac 0.13.0",

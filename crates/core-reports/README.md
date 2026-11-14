@@ -33,6 +33,13 @@ Reporting engine types, field catalog, and query compiler for the versioned
 | `ticket_throughput` | `ops.v1_tickets` | per-day created/resolved spine |
 | `ticket_aging` | `ops.v1_tickets` | fixed open-age buckets |
 | `first_response` | `ops.v1_first_response` | tabular (portal comments structurally excluded) |
+| `client_margin` | `ops.v1_client_margin` | per-client rollup: invoiced revenue minus costed time over the window; starts from the client list, not the invoice list |
+
+`client_margin` is the only kind whose view has no personal dimension, so
+self-scoping cannot narrow it. Its route requires `invoicing:view` on top of
+`reporting:view`, and the spec builder refuses stored specs on that view: a
+report on it is financial, and reading one is a permission decision rather than
+a row filter.
 
 ## The card contract (Wave 46 lane 1)
 

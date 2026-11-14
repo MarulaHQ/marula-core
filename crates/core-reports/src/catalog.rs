@@ -26,6 +26,10 @@ pub enum ViewId {
     SlaOutcomes,
     GapDays,
     FirstResponse,
+    /// Financial read model (migration 0188): invoiced revenue and costed
+    /// time per client per event. Backs `ReportKind::ClientMargin`; not
+    /// offered to the spec builder — see [`ViewId::authorable`].
+    ClientMargin,
 }
 
 impl ViewId {
@@ -38,17 +42,33 @@ impl ViewId {
             ViewId::SlaOutcomes => "ops.v1_sla_outcomes",
             ViewId::GapDays => "ops.v1_gap_days",
             ViewId::FirstResponse => "ops.v1_first_response",
+            ViewId::ClientMargin => "ops.v1_client_margin",
         }
     }
 
     /// All views exposed in v1 (R6 picker surface / external BI docs).
-    pub const ALL: [ViewId; 5] = [
+    pub const ALL: [ViewId; 6] = [
         ViewId::Tickets,
         ViewId::TimeEntries,
         ViewId::SlaOutcomes,
         ViewId::GapDays,
         ViewId::FirstResponse,
+        ViewId::ClientMargin,
     ];
+
+    /// Whether stored-spec authoring may target this view.
+    ///
+    /// `false` for financial read models: `ops.v1_client_margin` has no
+    /// personal dimension (margin is a client fact, not a staff member's
+    /// row), so a stored spec on it could be run by any holder of
+    /// `reporting:view` and would expose every client's revenue. It is
+    /// reachable only through the prebuilt `client_margin` kind, whose route
+    /// requires `invoicing:view`. The predicate lives here, next to the
+    /// view, so the authoring catalog and [`crate::ReportSpec::validate`]
+    /// cannot drift apart.
+    pub const fn authorable(self) -> bool {
+        !matches!(self, ViewId::ClientMargin)
+    }
 
     /// Strict slug parser (the inverse of the serde encoding). Used when
     /// reassembling stored specs; anything unknown fails closed.
@@ -64,12 +84,17 @@ impl ViewId {
             ViewId::SlaOutcomes => "sla_outcomes",
             ViewId::GapDays => "gap_days",
             ViewId::FirstResponse => "first_response",
+            ViewId::ClientMargin => "client_margin",
         }
     }
 
     /// The personal-dimension column RBAC self-scoping narrows on (R1
     /// convention: non-managers are structurally forced onto their own
-    /// rows). `None` would mean the view has no personal dimension.
+    /// rows). `None` means the view has no personal dimension, which today
+    /// is only the financial client-margin model: margin belongs to a
+    /// client, not to a staff member, and "your share of the client's
+    /// revenue" is not a row anyone can be narrowed to. Access to it is a
+    /// permission question (`invoicing:view`), enforced at the route.
     pub const fn personal_dim(self) -> Option<&'static str> {
         match self {
             ViewId::Tickets => Some("assignee_id"),
@@ -77,6 +102,7 @@ impl ViewId {
             ViewId::SlaOutcomes => Some("assignee_id"),
             ViewId::GapDays => Some("user_id"),
             ViewId::FirstResponse => Some("assignee_id"),
+            ViewId::ClientMargin => None,
         }
     }
 
@@ -90,6 +116,7 @@ impl ViewId {
             ViewId::SlaOutcomes => Some(("ticket_created_at", ValueType::Timestamp)),
             ViewId::GapDays => Some(("day", ValueType::Date)),
             ViewId::FirstResponse => Some(("created_at", ValueType::Timestamp)),
+            ViewId::ClientMargin => Some(("period_day", ValueType::Date)),
         }
     }
 
@@ -184,12 +211,25 @@ impl ViewId {
             ColumnDef::new("first_response_secs", ValueType::BigInt),
             ColumnDef::new("first_response_due", ValueType::Timestamp),
         ];
+        const CLIENT_MARGIN: &[ColumnDef] = &[
+            ColumnDef::new("org_id", ValueType::Uuid),
+            ColumnDef::new("client_id", ValueType::Uuid),
+            ColumnDef::new("client_name", ValueType::Text),
+            ColumnDef::new("period_day", ValueType::Date),
+            ColumnDef::new("revenue_minor", ValueType::BigInt),
+            ColumnDef::new("cost_minor", ValueType::BigInt),
+            ColumnDef::new("costed_minutes", ValueType::Int),
+            ColumnDef::new("uncosted_minutes", ValueType::Int),
+            ColumnDef::new("margin_minor", ValueType::BigInt),
+            ColumnDef::new("unconverted_credit_minor", ValueType::BigInt),
+        ];
         match self {
             ViewId::Tickets => TICKETS,
             ViewId::TimeEntries => TIME_ENTRIES,
             ViewId::SlaOutcomes => SLA_OUTCOMES,
             ViewId::GapDays => GAP_DAYS,
             ViewId::FirstResponse => FIRST_RESPONSE,
+            ViewId::ClientMargin => CLIENT_MARGIN,
         }
     }
 
@@ -216,15 +256,24 @@ impl ViewId {
         ];
         const GAP_DAYS: &[&str] = &["user_id", "has_gap"];
         const FIRST_RESPONSE: &[&str] = &["client_id", "assignee_id"];
+        const CLIENT_MARGIN: &[&str] = &["client_id"];
         match self {
             ViewId::Tickets => TICKETS,
             ViewId::TimeEntries => TIME_ENTRIES,
             ViewId::SlaOutcomes => SLA_OUTCOMES,
             ViewId::GapDays => GAP_DAYS,
             ViewId::FirstResponse => FIRST_RESPONSE,
+            ViewId::ClientMargin => CLIENT_MARGIN,
         }
     }
 }
+
+/// The client list as a read-model relation. `ops.v1_clients` (0059) is not
+/// a [`ViewId`] — it is not a report source anyone may select columns from —
+/// but the margin report needs it as the row SPINE, so the prebuilt-kind
+/// compiler joins it. Kept here beside the other static identifiers so no
+/// view name is ever spelled outside this module.
+pub const CLIENTS_VIEW: &str = "ops.v1_clients";
 
 /// Static column descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -380,13 +429,34 @@ mod tests {
 
     #[test]
     fn personal_dimensions_are_real_columns() {
+        // Views with no personal dimension are an explicit, closed set: a new
+        // one has to be added here deliberately, so a view cannot become
+        // org-wide-readable by forgetting to declare its dimension.
+        const NO_PERSONAL_DIM: [ViewId; 1] = [ViewId::ClientMargin];
         for view in ViewId::ALL {
-            let dim = view.personal_dim().expect("every v1 view has one");
+            let Some(dim) = view.personal_dim() else {
+                assert!(
+                    NO_PERSONAL_DIM.contains(&view),
+                    "{view:?}: undeclared personal dimension"
+                );
+                continue;
+            };
             assert!(
                 lookup_column(view, dim).is_some(),
                 "{view:?}: personal dim {dim} missing from projection"
             );
             assert_ne!(dim, "org_id", "tenancy column is never a report dimension");
+        }
+    }
+
+    #[test]
+    fn only_the_prebuilt_financial_view_is_unavailable_to_spec_authoring() {
+        for view in ViewId::ALL {
+            assert_eq!(
+                view.authorable(),
+                view != ViewId::ClientMargin,
+                "{view:?}: authoring availability drifted"
+            );
         }
     }
 
