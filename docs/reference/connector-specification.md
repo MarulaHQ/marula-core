@@ -242,6 +242,15 @@ Three rules hold this together, and each one was learned by breaking it:
   the key may reach still runs the handler's own matrix check, so a read-scoped
   key gets a typed 403 on a write. That is why the path gate can stay coarse
   where the scope table is precise.
+- **The vault is closed today, and that is a hold rather than a boundary.**
+  A DMS plugin may legitimately need to bring credentials across with the
+  documents that reference them, and `dms-sync` already has the call behind a
+  `map_credentials` gate. Opening it is a decision with a shape: its own
+  `vault:write` consent scope, a separate grant screen naming exactly what a
+  key may write, an audit row per credential write, and a refusal for a key
+  that holds only a sync scope. None of that is built, so the surface stays
+  refused and this paragraph is the note that it is a candidate for change
+  rather than a settled rule.
 - **Deletion and credentials are never inherited from a sync.** No machine
   scope carries a delete grant on a synced surface, and the vault
   (`/api/passwords`, `/api/assets/{id}/vault`) is outside the DMS allowance on
