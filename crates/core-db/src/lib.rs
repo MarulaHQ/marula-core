@@ -27,6 +27,7 @@ pub mod client_completeness;
 pub mod clients;
 pub mod config_identity;
 pub mod connector;
+pub mod connector_connections;
 pub mod consumer;
 pub mod contracts;
 pub mod csat;
@@ -163,6 +164,11 @@ pub enum DbError {
     /// already-billed cost line). The API layer maps this to 409.
     #[error("conflict: {0}")]
     Conflict(String),
+    /// A stored value outside the closed vocabulary its column's CHECK allows.
+    /// Reachable only when a migration and the code have drifted, so it is
+    /// corruption rather than a caller error, and a 500 is the honest answer.
+    #[error("corrupt row: {0}")]
+    Corrupt(String),
 }
 
 impl DbError {
