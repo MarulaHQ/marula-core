@@ -99,6 +99,11 @@ export * from "./components/bulk-action-bar";
 export * from "./components/status-pill";
 export * from "./components/capability-chip";
 export * from "./components/linked-records-strip";
+// The project timeline. `gantt-scale` is exported beside the chart because a
+// surface that formats a date without it would format it differently.
+export * from "./components/gantt-chart";
+export * from "./components/gantt-table";
+export * from "./components/gantt-scale";
 
 export * from "./editor/toolbar";
 export * from "./editor/block-menu";
