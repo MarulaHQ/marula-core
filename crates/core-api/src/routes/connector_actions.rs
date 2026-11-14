@@ -468,7 +468,10 @@ fn require_connector_admin(authed: &crate::auth::AuthedUser) -> ApiResult<()> {
     Ok(())
 }
 
-fn viewer_of(authed: &crate::auth::AuthedUser) -> ConnectionViewer {
+/// The caller as the connection surfaces see them. Shared with the inbound
+/// module so a share enforces the same audience the chip row does: a connection
+/// that is hidden from a caller must not be reachable through a share either.
+pub(crate) fn viewer_of(authed: &crate::auth::AuthedUser) -> ConnectionViewer {
     ConnectionViewer::new(
         authed.principal.user.id,
         authed.principal.roles.iter().map(|role| role.id).collect(),

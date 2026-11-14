@@ -954,6 +954,81 @@ async fn a_restricted_client_ticket_is_not_shareable_into_a_channel() {
     );
 }
 
+/// The audience is a door on the connection, and a share must open the same two
+/// doors the roster does. Read access alone is not enough: a caller outside the
+/// audience gets the same 404 a stranger gets, so the connection's existence
+/// cannot be probed through the share route.
+#[tokio::test]
+async fn a_caller_outside_the_connection_audience_cannot_share_through_it() {
+    let (state, app) = test_state().await;
+    let org = register(&app, "share-audience").await;
+    let team = unique_team();
+    let install = seed_install(&state, org.id, "slack-share-audience").await;
+    let connection = seed_slack_connection(
+        &state,
+        org.id,
+        install,
+        &team,
+        "audience-secret",
+        Some("xoxb-test"),
+    )
+    .await;
+    seed_binding(&state, org.id, connection, "slack_channel", "C-AUDIENCE").await;
+
+    // The owner's role is the audience; the technician holds no such role.
+    let (tech_id, tech_token) =
+        seed_person(&state, &app, org.id, "audience-tech", Some("technician")).await;
+    assert_ne!(tech_id, Uuid::nil());
+    {
+        let owner_role: Uuid = {
+            let roles = core_db::roles::list_roles(&state.pool, org.id)
+                .await
+                .expect("roles");
+            roles
+                .iter()
+                .find(|role| role.builtin.as_deref() == Some("owner"))
+                .map(|role| role.id)
+                .expect("owner preset")
+        };
+        let mut tx = state.pool.begin().await.expect("tx");
+        core_db::set_org(&mut tx, org.id).await.expect("org");
+        sqlx::query("UPDATE connector_connections SET audience_roles = ARRAY[$1] WHERE id = $2")
+            .bind(owner_role.to_string())
+            .bind(connection)
+            .execute(&mut *tx)
+            .await
+            .expect("audience");
+        tx.commit().await.expect("commit");
+    }
+
+    let (ticket, _) = seed_ticket(&state, &app, &org, None).await;
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/tickets/{ticket}/share"),
+        Some(&tech_token),
+        Some(json!({ "connection_id": connection })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        404,
+        "a caller outside the audience must not learn the connection exists"
+    );
+
+    // The audience member still shares: the door is the list, not the feature.
+    let owner_share = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/tickets/{ticket}/share"),
+        Some(&org.owner),
+        Some(json!({ "connection_id": connection })),
+    )
+    .await;
+    assert_eq!(owner_share.status(), 200);
+}
+
 #[tokio::test]
 async fn a_connection_without_a_destination_cannot_be_a_share_target() {
     let (state, app) = test_state().await;

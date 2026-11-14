@@ -1882,6 +1882,10 @@ pub async fn share_ticket(
     Json(req): Json<ShareTicketRequest>,
 ) -> ApiResult<Json<ShareTicketResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    // Built before `principal` is moved, and used once the connection is read:
+    // the audience is a door on the connection, and a share must open the same
+    // two doors the roster does (`connector-surface.md` §3 Access).
+    let viewer = super::connector_actions::viewer_of(&authed);
     let principal = authed.principal;
     let org_id = principal.user.org_id;
 
@@ -1916,6 +1920,13 @@ pub async fn share_ticket(
         return Err(ApiError::Validation(
             "this connection is disabled; enable it before sharing through it".into(),
         ));
+    }
+
+    // The audience door, same answer as the roster: 404, because "you are not in
+    // this connection's audience" and "this connection does not exist" must not
+    // be distinguishable to a caller outside it.
+    if !viewer.is_in_audience(&connection.audience_roles) {
+        return Err(ApiError::NotFound);
     }
 
     // Read + restriction gate, in the transaction the ticket page would use.
