@@ -150,7 +150,7 @@ pub async fn require_auth(
             // The docs connector (dms-sync) lists, creates and updates KB
             // articles. It is not a prefix: see `kb_article_sync_allowed`.
             || kb_article_sync_allowed(&candidate, request.method())
-            || dms_sync_allowed(&candidate, request.method());
+            || dms_surface_allowed(&candidate, request.method());
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),
@@ -380,6 +380,12 @@ const API_KEY_PATHS: &[&str] = &[
     // the handler's own gate is what separates a reader from a writer, and a
     // key with `directory_groups:read` still gets a typed 403 on every write.
     "/api/directory-groups",
+    // The VoIP ingest (3CX): a connector process pushes call logs with an
+    // `x-api-key` and its own `voip:write` scope. Deliberately the call-log
+    // path and not `/api/connectors`: installation, removal and the canary
+    // are operator acts, and a machine key that could install a connector
+    // could install one to exfiltrate through.
+    "/api/connectors/voip",
 ];
 
 /// The docs connector's article surface: list, create, update — and nothing
@@ -403,39 +409,51 @@ fn kb_article_sync_allowed(path: &str, method: &axum::http::Method) -> bool {
     }
 }
 
-/// The documents connector (`dms-sync`) creates and updates external
-/// documents and the assets they describe, and it authenticates with an API
-/// key because it runs operator-side rather than inside Core.
+/// The document and asset ingestion surface: the published contract a DMS
+/// plugin speaks to Core through.
 ///
-/// This is the half the KB allowance missed. Opening the article route made
-/// the article leg work and left the document and asset legs answering 401,
-/// so a Hudu sync created its articles and none of its documents — which is
-/// the connector's actual subject.
+/// `dms-sync` is the engine, not the product. A vendor adapter (Hudu today,
+/// IT Glue tomorrow) supplies the pull and the engine drives these routes, so
+/// a new DMS plugin needs no Core change to exist. That only holds if the
+/// whole contract a plugin publishes is reachable by a machine key, which is
+/// why this covers documents, assets and the link rows between them - and
+/// why the earlier version of this function, which stopped at the collection
+/// and one row, left a new plugin with no way to write a link.
 ///
-/// The rule is allow-by-method for the same reason the KB one is: the prefix
-/// mechanism opens a whole subtree, including `DELETE`, and deletion is not a
-/// sync. Nested paths stay closed because a collection create is a
-/// `POST /api/documents` and a row edit is one segment deep; anything deeper
-/// is a different surface that a sync key has no business reaching.
-fn dms_sync_allowed(path: &str, method: &axum::http::Method) -> bool {
+/// What stays shut is deliberate. Deletion is not a sync. A nested path that
+/// is not `links` is a sub-resource this contract does not declare, and an
+/// undeclared write is one a plugin author cannot rely on. The vault
+/// (`/api/assets/{id}/vault`, `/api/passwords`) is a credential surface, and a
+/// machine key that can write credentials can exfiltrate them; a DMS plugin
+/// that wants to migrate credentials needs that decision made on purpose, not
+/// inherited from a sync allowance.
+fn dms_surface_allowed(path: &str, method: &axum::http::Method) -> bool {
     use axum::http::Method;
+    let collection = path == "/api/documents" || path == "/api/assets";
+    let row = one_segment_under(path, "/api/documents/") || one_segment_under(path, "/api/assets/");
+    // Layouts are their own sub-collection: the engine creates a layout before
+    // it can create a document, and a rule written only for documents and rows
+    // left that create refused.
+    let layouts = path == "/api/documents/layouts";
+    let layout_row = one_segment_under(path, "/api/documents/layouts/");
     match *method {
-        // Reads reach the collection, the layout list and one row.
-        Method::GET => {
-            path == "/api/documents"
-                || path == "/api/assets"
-                || one_segment_under(path, "/api/documents/")
-                || one_segment_under(path, "/api/assets/")
-        }
-        // Creates are collection-level only: a POST one segment deeper is a
-        // sub-resource write this connector does not declare.
-        Method::POST => path == "/api/documents" || path == "/api/assets",
-        // Updates name exactly one row.
-        Method::PATCH => {
-            one_segment_under(path, "/api/documents/") || one_segment_under(path, "/api/assets/")
-        }
+        // Reads reach the collection, one row, a row's links and the layouts.
+        Method::GET => collection || row || link_listing(path) || layouts || layout_row,
+        // Creates are a document, an asset, a link row, or a layout.
+        Method::POST => collection || link_listing(path) || layouts,
+        // Updates name exactly one row, of either kind.
+        Method::PATCH => row || layout_row,
         _ => false,
     }
+}
+
+/// `{collection}/{id}/links`, the only nested path this contract declares.
+fn link_listing(path: &str) -> bool {
+    ["/api/documents/", "/api/assets/"].iter().any(|prefix| {
+        path.strip_prefix(prefix)
+            .and_then(|rest| rest.strip_suffix("/links"))
+            .is_some_and(|id| !id.is_empty() && !id.contains('/'))
+    })
 }
 
 /// True when `path` is exactly one non-empty segment under `prefix`.
@@ -531,6 +549,18 @@ fn permissions_from_scopes(scopes: &[String]) -> Vec<core_domain::policy::Permis
                 Module::Tickets,
                 &[Action::View, Action::Create, Action::Edit],
             ),
+            // The DMS plugin surface. Documents have their own module; assets
+            // ride the Clients matrix, which is why an asset write needs the
+            // client pair rather than a documents grant.
+            "documents:read" => push(Module::Documents, &[Action::View]),
+            "documents:write" => push(
+                Module::Documents,
+                &[Action::View, Action::Create, Action::Edit],
+            ),
+            // A call log is a record hanging off a ticket, and the handler
+            // checks ticket view. Granting edit here would hand a voice
+            // platform more than it asked for.
+            "voip:write" => push(Module::Tickets, &[Action::View]),
             "clients:read" => push(Module::Clients, &[Action::View]),
             "clients:write" => push(
                 Module::Clients,
@@ -791,7 +821,7 @@ fn service_account_user(
 
 #[cfg(test)]
 mod tests {
-    use super::{dms_sync_allowed, kb_article_sync_allowed, principal_for};
+    use super::{dms_surface_allowed, kb_article_sync_allowed, principal_for};
     use axum::http::Method;
     use core_domain::entities::{Role, User};
     use core_domain::policy::{BuiltinRole, Permission};
@@ -958,12 +988,24 @@ mod tests {
             (Method::GET, "/api/assets"),
             (Method::POST, "/api/assets"),
             (
+                Method::GET,
+                "/api/documents/0190a000-0000-7000-8000-000000000000/links",
+            ),
+            (
+                Method::POST,
+                "/api/documents/0190a000-0000-7000-8000-000000000000/links",
+            ),
+            (
+                Method::POST,
+                "/api/assets/0190a000-0000-7000-8000-000000000000/links",
+            ),
+            (
                 Method::PATCH,
                 "/api/assets/0190a000-0000-7000-8000-000000000000",
             ),
         ] {
             assert!(
-                dms_sync_allowed(path, &method),
+                dms_surface_allowed(path, &method),
                 "{method} {path} must be allowed"
             );
         }
@@ -991,9 +1033,14 @@ mod tests {
             // Neighbouring surfaces stay closed.
             (Method::GET, "/api/clients"),
             (Method::POST, "/api/users"),
+            // Deleting a layout is deletion.
+            (
+                Method::DELETE,
+                "/api/documents/layouts/0190a000-0000-7000-8000-000000000000",
+            ),
         ] {
             assert!(
-                !dms_sync_allowed(path, &method),
+                !dms_surface_allowed(path, &method),
                 "{method} {path} must be refused"
             );
         }

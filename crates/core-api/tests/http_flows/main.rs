@@ -29,5 +29,6 @@ mod connector_write_flow;
 // traits, which is exactly the seam that keeps it off the network — see the
 // module's header.
 mod connector_inbound_flow;
+mod connector_install_flow;
 mod fx_flow;
 mod scorecards_flow;

@@ -561,16 +561,25 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // Stripe webhook receiver (Wave 22): unauthenticated by design —
         // the Stripe-Signature HMAC is the auth; the handler rejects
         // typed 403 without a valid signature or configured secret.
-        .route(&rp("/webhooks/stripe"), post(stripe_webhook::receive))
+        .route(&rp("/webhooks/stripe"), post(stripe_webhook::receive));
+
+    let protected = Router::new()
         // Ecosystem connectors (Wave 22): Slack/Teams/Rewst/VoIP over the
-        // connector_installations consent seam; installs + tests are
-        // owner/admin.
+        // connector_installations consent seam. These sit behind
+        // `require_auth` because every handler resolves an `AuthedUser`; a
+        // route in the public block never gets one, so it answered 401 for
+        // every caller including the console. The handlers keep their own
+        // owner/admin gate, which is what separates a reader from an
+        // installer.
         .route(&rp("/connectors"), get(integrations::index))
         .route(
             &rp("/connectors/{kind}"),
             post(integrations::install).delete(integrations::remove),
         )
         .route(&rp("/connectors/{kind}/test"), post(integrations::test))
+        // The VoIP ingest is machine-called by a 3CX connector holding an API
+        // key, so it must authenticate as a machine and then pass the
+        // handler's own ticket check.
         .route(
             &rp("/connectors/voip/call-logs"),
             post(integrations::voip_ingest),
@@ -584,9 +593,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/catalog/pricing-feeds/{batch_id}/apply"),
             post(integrations::apply_feed),
-        );
-
-    let protected = Router::new()
+        )
         .route(&rp("/me"), get(auth_handlers::me))
         .route(
             &rp("/users/me"),

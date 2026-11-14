@@ -108,6 +108,30 @@ pub const SCOPES: &[ApiScope] = &[
             matrix(Module::Scheduling, Action::Edit),
         ],
     },
+    // The document surface is the DMS plugin contract: `dms-sync` is the
+    // engine, and every vendor adapter reaches Core through these routes. A
+    // new DMS plugin therefore needs no Core change, only a key holding this
+    // pair. Deletion is deliberately outside both scopes: a sync reconciles,
+    // it does not destroy, and the path gate refuses it before a handler runs.
+    ApiScope {
+        name: "documents:read",
+        description: "Read documents, their layout list, and the links between a document or asset and the records it points at.",
+        grants: &[matrix(Module::Documents, Action::View)],
+    },
+    ApiScope {
+        name: "documents:write",
+        description: "Read documents and create or edit them, their layouts and their links. Deletion stays outside every machine scope.",
+        grants: &[
+            matrix(Module::Documents, Action::View),
+            matrix(Module::Documents, Action::Create),
+            matrix(Module::Documents, Action::Edit),
+        ],
+    },
+    ApiScope {
+        name: "voip:write",
+        description: "Push call logs from a voice platform. Call logs hang off tickets, so the grant is ticket view and nothing else: it writes a record, it does not edit the ticket.",
+        grants: &[matrix(Module::Tickets, Action::View)],
+    },
     ApiScope {
         name: "org_usage:read",
         description: "Read the caller's own org usage counts and configured quotas. One read, no reporting surface.",
@@ -280,6 +304,35 @@ pub const RULES: &[MachineRule] = &[
         prefix: "/api/v1/tickets",
         methods: &[],
         scopes: &["tickets:write"],
+    },
+    // The DMS plugin surface. Assets ride the Clients matrix in this
+    // codebase (`routes/assets.rs`), so an asset rule names the client pair
+    // rather than inventing a third vocabulary for the same rows.
+    // The VoIP ingest.
+    MachineRule {
+        prefix: "/api/v1/connectors/voip",
+        methods: &["post"],
+        scopes: &["voip:write"],
+    },
+    MachineRule {
+        prefix: "/api/v1/documents",
+        methods: &["get"],
+        scopes: &["documents:read"],
+    },
+    MachineRule {
+        prefix: "/api/v1/documents",
+        methods: &["post", "patch"],
+        scopes: &["documents:write"],
+    },
+    MachineRule {
+        prefix: "/api/v1/assets",
+        methods: &["get"],
+        scopes: &["clients:read"],
+    },
+    MachineRule {
+        prefix: "/api/v1/assets",
+        methods: &["post", "patch"],
+        scopes: &["clients:write"],
     },
     MachineRule {
         prefix: "/api/v1/clients",
