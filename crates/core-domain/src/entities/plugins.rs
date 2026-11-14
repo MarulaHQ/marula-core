@@ -473,6 +473,14 @@ pub struct ConnectorSurfaces {
     /// which is why this is a list and not one `record` field.
     #[serde(default)]
     pub external_refs: Vec<ExternalRefBlock>,
+    /// Which settings key holds the connection's origin, used by `{base_url}`.
+    ///
+    /// Declared rather than assumed: the resolver has to read one field out of
+    /// the connection's settings to build a link, and a hardcoded key would be
+    /// a second contract nobody wrote down. `base_url` when absent, so a
+    /// connector that names it conventionally says nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url_key: Option<String>,
 }
 
 /// One record type's external presence in this vendor.
@@ -505,6 +513,16 @@ pub struct ExternalRefBlock {
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct LaunchBlock {
     pub url_template: String,
+    /// Which of the connector's product kinds this launch belongs to.
+    ///
+    /// Absent means every declared kind, which is right for a connector with
+    /// one kind and wrong for a vendor that is both an RMM and a remote-access
+    /// tool: without this, "Start session" would appear under the RMM chip too,
+    /// because a chip is per capability and the block is per record type. The
+    /// launch is the one action that must be attributed, since starting a
+    /// session is a different intent from opening a device page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability: Option<String>,
 }
 
 /// Placeholders a template may use. Anything else is refused at the gate, so a
@@ -521,6 +539,7 @@ impl ConnectorSurfaces {
     fn validate(
         &self,
         settings_schema: Option<&serde_json::Value>,
+        product_kinds: &[String],
     ) -> Result<(), crate::error::DomainError> {
         let err = |m: String| Err(crate::error::DomainError::Validation(m));
         if self.external_refs.len() > MAX_EXTERNAL_REFS {
@@ -528,6 +547,22 @@ impl ConnectorSurfaces {
                 "surfaces.external_refs declares {} blocks (max {MAX_EXTERNAL_REFS})",
                 self.external_refs.len()
             ));
+        }
+        if let Some(key) = &self.base_url_key {
+            if !crate::connectors::is_snake_key(key, MAX_EXTERNAL_KIND_LEN) {
+                return err(format!(
+                    "connector_surfaces.base_url_key {key:?} must be lowercase ascii, digits and underscores"
+                ));
+            }
+            let declared = settings_schema
+                .and_then(|s| s.get("properties"))
+                .and_then(|p| p.as_object())
+                .is_some_and(|props| props.contains_key(key.as_str()));
+            if settings_schema.is_some() && !declared {
+                return err(format!(
+                    "connector_surfaces.base_url_key {key:?} is not declared in settings_schema.properties"
+                ));
+            }
         }
         let mut seen: Vec<&str> = Vec::new();
         for block in &self.external_refs {
@@ -565,6 +600,16 @@ impl ConnectorSurfaces {
                     "surfaces.external_refs.launch.url_template",
                     settings_schema,
                 )?;
+                // A launch attributed to a kind the connector does not declare
+                // would be an action no chip can ever show, so it is a refusal
+                // rather than a silently unreachable declaration.
+                if let Some(kind) = &launch.capability {
+                    if !product_kinds.iter().any(|declared| declared == kind) {
+                        return err(format!(
+                            "surfaces.external_refs.launch.capability {kind:?} is not in product_kinds — a launch no chip can show is unreachable"
+                        ));
+                    }
+                }
             }
         }
         Ok(())
@@ -1863,7 +1908,7 @@ impl PluginManifestV2 {
             seen_kinds.push(key);
         }
         if let Some(surfaces) = &self.connector_surfaces {
-            surfaces.validate(self.settings_schema.as_ref())?;
+            surfaces.validate(self.settings_schema.as_ref(), &self.product_kinds)?;
         }
         // ADR 0009 §6 full semantics: the connector profile is
         // kind-coherent. Since ADR 0023 (Wave 53 lane 2) the profile itself is
@@ -2936,6 +2981,7 @@ mod tests {
             "properties": { "controller_url": { "type": "string" } }
         }));
         m.connector_surfaces = Some(ConnectorSurfaces {
+            base_url_key: None,
             external_refs: vec![ExternalRefBlock {
                 record: "configuration".into(),
                 external_kind: "machine".into(),
@@ -2943,6 +2989,7 @@ mod tests {
                 launch: Some(LaunchBlock {
                     url_template: "{base_url}/Host#Access/All%20Machines//{external_id}/Join"
                         .into(),
+                    capability: None,
                 }),
             }],
         });
@@ -2998,6 +3045,7 @@ mod tests {
         let mut m = connector_manifest();
         m.connector_surfaces.as_mut().unwrap().external_refs[0].launch = Some(LaunchBlock {
             url_template: "{base_url}/join/{device_id}".into(),
+            capability: None,
         });
         let err = m
             .validate()
@@ -3046,6 +3094,41 @@ mod tests {
             .push(block);
         let err = dup.validate().expect_err("one block per record type");
         assert!(err.to_string().contains("twice"), "{err}");
+    }
+
+    #[test]
+    fn a_declared_base_url_key_must_exist_in_the_settings_schema() {
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().base_url_key = Some("controller_url".into());
+        m.validate()
+            .expect("controller_url is declared in the fixture schema");
+
+        m.connector_surfaces.as_mut().unwrap().base_url_key = Some("origin".into());
+        let err = m
+            .validate()
+            .expect_err("an undeclared key has no value to read");
+        assert!(err.to_string().contains("origin"), "{err}");
+    }
+
+    #[test]
+    fn a_launch_must_be_attributed_to_a_declared_kind() {
+        // NinjaOne is both an RMM and a remote-access tool. Its launch belongs
+        // to one of them, or "Start session" would appear under the RMM chip.
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().external_refs[0]
+            .launch
+            .as_mut()
+            .unwrap()
+            .capability = Some("remote_access".into());
+        m.validate().expect("the declared kind is fine");
+
+        m.connector_surfaces.as_mut().unwrap().external_refs[0]
+            .launch
+            .as_mut()
+            .unwrap()
+            .capability = Some("telephony".into());
+        let err = m.validate().expect_err("an undeclared kind is unreachable");
+        assert!(err.to_string().contains("product_kinds"), "{err}");
     }
 
     #[test]
