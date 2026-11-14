@@ -149,7 +149,8 @@ pub async fn require_auth(
                 && request.method() == axum::http::Method::POST)
             // The docs connector (dms-sync) lists, creates and updates KB
             // articles. It is not a prefix: see `kb_article_sync_allowed`.
-            || kb_article_sync_allowed(&candidate, request.method());
+            || kb_article_sync_allowed(&candidate, request.method())
+            || dms_sync_allowed(&candidate, request.method());
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),
@@ -400,6 +401,47 @@ fn kb_article_sync_allowed(path: &str, method: &axum::http::Method) -> bool {
             .is_some_and(|id| !id.is_empty() && !id.contains('/')),
         _ => false,
     }
+}
+
+/// The documents connector (`dms-sync`) creates and updates external
+/// documents and the assets they describe, and it authenticates with an API
+/// key because it runs operator-side rather than inside Core.
+///
+/// This is the half the KB allowance missed. Opening the article route made
+/// the article leg work and left the document and asset legs answering 401,
+/// so a Hudu sync created its articles and none of its documents — which is
+/// the connector's actual subject.
+///
+/// The rule is allow-by-method for the same reason the KB one is: the prefix
+/// mechanism opens a whole subtree, including `DELETE`, and deletion is not a
+/// sync. Nested paths stay closed because a collection create is a
+/// `POST /api/documents` and a row edit is one segment deep; anything deeper
+/// is a different surface that a sync key has no business reaching.
+fn dms_sync_allowed(path: &str, method: &axum::http::Method) -> bool {
+    use axum::http::Method;
+    match *method {
+        // Reads reach the collection, the layout list and one row.
+        Method::GET => {
+            path == "/api/documents"
+                || path == "/api/assets"
+                || one_segment_under(path, "/api/documents/")
+                || one_segment_under(path, "/api/assets/")
+        }
+        // Creates are collection-level only: a POST one segment deeper is a
+        // sub-resource write this connector does not declare.
+        Method::POST => path == "/api/documents" || path == "/api/assets",
+        // Updates name exactly one row.
+        Method::PATCH => {
+            one_segment_under(path, "/api/documents/") || one_segment_under(path, "/api/assets/")
+        }
+        _ => false,
+    }
+}
+
+/// True when `path` is exactly one non-empty segment under `prefix`.
+fn one_segment_under(path: &str, prefix: &str) -> bool {
+    path.strip_prefix(prefix)
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
 }
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
@@ -749,7 +791,8 @@ fn service_account_user(
 
 #[cfg(test)]
 mod tests {
-    use super::principal_for;
+    use super::{dms_sync_allowed, kb_article_sync_allowed, principal_for};
+    use axum::http::Method;
     use core_domain::entities::{Role, User};
     use core_domain::policy::{BuiltinRole, Permission};
 
@@ -894,5 +937,80 @@ mod tests {
             module: Module::Tickets,
             action: Action::Delete,
         }));
+    }
+
+    /// The documents connector writes documents and assets and must not reach
+    /// anything that deletes, or anything a sync does not declare.
+    #[test]
+    fn a_sync_key_reaches_the_document_and_asset_surface_and_nothing_else() {
+        for (method, path) in [
+            (Method::GET, "/api/documents"),
+            (Method::POST, "/api/documents"),
+            (Method::GET, "/api/documents/layouts"),
+            (
+                Method::GET,
+                "/api/documents/0190a000-0000-7000-8000-000000000000",
+            ),
+            (
+                Method::PATCH,
+                "/api/documents/0190a000-0000-7000-8000-000000000000",
+            ),
+            (Method::GET, "/api/assets"),
+            (Method::POST, "/api/assets"),
+            (
+                Method::PATCH,
+                "/api/assets/0190a000-0000-7000-8000-000000000000",
+            ),
+        ] {
+            assert!(
+                dms_sync_allowed(path, &method),
+                "{method} {path} must be allowed"
+            );
+        }
+
+        for (method, path) in [
+            // Deletion is not a sync, and the prefix rule would have opened it.
+            (
+                Method::DELETE,
+                "/api/documents/0190a000-0000-7000-8000-000000000000",
+            ),
+            (
+                Method::DELETE,
+                "/api/assets/0190a000-0000-7000-8000-000000000000",
+            ),
+            (Method::DELETE, "/api/documents"),
+            // A nested write is a sub-resource this connector does not declare.
+            (
+                Method::POST,
+                "/api/documents/0190a000-0000-7000-8000-000000000000/versions",
+            ),
+            (
+                Method::POST,
+                "/api/assets/0190a000-0000-7000-8000-000000000000",
+            ),
+            // Neighbouring surfaces stay closed.
+            (Method::GET, "/api/clients"),
+            (Method::POST, "/api/users"),
+        ] {
+            assert!(
+                !dms_sync_allowed(path, &method),
+                "{method} {path} must be refused"
+            );
+        }
+    }
+
+    /// The KB allowance and the documents allowance together let one sync run.
+    /// This pins that they do not overlap into anything wider by accident.
+    #[test]
+    fn the_kb_allowance_still_refuses_kb_deletion() {
+        assert!(kb_article_sync_allowed("/api/kb/articles", &Method::POST));
+        assert!(!kb_article_sync_allowed(
+            "/api/kb/articles/0190a000-0000-7000-8000-000000000000",
+            &Method::DELETE
+        ));
+        assert!(!kb_article_sync_allowed(
+            "/api/kb/categories",
+            &Method::POST
+        ));
     }
 }
