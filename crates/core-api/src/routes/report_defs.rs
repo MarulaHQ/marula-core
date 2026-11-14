@@ -850,7 +850,7 @@ pub async fn catalog(extensions: Extensions) -> ApiResult<Json<ReportCatalog>> {
         },
     )?;
     let mut views = Vec::with_capacity(ViewId::ALL.len());
-    for view in ViewId::ALL {
+    for view in ViewId::ALL.into_iter().filter(|v| v.authorable()) {
         let columns = view
             .columns()
             .iter()

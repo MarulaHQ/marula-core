@@ -76,6 +76,7 @@ the conscious act. Review per scope before sharing credentials.
 | [`ops.v1_invoices`](read-model/v1-invoices.md) | invoice document | 0059 |
 | [`ops.v1_invoice_lines`](read-model/v1-invoice-lines.md) | invoice line | 0059 |
 | [`ops.v1_fx_reconciliation`](read-model/v1-fx-reconciliation.md) | cross-currency fact with its immutable conversion snapshot (ADR 0002, five lock moments, NOT additive across `kind`) | 0067 |
+| [`ops.v1_client_margin`](read-model/v1-client-margin.md) | per client per money event: invoiced revenue, costed labour, margin; no personal dimension (financial, permission-gated) | 0188 |
 
 ## Related
 
