@@ -158,6 +158,7 @@ pub mod timers;
 pub mod tools;
 pub mod transcription;
 pub mod undo;
+pub mod user_cost_rates;
 pub mod verification;
 pub mod webhook_admin;
 pub mod webhook_receiver;
@@ -178,6 +179,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use serde::Deserialize;
 
 /// Which URL base a router build targets.
 ///
@@ -215,6 +217,23 @@ fn route_path(gen: ApiGeneration, tail: &str) -> String {
     out.push_str(gen.base());
     out.push_str(tail);
     out
+}
+
+/// Distinguishes "field absent" from "explicit null" in a PATCH body:
+/// `None` = absent, `Some(None)` = clear, `Some(Some(v))` = set.
+///
+/// Serde's own `Option<Option<T>>` cannot do this — a JSON `null` reads as
+/// `None`, the absent shape — so a field carrying this must also carry
+/// `#[serde(default, deserialize_with = "double_option")]`. Several modules
+/// keep a private copy of this one-liner; this shared copy exists for the two
+/// cost-rate routes (`user_cost_rates`, `settings`) that encode the same
+/// tri-state in the same breath.
+pub(crate) fn double_option<'de, D, T>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Option::<T>::deserialize(de).map(Some)
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -657,6 +676,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/org/users/{id}/email-verified"),
             post(org_users::set_email_verified),
+        )
+        // Labour cost rate (migration 0188): the write surface the client
+        // margin report was missing. Own-rate read for any member; another
+        // user's rate needs the money read; writes are user administration.
+        .route(
+            &rp("/users/{id}/cost-rate"),
+            get(user_cost_rates::get).patch(user_cost_rates::patch),
         )
         // role directory + preset lifecycle (Wave 13 lane 6, RB1): the
         // shipped presets are data rows; fork/restore ride the envelope.

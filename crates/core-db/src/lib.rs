@@ -39,6 +39,7 @@ pub mod decision;
 // Dev-tool surface (the private build tracker DX1–DX2): only reachable behind
 // MARULA_DEV_TOOLS=1 — the CLI refuses and the API router is not mounted
 // without it.
+pub mod cost_rates;
 pub mod costs;
 pub mod credit_notes;
 pub mod dead_work;

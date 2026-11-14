@@ -11,7 +11,7 @@
 mod common;
 
 use common::{fixed_uuid, org_tx, test_db, TestDb};
-use core_db::connector_connections::{resolve_external_actions, upsert_live_ref};
+use core_db::connector_connections::{resolve_external_actions, upsert_live_ref, ConnectionViewer};
 use core_db::{assets, clients, orgs, plugins};
 use core_domain::connectors::{ConnectionStatus, RecordType};
 use core_domain::entities::{
@@ -165,14 +165,16 @@ async fn seed_ref(db: &TestDb, org: Uuid, asset: Uuid, connection: Uuid, externa
 
 async fn open_url(db: &TestDb, org: Uuid, asset: Uuid) -> String {
     let mut tx = org_tx(&db.app, org).await;
-    // This test is about which origin a link resolves against, not about who
-    // may see it: the unrestricted viewer is the audience-free caller.
+    // An unrestricted viewer: this suite is about the ORIGIN each asset
+    // resolves to, not about the connection's audience. Audience filtering has
+    // its own suite; the sync paths that read this resolver have already
+    // decided access above it (`ConnectionViewer::unrestricted`'s contract).
     let capabilities = resolve_external_actions(
         &mut tx,
         org,
         RecordType::Configuration,
         asset,
-        &core_db::connector_connections::ConnectionViewer::unrestricted(),
+        &ConnectionViewer::unrestricted(),
     )
     .await
     .expect("resolve");

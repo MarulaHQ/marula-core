@@ -254,7 +254,10 @@ pub async fn create_article<'e, E>(
     content_jsonb: Option<serde_json::Value>,
     status: KbArticleStatus,
     client_visible: bool,
-    created_by: Uuid,
+    // `None` for a machine caller: an API key or service account is not a
+    // user row, and `created_by`/`updated_by` are FKs to `users`. The
+    // mutation trail still names the key as the actor.
+    created_by: Option<Uuid>,
 ) -> DbResult<KbArticle>
 where
     E: sqlx::Executor<'e, Database = Postgres>,

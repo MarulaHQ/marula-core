@@ -146,7 +146,10 @@ pub async fn require_auth(
             // stay closed: they require the Admin matrix, which no mintable
             // scope grants.
             || (candidate == "/api/agent-proposals"
-                && request.method() == axum::http::Method::POST);
+                && request.method() == axum::http::Method::POST)
+            // The docs connector (dms-sync) lists, creates and updates KB
+            // articles. It is not a prefix: see `kb_article_sync_allowed`.
+            || kb_article_sync_allowed(&candidate, request.method());
         if !allowed {
             return Err(ApiError::Unauthorized(
                 "api keys are not accepted on this endpoint".into(),
@@ -377,6 +380,27 @@ const API_KEY_PATHS: &[&str] = &[
     // key with `directory_groups:read` still gets a typed 403 on every write.
     "/api/directory-groups",
 ];
+
+/// The docs connector's article surface: list, create, update — and nothing
+/// else under `/api/kb`.
+///
+/// Why not the prefix: `/api/kb` would also open category administration and
+/// article deletion, and `/api/kb/articles` alone would open
+/// `DELETE /api/kb/articles/{id}`. The method is part of the rule because the
+/// only mintable scope that carries the KB write grants (`rag:write` resolves
+/// onto `kb:view/create/edit/delete`) also carries the delete grant, so the
+/// path gate is what keeps deletion out of a sync key's reach. Handlers still
+/// run their own matrix check (`kb:create` / `kb:edit`), so a read-scoped key
+/// gets a typed 403 rather than a write.
+fn kb_article_sync_allowed(path: &str, method: &axum::http::Method) -> bool {
+    match *method {
+        axum::http::Method::GET | axum::http::Method::POST => path == "/api/kb/articles",
+        axum::http::Method::PATCH => path
+            .strip_prefix("/api/kb/articles/")
+            .is_some_and(|id| !id.is_empty() && !id.contains('/')),
+        _ => false,
+    }
+}
 
 /// Maps capability scopes onto the permission matrix. Unknown scopes are
 /// ignored here (they cannot be created — validated at key creation).

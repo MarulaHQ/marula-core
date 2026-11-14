@@ -86,7 +86,7 @@ async fn category_and_article_round_trip() {
         None,
         KbArticleStatus::Published,
         true,
-        author,
+        Some(author),
     )
     .await
     .expect("article insert");
@@ -188,7 +188,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         None,
         KbArticleStatus::Published,
         true,
-        author,
+        Some(author),
     )
     .await
     .expect("published client-visible article");
@@ -204,7 +204,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         None,
         KbArticleStatus::Draft,
         true,
-        author,
+        Some(author),
     )
     .await
     .expect("flagged draft");
@@ -220,7 +220,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         None,
         KbArticleStatus::Published,
         true,
-        author,
+        Some(author),
     )
     .await
     .expect("hidden-category article");
@@ -236,7 +236,7 @@ async fn article_filters_compose_and_client_gate_needs_the_category() {
         None,
         KbArticleStatus::Published,
         true,
-        author,
+        Some(author),
     )
     .await
     .expect("uncategorized article");
@@ -313,7 +313,7 @@ async fn slug_uniqueness_is_enforced_per_org() {
         None,
         KbArticleStatus::Draft,
         false,
-        fixed_uuid(1348),
+        Some(fixed_uuid(1348)),
     )
     .await
     .expect("first insert");
@@ -329,7 +329,7 @@ async fn slug_uniqueness_is_enforced_per_org() {
         None,
         KbArticleStatus::Draft,
         false,
-        author,
+        Some(author),
     )
     .await;
     match second {
@@ -362,7 +362,7 @@ async fn rls_blocks_cross_org_kb_reads() {
         None,
         KbArticleStatus::Draft,
         false,
-        author,
+        Some(author),
     )
     .await
     .expect("insert");
@@ -469,7 +469,7 @@ async fn migration_0077_backfills_envelope_and_keeps_body() {
         Some(wrap.clone()),
         KbArticleStatus::Draft,
         false,
-        fixed_uuid(1381),
+        Some(fixed_uuid(1381)),
     )
     .await
     .expect("article insert");
@@ -542,7 +542,7 @@ async fn content_envelope_round_trips() {
         Some(envelope.clone()),
         KbArticleStatus::Draft,
         false,
-        fixed_uuid(1391),
+        Some(fixed_uuid(1391)),
     )
     .await
     .expect("article insert");
