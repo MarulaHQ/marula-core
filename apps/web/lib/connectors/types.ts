@@ -6,16 +6,18 @@
 // the state every install begins in. The roster types this here rather than
 // reaching for a generated schema the route has not joined yet.
 //
-// Non-purpose: no settings schema, no destination rows and no audience. The
-// contract carries a description, a destination *count*, a status and two
-// status strings; the detail panel states what that cannot show rather than
-// inventing fields. When the route grows those fields, add them here once —
-// the panel already reads this file and nothing else.
+// The connection view now carries what the write path returns: the non-secret
+// `settings`, the credential FIELD NAMES that hold a value (`secrets_set`, never
+// values), and `audience_roles` (`roles.id`). It still carries no
+// `settings_schema`; the pinned schema comes from
+// `GET /api/v1/plugins/installed/{installation_id}/settings`, which is the same
+// manifest row the roster reads and then discards.
 //
-// The route is not in the OpenAPI document yet, so this client reads it with a
-// plain `fetch` (the same route `lib/api` uses for other not-yet-generated
-// reads). Every field is required in the contract, so nothing here is
-// optimistic about what the server returns.
+// The write routes are not in the OpenAPI document yet, so this client reads
+// roster data with a plain `fetch` (the same route `lib/api` uses for other
+// not-yet-generated reads). Every field is required in the contract, so nothing
+// here is optimistic about what the server returns.
+import type { SettingsValue } from "@marula-core/ui";
 
 export interface ConnectionView {
   id: string;
@@ -39,7 +41,14 @@ export interface ConnectionView {
   last_success_at: string | null;
   /** Null when the connection has never failed — omit the timestamp row, then. */
   last_failure_at: string | null;
+  /** Enabled destinations only. */
   bindings_count: number;
+  /** Non-secret settings. A `writeOnly` field appears as `null`, never a value. */
+  settings: Record<string, SettingsValue>;
+  /** Credential fields that hold a value, by name. Empty means nothing is set. */
+  secrets_set: string[];
+  /** `roles.id` allowed to see and act on this connection. Empty means all staff. */
+  audience_roles: string[];
 }
 
 /** One installed connector and the connections bound to it. */
@@ -56,4 +65,10 @@ export interface ConnectorInstallationView {
 
 export interface ConnectorsRosterResponse {
   connectors: ConnectorInstallationView[];
+}
+
+/** One client row, narrowed to what the scope picker reads. */
+export interface ClientOption {
+  id: string;
+  name: string;
 }

@@ -34,6 +34,9 @@ function connection(overrides: Partial<ConnectionView> = {}): ConnectionView {
     last_success_at: "2026-11-13T10:00:00Z",
     last_failure_at: null,
     bindings_count: 2,
+    settings: {},
+    secrets_set: [],
+    audience_roles: [],
     ...overrides,
   };
 }
@@ -117,7 +120,7 @@ describe("/settings/connectors", () => {
     const card = await screen.findByTestId("connector-card-slack");
     expect(within(card).getByTestId("status-pill")).toHaveTextContent("Not connected");
     expect(within(card).getByText("Installed but not connected yet")).toBeInTheDocument();
-    expect(within(card).getByRole("link", { name: "Connect" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Connect" })).toBeInTheDocument();
   });
 
   it("reads Needs attention and offers Fix when one of several connections failed", async () => {
@@ -258,7 +261,7 @@ describe("/settings/connectors", () => {
 
     await user.click(await screen.findByRole("button", { name: "Manage" }));
     expect(screen.queryByTestId("connection-test")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("settings-not-available").length).toBeGreaterThan(0);
+    expect(screen.getByText(/no canary endpoint/)).toBeInTheDocument();
   });
 
   it("renders the settings route frame and filters by name and description", async () => {

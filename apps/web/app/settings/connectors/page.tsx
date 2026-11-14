@@ -7,13 +7,14 @@
 // a table forces a column decision per vendor and does not survive the
 // marketplace, which is the opposite of what this surface is for.
 //
-// Non-purpose: no connector installation or consent flow (that lives under
-// Settings → Plugins), no destination editor and no settings-schema renderer
-// this round. The detail panel names each of those gaps where it reaches one
-// rather than drawing a control that cannot act.
+// The write path: the card's `Connect` opens the create-connection dialog, and
+// the detail panel edits settings, destinations and audience against the
+// server. Every mutation replaces the affected row with the server's response —
+// nothing here paints a change the API has not confirmed.
 //
-// This page is not yet in `lib/settings/ia.ts`: navigation for the settings
-// area is owned by another lane. The route is real and reachable by URL.
+// The pinned `settings_schema` is not in the roster payload, so it is fetched
+// per installation (`pinned-schema.ts`) and shared by the create dialog and the
+// detail panel.
 "use client";
 
 import Link from "next/link";
@@ -30,11 +31,14 @@ import { apiBaseUrl, authHeaders, useRequireAuth } from "../../../lib/api";
 import { friendlyMutationText } from "../../../lib/error-copy";
 import { buildRoster, filterRoster } from "../../../lib/connectors/roster";
 import type {
+  ConnectionView,
   ConnectorInstallationView,
   ConnectorsRosterResponse,
 } from "../../../lib/connectors/types";
 import { ConnectorRosterCard } from "./roster-card";
 import { ConnectionDetail } from "./connection-detail";
+import { CreateConnectionDialog } from "./connection-form";
+import { usePinnedSchema } from "./pinned-schema";
 
 /** The loading shape repeats the card's geometry so nothing jumps on arrival. */
 function RosterSkeleton(): React.JSX.Element {
@@ -74,6 +78,7 @@ export default function ConnectorsSettingsPage(): React.JSX.Element | null {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [connectTarget, setConnectTarget] = useState<ConnectorInstallationView | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -93,8 +98,10 @@ export default function ConnectorsSettingsPage(): React.JSX.Element | null {
         throw new Error("The connector roster response carried no connectors list.");
       }
       setConnectors(body.connectors);
+      return body.connectors;
     } catch (error) {
       setLoadError(friendlyMutationText(error, "Failed to load connectors."));
+      return null;
     }
   }, []);
 
@@ -102,10 +109,7 @@ export default function ConnectorsSettingsPage(): React.JSX.Element | null {
     if (auth.status === "authed") void load();
   }, [auth.status, load]);
 
-  const roster = useMemo(
-    () => buildRoster(connectors ?? []),
-    [connectors],
-  );
+  const roster = useMemo(() => buildRoster(connectors ?? []), [connectors]);
   const visible = useMemo(() => filterRoster(roster, query), [roster, query]);
 
   const selectedInstallation =
@@ -118,6 +122,46 @@ export default function ConnectorsSettingsPage(): React.JSX.Element | null {
     (connection) => connection.id === selectedId,
   );
 
+  // The detail panel's schema. The create dialog loads its own for the
+  // installation it is configuring, so only one request is in flight at a time.
+  const pinned = usePinnedSchema(selectedInstallation?.installation_id ?? null);
+
+  const replaceConnection = useCallback((view: ConnectionView) => {
+    setConnectors((current) =>
+      (current ?? []).map((installation) =>
+        installation.installation_id !== view.installation_id
+          ? installation
+          : {
+              ...installation,
+              connections: installation.connections.map((connection) =>
+                connection.id === view.id ? view : connection,
+              ),
+            },
+      ),
+    );
+  }, []);
+
+  const addConnection = useCallback((view: ConnectionView) => {
+    setConnectors((current) =>
+      (current ?? []).map((installation) =>
+        installation.installation_id !== view.installation_id
+          ? installation
+          : { ...installation, connections: [...installation.connections, view] },
+      ),
+    );
+  }, []);
+
+  const updateBindingsCount = useCallback((connectionId: string, count: number) => {
+    setConnectors((current) =>
+      (current ?? []).map((installation) => ({
+        ...installation,
+        connections: installation.connections.map((connection) =>
+          connection.id === connectionId ? { ...connection, bindings_count: count } : connection,
+        ),
+      })),
+    );
+  }, []);
+
   if (auth.status !== "authed") return null;
 
   // A connection opens as a detail step, not a modal (§3). The back control
@@ -128,7 +172,20 @@ export default function ConnectorsSettingsPage(): React.JSX.Element | null {
         <ConnectionDetail
           connection={selected}
           siblings={selectedInstallation.connections}
+          pinned={pinned.state}
+          onReloadSchema={pinned.reload}
+          onSaved={replaceConnection}
+          onDeleted={(id) => {
+            setConnectors((current) =>
+              (current ?? []).map((installation) => ({
+                ...installation,
+                connections: installation.connections.filter((connection) => connection.id !== id),
+              })),
+            );
+            setSelectedId(null);
+          }}
           onSelect={(connection) => setSelectedId(connection.id)}
+          onBindingsCountChange={updateBindingsCount}
           onBack={() => setSelectedId(null)}
         />
       </div>
@@ -208,10 +265,29 @@ export default function ConnectorsSettingsPage(): React.JSX.Element | null {
               key={card.installationId}
               card={card}
               onOpen={(connection) => setSelectedId(connection.id)}
+              onConnect={(installationId) => {
+                const installation = (connectors ?? []).find(
+                  (entry) => entry.installation_id === installationId,
+                );
+                if (installation !== undefined) setConnectTarget(installation);
+              }}
             />
           ))}
         </div>
       )}
+
+      <CreateConnectionDialog
+        installation={connectTarget}
+        open={connectTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setConnectTarget(null);
+        }}
+        onCreated={(connection) => {
+          addConnection(connection);
+          setConnectTarget(null);
+          setSelectedId(connection.id);
+        }}
+      />
     </div>
   );
 }
