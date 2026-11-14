@@ -1,0 +1,82 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, record_type, record_id, connection_id, source_system,\n                external_kind, external_id, external_url, source_guid,\n                first_seen_at, last_seen_at\n         FROM external_refs WHERE org_id = $1\n         ORDER BY record_type, record_id, source_system, external_kind, external_id, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "record_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "record_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "connection_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "source_system",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "external_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "external_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "external_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "source_guid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "first_seen_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "49e0fa31ac55e5ed02566a1b747455ace25fba0140fb86ff37c7858dd5921949"
+}
