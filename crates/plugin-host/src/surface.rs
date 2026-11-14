@@ -552,6 +552,8 @@ mod tests {
             ],
             settings_schema: None,
             artifact_kind: Some(core_domain::entities::plugins::PluginRuntimeKind::HttpConnector),
+            product_kinds: Vec::new(),
+            connector_surfaces: None,
             connector_profile: None,
             surface_profile: Some(PluginSurfaceProfile {
                 actions: vec![SurfaceAction {
@@ -606,6 +608,8 @@ mod tests {
             ],
             settings_schema: None,
             artifact_kind: None,
+            product_kinds: Vec::new(),
+            connector_surfaces: None,
             connector_profile: None,
             surface_profile: Some(profile()),
         };

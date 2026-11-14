@@ -1319,6 +1319,8 @@ mod tests {
             capabilities: vec!["automation.actions".into()],
             settings_schema: None,
             artifact_kind: None,
+            product_kinds: Vec::new(),
+            connector_surfaces: None,
             connector_profile: Some(ConnectorProfile {
                 webhook_endpoints: Vec::new(),
                 scopes: Vec::new(),
