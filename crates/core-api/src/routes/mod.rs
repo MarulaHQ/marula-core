@@ -753,6 +753,32 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(connector_actions::external_actions),
         )
         .route(&rp("/connectors/roster"), get(connector_actions::roster))
+        // Connector WRITE surfaces (ADR 0032; migration 0186). The paths are
+        // frozen by the contract: a connection is created under its
+        // installation, edited by id, and a destination under its connection.
+        .route(
+            &rp("/connector-installations/{installation_id}/connections"),
+            post(connector_actions::connections_create),
+        )
+        .route(
+            &rp("/connector-connections/{id}"),
+            axum::routing::patch(connector_actions::connections_update)
+                .delete(connector_actions::connections_delete),
+        )
+        .route(
+            &rp("/connector-connections/{id}/bindings"),
+            get(connector_actions::bindings_list).post(connector_actions::bindings_create),
+        )
+        .route(
+            &rp("/connector-bindings/{id}"),
+            axum::routing::patch(connector_actions::bindings_update)
+                .delete(connector_actions::bindings_delete),
+        )
+        .route(
+            &rp("/capability-defaults/{capability}"),
+            put(connector_actions::capability_default_put)
+                .delete(connector_actions::capability_default_delete),
+        )
         // boards + statuses + workflow customization + organization/RBAC
         .route(&rp("/boards"), get(boards::list).post(boards::create))
         .route(&rp("/boards/nav"), get(board_access::nav))

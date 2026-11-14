@@ -568,13 +568,26 @@ mod tests {
 
     #[test]
     fn off_schema_settings_are_refused() {
+        // The subset grew one shape in the connector write path (nested
+        // `object` and `array` nodes, each of which must declare what it
+        // holds), so the example of an off-subset declaration is a type
+        // nothing validates — a `datetime` is prose, not a setting.
+        let mut value = manifest_json();
+        value["settings_schema"] = serde_json::json!({
+            "type": "object",
+            "properties": { "claim_map": { "type": "datetime" } }
+        });
+        let err = IdentityBundleManifest::from_value(&value).expect_err("datetime refuses");
+        assert!(err.to_string().contains("unsupported type"), "{err}");
+
+        // A nested container that does not say what it holds is still
+        // refused: an untyped `array` would accept anything at all.
         let mut value = manifest_json();
         value["settings_schema"] = serde_json::json!({
             "type": "object",
             "properties": { "claim_map": { "type": "array" } }
         });
-        let err = IdentityBundleManifest::from_value(&value).expect_err("array refuses");
-        assert!(err.to_string().contains("unsupported type"), "{err}");
+        assert!(IdentityBundleManifest::from_value(&value).is_err());
     }
 
     /// THE BOUNDARY, stated as an executable claim: an identity bundle

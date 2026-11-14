@@ -110,8 +110,28 @@ Four sections, in this order:
    and writes the result. The canary result is not a toast. It updates the
    section, because a toast is gone before the operator has read it.
 4. **Access.** The audience for using this connection: `All staff` (default)
-   or named roles and teams. Below it, one line naming what install and
-   removal require, which is not editable here.
+   or named roles. Below it, one line naming what install and removal
+   require, which is not editable here.
+
+   The audience is a closed door, not a hint. Empty means every caller the
+   module permission already allows, and that is the shipped default. A
+   non-empty list holds org role ids (`roles.id`), never role names, so a role
+   renamed later keeps its membership instead of quietly losing the people it
+   named. Three rules follow, and all three are enforced in one place each:
+
+   - **Outside the audience, the connection does not exist.** The record
+     surface shows no provider, the roster shows no connection row, and the
+     share dialog offers no destination. This is the same absence "no access"
+     already looks like elsewhere on the record; it is never a disabled control
+     with a tooltip explaining a door the user cannot open.
+   - **The audience narrows use, never client access.** A client-scoped
+     connection is still refused to a caller who cannot see that client,
+     whatever the audience says. The two checks are independent and both have
+     to pass. An audience can never widen what a user sees.
+   - **Owner and admin bypass the audience**, exactly as they bypass the
+     restricted-client rule. An admin who configured a connection can always
+     reach it to fix it; the audience exists to limit the other staff, not to
+     lock the person who owns the install out of the repair.
 
 Per-client connections appear under the connector as a secondary list
 (`Client` → connection), with the same detail page. This is the G11 surface:
