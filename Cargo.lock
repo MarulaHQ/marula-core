@@ -1181,6 +1181,7 @@ dependencies = [
  "mapbox-routing",
  "openssl",
  "plugin-host",
+ "qbo-export-sync",
  "qrcode",
  "rand 0.10.3",
  "reqwest 0.12.28",
@@ -1204,6 +1205,7 @@ dependencies = [
  "uuid",
  "webauthn-rs",
  "worker",
+ "xero-export-sync",
 ]
 
 [[package]]

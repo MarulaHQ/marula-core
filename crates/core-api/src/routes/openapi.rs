@@ -673,6 +673,15 @@ use utoipa::OpenApi;
         crate::routes::credit_notes::apply,
         crate::routes::credit_notes::refund,
         crate::routes::credit_notes::void,
+        // accounting export (claims-gaps G1–G3)
+        crate::routes::accounting_export::export_invoice,
+        crate::routes::accounting_export::export_credit_note,
+        crate::routes::accounting_export::list_runs,
+        crate::routes::accounting_export::get_run,
+        crate::routes::accounting_export::read_ledger,
+        crate::routes::accounting_export::list_tax_mappings,
+        crate::routes::accounting_export::upsert_tax_mapping,
+        crate::routes::accounting_export::delete_tax_mapping,
         // quote builder + catalog + sales pipeline (Wave 12 lane 2)
         crate::routes::catalog::create,
         crate::routes::catalog::list,
@@ -1734,6 +1743,17 @@ use utoipa::OpenApi;
         crate::routes::credit_notes::VoidCreditNoteRequest,
         crate::routes::credit_notes::CreditNoteMutationResponse,
         crate::routes::credit_notes::CreditNoteAllocationResponse,
+        // accounting export (claims-gaps G1–G3)
+        crate::routes::accounting_export::ExportRequest,
+        crate::routes::accounting_export::ExportRunView,
+        crate::routes::accounting_export::ExportReceiptView,
+        crate::routes::accounting_export::RunListQuery,
+        crate::routes::accounting_export::LedgerView,
+        crate::routes::accounting_export::LedgerAccountView,
+        crate::routes::accounting_export::TaxCodeView,
+        crate::routes::accounting_export::TaxMappingView,
+        crate::routes::accounting_export::UpsertTaxMappingRequest,
+        crate::routes::accounting_export::TaxMappingListQuery,
         // quote builder + catalog + sales pipeline (Wave 12 lane 2)
         crate::routes::catalog::CreateCatalogItemRequest,
         crate::routes::catalog::UpdateCatalogItemRequest,
