@@ -26,6 +26,9 @@ function connection(overrides: Partial<ConnectionView> = {}): ConnectionView {
     last_success_at: null,
     last_failure_at: null,
     bindings_count: 0,
+    settings: {},
+    secrets_set: [],
+    audience_roles: [],
     ...overrides,
   };
 }

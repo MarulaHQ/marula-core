@@ -10,12 +10,11 @@
 // A connector with no connections is a real card — that is what an install
 // looks like before it is configured — so it gets `Connect` rather than being
 // hidden, and its secondary line says "Installed but not connected yet"
-// instead of doing arithmetic on zero. Connect is a link to Settings → Plugins
-// because the credential step belongs to the plugin consent flow today; the
-// roster does not invent a connection form (see `connection-detail.tsx`).
+// instead of doing arithmetic on zero. `Connect` opens the create-connection
+// form for this installation: the write path exists now, so the card no longer
+// forwards to Settings → Plugins, which had no connection to create.
 "use client";
 
-import Link from "next/link";
 import { Button, Card, StatusPill, statusOfConnection } from "@marula-core/ui";
 import type { ConnectorCardModel } from "../../../lib/connectors/roster";
 import type { ConnectionView } from "../../../lib/connectors/types";
@@ -42,9 +41,12 @@ export function rosterMetaLine(card: ConnectorCardModel): string {
 export function ConnectorRosterCard({
   card,
   onOpen,
+  onConnect,
 }: {
   card: ConnectorCardModel;
   onOpen: (connection: ConnectionView) => void;
+  /** Opens the create-connection flow for this card's install (§2 Connect). */
+  onConnect: (installationId: string) => void;
 }): React.JSX.Element {
   const first = card.connections[0];
   const firstUnhealthy = card.connections.find(
@@ -112,8 +114,13 @@ export function ConnectorRosterCard({
 
         <div style={{ flex: "0 0 auto" }}>
           {card.action === "connect" || first === undefined ? (
-            <Button asChild size="sm" variant="primary">
-              <Link href="/settings/plugins">Connect</Link>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onConnect(card.installationId)}
+              data-testid={`connector-connect-${card.connector}`}
+            >
+              Connect
             </Button>
           ) : card.action === "fix" ? (
             // Fix opens the failing connection, not the connector in general:

@@ -80,6 +80,8 @@ export * from "./components/table";
 export * from "./components/select";
 export * from "./components/menu";
 export * from "./components/dialog";
+export * from "./components/confirm-dialog";
+export * from "./components/schema-form";
 export * from "./components/tooltip";
 export * from "./components/status-stepper";
 export * from "./components/composer-frame";
@@ -101,3 +103,7 @@ export * from "./components/linked-records-strip";
 export * from "./editor/toolbar";
 export * from "./editor/block-menu";
 export * from "./editor/prose";
+
+// The kit's toggle is re-exported from the one barrel so a surface never has
+// to know whether a primitive came from `./components` or `./kit`.
+export { Switch } from "./kit/ui/switch";
