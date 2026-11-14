@@ -407,6 +407,22 @@ fn sample_task() -> ProjectTask {
         milestone_amount_minor: None,
         milestone_currency: None,
         due_at: None,
+        // The sample task is completed and carries no plan: an event fixture
+        // that invented a start would teach consumers to draw work nobody
+        // scheduled.
+        start_at: None,
+        duration_minutes: None,
+        effort_estimate_minutes: None,
+        effort_remaining_minutes: None,
+        work_type: None,
+        priority: None,
+        role_key: None,
+        required_skills: Vec::new(),
+        is_critical: false,
+        baseline_start_at: None,
+        baseline_duration_minutes: None,
+        external_owner: None,
+        calendar_pin: None,
         completed_at: Some(st(2)),
         created_at: st(1),
         updated_at: st(2),

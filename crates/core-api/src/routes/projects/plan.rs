@@ -1357,3 +1357,132 @@ pub async fn gantt(
         window_to,
     }))
 }
+
+// --- working calendar ----------------------------------------------------------------
+
+/// A project's own working pattern. Absent means the organisation's calendar
+/// applies, which is the state of every project that has never needed one.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ProjectCalendarView {
+    pub calendar: Option<core_domain::entities::ProjectWorkingCalendar>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct SetProjectCalendarRequest {
+    /// Monday at bit 0, Sunday at bit 6. Monday to Friday is 31.
+    pub weekdays: i16,
+    /// Minutes of work in one working day, lunch excluded.
+    pub minutes_per_day: i32,
+    pub note: Option<String>,
+}
+
+/// GET /api/projects/{id}/calendar — the project's override, or `calendar:
+/// null` when the organisation's calendar applies.
+#[utoipa::path(operation_id = "projects_get_calendar", get, path = "/api/projects/{id}/calendar", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = ProjectCalendarView),
+              (status = 404, description = "project not visible in scope (rls_sparse)")))]
+pub async fn get_calendar(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ProjectCalendarView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::View))?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    // Reading the project first means a missing project is a 404 rather than
+    // "no override", which would read as an answer.
+    core_db::projects::get_project(&mut *tx, authed.principal.user.org_id, id).await?;
+    let calendar =
+        core_db::projects::get_working_calendar(&mut *tx, authed.principal.user.org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(ProjectCalendarView { calendar }))
+}
+
+/// PUT /api/projects/{id}/calendar — sets the project's working pattern. The
+/// project's pattern wins for its own dates; nothing else changes.
+///
+/// No outbox event: the calendar is read when a date is computed, so nothing
+/// downstream holds a stale copy of it.
+#[utoipa::path(operation_id = "projects_set_calendar", put, path = "/api/projects/{id}/calendar", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = SetProjectCalendarRequest,
+    responses((status = 200, body = ProjectCalendarView),
+              (status = 404, description = "project not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn set_calendar(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetProjectCalendarRequest>,
+) -> ApiResult<Json<ProjectCalendarView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    if !(1..=127).contains(&req.weekdays) {
+        return Err(ApiError::Validation(
+            "weekdays must be a non-empty mask between 1 and 127".into(),
+        ));
+    }
+    if !(1..=1440).contains(&req.minutes_per_day) {
+        return Err(ApiError::Validation(
+            "minutes_per_day must be between 1 and 1440".into(),
+        ));
+    }
+    let note = req.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let calendar = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_project(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let calendar = core_db::projects::upsert_working_calendar(
+            &mut *ctx.tx,
+            org_id,
+            id,
+            req.weekdays,
+            req.minutes_per_day,
+            note,
+        )
+        .await?;
+        Ok((ctx, calendar))
+    })
+    .await?;
+
+    Ok(Json(ProjectCalendarView {
+        calendar: Some(calendar),
+    }))
+}
+
+/// DELETE /api/projects/{id}/calendar — drops the override so the
+/// organisation's calendar applies again.
+#[utoipa::path(operation_id = "projects_clear_calendar", delete, path = "/api/projects/{id}/calendar", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = Value),
+              (status = 404, description = "no override to clear")))]
+pub async fn clear_calendar(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let deleted = core_db::projects::delete_working_calendar(&mut *ctx.tx, org_id, id).await?;
+        if !deleted {
+            return Err(ApiError::RlsSparse);
+        }
+        Ok((ctx, serde_json::json!({ "deleted": true })))
+    })
+    .await
+    .map(Json)
+}

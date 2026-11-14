@@ -87,6 +87,61 @@ pub struct DependencyListResponse {
     pub depends_on: Vec<ProjectTask>,
 }
 
+/// A task's start and its length are one fact in two columns: a start with no
+/// length is not a bar on a timeline, and a length with no start has nowhere to
+/// sit. Neither is required — an undated task stays undated.
+pub(crate) fn validate_task_time(has_start: bool, duration_minutes: Option<i32>) -> ApiResult<()> {
+    match (has_start, duration_minutes) {
+        (true, None) => Err(ApiError::Validation(
+            "start_at and duration_minutes must be set together".into(),
+        )),
+        (false, Some(_)) => Err(ApiError::Validation(
+            "duration_minutes requires start_at".into(),
+        )),
+        (true, Some(minutes)) if minutes < 0 => Err(ApiError::Validation(
+            "duration_minutes must not be negative".into(),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Effort is a separate fact from duration: two hours of wall time can be ten
+/// minutes of work. Both figures are optional, and neither may be negative.
+pub(crate) fn validate_task_effort(estimate: Option<i32>, remaining: Option<i32>) -> ApiResult<()> {
+    for (label, value) in [
+        ("effort_estimate_minutes", estimate),
+        ("effort_remaining_minutes", remaining),
+    ] {
+        if matches!(value, Some(v) if v < 0) {
+            return Err(ApiError::Validation(format!(
+                "{label} must not be negative"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Normalises a skill list: trimmed, empty entries dropped, duplicates
+/// removed case-insensitively, and the list bounded so a single task cannot
+/// carry an unbounded document.
+pub(crate) fn normalise_skills(skills: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(skills.len().min(32));
+    for raw in skills {
+        let skill = raw.trim();
+        if skill.is_empty() || skill.chars().count() > 64 {
+            continue;
+        }
+        if out.iter().any(|kept| kept.eq_ignore_ascii_case(skill)) {
+            continue;
+        }
+        out.push(skill.to_string());
+        if out.len() == 32 {
+            break;
+        }
+    }
+    out
+}
+
 pub(crate) fn default_limit() -> i64 {
     50
 }

@@ -2227,6 +2227,12 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // phase nobody scheduled.
         .route(&rp("/projects/{id}/gantt"), get(projects::gantt))
         .route(
+            &rp("/projects/{id}/calendar"),
+            get(projects::get_calendar)
+                .put(projects::set_calendar)
+                .delete(projects::clear_calendar),
+        )
+        .route(
             &rp("/projects/{id}/phases/{phase_id}"),
             axum::routing::patch(projects::patch_phase),
         )

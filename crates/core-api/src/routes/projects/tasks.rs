@@ -17,6 +17,24 @@ pub struct CreateTaskRequest {
     pub milestone_amount_minor: Option<i64>,
     pub milestone_currency: Option<String>,
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the work starts. Both-or-neither with `duration_minutes`: a start
+    /// with no length is not a bar on a timeline, a length with no start has
+    /// nowhere to sit. Absent means undated, which is drawn as undated.
+    pub start_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_minutes: Option<i32>,
+    pub effort_estimate_minutes: Option<i32>,
+    pub effort_remaining_minutes: Option<i32>,
+    pub work_type: Option<core_domain::entities::WorkType>,
+    pub priority: Option<core_domain::status::Priority>,
+    /// The role this work needs, matched against a person's role on dispatch.
+    pub role_key: Option<String>,
+    #[serde(default)]
+    pub required_skills: Vec<String>,
+    #[serde(default)]
+    pub is_critical: bool,
+    /// Set when somebody outside the company owns the step.
+    pub external_owner: Option<String>,
+    pub calendar_pin: Option<Uuid>,
     /// Finish-to-start dependencies to create with the task; every id must
     /// be a task of the SAME project. Cycles are impossible at creation
     /// (nothing can depend on the not-yet-existing task) but membership is
@@ -45,6 +63,17 @@ pub struct PatchTaskRequest {
     pub milestone_amount_minor: Option<Option<i64>>,
     pub milestone_currency: Option<Option<String>>,
     pub due_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub start_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub duration_minutes: Option<Option<i32>>,
+    pub effort_estimate_minutes: Option<Option<i32>>,
+    pub effort_remaining_minutes: Option<Option<i32>>,
+    pub work_type: Option<Option<core_domain::entities::WorkType>>,
+    pub priority: Option<Option<core_domain::status::Priority>>,
+    pub role_key: Option<Option<String>>,
+    pub required_skills: Option<Vec<String>>,
+    pub is_critical: Option<bool>,
+    pub external_owner: Option<Option<String>>,
+    pub calendar_pin: Option<Option<Uuid>>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -131,6 +160,9 @@ pub async fn create_task(
             )));
         }
     }
+    validate_task_time(req.start_at.is_some(), req.duration_minutes)?;
+    validate_task_effort(req.effort_estimate_minutes, req.effort_remaining_minutes)?;
+    let skills = normalise_skills(&req.required_skills);
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
@@ -203,6 +235,17 @@ pub async fn create_task(
                 milestone_amount_minor: amount.as_ref().map(|(m, _)| *m),
                 milestone_currency: amount.as_ref().map(|(_, c)| c.as_str()),
                 due_at: req.due_at,
+                start_at: req.start_at,
+                duration_minutes: req.duration_minutes,
+                effort_estimate_minutes: req.effort_estimate_minutes,
+                effort_remaining_minutes: req.effort_remaining_minutes,
+                work_type: req.work_type,
+                priority: req.priority,
+                role_key: req.role_key.as_deref(),
+                required_skills: &skills,
+                is_critical: req.is_critical,
+                external_owner: req.external_owner.as_deref(),
+                calendar_pin: req.calendar_pin,
             },
         )
         .await?;
@@ -323,6 +366,19 @@ pub async fn patch_task(
                 ));
             }
         }
+        // The pair rule is checked against the state AFTER the patch, not
+        // against the patch alone: clearing a duration while leaving the start
+        // in place would otherwise slip through one field at a time.
+        let eff_start = req.start_at.unwrap_or(before.start_at);
+        let eff_duration = req.duration_minutes.unwrap_or(before.duration_minutes);
+        validate_task_time(eff_start.is_some(), eff_duration)?;
+        validate_task_effort(
+            req.effort_estimate_minutes
+                .unwrap_or(before.effort_estimate_minutes),
+            req.effort_remaining_minutes
+                .unwrap_or(before.effort_remaining_minutes),
+        )?;
+        let skills = req.required_skills.as_ref().map(|s| normalise_skills(s));
         let project = core_db::projects::get_project(&mut *ctx.tx, org_id, id).await?;
         let eff_amount = req
             .milestone_amount_minor
@@ -360,6 +416,17 @@ pub async fn patch_task(
                 milestone_amount_minor: req.milestone_amount_minor,
                 milestone_currency: req.milestone_currency.as_ref().map(|o| o.as_deref()),
                 due_at: req.due_at,
+                start_at: req.start_at,
+                duration_minutes: req.duration_minutes,
+                effort_estimate_minutes: req.effort_estimate_minutes,
+                effort_remaining_minutes: req.effort_remaining_minutes,
+                work_type: req.work_type,
+                priority: req.priority,
+                role_key: req.role_key.as_ref().map(|o| o.as_deref()),
+                required_skills: skills.as_deref(),
+                is_critical: req.is_critical,
+                external_owner: req.external_owner.as_ref().map(|o| o.as_deref()),
+                calendar_pin: req.calendar_pin,
             },
         )
         .await?;

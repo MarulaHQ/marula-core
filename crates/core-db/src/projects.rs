@@ -22,7 +22,10 @@ const PHASE_COLS: &str = "id, org_id, project_id, name, description, sort_order,
      completed_at, created_at, updated_at";
 const TASK_COLS: &str = "id, org_id, project_id, phase_id, title, description, status, \
      assignee_id, sort_order, is_milestone, milestone_amount_minor, milestone_currency, \
-     due_at, completed_at, created_at, updated_at";
+     due_at, start_at, duration_minutes, effort_estimate_minutes, effort_remaining_minutes, \
+     work_type, priority, role_key, required_skills, is_critical, baseline_start_at, \
+     baseline_duration_minutes, external_owner, calendar_pin, completed_at, created_at, \
+     updated_at";
 const VIEW_COLS: &str = "id, org_id, project_id, name, spec, is_default, created_at, updated_at";
 const TEMPLATE_COLS: &str = "id, org_id, name, description, spec, created_at, updated_at";
 
@@ -99,6 +102,25 @@ fn row_to_task(row: sqlx::postgres::PgRow) -> Result<ProjectTask, sqlx::Error> {
         milestone_amount_minor: row.get("milestone_amount_minor"),
         milestone_currency: row.get("milestone_currency"),
         due_at: row.get("due_at"),
+        start_at: row.get("start_at"),
+        duration_minutes: row.get("duration_minutes"),
+        effort_estimate_minutes: row.get("effort_estimate_minutes"),
+        effort_remaining_minutes: row.get("effort_remaining_minutes"),
+        work_type: row
+            .get::<Option<String>, _>("work_type")
+            .map(|s| s.parse().map_err(|e| decode_err("work_type", e)))
+            .transpose()?,
+        priority: row
+            .get::<Option<String>, _>("priority")
+            .map(|s| s.parse().map_err(|e| decode_err("priority", e)))
+            .transpose()?,
+        role_key: row.get("role_key"),
+        required_skills: row.get("required_skills"),
+        is_critical: row.get("is_critical"),
+        baseline_start_at: row.get("baseline_start_at"),
+        baseline_duration_minutes: row.get("baseline_duration_minutes"),
+        external_owner: row.get("external_owner"),
+        calendar_pin: row.get("calendar_pin"),
         completed_at: row.get("completed_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -515,6 +537,17 @@ pub struct NewTask<'a> {
     pub milestone_amount_minor: Option<i64>,
     pub milestone_currency: Option<&'a str>,
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub start_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_minutes: Option<i32>,
+    pub effort_estimate_minutes: Option<i32>,
+    pub effort_remaining_minutes: Option<i32>,
+    pub work_type: Option<core_domain::entities::WorkType>,
+    pub priority: Option<core_domain::status::Priority>,
+    pub role_key: Option<&'a str>,
+    pub required_skills: &'a [String],
+    pub is_critical: bool,
+    pub external_owner: Option<&'a str>,
+    pub calendar_pin: Option<Uuid>,
 }
 
 pub async fn insert_task<'e, E>(executor: E, t: NewTask<'_>) -> DbResult<ProjectTask>
@@ -524,8 +557,12 @@ where
     let sql = format!(
         r#"INSERT INTO project_tasks (id, org_id, project_id, phase_id, title, description,
                                       assignee_id, sort_order, is_milestone,
-                                      milestone_amount_minor, milestone_currency, due_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                                      milestone_amount_minor, milestone_currency, due_at,
+                                      start_at, duration_minutes, effort_estimate_minutes,
+                                      effort_remaining_minutes, work_type, priority, role_key,
+                                      required_skills, is_critical, external_owner, calendar_pin)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
            RETURNING {TASK_COLS}"#
     );
     let row = sqlx::query(&sql)
@@ -541,6 +578,17 @@ where
         .bind(t.milestone_amount_minor)
         .bind(t.milestone_currency)
         .bind(t.due_at)
+        .bind(t.start_at)
+        .bind(t.duration_minutes)
+        .bind(t.effort_estimate_minutes)
+        .bind(t.effort_remaining_minutes)
+        .bind(t.work_type.map(|w| w.as_str()))
+        .bind(t.priority.map(|p| p.as_str()))
+        .bind(t.role_key)
+        .bind(t.required_skills)
+        .bind(t.is_critical)
+        .bind(t.external_owner)
+        .bind(t.calendar_pin)
         .fetch_one(executor)
         .await?;
     Ok(row_to_task(row)?)
@@ -616,6 +664,17 @@ pub struct TaskPatch<'a> {
     pub milestone_amount_minor: Option<Option<i64>>,
     pub milestone_currency: Option<Option<&'a str>>,
     pub due_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub start_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub duration_minutes: Option<Option<i32>>,
+    pub effort_estimate_minutes: Option<Option<i32>>,
+    pub effort_remaining_minutes: Option<Option<i32>>,
+    pub work_type: Option<Option<core_domain::entities::WorkType>>,
+    pub priority: Option<Option<core_domain::status::Priority>>,
+    pub role_key: Option<Option<&'a str>>,
+    pub required_skills: Option<&'a [String]>,
+    pub is_critical: Option<bool>,
+    pub external_owner: Option<Option<&'a str>>,
+    pub calendar_pin: Option<Option<Uuid>>,
 }
 
 /// Tri-state task patch. `completed` is NOT settable here — completion runs
@@ -660,6 +719,41 @@ where
     }
     if let Some(v) = p.due_at {
         q.push(", due_at = ").push_bind(v);
+    }
+    if let Some(v) = p.start_at {
+        q.push(", start_at = ").push_bind(v);
+    }
+    if let Some(v) = p.duration_minutes {
+        q.push(", duration_minutes = ").push_bind(v);
+    }
+    if let Some(v) = p.effort_estimate_minutes {
+        q.push(", effort_estimate_minutes = ").push_bind(v);
+    }
+    if let Some(v) = p.effort_remaining_minutes {
+        q.push(", effort_remaining_minutes = ").push_bind(v);
+    }
+    if let Some(v) = p.work_type {
+        q.push(", work_type = ")
+            .push_bind(v.map(|w| w.as_str().to_string()));
+    }
+    if let Some(v) = p.priority {
+        q.push(", priority = ")
+            .push_bind(v.map(|p| p.as_str().to_string()));
+    }
+    if let Some(v) = p.role_key {
+        q.push(", role_key = ").push_bind(v);
+    }
+    if let Some(v) = p.required_skills {
+        q.push(", required_skills = ").push_bind(v);
+    }
+    if let Some(v) = p.is_critical {
+        q.push(", is_critical = ").push_bind(v);
+    }
+    if let Some(v) = p.external_owner {
+        q.push(", external_owner = ").push_bind(v);
+    }
+    if let Some(v) = p.calendar_pin {
+        q.push(", calendar_pin = ").push_bind(v);
     }
     q.push(" WHERE org_id = ")
         .push_bind(org_id)
@@ -1560,4 +1654,98 @@ where
             })
         })
         .collect()
+}
+
+// --- project working calendar ------------------------------------------------
+
+const CALENDAR_COLS: &str =
+    "project_id, org_id, weekdays, minutes_per_day, note, created_at, updated_at";
+
+fn row_to_calendar(
+    row: sqlx::postgres::PgRow,
+) -> Result<core_domain::entities::ProjectWorkingCalendar, sqlx::Error> {
+    Ok(core_domain::entities::ProjectWorkingCalendar {
+        project_id: row.get("project_id"),
+        org_id: row.get("org_id"),
+        weekdays: row.get("weekdays"),
+        minutes_per_day: row.get("minutes_per_day"),
+        note: row.get("note"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+/// The project's own working pattern, when it has one. `None` means the
+/// organisation's calendar applies.
+pub async fn get_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Option<core_domain::entities::ProjectWorkingCalendar>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {CALENDAR_COLS} FROM project_working_calendars \
+         WHERE org_id = $1 AND project_id = $2"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_optional(executor)
+        .await?;
+    Ok(row.map(row_to_calendar).transpose()?)
+}
+
+/// Sets or replaces the project's working pattern. One row per project: a
+/// second calendar would make "which pattern wins" a question again.
+pub async fn upsert_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+    weekdays: i16,
+    minutes_per_day: i32,
+    note: Option<&str>,
+) -> DbResult<core_domain::entities::ProjectWorkingCalendar>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"INSERT INTO project_working_calendars
+               (project_id, org_id, weekdays, minutes_per_day, note)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (project_id) DO UPDATE
+             SET weekdays = EXCLUDED.weekdays,
+                 minutes_per_day = EXCLUDED.minutes_per_day,
+                 note = EXCLUDED.note,
+                 updated_at = now()
+           RETURNING {CALENDAR_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(project_id)
+        .bind(org_id)
+        .bind(weekdays)
+        .bind(minutes_per_day)
+        .bind(note)
+        .fetch_one(executor)
+        .await?;
+    Ok(row_to_calendar(row)?)
+}
+
+/// Drops the project's override so the organisation's calendar applies again.
+pub async fn delete_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let res =
+        sqlx::query("DELETE FROM project_working_calendars WHERE org_id = $1 AND project_id = $2")
+            .bind(org_id)
+            .bind(project_id)
+            .execute(executor)
+            .await?;
+    Ok(res.rows_affected() > 0)
 }

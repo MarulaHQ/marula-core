@@ -390,6 +390,20 @@ pub async fn instantiate(
                     milestone_amount_minor: task.milestone_amount_minor,
                     milestone_currency: task.milestone_currency.as_deref(),
                     due_at,
+                    // A template step carries no plan of its own yet: dates are
+                    // set on the instantiated project, not inherited from the
+                    // document.
+                    start_at: None,
+                    duration_minutes: None,
+                    effort_estimate_minutes: None,
+                    effort_remaining_minutes: None,
+                    work_type: None,
+                    priority: None,
+                    role_key: None,
+                    required_skills: &[],
+                    is_critical: false,
+                    external_owner: None,
+                    calendar_pin: None,
                 },
             )
             .await?;

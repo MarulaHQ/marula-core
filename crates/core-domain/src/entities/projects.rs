@@ -294,8 +294,65 @@ impl ProjectPhase {
     }
 }
 
+/// Where a unit of project work happens. The kind changes what a coordinator
+/// needs to know before placing it: an onsite visit carries travel, a bench job
+/// needs a bench, a vendor step waits on somebody outside the company.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum WorkType {
+    Onsite,
+    Bench,
+    Remote,
+    Vendor,
+    Client,
+    Coordination,
+}
+
+impl WorkType {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Onsite => "onsite",
+            Self::Bench => "bench",
+            Self::Remote => "remote",
+            Self::Vendor => "vendor",
+            Self::Client => "client",
+            Self::Coordination => "coordination",
+        }
+    }
+}
+
+impl std::fmt::Display for WorkType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for WorkType {
+    type Err = crate::DomainError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "onsite" => Ok(Self::Onsite),
+            "bench" => Ok(Self::Bench),
+            "remote" => Ok(Self::Remote),
+            "vendor" => Ok(Self::Vendor),
+            "client" => Ok(Self::Client),
+            "coordination" => Ok(Self::Coordination),
+            other => Err(crate::DomainError::Validation(format!(
+                "invalid work type: {other}"
+            ))),
+        }
+    }
+}
+
 /// A unit of project work. A task flagged `is_milestone` is a billing
 /// milestone: completing it emits `project.milestone_completed`.
+///
+/// Time is stored, not derived (ADR 0034 decision 1). `start_at` and
+/// `duration_minutes` are both-or-neither: a task an organisation has not dated
+/// carries neither, and the plan draws it as undated rather than implying a
+/// date. `baseline_*` holds what the plan said when it was agreed, written by
+/// the baseline capture and never by an ordinary edit.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ProjectTask {
@@ -317,9 +374,54 @@ pub struct ProjectTask {
     pub milestone_amount_minor: Option<i64>,
     pub milestone_currency: Option<String>,
     pub due_at: Option<DateTime<Utc>>,
+    pub start_at: Option<DateTime<Utc>>,
+    pub duration_minutes: Option<i32>,
+    pub effort_estimate_minutes: Option<i32>,
+    pub effort_remaining_minutes: Option<i32>,
+    pub work_type: Option<WorkType>,
+    pub priority: Option<crate::status::Priority>,
+    pub role_key: Option<String>,
+    pub required_skills: Vec<String>,
+    pub is_critical: bool,
+    pub baseline_start_at: Option<DateTime<Utc>>,
+    pub baseline_duration_minutes: Option<i32>,
+    pub external_owner: Option<String>,
+    pub calendar_pin: Option<uuid::Uuid>,
     pub completed_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// A project's own working pattern, where it differs from the organisation's.
+///
+/// `weekdays` is a bitmask with Monday at bit 0 and Sunday at bit 6, so 31 is
+/// Monday to Friday and 63 adds Saturday. No row means "use the organisation's
+/// calendar"; the project's row wins for the project's own dates (ADR 0034
+/// decision 3). `minutes_per_day` excludes lunch.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ProjectWorkingCalendar {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub project_id: ProjectId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    pub weekdays: i16,
+    pub minutes_per_day: i32,
+    pub note: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl ProjectWorkingCalendar {
+    /// Whether the given weekday is worked. Monday is `0`, Sunday is `6`.
+    pub fn works_on(&self, weekday: u8) -> bool {
+        weekday < 7 && self.weekdays & (1_i16 << weekday) != 0
+    }
+
+    /// Minutes of work in one full week of this pattern.
+    pub fn weekly_minutes(&self) -> i32 {
+        self.weekdays.count_ones() as i32 * self.minutes_per_day
+    }
 }
 
 /// A saved task-list view: filter/group/sort spec over one project's tasks
@@ -510,5 +612,58 @@ impl std::str::FromStr for ReleaseStatus {
                 "invalid release status: {other}"
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn calendar(weekdays: i16, minutes_per_day: i32) -> ProjectWorkingCalendar {
+        ProjectWorkingCalendar {
+            project_id: uuid::Uuid::nil(),
+            org_id: uuid::Uuid::nil(),
+            weekdays,
+            minutes_per_day,
+            note: None,
+            created_at: DateTime::<Utc>::UNIX_EPOCH,
+            updated_at: DateTime::<Utc>::UNIX_EPOCH,
+        }
+    }
+
+    #[test]
+    fn monday_to_friday_is_thirty_one() {
+        let cal = calendar(31, 480);
+        assert!(cal.works_on(0));
+        assert!(cal.works_on(4));
+        assert!(!cal.works_on(5));
+        assert_eq!(cal.weekly_minutes(), 2400);
+    }
+
+    #[test]
+    fn saturday_is_bit_five() {
+        let cal = calendar(63, 600);
+        assert!(cal.works_on(5));
+        assert_eq!(cal.weekly_minutes(), 3600);
+    }
+
+    #[test]
+    fn a_weekday_out_of_range_is_never_worked() {
+        assert!(!calendar(127, 480).works_on(7));
+    }
+
+    #[test]
+    fn work_type_round_trips_through_its_wire_name() {
+        for work in [
+            WorkType::Onsite,
+            WorkType::Bench,
+            WorkType::Remote,
+            WorkType::Vendor,
+            WorkType::Client,
+            WorkType::Coordination,
+        ] {
+            assert_eq!(work.as_str().parse::<WorkType>(), Ok(work));
+        }
+        assert!("flying".parse::<WorkType>().is_err());
     }
 }
