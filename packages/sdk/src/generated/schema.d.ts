@@ -1,4 +1,111 @@
 export interface paths {
+    "/api/v1/accounting/connections/{id}/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/accounting/connections/{id}/ledger — the customer's chart of
+         *     accounts and tax codes (claims-gap G2).
+         * @description This is the read leg that makes a mapping a choice instead of a guess: the
+         *     UI builds its pick list from `accounts`, and `tax_codes` is the same list the
+         *     export validates a mapping against.
+         */
+        get: operations["accounting_ledger_read"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/export-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/accounting/export-runs — the run report.
+         * @description `state=held` and `state=failed` are different queues on purpose: a held run
+         *     is waiting on a person (a mapping), a failed run is waiting on a decision
+         *     (retry or not). The filter exists so a UI never has to guess which.
+         */
+        get: operations["accounting_export_runs_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/export-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/accounting/export-runs/{id} — one run, with its receipt. */
+        get: operations["accounting_export_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/tax-mappings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/accounting/tax-mappings — the connection's tax mappings. */
+        get: operations["accounting_tax_mappings_list"];
+        /**
+         * PUT /api/accounting/tax-mappings — write (or rewrite) one mapping.
+         * @description The vendor code is checked against the connection's own list first, so a
+         *     typo is a refusal now rather than a held invoice later. That check is the
+         *     read leg (G2) doing its job; a mapping that names a code the books do not
+         *     have is exactly the guess G3 forbids.
+         */
+        put: operations["accounting_tax_mappings_upsert"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/tax-mappings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/accounting/tax-mappings/{id} — remove a mapping.
+         * @description Removing one holds the next export that needs it, which is correct: an
+         *     export with no mapping must not silently fall back to a vendor default.
+         */
+        delete: operations["accounting_tax_mappings_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/dead-work": {
         parameters: {
             query?: never;
@@ -2695,6 +2802,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/capability-defaults/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/capability-defaults/{capability} — which provider a chip runs first.
+         * @description A default never hides the other providers; it decides which press target the
+         *     chip body is. Refused when the connection does not declare the capability,
+         *     because a default that can never match marks nothing primary and reads to an
+         *     operator as a setting that did not save.
+         */
+        put: operations["capability_defaults_put"];
+        post?: never;
+        /**
+         * DELETE /api/capability-defaults/{capability}?scope_client_id= — clear the
+         *     primary, so the chip falls back to "several providers, no default".
+         */
+        delete: operations["capability_defaults_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/catalog-items": {
         parameters: {
             query?: never;
@@ -3441,6 +3575,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connector-bindings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/connector-bindings/{id} — remove a destination.
+         * @description A share that already went out keeps its audit row: the binding id is
+         *     recorded there, and the row is what still proves where a message landed.
+         */
+        delete: operations["connector_bindings_delete"];
+        options?: never;
+        head?: never;
+        /**
+         * PATCH /api/connector-bindings/{id} — rename, disable or re-point metadata.
+         * @description `external_id` is not here on purpose: it is the destination's identity at
+         *     the vendor, and changing it is a new destination rather than an edit.
+         */
+        patch: operations["connector_bindings_update"];
+        trace?: never;
+    };
+    "/api/v1/connector-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * DELETE /api/connector-connections/{id} — remove a connection only while
+         *     nothing points at it.
+         * @description `external_refs` and `user_external_identities` cascade from this row, so a
+         *     hard delete would silently erase the record of which vendor object a
+         *     configuration is and which person a vendor identity belonged to. The 409
+         *     names what still points here; revoking the installation is the path that
+         *     takes those with it, and that is deliberately a different act.
+         */
+        delete: operations["connector_connections_delete"];
+        options?: never;
+        head?: never;
+        /** PATCH /api/connector-connections/{id} — change what was configured. */
+        patch: operations["connector_connections_update"];
+        trace?: never;
+    };
+    "/api/v1/connector-connections/{id}/bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/connector-connections/{id}/bindings — every destination the share
+         *     dialog may offer, disabled ones included: the management surface has to show
+         *     what exists in order to re-enable it.
+         */
+        get: operations["connector_bindings_list"];
+        put?: never;
+        /** POST /api/connector-connections/{id}/bindings — add a named destination. */
+        post: operations["connector_bindings_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connector-installations/{installation_id}/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/connector-installations/{installation_id}/connections — configure
+         *     one use of an installed connector.
+         */
+        post: operations["connector_connections_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connectors": {
         parameters: {
             query?: never;
@@ -3476,12 +3704,92 @@ export interface paths {
          *     install is not secret the way a client is — a card with no visible
          *     connections still has to say the connector is installed.
          *
-         *     Still absent, deliberately: binding rows and the audience. Both are a later
-         *     route, not a field this one omits by accident.
+         *     The audience is applied here as well as in the resolver: a connection
+         *     outside the caller's roles is absent from the roster exactly as it is absent
+         *     from a chip row. Binding rows are not in this payload — the connection's own
+         *     `GET /connector-connections/{id}/bindings` carries them, so a roster of ten
+         *     connections does not ship every destination an org owns.
          */
         get: operations["connectors_roster"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/slack/commands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/connectors/slack/commands — `/marula T-1042`.
+         * @description Resolves the number to a card, enforcing **the caller's own** permissions.
+         *     A ticket they cannot read is a typed refusal, never an empty card.
+         */
+        post: operations["connectors_slack_commands"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/slack/interactive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/connectors/slack/interactive — a button press.
+         * @description Answers 200 for everything that authenticated, because a 4xx/5xx only makes
+         *     Slack retry a callback we have already handled. An unauthenticated request
+         *     gets the one typed 401.
+         */
+        post: operations["connectors_slack_interactive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/teams/interactive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/v1/connectors/teams/interactive — an Adaptive Card press. */
+        post: operations["connectors_teams_interactive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connectors/teams/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/v1/connectors/teams/messages — the messaging-extension query. */
+        post: operations["connectors_teams_messages"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3791,6 +4099,29 @@ export interface paths {
          *     transaction (both compare-and-set: over-allocation is impossible).
          */
         post: operations["credit_notes_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/credit-notes/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/credit-notes/{id}/export — send one credit note to the connection
+         *     that already holds its parent invoice.
+         * @description The parent invoice's vendor id comes from the stored receipt; a credit note
+         *     whose invoice was never exported is HELD with `parent_invoice_not_exported`
+         *     rather than exported as a standalone credit.
+         */
+        post: operations["credit_notes_export"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5720,6 +6051,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invoices/{id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/invoices/{id}/export — send one invoice to one connection.
+         * @description Re-posting is how a held or failed run is retried: the run is unique per
+         *     (connection, invoice), so the second call advances the first run instead of
+         *     issuing a second vendor document.
+         */
+        post: operations["invoices_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invoices/{id}/payments": {
         parameters: {
             query?: never;
@@ -6908,6 +7261,24 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/org/users/{id}/cost-rate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/org/users/{id}/cost-rate */
+        get: operations["user_cost_rate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** PATCH /api/org/users/{id}/cost-rate */
+        patch: operations["user_cost_rate_patch"];
         trace?: never;
     };
     "/api/v1/org/users/{id}/email-verified": {
@@ -10203,7 +10574,7 @@ export interface paths {
          * GET /api/reports/{kind} — prebuilt operational report over the read-model
          *     views. Kinds: time_by_user | time_by_client | time_by_ticket |
          *     sla_attainment | sla_breaches | ticket_throughput | ticket_aging |
-         *     first_response.
+         *     first_response | client_margin.
          */
         get: operations["report_get"];
         put?: never;
@@ -12713,6 +13084,35 @@ export interface paths {
         get: operations["tickets_rollup"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/v1/tickets/{id}/share — post the ticket card into a bound channel.
+         * @description Three rules, in this order:
+         *
+         *     1. the caller must be able to read the ticket (module gate + client
+         *        restriction) — the same gate the ticket page uses;
+         *     2. a ticket belonging to a **restricted client** is refused outright. The
+         *        channel's audience is not the ticket's audience, and redacting a card is
+         *        a promise that ages badly; refusing is the honest answer;
+         *     3. the connection must have an enabled destination. A connection with no
+         *        binding cannot be a share target, and the answer says so instead of
+         *        failing at the vendor.
+         */
+        post: operations["tickets_share"];
         delete?: never;
         options?: never;
         head?: never;
@@ -15462,6 +15862,21 @@ export interface components {
          * @enum {string}
          */
         BillingMethod: "milestone" | "time_and_materials" | "fixed_fee" | "non_billable";
+        BindingListResponse: {
+            bindings: components["schemas"]["BindingView"][];
+        };
+        BindingView: {
+            binding_kind: string;
+            /** Format: uuid */
+            connection_id: string;
+            enabled: boolean;
+            external_id: string;
+            external_parent?: string | null;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            vendor_ids: unknown;
+        };
         /**
          * @description The per-period consumption summary a block contract's evaluation
          *     carries back: draws in order, blocks that expired unused inside the
@@ -16136,6 +16551,25 @@ export interface components {
             /** @description Optional work_type bucket the cap covers (`None` = all labor). */
             work_type?: string | null;
         };
+        CapabilityDefaultRequest: {
+            /**
+             * Format: uuid
+             * @description The connection that becomes this capability's primary.
+             */
+            connection_id: string;
+            /**
+             * Format: uuid
+             * @description Absent is the org default; present overrides it for one client.
+             */
+            scope_client_id?: string | null;
+        };
+        CapabilityDefaultView: {
+            capability: string;
+            /** Format: uuid */
+            connection_id: string;
+            /** Format: uuid */
+            scope_client_id?: string | null;
+        };
         CapabilityGrantList: {
             grants: components["schemas"]["CapabilityGrantView"][];
         };
@@ -16153,6 +16587,13 @@ export interface components {
          * @enum {string}
          */
         CapabilityMode: "proposed" | "autonomous";
+        CapabilityScopeQuery: {
+            /**
+             * Format: uuid
+             * @description The client the default is scoped to. Absent is the org default.
+             */
+            scope_client_id?: string | null;
+        };
         /** @description One capability's providers on this record — the chip row's unit. */
         CapabilityView: {
             /** @description An open product kind (`rmm`, `remote_access`, …, or one nobody planned). */
@@ -16998,41 +17439,13 @@ export interface components {
             starts_at: string;
             title: string;
         };
-        /**
-         * @description One connection inside a connector's roster entry.
-         *
-         *     No status rollup is computed here or in SQL: the UI derives "worst wins"
-         *     and "1 of 4" from these rows, and a second answer would be a second place
-         *     to disagree with it.
-         */
         ConnectionView: {
+            connection: components["schemas"]["CalendarSyncConnectionView"];
             /**
-             * Format: int64
-             * @description Enabled destinations only.
+             * @description The raw outbound feed token — returned ONLY here (creation) and
+             *     by the rotate endpoint. Never readable again afterwards.
              */
-            bindings_count: number;
-            /**
-             * @description The installed manifest's name, repeated so per-connection rendering
-             *     does not have to walk back to the parent.
-             */
-            connector: string;
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            installation_id: string;
-            label: string;
-            /** Format: date-time */
-            last_failure_at?: string | null;
-            /** Format: date-time */
-            last_success_at?: string | null;
-            /** Format: uuid */
-            scope_client_id?: string | null;
-            /** @description The scoped client's name. `None` for the org-wide connection. */
-            scope_client_name?: string | null;
-            status: string;
-            status_detail?: string | null;
-            /** @description The vendor's own words, verbatim. */
-            status_detail_vendor?: string | null;
+            feed_token?: string | null;
         };
         /** @description One booking as the connector sees it. */
         ConnectorAppointment: {
@@ -17057,6 +17470,84 @@ export interface components {
             title: string;
             /** Format: int32 */
             travel_minutes: number;
+        };
+        /**
+         * @description One connection inside a connector's roster entry.
+         *
+         *     No status rollup is computed here or in SQL: the UI derives "worst wins"
+         *     and "1 of 4" from these rows, and a second answer would be a second place
+         *     to disagree with it.
+         */
+        ConnectorConnectionView: {
+            /**
+             * @description `roles.id` for the roles allowed to see and act on this connection.
+             *     Empty means every caller the module permission allows.
+             */
+            audience_roles: string[];
+            /**
+             * Format: int64
+             * @description Enabled destinations only.
+             */
+            bindings_count: number;
+            /**
+             * @description The installed manifest's name, repeated so per-connection rendering
+             *     does not have to walk back to the parent.
+             */
+            connector: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            installation_id: string;
+            label: string;
+            /** Format: date-time */
+            last_failure_at?: string | null;
+            /** Format: date-time */
+            last_success_at?: string | null;
+            /** Format: uuid */
+            scope_client_id?: string | null;
+            /** @description The scoped client's name. `None` for the org-wide connection. */
+            scope_client_name?: string | null;
+            /**
+             * @description The credential fields that hold a value, by name — never the values.
+             *     Empty is "nothing configured yet", which is what the settings form
+             *     renders as "Set".
+             */
+            secrets_set: string[];
+            /**
+             * @description The connection's non-secret settings. A field the manifest marks
+             *     `writeOnly` is returned as `null` when it appears at all: the sealed
+             *     value never crosses this boundary, and a client reads `secrets_set` to
+             *     learn whether it is configured.
+             */
+            settings: unknown;
+            status: string;
+            status_detail?: string | null;
+            /** @description The vendor's own words, verbatim. */
+            status_detail_vendor?: string | null;
+        };
+        ConnectorCreateConnectionRequest: {
+            /**
+             * @description `roles.id` values allowed to see and act on this connection. Absent or
+             *     empty means every caller the module permission allows.
+             */
+            audience_roles?: string[] | null;
+            /**
+             * @description What the operator calls it ("NinjaOne — Acme"). Two connections of one
+             *     install differ by label, so this is required.
+             */
+            label: string;
+            /**
+             * Format: uuid
+             * @description The client this connection serves. Absent is the org-wide connection.
+             */
+            scope_client_id?: string | null;
+            /**
+             * @description Credential values, keyed by the schema's `writeOnly` fields. Write-only:
+             *     never returned, never logged.
+             */
+            secrets?: unknown;
+            /** @description Non-secret settings, validated against the pinned `settings_schema`. */
+            settings?: unknown;
         };
         ConnectorIndexResponse: {
             /** @description Installed connectors (typed kinds only, presence summaries). */
@@ -17129,7 +17620,7 @@ export interface components {
          *     is `Connect`, not a missing row.
          */
         ConnectorRosterView: {
-            connections: components["schemas"]["ConnectionView"][];
+            connections: components["schemas"]["ConnectorConnectionView"][];
             /** @description The pinned manifest's name (the catalog slug when the version is gone). */
             connector: string;
             /**
@@ -17217,6 +17708,26 @@ export interface components {
         };
         ConnectorTechniciansView: {
             technicians: components["schemas"]["ConnectorTechnician"][];
+        };
+        ConnectorUpdateConnectionRequest: {
+            audience_roles?: string[] | null;
+            label?: string | null;
+            /**
+             * Format: uuid
+             * @description `null` moves the connection back to org-wide; absent leaves it alone.
+             */
+            scope_client_id?: string | null;
+            /**
+             * @description Merged into the sealed credential document, with the same three rules.
+             *     An absent `secrets` leaves the stored credential exactly as it is, which
+             *     is what "the operator did not retype it" looks like.
+             */
+            secrets?: unknown;
+            /**
+             * @description Merged into the stored settings: a key present in the body replaces the
+             *     stored one, `null` removes it, an absent key is untouched.
+             */
+            settings?: unknown;
         };
         ConsentDiffView: {
             added: string[];
@@ -17909,6 +18420,26 @@ export interface components {
             entity_kind: components["schemas"]["EntityKind"];
             label?: string | null;
             source_note?: string | null;
+        };
+        CreateBindingRequest: {
+            /** @description `slack_channel` | `teams_conversation` | `rewst_workflow` | `voip_route`. */
+            binding_kind: string;
+            enabled?: boolean | null;
+            /**
+             * @description The vendor's id for the destination. Slack: the channel id (C…), never
+             *     a name — a name resolves ambiguously and a private channel answers with
+             *     a generic error.
+             */
+            external_id: string;
+            /**
+             * @description The workspace or tenant the destination sits in, when the vendor needs
+             *     it (Slack: team id, Teams: tenant id).
+             */
+            external_parent?: string | null;
+            /** @description What the operator called it ("#helpdesk-alerts"). */
+            label: string;
+            /** @description Vendor ids the deep link needs and that differ per kind. Ids only. */
+            vendor_ids?: unknown;
         };
         CreateBoardRequest: {
             description?: string | null;
@@ -21178,6 +21709,173 @@ export interface components {
         ExportArchiveUpdate: {
             archived: boolean;
         };
+        /** @description One asset / configuration instance. */
+        ExportAsset: {
+            /**
+             * Format: uuid
+             * @description Nullable since Wave 32: an internal-org asset (the MSP's own
+             *     equipment) has no client.
+             */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description The human-curated tier alone — sticky across feeds, so it is the
+             *     tier a migration must not lose. Observed values are re-observed by
+             *     whichever connector resumes; the effective view above is what the
+             *     user saw.
+             */
+            curated_fields: Record<string, never>;
+            depreciation_method: string;
+            /** Format: int32 */
+            depreciation_rate_bps?: number | null;
+            /** @description The EFFECTIVE field view (curated overlaid on observed). */
+            fields: Record<string, never>;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description Deterministic identity keys ({serial, service_tag, macs, hostname…})
+             *     — what an import matches on instead of minting a duplicate.
+             */
+            identity_keys: Record<string, never>;
+            /**
+             * @description Free-text compatibility class; behavior binds to `layout_id`'s
+             *     semantic class, never to this label.
+             */
+            kind: string;
+            /**
+             * Format: uuid
+             * @description The asset-type layout (document_layouts) the field schema comes from.
+             */
+            layout_id?: string | null;
+            /**
+             * Format: uuid
+             * @description Non-null means the row was merged into the target and survives as
+             *     history; the target is canonical.
+             */
+            merged_into_id?: string | null;
+            name: string;
+            /** @description owned | leased | rented. */
+            ownership: string;
+            /** Format: int64 */
+            purchase_cost_minor?: number | null;
+            purchase_currency?: string | null;
+            /** Format: date */
+            purchase_date?: string | null;
+            /** Format: int64 */
+            rental_cost_minor?: number | null;
+            rental_currency?: string | null;
+            rental_cycle?: string | null;
+            /** Format: date */
+            rental_end?: string | null;
+            /** Format: date */
+            rental_start?: string | null;
+            rental_vendor?: string | null;
+            /** Format: int64 */
+            salvage_value_minor?: number | null;
+            /** @description internal | client (whose equipment the row is). */
+            scope: string;
+            /** Format: uuid */
+            site_id?: string | null;
+            status: string;
+            /** @description The human asset key ("ACME-LT-01") — this section's ordering key. */
+            tag: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int32 */
+            useful_life_months?: number | null;
+        };
+        /**
+         * @description Attachment METADATA. The bytes are NOT in the bundle: they stay in the
+         *     source ObjectStore, identified by `sha256` (the object's content address,
+         *     from which an import derives its own storage key). A migration therefore
+         *     moves every attachment's record and none of its bytes.
+         */
+        ExportAttachment: {
+            content_type: string;
+            /** Format: date-time */
+            created_at: string;
+            filename: string;
+            /** Format: uuid */
+            id: string;
+            /** @description ticket | ticket_comment | email_message | sign_off. */
+            kind: string;
+            /**
+             * @description The object's content address — the identity an import re-uploads
+             *     against, and the only locator the bundle carries.
+             */
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+            /** Format: uuid */
+            ticket_comment_id?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: uuid */
+            uploaded_by_user_id?: string | null;
+        };
+        /**
+         * @description One audit row. `detail` is the action's human-readable payload; no secret
+         *     material is written to it (see the loader's secret-discipline note).
+         */
+        ExportAuditEvent: {
+            action: string;
+            /** @description Opaque id of the actor (a user id, an agent name, a plugin id). */
+            actor_id?: string | null;
+            /**
+             * @description human | agent | plugin | connector | system | portal_contact |
+             *     portal_approver | portal_it_manager | import.
+             */
+            actor_kind: string;
+            detail: Record<string, never>;
+            entity_id?: string | null;
+            entity_type?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The request's source address, when the writer recorded one. */
+            ip?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        /**
+         * @description Board columns beyond the manifest's: prose, the inbound email address,
+         *     and the group the board is filed under.
+         */
+        ExportBoardDetails: {
+            /** Format: uuid */
+            board_group_id?: string | null;
+            /**
+             * Format: uuid
+             * @description References a board in `customization.boards`.
+             */
+            board_id: string;
+            description?: string | null;
+            /** @description The address that creates tickets on this board, when email-in is on. */
+            inbound_address?: string | null;
+        };
+        /**
+         * @description The board/status columns the U5 manifest does not carry. Board identity,
+         *     statuses (name/category/sort order/entry/colour) and transitions stay in
+         *     `customization.boards`; this section is keyed by the same ids and adds
+         *     only the remainder, so there is one row per board and no duplicate copy.
+         */
+        ExportBoardOperational: {
+            boards: components["schemas"]["ExportBoardDetails"][];
+            statuses: components["schemas"]["ExportBoardStatusDetails"][];
+        };
+        /** @description Status columns beyond the manifest's: the WIP cap and portal visibility. */
+        ExportBoardStatusDetails: {
+            /** Format: uuid */
+            board_id: string;
+            client_visible: boolean;
+            /**
+             * Format: uuid
+             * @description References a status inside a `customization.boards` entry.
+             */
+            status_id: string;
+            /** Format: int32 */
+            wip_limit?: number | null;
+        };
         /** @description The org-data export envelope, `bundle_version` 1. */
         ExportBundle: {
             /**
@@ -21197,6 +21895,22 @@ export interface components {
             org_id: string;
             /** @description The export sections. Always fully serialized. */
             sections: components["schemas"]["ExportSections"];
+        };
+        /**
+         * @description Which connection a capability runs first, per org and optionally per
+         *     client. Without it, migrated chips have no primary provider.
+         */
+        ExportCapabilityDefault: {
+            capability: string;
+            /**
+             * Format: uuid
+             * @description References a connection in `connector_connections`.
+             */
+            connection_id: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            scope_client_id?: string | null;
         };
         /** @description One client company row. */
         ExportClient: {
@@ -21226,6 +21940,59 @@ export interface components {
             /** @description Structured note taxonomy: internal | client_visible | in_house_update. */
             kind: components["schemas"]["NoteKind"];
         };
+        /** @description One named destination a connection may post to. */
+        ExportConnectorBinding: {
+            /** @description slack_channel | teams_conversation | rewst_workflow | voip_route. */
+            binding_kind: string;
+            /** Format: date-time */
+            created_at: string;
+            enabled: boolean;
+            /** @description The vendor's own id for the destination (a channel id, not a name). */
+            external_id: string;
+            external_parent?: string | null;
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** Format: date-time */
+            updated_at: string;
+            vendor_ids: Record<string, never>;
+        };
+        /**
+         * @description One connector connection plus its destinations. `secrets_encrypted` is
+         *     structurally absent: the sealed document is key-bound to the install it
+         *     was written on, so nothing usable could move even if it were copied.
+         */
+        ExportConnectorConnection: {
+            bindings: components["schemas"]["ExportConnectorBinding"][];
+            /** Format: date-time */
+            created_at: string;
+            /** @description Did a sealed credential exist? An import must re-authenticate it. */
+            has_sealed_credential: boolean;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description References a plugin install in `plugin_installs`.
+             */
+            installation_id: string;
+            label: string;
+            /** Format: date-time */
+            last_failure_at?: string | null;
+            /** Format: date-time */
+            last_success_at?: string | null;
+            /**
+             * Format: uuid
+             * @description Null is the org-wide instance; a client id is the per-client one.
+             */
+            scope_client_id?: string | null;
+            /** @description The non-secret settings the resolver reads (base URL, company id). */
+            settings: Record<string, never>;
+            /** @description connected | needs_attachment | auth_failed | degraded | disabled. */
+            status: string;
+            status_detail?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
         /** @description One contact row; `client_id`/`site_id` reference this bundle. */
         ExportContact: {
             /** Format: uuid */
@@ -21241,6 +22008,56 @@ export interface components {
             /** Format: uuid */
             site_id: string | null;
             title?: string | null;
+        };
+        /**
+         * @description One contract header. The schedules attached to a contract (rates, fixed
+         *     fees, prepaid blocks, caps, minimums, escalators, change orders) are NOT
+         *     in v1 — an invoice can move with its agreement named by id, but a
+         *     reopened contract's schedule has to be re-entered.
+         */
+        ExportContract: {
+            /** Format: int64 */
+            amount_minor?: number | null;
+            /** Format: date */
+            billing_anchor?: string | null;
+            /** @description monthly | quarterly | annual (null for non-recurring contracts). */
+            billing_frequency?: string | null;
+            /** Format: uuid */
+            client_id: string;
+            /**
+             * @description recurring | time_and_materials | retainer | fixed_fee | per_unit |
+             *     per_incident.
+             */
+            contract_type: string;
+            /** Format: date-time */
+            created_at: string;
+            currency: string;
+            /** Format: date */
+            effective_from: string;
+            /** Format: date */
+            effective_until?: string | null;
+            /** Format: int64 */
+            hourly_rate_minor?: number | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            incident_price_minor?: number | null;
+            incident_priority?: string | null;
+            /** Format: int32 */
+            included_minutes?: number | null;
+            name: string;
+            notes?: string | null;
+            number: string;
+            /** Format: int64 */
+            overage_rate_minor?: number | null;
+            po_number?: string | null;
+            /** @description draft | active | ended | cancelled. */
+            status: string;
+            unit_basis?: string | null;
+            /** Format: int64 */
+            unit_price_minor?: number | null;
+            /** Format: date-time */
+            updated_at: string;
         };
         ExportCreatedResponse: {
             /**
@@ -21264,6 +22081,147 @@ export interface components {
              * @description Exact bundle byte size as stored.
              */
             size_bytes: number;
+        };
+        /** @description One credit note (money against a client) with its applications nested. */
+        ExportCreditNote: {
+            applications: components["schemas"]["ExportCreditNoteApplication"][];
+            /** Format: int64 */
+            applied_minor: number;
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uuid
+             * @description The invoice the credit was raised against (issuing context only).
+             */
+            issued_against_invoice_id?: string | null;
+            number: string;
+            reason?: string | null;
+            /** Format: int64 */
+            refunded_minor: number;
+            /** @description issued | void. "applied"/"refunded" are derived from the counters. */
+            status: string;
+            /** Format: int64 */
+            total_minor: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One (credit note → invoice) allocation. */
+        ExportCreditNoteApplication: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id: string;
+            /**
+             * Format: uuid
+             * @description The invoice payment this application inserted (the invoice-side
+             *     effect), by id into the owning invoice's `payments`.
+             */
+            payment_id?: string | null;
+        };
+        /** @description One document with every stored version. The body is text, not bytes. */
+        ExportDocument: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /**
+             * Format: int32
+             * @description The live version number (the last entry in `versions`).
+             */
+            current_version: number;
+            fields: Record<string, never>;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            layout_id?: string | null;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+            versions: components["schemas"]["ExportDocumentVersion"][];
+        };
+        /**
+         * @description One document↔record edge (document, password, asset → document, client,
+         *     ticket, kb_article, asset).
+         */
+        ExportDocumentLink: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            from_id: string;
+            from_kind: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            to_id: string;
+            to_kind: string;
+        };
+        /** @description One stored document version — the document's change history. */
+        ExportDocumentVersion: {
+            /** Format: uuid */
+            author_id?: string | null;
+            body: string;
+            /** @description Why the version was written (required at the write path). */
+            change_summary: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: int32
+             * @description Which earlier version this one restored, when it is a restore.
+             */
+            restored_from_version?: number | null;
+            title: string;
+            /** Format: int32 */
+            version: number;
+        };
+        /** @description One vendor identity of a Core record. */
+        ExportExternalRef: {
+            /**
+             * Format: uuid
+             * @description The connection this reference was learned through; null for an
+             *     import-era key that predates any live connection.
+             */
+            connection_id?: string | null;
+            external_id: string;
+            external_kind: string;
+            /** @description A document URL the connector LEARNED from the vendor (never guessed). */
+            external_url?: string | null;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            last_seen_at?: string | null;
+            /** Format: uuid */
+            record_id: string;
+            /**
+             * @description configuration | client | site | contact | ticket | kb_article |
+             *     invoice | payment | credit_note | quote | purchase_order | domain.
+             */
+            record_type: string;
+            source_guid?: string | null;
+            /** @description Display and import vocabulary ('ninjaone', 'qbo', 'connectwise'). */
+            source_system: string;
         };
         /** @description One typed custom-field value attached to any entity row. */
         ExportFieldValue: {
@@ -21299,6 +22257,198 @@ export interface components {
             /** Format: int64 */
             size_bytes: number;
         };
+        /** @description One invoice with its lines, receipts and consumed time entries nested. */
+        ExportInvoice: {
+            /** Format: int64 */
+            base_total_minor?: number | null;
+            /**
+             * @description Time entries this invoice consumed, by id into `time_entries`. The
+             *     ids are the whole relation — the consumed entry is not copied.
+             */
+            billed_time_entry_ids: string[];
+            /** Format: uuid */
+            client_id: string;
+            /**
+             * Format: uuid
+             * @description The agreement billed (references `contracts`).
+             */
+            contract_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            /** Format: date */
+            due_on: string;
+            dunning_note?: string | null;
+            /** @description none | reminder_sent | overdue | final_notice | collections. */
+            dunning_state: string;
+            /** Format: date-time */
+            dunning_updated_at?: string | null;
+            /** Format: date */
+            fx_rate_date?: string | null;
+            /**
+             * @description The FX snapshot the invoice was issued under, when the org bills in
+             *     a secondary currency (ADR 0002: a frozen rate, never recomputed).
+             *     The frozen rate, as the exact decimal text Postgres stores.
+             */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            issued_at: string;
+            lines: components["schemas"]["ExportInvoiceLine"][];
+            notes?: string | null;
+            /** @description The org-unique human number — this section's stable semantic key. */
+            number: string;
+            payments: components["schemas"]["ExportInvoicePayment"][];
+            /** Format: date */
+            period_from?: string | null;
+            /** Format: date */
+            period_to?: string | null;
+            po_number?: string | null;
+            /**
+             * Format: uuid
+             * @description The billing run that issued this invoice, when one did.
+             */
+            run_id?: string | null;
+            /** @description draft | issued | paid | void. */
+            status: string;
+            /** Format: int64 */
+            total_minor: number;
+            /** Format: int64 */
+            total_paid_minor: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One invoice line. */
+        ExportInvoiceLine: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            /**
+             * Format: uuid
+             * @description The agreement the line was billed under (references `contracts`).
+             */
+            contract_id: string;
+            description: string;
+            /** Format: date */
+            fx_rate_date?: string | null;
+            /** @description The frozen rate, as the exact decimal text Postgres stores. */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description recurring_base | retainer_base | retainer_overage | time_materials |
+             *     fixed_fee (the engine emits further kinds the column's CHECK widens
+             *     over time — carried verbatim for that reason).
+             */
+            kind: string;
+            /** Format: date */
+            period_end: string;
+            /** Format: date */
+            period_start: string;
+            /** Format: int32 */
+            position: number;
+            /** Format: int64 */
+            quantity_minutes: number;
+            /** Format: int64 */
+            unit_amount_minor: number;
+        };
+        /**
+         * @description One receipt against an invoice (a credit-note application lands one of
+         *     these too, with `provider` = "credit_note").
+         */
+        ExportInvoicePayment: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            /** Format: date */
+            fx_rate_date?: string | null;
+            /** @description The frozen rate, as the exact decimal text Postgres stores. */
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
+            /** Format: uuid */
+            id: string;
+            notes?: string | null;
+            provider: string;
+            /** @description The provider's own reference (or the credit-note number). */
+            provider_ref?: string | null;
+            /** Format: date-time */
+            received_at: string;
+        };
+        /** @description One billing run: the batch identity an invoice was issued in. */
+        ExportInvoiceRun: {
+            /** Format: date-time */
+            created_at: string;
+            currency?: string | null;
+            /** Format: int32 */
+            due_in_days: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: int32 */
+            invoice_count: number;
+            number: string;
+            /** Format: date */
+            period_from: string;
+            /** Format: date */
+            period_to: string;
+            /** Format: int64 */
+            total_minor: number;
+        };
+        /**
+         * @description One KB article. `content_jsonb` is the canonical rich-text document;
+         *     `body` is the plain-text projection the FTS and older readers use.
+         */
+        ExportKbArticle: {
+            body: string;
+            /** Format: uuid */
+            category_id?: string | null;
+            /** @description THE portal visibility decision: whether a client may read this. */
+            client_visible: boolean;
+            content_jsonb: Record<string, never> | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description Org-unique slug — the article's stable semantic key. */
+            slug: string;
+            /** @description draft | published | archived. */
+            status: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: uuid */
+            updated_by?: string | null;
+        };
+        /** @description One KB category. */
+        ExportKbCategory: {
+            /**
+             * @description Whether the whole category is client-visible (ANDed with the
+             *     article's own flag at the read path).
+             */
+            client_visible: boolean;
+            /** Format: date-time */
+            created_at: string;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: int32 */
+            position: number;
+            slug: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         ExportLinkRefreshed: {
             download_url: string;
             /** Format: date-time */
@@ -21314,12 +22464,187 @@ export interface components {
             ticket_prefix: string;
         };
         /**
+         * @description One plugin install. Secrets live in the vault and in the connector
+         *     connection rows, never here; `has_credentials` says a binding exists so
+         *     an import knows the operator must re-provision it.
+         */
+        ExportPluginInstall: {
+            /** Format: uuid */
+            catalog_id: string;
+            /**
+             * @description The capability grant the operator consented to. Carried because a
+             *     migrated install must not silently WIDEN its grant.
+             */
+            granted_capabilities: Record<string, never>;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            installed_at: string;
+            /** Format: uuid */
+            installed_by?: string | null;
+            pending_capabilities?: Record<string, never> | null;
+            pending_manifest?: Record<string, never> | null;
+            /**
+             * @description The staged upgrade, when one is pending — so a half-consented
+             *     upgrade survives (or is visibly dropped) rather than vanishing.
+             */
+            pending_version?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            revoked_reason?: string | null;
+            /** @description The install's non-secret settings (`plugin_install_settings.config`). */
+            settings: Record<string, never>;
+            /** @description active | disabled | revoked (verbatim stored state). */
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: string;
+        };
+        /** @description The vendor record an export produced. */
+        ExportReceiptView: {
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description The vendor's id for the document — QBO `Id`, Xero `InvoiceID` /
+             *     `CreditNoteID`. Never the document number, and never `txnId`.
+             */
+            external_id: string;
+            external_number?: string | null;
+        };
+        /** @description One typed edge between two records. Ids only — no embedded copy. */
+        ExportRecordLink: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            from_id: string;
+            /** @description ticket | kb_article. */
+            from_kind: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            to_id: string;
+            /** @description configuration | kb_article. */
+            to_kind: string;
+        };
+        /** @description POST /invoices/{id}/export and /credit-notes/{id}/export body. */
+        ExportRequest: {
+            /**
+             * Format: uuid
+             * @description The accounting connection to export through. It names the company (QBO
+             *     realm, Xero tenant) and carries the sealed credential.
+             */
+            connection_id: string;
+            /**
+             * @description The Marula tax code this document is for, when one applies.
+             *
+             *     Core carries no tax on an invoice (the ADR 0036 boundary), so the export
+             *     names it. It is matched against the connection's mapping store and then
+             *     against the vendor's own list of codes; either miss holds the run instead
+             *     of exporting a guess.
+             */
+            tax_code?: string | null;
+        };
+        /** @description One export run as the report renders it. */
+        ExportRunView: {
+            /** Format: int32 */
+            attempts: number;
+            /** Format: date-time */
+            claimed_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: uuid */
+            connection_id: string;
+            /**
+             * @description The operator's label for the connection ("Xero — Contoso"), so a row
+             *     names a company instead of a uuid.
+             */
+            connection_label: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            /**
+             * @description Typed reason code — present for `held` and `failed`, absent otherwise.
+             *     Held: `tax_code_unmapped`, `tax_code_unknown_to_vendor`,
+             *     `parent_invoice_not_exported`. Failed: `auth_failed`, `rate_limited`,
+             *     `vendor_rejected`, `vendor_unavailable`, `network_failed`,
+             *     `export_disabled`, `invalid_export_request`.
+             */
+            reason?: string | null;
+            /** @description The vendor's own words, verbatim, when the vendor said anything. */
+            reason_detail?: string | null;
+            receipt?: components["schemas"]["ExportReceiptView"] | null;
+            /** Format: uuid */
+            record_id: string;
+            /** @description `invoice` | `credit_note`. */
+            record_kind: string;
+            /**
+             * @description `in_flight` | `succeeded` | `failed` | `held`. Held is NOT failed: it is
+             *     waiting on a human, and the UI must not offer "retry" as the only verb.
+             */
+            state: string;
+            /** @description The Marula tax code this run is for. */
+            tax_code?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** @description `qbo` | `xero`. */
+            vendor: string;
+            /**
+             * @description The vendor code the mapping resolved to, when it did — a report can name
+             *     the code the books are missing.
+             */
+            vendor_tax_code?: string | null;
+        };
+        /**
          * @description Section container — all fields always present; empty org state is an
          *     empty array, never an absent key.
          */
         ExportSections: {
+            /**
+             * @description Assets / configurations: the instance row plus the human-curated
+             *     field tier and the identity keys that let an import re-match the
+             *     row instead of duplicating it.
+             */
+            assets: components["schemas"]["ExportAsset"][];
+            /**
+             * @description Attachment METADATA only. The bytes live in the ObjectStore under a
+             *     content address; they are not in the bundle, and `sha256` is the
+             *     identity an import re-uploads against.
+             */
+            attachments: components["schemas"]["ExportAttachment"][];
+            /**
+             * @description The audit stream — the org's record of who did what. Ticket history
+             *     is derived from it plus the nested comment threads (see the loader
+             *     note on what "history" means for a migration).
+             */
+            audit_events: components["schemas"]["ExportAuditEvent"][];
+            /**
+             * @description The board/status columns the U5 manifest does not carry. The
+             *     manifest already owns board identity, statuses (name, category,
+             *     sort order, entry flag, colour) and transitions; this section holds
+             *     the remainder, keyed by the same ids, and never a second copy.
+             */
+            board_operational: components["schemas"]["ExportBoardOperational"];
+            capability_defaults: components["schemas"]["ExportCapabilityDefault"][];
             clients: components["schemas"]["ExportClient"][];
+            /**
+             * @description Connector connections and their bindings. `has_sealed_credential`
+             *     says a credential EXISTS; the sealed bytes never leave the source
+             *     install because they are key-bound, so an import must re-authenticate.
+             */
+            connector_connections: components["schemas"]["ExportConnectorConnection"][];
             contacts: components["schemas"]["ExportContact"][];
+            /**
+             * @description Recurring / retainer / T&M contract headers. Carried because an
+             *     invoice's `contract_id` is NOT NULL: money documents cannot move
+             *     across without the agreement they were billed under. The attached
+             *     rate, fee, block, minimum and escalator SCHEDULES are a separate
+             *     concern and are not in v1 (see the module note on residual scope).
+             */
+            contracts: components["schemas"]["ExportContract"][];
+            credit_notes: components["schemas"]["ExportCreditNote"][];
             /**
              * @description Every custom-field VALUE in the org, flat across entity families —
              *     the data plane the U5 manifest deliberately excludes. `entity` names
@@ -21332,12 +22657,46 @@ export interface components {
              *     the manifest's generalization, not its replacement.
              */
             customization: components["schemas"]["ManifestSections"];
+            document_links: components["schemas"]["ExportDocumentLink"][];
+            /**
+             * @description Documents with their version bodies. Text, not bytes: attachment
+             *     payloads are out of scope (see `attachments`).
+             */
+            documents: components["schemas"]["ExportDocument"][];
+            /**
+             * @description "This record IS that vendor object" — the vendor identity a
+             *     migrated record needs so a connector resumes instead of minting a
+             *     duplicate. Connection ids reference the section above.
+             */
+            external_refs: components["schemas"]["ExportExternalRef"][];
+            /** @description Billing-run headers — the batch an invoice was issued in. */
+            invoice_runs: components["schemas"]["ExportInvoiceRun"][];
+            /**
+             * @description Invoices with their lines, payments and the time entries they
+             *     consumed nested. A credit note is money, so it is its own section.
+             */
+            invoices: components["schemas"]["ExportInvoice"][];
+            /**
+             * @description KB articles including `client_visible` — whether a client can read
+             *     an article is a migration decision, not a rendering detail.
+             */
+            kb_articles: components["schemas"]["ExportKbArticle"][];
+            kb_categories: components["schemas"]["ExportKbCategory"][];
             /**
              * @description Org profile identity (volatile counters excluded — a restore
              *     reseeds the ticket-number sequence from the imported tickets).
              */
             org: components["schemas"]["ExportOrg"];
+            plugin_installs: components["schemas"]["ExportPluginInstall"][];
+            /**
+             * @description Typed record-to-record edges (ticket ↔ configuration, ticket/KB ↔
+             *     KB, KB ↔ configuration).
+             */
+            record_links: components["schemas"]["ExportRecordLink"][];
             sites: components["schemas"]["ExportSite"][];
+            tags: components["schemas"]["ExportTag"][];
+            /** @description The ticket↔tag edge (the product's ticket-tagging state). */
+            ticket_tags: components["schemas"]["ExportTicketTag"][];
             /**
              * @description Tickets with their comments nested. Parents (client/site/contact)
              *     are referenced by id into the sections above.
@@ -21364,6 +22723,19 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
+        };
+        /** @description One tag definition. */
+        ExportTag: {
+            color?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: date-time */
+            updated_at: string;
         };
         /**
          * @description One ticket with its comment thread nested. Authorship is an opaque
@@ -21405,6 +22777,20 @@ export interface components {
             title: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description One ticket↔tag edge. */
+        ExportTicketTag: {
+            /** Format: date-time */
+            applied_at: string;
+            /** Format: uuid */
+            applied_by?: string | null;
+            /**
+             * Format: uuid
+             * @description References a row in `tags`.
+             */
+            tag_id: string;
+            /** Format: uuid */
+            ticket_id: string;
         };
         /**
          * @description One time entry; `ticket_id` and `user_id` reference this bundle's
@@ -22880,6 +24266,32 @@ export interface components {
         LayoutMutationResponse: components["schemas"]["DocumentLayout"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        /** @description One account in the customer's chart of accounts, neutral-shaped (G2). */
+        LedgerAccountView: {
+            active: boolean;
+            /**
+             * @description The operator-facing code when the vendor has one (Xero `Code`, QBO
+             *     `AcctNum`). A Xero line item carries this, not the id.
+             */
+            code?: string | null;
+            /** @description The vendor's account id. */
+            id: string;
+            /**
+             * @description A vendor-neutral bucket: `bank`, `income`, `expense`,
+             *     `cost_of_goods_sold`, `other_current_asset`, … or `unknown` for a
+             *     vendor type nobody planned. Core branches on this, not on vendor text.
+             */
+            kind: string;
+            name: string;
+        };
+        /** @description GET /accounting/connections/{id}/ledger — the read leg's payload. */
+        LedgerView: {
+            accounts: components["schemas"]["LedgerAccountView"][];
+            /** Format: uuid */
+            connection_id: string;
+            tax_codes: components["schemas"]["TaxCodeView"][];
+            vendor: string;
+        };
         LinkBeginResponse: {
             authorize_url: string;
         };
@@ -24122,6 +25534,13 @@ export interface components {
         OrgProfileResponse: {
             /** @description The org's ONE base (reporting) currency (ADR 0002, FX1). */
             base_currency: string;
+            /**
+             * Format: int64
+             * @description Fallback labour cost rate, minor units per hour (migration 0188).
+             *     `null` = cost unknown (the margin report shows those minutes as
+             *     uncosted, never as zero-cost).
+             */
+            default_cost_rate_minor?: number | null;
             /** Format: uuid */
             id: string;
             name: string;
@@ -24601,6 +26020,14 @@ export interface components {
              *     refused with a typed conflict while conversion snapshots exist.
              */
             base_currency?: string | null;
+            /**
+             * Format: int64
+             * @description Fallback labour cost rate the client-margin report uses when a user
+             *     has none. Same tri-state as `PATCH /api/org/users/{id}/cost-rate`:
+             *     absent = leave unchanged, `null` = clear (cost unknown), integer =
+             *     set. Minor units per hour; negative/out-of-range answers 422.
+             */
+            default_cost_rate_minor?: number | null;
             name?: string | null;
             ticket_prefix?: string | null;
         };
@@ -24743,6 +26170,17 @@ export interface components {
             /** Format: uuid */
             user_id?: string | null;
             vehicle?: string | null;
+        };
+        PatchUserCostRateRequest: {
+            /**
+             * Format: int64
+             * @description `{"cost_rate_minor": 4500}` sets; `{"cost_rate_minor": null}` clears
+             *     (fall back to the org's default). Omitting the field is refused with
+             *     422 — this route patches one field, so absence is a client bug.
+             *     Integer minor units per hour; negative and out-of-range values are
+             *     refused with 422.
+             */
+            cost_rate_minor?: number | null;
         };
         PatchViewRequest: {
             is_default?: boolean | null;
@@ -29636,6 +31074,30 @@ export interface components {
          * @enum {string}
          */
         ShareSubjectKind: "secret_record" | "password";
+        ShareTicketRequest: {
+            /**
+             * @description The binding's vendor channel id, from the destination picker. Absent
+             *     means the connection's first enabled destination.
+             */
+            channel_ref?: string | null;
+            /** Format: uuid */
+            connection_id: string;
+        };
+        ShareTicketResponse: {
+            /**
+             * @description The card exactly as it was posted, so the dialog can show what the
+             *     channel will see.
+             */
+            card: Record<string, never>;
+            channel: components["schemas"]["SharedChannelView"];
+            message_id: string;
+        };
+        SharedChannelView: {
+            binding_id: string;
+            external_id: string;
+            kind: string;
+            label: string;
+        };
         ShipOutRequest: components["schemas"]["MutationParams"] & {
             /** @description Optional carrier + tracking ref (deeplinked by later lanes). */
             carrier?: string | null;
@@ -30690,6 +32152,41 @@ export interface components {
          * @enum {string}
          */
         TaskStatus: "pending" | "in_progress" | "blocked" | "completed" | "cancelled";
+        /** @description One tax code in the customer's books, neutral-shaped (G2). */
+        TaxCodeView: {
+            active: boolean;
+            /**
+             * @description The id a vendor document line carries (QBO `TaxCode.Id`, Xero
+             *     `TaxType`). This is the value a mapping stores.
+             */
+            code: string;
+            name: string;
+            /**
+             * Format: int32
+             * @description Effective rate in basis points (8.25% = 825), absent when the vendor
+             *     publishes no single rate.
+             */
+            rate_bps?: number | null;
+        };
+        /** @description GET /accounting/tax-mappings query. */
+        TaxMappingListQuery: {
+            /** Format: uuid */
+            connection_id?: string | null;
+        };
+        /** @description One Marula→vendor tax code mapping. */
+        TaxMappingView: {
+            /** Format: uuid */
+            connection_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            marula_tax_code: string;
+            /** Format: date-time */
+            updated_at: string;
+            vendor_tax_code: string;
+            vendor_tax_code_name?: string | null;
+        };
         /**
          * @description Instant-first mutation response (IF2): the node plus read-your-write
          *     metadata.
@@ -32201,6 +33698,13 @@ export interface components {
             site_id?: string | null;
             status?: string | null;
         };
+        UpdateBindingRequest: {
+            enabled?: boolean | null;
+            /** @description `null` clears the workspace/tenant id; absent leaves it alone. */
+            external_parent?: string | null;
+            label?: string | null;
+            vendor_ids?: unknown;
+        };
         UpdateCalendarRequest: {
             holidays?: unknown;
             maintenance?: unknown;
@@ -32768,9 +34272,35 @@ export interface components {
                 [key: string]: string;
             } | null;
         };
+        /** @description PUT /accounting/tax-mappings body. */
+        UpsertTaxMappingRequest: {
+            /** Format: uuid */
+            connection_id: string;
+            marula_tax_code: string;
+            /**
+             * @description The vendor code (QBO `TaxCode.Id`, Xero `TaxType`). It is checked
+             *     against the connection's own list before it is stored, so a typo is a
+             *     refusal here rather than a held invoice later.
+             */
+            vendor_tax_code: string;
+            /**
+             * @description The vendor's name for the code, captured for the report. Optional: the
+             *     vendor's own list supplies it when omitted.
+             */
+            vendor_tax_code_name?: string | null;
+        };
         UpsertWorkTypeMapRequest: components["schemas"]["MutationParams"] & {
             category_slug: string;
             legacy_value: string;
+        };
+        /** @description The wire shape of a rate: minor units per hour, `null` = unset. */
+        UserCostRateResponse: {
+            /**
+             * Format: int64
+             * @description `null` means "no personal rate; the org default applies". It is not
+             *     zero: `0` is a rate that says this user's hour costs nothing.
+             */
+            cost_rate_minor?: number | null;
         };
         /** @description The full-replace mutation envelope (IF2). */
         UserSkillsMutationResponse: components["schemas"]["UserSkillsView"] & {
@@ -33081,7 +34611,7 @@ export interface components {
          *     round-trips through JSON without a parallel name table.
          * @enum {string}
          */
-        ViewId: "tickets" | "time_entries" | "sla_outcomes" | "gap_days" | "first_response";
+        ViewId: "tickets" | "time_entries" | "sla_outcomes" | "gap_days" | "first_response" | "client_margin";
         ViewListQuery: {
             /**
              * Format: uuid
@@ -33381,6 +34911,189 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    accounting_ledger_read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerView"];
+                };
+            };
+            /** @description connection not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the vendor could not be read */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_export_runs_list: {
+        parameters: {
+            query?: {
+                connection_id?: string | null;
+                /** @description `in_flight` | `succeeded` | `failed` | `held`. */
+                state?: string | null;
+                /** @description `invoice` | `credit_note`. */
+                record_kind?: string | null;
+                record_id?: string | null;
+                /** @description Page size (1–200, default 50). */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportRunView"][];
+                };
+            };
+        };
+    };
+    accounting_export_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportRunView"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_tax_mappings_list: {
+        parameters: {
+            query?: {
+                connection_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxMappingView"][];
+                };
+            };
+        };
+    };
+    accounting_tax_mappings_upsert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertTaxMappingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxMappingView"];
+                };
+            };
+            /** @description connection not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the vendor code is not in the connection's books */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the vendor could not be read to check the code */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_tax_mappings_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     dead_work_list: {
         parameters: {
             query?: {
@@ -38015,6 +39728,74 @@ export interface operations {
             };
         };
     };
+    capability_defaults_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapabilityDefaultRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityDefaultView"];
+                };
+            };
+            /** @description no such connection, or its client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown capability, or one the connection does not declare */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    capability_defaults_delete: {
+        parameters: {
+            query?: {
+                /** @description The client the default is scoped to. Absent is the org default. */
+                scope_client_id?: string | null;
+            };
+            header?: never;
+            path: {
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no default is set for that capability and scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     catalog_items_list: {
         parameters: {
             query?: {
@@ -39522,6 +41303,263 @@ export interface operations {
             };
         };
     };
+    connector_bindings_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such binding, or its connection's client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connector_bindings_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateBindingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingView"];
+                };
+            };
+            /** @description no such binding, or its connection's client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description malformed label or vendor_ids */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connector_connections_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such connection, or its client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description destinations, external references or vendor identities still point at it */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connector_connections_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorUpdateConnectionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorConnectionView"];
+                };
+            };
+            /** @description no such connection, or its client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the stored credential cannot be opened with this server's key */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description settings or credentials do not satisfy the pinned schema */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connector_bindings_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingListResponse"];
+                };
+            };
+            /** @description no such connection, or its client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connector_bindings_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateBindingRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingView"];
+                };
+            };
+            /** @description no such connection, or its client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description that destination is already bound to this connection */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown binding kind or malformed destination */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connector_connections_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                installation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCreateConnectionRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorConnectionView"];
+                };
+            };
+            /** @description no such installation in this org, or the client is not visible */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description settings or credentials do not satisfy the pinned schema */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     connectors_index: {
         parameters: {
             query?: never;
@@ -39557,6 +41595,126 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConnectorRosterResponse"];
                 };
+            };
+        };
+    };
+    connectors_slack_commands: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Slack slash-command body (form-encoded) */
+        requestBody: {
+            content: {
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description an ephemeral card, or the typed refusal text */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the signature did not verify */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectors_slack_interactive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Slack interactive payload (form-encoded `payload=` field) */
+        requestBody: {
+            content: {
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description the press was handled, applied or refused; the body is the ephemeral reply */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the signature did not verify */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectors_teams_interactive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bot Framework activity */
+        requestBody: {
+            content: {
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description the press was handled; the body is the Bot Framework reply */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the Bot Framework token did not verify */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    connectors_teams_messages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bot Framework messaging-extension query */
+        requestBody: {
+            content: {
+                "text/plain": string;
+            };
+        };
+        responses: {
+            /** @description a card result, or a typed refusal message */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the Bot Framework token did not verify */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -40213,6 +42371,52 @@ export interface operations {
                 content?: never;
             };
             /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    credit_notes_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportRunView"];
+                };
+            };
+            /** @description credit note or connection not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description another attempt is in flight, or the credit note is void */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description free-standing credit, unsupported connector, missing credential */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -43782,6 +45986,52 @@ export interface operations {
             };
         };
     };
+    invoices_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportRunView"];
+                };
+            };
+            /** @description invoice or connection not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description another attempt is in flight, or the connection is disabled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unsupported connector, missing credential, or unlinked client */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     invoices_payments_list: {
         parameters: {
             query?: never;
@@ -46152,6 +48402,87 @@ export interface operations {
                 content?: never;
             };
             /** @description validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    user_cost_rate_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserCostRateResponse"];
+                };
+            };
+            /** @description another user's rate needs `financial:read` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such user in the caller's org */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    user_cost_rate_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchUserCostRateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserCostRateResponse"];
+                };
+            };
+            /** @description user administration requires `manage_users` */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such user in the caller's org */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description negative or out-of-range rate, or the field is absent */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -58593,6 +60924,59 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TicketRollup"];
                 };
+            };
+        };
+    };
+    tickets_share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareTicketRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareTicketResponse"];
+                };
+            };
+            /** @description ticket not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the channel refused the card */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no destination, or a restricted client */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the channel endpoint is unreachable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
