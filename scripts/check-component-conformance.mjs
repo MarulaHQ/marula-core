@@ -140,6 +140,7 @@ const TL = "source/tickets-list.html";
 const TODAY = "source/today.html";
 const KV = "source/knowledge-vault.html";
 const CL = "source/clients.html";
+const PM = "source/project-management.html";
 
 const PACK_COUNTERPARTS = {
   /* --- components/ — the `@marula-core/ui` barrel --- */
@@ -212,6 +213,26 @@ const PACK_COUNTERPARTS = {
   "ui/surface-header": {
     anchors: [[TL, 'class="top"']],
     note: "the page title block fixed once by the pack — title, meta, actions",
+  },
+  "ui/plan-table": {
+    anchors: [[PM, 'class="pt '], [PM, 'aria-label="Work plan"']],
+    kit: [["packages/ui/src/components/plan-table.tsx", 'data-slot="plan-table"'], ["packages/ui/src/components/plan-table.tsx", "PLAN_COLUMNS"]],
+    note: "the work plan grid: phase rows on their own template, task rows on the measured nine-column one (S3.1)",
+  },
+  "ui/inspector": {
+    anchors: [[PM, 'class="insp"'], [PM, 'class="insp imp sheet"']],
+    kit: [["packages/ui/src/components/inspector.tsx", 'data-slot="inspector"']],
+    note: "the right-hand panel: 372 beside a table, 520 as a sheet over the right edge (S3.11, S3.6)",
+  },
+  "ui/bottom-sheet": {
+    anchors: [[PM, "bottom:16px;padding:14px 16px"]],
+    kit: [["packages/ui/src/components/bottom-sheet.tsx", 'data-slot="bottom-sheet"']],
+    note: "the inspector's 1024 shape: inset 24 at the sides, the selected row visible above it (S3.17)",
+  },
+  "ui/impact-preview": {
+    anchors: [[PM, "Impact preview, nothing is saved yet"], [PM, 'class="insp imp sheet"']],
+    kit: [["packages/ui/src/components/impact-preview.tsx", 'data-slot="impact-group"'], ["packages/ui/src/components/impact-preview.tsx", 'data-slot="impact-row"']],
+    note: "the preview sheet: one headline, consequence groups, old date struck through, delta (S3.6)",
   },
   "ui/table": { anchors: [[TL, 'class="tr th"'], [TL, 'class="tc"']], note: "header row and body cells as drawn" },
   "ui/time": { anchors: [[SK, "Timer bar, 60 px, ink in every theme"]] },
