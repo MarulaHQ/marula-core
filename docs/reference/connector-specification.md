@@ -174,7 +174,7 @@ Recorded so it is not discovered twice. Each item is a row, not a wish.
 |---|---|---|
 | Microsoft 365 Graph pulls devices, not seats | It was included because "seat counts drive billing correctness" (planning doc 22 §3.1) and it cannot serve that | `m365-graph` |
 | NinjaOne and Hudu connectors are unverified TypeScript | No test file, no `test` script, and `pnpm-workspace.yaml` does not include `plugins/**`, so CI never typechecks them. They are also the two the README tells newcomers to copy (R10, R13) | `plugins/connectors/{ninjaone,hudu}` |
-| `app-bridges`, `mapbox`, `adapters-core` and `ci-feeders` have no README | R13. `app-bridges` also documents no none mode (R3), and it is three standard-set rows | those folders |
+| `app-bridges`, `mapbox` and `adapters-core` have no README | R13. `app-bridges` also documents no none mode (R3), and it is three standard-set rows | those folders |
 | QuickBooks and Xero export invoices and payments only | Both call themselves a "first tranche". No credit note, no void, no refund (R7 for the record types they claim) | `qbo-export-sync`, `xero-export-sync` |
 | Rewst triggers workflows and has no results path | The promise is "workflow triggers and results over the public API" | `app-bridges` |
 | `document_links` and `record_links` are two edge tables | Deliberate, documented in ADR 0033, and the shapes match so a merge stays mechanical | — |

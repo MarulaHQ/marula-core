@@ -451,6 +451,38 @@ fn hop_signature_verifies_raw_bytes_before_parse() {
 }
 
 #[test]
+fn unifi_storm_alerts_share_a_correlation_key() {
+    // Two distinct alerts of one storm: the id, timestamp, message and severity
+    // all differ, the condition and device do not.
+    let first = map_alert(&alert_payload()).unwrap();
+    let mut second_payload = alert_payload();
+    second_payload["_id"] = json!("alert-43");
+    second_payload["datetime"] = json!("2026-09-22T10:07:00Z");
+    second_payload["msg"] = json!("Gateway restored, then lost again");
+    second_payload["level"] = json!("critical");
+    let second = map_alert(&second_payload).unwrap();
+
+    assert_eq!(
+        first.correlation_key.as_deref(),
+        Some("EVT_Lan_DeviceDisconnected:gw-hq")
+    );
+    assert_eq!(second.correlation_key, first.correlation_key);
+    assert_ne!(second.dedup_key, first.dedup_key, "the count can rise");
+
+    // No device in the payload: the condition alone is the storm identity.
+    let mut no_device = alert_payload();
+    no_device.as_object_mut().unwrap().remove("meta");
+    assert_eq!(
+        map_alert(&no_device).unwrap().correlation_key.as_deref(),
+        Some("EVT_Lan_DeviceDisconnected")
+    );
+    // No condition either: no key, and the ingest defaults it. Never a guess.
+    let mut bare = alert_payload();
+    bare.as_object_mut().unwrap().remove("key");
+    assert_eq!(map_alert(&bare).unwrap().correlation_key, None);
+}
+
+#[test]
 fn unifi_alerts_map_onto_the_ingest_contract() {
     let alert = map_alert(&alert_payload()).unwrap();
     assert_eq!(alert.dedup_key, "alert-42");
@@ -537,6 +569,9 @@ async fn forwarder_signs_and_posts_the_exact_body() {
     assert_eq!(wire["title"], "Gateway disconnected from the LAN");
     assert_eq!(wire["severity"], "warning");
     assert_eq!(wire["occurred_at"], "2026-09-22T10:00:00Z");
+    // The storm key travels on the wire, or the ingest would key the storm on
+    // the dedup key and every distinct alert would anchor its own ticket.
+    assert_eq!(wire["correlation_key"], "EVT_Lan_DeviceDisconnected:gw-hq");
 }
 
 #[tokio::test]

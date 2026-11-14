@@ -28,7 +28,10 @@ Control Plane → Integrations), feeding the `connectors/ci-feeders` engine
   membership, so ports land with empty VLAN lists rather than guessed ones.
 - **Alert forwarding**: an alert forwarded from UniFi becomes a Marula
   inbound event through `POST /api/v1/alerts/ingest/{source_ref}`. The
-  ingest dedupes it, maps its severity and correlates the storm.
+  ingest dedupes it, maps its severity and correlates the storm. Alerts of
+  one condition on one device share a correlation key (`key` plus
+  `meta.deviceName`), so they fold into one incident and its count rises. A
+  repeat delivery is a duplicate and writes nothing.
 
 ## Identity (ADR 0003)
 
