@@ -549,8 +549,8 @@ async fn find_document_adopts_only_the_record_carrying_our_marker() {
         .expect("find")
         .expect("the marker proves the document is ours");
     assert_eq!(found.external_id, "501");
-    assert_eq!(
-        found.created, false,
+    assert!(
+        !found.created,
         "an adopted document was not created by this call"
     );
 
