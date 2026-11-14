@@ -230,7 +230,30 @@ impl SyncRecord {
     pub fn identity(&self, source_name: &str) -> Identity {
         crate::identity::derive(source_name, &self.external_id, &self.fields)
     }
+
+    /// The client-visible flag a KB article carries, from the neutral
+    /// field the source parser normalizes it into.
+    ///
+    /// It is a field rather than a struct member because only one record
+    /// kind uses it, and a field travels through the existing fingerprint
+    /// and round-trip machinery unchanged. An unparseable or absent value
+    /// is `None`: the engine then leaves Marula's current value alone
+    /// instead of silently making an internal article public.
+    pub fn client_visible(&self) -> Option<bool> {
+        self.fields.get(CLIENT_VISIBLE_KEY).and_then(|value| {
+            match value.trim().to_ascii_lowercase().as_str() {
+                "true" | "1" | "yes" => Some(true),
+                "false" | "0" | "no" => Some(false),
+                _ => None,
+            }
+        })
+    }
 }
+
+/// The neutral field key that carries a KB article's client visibility in
+/// both directions (Hudu `public` on the pull side, Marula `client_visible`
+/// on the push side).
+pub const CLIENT_VISIBLE_KEY: &str = "client_visible";
 
 /// One fully-parsed source state: everything one sync pass consumes.
 #[derive(Debug, Clone, Default)]

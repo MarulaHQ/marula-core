@@ -31,9 +31,9 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{
-    AssetCreate, AssetRecord, AssetUpdate, ClientRecord, CredentialCreate, CredentialReceipt,
-    DmsSink, DocumentCreate, DocumentRecord, DocumentUpdate, LayoutRecord, LinkCreate, LinkRecord,
-    NewLayout, SinkError,
+    ArticleCreate, ArticleRecord, ArticleUpdate, AssetCreate, AssetRecord, AssetUpdate,
+    ClientRecord, CredentialCreate, CredentialReceipt, DmsSink, DocumentCreate, DocumentRecord,
+    DocumentUpdate, LayoutRecord, LinkCreate, LinkRecord, NewLayout, SinkError,
 };
 use crate::model::FieldKind;
 use crate::model::LinkKind;
@@ -161,6 +161,34 @@ struct WireDocument {
     #[serde(default)]
     fields: Value,
     title: String,
+}
+
+/// `GET/POST/PATCH /api/kb/articles` shape (the fields the sync uses).
+#[derive(Debug, Deserialize)]
+struct WireArticle {
+    id: Uuid,
+    #[serde(default)]
+    slug: String,
+    title: String,
+    #[serde(default)]
+    body: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    client_visible: bool,
+}
+
+impl From<WireArticle> for ArticleRecord {
+    fn from(a: WireArticle) -> Self {
+        Self {
+            id: a.id,
+            slug: a.slug,
+            title: a.title,
+            body: a.body,
+            client_visible: a.client_visible,
+            status: a.status,
+        }
+    }
 }
 
 /// GET /api/documents/{id} shape: the document flattened with the
@@ -485,6 +513,62 @@ impl DmsSink for MarulaRestSink {
         )
         .map_err(|e| SinkError::Network(format!("document update decode: {e}")))?;
         Ok(response.entity.into())
+    }
+
+    async fn list_articles(&self) -> Result<Vec<ArticleRecord>, SinkError> {
+        self.list::<WireArticle>("kb/articles")
+            .await
+            .map(|articles| articles.into_iter().map(Into::into).collect())
+    }
+
+    async fn create_article(&self, plan: &ArticleCreate) -> Result<ArticleRecord, SinkError> {
+        let mut body = json!({
+            "title": plan.title,
+            "slug": plan.slug,
+            "body": plan.body,
+            "status": plan.status,
+            "client_visible": plan.client_visible,
+        });
+        merge_instant(&mut body, &plan.idempotency_key);
+        // `change_summary` is not a KB field; provenance rides the mutation
+        // meta the instant envelope already records for this key.
+        let response: WireArticle = serde_json::from_value(
+            self.call(reqwest::Method::POST, "kb/articles", Some(body))
+                .await?,
+        )
+        .map_err(|e| SinkError::Network(format!("article create decode: {e}")))?;
+        Ok(response.into())
+    }
+
+    async fn update_article(
+        &self,
+        id: Uuid,
+        plan: &ArticleUpdate,
+    ) -> Result<ArticleRecord, SinkError> {
+        let mut body = json!({});
+        if let Some(title) = &plan.title {
+            body["title"] = json!(title);
+        }
+        if let Some(body_text) = &plan.body {
+            body["body"] = json!(body_text);
+        }
+        if let Some(visible) = plan.client_visible {
+            body["client_visible"] = json!(visible);
+        }
+        if let Some(status) = &plan.status {
+            body["status"] = json!(status);
+        }
+        merge_instant(&mut body, &plan.idempotency_key);
+        let response: WireArticle = serde_json::from_value(
+            self.call(
+                reqwest::Method::PATCH,
+                &format!("kb/articles/{id}"),
+                Some(body),
+            )
+            .await?,
+        )
+        .map_err(|e| SinkError::Network(format!("article update decode: {e}")))?;
+        Ok(response.into())
     }
 
     async fn list_links(

@@ -52,6 +52,22 @@
   "websites": [
     { "id": 21, "company_id": 8, "name": "initech.com", "url": "https://initech.test" }
   ],
+  "articles": [
+    {
+      "id": 51,
+      "company_id": 7,
+      "name": "VPN setup for staff",
+      "content": "Install the client and sign in with your work account.",
+      "public": true
+    },
+    {
+      "id": 52,
+      "company_id": 7,
+      "name": "Domain controller runbook",
+      "content": "Internal procedure. Do not share with clients.",
+      "public": false
+    }
+  ],
   "passwords": [
     {
       "id": 31,

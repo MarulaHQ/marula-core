@@ -54,6 +54,87 @@ mod tests;
 
 const SOURCE: &str = "unifi";
 
+/// One controller a run may talk to, as Core holds it: a connection row's
+/// scope, non-secret settings and just-in-time credential.
+///
+/// Construct it from a `connector_connections` row by the runtime that owns the
+/// sealed store; this crate never reads a database and never persists the key.
+/// `Debug` redacts the key, so a run report cannot capture a credential.
+#[derive(Clone)]
+pub struct ControllerConnection {
+    pub connection_id: Uuid,
+    /// `None` is the org-wide controller; `Some(client)` is that client's own
+    /// controller (Hostifi-managed versus on-prem is exactly this split).
+    pub scope_client_id: Option<Uuid>,
+    pub label: String,
+    pub base_url: String,
+    /// Raw controller API key. Never logged, never serialized.
+    pub api_key: String,
+}
+
+impl std::fmt::Debug for ControllerConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ControllerConnection")
+            .field("connection_id", &self.connection_id)
+            .field("scope_client_id", &self.scope_client_id)
+            .field("label", &self.label)
+            .field("base_url", &self.base_url)
+            .field("api_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
+impl ControllerConnection {
+    /// Builds one from a `connector_connections` row's non-secret settings and
+    /// the just-in-time key. The origin key is `controller_url`, the same key
+    /// the shipped manifest declares as `base_url_key`, so the settings one
+    /// connection already holds serve both the deep link and this client.
+    ///
+    /// `None` means the row cannot serve a run: no origin. The caller records
+    /// that as `needs_attachment` for the connection rather than inventing one.
+    pub fn from_settings(
+        connection_id: Uuid,
+        scope_client_id: Option<Uuid>,
+        label: impl Into<String>,
+        settings: &serde_json::Value,
+        api_key: impl Into<String>,
+    ) -> Option<Self> {
+        let base_url = settings
+            .get("controller_url")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|url| !url.is_empty())?;
+        Some(Self {
+            connection_id,
+            scope_client_id,
+            label: label.into(),
+            base_url: base_url.trim_end_matches('/').to_string(),
+            api_key: api_key.into(),
+        })
+    }
+}
+
+/// The precedence rule, stated once: a client-scoped connection wins for that
+/// client, and the org-scoped connection is the fallback.
+///
+/// Two client-scoped rows for the same client are ambiguous; the first in the
+/// caller's order wins, and the caller passes rows in `label, created_at` order
+/// (what `list_connections_for_installation` returns) so the choice is stable.
+/// A client-scoped row is never used for a different client.
+pub fn connection_for_client(
+    connections: &[ControllerConnection],
+    client_id: Uuid,
+) -> Option<&ControllerConnection> {
+    connections
+        .iter()
+        .find(|connection| connection.scope_client_id == Some(client_id))
+        .or_else(|| {
+            connections
+                .iter()
+                .find(|connection| connection.scope_client_id.is_none())
+        })
+}
+
 /// UniFi client. The controller's Integrations API lives under
 /// `/proxy/network/integration/v1` on UniFi OS; the API key is minted in
 /// Network → Settings → Control Plane → Integrations and sent as the
@@ -348,6 +429,19 @@ impl InterfaceSink for NoneInterfaceSink {
     }
 }
 
+/// What one client's leg of a scoped run did.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClientRun {
+    pub client_id: Uuid,
+    /// The connection that served this client — client-scoped first, org
+    /// fallback. The id is the audit join and the roster's repair target.
+    pub connection_id: Uuid,
+    pub devices: usize,
+    /// A typed failure scoped to THIS client: the other clients in the run are
+    /// unaffected, which is the point of the per-client connection.
+    pub error: Option<String>,
+}
+
 /// The sync report, plus the interface pushes the run performed.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UnifiReport {
@@ -356,6 +450,9 @@ pub struct UnifiReport {
     pub report: ci_feeders::sync::SyncReport,
     /// CiInterface writes recorded through the interface seam.
     pub interfaces_pushed: usize,
+    /// One entry per client in a [`UnifiSync::run_scoped`] run; empty for the
+    /// single-controller [`UnifiSync::run`].
+    pub clients: Vec<ClientRun>,
 }
 
 impl UnifiReport {
@@ -396,6 +493,7 @@ impl UnifiSync {
                     ..Default::default()
                 },
                 interfaces_pushed: 0,
+                clients: Vec::new(),
             });
         };
 
@@ -413,57 +511,181 @@ impl UnifiSync {
                 });
                 continue;
             };
-            let devices = unifi.site_devices(&site_id).await?;
-            out.report.total += devices.len();
-            for device in &devices {
-                let Some(record) = map_device(device) else {
-                    out.report.errors.push(SyncError {
-                        source_system: SOURCE.into(),
-                        external_id: first_str_in(device, &["id"]).unwrap_or_else(|| "?".into()),
-                        error: "unmappable device record (missing id)".into(),
-                    });
-                    continue;
-                };
-                match sink.feed_upsert(&record, client_id).await {
-                    Ok(outcome) => {
-                        out.report.synced += 1;
-                        if outcome.created_item {
-                            out.report.created += 1;
-                            // Interfaces ride CREATION only — replays
-                            // return created_item=false, so the NIC +
-                            // port set is recorded once, deterministically.
-                            for interface in map_interfaces(device) {
-                                match interfaces
-                                    .create_interface(outcome.config_item_id, &interface)
-                                    .await
-                                {
-                                    Ok(()) => out.interfaces_pushed += 1,
-                                    Err(error) => out.report.errors.push(SyncError {
-                                        source_system: SOURCE.into(),
-                                        external_id: record.external_id.clone(),
-                                        error,
-                                    }),
-                                }
-                            }
-                        }
-                        if outcome.resolved_existing {
-                            out.report.resolved_existing += 1;
-                        }
-                        if outcome.auto_merged {
-                            out.report.auto_merged += 1;
-                        }
-                        out.report.queued_candidates += outcome.queued_candidates;
-                        out.report.contradictions += outcome.contradictions.len();
-                    }
-                    Err(SinkError::Disabled) => out.report.would_sync += 1,
-                    Err(err) => out.report.errors.push(SyncError {
-                        source_system: SOURCE.into(),
-                        external_id: record.external_id.clone(),
-                        error: err.to_string(),
-                    }),
-                }
-            }
+            feed_site(unifi, &site_id, client_id, sink, interfaces, &mut out).await?;
         }
         Ok(out)
     }
+
+    /// A run over several controllers, one client-scoped connection each.
+    ///
+    /// This is G11: a Hostifi-managed client and an on-prem client sync in one
+    /// run. For each client the driver takes that client's own connection and
+    /// falls back to the org-scoped one ([`connection_for_client`]). A pull
+    /// failure — a refused credential above all — lands on that client's
+    /// [`ClientRun`] and in the report, and the next client still runs.
+    ///
+    /// `clients` is the operator's site→client decision, already grouped, so
+    /// this crate never guesses which client a site belongs to.
+    pub async fn run_scoped(
+        connections: &[ControllerConnection],
+        clients: &[ClientSites],
+        sink: &dyn FeederSink,
+        interfaces: &dyn InterfaceSink,
+    ) -> UnifiReport {
+        let mut out = UnifiReport::default();
+        for client in clients {
+            let Some(connection) = connection_for_client(connections, client.client_id) else {
+                out.clients.push(ClientRun {
+                    client_id: client.client_id,
+                    connection_id: Uuid::nil(),
+                    devices: 0,
+                    error: Some(format!(
+                        "no controller connection for client {} (no client-scoped row and no org fallback)",
+                        client.client_id
+                    )),
+                });
+                continue;
+            };
+
+            let unifi = UnifiClient::new(&connection.base_url, &connection.api_key);
+            let sites = match unifi.sites().await {
+                Ok(sites) => sites,
+                Err(error) => {
+                    // The credential failure is THIS client's. Nothing else in
+                    // the run is touched.
+                    out.report.errors.push(SyncError {
+                        source_system: SOURCE.into(),
+                        external_id: format!("client:{}", client.client_id),
+                        error: format!("{}: {error}", connection.label),
+                    });
+                    out.clients.push(ClientRun {
+                        client_id: client.client_id,
+                        connection_id: connection.connection_id,
+                        devices: 0,
+                        error: Some(error.to_string()),
+                    });
+                    continue;
+                }
+            };
+            let reachable: Vec<String> = sites
+                .iter()
+                .filter_map(|site| first_str_in(site, &["id"]))
+                .collect();
+
+            let mut run = ClientRun {
+                client_id: client.client_id,
+                connection_id: connection.connection_id,
+                devices: 0,
+                error: None,
+            };
+            for site_id in &client.site_ids {
+                if !reachable.iter().any(|id| id == site_id) {
+                    out.report.errors.push(SyncError {
+                        source_system: SOURCE.into(),
+                        external_id: format!("site:{site_id}"),
+                        error: format!(
+                            "site {site_id} is not on controller {} for client {}",
+                            connection.label, client.client_id
+                        ),
+                    });
+                    continue;
+                }
+                match feed_site(
+                    &unifi,
+                    site_id,
+                    client.client_id,
+                    sink,
+                    interfaces,
+                    &mut out,
+                )
+                .await
+                {
+                    Ok(devices) => run.devices += devices,
+                    Err(error) => {
+                        // A site-level failure degrades this client, not the
+                        // run; the next site and the next client still go.
+                        out.report.errors.push(SyncError {
+                            source_system: SOURCE.into(),
+                            external_id: format!("site:{site_id}"),
+                            error: error.to_string(),
+                        });
+                        run.error = Some(error.to_string());
+                    }
+                }
+            }
+            out.clients.push(run);
+        }
+        out
+    }
+}
+
+/// One controller's use for one client: the client, and the sites on that
+/// controller that belong to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientSites {
+    pub client_id: Uuid,
+    pub site_ids: Vec<String>,
+}
+
+/// Pulls one site and feeds every adopted device to its client. Interfaces ride
+/// creation only, so a replayed sync never doubles a NIC or a port.
+async fn feed_site(
+    unifi: &UnifiClient,
+    site_id: &str,
+    client_id: Uuid,
+    sink: &dyn FeederSink,
+    interfaces: &dyn InterfaceSink,
+    out: &mut UnifiReport,
+) -> Result<usize, VendorError> {
+    let devices = unifi.site_devices(site_id).await?;
+    out.report.total += devices.len();
+    for device in &devices {
+        let Some(record) = map_device(device) else {
+            out.report.errors.push(SyncError {
+                source_system: SOURCE.into(),
+                external_id: first_str_in(device, &["id"]).unwrap_or_else(|| "?".into()),
+                error: "unmappable device record (missing id)".into(),
+            });
+            continue;
+        };
+        match sink.feed_upsert(&record, client_id).await {
+            Ok(outcome) => {
+                out.report.synced += 1;
+                if outcome.created_item {
+                    out.report.created += 1;
+                    // Interfaces ride CREATION only — replays return
+                    // created_item=false, so the NIC + port set is recorded
+                    // once, deterministically.
+                    for interface in map_interfaces(device) {
+                        match interfaces
+                            .create_interface(outcome.config_item_id, &interface)
+                            .await
+                        {
+                            Ok(()) => out.interfaces_pushed += 1,
+                            Err(error) => out.report.errors.push(SyncError {
+                                source_system: SOURCE.into(),
+                                external_id: record.external_id.clone(),
+                                error,
+                            }),
+                        }
+                    }
+                }
+                if outcome.resolved_existing {
+                    out.report.resolved_existing += 1;
+                }
+                if outcome.auto_merged {
+                    out.report.auto_merged += 1;
+                }
+                out.report.queued_candidates += outcome.queued_candidates;
+                out.report.contradictions += outcome.contradictions.len();
+            }
+            Err(SinkError::Disabled) => out.report.would_sync += 1,
+            Err(err) => out.report.errors.push(SyncError {
+                source_system: SOURCE.into(),
+                external_id: record.external_id.clone(),
+                error: err.to_string(),
+            }),
+        }
+    }
+    Ok(devices.len())
 }

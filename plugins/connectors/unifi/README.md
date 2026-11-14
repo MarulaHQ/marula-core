@@ -26,9 +26,9 @@ Control Plane → Integrations), feeding the `connectors/ci-feeders` engine
   attributes, not their own CIs. VLAN lists ride through when the payload
   exposes them; the Integrations v1 port overview does not publish VLAN
   membership, so ports land with empty VLAN lists rather than guessed ones.
-- **Alert forwarding**: UniFi alerts (webhook-forwarded) become Marula
-  inbound events through `POST /api/v1/alerts/ingest/{source_ref}` —
-  dedup-keyed, severity-mapped, storm-correlated on the Marula side.
+- **Alert forwarding**: an alert forwarded from UniFi becomes a Marula
+  inbound event through `POST /api/v1/alerts/ingest/{source_ref}`. The
+  ingest dedupes it, maps its severity and correlates the storm.
 
 ## Identity (ADR 0003)
 
@@ -40,7 +40,7 @@ version exposes is honored when present (observed, never assumed). A UniFi
 record and an Auvik/NinjaOne record for the same physical switch converge
 through the normalized MAC set exactly per ADR 0003's MAC identity class.
 Observed tier carries firmware/state/adoptedAt — fields that churn with the
-controller never outrank curated values.
+controller never outrank values a technician edited.
 
 ## None mode (honest posture)
 
@@ -77,6 +77,32 @@ Severity: UniFi's alert stream does not classify severity. An explicit
 `warning|warn` → `warning`, else `info`); absent → `warning` (UniFi alerts
 signal operational faults, and the incident workflow's P2 default matches).
 
+## Per-client controllers
+
+A controller belongs to a client, so the connection does. `ControllerConnection`
+carries a slice of the connection's own scope, settings and just-in-time key,
+and `UnifiSync::run_scoped` serves each client from its **own** connection with
+the org-scoped connection as fallback. The precedence is one function,
+`connection_for_client`: a client-scoped row for that client wins, never a row
+belonging to another client. A refused credential is recorded on that client's
+`ClientRun` and in the report, and the other clients still sync.
+
+The runtime reads `connector_connections` and unseals the key; this crate never
+does either.
+
+## The deep link
+
+`manifest.json` declares the `open` behaviour for a configuration: the
+controller's device route, composed from the connection's `controller_url` and
+`site` and the device id on the reference. Two clients on two controllers
+therefore resolve to two different origins, which is what the G10 resolver test
+proves.
+
+The route shape was not verified against a live controller in this environment.
+That is recorded as a review item in
+`docs/reference/connector-capabilities.md` §3 rather than claimed as a vendor
+contract.
+
 ## Operator mapping
 
 Sites are the org unit: the operator maps each UniFi site id onto one
@@ -88,5 +114,6 @@ REPORTED in the run report — never misattributed to a guessed client.
 Conformance runs against contract-shaped stub servers (axum) reproducing
 the controller's auth header, totalCount pagination envelope, device +
 interface payloads, and Marula's feed-upsert / interface / ingest
-surfaces (signature format asserted byte-exact). No live controller, no
-live tenant.
+surfaces (signature format asserted byte-exact). Two controllers with two
+credentials prove the per-client run, including a scoped credential failure.
+No live controller, no live tenant.

@@ -143,6 +143,41 @@ pub struct DocumentUpdate {
     pub idempotency_key: String,
 }
 
+/// One KB article on the Marula side.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArticleRecord {
+    pub id: Uuid,
+    /// Stable per-org handle. The connector owns the `dms-<source>-…` prefix so
+    /// an article it created is found again without a custom-field column.
+    pub slug: String,
+    pub title: String,
+    pub body: String,
+    pub client_visible: bool,
+    /// `draft` | `published` | `archived`, as Marula stores it.
+    pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArticleCreate {
+    pub title: String,
+    pub slug: String,
+    pub body: String,
+    pub client_visible: bool,
+    pub status: String,
+    pub idempotency_key: String,
+    pub change_note: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArticleUpdate {
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub client_visible: Option<bool>,
+    pub status: Option<String>,
+    pub idempotency_key: String,
+    pub change_note: String,
+}
+
 /// One link plan: from a Marula record (already resolved) to another
 /// resolved record. Unresolved ends never reach the sink — they are
 /// reported by the engine instead (broken targets surfaced, never
@@ -209,6 +244,15 @@ pub trait DmsSink: Send + Sync {
         id: Uuid,
         plan: &DocumentUpdate,
     ) -> Result<DocumentRecord, SinkError>;
+    /// Every article, metadata only. The connector finds its own by the slug it
+    /// minted; articles have no `fields` column to carry `source_ref`.
+    async fn list_articles(&self) -> Result<Vec<ArticleRecord>, SinkError>;
+    async fn create_article(&self, plan: &ArticleCreate) -> Result<ArticleRecord, SinkError>;
+    async fn update_article(
+        &self,
+        id: Uuid,
+        plan: &ArticleUpdate,
+    ) -> Result<ArticleRecord, SinkError>;
     /// Existing links FROM one record (idempotent link-ensure input).
     async fn list_links(
         &self,
@@ -277,6 +321,22 @@ impl DmsSink for NoneDmsSink {
         _id: Uuid,
         _plan: &DocumentUpdate,
     ) -> Result<DocumentRecord, SinkError> {
+        Err(SinkError::Disabled)
+    }
+
+    async fn list_articles(&self) -> Result<Vec<ArticleRecord>, SinkError> {
+        Err(SinkError::Disabled)
+    }
+
+    async fn create_article(&self, _plan: &ArticleCreate) -> Result<ArticleRecord, SinkError> {
+        Err(SinkError::Disabled)
+    }
+
+    async fn update_article(
+        &self,
+        _id: Uuid,
+        _plan: &ArticleUpdate,
+    ) -> Result<ArticleRecord, SinkError> {
         Err(SinkError::Disabled)
     }
 

@@ -24,9 +24,9 @@ use crate::identity::Identity;
 use crate::model::{DmsSnapshot, LinkKind, SyncRecord};
 use crate::push;
 use crate::sink::{
-    AssetCreate, AssetRecord, AssetUpdate, ClientRecord, CredentialCreate, CredentialReceipt,
-    DmsSink, DocumentCreate, DocumentRecord, DocumentUpdate, LayoutRecord, LinkCreate, LinkRecord,
-    NewLayout, SinkError,
+    ArticleCreate, ArticleRecord, ArticleUpdate, AssetCreate, AssetRecord, AssetUpdate,
+    ClientRecord, CredentialCreate, CredentialReceipt, DmsSink, DocumentCreate, DocumentRecord,
+    DocumentUpdate, LayoutRecord, LinkCreate, LinkRecord, NewLayout, SinkError,
 };
 use crate::source::hudu::{HuduExport, HuduExportFiles};
 use crate::source::DmsSource;
@@ -46,6 +46,7 @@ fn hudu_files(value: &Value) -> HuduExportFiles {
         asset_layouts: value.get("asset_layouts").cloned(),
         assets: value.get("assets").cloned(),
         websites: value.get("websites").cloned(),
+        articles: value.get("articles").cloned(),
         passwords: value.get("passwords").cloned(),
     }
 }
@@ -74,6 +75,7 @@ struct MockState {
     clients: Vec<ClientRecord>,
     assets: Vec<AssetRecord>,
     documents: Vec<DocumentRecord>,
+    articles: Vec<ArticleRecord>,
     links: Vec<LinkRecord>,
     /// Vault-path captures: (title, secret) — the ONLY place a secret
     /// may appear in tests, to assert it crossed exactly once.
@@ -263,6 +265,48 @@ impl DmsSink for MockSink {
         Ok(link)
     }
 
+    async fn list_articles(&self) -> Result<Vec<ArticleRecord>, SinkError> {
+        Ok(self.lock().articles.clone())
+    }
+
+    async fn create_article(&self, plan: &ArticleCreate) -> Result<ArticleRecord, SinkError> {
+        let mut state = self.lock();
+        let record = ArticleRecord {
+            id: state.next_id(),
+            slug: plan.slug.clone(),
+            title: plan.title.clone(),
+            body: plan.body.clone(),
+            client_visible: plan.client_visible,
+            status: plan.status.clone(),
+        };
+        state.articles.push(record.clone());
+        Ok(record)
+    }
+
+    async fn update_article(
+        &self,
+        id: Uuid,
+        plan: &ArticleUpdate,
+    ) -> Result<ArticleRecord, SinkError> {
+        let mut state = self.lock();
+        let Some(record) = state.articles.iter_mut().find(|a| a.id == id) else {
+            return Err(SinkError::NotFound("article".into()));
+        };
+        if let Some(title) = &plan.title {
+            record.title = title.clone();
+        }
+        if let Some(body) = &plan.body {
+            record.body = body.clone();
+        }
+        if let Some(visible) = plan.client_visible {
+            record.client_visible = visible;
+        }
+        if let Some(status) = &plan.status {
+            record.status = status.clone();
+        }
+        Ok(record.clone())
+    }
+
     async fn create_password(
         &self,
         plan: &CredentialCreate,
@@ -289,7 +333,20 @@ async fn run_with_config(
     sink: &MockSink,
     state: &MemorySyncState,
 ) -> crate::sync::SyncReport {
-    let engine = SyncEngine::new(config);
+    // Hermetic: the engine tests make no network calls. The link-check tests
+    // below supply their own deterministic probe.
+    let engine = SyncEngine::with_link_probe(config, Arc::new(crate::links::NoLinkProbe));
+    engine.run(snapshot, sink, state).await.expect("run")
+}
+
+async fn run_with_probe(
+    config: SyncConfig,
+    snapshot: &DmsSnapshot,
+    sink: &MockSink,
+    state: &MemorySyncState,
+    probe: Arc<dyn crate::links::LinkProbe>,
+) -> crate::sync::SyncReport {
+    let engine = SyncEngine::with_link_probe(config, probe);
     engine.run(snapshot, sink, state).await.expect("run")
 }
 
@@ -382,6 +439,14 @@ fn marula_snapshot_from(snapshot: &DmsSnapshot) -> push::MarulaSnapshot {
                 layout_id: None,
                 fields,
             }),
+            LinkKind::KbArticle => out.articles.push(push::SnapshotArticle {
+                id,
+                client_id,
+                title: record.title.clone(),
+                body: record.body.clone(),
+                client_visible: record.client_visible().unwrap_or(false),
+                status: "published".into(),
+            }),
             _ => out.documents.push(push::SnapshotDocument {
                 id,
                 client_id,
@@ -405,6 +470,7 @@ fn round_trip_hudu_export_preserves_semantics() {
         asset_layouts: rendered.get("asset_layouts").cloned(),
         assets: rendered.get("assets").cloned(),
         websites: rendered.get("websites").cloned(),
+        articles: rendered.get("articles").cloned(),
         passwords: None,
     };
     let round_tripped = HuduExport::new(files).pull().expect("re-parse");
@@ -902,6 +968,7 @@ async fn rest_push_target_pushes_neutral_records() {
     let snapshot = push::MarulaSnapshot {
         source: "marula".into(),
         clients: vec![(acme(), "Acme Corp".into())],
+        articles: vec![],
         layouts: vec![push::SnapshotLayout {
             id: Uuid::from_u128(1),
             slug: "server".into(),
@@ -999,4 +1066,257 @@ fn source_ref_key_is_the_provenance_anchor() {
     // The provenance key must be part of every connector layout and
     // stable across releases (cold-ledger rediscovery depends on it).
     assert_eq!(SOURCE_REF_KEY, "source_ref");
+}
+
+// ---- G6: article visibility -------------------------------------------------
+
+#[test]
+fn hudu_articles_parse_with_visibility_in_both_states() {
+    let snapshot = hudu_snapshot();
+    let articles: Vec<&SyncRecord> = snapshot
+        .records
+        .iter()
+        .filter(|r| r.kind == LinkKind::KbArticle)
+        .collect();
+    assert_eq!(articles.len(), 2);
+
+    let public = articles.iter().find(|r| r.external_id == "51").unwrap();
+    assert_eq!(public.client_visible(), Some(true));
+    let internal = articles.iter().find(|r| r.external_id == "52").unwrap();
+    assert_eq!(internal.client_visible(), Some(false));
+
+    // Hudu's `public` and an explicit `client_visible` are the same fact.
+    let mut alt = hudu_fixture();
+    alt["articles"][0].as_object_mut().unwrap().remove("public");
+    alt["articles"][0]["client_visible"] = json!(true);
+    let files = HuduExportFiles {
+        articles: alt.get("articles").cloned(),
+        ..Default::default()
+    };
+    let parsed = HuduExport::new(files).pull().expect("parse");
+    assert_eq!(parsed.records[0].client_visible(), Some(true));
+}
+
+#[tokio::test]
+async fn a_client_visible_article_stays_true_and_an_internal_one_false() {
+    let snapshot = hudu_snapshot();
+    let sink = MockSink::new();
+    {
+        let mut locked = sink.lock();
+        locked.clients = vec![ClientRecord {
+            id: globex(),
+            name: "Globex Industries".into(),
+        }];
+    }
+    let state = MemorySyncState::new();
+
+    let report = run_apply(&snapshot, &sink, &state).await;
+    assert_eq!(report.articles_created, 2, "report: {report:?}");
+
+    {
+        let locked = sink.lock();
+        let visible = locked
+            .articles
+            .iter()
+            .find(|a| a.slug == "dms-hudu-article-51")
+            .expect("public article");
+        assert!(
+            visible.client_visible,
+            "a client-visible article stays true"
+        );
+        let internal = locked
+            .articles
+            .iter()
+            .find(|a| a.slug == "dms-hudu-article-52")
+            .expect("internal article");
+        assert!(!internal.client_visible, "an internal article stays false");
+    }
+}
+
+#[tokio::test]
+async fn an_article_whose_visibility_changed_is_updated_in_place() {
+    let mut snapshot = hudu_snapshot();
+    let sink = MockSink::new();
+    let state = MemorySyncState::new();
+    run_apply(&snapshot, &sink, &state).await;
+
+    // The source makes the internal article client-visible: the update must
+    // carry the flag, and must not create a twin.
+    for record in &mut snapshot.records {
+        if record.external_id == "52" {
+            record
+                .fields
+                .insert(crate::model::CLIENT_VISIBLE_KEY.into(), "true".into());
+        }
+    }
+    let report = run_apply(&snapshot, &sink, &state).await;
+    assert_eq!(report.articles_updated, 1, "report: {report:?}");
+    let locked = sink.lock();
+    assert_eq!(locked.articles.len(), 2, "no twin");
+    let updated = locked
+        .articles
+        .iter()
+        .find(|a| a.slug == "dms-hudu-article-52")
+        .unwrap();
+    assert!(updated.client_visible);
+}
+
+#[test]
+fn the_renderer_writes_visibility_back_as_public() {
+    let rendered = push::render_hudu_export(&push::MarulaSnapshot {
+        source: "marula".into(),
+        articles: vec![
+            push::SnapshotArticle {
+                id: Uuid::from_u128(1),
+                client_id: Some(acme()),
+                title: "Public".into(),
+                body: "a".into(),
+                client_visible: true,
+                status: "published".into(),
+            },
+            push::SnapshotArticle {
+                id: Uuid::from_u128(2),
+                client_id: Some(acme()),
+                title: "Internal".into(),
+                body: "b".into(),
+                client_visible: false,
+                status: "published".into(),
+            },
+        ],
+        ..Default::default()
+    });
+    let articles = rendered["articles"].as_array().unwrap();
+    assert_eq!(articles[0]["public"], json!(true));
+    assert_eq!(articles[1]["public"], json!(false));
+
+    // Round trip: the rendered export parses back to the same flags.
+    let files = HuduExportFiles {
+        articles: rendered.get("articles").cloned(),
+        ..Default::default()
+    };
+    let parsed = HuduExport::new(files).pull().expect("re-parse");
+    assert_eq!(parsed.records[0].client_visible(), Some(true));
+    assert_eq!(parsed.records[1].client_visible(), Some(false));
+}
+
+// ---- G5: link checking ------------------------------------------------------
+
+/// Deterministic probe for engine tests: target → verdict.
+struct FixedProbe {
+    answers: Vec<(String, crate::links::LinkVerdict)>,
+}
+
+#[async_trait::async_trait]
+impl crate::links::LinkProbe for FixedProbe {
+    async fn check(&self, target: &str) -> crate::links::LinkVerdict {
+        self.answers
+            .iter()
+            .find(|(prefix, _)| target.starts_with(prefix.as_str()))
+            .map(|(_, verdict)| verdict.clone())
+            .unwrap_or(crate::links::LinkVerdict::Ok { status: 200 })
+    }
+}
+
+fn website_snapshot(url: &str) -> DmsSnapshot {
+    DmsSnapshot {
+        source: "hudu".into(),
+        records: vec![SyncRecord {
+            external_id: "21".into(),
+            kind: LinkKind::Document,
+            client_ref: None,
+            title: "initech.com".into(),
+            type_name: Some("Website".into()),
+            fields: BTreeMap::from([("url".to_string(), url.to_string())]),
+            body: String::new(),
+            tag: None,
+            credentials: Vec::new(),
+        }],
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn a_dead_link_lands_flagged_with_the_target_retained() {
+    let target = "https://initech.test/gone";
+    let snapshot = website_snapshot(target);
+    let sink = MockSink::new();
+    let state = MemorySyncState::new();
+    let probe = Arc::new(FixedProbe {
+        answers: vec![(
+            target.to_string(),
+            crate::links::LinkVerdict::Dead {
+                reason: "http_404".into(),
+            },
+        )],
+    });
+
+    let report = run_with_probe(SyncConfig::default(), &snapshot, &sink, &state, probe).await;
+
+    assert_eq!(report.links_checked, 1);
+    assert_eq!(report.broken_links.len(), 1);
+    assert_eq!(report.broken_links[0].target, target);
+    assert_eq!(report.broken_links[0].external_id, "21");
+    assert_eq!(report.broken_links[0].reason, "http_404");
+
+    let locked = sink.lock();
+    let document = &locked.documents[0];
+    assert_eq!(document.fields["link_status"], json!("broken"));
+    assert_eq!(document.fields["link_target"], json!(target));
+    assert_eq!(document.fields["url"], json!(target), "target retained");
+}
+
+#[tokio::test]
+async fn a_refused_target_is_unverified_not_a_dead_link() {
+    let snapshot = website_snapshot("http://169.254.169.254/latest/meta-data/");
+    let sink = MockSink::new();
+    let state = MemorySyncState::new();
+    let probe = Arc::new(crate::links::HttpLinkProbe::default());
+
+    let report = run_with_probe(SyncConfig::default(), &snapshot, &sink, &state, probe).await;
+
+    assert!(
+        report.broken_links.is_empty(),
+        "a refused address is not a dead document: {report:?}"
+    );
+    assert_eq!(report.links_unverified, 1);
+    assert_eq!(report.links_checked, 1, "submitted to the guarded probe");
+    let locked = sink.lock();
+    assert_eq!(
+        locked.documents[0].fields["link_status"],
+        json!("unverified")
+    );
+}
+
+#[tokio::test]
+async fn a_healthy_link_is_ok_and_checking_can_be_turned_off() {
+    let snapshot = website_snapshot("https://initech.test");
+    let sink = MockSink::new();
+    let state = MemorySyncState::new();
+    let report = run_with_probe(
+        SyncConfig::default(),
+        &snapshot,
+        &sink,
+        &state,
+        Arc::new(crate::links::NoLinkProbe),
+    )
+    .await;
+    assert_eq!(
+        report.links_checked, 1,
+        "submitted, then declined by none mode"
+    );
+    assert_eq!(report.links_unverified, 1);
+    assert!(report.broken_links.is_empty());
+
+    let report = run_with_probe(
+        SyncConfig {
+            check_links: false,
+            ..Default::default()
+        },
+        &snapshot,
+        &sink,
+        &state,
+        Arc::new(FixedProbe { answers: vec![] }),
+    )
+    .await;
+    assert_eq!(report.links_checked, 0);
 }

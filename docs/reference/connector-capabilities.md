@@ -134,12 +134,28 @@ A template is a claim about someone else's URL. Keep the claim true:
 | QuickBooks Online | **Not supported**: `txnId` ≠ API `Id`, and a constructed link can land on another company's invoice | no `open_url`. Degrade to the company home plus the document number |
 | ConnectWise Control (ScreenConnect) | Community-documented rather than contractual: the Host URL with `/Join` appended starts a desktop session (`…/Host#Access/{group}//{sessionId}/Join`) | `launch` via a URL template (no secret spent) and `open` for the host page. Keep the group path URL-encoded |
 | 3CX | `tel:{number}` for a plain handset dial. `POST /xapi/v1/Users/Pbx.MakeCall` for a CTI call from the tech's own extension | `launch` in both flavours: `url_template` for `tel:`, `method` for MakeCall |
-| UniFi, NinjaOne, Hudu | **Not verified here.** Each may have a per-record UI path, but none is published as a contract | nothing until the connector author verifies and records the date and source in the manifest review |
+| UniFi | The controller's own device route, `{controller}/manage/{site}/devices/{deviceId}`, declared in `plugins/connectors/unifi/manifest.json`. The manifest gate and the two-client resolver test prove the composition; **no live controller was available on 2026-11-14**, so the route shape is a review item, not a vendor-published contract | `open` on a configuration, with `controller_url` and `site` on the connection |
+| NinjaOne, Hudu | **Not verified here.** Each may have a per-record UI path, but none is published as a contract | nothing until the connector author verifies and records the date and source in the manifest review |
 
 Two obligations follow. A connector whose vendor is in the last row ships
 `open` only if it can name its evidence in review. Otherwise it ships
 `sync` and no chip, which is honest. And when a vendor changes its URL, the
 break is visible as one manifest line, not as a hunt through a renderer.
+
+### Alerts use one signed ingest
+
+Forgetting a vendor's alert payload into a separate endpoint is how an MSP ends
+up with three alert lists. Both `unifi` and `ci-feeders` (NinjaOne) map their
+documented alert object onto the same
+`POST /api/v1/alerts/ingest/{source_ref}` document, and the ingest does the
+rest: a stable `dedup_key` makes a redelivery a `duplicate` with zero writes, a
+shared `correlation_key` (device + condition) folds distinct alerts of one
+storm into ONE incident ticket whose `alert_count` rises, and the severity map
+lands on Marula's `info | warning | critical`. Every delivered alert emits
+`alert.ingested`, which is the event an automation rule filters on.
+
+The mapping is a pure function beside the vendor's device mapper; the transport,
+signature and replay window are the alert source's, not the connector's.
 
 ## 4. What a connector declares
 
