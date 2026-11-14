@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { loadConfig, noneMode, type Config } from "./config.js";
+import { DeliveryRefusal, forwardTicketEvent } from "./delivery.js";
 import { buildActivity, pushActivity } from "./ninjaone.js";
 
 const CONFIGURED: Config = {
@@ -52,6 +53,28 @@ function quietConsole<T>(run: () => T): { result: T; logged: string[] } {
   }
 }
 
+function ticketEvent(payload: Record<string, unknown>): Buffer {
+  return Buffer.from(JSON.stringify({ type: "ticket.updated", payload }));
+}
+
+const TICKET = {
+  id: "t-1001",
+  number: "T-1001",
+  title: "Printer offline",
+};
+
+const DEVICE_ID = "42";
+
+function payloadFor(overrides: Record<string, unknown> = {}) {
+  return {
+    ticket_id: TICKET.id,
+    ticket_number: TICKET.number,
+    ticket_title: TICKET.title,
+    device_id: DEVICE_ID,
+    ...overrides,
+  };
+}
+
 test("none mode is on until both NinjaOne settings are present", () => {
   assert.equal(noneMode(CONFIGURED), false);
   assert.equal(noneMode({ ...CONFIGURED, ninjaOneBaseUrl: undefined }), true);
@@ -87,28 +110,155 @@ test("loadConfig defaults and NinjaOne credentials", () => {
   assert.equal(noneMode(configured), false);
 });
 
-test("buildActivity names the ticket when the event carries one", () => {
-  assert.deepEqual(
+test("buildActivity names the ticket when the event carries number and title", () => {
+  assert.deepEqual(buildActivity({ type: "ticket.created", ticket: TICKET }), {
+    activityType: "MARULA_EVENT",
+    activityContent:
+      "Marula event ticket.created for [T-1001] Printer offline",
+  });
+});
+
+test("buildActivity degrades to the fields the event actually carries", () => {
+  // No title: the number still identifies the ticket.
+  assert.equal(
     buildActivity({
-      type: "ticket.created",
-      ticket: { id: "t-1001", number: "T-1001", title: "Printer offline" },
-    }),
-    {
+      type: "ticket.updated",
+      ticket: { id: "t-1001", number: "T-1001" },
+    }).activityContent,
+    "Marula event ticket.updated for [T-1001]",
+  );
+  // No number: the title carries its id so the note stays traceable.
+  assert.equal(
+    buildActivity({
+      type: "ticket.updated",
+      ticket: { id: "t-1001", title: "Printer offline" },
+    }).activityContent,
+    "Marula event ticket.updated for Printer offline (t-1001)",
+  );
+  // Neither: the id alone. A real identifier, never a placeholder.
+  assert.equal(
+    buildActivity({ type: "ticket.updated", ticket: { id: "t-1001" } })
+      .activityContent,
+    "Marula event ticket.updated for t-1001",
+  );
+});
+
+test("a delivery posts the note against the device the payload names", async () => {
+  const stub = stubFetch(() => new Response("{}", { status: 200 }));
+  try {
+    const result = await forwardTicketEvent(CONFIGURED, ticketEvent(payloadFor()));
+    assert.equal(result, "delivered");
+    const body = JSON.parse(String(stub.calls[0]?.init?.body)) as {
+      deviceId: string;
+      activityType: string;
+      activityContent: string;
+    };
+    assert.deepEqual(body, {
+      deviceId: "42",
       activityType: "MARULA_EVENT",
       activityContent:
-        "Marula event ticket.created for [T-1001] Printer offline",
+        "Marula event ticket.updated for [T-1001] Printer offline",
+    });
+    assert.equal(
+      stub.calls[0]?.url,
+      "https://app.ninjarmm.com/api/v2/device/activities",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a delivery with no device link is refused, and nothing is posted", async () => {
+  // There is no ticket-to-device mapping in the public payload, so the honest
+  // answer is a refusal naming the field. Posting to a guessed device is worse.
+  const stub = stubFetch(() => new Response("{}", { status: 200 }));
+  try {
+    const payload = payloadFor();
+    delete (payload as Record<string, unknown>)["device_id"];
+    await assert.rejects(
+      forwardTicketEvent(CONFIGURED, ticketEvent(payload)),
+      (error: unknown) => {
+        assert.ok(error instanceof DeliveryRefusal);
+        assert.equal(error.field, "payload.device_id");
+        return true;
+      },
+    );
+    assert.equal(stub.calls.length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a delivery with no ticket id is refused by field", async () => {
+  const stub = stubFetch(() => new Response("{}", { status: 200 }));
+  try {
+    const payload = payloadFor();
+    delete (payload as Record<string, unknown>)["ticket_id"];
+    await assert.rejects(
+      forwardTicketEvent(CONFIGURED, ticketEvent(payload)),
+      (error: unknown) => {
+        assert.ok(error instanceof DeliveryRefusal);
+        assert.equal(error.field, "payload.ticket_id");
+        return true;
+      },
+    );
+    assert.equal(stub.calls.length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("ticket number and title are optional, and their absence invents nothing", async () => {
+  const stub = stubFetch(() => new Response("{}", { status: 200 }));
+  try {
+    const result = await forwardTicketEvent(
+      CONFIGURED,
+      ticketEvent({ ticket_id: "t-1001", device_id: DEVICE_ID }),
+    );
+    assert.equal(result, "delivered");
+    const body = JSON.parse(String(stub.calls[0]?.init?.body)) as {
+      activityContent: string;
+    };
+    assert.equal(
+      body.activityContent,
+      "Marula event ticket.updated for t-1001",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a body that is not JSON is refused as the body", async () => {
+  await assert.rejects(
+    forwardTicketEvent(CONFIGURED, Buffer.from("not json")),
+    (error: unknown) => {
+      assert.ok(error instanceof DeliveryRefusal);
+      assert.equal(error.field, "body");
+      return true;
     },
   );
 });
 
-test("buildActivity still records the event when the ticket is missing", () => {
-  // The event type is the only fact the receiver is guaranteed: the payload's
-  // ticket_id is optional, and the connector must not drop the delivery.
-  assert.deepEqual(buildActivity({ type: "ticket.updated" }), {
-    activityType: "MARULA_EVENT",
-    activityContent:
-      "Marula event ticket.updated for (ticket details not included)",
-  });
+test("an event this connector does not act on is ignored", async () => {
+  const result = await forwardTicketEvent(
+    CONFIGURED,
+    Buffer.from(
+      JSON.stringify({ type: "client.updated", payload: { id: "c1" } }),
+    ),
+  );
+  assert.equal(result, "ignored");
+});
+
+test("a failed push is not swallowed", async () => {
+  const stub = stubFetch(() => new Response("nope", { status: 500 }));
+  try {
+    await assert.rejects(
+      forwardTicketEvent(CONFIGURED, ticketEvent(payloadFor())),
+      /NinjaOne push failed \(500\)/,
+    );
+  } finally {
+    stub.restore();
+  }
 });
 
 test("pushActivity in none mode dials nothing and reports no external call", async () => {
@@ -118,7 +268,7 @@ test("pushActivity in none mode dials nothing and reports no external call", asy
       return await pushActivity(
         { ...CONFIGURED, ninjaOneToken: undefined },
         "42",
-        buildActivity({ type: "ticket.created" }),
+        buildActivity({ type: "ticket.created", ticket: TICKET }),
       );
     });
     assert.equal(await result, false);
@@ -133,11 +283,8 @@ test("pushActivity in none mode dials nothing and reports no external call", asy
 test("pushActivity posts the note with the bearer token", async () => {
   const stub = stubFetch(() => new Response("{}", { status: 200 }));
   try {
-    const activity = buildActivity({
-      type: "ticket.created",
-      ticket: { id: "t-1001", number: "T-1001", title: "Printer offline" },
-    });
-    assert.equal(await pushActivity(CONFIGURED, "42", activity), true);
+    const activity = buildActivity({ type: "ticket.created", ticket: TICKET });
+    assert.equal(await pushActivity(CONFIGURED, DEVICE_ID, activity), true);
     assert.equal(stub.calls.length, 1);
     const call = stub.calls[0];
     assert.equal(
@@ -149,7 +296,7 @@ test("pushActivity posts the note with the bearer token", async () => {
     assert.equal(headers.get("authorization"), "Bearer ninja_test_token");
     assert.equal(headers.get("content-type"), "application/json");
     assert.deepEqual(JSON.parse(String(call?.init?.body)), {
-      deviceId: "42",
+      deviceId: DEVICE_ID,
       ...activity,
     });
   } finally {
@@ -161,7 +308,11 @@ test("pushActivity throws on a refused push", async () => {
   const stub = stubFetch(() => new Response("nope", { status: 401 }));
   try {
     await assert.rejects(
-      pushActivity(CONFIGURED, "42", buildActivity({ type: "ticket.created" })),
+      pushActivity(
+        CONFIGURED,
+        DEVICE_ID,
+        buildActivity({ type: "ticket.created", ticket: TICKET }),
+      ),
       /NinjaOne push failed \(401\)/,
     );
   } finally {
@@ -176,7 +327,11 @@ test("pushActivity propagates a transport failure", async () => {
   }) as typeof globalThis.fetch;
   try {
     await assert.rejects(
-      pushActivity(CONFIGURED, "42", buildActivity({ type: "ticket.created" })),
+      pushActivity(
+        CONFIGURED,
+        DEVICE_ID,
+        buildActivity({ type: "ticket.created", ticket: TICKET }),
+      ),
       /connection refused/,
     );
   } finally {
