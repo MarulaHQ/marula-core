@@ -10,6 +10,7 @@ pub mod attachments;
 pub mod automations;
 pub mod cadence;
 pub mod completion;
+pub mod connectors;
 pub mod custom_fields;
 pub mod data_surface;
 pub mod day_pack;
