@@ -1,0 +1,143 @@
+# The connector specification
+
+> **Purpose:** the bar a connector meets, and how the repository proves it
+> meets it. This is the document a reviewer checks a connector against, and
+> the one a marketplace author reads before writing a manifest. Where it
+> disagrees with an older planning document, this wins, because this one is
+> paired with the code.
+> **Companions:** [connector-capabilities.md](connector-capabilities.md) (what
+> a connector can reach), [connector-surface.md](connector-surface.md) (what
+> the staff UI draws), [extension-points.md](extension-points.md) (what a
+> connector may build on), ADR [0032](../adr/0032-connector-connection-model.md)
+> and [0033](../adr/0033-record-links-and-external-references.md).
+> **Status:** adopted 2026-11-14.
+
+## 1. What a connector is
+
+An HTTP adapter that talks to a vendor's API and to Marula's public API, and
+nothing else. It is installed as an artifact with a typed manifest, consented
+capability scopes, and a settings schema. It contributes data to the staff UI
+through declarations, never layout.
+
+A connector is one artifact. There is no wrapper, no companion plugin, and no
+per-connector build target in `apps/web`. An HTTP connector and a WASM plugin
+differ in **where their code runs**, not in what surfaces they may declare, so
+the same manifest reaches the same UI.
+
+Five behaviours exist and a connector chooses among them: `open`, `launch`,
+`dial`, `share`, `sync`. A new behaviour is an RFC to Core. A new product kind
+is a manifest string. The boundary is in
+[connector-capabilities.md](connector-capabilities.md) §1.
+
+## 2. The standard set, reconciled
+
+The set ships Apache-2.0 in `plugins/connectors/`, needs no account, and is a
+promise rather than a starter kit. This table is the list. It replaces the
+list in `docs/planning/22-connector-marketplace.md` §3.1, which did not carry
+the two category references and named a folder convention that has since
+changed.
+
+| Connector | Kind | Home | Record types it acts on |
+|---|---|---|---|
+| NinjaOne | `rmm` | `ninjaone/` + `ci-feeders/vendors/ninjaone.rs` | configuration |
+| Hudu | `dms` | `hudu/` + `dms-sync` (export, live, render) | kb_article, configuration |
+| Microsoft 365 Graph | `identity` | `m365-graph/` | configuration |
+| UniFi | `network` | `unifi/` | configuration |
+| QuickBooks Online | `accounting` | `qbo-export-sync/` | invoice, payment, credit_note |
+| Xero | `accounting` | `xero-export-sync/` | invoice, payment, credit_note |
+| 3CX | `telephony` | `threecx/` | contact, ticket, configuration |
+| Slack, Teams, Rewst | `notifications`, `crm` | `app-bridges/` | ticket, kb_article |
+| Generic REST DMS | `dms` | `dms-sync/source/rest.rs` | kb_article, configuration |
+| Signed-webhook alert ingestor | — | `crates/core-api/src/routes/alerts.rs` + `ci-feeders` | configuration |
+| Cloudflare | `dns` | `cloudflare/` + `adapters-core::dns` | domain |
+| Mapbox | — (routing provider, ADR 0014) | `mapbox/` | — |
+
+`adapters-core` and `ci-feeders` are support crates, not connectors: transport,
+auth, pagination, org mapping and the feeder engine. They are the surface a
+community connector builds on, and they carry no vendor identity of their own.
+
+Two corrections are recorded here rather than in a separate note. **Cloudflare**
+and **Mapbox** are labelled "ADR 0013 standard set" in `Cargo.toml` and in
+`plugins/connectors/README.md`, while the planning table omitted them. They are
+in the set, which is why they appear above. Mapbox is a `RoutingProvider`
+(ADR 0014) rather than an HTTP connector, and it is the one exception to the
+"no import of a core crate" rule: it depends on `crates/core-routing` by
+design, because it implements that trait.
+
+## 3. Requirements
+
+Each row is a requirement, the evidence that satisfies it, and who owns the
+evidence. "Test" means it runs in CI. "Review" means a human checks it in the
+pull request, and the reviewer is expected to say so.
+
+| # | Requirement | Evidence |
+|---|---|---|
+| R1 | **One artifact.** The connector installs from a single signed manifest with `artifact_kind` declared. No companion plugin, no per-connector UI code. | Review: the manifest; `PluginManifestV2::validate` |
+| R2 | **Public API only.** No import of a `crates/` module. | Test: `scripts/check-boundary.sh`. Review for the Mapbox exception |
+| R3 | **None mode is real and documented.** The adapter runs with no vendor credentials and reports what it would have done, with zero Marula writes. | Test: each crate's conformance suite (`NoneExportSink`, `NoneFeederSink`, `NoneCallLogSink`, `NoneDnsRecordProvider`). Review: the README |
+| R4 | **Deterministic identity.** Records converge onto one configuration through source GUID, serial then hostname, and a second sync updates its own rows rather than creating twins. | Test: `ci-feeders` identity suite and `dms-sync` sync suite. The unique identity indexes in migration 0185 |
+| R5 | **Typed errors, vendor text preserved.** No string-matched vendor prose, and the vendor's own message is kept verbatim beside the typed reason. | Test: conformance suites assert the error enum per status. Schema: `status_detail_vendor` |
+| R6 | **Per-client where the vendor is per-client.** A controller, PBX or tenant that belongs to one client is a `connection` scoped to that client, and its failure degrades that connection only. | Test: the resolver suite. Schema: `connector_connections.scope_client_id` |
+| R7 | **Surfaces are declared, not coded.** A connector reaches a chip through `connector_surfaces`, and the product kind decides grouping. | Test: manifest validation refuses a malformed block. Review: the block is present for a UI-bearing connector |
+| R8 | **A template is evidenced.** `open_url` and `launch.url_template` are declared only where the vendor documents the URL, and the review records the source and date. | Review: evidence table in [connector-capabilities.md](connector-capabilities.md) §3.4. Test: scheme and placeholder validation |
+| R9 | **A launch is audited, and a secret never leaves its connection.** A press writes one audit row naming actor, connection, record and outcome. Credentials are unsealed only inside the adapter. | Review: the launch path. Test: the action audit |
+| R10 | **Conformance tests run against stubs.** Contract-shaped stub servers reproduce the vendor's own auth flow and paging rules, plus the error surfaces a caller really meets. No live credential, no live tenant. | Test: every connector crate's suite. Review: no secret in a fixture |
+| R11 | **No entitlement check, Apache-2.0 for the set.** The core never gates a connector, and a paid pack verifies its own licence offline. | Test: `scripts/check-boundary.sh`. Review |
+| R12 | **A canary and a status timestamp.** A connection's status is paired with the time it was last proven, and the roster shows both. | Test: `record_connection_outcome`. Review: the canary calls a cheap typed endpoint |
+| R13 | **A README that states purpose, non-purpose and none mode.** | Review: the file exists and is current |
+
+## 4. The enforcement matrix, and what it does not cover
+
+Mechanical where it can be, honest where it cannot. This table exists so that
+"enforced by CI" is never claimed for a requirement no gate checks.
+
+| Requirement | Mechanised today | Gap |
+|---|---|---|
+| R1 | No | No gate reads a manifest and asserts the artifact is single. A review step. |
+| R2 | Partially | `check-boundary.sh` refuses a dependency outside the repository. It does **not** refuse a `plugins/` crate depending on `crates/`; `mapbox` does so legitimately and would pass either way. |
+| R3 | No | Each suite exercises its none sink, but nothing asserts a README documents it. |
+| R4 | Yes | The unique indexes refuse a duplicate. The suites assert convergence. |
+| R5 | Partially | Suites assert the typed error per status. Nothing enforces that vendor text is stored rather than paraphrased. |
+| R6 | Yes | The schema and the resolver suite. |
+| R7 | Yes | `PluginManifestV2::validate` refuses a malformed or dead block. |
+| R8 | Partially | Validation refuses a bad scheme, a stray placeholder, `{base_url}` off the prefix, and an undeclared `{settings.*}`. Whether the URL is *real* is a review step, which is why the evidence table records the source. |
+| R9 | Partially | The schema stores the outcome. The audit row is a review step until the route lands. |
+| R10 | Partially | Suites exist per crate. Nothing asserts a fixture carries no credential. |
+| R11 | Yes | `check-boundary.sh` scans source for entitlement checks. |
+| R12 | Yes | Column pair plus the outcome writer. |
+| R13 | No | A review step. |
+
+## 5. Deliberately not required
+
+- **A hosted OAuth app.** The operator supplies their own credentials through
+  the sealed store. Hosting and operating connections is commercial-layer work.
+- **Write-back to the vendor as a record action.** Writes belong to `sync` or to
+  a vendor-declared workflow action with its own scope.
+- **A per-connector settings page, menu item or component.** All three exist only
+  as renderers of declarations.
+- **Live-credential smoke tests.** A connector that needs a real tenant to
+  demonstrate its contract has not described the contract.
+
+## 6. Open conformance debt
+
+Recorded so it is not discovered twice. Each item is a row, not a wish.
+
+| Item | Why it fails a requirement | Owner |
+|---|---|---|
+| Microsoft 365 Graph pulls devices, not seats | It was included because "seat counts drive billing correctness" (planning doc 22 §3.1) and it cannot serve that | `m365-graph` |
+| NinjaOne and Hudu connectors are unverified TypeScript | No test file, no `test` script, and `pnpm-workspace.yaml` does not include `plugins/**`, so CI never typechecks them. They are also the two the README tells newcomers to copy (R10, R13) | `plugins/connectors/{ninjaone,hudu}` |
+| `app-bridges`, `mapbox`, `adapters-core` and `ci-feeders` have no README | R13. `app-bridges` also documents no none mode (R3), and it is three standard-set rows | those folders |
+| QuickBooks and Xero export invoices and payments only | Both call themselves a "first tranche". No credit note, no void, no refund (R7 for the record types they claim) | `qbo-export-sync`, `xero-export-sync` |
+| Rewst triggers workflows and has no results path | The promise is "workflow triggers and results over the public API" | `app-bridges` |
+| `document_links` and `record_links` are two edge tables | Deliberate, documented in ADR 0033, and the shapes match so a merge stays mechanical | — |
+
+## 7. Answering the two questions a reviewer asks
+
+**"Does this connector need a plugin?"** No. One artifact, one manifest, one
+consent. The surfaces a connector may reach are declared in that manifest and
+rendered by Core.
+
+**"Why is this connector's vendor not in the capabilities table?"** Because the
+product kind is open. Declare one, map its records onto the nearest existing
+record type, and the UI draws it. A record type Core cannot show is the only
+thing that needs an RFC, and the API says so in the refusal.

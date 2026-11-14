@@ -195,6 +195,12 @@ The QuickBooks Online connector declares the same block **without**
 from the reference. A template that names an unresolved placeholder does not
 render an action.
 
+The key that holds `{base_url}` is declared, not assumed:
+`connector_surfaces.base_url_key` names it, and defaults to `base_url`. A
+connector whose origin setting is called something else says so, and the
+manifest gate refuses a key its own `settings_schema` does not declare — the
+resolver would otherwise read a field that does not exist and emit nothing.
+
 ## 5. When the catalogue does not cover you
 
 The three cases, and what each costs:

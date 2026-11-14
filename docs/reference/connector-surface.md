@@ -44,16 +44,34 @@ Layout is a card list, not a table: every real product that does this well
 one-line purpose, a status, and exactly one primary action. A table would
 force a column decision per vendor and would not survive the marketplace.
 
+Two installations of the same connector are two cards, and today that
+requires two catalogue entries: `plugin_installs` is unique per
+`(org, catalog_id)`. A card therefore has no separate display name, because a
+connector identity is already unique within an org. If the marketplace ever
+lists one connector twice, the card needs a label and this rule changes with
+it.
+
+**A card is an installation, not a connection.** The unit is the connector the
+org installed, and its connections nest inside it. That matters for the one
+case the shape otherwise loses: a connector that is installed but not yet
+configured has zero connections and must still appear, with `Connect` as its
+action. A roster built from connections alone makes that connector invisible,
+which is the state every new install starts in.
+
 The card shows, in this order:
 
 1. **Identity** — logo, name, one line. The line is the manifest's
    `description`, truncated at clause boundaries, never re-authored in Core.
 2. **Status pill** — `Connected`, `Needs attention`, `Not connected`,
    `Disabled`. One pill, derived from the connection with the worst status. A connector with three healthy client connections and one failed one
-   reads `Needs attention` and says "1 of 4".
-3. **Action** — `Connect` (none), `Manage` (one or more), `Fix` (any
-   `auth_failed`). The action changes with state. A disabled `Manage` on a
-   broken connection is the failure mode this avoids.
+   reads `Needs attention` and says "1 of 4 needing attention". The number
+   carries its noun, or it reads as "you have four".
+3. **Action** — `Connect` (no connections), `Manage` (one or more, healthy or
+   disabled), `Fix` (any connection needing attention). The action changes
+   with state. A disabled `Manage` on a broken connection is the failure mode
+   this avoids. A `degraded` connection still acts on its chip (§6.3), and the
+   card still points at the repair: the two surfaces answer different
+   questions, and neither is allowed to claim everything is fine.
 4. **Secondary line** — the count of connections and, when scoped, the
    clients they serve by name. Two clients, two names, never "2 items".
 
@@ -256,10 +274,14 @@ the edge. The rules:
    same RMM device are one presence, deduplicated by external id. Two
    different systems reporting the same device are two presences, because
    they are two different places the technician may need to go.
-4. **A degraded provider stays visible and marked.** Its action explains
-   the failure and offers `Fix`, which opens that connection's detail. It
-   is never removed from the menu, because a missing tool reads as "we
-   don't have that" and sends the technician looking elsewhere.
+4. **A degraded provider stays visible, still acts, and says why.**
+   Degraded and `auth_failed` are different states and must not share one
+   treatment. Degraded means the connection still has a last known good
+   answer, so its action runs, the row is marked, and the menu carries the
+   reason plus `Fix` (which opens that connection's detail). `auth_failed`
+   and `needs_attachment` cannot act, so their row offers `Fix` in place of
+   the action. Neither is ever removed from the menu, because a missing tool
+   reads as "we don't have that" and sends the technician looking elsewhere.
 5. **No access means no presence.** A user outside a client's access sees
    neither the configuration nor any of its chips. A chip is not a hint
    that the client exists.

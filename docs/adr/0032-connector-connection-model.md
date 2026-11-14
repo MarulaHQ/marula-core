@@ -121,7 +121,10 @@ renderer for it (see `docs/reference/connector-surface.md`):
         "record": "configuration",
         "external_kind": "device",
         "open_url": "{base_url}/device/{external_id}",
-        "launch": { "url_template": "{base_url}/device/{external_id}/join" }
+        "launch": {
+          "url_template": "{base_url}/device/{external_id}/join",
+          "capability": "remote_access"
+        }
       }
     ]
   }
@@ -130,7 +133,20 @@ renderer for it (see `docs/reference/connector-surface.md`):
 
 `external_refs` is a list, not one block, because a connector may span
 several record types: a connector that links configurations and invoices
-declares two, and the renderer keys on `record`. Settings are not repeated
+declares two, and the renderer keys on `record`.
+
+`launch.capability` attributes a session to one of the connector's product
+kinds, and it exists because a chip is per capability while a block is per
+record type. A vendor that is both an RMM and a remote-access tool declares
+both kinds, and without this field its "Start session" would appear under the
+RMM chip too. `open` needs no attribution: opening a device page is
+meaningful under any kind.
+
+`connector_surfaces.base_url_key` names the settings key the
+`{base_url}` placeholder reads, defaulting to `base_url`. Without it the
+resolver would hardcode a key that no manifest chose, which is the kind of
+implicit contract that survives until the second connector needs a different
+name. Settings are not repeated
 here. They are `settings_schema`, which already exists, and a template may
 interpolate `{settings.<key>}` only when that schema declares the key.
 
