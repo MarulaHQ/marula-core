@@ -34,11 +34,11 @@ use core_domain::entities::ConnectorSurfaces;
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use crate::DbResult;
+use crate::{DbError, DbResult};
 
 const CONNECTION_COLUMNS: &str = "id, org_id, installation_id, scope_client_id, label, settings,
      status, status_detail, status_detail_vendor, last_success_at, last_failure_at,
-     created_at, updated_at";
+     audience_roles, created_at, updated_at";
 
 /// One configured use of an installed connector.
 #[derive(Debug, Clone)]
@@ -62,6 +62,9 @@ pub struct Connection {
     pub status_detail_vendor: Option<String>,
     pub last_success_at: Option<DateTime<Utc>>,
     pub last_failure_at: Option<DateTime<Utc>>,
+    /// `roles.id::text` for the roles allowed to see and act on this
+    /// connection. Empty means every caller the module permission allows.
+    pub audience_roles: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -87,9 +90,71 @@ fn row_to_connection(r: sqlx::postgres::PgRow) -> DbResult<Connection> {
         status_detail_vendor: r.try_get("status_detail_vendor")?,
         last_success_at: r.try_get("last_success_at")?,
         last_failure_at: r.try_get("last_failure_at")?,
+        audience_roles: audience_list(r.try_get("audience_roles")?),
         created_at: r.try_get("created_at")?,
         updated_at: r.try_get("updated_at")?,
     })
+}
+
+/// The audience column as plain strings.
+///
+/// A malformed element is dropped rather than widened: an audience that cannot
+/// be read must not turn into "everyone may use this".
+fn audience_list(raw: Vec<String>) -> Vec<String> {
+    raw.into_iter()
+        .map(|role| role.trim().to_string())
+        .filter(|role| !role.is_empty())
+        .collect()
+}
+
+/// Who is asking, for the one question the resolver and the roster both have to
+/// answer: is this connection inside the caller's audience?
+///
+/// Built by the route from the authenticated principal, because the role list
+/// and the admin verdict are already resolved there and this layer must not
+/// re-derive identity. `is_admin` carries the same owner/admin bypass the
+/// restricted-client rule gives: an admin who configured a connection is not
+/// locked out of it by a role list they cannot edit from the connection page.
+#[derive(Debug, Clone)]
+pub struct ConnectionViewer {
+    pub user_id: Uuid,
+    /// The caller's role ids (`roles.id`), as `audience_roles` stores them.
+    pub role_ids: Vec<Uuid>,
+    pub is_admin: bool,
+}
+
+impl ConnectionViewer {
+    pub fn new(user_id: Uuid, role_ids: Vec<Uuid>, is_admin: bool) -> Self {
+        Self {
+            user_id,
+            role_ids,
+            is_admin,
+        }
+    }
+
+    /// A machine principal that holds every role: used by callers that have
+    /// already decided access above this layer (sync paths, canaries).
+    pub fn unrestricted() -> Self {
+        Self {
+            user_id: Uuid::nil(),
+            role_ids: Vec::new(),
+            is_admin: true,
+        }
+    }
+
+    /// Whether this caller may see and act on a connection with this audience.
+    ///
+    /// Empty is the shipped default and means the module permission decides.
+    /// A non-empty list is a closed door: membership is checked by role id, and
+    /// an id that names a deleted role simply matches nobody.
+    pub fn is_in_audience(&self, audience: &[String]) -> bool {
+        if self.is_admin || audience.is_empty() {
+            return true;
+        }
+        audience
+            .iter()
+            .any(|role| self.role_ids.iter().any(|held| held.to_string() == *role))
+    }
 }
 
 /// Every connection the org holds, org-wide and per client, labelled order.
@@ -134,6 +199,15 @@ pub struct ConnectionRosterRow {
     /// a connection never widens what a user may see, so a restricted client's
     /// connection must not surface in the list either.
     pub restricted_to: Vec<Uuid>,
+    /// Non-secret settings. The route renders these and masks any key the
+    /// manifest marks `writeOnly`, so the read shape is complete without
+    /// unsealing anything here.
+    pub settings: serde_json::Value,
+    /// The sealed credential document. The route unseals it only to name which
+    /// keys are set; the bytes never cross the API boundary.
+    pub secrets_encrypted: Option<Vec<u8>>,
+    /// `roles.id::text`, empty meaning everyone. The route filters on it.
+    pub audience_roles: Vec<String>,
 }
 
 /// One installed connector, with its configured uses nested.
@@ -153,6 +227,10 @@ pub struct ConnectorRosterRow {
     /// What kind of vendor this is. Empty means the connector declared none
     /// and therefore contributes no chips — a complete connector.
     pub product_kinds: Vec<String>,
+    /// The pinned manifest's `settings_schema`, carried on the install rather
+    /// than queried per connection: the roster route masks `writeOnly` fields
+    /// with it, and the connection rows below already share one install.
+    pub settings_schema: Option<serde_json::Value>,
     pub connections: Vec<ConnectionRosterRow>,
 }
 
@@ -179,14 +257,15 @@ pub async fn list_connector_roster(
         "SELECT i.id AS installation_id,
                 COALESCE(v.manifest->>'name', cat.slug, '') AS connector,
                 COALESCE(v.manifest->>'description', '') AS description,
-                COALESCE(v.manifest->'product_kinds', '[]'::jsonb) AS product_kinds
+                COALESCE(v.manifest->'product_kinds', '[]'::jsonb) AS product_kinds,
+                v.manifest->'settings_schema' AS settings_schema
            FROM plugin_installs i
-           JOIN plugin_versions v
+           LEFT JOIN plugin_versions v
              ON v.catalog_id = i.catalog_id AND v.version = i.version
            LEFT JOIN plugin_catalog cat ON cat.id = i.catalog_id
           WHERE i.org_id = $1
             AND i.status <> 'revoked'
-            AND v.manifest->>'artifact_kind' = 'http_connector'
+            AND COALESCE(v.manifest->>'artifact_kind', i.artifact_kind) = 'http_connector'
           ORDER BY connector, i.id",
     )
     .bind(org_id)
@@ -205,6 +284,7 @@ pub async fn list_connector_roster(
             connector: row.try_get("connector")?,
             description: row.try_get("description")?,
             product_kinds: kind_strings(&kinds),
+            settings_schema: row.try_get("settings_schema")?,
             connections: Vec::new(),
         });
     }
@@ -217,6 +297,7 @@ pub async fn list_connector_roster(
         "SELECT c.id, c.installation_id, c.scope_client_id, c.label, c.status,
                 c.status_detail, c.status_detail_vendor,
                 c.last_success_at, c.last_failure_at,
+                c.settings, c.secrets_encrypted, c.audience_roles,
                 COALESCE(cl.restricted_to, '[]'::jsonb) AS restricted_to,
                 cl.name AS scope_client_name,
                 (SELECT count(*) FROM connector_bindings b
@@ -255,6 +336,9 @@ pub async fn list_connector_roster(
             last_failure_at: row.try_get("last_failure_at")?,
             bindings_count: row.try_get("bindings_count")?,
             restricted_to: restriction_list(&row.try_get::<serde_json::Value, _>("restricted_to")?),
+            settings: row.try_get("settings")?,
+            secrets_encrypted: row.try_get("secrets_encrypted")?,
+            audience_roles: audience_list(row.try_get("audience_roles")?),
         });
     }
 
@@ -344,6 +428,290 @@ pub async fn record_connection_outcome(
     Ok(())
 }
 
+// ---- the write path --------------------------------------------------------
+
+/// The pinned definition a connection is made from: its name, its kind, and
+/// the schema every settings document is judged against.
+///
+/// Read from the install plus whichever `plugin_versions` row it pins. The
+/// version join is optional because an install whose pin was revoked or
+/// restored away must still be able to answer "what is this", and a connection
+/// created against a missing schema would be a row nobody can validate.
+#[derive(Debug, Clone)]
+pub struct InstallationPin {
+    pub installation_id: Uuid,
+    pub connector: String,
+    /// `None` when neither the denormalised column nor the pinned manifest can
+    /// say. The caller refuses to create a connection in that case.
+    pub artifact_kind: Option<String>,
+    /// `None` when the manifest declares no settings — which is a complete
+    /// connector, not a broken one.
+    pub settings_schema: Option<serde_json::Value>,
+    /// The kinds this connector declares. A capability default naming a kind
+    /// the connection cannot serve is refused at write time rather than stored
+    /// and left to mark nothing.
+    pub product_kinds: Vec<String>,
+}
+
+pub async fn get_installation_pin(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    installation_id: Uuid,
+) -> DbResult<InstallationPin> {
+    let row = sqlx::query(
+        "SELECT i.id AS installation_id,
+                COALESCE(v.manifest->>'name', cat.slug, '') AS connector,
+                COALESCE(v.manifest->>'artifact_kind', i.artifact_kind) AS artifact_kind,
+                v.manifest->'settings_schema' AS settings_schema,
+                COALESCE(v.manifest->'product_kinds', '[]'::jsonb) AS product_kinds
+           FROM plugin_installs i
+           LEFT JOIN plugin_versions v
+             ON v.catalog_id = i.catalog_id AND v.version = i.version
+           LEFT JOIN plugin_catalog cat ON cat.id = i.catalog_id
+          WHERE i.org_id = $1 AND i.id = $2 AND i.status <> 'revoked'",
+    )
+    .bind(org_id)
+    .bind(installation_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    let kinds: serde_json::Value = row.try_get("product_kinds")?;
+    Ok(InstallationPin {
+        installation_id: row.try_get("installation_id")?,
+        connector: row.try_get("connector")?,
+        artifact_kind: row.try_get("artifact_kind")?,
+        settings_schema: row.try_get("settings_schema")?,
+        product_kinds: kind_strings(&kinds),
+    })
+}
+
+/// One connection to create. A struct rather than nine positional arguments,
+/// because two of them are `Option<&[u8]>` and a caller that swapped them would
+/// learn it from a runtime error.
+#[derive(Debug, Clone)]
+pub struct NewConnection<'a> {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub installation_id: Uuid,
+    pub scope_client_id: Option<Uuid>,
+    pub label: &'a str,
+    pub settings: &'a serde_json::Value,
+    /// The sealed credential document, or `None` for a connection that needs no
+    /// secret.
+    pub secrets_encrypted: Option<&'a [u8]>,
+    pub audience_roles: &'a [String],
+}
+
+/// A new connection starts at `needs_attachment`: nothing has proven it works
+/// yet, and a row that claimed `connected` on insert would be the status
+/// without a timestamp this model refuses.
+pub async fn create_connection(
+    conn: &mut PgConnection,
+    new: &NewConnection<'_>,
+) -> DbResult<Connection> {
+    let row = sqlx::query(&format!(
+        "INSERT INTO connector_connections
+           (id, org_id, installation_id, scope_client_id, label, settings,
+            secrets_encrypted, audience_roles)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING {CONNECTION_COLUMNS}"
+    ))
+    .bind(new.id)
+    .bind(new.org_id)
+    .bind(new.installation_id)
+    .bind(new.scope_client_id)
+    .bind(new.label)
+    .bind(new.settings)
+    .bind(new.secrets_encrypted)
+    .bind(new.audience_roles)
+    .fetch_one(&mut *conn)
+    .await?;
+    row_to_connection(row)
+}
+
+/// The fields a PATCH may carry. Every one is optional, and the two that can be
+/// cleared say so with a double option: `Some(None)` sets NULL, `None` leaves
+/// the stored value alone. Without that distinction a PATCH could not move a
+/// client-scoped connection back to org-wide.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectionUpdate<'a> {
+    pub label: Option<&'a str>,
+    pub scope_client_id: Option<Option<Uuid>>,
+    pub settings: Option<&'a serde_json::Value>,
+    /// `Some(Some(bytes))` replaces the document, `Some(None)` removes it,
+    /// `None` leaves it untouched — which is what "the operator did not retype
+    /// the credential" looks like.
+    pub secrets_encrypted: Option<Option<&'a [u8]>>,
+    pub audience_roles: Option<&'a [String]>,
+}
+
+pub async fn update_connection(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    update: &ConnectionUpdate<'_>,
+) -> DbResult<Option<Connection>> {
+    let set_secrets = update.secrets_encrypted.is_some();
+    let secrets = update.secrets_encrypted.flatten();
+    let set_scope = update.scope_client_id.is_some();
+    let scope = update.scope_client_id.flatten();
+    let row = sqlx::query(&format!(
+        "UPDATE connector_connections
+            SET label = COALESCE($3, label),
+                scope_client_id = CASE WHEN $4 THEN $5 ELSE scope_client_id END,
+                settings = COALESCE($6, settings),
+                secrets_encrypted = CASE WHEN $7 THEN $8 ELSE secrets_encrypted END,
+                audience_roles = COALESCE($9, audience_roles),
+                updated_at = now()
+          WHERE org_id = $1 AND id = $2
+          RETURNING {CONNECTION_COLUMNS}"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .bind(update.label)
+    .bind(set_scope)
+    .bind(scope)
+    .bind(update.settings)
+    .bind(set_secrets)
+    .bind(secrets)
+    .bind(update.audience_roles)
+    .fetch_optional(&mut *conn)
+    .await?;
+    row.map(row_to_connection).transpose()
+}
+
+/// How many enabled destinations a connection offers — the same count the
+/// roster shows, so a write response does not say zero about a connection that
+/// already has some.
+pub async fn count_enabled_bindings(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    connection_id: Uuid,
+) -> DbResult<i64> {
+    let row = sqlx::query(
+        "SELECT count(*) AS n FROM connector_bindings
+          WHERE org_id = $1 AND connection_id = $2 AND enabled",
+    )
+    .bind(org_id)
+    .bind(connection_id)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(row.try_get("n")?)
+}
+
+/// The scoped client's name, so a write response can say which client a
+/// connection serves without the caller re-reading the roster.
+pub async fn client_display_name(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    client_id: Uuid,
+) -> DbResult<Option<String>> {
+    let row = sqlx::query("SELECT name FROM clients WHERE org_id = $1 AND id = $2")
+        .bind(org_id)
+        .bind(client_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    Ok(row.and_then(|r| r.try_get("name").ok()))
+}
+
+/// The sealed credential document, for the route that must merge a replacement
+/// into it or name which keys it holds. Unsealing never happens here — this
+/// layer stores bytes.
+pub async fn get_connection_secrets(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<Option<Vec<u8>>> {
+    let row = sqlx::query(
+        "SELECT secrets_encrypted FROM connector_connections WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(row.try_get("secrets_encrypted")?)
+}
+
+/// What still points at a connection. The delete route refuses on a non-zero
+/// count and names each kind, because "cannot delete" without the reason sends
+/// an operator looking for a bug.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ConnectionUsage {
+    pub bindings: i64,
+    pub external_refs: i64,
+    pub identities: i64,
+}
+
+impl ConnectionUsage {
+    pub fn total(&self) -> i64 {
+        self.bindings + self.external_refs + self.identities
+    }
+}
+
+pub async fn connection_usage(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<ConnectionUsage> {
+    let row = sqlx::query(
+        "SELECT (SELECT count(*) FROM connector_bindings WHERE org_id = $1 AND connection_id = $2)
+                  AS bindings,
+                (SELECT count(*) FROM external_refs WHERE org_id = $1 AND connection_id = $2)
+                  AS external_refs,
+                (SELECT count(*) FROM user_external_identities
+                  WHERE org_id = $1 AND connection_id = $2) AS identities",
+    )
+    .bind(org_id)
+    .bind(id)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(ConnectionUsage {
+        bindings: row.try_get("bindings")?,
+        external_refs: row.try_get("external_refs")?,
+        identities: row.try_get("identities")?,
+    })
+}
+
+/// Removes one connection. The caller has already refused the case where
+/// anything still points at it — this function does not re-check, because a
+/// check here would race the check there and answer neither honestly.
+pub async fn delete_connection(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<bool> {
+    let done = sqlx::query("DELETE FROM connector_connections WHERE org_id = $1 AND id = $2")
+        .bind(org_id)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(done.rows_affected() > 0)
+}
+
+/// Which of these role ids this org does not have.
+///
+/// An audience naming a role that does not exist is a typo that silently grants
+/// nobody access, so the write path refuses it rather than storing it.
+pub async fn unknown_roles(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    role_ids: &[Uuid],
+) -> DbResult<Vec<Uuid>> {
+    if role_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let known: Vec<Uuid> = sqlx::query("SELECT id FROM roles WHERE org_id = $1 AND id = ANY($2)")
+        .bind(org_id)
+        .bind(role_ids)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|row| row.get("id"))
+        .collect();
+    Ok(role_ids
+        .iter()
+        .copied()
+        .filter(|id| !known.contains(id))
+        .collect())
+}
+
 // ---- bindings --------------------------------------------------------------
 
 /// One named destination a connection may post to.
@@ -394,6 +762,113 @@ pub async fn list_bindings(
             enabled: r.get("enabled"),
         })
         .collect())
+}
+
+/// One destination to add to a connection.
+#[derive(Debug, Clone)]
+pub struct NewBinding<'a> {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub connection_id: Uuid,
+    pub binding_kind: &'a str,
+    pub label: &'a str,
+    pub external_id: &'a str,
+    pub external_parent: Option<&'a str>,
+    pub vendor_ids: &'a serde_json::Value,
+    pub enabled: bool,
+}
+
+pub async fn create_binding(conn: &mut PgConnection, new: &NewBinding<'_>) -> DbResult<Binding> {
+    let row = sqlx::query(
+        "INSERT INTO connector_bindings
+           (id, org_id, connection_id, binding_kind, label, external_id,
+            external_parent, vendor_ids, enabled)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, connection_id, binding_kind, label, external_id,
+                   external_parent, vendor_ids, enabled",
+    )
+    .bind(new.id)
+    .bind(new.org_id)
+    .bind(new.connection_id)
+    .bind(new.binding_kind)
+    .bind(new.label)
+    .bind(new.external_id)
+    .bind(new.external_parent)
+    .bind(new.vendor_ids)
+    .bind(new.enabled)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(Binding {
+        id: row.get("id"),
+        connection_id: row.get("connection_id"),
+        binding_kind: row.get("binding_kind"),
+        label: row.get("label"),
+        external_id: row.get("external_id"),
+        external_parent: row.get("external_parent"),
+        vendor_ids: row.get("vendor_ids"),
+        enabled: row.get("enabled"),
+    })
+}
+
+/// The fields a binding PATCH may carry. `external_id` is deliberately absent:
+/// it is the destination's identity in the vendor, and changing it is a new
+/// destination rather than an edit — an audit row that pointed at the old id
+/// would otherwise appear to point at the new one.
+#[derive(Debug, Clone, Default)]
+pub struct BindingUpdate<'a> {
+    pub label: Option<&'a str>,
+    pub enabled: Option<bool>,
+    pub external_parent: Option<Option<&'a str>>,
+    pub vendor_ids: Option<&'a serde_json::Value>,
+}
+
+pub async fn update_binding(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    update: &BindingUpdate<'_>,
+) -> DbResult<Option<Binding>> {
+    let set_parent = update.external_parent.is_some();
+    let parent = update.external_parent.flatten();
+    let row = sqlx::query(
+        "UPDATE connector_bindings
+            SET label = COALESCE($3, label),
+                enabled = COALESCE($4, enabled),
+                external_parent = CASE WHEN $5 THEN $6 ELSE external_parent END,
+                vendor_ids = COALESCE($7, vendor_ids),
+                updated_at = now()
+          WHERE org_id = $1 AND id = $2
+          RETURNING id, connection_id, binding_kind, label, external_id,
+                    external_parent, vendor_ids, enabled",
+    )
+    .bind(org_id)
+    .bind(id)
+    .bind(update.label)
+    .bind(update.enabled)
+    .bind(set_parent)
+    .bind(parent)
+    .bind(update.vendor_ids)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(row.map(|r| Binding {
+        id: r.get("id"),
+        connection_id: r.get("connection_id"),
+        binding_kind: r.get("binding_kind"),
+        label: r.get("label"),
+        external_id: r.get("external_id"),
+        external_parent: r.get("external_parent"),
+        vendor_ids: r.get("vendor_ids"),
+        enabled: r.get("enabled"),
+    }))
+}
+
+pub async fn delete_binding(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> DbResult<bool> {
+    let done = sqlx::query("DELETE FROM connector_bindings WHERE org_id = $1 AND id = $2")
+        .bind(org_id)
+        .bind(id)
+        .execute(&mut *conn)
+        .await?;
+    Ok(done.rows_affected() > 0)
 }
 
 // ---- external references ---------------------------------------------------
@@ -749,13 +1224,19 @@ struct SurfaceManifest {
 ///   default, none is primary, which makes the UI open a menu instead of
 ///   guessing.
 ///
-/// Non-purpose: no permission decision. The caller has already decided the
-/// record is readable, and a chip never widens what its reader may see.
+/// Non-purpose: no permission decision about the RECORD. The caller has already
+/// decided the record is readable, and a chip never widens what its reader may
+/// see. What this function does decide is the connection's own AUDIENCE: a
+/// connection scoped to named roles is invisible to everyone outside them, and
+/// that filter lives here rather than in each caller because a chip is an act
+/// and every surface that acts goes through here.
+#[allow(clippy::too_many_arguments)]
 pub async fn resolve_external_actions(
     conn: &mut PgConnection,
     org_id: Uuid,
     record_type: RecordType,
     record_id: Uuid,
+    viewer: &ConnectionViewer,
 ) -> DbResult<Vec<ResolvedCapability>> {
     // The record's own scope decides both the connection filter and the
     // default lookup. A record type that cannot be scoped answers `None`, and
@@ -785,11 +1266,21 @@ pub async fn resolve_external_actions(
              ON v.catalog_id = i.catalog_id AND v.version = i.version
           WHERE r.org_id = $1 AND r.record_type = $2 AND r.record_id = $3
             AND c.status <> 'disabled'
+            AND ($4 OR cardinality(c.audience_roles) = 0
+                 OR c.audience_roles && $5::text[])
           ORDER BY c.label, r.external_kind, r.id",
     )
     .bind(org_id)
     .bind(record_type.as_str())
     .bind(record_id)
+    .bind(viewer.is_admin)
+    .bind(
+        viewer
+            .role_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<String>>(),
+    )
     .fetch_all(&mut *conn)
     .await?;
 
@@ -991,6 +1482,79 @@ async fn capability_defaults_for(
         defaults.entry(capability).or_insert(connection_id);
     }
     Ok(defaults)
+}
+
+/// Sets (or replaces) the primary connection for one capability, per org or
+/// per client.
+///
+/// Two partial unique indexes back this, so the conflict target differs by
+/// scope: one statement per shape rather than a `COALESCE` that would make the
+/// index inference unusable. "Two primaries for remote access" is an outage,
+/// which is why this replaces rather than inserts a second row.
+pub async fn upsert_capability_default(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    capability: &str,
+    scope_client_id: Option<Uuid>,
+    connection_id: Uuid,
+) -> DbResult<()> {
+    match scope_client_id {
+        None => {
+            sqlx::query(
+                "INSERT INTO capability_defaults
+                   (id, org_id, scope_client_id, capability, connection_id)
+                 VALUES ($1, $2, NULL, $3, $4)
+                 ON CONFLICT (org_id, capability) WHERE scope_client_id IS NULL
+                 DO UPDATE SET connection_id = EXCLUDED.connection_id",
+            )
+            .bind(id)
+            .bind(org_id)
+            .bind(capability)
+            .bind(connection_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+        Some(client) => {
+            sqlx::query(
+                "INSERT INTO capability_defaults
+                   (id, org_id, scope_client_id, capability, connection_id)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (org_id, scope_client_id, capability)
+                   WHERE scope_client_id IS NOT NULL
+                 DO UPDATE SET connection_id = EXCLUDED.connection_id",
+            )
+            .bind(id)
+            .bind(org_id)
+            .bind(client)
+            .bind(capability)
+            .bind(connection_id)
+            .execute(&mut *conn)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Removes one default. `false` means there was nothing to remove, which the
+/// route answers as a 404 rather than a silent success.
+pub async fn delete_capability_default(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    capability: &str,
+    scope_client_id: Option<Uuid>,
+) -> DbResult<bool> {
+    let done = sqlx::query(
+        "DELETE FROM capability_defaults
+          WHERE org_id = $1 AND capability = $2
+            AND (($3::uuid IS NULL AND scope_client_id IS NULL) OR scope_client_id = $3)",
+    )
+    .bind(org_id)
+    .bind(capability)
+    .bind(scope_client_id)
+    .execute(&mut *conn)
+    .await?;
+    Ok(done.rows_affected() > 0)
 }
 
 /// The connection's base URL, as `settings.base_url`.

@@ -264,6 +264,10 @@ async fn resolve(db: &TestDb, fix: &Fixture) -> Vec<ResolvedCapability> {
         fix.org,
         core_domain::connectors::RecordType::Configuration,
         fix.asset,
+        // These tests are about grouping, attribution and defaults; the
+        // audience has its own test below, and `unrestricted` is the caller
+        // every surface has already admitted by the time it resolves.
+        &core_db::connector_connections::ConnectionViewer::unrestricted(),
     )
     .await
     .expect("resolve");
@@ -755,4 +759,202 @@ async fn the_roster_lists_installs_with_nested_connections_and_keeps_disabled_ro
         slack.connections.is_empty(),
         "an installed but unconfigured connector appears with an empty list"
     );
+}
+
+/// A connection with an audience is invisible outside it, in the resolver AND
+/// in the roster — the two surfaces a technician can reach it through.
+///
+/// This is the rule ADR 0032 §"Access" states and `connector-surface.md` §3
+/// draws: empty means "everyone the module permission allows", a named list is
+/// a closed door, and a caller outside it sees no provider rather than a
+/// provider they cannot use.
+#[tokio::test]
+async fn an_audience_hides_a_connection_from_every_surface() {
+    let db = test_db().await;
+    let fix = seed_fixture(&db, 95500, "connector-resolve-audience").await;
+    let install = seed_install(
+        &db,
+        fix.org,
+        95520,
+        "ninjaone-95520",
+        manifest("ninjaone", &["rmm"], "device", None),
+    )
+    .await;
+
+    let open = fixed_uuid(95540);
+    let restricted = fixed_uuid(95541);
+    seed_connection(
+        &db,
+        fix.org,
+        open,
+        install,
+        None,
+        "NinjaOne — everyone",
+        ConnectionStatus::Connected,
+    )
+    .await;
+    seed_connection(
+        &db,
+        fix.org,
+        restricted,
+        install,
+        None,
+        "NinjaOne — tier two only",
+        ConnectionStatus::Connected,
+    )
+    .await;
+    seed_ref(&db, fix.org, &fix, open, "device", "NIN-OPEN").await;
+    seed_ref(&db, fix.org, &fix, restricted, "device", "NIN-T2").await;
+
+    // Two org roles: one is the audience, the other is the caller who must not
+    // see the connection. Inserted directly because the audience is a role id
+    // and the point of the test is the id, not how a role was minted.
+    let tier_two = fixed_uuid(95560);
+    let outsider_role = fixed_uuid(95561);
+    let tier_two_user = fixed_uuid(95570);
+    let outsider_user = fixed_uuid(95571);
+    {
+        let mut tx = org_tx(&db.app, fix.org).await;
+        for (id, name) in [(tier_two, "Tier Two"), (outsider_role, "First Line")] {
+            sqlx::query(
+                "INSERT INTO roles (id, org_id, name, permissions) VALUES ($1, $2, $3, '[]')",
+            )
+            .bind(id)
+            .bind(fix.org)
+            .bind(name)
+            .execute(&mut *tx)
+            .await
+            .expect("role");
+        }
+        sqlx::query(
+            "UPDATE connector_connections SET audience_roles = ARRAY[$1]::text[] WHERE id = $2",
+        )
+        .bind(tier_two.to_string())
+        .bind(restricted)
+        .execute(&mut *tx)
+        .await
+        .expect("audience");
+        tx.commit().await.expect("commit");
+    }
+
+    let resolve_as = |user: Uuid, role: Uuid| {
+        let db = &db;
+        let fix = &fix;
+        async move {
+            let mut tx = org_tx(&db.app, fix.org).await;
+            let rows = resolve_external_actions(
+                &mut tx,
+                fix.org,
+                core_domain::connectors::RecordType::Configuration,
+                fix.asset,
+                &core_db::connector_connections::ConnectionViewer::new(user, vec![role], false),
+            )
+            .await
+            .expect("resolve");
+            tx.commit().await.expect("commit");
+            rows
+        }
+    };
+
+    // The outsider sees the unrestricted connection and nothing else.
+    let outsider = resolve_as(outsider_user, outsider_role).await;
+    let rmm = &outsider[0];
+    assert_eq!(
+        connection_ids(rmm),
+        vec![open],
+        "a connection scoped to another role contributes no provider"
+    );
+
+    // Tier two sees both: membership is a door, not a cage.
+    let member = resolve_as(tier_two_user, tier_two).await;
+    let rmm = &member[0];
+    assert_eq!(
+        connection_ids(rmm),
+        vec![open, restricted],
+        "the audience member sees the restricted connection too, by label"
+    );
+
+    // The roster applies the same predicate, so the two surfaces cannot
+    // disagree about whether a connection exists.
+    let roster_as = |user: Uuid, role: Uuid| {
+        let db = &db;
+        let fix = &fix;
+        async move {
+            let mut tx = org_tx(&db.app, fix.org).await;
+            let rows = core_db::connector_connections::list_connector_roster(&mut tx, fix.org)
+                .await
+                .expect("roster");
+            tx.commit().await.expect("commit");
+            let viewer =
+                core_db::connector_connections::ConnectionViewer::new(user, vec![role], false);
+            rows.into_iter()
+                .flat_map(|row| row.connections)
+                .filter(|row| viewer.is_in_audience(&row.audience_roles))
+                .map(|row| row.id)
+                .collect::<Vec<Uuid>>()
+        }
+    };
+    assert_eq!(roster_as(outsider_user, outsider_role).await, vec![open]);
+    assert_eq!(
+        roster_as(tier_two_user, tier_two).await,
+        vec![open, restricted]
+    );
+}
+
+/// An install whose pinned version row vanished still appears in the roster.
+///
+/// Before `plugin_installs.artifact_kind`, the roster learned the kind from
+/// `plugin_versions` and an orphaned pin made a connector disappear — which
+/// reads to an operator as "it uninstalled itself". The denormalised column is
+/// the install's own proof, and the manifest name falls back to the catalogue
+/// slug.
+#[tokio::test]
+async fn an_orphaned_pin_still_appears_in_the_roster() {
+    let db = test_db().await;
+    let fix = seed_fixture(&db, 95600, "connector-resolve-orphan").await;
+    let install = seed_install(
+        &db,
+        fix.org,
+        95620,
+        "hudu-95620",
+        manifest("hudu", &["dms"], "article", None),
+    )
+    .await;
+    seed_connection(
+        &db,
+        fix.org,
+        fixed_uuid(95640),
+        install,
+        None,
+        "Hudu — Acme",
+        ConnectionStatus::Connected,
+    )
+    .await;
+
+    {
+        let mut tx = org_tx(&db.app, fix.org).await;
+        let deleted = sqlx::query("DELETE FROM plugin_versions WHERE catalog_id = $1")
+            .bind(fixed_uuid(95620))
+            .execute(&mut *tx)
+            .await
+            .expect("drop the pin");
+        assert_eq!(deleted.rows_affected(), 1, "the fixture pinned one version");
+        tx.commit().await.expect("commit");
+    }
+
+    let mut tx = org_tx(&db.app, fix.org).await;
+    let rows = core_db::connector_connections::list_connector_roster(&mut tx, fix.org)
+        .await
+        .expect("roster");
+    tx.commit().await.expect("commit");
+
+    let hudu = rows
+        .iter()
+        .find(|row| row.installation_id == install)
+        .expect("the orphaned install is still a roster entry");
+    assert_eq!(
+        hudu.connector, "hudu-95620",
+        "the catalogue slug names it when the pinned manifest is gone"
+    );
+    assert_eq!(hudu.connections.len(), 1, "its connection is still listed");
 }

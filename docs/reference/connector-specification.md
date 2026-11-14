@@ -85,6 +85,42 @@ pull request, and the reviewer is expected to say so.
 | R11 | **No entitlement check, Apache-2.0 for the set.** The core never gates a connector, and a paid pack verifies its own licence offline. | Test: `scripts/check-boundary.sh`. Review |
 | R12 | **A canary and a status timestamp.** A connection's status is paired with the time it was last proven, and the roster shows both. | Test: `record_connection_outcome`. Review: the canary calls a cheap typed endpoint |
 | R13 | **A README that states purpose, non-purpose and none mode.** | Review: the file exists and is current |
+| R14 | **Access is declared, not assumed.** A connection with an audience is invisible to a caller outside those roles on every surface that reads it, and a client-scoped connection is still refused to a caller who cannot see that client. Empty audience means every caller the module permission allows. | Test: the audience cases in `core-db/tests/connector_actions_resolution.rs` and `core-api/tests/http_flows/connector_write_flow.rs`. Schema: `connector_connections.audience_roles` |
+
+### 3.1 The settings subset
+
+A connector's `settings_schema` is not JSON Schema at large. It is one subset,
+and both halves of the contract honour exactly that subset: the manifest gate
+refuses a declaration outside it, and the value validator refuses a value the
+declaration cannot judge. A keyword the gate accepted while the validator
+ignored it would let a manifest publish settings that can never be saved.
+
+| Keyword | Means |
+|---|---|
+| `type` | `string`, `number`, `integer`, `boolean`, `object`, `array` |
+| `properties` + `required` | An object's fields, and the ones that must be present. A required name no property declares is refused at publish time, because nothing could ever satisfy it |
+| `items` + `minItems` / `maxItems` | An array's element schema and its length bounds |
+| `enum` | A closed set of scalars |
+| `minimum` / `maximum` | Numeric bounds |
+| `minLength` / `maxLength` | String length in characters |
+| `pattern` | An unanchored Rust `regex`; say `^…$` yourself to anchor it |
+| `writeOnly: true` | The field is a credential: sealed, never returned, never stored in settings |
+
+`oneOf`, `anyOf`, `allOf`, `$ref`, `additionalProperties`, `multipleOf`,
+`exclusiveMinimum`/`exclusiveMaximum` and the rest are **refused where they are
+declared**. An annotation the subset does not interpret (`title`, `description`,
+`default`, `format`) is accepted and ignored.
+
+Two rules make the subset safe to store against:
+
+- **Unknown keys are refused at every object level**, nested ones included. A
+  settings object that names a field the connector never declared is a typo,
+  and accepting it means the vendor silently receives nothing.
+- **A credential never travels in `settings`.** `writeOnly` marks it, the write
+  route refuses it in the settings document, and it is stored sealed. Every
+  response names the credential fields that hold a value (`secrets_set`) and
+  returns no value for any of them.
+
 
 ## 4. The enforcement matrix, and what it does not cover
 
@@ -106,6 +142,7 @@ Mechanical where it can be, honest where it cannot. This table exists so that
 | R11 | Yes | `check-boundary.sh` scans source for entitlement checks. |
 | R12 | Yes | Column pair plus the outcome writer. |
 | R13 | No | A review step. |
+| R14 | Yes | The audience predicate is one function applied by the resolver and the roster; both surfaces are asserted in tests. The UI rendering of it is a review step until the Access panel ships. |
 
 ## 5. Deliberately not required
 

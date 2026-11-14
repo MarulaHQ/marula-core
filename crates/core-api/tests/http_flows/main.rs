@@ -1,8 +1,8 @@
-//! One test binary for four HTTP-surface flows (pilot for consolidating the
+//! One test binary for five HTTP-surface flows (pilot for consolidating the
 //! `tests/*_flow.rs` targets).
 //!
 //! Cargo treats `tests/<dir>/main.rs` as a single target named `<dir>`, so the
-//! four `mod` lines below compile and link into one binary instead of four.
+//! five `mod` lines below compile and link into one binary instead of five.
 //! Each module is one former `tests/<name>_flow.rs` target, moved unchanged
 //! apart from importing the harness from `common` — no test was renamed, so
 //! `cargo test --test http_flows <name>` still selects the same functions.
@@ -22,5 +22,6 @@ mod common;
 mod change_order_cas_flow;
 mod conditional_read_flow;
 mod connector_actions_flow;
+mod connector_write_flow;
 mod fx_flow;
 mod scorecards_flow;
