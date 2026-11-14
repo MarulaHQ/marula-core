@@ -23,5 +23,11 @@ mod change_order_cas_flow;
 mod conditional_read_flow;
 mod connector_actions_flow;
 mod connector_write_flow;
+
+// The inbound connector contract (G7/G8/G9). It installs two process-wide test
+// doubles (the card transport and the Bot Framework verifier) through their
+// traits, which is exactly the seam that keeps it off the network — see the
+// module's header.
+mod connector_inbound_flow;
 mod fx_flow;
 mod scorecards_flow;

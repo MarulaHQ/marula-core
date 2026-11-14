@@ -527,6 +527,15 @@ use utoipa::OpenApi;
         crate::routes::connector_actions::bindings_delete,
         crate::routes::connector_actions::capability_default_put,
         crate::routes::connector_actions::capability_default_delete,
+
+        // Connector callbacks and the ticket share (G7/G8/G9). The four
+        // callbacks are unauthenticated transport endpoints — the vendor
+        // signature is the credential — and the share is a staff surface.
+        crate::routes::connector_inbound::slack_interactive,
+        crate::routes::connector_inbound::slack_command,
+        crate::routes::connector_inbound::teams_interactive,
+        crate::routes::connector_inbound::teams_messages,
+        crate::routes::connector_inbound::share_ticket,
         crate::routes::portal::login,
         crate::routes::portal::refresh,
         crate::routes::portal::magic_link_request,
@@ -1940,6 +1949,11 @@ use utoipa::OpenApi;
         crate::routes::connector_actions::CapabilityDefaultRequest,
         crate::routes::connector_actions::CapabilityDefaultView,
         crate::routes::connector_actions::CapabilityScopeQuery,
+
+        // Connector callbacks and the ticket share (G7/G8/G9)
+        crate::routes::connector_inbound::ShareTicketRequest,
+        crate::routes::connector_inbound::ShareTicketResponse,
+        crate::routes::connector_inbound::SharedChannelView,
         crate::routes::roles::UpdateRoleRequest,
         core_domain::entities::PluginPublisherVerification,
         core_domain::entities::PluginRating,
