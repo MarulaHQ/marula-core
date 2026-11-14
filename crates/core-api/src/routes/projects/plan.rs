@@ -1727,8 +1727,8 @@ pub async fn schedule_apply(
         core_db::projects::get_project(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
-        let calendar = project_work_calendar(&mut *ctx.tx, org_id, id).await?;
-        let nodes = load_task_nodes(&mut *ctx.tx, org_id, id).await?;
+        let calendar = project_work_calendar(&mut ctx.tx, org_id, id).await?;
+        let nodes = load_task_nodes(&mut ctx.tx, org_id, id).await?;
         let changes = compute_plan(&nodes, calendar, &req.moves);
 
         let mut revert = Vec::with_capacity(changes.len());
@@ -1881,8 +1881,8 @@ pub async fn schedule_scale(
         core_db::projects::get_project(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
-        let calendar = project_work_calendar(&mut *ctx.tx, org_id, id).await?;
-        let nodes = load_task_nodes(&mut *ctx.tx, org_id, id).await?;
+        let calendar = project_work_calendar(&mut ctx.tx, org_id, id).await?;
+        let nodes = load_task_nodes(&mut ctx.tx, org_id, id).await?;
         let mut changes: Vec<core_projects::schedule::Change> = Vec::new();
         let mut revert: Vec<ScheduleRestore> = Vec::new();
 
@@ -1931,7 +1931,7 @@ pub async fn schedule_scale(
         if req.reschedule && !changes.is_empty() {
             // Re-read with the new lengths, then ripple each scaled task in
             // plan order so the successors land where the plan says.
-            let scaled_nodes = load_task_nodes(&mut *ctx.tx, org_id, id).await?;
+            let scaled_nodes = load_task_nodes(&mut ctx.tx, org_id, id).await?;
             let mut rippled: Vec<core_projects::schedule::TaskNode> = scaled_nodes.clone();
             let order: Vec<Uuid> = changes.iter().map(|c| c.task_id).collect();
             for task_id in order {
