@@ -115,22 +115,31 @@ renderer for it (see `docs/reference/connector-surface.md`):
 ```json
 {
   "product_kinds": ["rmm", "remote_access"],
-  "surfaces": {
-    "settings": { "schema_ref": "#/settings_schema" },
-    "share": { "records": ["ticket", "kb_article"], "label": "Share to Slack" },
-    "actions": [
-      { "id": "take_ticket", "label": "Take it", "record": "ticket",
-        "required_scope": "tickets:write", "confirm": false }
-    ],
-    "external_ref": {
-      "record": "configuration",
-      "open_url": "{base_url}/device/{external_id}",
-      "launch": { "method": "remote_session", "label": "Start session" }
-    },
-    "inbound": { "events": ["ticket.created", "ticket.updated"] }
+  "connector_surfaces": {
+    "external_refs": [
+      {
+        "record": "configuration",
+        "external_kind": "device",
+        "open_url": "{base_url}/device/{external_id}",
+        "launch": { "url_template": "{base_url}/device/{external_id}/join" }
+      }
+    ]
   }
 }
 ```
+
+`external_refs` is a list, not one block, because a connector may span
+several record types: a connector that links configurations and invoices
+declares two, and the renderer keys on `record`. Settings are not repeated
+here. They are `settings_schema`, which already exists, and a template may
+interpolate `{settings.<key>}` only when that schema declares the key.
+
+Three surface kinds are designed and **not yet expressible** in the
+manifest: `share` (destinations and the card), `actions` (inbound buttons),
+and `inbound` (event filters). `launch` also has one form so far, the
+deterministic `url_template`; a launch that spends a sealed credential needs
+an adapter `method` and a new consent scope, so it waits for the capability
+vocabulary change rather than shipping a scope nobody reviewed.
 
 `product_kinds` is what makes a connector contextual: it tells the UI which
 kind of vendor this is (RMM, remote access, DMS, DNS, network, identity,

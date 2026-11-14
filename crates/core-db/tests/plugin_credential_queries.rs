@@ -208,6 +208,8 @@ async fn install_at(db: &common::TestDb, seeded: &Seeded, base: u64) -> Uuid {
         interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
         description: "d".into(),
         capabilities: vec!["automation.reads".into()],
+        product_kinds: vec![],
+        connector_surfaces: None,
         settings_schema: None,
         artifact_kind: None,
         connector_profile: Some(core_domain::entities::ConnectorProfile {

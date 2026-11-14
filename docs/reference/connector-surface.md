@@ -385,7 +385,7 @@ channel the same week a ticket can.
 | Launch refused (scope) | `Open in …` fallback with the reason, never a disabled button |
 | No default with several providers | Chip body opens the menu, header says "Choose a system" |
 | User outside client access | Nothing renders |
-| Connector declares no `external_ref` | No chip. Settings and canary still work |
+| Connector declares no `connector_surfaces.external_refs` | No chip. Settings and canary still work |
 
 
 ## 7. S6 — access and audit

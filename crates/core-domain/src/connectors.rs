@@ -255,6 +255,22 @@ impl ActionBehaviour {
     }
 }
 
+/// True when `raw` is a stable machine key: lowercase ASCII letters, digits and
+/// underscores, starting with a letter, 1..=`max_len` bytes.
+///
+/// One rule for every open vocabulary a manifest may declare (a product kind, a
+/// vendor's name for an object) so a key that is valid in one place is valid in
+/// the other, and none of them can carry a space, a slash or a scheme.
+#[must_use]
+pub fn is_snake_key(raw: &str, max_len: usize) -> bool {
+    !raw.is_empty()
+        && raw.len() <= max_len
+        && raw.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+        && raw
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
 /// A connector's product kind, as declared in its manifest.
 ///
 /// Open on purpose: a vendor that fits no existing kind declares its own and
@@ -297,15 +313,7 @@ impl ProductKind {
                 max: Self::MAX_LEN,
             });
         }
-        let mut chars = trimmed.chars();
-        let first_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase());
-        if !first_ok {
-            return Err(ProductKindError::NotSnakeCase(trimmed.to_string()));
-        }
-        if !trimmed
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        {
+        if !is_snake_key(trimmed, Self::MAX_LEN) {
             return Err(ProductKindError::NotSnakeCase(trimmed.to_string()));
         }
         Ok(ProductKind(trimmed.to_string()))
@@ -481,12 +489,12 @@ mod tests {
         for from in LinkEndKind::ALL {
             for to in LinkEndKind::ALL {
                 let allowed = LinkEndKind::pair_allowed(*from, *to);
-                let expected = match (from, to) {
-                    (LinkEndKind::Ticket, LinkEndKind::Configuration) => true,
-                    (LinkEndKind::Ticket, LinkEndKind::KbArticle) => true,
-                    (LinkEndKind::KbArticle, LinkEndKind::Configuration) => true,
-                    _ => false,
-                };
+                let expected = matches!(
+                    (from, to),
+                    (LinkEndKind::Ticket, LinkEndKind::Configuration)
+                        | (LinkEndKind::Ticket, LinkEndKind::KbArticle)
+                        | (LinkEndKind::KbArticle, LinkEndKind::Configuration)
+                );
                 assert_eq!(
                     allowed,
                     expected,

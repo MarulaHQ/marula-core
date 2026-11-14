@@ -147,29 +147,43 @@ One block, one file. Two examples, deliberately different in shape:
 
 ```json
 {
+  "name": "screenconnect",
+  "version": "1.0.0",
+  "interface_version": 1,
   "product_kinds": ["remote_access"],
-  "surfaces": {
-    "external_ref": {
-      "record": "configuration",
-      "external_kind": "machine",
-      "open_url": "{base_url}/Host#Access/Machines/{external_id}",
-      "launch": { "method": "remote_session", "label": "Start session",
-                  "requires_scope": "sessions.start" }
-    }
+  "connector_surfaces": {
+    "external_refs": [
+      {
+        "record": "configuration",
+        "external_kind": "machine",
+        "open_url": "{base_url}/Host#Access/All%20Machines//{external_id}",
+        "launch": {
+          "url_template": "{base_url}/Host#Access/All%20Machines//{external_id}/Join"
+        }
+      }
+    ]
   }
 }
 ```
 
 ```json
 {
+  "name": "xero-export-sync",
+  "version": "1.0.0",
+  "interface_version": 1,
   "product_kinds": ["accounting"],
-  "surfaces": {
-    "external_ref": {
-      "record": "invoice",
-      "external_kind": "invoice",
-      "open_url": "https://go.xero.com/organisationlogin/default.aspx?shortcode={settings.org_shortcode}&redirecturl=/AccountsReceivable/View.aspx?InvoiceID={external_id}"
-    },
-    "read": { "accounts": true, "tax_codes": true }
+  "settings_schema": {
+    "type": "object",
+    "properties": { "org_shortcode": { "type": "string" } }
+  },
+  "connector_surfaces": {
+    "external_refs": [
+      {
+        "record": "invoice",
+        "external_kind": "invoice",
+        "open_url": "https://go.xero.com/organisationlogin/default.aspx?shortcode={settings.org_shortcode}&redirecturl=/AccountsReceivable/View.aspx?InvoiceID={external_id}"
+      }
+    ]
   }
 }
 ```
@@ -226,7 +240,7 @@ the consent screen can name.
 
 ## 6. What a connector gets without writing UI
 
-Declaring `product_kinds` and one `external_ref` block produces, on the day
+Declaring `product_kinds` and one `connector_surfaces.external_refs` block produces, on the day
 it installs: a settings page rendered from its schema, a canary test, a
 capability chip on every linked record, a row in the ticket's linked-records
 strip, an action on any recommendation that targets one of its records, and
