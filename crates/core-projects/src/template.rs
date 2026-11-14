@@ -2,8 +2,9 @@
 //! as-data, policy §5) plus the pure expansion plan the instantiate
 //! endpoint executes inside one transaction.
 //!
-//! Spec shape (`spec_version` 1 — unknown fields tolerated, new fields
-//! added, never removed or retyped):
+//! Spec shape (`spec_version` 2 — unknown fields tolerated, new fields
+//! added, never removed or retyped). Version 1 documents still load: every
+//! field version 2 adds is optional.
 //!
 //! ```json
 //! {
@@ -15,7 +16,10 @@
 //!       "is_milestone": false,
 //!       "milestone_amount_minor": null,
 //!       "tasks": [
-//!         { "key": "kickoff", "title": "Kickoff", "depends_on": ["plan"] }
+//!         { "key": "kickoff", "title": "Kickoff", "depends_on": ["plan"] },
+//!         { "key": "go", "title": "Go or no-go", "duration_days": 1,
+//!           "gate": { "mode": "enforced", "name": "Cutover check",
+//!                     "approver_role_key": "project_manager" } }
 //!       ] }
 //!   ],
 //!   "tasks": [ { "key": "wrapup", "title": "Wrap-up", "phase": "discovery",
@@ -36,7 +40,11 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
-pub const TEMPLATE_SPEC_VERSION: u32 = 1;
+pub const TEMPLATE_SPEC_VERSION: u32 = 2;
+
+/// The oldest spec a current build still reads. Version 1 documents keep
+/// loading: every field version 2 adds is optional.
+pub const MIN_TEMPLATE_SPEC_VERSION: u32 = 1;
 
 /// Validated template spec (deserialized + checked).
 #[derive(Debug, Clone, PartialEq)]
@@ -76,6 +84,50 @@ pub struct TemplateTask {
     pub depends_on: Vec<String>,
     /// Phase key for project-level tasks; `None` = no phase.
     pub phase: Option<String>,
+    /// How long the step runs, in working days. `None` = undated, which is the
+    /// honest state for a step the author has not planned yet.
+    pub duration_days: Option<i64>,
+    /// The effort the step is expected to need, in minutes. Separate from
+    /// duration: two hours on site can be twenty minutes of work.
+    pub effort_minutes: Option<i64>,
+    /// The role the step needs, matched at instantiation to a person.
+    pub role_key: Option<String>,
+    /// Where the work happens (onsite, bench, remote, vendor, client,
+    /// coordination). A string here because the spec is data, validated on
+    /// parse against the same vocabulary the task entity uses.
+    pub work_type: Option<String>,
+    /// A step an instantiation may legitimately skip (training that depends on
+    /// the client, a hardware step for a client who supplies their own).
+    pub optional: bool,
+    /// An approval checkpoint on this step, when the template carries one.
+    pub gate: Option<TemplateGate>,
+}
+
+/// A checkpoint a template author chooses to carry. Never required: a template
+/// without one instantiates a project without one (ADR 0034 decision 10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateGate {
+    /// `informational` behaves like a milestone and blocks nothing; `enforced`
+    /// holds the steps that depend on it until a decision is recorded.
+    pub mode: GateMode,
+    pub name: String,
+    /// The role expected to decide, resolved to a person at instantiation.
+    pub approver_role_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateMode {
+    Informational,
+    Enforced,
+}
+
+impl GateMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Informational => "informational",
+            Self::Enforced => "enforced",
+        }
+    }
 }
 
 // --- raw serde shapes (the additive wire contract) ------------------------------
@@ -145,6 +197,31 @@ struct RawTask {
     depends_on: Vec<String>,
     #[serde(default)]
     phase: Option<String>,
+    #[serde(default)]
+    duration_days: Option<i64>,
+    #[serde(default)]
+    effort_minutes: Option<i64>,
+    #[serde(default)]
+    role_key: Option<String>,
+    #[serde(default)]
+    work_type: Option<String>,
+    #[serde(default)]
+    optional: bool,
+    #[serde(default)]
+    gate: Option<RawGate>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RawGate {
+    #[serde(default = "default_gate_mode")]
+    mode: String,
+    name: String,
+    #[serde(default)]
+    approver_role_key: Option<String>,
+}
+
+fn default_gate_mode() -> String {
+    "informational".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -159,10 +236,10 @@ struct RawDep {
 pub fn parse_spec(spec: &serde_json::Value) -> Result<TemplateSpec, DomainError> {
     let raw: RawSpec = serde_json::from_value(spec.clone())
         .map_err(|e| DomainError::Validation(format!("invalid template spec: {e}")))?;
-    if raw.spec_version != TEMPLATE_SPEC_VERSION {
+    if !(MIN_TEMPLATE_SPEC_VERSION..=TEMPLATE_SPEC_VERSION).contains(&raw.spec_version) {
         return Err(DomainError::Validation(format!(
-            "unsupported template spec_version {} (this build understands {})",
-            raw.spec_version, TEMPLATE_SPEC_VERSION
+            "unsupported template spec_version {} (this build understands {} to {})",
+            raw.spec_version, MIN_TEMPLATE_SPEC_VERSION, TEMPLATE_SPEC_VERSION
         )));
     }
 
@@ -256,6 +333,52 @@ pub fn parse_spec(spec: &serde_json::Value) -> Result<TemplateSpec, DomainError>
             default_currency,
             &raw_task.key,
         )?;
+        if matches!(raw_task.duration_days, Some(d) if d < 0) {
+            return Err(DomainError::Validation(format!(
+                "task {} has a negative duration",
+                raw_task.key
+            )));
+        }
+        if matches!(raw_task.effort_minutes, Some(m) if m < 0) {
+            return Err(DomainError::Validation(format!(
+                "task {} has a negative effort",
+                raw_task.key
+            )));
+        }
+        if let Some(work) = raw_task.work_type.as_deref() {
+            if work.parse::<core_domain::entities::WorkType>().is_err() {
+                return Err(DomainError::Validation(format!(
+                    "task {} has unknown work type {}",
+                    raw_task.key, work
+                )));
+            }
+        }
+        let gate = match raw_task.gate {
+            None => None,
+            Some(raw) => {
+                if raw.name.trim().is_empty() {
+                    return Err(DomainError::Validation(format!(
+                        "task {} has a checkpoint with no name",
+                        raw_task.key
+                    )));
+                }
+                let mode = match raw.mode.as_str() {
+                    "informational" => GateMode::Informational,
+                    "enforced" => GateMode::Enforced,
+                    other => {
+                        return Err(DomainError::Validation(format!(
+                            "task {} has unknown checkpoint mode {}",
+                            raw_task.key, other
+                        )))
+                    }
+                };
+                Some(TemplateGate {
+                    mode,
+                    name: raw.name.trim().to_string(),
+                    approver_role_key: raw.approver_role_key,
+                })
+            }
+        };
         flat.push(Flat {
             phase_index: phase_idx,
             task: TemplateTask {
@@ -270,6 +393,12 @@ pub fn parse_spec(spec: &serde_json::Value) -> Result<TemplateSpec, DomainError>
                 due_offset_days: raw_task.due_offset_days,
                 depends_on: raw_task.depends_on,
                 phase: raw_task.phase,
+                duration_days: raw_task.duration_days,
+                effort_minutes: raw_task.effort_minutes,
+                role_key: raw_task.role_key,
+                work_type: raw_task.work_type,
+                optional: raw_task.optional,
+                gate,
             },
         });
         Ok(())
@@ -597,6 +726,74 @@ mod tests {
         });
         let err = parse_spec(&spec).unwrap_err().to_string();
         assert!(err.contains("requires a currency"), "{err}");
+    }
+
+    #[test]
+    fn version_two_carries_plan_fields_and_a_checkpoint() {
+        let spec = serde_json::json!({
+            "spec_version": 2,
+            "phases": [{ "key": "cut", "name": "Cutover" }],
+            "tasks": [{
+                "key": "go", "title": "Go or no-go", "phase": "cut",
+                "duration_days": 1, "effort_minutes": 60,
+                "role_key": "project_manager", "work_type": "coordination",
+                "optional": true,
+                "gate": { "mode": "enforced", "name": "Cutover check",
+                          "approver_role_key": "project_manager" }
+            }]
+        });
+        let parsed = parse_spec(&spec).expect("v2 parses");
+        let task = &parsed.tasks[0];
+        assert_eq!(task.duration_days, Some(1));
+        assert_eq!(task.effort_minutes, Some(60));
+        assert_eq!(task.role_key.as_deref(), Some("project_manager"));
+        assert_eq!(task.work_type.as_deref(), Some("coordination"));
+        assert!(task.optional);
+        let gate = task.gate.as_ref().expect("checkpoint kept");
+        assert_eq!(gate.mode, GateMode::Enforced);
+        assert_eq!(gate.name, "Cutover check");
+    }
+
+    #[test]
+    fn a_version_one_document_still_loads() {
+        let spec = serde_json::json!({
+            "spec_version": 1,
+            "phases": [{ "key": "p", "name": "Phase" }],
+            "tasks": [{ "key": "t", "title": "Task", "phase": "p" }]
+        });
+        let parsed = parse_spec(&spec).expect("v1 still parses");
+        let task = &parsed.tasks[0];
+        assert_eq!(task.duration_days, None);
+        assert!(!task.optional);
+        assert!(task.gate.is_none());
+    }
+
+    #[test]
+    fn an_unknown_work_type_is_rejected() {
+        let spec = serde_json::json!({
+            "spec_version": 2,
+            "tasks": [{ "key": "t", "title": "Task", "work_type": "teleport" }]
+        });
+        assert!(parse_spec(&spec).is_err());
+    }
+
+    #[test]
+    fn a_checkpoint_without_a_name_is_rejected() {
+        let spec = serde_json::json!({
+            "spec_version": 2,
+            "tasks": [{ "key": "t", "title": "Task",
+                        "gate": { "mode": "enforced", "name": "  " } }]
+        });
+        assert!(parse_spec(&spec).is_err());
+    }
+
+    #[test]
+    fn a_negative_duration_is_rejected() {
+        let spec = serde_json::json!({
+            "spec_version": 2,
+            "tasks": [{ "key": "t", "title": "Task", "duration_days": -2 }]
+        });
+        assert!(parse_spec(&spec).is_err());
     }
 
     #[test]
