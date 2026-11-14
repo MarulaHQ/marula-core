@@ -1486,3 +1486,540 @@ pub async fn clear_calendar(
     .await
     .map(Json)
 }
+
+// --- schedule: preview, apply, revert, scale -----------------------------------------
+
+/// Resolves the calendar a project's dates are computed against: the project's
+/// own pattern where it has one, otherwise the organisation's week, otherwise
+/// the standard Monday-to-Friday day.
+pub(crate) async fn project_work_calendar(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> ApiResult<core_projects::schedule::WorkCalendar> {
+    let project = core_db::projects::get_working_calendar(&mut *tx, org_id, project_id).await?;
+    if let Some(cal) = project {
+        return Ok(core_projects::schedule::WorkCalendar::new(
+            cal.weekdays as u8,
+            cal.minutes_per_day as u32,
+        ));
+    }
+    let org = core_db::projects::get_org_working_calendar(&mut *tx, org_id).await?;
+    Ok(org
+        .map(|cal| {
+            core_projects::schedule::WorkCalendar::new(
+                cal.weekdays as u8,
+                cal.minutes_per_day as u32,
+            )
+        })
+        .unwrap_or(core_projects::schedule::WorkCalendar::STANDARD))
+}
+
+/// Loads a project's task graph in the shape the engine consumes.
+async fn load_task_nodes(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> ApiResult<Vec<core_projects::schedule::TaskNode>> {
+    let tasks = core_db::projects::list_tasks(
+        &mut *tx,
+        org_id,
+        project_id,
+        core_db::projects::TaskFilter {
+            phase_id: None,
+            status: None,
+            assignee_id: None,
+            milestone: None,
+            limit: 10_000,
+            offset: 0,
+        },
+    )
+    .await?;
+    let edges = core_db::projects::list_project_dep_edges(&mut *tx, org_id, project_id).await?;
+    let mut deps: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for (task_id, depends_on) in edges {
+        deps.entry(task_id).or_default().push(depends_on);
+    }
+    Ok(tasks
+        .into_iter()
+        .map(|t| core_projects::schedule::TaskNode {
+            id: t.id,
+            start_at: t.start_at,
+            duration_minutes: t.duration_minutes,
+            deps: deps.remove(&t.id).unwrap_or_default(),
+        })
+        .collect())
+}
+
+/// One task the coordinator placed. `duration_minutes: None` means "leave the
+/// length alone"; `Some(None)` clears it together with the start.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ScheduleMove {
+    #[schema(value_type = uuid::Uuid)]
+    pub task_id: Uuid,
+    pub start_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_minutes: Option<Option<i32>>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct SchedulePlanRequest {
+    pub moves: Vec<ScheduleMove>,
+}
+
+/// One change the engine proposes or applied.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ScheduleChangeView {
+    #[schema(value_type = uuid::Uuid)]
+    pub task_id: Uuid,
+    pub from_start: Option<chrono::DateTime<chrono::Utc>>,
+    pub to_start: Option<chrono::DateTime<chrono::Utc>>,
+    /// `moved` for the task the coordinator placed, `pushed` for a successor
+    /// the move displaced.
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct SchedulePlanResponse {
+    pub changes: Vec<ScheduleChangeView>,
+    /// The longest chain through the plan, in order. Empty when nothing is
+    /// dated.
+    pub critical_path: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ScheduleApplyResponse {
+    pub changes: Vec<ScheduleChangeView>,
+    pub critical_path: Vec<Uuid>,
+    /// What each changed task held before the apply, so a revert restores
+    /// exactly these values.
+    pub revert: Vec<ScheduleRestore>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ScheduleRestore {
+    #[schema(value_type = uuid::Uuid)]
+    pub task_id: Uuid,
+    pub start_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_minutes: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ScheduleRevertRequest {
+    pub restore: Vec<ScheduleRestore>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ScheduleScaleRequest {
+    /// Multiplier applied to every dated task in range.
+    pub factor: f64,
+    pub from_start_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub to_start_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Scale durations without moving anything, or also reschedule the plan
+    /// from the earliest changed task.
+    #[serde(default)]
+    pub reschedule: bool,
+}
+
+fn to_view(change: &core_projects::schedule::Change) -> ScheduleChangeView {
+    ScheduleChangeView {
+        task_id: change.task_id,
+        from_start: change.from_start,
+        to_start: change.to_start,
+        reason: match change.reason {
+            core_projects::schedule::ChangeReason::Moved => "moved".into(),
+            core_projects::schedule::ChangeReason::Pushed => "pushed".into(),
+        },
+    }
+}
+
+/// Runs every move through the engine in the order the coordinator made them,
+/// so a two-step drag previews the same result a two-step drag applies.
+fn compute_plan(
+    nodes: &[core_projects::schedule::TaskNode],
+    calendar: core_projects::schedule::WorkCalendar,
+    moves: &[ScheduleMove],
+) -> Vec<core_projects::schedule::Change> {
+    let mut current: Vec<core_projects::schedule::TaskNode> = nodes.to_vec();
+    let mut changes: Vec<core_projects::schedule::Change> = Vec::new();
+    for mv in moves {
+        let step = core_projects::schedule::plan_move(&current, calendar, mv.task_id, mv.start_at);
+        for change in &step {
+            if let Some(node) = current.iter_mut().find(|n| n.id == change.task_id) {
+                node.start_at = change.to_start;
+                if change.task_id == mv.task_id {
+                    if let Some(duration) = mv.duration_minutes {
+                        node.duration_minutes = duration;
+                    }
+                }
+            }
+            match changes.iter_mut().find(|c| c.task_id == change.task_id) {
+                // A task moved twice in one plan keeps its original `from`, so
+                // the revert list still restores the state before the plan.
+                Some(existing) => existing.to_start = change.to_start,
+                None => changes.push(change.clone()),
+            }
+        }
+    }
+    changes
+}
+
+/// POST /api/projects/{id}/schedule/preview — what a set of moves would do,
+/// computed by the same function the apply calls. Nothing is written.
+#[utoipa::path(operation_id = "projects_schedule_preview", post, path = "/api/projects/{id}/schedule/preview", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = SchedulePlanRequest,
+    responses((status = 200, body = SchedulePlanResponse),
+              (status = 404, description = "project not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn schedule_preview(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SchedulePlanRequest>,
+) -> ApiResult<Json<SchedulePlanResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::View))?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let org_id = authed.principal.user.org_id;
+    core_db::projects::get_project(&mut *tx, org_id, id).await?;
+    let calendar = project_work_calendar(&mut tx, org_id, id).await?;
+    let nodes = load_task_nodes(&mut tx, org_id, id).await?;
+    let changes = compute_plan(&nodes, calendar, &req.moves);
+    let critical_path = core_projects::schedule::critical_path(&nodes);
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(SchedulePlanResponse {
+        changes: changes.iter().map(to_view).collect(),
+        critical_path,
+    }))
+}
+
+/// POST /api/projects/{id}/schedule/apply — applies the same computation the
+/// preview returned, in one transaction, and hands back what to send to
+/// `/schedule/revert` to undo it.
+#[utoipa::path(operation_id = "projects_schedule_apply", post, path = "/api/projects/{id}/schedule/apply", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = SchedulePlanRequest,
+    responses((status = 200, body = ScheduleApplyResponse),
+              (status = 404, description = "a task or the project is not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn schedule_apply(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SchedulePlanRequest>,
+) -> ApiResult<Json<ScheduleApplyResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    for mv in &req.moves {
+        if let Some(duration) = mv.duration_minutes {
+            validate_task_time(mv.start_at.is_some(), duration)?;
+        }
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_project(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let calendar = project_work_calendar(&mut *ctx.tx, org_id, id).await?;
+        let nodes = load_task_nodes(&mut *ctx.tx, org_id, id).await?;
+        let changes = compute_plan(&nodes, calendar, &req.moves);
+
+        let mut revert = Vec::with_capacity(changes.len());
+        for change in &changes {
+            let before = nodes
+                .iter()
+                .find(|n| n.id == change.task_id)
+                .ok_or(ApiError::RlsSparse)?;
+            revert.push(ScheduleRestore {
+                task_id: change.task_id,
+                start_at: before.start_at,
+                duration_minutes: before.duration_minutes,
+            });
+            let duration = req
+                .moves
+                .iter()
+                .find(|m| m.task_id == change.task_id)
+                .and_then(|m| m.duration_minutes)
+                .unwrap_or(before.duration_minutes);
+            core_db::projects::update_task(
+                &mut *ctx.tx,
+                org_id,
+                change.task_id,
+                core_db::projects::TaskPatch {
+                    start_at: Some(change.to_start),
+                    duration_minutes: Some(duration),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            ctx.emit(
+                types::PROJECT_TASK_UPDATED,
+                "project_task",
+                Some(change.task_id.to_string().as_str()),
+                &serde_json::to_value(core_domain::events::ProjectTaskUpdated {
+                    task_id: change.task_id,
+                    project_id: id,
+                })
+                .unwrap_or_default(),
+            )
+            .await?;
+        }
+        let critical_path = core_projects::schedule::critical_path(&nodes);
+        Ok((
+            ctx,
+            ScheduleApplyResponse {
+                changes: changes.iter().map(to_view).collect(),
+                critical_path,
+                revert,
+            },
+        ))
+    })
+    .await?;
+
+    Ok(Json(response))
+}
+
+/// POST /api/projects/{id}/schedule/revert — restores the values an apply
+/// handed back. A task outside the project is refused rather than skipped.
+#[utoipa::path(operation_id = "projects_schedule_revert", post, path = "/api/projects/{id}/schedule/revert", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = ScheduleRevertRequest,
+    responses((status = 200, body = Value),
+              (status = 404, description = "a task or the project is not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn schedule_revert(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ScheduleRevertRequest>,
+) -> ApiResult<Json<Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    for restore in &req.restore {
+        validate_task_time(restore.start_at.is_some(), restore.duration_minutes)?;
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_project(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let mut restored = 0_usize;
+        for point in &req.restore {
+            let task = core_db::projects::get_task(&mut *ctx.tx, org_id, point.task_id)
+                .await
+                .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            if task.project_id != id {
+                return Err(ApiError::Validation(
+                    "a task in the revert list belongs to a different project".into(),
+                ));
+            }
+            core_db::projects::update_task(
+                &mut *ctx.tx,
+                org_id,
+                point.task_id,
+                core_db::projects::TaskPatch {
+                    start_at: Some(point.start_at),
+                    duration_minutes: Some(point.duration_minutes),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            ctx.emit(
+                types::PROJECT_TASK_UPDATED,
+                "project_task",
+                Some(point.task_id.to_string().as_str()),
+                &serde_json::to_value(core_domain::events::ProjectTaskUpdated {
+                    task_id: point.task_id,
+                    project_id: id,
+                })
+                .unwrap_or_default(),
+            )
+            .await?;
+            restored += 1;
+        }
+        Ok((ctx, serde_json::json!({ "restored": restored })))
+    })
+    .await
+    .map(Json)
+}
+
+/// POST /api/projects/{id}/schedule/scale — multiplies the length of every
+/// dated task in a window. `reschedule` re-ripples the plan from each changed
+/// task so successors follow the new lengths.
+#[utoipa::path(operation_id = "projects_schedule_scale", post, path = "/api/projects/{id}/schedule/scale", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = ScheduleScaleRequest,
+    responses((status = 200, body = ScheduleApplyResponse),
+              (status = 404, description = "project not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn schedule_scale(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ScheduleScaleRequest>,
+) -> ApiResult<Json<ScheduleApplyResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    if !(req.factor.is_finite() && req.factor > 0.0 && req.factor <= 10.0) {
+        return Err(ApiError::Validation(
+            "factor must be greater than zero and at most ten".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_project(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let calendar = project_work_calendar(&mut *ctx.tx, org_id, id).await?;
+        let nodes = load_task_nodes(&mut *ctx.tx, org_id, id).await?;
+        let mut changes: Vec<core_projects::schedule::Change> = Vec::new();
+        let mut revert: Vec<ScheduleRestore> = Vec::new();
+
+        for node in &nodes {
+            let (Some(start), Some(duration)) = (node.start_at, node.duration_minutes) else {
+                continue;
+            };
+            if let Some(from) = req.from_start_at {
+                if start < from {
+                    continue;
+                }
+            }
+            if let Some(to) = req.to_start_at {
+                if start > to {
+                    continue;
+                }
+            }
+            let scaled = core_projects::schedule::scale_minutes(duration, req.factor);
+            if scaled == duration {
+                continue;
+            }
+            revert.push(ScheduleRestore {
+                task_id: node.id,
+                start_at: node.start_at,
+                duration_minutes: node.duration_minutes,
+            });
+            core_db::projects::update_task(
+                &mut *ctx.tx,
+                org_id,
+                node.id,
+                core_db::projects::TaskPatch {
+                    duration_minutes: Some(Some(scaled)),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            changes.push(core_projects::schedule::Change {
+                task_id: node.id,
+                from_start: node.start_at,
+                to_start: node.start_at,
+                reason: core_projects::schedule::ChangeReason::Moved,
+            });
+        }
+
+        if req.reschedule && !changes.is_empty() {
+            // Re-read with the new lengths, then ripple each scaled task in
+            // plan order so the successors land where the plan says.
+            let scaled_nodes = load_task_nodes(&mut *ctx.tx, org_id, id).await?;
+            let mut rippled: Vec<core_projects::schedule::TaskNode> = scaled_nodes.clone();
+            let order: Vec<Uuid> = changes.iter().map(|c| c.task_id).collect();
+            for task_id in order {
+                let start = rippled
+                    .iter()
+                    .find(|n| n.id == task_id)
+                    .and_then(|n| n.start_at);
+                let step = core_projects::schedule::plan_move(&rippled, calendar, task_id, start);
+                for change in step {
+                    if let Some(node) = rippled.iter_mut().find(|n| n.id == change.task_id) {
+                        node.start_at = change.to_start;
+                    }
+                }
+            }
+            for node in &rippled {
+                let before = scaled_nodes.iter().find(|n| n.id == node.id);
+                let Some(before) = before else { continue };
+                if before.start_at == node.start_at {
+                    continue;
+                }
+                changes.push(core_projects::schedule::Change {
+                    task_id: node.id,
+                    from_start: before.start_at,
+                    to_start: node.start_at,
+                    reason: core_projects::schedule::ChangeReason::Pushed,
+                });
+                core_db::projects::update_task(
+                    &mut *ctx.tx,
+                    org_id,
+                    node.id,
+                    core_db::projects::TaskPatch {
+                        start_at: Some(node.start_at),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            }
+            for change in &changes {
+                if change.reason == core_projects::schedule::ChangeReason::Pushed {
+                    revert.push(ScheduleRestore {
+                        task_id: change.task_id,
+                        start_at: change.from_start,
+                        duration_minutes: scaled_nodes
+                            .iter()
+                            .find(|n| n.id == change.task_id)
+                            .and_then(|n| n.duration_minutes),
+                    });
+                }
+                ctx.emit(
+                    types::PROJECT_TASK_UPDATED,
+                    "project_task",
+                    Some(change.task_id.to_string().as_str()),
+                    &serde_json::to_value(core_domain::events::ProjectTaskUpdated {
+                        task_id: change.task_id,
+                        project_id: id,
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+            }
+        } else {
+            for change in &changes {
+                ctx.emit(
+                    types::PROJECT_TASK_UPDATED,
+                    "project_task",
+                    Some(change.task_id.to_string().as_str()),
+                    &serde_json::to_value(core_domain::events::ProjectTaskUpdated {
+                        task_id: change.task_id,
+                        project_id: id,
+                    })
+                    .unwrap_or_default(),
+                )
+                .await?;
+            }
+        }
+
+        let critical_path = core_projects::schedule::critical_path(&nodes);
+        Ok((
+            ctx,
+            ScheduleApplyResponse {
+                changes: changes.iter().map(to_view).collect(),
+                critical_path,
+                revert,
+            },
+        ))
+    })
+    .await?;
+
+    Ok(Json(response))
+}

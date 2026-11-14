@@ -2227,6 +2227,27 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // phase nobody scheduled.
         .route(&rp("/projects/{id}/gantt"), get(projects::gantt))
         .route(
+            &rp("/projects/{id}/baseline"),
+            get(projects::get_baseline).post(projects::capture_baseline),
+        )
+        .route(&rp("/projects/{id}/risk"), get(projects::risk))
+        .route(
+            &rp("/projects/{id}/schedule/preview"),
+            post(projects::schedule_preview),
+        )
+        .route(
+            &rp("/projects/{id}/schedule/apply"),
+            post(projects::schedule_apply),
+        )
+        .route(
+            &rp("/projects/{id}/schedule/revert"),
+            post(projects::schedule_revert),
+        )
+        .route(
+            &rp("/projects/{id}/schedule/scale"),
+            post(projects::schedule_scale),
+        )
+        .route(
             &rp("/projects/{id}/calendar"),
             get(projects::get_calendar)
                 .put(projects::set_calendar)

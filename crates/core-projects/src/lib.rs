@@ -14,6 +14,8 @@
 //!   over the organisation's, which is the rule every date calculation reads.
 //! * [`capacity`] — how much planned work a person carries: a weekly figure
 //!   against the calendar, never a second calendar.
+//! * [`risk`] — the nine deterministic rules that turn stored plan facts into
+//!   signals. Severity comes from the rule, never from a model.
 //!
 //! Milestone billing seam: completing a milestone phase/task emits
 //! `project.milestone_completed` through the transactional outbox from the
@@ -26,5 +28,6 @@
 
 pub mod capacity;
 pub mod deps;
+pub mod risk;
 pub mod schedule;
 pub mod template;

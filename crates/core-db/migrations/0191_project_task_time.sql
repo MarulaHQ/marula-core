@@ -75,6 +75,22 @@ CREATE TABLE project_working_calendars (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- The organisation's own working week, the base every project override sits
+-- on. One row per org: the fallback is a single rule, not a per-team set.
+CREATE TABLE org_working_calendars (
+  org_id uuid PRIMARY KEY REFERENCES orgs(id) ON DELETE CASCADE,
+  weekdays smallint NOT NULL DEFAULT 31 CHECK (weekdays BETWEEN 1 AND 127),
+  minutes_per_day integer NOT NULL DEFAULT 480
+    CHECK (minutes_per_day > 0 AND minutes_per_day <= 1440),
+  note text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE org_working_calendars ENABLE ROW LEVEL SECURITY;
+CREATE POLICY org_working_calendars_org ON org_working_calendars
+  USING (org_id = current_setting('app.org_id', true)::uuid);
+
 ALTER TABLE project_working_calendars ENABLE ROW LEVEL SECURITY;
 CREATE POLICY project_working_calendars_org ON project_working_calendars
   USING (org_id = current_setting('app.org_id', true)::uuid);

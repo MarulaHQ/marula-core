@@ -309,10 +309,12 @@ async fn emit_milestone_completed(
 
 pub mod money;
 pub mod plan;
+pub mod risk;
 pub mod tasks;
 pub mod templates;
 
 pub use money::*;
 pub use plan::*;
+pub use risk::*;
 pub use tasks::*;
 pub use templates::*;

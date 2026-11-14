@@ -653,6 +653,7 @@ where
         .collect::<Result<Vec<_>, _>>()?)
 }
 
+#[derive(Default)]
 pub struct TaskPatch<'a> {
     pub title: Option<&'a str>,
     pub description: Option<Option<&'a str>>,
@@ -1748,4 +1749,174 @@ where
             .execute(executor)
             .await?;
     Ok(res.rows_affected() > 0)
+}
+
+// --- organisation working calendar -------------------------------------------
+
+/// The organisation's working week. `None` means the product's standard
+/// Monday-to-Friday, eight-hour day; a row is an organisation that works a
+/// different week.
+pub async fn get_org_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+) -> DbResult<Option<core_domain::entities::ProjectWorkingCalendar>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"SELECT org_id, org_id AS project_id, weekdays, minutes_per_day, note,
+                  created_at, updated_at
+           FROM org_working_calendars WHERE org_id = $1"#,
+    )
+    .bind(org_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(row_to_calendar).transpose()?)
+}
+
+/// Sets the organisation's working week. One row per org.
+pub async fn upsert_org_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    weekdays: i16,
+    minutes_per_day: i32,
+    note: Option<&str>,
+) -> DbResult<core_domain::entities::ProjectWorkingCalendar>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"INSERT INTO org_working_calendars (org_id, weekdays, minutes_per_day, note)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (org_id) DO UPDATE
+             SET weekdays = EXCLUDED.weekdays,
+                 minutes_per_day = EXCLUDED.minutes_per_day,
+                 note = EXCLUDED.note,
+                 updated_at = now()
+           RETURNING org_id, org_id AS project_id, weekdays, minutes_per_day, note,
+                     created_at, updated_at"#,
+    )
+    .bind(org_id)
+    .bind(weekdays)
+    .bind(minutes_per_day)
+    .bind(note)
+    .fetch_one(executor)
+    .await?;
+    Ok(row_to_calendar(row)?)
+}
+
+// --- baselines ----------------------------------------------------------------
+
+/// One captured baseline.
+#[derive(Debug, Clone)]
+pub struct ProjectBaseline {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub project_id: Uuid,
+    pub captured_by: Option<Uuid>,
+    pub captured_at: chrono::DateTime<chrono::Utc>,
+    pub note: Option<String>,
+    pub snapshot: serde_json::Value,
+    pub dated_tasks: i32,
+    pub total_tasks: i32,
+}
+
+fn row_to_baseline(row: sqlx::postgres::PgRow) -> Result<ProjectBaseline, sqlx::Error> {
+    Ok(ProjectBaseline {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        project_id: row.get("project_id"),
+        captured_by: row.get("captured_by"),
+        captured_at: row.get("captured_at"),
+        note: row.get("note"),
+        snapshot: row.get("snapshot"),
+        dated_tasks: row.get("dated_tasks"),
+        total_tasks: row.get("total_tasks"),
+    })
+}
+
+/// Copies every dated task's start and length into its baseline columns, then
+/// records the capture. The two writes belong together: a baseline row whose
+/// task columns were not stamped describes a plan nobody had.
+pub async fn capture_baseline(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_id: Uuid,
+    captured_by: Option<Uuid>,
+    note: Option<&str>,
+) -> DbResult<ProjectBaseline> {
+    let tasks: Vec<(Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<i32>)> = sqlx::query_as(
+        r#"SELECT id, start_at, duration_minutes FROM project_tasks
+           WHERE org_id = $1 AND project_id = $2
+           ORDER BY sort_order, id"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    sqlx::query(
+        r#"UPDATE project_tasks
+              SET baseline_start_at = start_at,
+                  baseline_duration_minutes = duration_minutes
+            WHERE org_id = $1 AND project_id = $2 AND start_at IS NOT NULL"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .execute(&mut *conn)
+    .await?;
+
+    let dated = tasks.iter().filter(|t| t.1.is_some()).count() as i32;
+    let total = tasks.len() as i32;
+    let snapshot = serde_json::json!(tasks
+        .iter()
+        .map(|(id, start, minutes)| serde_json::json!({
+            "task_id": id,
+            "start_at": start,
+            "duration_minutes": minutes,
+        }))
+        .collect::<Vec<_>>());
+
+    let row = sqlx::query(
+        r#"INSERT INTO project_baselines
+               (id, org_id, project_id, captured_by, note, snapshot, dated_tasks, total_tasks)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id, org_id, project_id, captured_by, captured_at, note, snapshot,
+                     dated_tasks, total_tasks"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(project_id)
+    .bind(captured_by)
+    .bind(note)
+    .bind(&snapshot)
+    .bind(dated)
+    .bind(total)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(row_to_baseline(row)?)
+}
+
+/// The most recent baseline, when a project has one.
+pub async fn latest_baseline<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Option<ProjectBaseline>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"SELECT id, org_id, project_id, captured_by, captured_at, note, snapshot,
+                  dated_tasks, total_tasks
+           FROM project_baselines
+           WHERE org_id = $1 AND project_id = $2
+           ORDER BY captured_at DESC
+           LIMIT 1"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(row_to_baseline).transpose()?)
 }
