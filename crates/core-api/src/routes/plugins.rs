@@ -108,6 +108,18 @@ pub struct PluginManifestBody {
     /// still rejected here rather than at install time.
     #[serde(default)]
     pub artifact_kind: Option<core_domain::entities::PluginRuntimeKind>,
+    /// What kind of vendor a connector is (ADR 0032). Open vocabulary with a
+    /// closed format, so a publisher can declare a category nobody modelled
+    /// and the staff UI still draws it.
+    #[serde(default)]
+    pub product_kinds: Vec<String>,
+    /// Where the connector appears in the staff UI (ADR 0032 / 0033). Absent
+    /// means it contributes settings and a canary and nothing else, which is a
+    /// complete connector. Without this field on the BODY a publisher could
+    /// never declare a surface at all — the route builds the manifest from
+    /// these fields, so it is not enough for the manifest type to have them.
+    #[serde(default)]
+    pub connector_surfaces: Option<core_domain::entities::ConnectorSurfaces>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -341,6 +353,8 @@ fn build_manifest(
         artifact_kind: body.artifact_kind,
         connector_profile: body.connector_profile.clone(),
         surface_profile: body.surface_profile.clone(),
+        product_kinds: body.product_kinds.clone(),
+        connector_surfaces: body.connector_surfaces.clone(),
     };
     manifest.validate().map_err(ApiError::from)?;
     Ok(manifest)
@@ -712,6 +726,8 @@ pub(crate) fn fallback_manifest(install: &PluginInstall) -> PluginManifestV2 {
         artifact_kind: None,
         connector_profile: None,
         surface_profile: None,
+        product_kinds: Vec::new(),
+        connector_surfaces: None,
     }
 }
 

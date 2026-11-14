@@ -1,0 +1,166 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, run_id, client_id, contract_id, number, status, currency,\n                  period_from, period_to, issued_at, due_on, total_minor,\n                  total_paid_minor, fx_rate_used::text AS fx_rate_used, fx_rate_date,\n                  fx_source, base_total_minor, dunning_state, dunning_updated_at,\n                  dunning_note, po_number, notes, created_by, created_at, updated_at\n           FROM invoices WHERE org_id = $1 ORDER BY number, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "run_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "contract_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "period_from",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 8,
+        "name": "period_to",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 9,
+        "name": "issued_at",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 10,
+        "name": "due_on",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 11,
+        "name": "total_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 12,
+        "name": "total_paid_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "fx_rate_used",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "fx_rate_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 15,
+        "name": "fx_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 16,
+        "name": "base_total_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "dunning_state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "dunning_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 19,
+        "name": "dunning_note",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 20,
+        "name": "po_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 22,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 23,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 24,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      null,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "53fcfa27c5ea2239167d5e6a8d1175482beedd5287877c1fb1d845dfefe2c1b7"
+}

@@ -94,6 +94,43 @@ async fn owner_creates_export_and_downloads_via_signed_link() {
     assert_eq!(clients[0]["name"], "Bundle Client");
     // The embedded U5 customization section rides along.
     assert!(bundle["sections"]["customization"]["boards"].is_array());
+    // The G13 coverage sections are present and empty on a fresh org — the
+    // response shape grew, and an absent key is a bug, not an empty state.
+    for section in [
+        "contracts",
+        "invoice_runs",
+        "invoices",
+        "credit_notes",
+        "assets",
+        "kb_categories",
+        "kb_articles",
+        "plugin_installs",
+        "connector_connections",
+        "capability_defaults",
+        "external_refs",
+        "record_links",
+        "documents",
+        "document_links",
+        "tags",
+        "ticket_tags",
+        "attachments",
+    ] {
+        assert_eq!(
+            bundle["sections"][section].as_array().map(Vec::len),
+            Some(0),
+            "section {section} is present and empty"
+        );
+    }
+    assert!(bundle["sections"]["board_operational"]["boards"].is_array());
+    // The audit stream is NOT empty on a fresh org: registering it wrote rows.
+    // That is the point of carrying it — a migrated org keeps who did what.
+    assert!(
+        !bundle["sections"]["audit_events"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "the org's audit stream travels"
+    );
 
     // A tampered signature is rejected with the typed envelope.
     let tampered = format!(

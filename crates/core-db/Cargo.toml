@@ -36,6 +36,9 @@ core-store = { path = "../core-store" }
 [dev-dependencies]
 aes-gcm = { workspace = true }
 core-kb = { path = "../core-kb" }
+# The margin suite runs the REAL compiled report against the migrated schema,
+# so the view, the compiler and the arithmetic are proved together.
+core-reports = { path = "../core-reports" }
 tokio = { workspace = true }
 chrono-tz = { workspace = true }
 testcontainers = { version = "0.28", features = ["reusable-containers"] }

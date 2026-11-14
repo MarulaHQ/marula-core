@@ -4610,6 +4610,8 @@ async fn seeded_connector_endpoints_follow_the_install_lifecycle() {
         interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
         description: "d".into(),
         capabilities: vec!["automation.triggers".into()],
+        product_kinds: vec![],
+        connector_surfaces: None,
         settings_schema: None,
         artifact_kind: Some(core_domain::entities::plugins::PluginRuntimeKind::HttpConnector),
         connector_profile: Some(core_domain::entities::ConnectorProfile {
@@ -9607,6 +9609,8 @@ async fn seed_plugin_install(app: &PgPool, org: Uuid, n: u64, slug: &str, admin:
         interface_version: core_domain::entities::PLUGIN_RUNTIME_INTERFACE_VERSION,
         description: "d".into(),
         capabilities: vec!["automation.actions".into()],
+        product_kinds: vec![],
+        connector_surfaces: None,
         settings_schema: None,
         artifact_kind: None,
         connector_profile: None,

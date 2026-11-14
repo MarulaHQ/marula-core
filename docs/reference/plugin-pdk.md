@@ -95,6 +95,8 @@ records why each is deferred.
 | `capabilities` | the closed list the plugin may be granted, and a grant outside it is rejected at write time |
 | `artifact_kind` | `wasm` or a connector kind, `wasm` when absent |
 | `surface_profile` | the entries this plugin contributes, per surface kind |
+| `product_kinds` | what kind of vendor a connector is (`rmm`, `remote_access`, `telephony`, …). Open vocabulary, snake-case format, so an unmodelled category still gets a chip |
+| `connector_surfaces.external_refs[]` | where the connector appears in the staff UI: one block per record type, each with `open_url` and/or `launch.url_template`. Not `surface_profile`, which is the plugin node surface |
 | `connector_profile.outbound_scopes` | the egress allowlist `http_request` reads, legal on a wasm manifest since ADR 0023 |
 | `settings_schema` | optional JSON Schema the Plugins surface renders as a settings form |
 | `description`, `name`, `version` | shown on the consent screen |

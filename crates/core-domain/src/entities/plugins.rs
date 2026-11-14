@@ -454,6 +454,265 @@ impl PluginCapability {
     }
 }
 
+/// The staff-UI surfaces a connector declares (ADR 0032, ADR 0033).
+///
+/// A DATA document, like the rest of the manifest: nothing here executes. The
+/// renderer reads it, so a marketplace connector that declares the same block
+/// reaches the same surfaces as a core one with no code change.
+///
+/// Additive to the v2 shape, and deliberately NOT an `interface_version` bump:
+/// that field is the runtime ABI and its check is equality, so bumping it would
+/// refuse every manifest already published. Older cores ignore this block
+/// (serde defaults, unknown keys tolerated), which degrades to "no chips"
+/// rather than to "will not install".
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ConnectorSurfaces {
+    /// One block per record type the connector can be acted on from. A
+    /// connector that spans configurations and invoices declares two blocks,
+    /// which is why this is a list and not one `record` field.
+    #[serde(default)]
+    pub external_refs: Vec<ExternalRefBlock>,
+    /// Which settings key holds the connection's origin, used by `{base_url}`.
+    ///
+    /// Declared rather than assumed: the resolver has to read one field out of
+    /// the connection's settings to build a link, and a hardcoded key would be
+    /// a second contract nobody wrote down. `base_url` when absent, so a
+    /// connector that names it conventionally says nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url_key: Option<String>,
+}
+
+/// One record type's external presence in this vendor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ExternalRefBlock {
+    /// A [`RecordType`](crate::connectors::RecordType) value. Held as a string
+    /// and validated at the gate, the same posture as `capabilities`.
+    pub record: String,
+    /// What the vendor calls this kind of object (`device`, `invoice`), so the
+    /// resolver can pick the right reference out of one connection.
+    pub external_kind: String,
+    /// The `open` behaviour. Used verbatim where the vendor documents a deep
+    /// link; absent where it does not (QuickBooks invoices), which is the
+    /// honest declaration rather than a composed URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_url: Option<String>,
+    /// The `launch` behaviour, in its deterministic form. A launch that spends
+    /// a sealed credential needs an adapter `method` and a consent scope, and
+    /// is not expressible yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<LaunchBlock>,
+}
+
+/// A launch declared as a URL the browser opens, spending no secret.
+///
+/// ScreenConnect's `/Join` suffix and `tel:` both work this way. They are still
+/// audited when pressed, because starting a session is an action.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct LaunchBlock {
+    pub url_template: String,
+    /// Which of the connector's product kinds this launch belongs to.
+    ///
+    /// Absent means every declared kind, which is right for a connector with
+    /// one kind and wrong for a vendor that is both an RMM and a remote-access
+    /// tool: without this, "Start session" would appear under the RMM chip too,
+    /// because a chip is per capability and the block is per record type. The
+    /// launch is the one action that must be attributed, since starting a
+    /// session is a different intent from opening a device page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability: Option<String>,
+}
+
+/// Placeholders a template may use. Anything else is refused at the gate, so a
+/// typo is an install-time error rather than a broken link at press time.
+const TEMPLATE_TOKENS: [&str; 2] = ["base_url", "external_id"];
+
+/// A template longer than this is not a link, it is a payload.
+const MAX_TEMPLATE_LEN: usize = 2048;
+const MAX_PRODUCT_KINDS: usize = 8;
+const MAX_EXTERNAL_REFS: usize = 12;
+const MAX_EXTERNAL_KIND_LEN: usize = 60;
+
+impl ConnectorSurfaces {
+    fn validate(
+        &self,
+        settings_schema: Option<&serde_json::Value>,
+        product_kinds: &[String],
+    ) -> Result<(), crate::error::DomainError> {
+        let err = |m: String| Err(crate::error::DomainError::Validation(m));
+        if self.external_refs.len() > MAX_EXTERNAL_REFS {
+            return err(format!(
+                "surfaces.external_refs declares {} blocks (max {MAX_EXTERNAL_REFS})",
+                self.external_refs.len()
+            ));
+        }
+        if let Some(key) = &self.base_url_key {
+            if !crate::connectors::is_snake_key(key, MAX_EXTERNAL_KIND_LEN) {
+                return err(format!(
+                    "connector_surfaces.base_url_key {key:?} must be lowercase ascii, digits and underscores"
+                ));
+            }
+            let declared = settings_schema
+                .and_then(|s| s.get("properties"))
+                .and_then(|p| p.as_object())
+                .is_some_and(|props| props.contains_key(key.as_str()));
+            if settings_schema.is_some() && !declared {
+                return err(format!(
+                    "connector_surfaces.base_url_key {key:?} is not declared in settings_schema.properties"
+                ));
+            }
+        }
+        let mut seen: Vec<&str> = Vec::new();
+        for block in &self.external_refs {
+            if crate::connectors::RecordType::parse(&block.record).is_none() {
+                return err(format!(
+                    "surfaces.external_refs record {:?} is not in the record-type vocabulary",
+                    block.record
+                ));
+            }
+            if seen.contains(&block.record.as_str()) {
+                return err(format!(
+                    "surfaces.external_refs declares record {:?} twice — one block per record type",
+                    block.record
+                ));
+            }
+            seen.push(&block.record);
+            if !crate::connectors::is_snake_key(&block.external_kind, MAX_EXTERNAL_KIND_LEN) {
+                return err(format!(
+                    "surfaces.external_refs external_kind {:?} must be lowercase ascii, digits and underscores",
+                    block.external_kind
+                ));
+            }
+            if block.open_url.is_none() && block.launch.is_none() {
+                return err(format!(
+                    "surfaces.external_refs for {:?} declares neither open_url nor launch — a block with no action is a chip that cannot act",
+                    block.record
+                ));
+            }
+            if let Some(template) = &block.open_url {
+                validate_template(template, "surfaces.external_refs.open_url", settings_schema)?;
+            }
+            if let Some(launch) = &block.launch {
+                validate_template(
+                    &launch.url_template,
+                    "surfaces.external_refs.launch.url_template",
+                    settings_schema,
+                )?;
+                // A launch attributed to a kind the connector does not declare
+                // would be an action no chip can ever show, so it is a refusal
+                // rather than a silently unreachable declaration.
+                if let Some(kind) = &launch.capability {
+                    if !product_kinds.iter().any(|declared| declared == kind) {
+                        return err(format!(
+                            "surfaces.external_refs.launch.capability {kind:?} is not in product_kinds — a launch no chip can show is unreachable"
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Validates one URL template: https, no credentials in the URL, and only
+/// placeholders the manifest can actually resolve.
+///
+/// The template is rendered as a link a technician clicks, so `javascript:` or
+/// a foreign origin is a phishing primitive, not a formatting bug. Checking it
+/// here means it is refused when the manifest is adopted rather than when a
+/// future surface forgets to ask.
+fn validate_template(
+    raw: &str,
+    field: &str,
+    settings_schema: Option<&serde_json::Value>,
+) -> Result<(), crate::error::DomainError> {
+    let err = |m: String| Err(crate::error::DomainError::Validation(m));
+    if raw.is_empty() {
+        return err(format!("{field} must not be empty"));
+    }
+    if raw.len() > MAX_TEMPLATE_LEN {
+        return err(format!(
+            "{field} is {} bytes (max {MAX_TEMPLATE_LEN})",
+            raw.len()
+        ));
+    }
+    if raw.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return err(format!(
+            "{field} must not contain whitespace or control characters"
+        ));
+    }
+
+    let props = settings_schema
+        .and_then(|s| s.get("properties"))
+        .and_then(|p| p.as_object());
+
+    let mut substituted = String::with_capacity(raw.len() + 32);
+    let mut rest = raw;
+    let mut base_urls = 0usize;
+    while let Some(open) = rest.find('{') {
+        let (before, after_open) = rest.split_at(open);
+        substituted.push_str(before);
+        let Some(close) = after_open.find('}') else {
+            return err(format!("{field} has an unclosed `{{`"));
+        };
+        let token = &after_open[1..close];
+        let replacement = if TEMPLATE_TOKENS.contains(&token) {
+            if token == "base_url" {
+                base_urls += 1;
+                if !before.is_empty() {
+                    return err(format!(
+                        "{field}: {{base_url}} must be the template's prefix — a link whose origin differs from the connection's own is a phishing shape"
+                    ));
+                }
+                "https://connector.invalid"
+            } else {
+                "x"
+            }
+        } else if let Some(key) = token.strip_prefix("settings.") {
+            match props {
+                Some(map) if map.contains_key(key) => {}
+                Some(_) => {
+                    return err(format!(
+                        "{field} uses {{settings.{key}}}, which settings_schema.properties does not declare"
+                    ));
+                }
+                None => {
+                    return err(format!(
+                        "{field} uses {{settings.{key}}} but the manifest declares no settings_schema"
+                    ));
+                }
+            }
+            "x"
+        } else {
+            return err(format!("{field} uses unknown placeholder {{{token}}}"));
+        };
+        substituted.push_str(replacement);
+        rest = &after_open[close + 1..];
+    }
+    if rest.contains('}') {
+        return err(format!("{field} has a stray `}}`"));
+    }
+    if base_urls > 1 {
+        return err(format!("{field} repeats {{base_url}}"));
+    }
+    substituted.push_str(rest);
+
+    let parsed = url::Url::parse(&substituted)
+        .map_err(|e| crate::error::DomainError::Validation(format!("{field} is not a URL: {e}")))?;
+    if parsed.scheme() != "https" {
+        return err(format!("{field} must be an https URL"));
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return err(format!("{field} must not carry credentials in the URL"));
+    }
+    if parsed.host_str().is_none() {
+        return err(format!("{field} must name a host"));
+    }
+    Ok(())
+}
+
 /// The declarative v2 plugin manifest: name/version/capabilities — a
 /// DATA document describing what a plugin IS and what it may ask for.
 /// It is never executable content: the runtime executes nothing from a
@@ -481,6 +740,24 @@ pub struct PluginManifestV2 {
     /// consent/enable/disable only. Additive to the v2 shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings_schema: Option<serde_json::Value>,
+    /// What kind of vendor this is: `rmm`, `remote_access`, `telephony`,
+    /// `accounting`, `dms`, `dns`, `identity`, `network`, `inventory`,
+    /// `notifications`, `crm`, or a kind nobody planned yet. Open on purpose
+    /// (see `docs/reference/connector-capabilities.md` §5) — the format is
+    /// validated, the list is not, so a connector for a category we never
+    /// modelled still gets its chip drawn.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub product_kinds: Vec<String>,
+    /// The staff-UI surfaces this connector wants: where a chip appears, what
+    /// it opens, what it launches. Absent means the connector contributes
+    /// settings and a canary test and nothing else, which is a complete
+    /// connector.
+    ///
+    /// NOT `surface_profile`: that field is the plugin NODE surface (widgets,
+    /// automation actions, reads) and is gated by capability scopes. This one
+    /// is the connector's presence in the staff UI and grants nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector_surfaces: Option<ConnectorSurfaces>,
     /// ADR 0009 §6 — the artifact GOVERNANCE profile the manifest
     /// declares: WASM executables and HTTP connectors ship in one
     /// lifecycle track but distinct tabs. Absent ⇒ `wasm` (the
@@ -1608,6 +1885,31 @@ impl PluginManifestV2 {
         if let Some(schema) = &self.settings_schema {
             SettingsSchema::new(schema.clone())?;
         }
+        // Product kinds are an open vocabulary with a closed format; the
+        // surface block is closed on both, because every behaviour in it has a
+        // rendered action and an audit shape in Core.
+        if self.product_kinds.len() > MAX_PRODUCT_KINDS {
+            return Err(crate::error::DomainError::Validation(format!(
+                "manifest declares {} product_kinds (max {MAX_PRODUCT_KINDS})",
+                self.product_kinds.len()
+            )));
+        }
+        let mut seen_kinds: Vec<String> = Vec::new();
+        for kind in &self.product_kinds {
+            let parsed = crate::connectors::ProductKind::parse(kind).map_err(|e| {
+                crate::error::DomainError::Validation(format!("product_kinds: {e}"))
+            })?;
+            let key = parsed.as_str().to_string();
+            if seen_kinds.contains(&key) {
+                return Err(crate::error::DomainError::Validation(format!(
+                    "product_kinds declares {kind:?} twice"
+                )));
+            }
+            seen_kinds.push(key);
+        }
+        if let Some(surfaces) = &self.connector_surfaces {
+            surfaces.validate(self.settings_schema.as_ref(), &self.product_kinds)?;
+        }
         // ADR 0009 §6 full semantics: the connector profile is
         // kind-coherent. Since ADR 0023 (Wave 53 lane 2) the profile itself is
         // legal on any artifact kind, because a wasm guest's `http_request`
@@ -2138,22 +2440,391 @@ pub fn is_sha256_hex(value: &str) -> bool {
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
 }
 
+/// Keywords that WOULD change what a value has to be, and that this subset
+/// does not implement. A schema declaring one is refused rather than read as
+/// an annotation: a manifest that says `oneOf` and is stored anyway publishes
+/// a promise nothing enforces, and the value it can never validly carry is
+/// discovered by the operator, not the author.
+///
+/// Annotation keywords (`title`, `description`, `default`, `examples`,
+/// `deprecated`, `writeOnly`, `format`) are accepted and ignored here: they
+/// describe how a field is shown, not what may be stored.
+const UNHONOURED_KEYWORDS: &[&str] = &[
+    "oneOf",
+    "anyOf",
+    "allOf",
+    "not",
+    "$ref",
+    "additionalProperties",
+    "patternProperties",
+    "propertyNames",
+    "multipleOf",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "uniqueItems",
+    "contains",
+    "dependencies",
+    "dependentRequired",
+    "if",
+    "then",
+    "else",
+];
+
+/// How deep a nested `object`/`array` may go. A settings document is a form,
+/// not a data model: nesting past this is a sign the manifest wants a file
+/// upload or a child resource, and either is a conversation with Core.
+const MAX_SCHEMA_DEPTH: usize = 4;
+
+/// One property name, rendered for an error message (`api_key`,
+/// `network.proxy.host`) without tempting a caller to parse it.
+fn path_of(parent: &str, key: &str) -> String {
+    if parent.is_empty() {
+        key.to_string()
+    } else {
+        format!("{parent}.{key}")
+    }
+}
+
+fn spec_error(path: &str, detail: impl std::fmt::Display) -> crate::error::DomainError {
+    crate::error::DomainError::Validation(format!("settings schema property {path:?} {detail}"))
+}
+
+/// Validates one declared property node, recursively.
+///
+/// The declarations this accepts are exactly the declarations
+/// [`SettingsSchema::validate_config`] can judge: a `type` every branch below
+/// handles, an `enum` whose elements are scalars, numeric and length bounds
+/// that are not self-contradictory, a `pattern` that compiles, and nested
+/// `object`/`array` nodes whose own properties are validated the same way.
+/// Anything outside that is refused here, at publish time, rather than stored
+/// and never honoured.
+fn validate_declared_node(
+    node: &serde_json::Map<String, serde_json::Value>,
+    path: &str,
+    depth: usize,
+) -> Result<(), crate::error::DomainError> {
+    if depth > MAX_SCHEMA_DEPTH {
+        return Err(spec_error(
+            path,
+            format!("nests deeper than {MAX_SCHEMA_DEPTH} levels"),
+        ));
+    }
+    for keyword in UNHONOURED_KEYWORDS {
+        if node.contains_key(*keyword) {
+            return Err(spec_error(
+                path,
+                format!("declares {keyword:?}, which this schema subset does not honour"),
+            ));
+        }
+    }
+    let Some(ptype) = node.get("type").and_then(|t| t.as_str()) else {
+        return Err(spec_error(path, "must declare \"type\""));
+    };
+
+    if let Some(enum_vals) = node.get("enum") {
+        let Some(items) = enum_vals.as_array() else {
+            return Err(spec_error(path, "has an enum that is not an array"));
+        };
+        if items.is_empty() {
+            return Err(spec_error(path, "has an empty enum"));
+        }
+        for item in items {
+            if item.is_array() || item.is_object() || item.is_null() {
+                return Err(spec_error(path, "has an enum of non-scalar values"));
+            }
+        }
+    }
+
+    match ptype {
+        "string" => {
+            if let Some(pattern) = node.get("pattern").and_then(|v| v.as_str()) {
+                if regex::Regex::new(pattern).is_err() {
+                    return Err(spec_error(path, "has a pattern that is not a valid regex"));
+                }
+            }
+        }
+        "number" | "integer" => {}
+        "boolean" => {}
+        "object" => {
+            // A NESTED object must say what it holds: `{"type": "object"}` at
+            // depth would accept any key at all, which is the grab-bag the
+            // unknown-key refusal exists to prevent. The top level may omit
+            // `properties`, because "this connector has no settings" is a real
+            // declaration and it already accepts exactly one value: `{}`.
+            let Some(props) = node.get("properties").and_then(|p| p.as_object()) else {
+                if depth == 0 {
+                    return Ok(());
+                }
+                return Err(spec_error(path, "is an object with no \"properties\""));
+            };
+            validate_required_list(node, props, path)?;
+            for (key, child) in props {
+                let Some(child_obj) = child.as_object() else {
+                    return Err(spec_error(&path_of(path, key), "must be a JSON object"));
+                };
+                validate_declared_node(child_obj, &path_of(path, key), depth + 1)?;
+            }
+        }
+        "array" => {
+            let Some(items) = node.get("items").and_then(|i| i.as_object()) else {
+                return Err(spec_error(path, "is an array with no \"items\" schema"));
+            };
+            validate_declared_node(items, &format!("{path}[]"), depth + 1)?;
+        }
+        other => {
+            return Err(spec_error(
+                path,
+                format!("declares unsupported type {other:?}"),
+            ));
+        }
+    }
+
+    let (min_len, max_len) = (
+        node.get("minLength").and_then(|v| v.as_u64()),
+        node.get("maxLength").and_then(|v| v.as_u64()),
+    );
+    if let (Some(m), Some(ma)) = (min_len, max_len) {
+        if ma < m {
+            return Err(spec_error(path, "has maxLength < minLength"));
+        }
+    }
+    let (min_num, max_num) = (
+        node.get("minimum").and_then(|v| v.as_f64()),
+        node.get("maximum").and_then(|v| v.as_f64()),
+    );
+    if let (Some(min), Some(max)) = (min_num, max_num) {
+        if max < min {
+            return Err(spec_error(path, "has maximum < minimum"));
+        }
+    }
+    let (min_items, max_items) = (
+        node.get("minItems").and_then(|v| v.as_u64()),
+        node.get("maxItems").and_then(|v| v.as_u64()),
+    );
+    if let (Some(m), Some(ma)) = (min_items, max_items) {
+        if ma < m {
+            return Err(spec_error(path, "has maxItems < minItems"));
+        }
+    }
+    Ok(())
+}
+
+/// Every name in `required` must be a property the same node declares.
+///
+/// A required key with no schema is unsatisfiable — the value validator
+/// refuses the key it demands — so the manifest would publish settings that
+/// can never be saved.
+fn validate_required_list(
+    node: &serde_json::Map<String, serde_json::Value>,
+    props: &serde_json::Map<String, serde_json::Value>,
+    path: &str,
+) -> Result<(), crate::error::DomainError> {
+    let Some(required) = node.get("required") else {
+        return Ok(());
+    };
+    let Some(items) = required.as_array() else {
+        return Err(spec_error(path, "has a \"required\" that is not an array"));
+    };
+    for item in items {
+        let Some(name) = item.as_str() else {
+            return Err(spec_error(path, "has a non-string entry in \"required\""));
+        };
+        if !props.contains_key(name) {
+            return Err(spec_error(
+                path,
+                format!("requires {name:?} without declaring it"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Judges one value against one declared node. The mirror of
+/// [`validate_declared_node`]: every keyword that function accepts is honoured
+/// here, and unknown keys at an object level are refused rather than dropped.
+fn validate_value_against(
+    node: &serde_json::Map<String, serde_json::Value>,
+    value: &serde_json::Value,
+    path: &str,
+) -> Result<(), crate::error::DomainError> {
+    let err = |detail: String| Err(crate::error::DomainError::Validation(detail));
+    let failure = |what: &str| format!("settings key {path:?} {what}");
+
+    if let Some(enum_vals) = node.get("enum").and_then(|e| e.as_array()) {
+        if !enum_vals.contains(value) {
+            return err(failure("is not one of the declared enum values"));
+        }
+        return Ok(());
+    }
+
+    match node
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or_default()
+    {
+        "string" => {
+            let Some(s) = value.as_str() else {
+                return err(failure("must be a string"));
+            };
+            let len = s.chars().count() as u64;
+            if let Some(min) = node.get("minLength").and_then(|v| v.as_u64()) {
+                if len < min {
+                    return err(failure("is shorter than its declared minLength"));
+                }
+            }
+            if let Some(max) = node.get("maxLength").and_then(|v| v.as_u64()) {
+                if len > max {
+                    return err(failure("is longer than its declared maxLength"));
+                }
+            }
+            if let Some(pattern) = node.get("pattern").and_then(|v| v.as_str()) {
+                // Unanchored, which is JSON Schema's meaning: a declaration
+                // that wants the whole value says `^…$` itself.
+                let matches = regex::Regex::new(pattern)
+                    .map(|re| re.is_match(s))
+                    .unwrap_or(false);
+                if !matches {
+                    return err(failure("does not match its declared pattern"));
+                }
+            }
+        }
+        "number" => {
+            let Some(n) = value.as_f64() else {
+                return err(failure("must be a number"));
+            };
+            if let Some(min) = node.get("minimum").and_then(|v| v.as_f64()) {
+                if n < min {
+                    return err(failure("is below its declared minimum"));
+                }
+            }
+            if let Some(max) = node.get("maximum").and_then(|v| v.as_f64()) {
+                if n > max {
+                    return err(failure("is above its declared maximum"));
+                }
+            }
+        }
+        "integer" => {
+            let Some(n) = value.as_i64() else {
+                return err(failure("must be an integer"));
+            };
+            if let Some(min) = node.get("minimum").and_then(|v| v.as_i64()) {
+                if n < min {
+                    return err(failure("is below its declared minimum"));
+                }
+            }
+            if let Some(max) = node.get("maximum").and_then(|v| v.as_i64()) {
+                if n > max {
+                    return err(failure("is above its declared maximum"));
+                }
+            }
+        }
+        "boolean" => {
+            if !value.is_boolean() {
+                return err(failure("must be a boolean"));
+            }
+        }
+        "object" => {
+            let Some(map) = value.as_object() else {
+                return err(failure("must be an object"));
+            };
+            let empty = serde_json::Map::new();
+            let props = node
+                .get("properties")
+                .and_then(|p| p.as_object())
+                .unwrap_or(&empty);
+            // Deny-by-default, the same rule the top level applies: a key the
+            // manifest never declared is a typo, and storing it means the
+            // vendor silently receives nothing.
+            for key in map.keys() {
+                if !props.contains_key(key) {
+                    return err(format!(
+                        "unknown settings key {:?} — render from the manifest schema",
+                        path_of(path, key)
+                    ));
+                }
+            }
+            for name in node
+                .get("required")
+                .and_then(|r| r.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<&str>>())
+                .unwrap_or_default()
+            {
+                if !map.contains_key(name) {
+                    return err(format!(
+                        "settings config is missing required key {:?}",
+                        path_of(path, name)
+                    ));
+                }
+            }
+            for (key, child) in map {
+                let Some(child_spec) = props.get(key).and_then(|s| s.as_object()) else {
+                    return err(format!(
+                        "settings schema key {:?} is malformed",
+                        path_of(path, key)
+                    ));
+                };
+                validate_value_against(child_spec, child, &path_of(path, key))?;
+            }
+        }
+        "array" => {
+            let Some(items) = value.as_array() else {
+                return err(failure("must be an array"));
+            };
+            let len = items.len() as u64;
+            if let Some(min) = node.get("minItems").and_then(|v| v.as_u64()) {
+                if len < min {
+                    return err(failure("has fewer items than its declared minItems"));
+                }
+            }
+            if let Some(max) = node.get("maxItems").and_then(|v| v.as_u64()) {
+                if len > max {
+                    return err(failure("has more items than its declared maxItems"));
+                }
+            }
+            let empty = serde_json::Map::new();
+            let item_spec = node
+                .get("items")
+                .and_then(|i| i.as_object())
+                .unwrap_or(&empty);
+            for (index, item) in items.iter().enumerate() {
+                validate_value_against(item_spec, item, &format!("{path}[{index}]"))?;
+            }
+        }
+        other => {
+            return err(format!(
+                "settings schema key {path:?} declares unsupported type {other:?}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The declared SETTINGS schema a manifest may carry (ADR 0009 §4):
 /// the typed-registry doctrine per install — the Plugins surface
 /// renders config FROM this schema at the UI close-out; this type owns
 /// the write-boundary VALIDATION of a config value against it, so every
 /// stored config is schema-checked with the same deterministic rules.
+///
+/// One subset, both halves. A keyword [`SettingsSchema::new`] accepts is a
+/// keyword [`SettingsSchema::validate_config`] honours, or a manifest can
+/// publish settings that can never be saved; a keyword it refuses is refused
+/// at publish time, not discovered by an operator. The supported set is:
+/// `type` (`string` | `number` | `integer` | `boolean` | `object` | `array`),
+/// `properties` + `required` for objects, `items` + `minItems`/`maxItems` for
+/// arrays, `enum`, `minimum`/`maximum`, `minLength`/`maxLength`, and string
+/// `pattern` (an unanchored Rust `regex`). [`UNHONOURED_KEYWORDS`] are
+/// refused. `writeOnly: true` marks a value that lives in the sealed
+/// credential document rather than in queryable settings —
+/// [`SettingsSchema::write_only_keys`] names them, and every secret-carrying
+/// surface splits on that list.
 #[derive(Debug, Clone)]
 pub struct SettingsSchema {
     pub raw: serde_json::Value,
 }
 
 impl SettingsSchema {
-    /// Builds a schema handle, validating the declaration itself is a
-    /// supported subset: a top-level object whose `properties` map holds
-    /// `{"type": "string"|"number"|"integer"|"boolean"}` leaf nodes
-    /// (plus optional `enum`/`minimum`/`maximum`/`default` and string
-    /// `minLength`/`maxLength`). Unsupported constructs REJECT the
+    /// Builds a schema handle, validating the declaration itself is inside
+    /// the subset documented on the type. Unsupported constructs REJECT the
     /// manifest rather than guessing.
     pub fn new(raw: serde_json::Value) -> Result<Self, crate::error::DomainError> {
         let err = |m: String| Err(crate::error::DomainError::Validation(m));
@@ -2163,187 +2834,67 @@ impl SettingsSchema {
         if obj.get("type").and_then(|t| t.as_str()) != Some("object") {
             return err("settings_schema must declare \"type\": \"object\"".into());
         }
-        let props = match obj.get("properties") {
-            None | Some(serde_json::Value::Null) => serde_json::Map::new(),
-            Some(p) => match p.as_object() {
-                Some(p) => p.clone(),
-                None => {
-                    return err("settings_schema.properties must be an object".into());
-                }
-            },
-        };
-        for (key, prop) in props {
-            let Some(p) = prop.as_object() else {
-                return err(format!(
-                    "settings schema property {key:?} must be an object"
-                ));
-            };
-            let Some(ptype) = p.get("type").and_then(|t| t.as_str()) else {
-                return err(format!(
-                    "settings schema property {key:?} must declare \"type\""
-                ));
-            };
-            if !matches!(ptype, "string" | "number" | "integer" | "boolean") {
-                return err(format!(
-                    "settings schema property {key:?} declares unsupported type {ptype:?}"
-                ));
-            }
-            let (min_len, max_len) = (
-                p.get("minLength").and_then(|v| v.as_u64()),
-                p.get("maxLength").and_then(|v| v.as_u64()),
-            );
-            if let (Some(m), Some(ma)) = (min_len, max_len) {
-                if ma < m {
-                    return err(format!(
-                        "settings schema property {key:?} has maxLength < minLength"
-                    ));
-                }
-            }
-            if let (Some(min), Some(max)) = (
-                p.get("minimum").and_then(|v| v.as_f64()),
-                p.get("maximum").and_then(|v| v.as_f64()),
-            ) {
-                if max < min {
-                    return err(format!(
-                        "settings schema property {key:?} has maximum < minimum"
-                    ));
-                }
-            }
-        }
+        validate_declared_node(obj, "", 0)?;
         Ok(Self { raw })
     }
 
-    fn property_type(spec: &serde_json::Map<String, serde_json::Value>) -> Option<&str> {
-        spec.get("type").and_then(|t| t.as_str())
-    }
-
-    /// Validates one config VALUE against the schema (the write
-    /// boundary before `plugin_install_settings.config` exists).
-    /// Unknown config keys are rejected (the schema is the contract —
-    /// deny-by-default); each supported key is checked for type and the
-    /// optional bounds above.
+    /// Validates one config VALUE against the schema (the write boundary
+    /// before `plugin_install_settings.config` exists, and the connector
+    /// write path's before `connector_connections.settings`).
+    ///
+    /// Unknown keys are rejected at every object level (the schema is the
+    /// contract — deny-by-default); each supported key is checked for type and
+    /// the constraints [`validate_declared_node`] accepted.
     pub fn validate_config(
         &self,
         config: &serde_json::Value,
     ) -> Result<(), crate::error::DomainError> {
-        let err = |m: String| Err(crate::error::DomainError::Validation(m));
-        let Some(map) = config.as_object() else {
-            return err("plugin settings config must be a JSON object".into());
+        let Some(node) = self.raw.as_object() else {
+            return Err(crate::error::DomainError::Validation(
+                "settings_schema is not an object".into(),
+            ));
         };
-        let empty_map = serde_json::Map::new();
-        let props = self
-            .raw
+        if !config.is_object() {
+            return Err(crate::error::DomainError::Validation(
+                "settings config must be a JSON object".into(),
+            ));
+        }
+        validate_value_against(node, config, "")
+    }
+
+    /// The top-level keys marked `"writeOnly": true`.
+    ///
+    /// These are the credential fields: they are sealed, never returned, and
+    /// never stored in `settings`. Top-level only, because a credential nested
+    /// inside an object is a settings blob with a secret in it, which is not a
+    /// shape this contract offers.
+    pub fn write_only_keys(&self) -> Vec<String> {
+        self.raw
             .get("properties")
             .and_then(|p| p.as_object())
-            .unwrap_or(&empty_map);
-        for key in map.keys() {
-            if !props.contains_key(key) {
-                return err(format!(
-                    "unknown settings key {key:?} — render from the manifest schema"
-                ));
-            }
-        }
-        let required: Vec<&str> = self
-            .raw
-            .get("required")
-            .and_then(|r| r.as_array())
-            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-            .unwrap_or_default();
-        for req in required {
-            if !map.contains_key(req) {
-                return err(format!("settings config is missing required key {req:?}"));
-            }
-        }
-        for (key, value) in map {
-            let Some(spec) = props.get(key) else {
-                return err(format!("unknown settings key {key:?}"));
-            };
-            let Some(spec_obj) = spec.as_object() else {
-                return err(format!("settings schema key {key:?} is malformed"));
-            };
-            if let Some(enum_vals) = spec_obj.get("enum").and_then(|e| e.as_array()) {
-                if !enum_vals.contains(value) {
-                    return err(format!(
-                        "settings key {key:?} is not one of the declared enum values"
-                    ));
-                }
-                continue;
-            }
-            match Self::property_type(spec_obj).unwrap_or_default() {
-                "string" => {
-                    let Some(s) = value.as_str() else {
-                        return err(format!("settings key {key:?} must be a string"));
-                    };
-                    let len = s.chars().count() as u64;
-                    if let Some(min) = spec_obj.get("minLength").and_then(|v| v.as_u64()) {
-                        if len < min {
-                            return err(format!(
-                                "settings key {key:?} is shorter than its declared minLength"
-                            ));
-                        }
-                    }
-                    if let Some(max) = spec_obj.get("maxLength").and_then(|v| v.as_u64()) {
-                        if len > max {
-                            return err(format!(
-                                "settings key {key:?} is longer than its declared maxLength"
-                            ));
-                        }
-                    }
-                }
-                "number" => {
-                    let Some(n) = value.as_f64() else {
-                        return err(format!("settings key {key:?} must be a number"));
-                    };
-                    if let Some(min) = spec_obj.get("minimum").and_then(|v| v.as_f64()) {
-                        if n < min {
-                            return err(format!(
-                                "settings key {key:?} is below its declared minimum"
-                            ));
-                        }
-                    }
-                    if let Some(max) = spec_obj.get("maximum").and_then(|v| v.as_f64()) {
-                        if n > max {
-                            return err(format!(
-                                "settings key {key:?} is above its declared maximum"
-                            ));
-                        }
-                    }
-                }
-                "integer" => {
-                    let n = match value.as_i64() {
-                        Some(n) => n,
-                        None => {
-                            return err(format!("settings key {key:?} must be an integer"));
-                        }
-                    };
-                    if let Some(min) = spec_obj.get("minimum").and_then(|v| v.as_i64()) {
-                        if n < min {
-                            return err(format!(
-                                "settings key {key:?} is below its declared minimum"
-                            ));
-                        }
-                    }
-                    if let Some(max) = spec_obj.get("maximum").and_then(|v| v.as_i64()) {
-                        if n > max {
-                            return err(format!(
-                                "settings key {key:?} is above its declared maximum"
-                            ));
-                        }
-                    }
-                }
-                "boolean" => {
-                    if !value.is_boolean() {
-                        return err(format!("settings key {key:?} must be a boolean"));
-                    }
-                }
-                other => {
-                    return err(format!(
-                        "settings schema key {key:?} declares unsupported type {other:?}"
-                    ));
-                }
-            }
-        }
-        Ok(())
+            .map(|props| {
+                props
+                    .iter()
+                    .filter(|(_, spec)| {
+                        spec.get("writeOnly")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false)
+                    })
+                    .map(|(key, _)| key.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether one top-level key is a declared credential field.
+    pub fn is_write_only(&self, key: &str) -> bool {
+        self.raw
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .and_then(|props| props.get(key))
+            .and_then(|spec| spec.get("writeOnly"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     }
 
     /// The UI-rendering shape: ordered property specs for the Plugins
@@ -2580,6 +3131,132 @@ mod tests {
         }
     }
 
+    /// The value validator and the declaration gate accept the same subset.
+    ///
+    /// Four things are asserted together because they are one contract: a
+    /// nested object and an array are declared AND judged, a `pattern` is
+    /// honoured rather than read as an annotation, an undeclared key inside a
+    /// nested object is refused (the same deny-by-default rule the top level
+    /// applies), and a keyword the subset cannot honour is refused at
+    /// declaration time instead of quietly doing nothing.
+    #[test]
+    fn nested_shapes_and_pattern_are_declared_and_judged() {
+        let schema = SettingsSchema::new(json!({
+            "type": "object",
+            "properties": {
+                "controller": {
+                    "type": "object",
+                    "properties": {
+                        "host": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+                        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+                    },
+                    "required": ["host"]
+                },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string", "maxLength": 20 },
+                    "minItems": 1,
+                    "maxItems": 3
+                }
+            }
+        }))
+        .expect("a nested declaration is inside the subset");
+
+        let ok = json!({
+            "controller": { "host": "unifi.example.test", "port": 8443 },
+            "tags": ["acme"]
+        });
+        assert!(schema.validate_config(&ok).is_ok());
+
+        for (bad, why) in [
+            (
+                json!({ "controller": { "host": "unifi.example.test", "port": 70000 },
+                        "tags": ["acme"] }),
+                "port above maximum",
+            ),
+            (
+                json!({ "controller": { "host": "UNIFI", "port": 8443 }, "tags": ["acme"] }),
+                "host does not match pattern",
+            ),
+            (
+                json!({ "controller": { "host": "unifi.example.test", "extra": 1 },
+                        "tags": ["acme"] }),
+                "unknown key inside the nested object",
+            ),
+            (
+                json!({ "controller": { "port": 8443 }, "tags": ["acme"] }),
+                "host missing",
+            ),
+            (
+                json!({ "controller": { "host": "x" }, "tags": [] }),
+                "tags below minItems",
+            ),
+            (
+                json!({ "controller": { "host": "x" }, "tags": ["a", "b", "c", "d"] }),
+                "tags above maxItems",
+            ),
+            (
+                json!({ "controller": { "host": "x" }, "tags": ["this-one-is-far-too-long"] }),
+                "tag above maxLength",
+            ),
+        ] {
+            assert!(
+                schema.validate_config(&bad).is_err(),
+                "must reject {why}: {bad}"
+            );
+        }
+
+        // A nested object with no `properties` accepts any key, so it is
+        // refused at declaration time rather than stored.
+        assert!(SettingsSchema::new(json!({
+            "type": "object",
+            "properties": { "blob": { "type": "object" } }
+        }))
+        .is_err());
+
+        // `required` naming a key no property declares is unsatisfiable.
+        assert!(SettingsSchema::new(json!({
+            "type": "object",
+            "properties": { "a": { "type": "string" } },
+            "required": ["b"]
+        }))
+        .is_err());
+
+        // A keyword nothing honours is refused where it is declared.
+        for keyword in ["oneOf", "additionalProperties", "$ref"] {
+            let mut spec = json!({ "type": "object", "properties": { "a": { "type": "string" } } });
+            spec["properties"]["a"][keyword] = json!([]);
+            assert!(
+                SettingsSchema::new(spec).is_err(),
+                "a declaration using {keyword} must be refused"
+            );
+        }
+    }
+
+    /// `writeOnly` is the credential marker the connector write path splits
+    /// on: the fields it names are sealed and never returned, and every other
+    /// string is an ordinary setting.
+    #[test]
+    fn write_only_keys_are_the_declared_credential_fields() {
+        let schema = SettingsSchema::new(json!({
+            "type": "object",
+            "properties": {
+                "base_url": { "type": "string" },
+                "api_key": { "type": "string", "writeOnly": true },
+                "client_secret": { "type": "string", "writeOnly": true }
+            },
+            "required": ["base_url"]
+        }))
+        .expect("schema");
+
+        let mut keys = schema.write_only_keys();
+        keys.sort();
+        assert_eq!(keys, vec!["api_key", "client_secret"]);
+        assert!(schema.is_write_only("api_key"));
+        assert!(!schema.is_write_only("base_url"));
+        assert!(!schema.is_write_only("never_declared"));
+    }
+
     #[test]
     fn consent_diff_should_show_added_removed_unchanged() {
         let old = vec!["tickets.read".to_string(), "kb.read".to_string()];
@@ -2657,11 +3334,199 @@ mod tests {
             interface_version: PLUGIN_RUNTIME_INTERFACE_VERSION,
             description: "Summarizes tickets".into(),
             capabilities: capabilities.iter().map(|s| s.to_string()).collect(),
+            product_kinds: vec![],
+            connector_surfaces: None,
             settings_schema: None,
             artifact_kind: None,
             connector_profile: None,
             surface_profile: None,
         }
+    }
+
+    // --- connector surfaces (ADR 0032 / 0033) ------------------------------
+
+    /// A connector manifest with one configuration block, shaped like the
+    /// ScreenConnect declaration in `docs/reference/connector-capabilities.md`.
+    fn connector_manifest() -> PluginManifestV2 {
+        let mut m = manifest(&["tickets.read"]);
+        m.artifact_kind = Some(PluginRuntimeKind::HttpConnector);
+        m.product_kinds = vec!["remote_access".into()];
+        m.settings_schema = Some(serde_json::json!({
+            "type": "object",
+            "properties": { "controller_url": { "type": "string" } }
+        }));
+        m.connector_surfaces = Some(ConnectorSurfaces {
+            base_url_key: None,
+            external_refs: vec![ExternalRefBlock {
+                record: "configuration".into(),
+                external_kind: "machine".into(),
+                open_url: Some("{base_url}/Host#Access/All%20Machines//{external_id}".into()),
+                launch: Some(LaunchBlock {
+                    url_template: "{base_url}/Host#Access/All%20Machines//{external_id}/Join"
+                        .into(),
+                    capability: None,
+                }),
+            }],
+        });
+        m
+    }
+
+    #[test]
+    fn manifest_accepts_a_well_formed_surface_block() {
+        connector_manifest()
+            .validate()
+            .expect("a declared, documented surface block must install");
+    }
+
+    #[test]
+    fn a_connector_without_surfaces_still_validates() {
+        // The common case, and the promise: settings and a canary are a
+        // complete connector.
+        let m = manifest(&["tickets.read"]);
+        assert!(m.validate().is_ok());
+    }
+
+    #[test]
+    fn manifest_refuses_a_non_https_or_script_template() {
+        for hostile in [
+            "javascript:alert(document.cookie)",
+            "data:text/html,<script>alert(1)</script>",
+            "http://app.example.com/device/{external_id}",
+            "https://user:pass@app.example.com/device/{external_id}",
+        ] {
+            let mut m = connector_manifest();
+            m.connector_surfaces.as_mut().unwrap().external_refs[0].open_url = Some(hostile.into());
+            let err = m.validate().expect_err(hostile);
+            assert!(
+                err.to_string().contains("open_url"),
+                "refusal should name the field: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn manifest_refuses_base_url_off_the_prefix() {
+        // `https://evil.example/?next={base_url}` looks plausible and puts the
+        // technician on a foreign origin, so the placeholder must be the origin.
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().external_refs[0].open_url =
+            Some("https://evil.example/?next={base_url}".into());
+        let err = m.validate().expect_err("redirect shape must be refused");
+        assert!(err.to_string().contains("prefix"), "{err}");
+    }
+
+    #[test]
+    fn manifest_refuses_an_unknown_placeholder() {
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().external_refs[0].launch = Some(LaunchBlock {
+            url_template: "{base_url}/join/{device_id}".into(),
+            capability: None,
+        });
+        let err = m
+            .validate()
+            .expect_err("unknown placeholder must be refused");
+        assert!(err.to_string().contains("device_id"), "{err}");
+    }
+
+    #[test]
+    fn manifest_refuses_a_settings_placeholder_it_cannot_resolve() {
+        let mut m = connector_manifest();
+        // Declared in the schema: fine.
+        m.connector_surfaces.as_mut().unwrap().external_refs[0].open_url =
+            Some("{base_url}/tenant/{settings.controller_url}/{external_id}".into());
+        m.validate().expect("a declared setting resolves");
+
+        // Not declared: refused, because the link would render with a hole.
+        m.connector_surfaces.as_mut().unwrap().external_refs[0].open_url =
+            Some("{base_url}/tenant/{settings.realm_id}/{external_id}".into());
+        let err = m
+            .validate()
+            .expect_err("undeclared setting must be refused");
+        assert!(err.to_string().contains("realm_id"), "{err}");
+
+        // No schema at all: refused for the same reason.
+        let mut bare = connector_manifest();
+        bare.settings_schema = None;
+        bare.connector_surfaces.as_mut().unwrap().external_refs[0].open_url =
+            Some("{base_url}/t/{settings.controller_url}/{external_id}".into());
+        let err = bare.validate().expect_err("no schema, no settings token");
+        assert!(err.to_string().contains("settings_schema"), "{err}");
+    }
+
+    #[test]
+    fn manifest_refuses_an_unknown_record_type_and_a_duplicate_block() {
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().external_refs[0].record = "vehicles".into();
+        let err = m.validate().expect_err("unknown record type");
+        assert!(err.to_string().contains("record-type"), "{err}");
+
+        let mut dup = connector_manifest();
+        let block = dup.connector_surfaces.as_ref().unwrap().external_refs[0].clone();
+        dup.connector_surfaces
+            .as_mut()
+            .unwrap()
+            .external_refs
+            .push(block);
+        let err = dup.validate().expect_err("one block per record type");
+        assert!(err.to_string().contains("twice"), "{err}");
+    }
+
+    #[test]
+    fn a_declared_base_url_key_must_exist_in_the_settings_schema() {
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().base_url_key = Some("controller_url".into());
+        m.validate()
+            .expect("controller_url is declared in the fixture schema");
+
+        m.connector_surfaces.as_mut().unwrap().base_url_key = Some("origin".into());
+        let err = m
+            .validate()
+            .expect_err("an undeclared key has no value to read");
+        assert!(err.to_string().contains("origin"), "{err}");
+    }
+
+    #[test]
+    fn a_launch_must_be_attributed_to_a_declared_kind() {
+        // NinjaOne is both an RMM and a remote-access tool. Its launch belongs
+        // to one of them, or "Start session" would appear under the RMM chip.
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().external_refs[0]
+            .launch
+            .as_mut()
+            .unwrap()
+            .capability = Some("remote_access".into());
+        m.validate().expect("the declared kind is fine");
+
+        m.connector_surfaces.as_mut().unwrap().external_refs[0]
+            .launch
+            .as_mut()
+            .unwrap()
+            .capability = Some("telephony".into());
+        let err = m.validate().expect_err("an undeclared kind is unreachable");
+        assert!(err.to_string().contains("product_kinds"), "{err}");
+    }
+
+    #[test]
+    fn manifest_refuses_a_block_with_no_action_and_a_bad_product_kind() {
+        let mut m = connector_manifest();
+        m.connector_surfaces.as_mut().unwrap().external_refs[0].open_url = None;
+        m.connector_surfaces.as_mut().unwrap().external_refs[0].launch = None;
+        let err = m
+            .validate()
+            .expect_err("a block with no action is a dead chip");
+        assert!(err.to_string().contains("neither"), "{err}");
+
+        let mut bad = connector_manifest();
+        bad.product_kinds = vec!["Remote Access".into()];
+        let err = bad
+            .validate()
+            .expect_err("product kinds are snake_case keys");
+        assert!(err.to_string().contains("product_kinds"), "{err}");
+
+        let mut dup_kind = connector_manifest();
+        dup_kind.product_kinds = vec!["rmm".into(), "rmm".into()];
+        let err = dup_kind.validate().expect_err("a repeated kind is a typo");
+        assert!(err.to_string().contains("twice"), "{err}");
     }
 
     #[test]

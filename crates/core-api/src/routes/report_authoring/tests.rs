@@ -53,12 +53,16 @@ fn now() -> chrono::DateTime<Utc> {
 #[test]
 fn the_prompt_catalogues_views_and_shapes_and_carries_no_columns() {
     let prompt = report_authoring_system_prompt();
-    for view in ViewId::ALL {
+    for view in super::authorable_views() {
         assert!(
             prompt.contains(view.slug()),
             "the prompt must name view {:?}",
             view.slug()
         );
+    }
+    // Every view has a blurb, including the ones authoring may not target —
+    // the view catalogue is read elsewhere and a missing entry would panic.
+    for view in ViewId::ALL {
         assert!(
             !view_blurb(view).is_empty(),
             "{:?} has no blurb",
@@ -107,7 +111,7 @@ fn the_prompt_catalogues_views_and_shapes_and_carries_no_columns() {
 #[test]
 fn the_prompt_grows_with_shapes_not_with_columns() {
     let (prompt_chars, column_chars, views) = measure_prompt_footprint();
-    assert_eq!(views, ViewId::ALL.len());
+    assert_eq!(views, super::authorable_views().count());
     // The inventory is real, and inlining it would grow the prompt by that
     // much — a share that climbs with every column the registry gains, while
     // this prompt stays where it is.

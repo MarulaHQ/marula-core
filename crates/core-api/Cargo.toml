@@ -54,6 +54,12 @@ core-projects = { path = "../core-projects" }
 core-reports = { path = "../core-reports", features = ["openapi"] }
 core-events = { path = "../core-events" }
 core-mail = { path = "../core-mail" }
+# Accounting export (claims-gaps G1–G3): the two first-party accounting
+# adapters Core orchestrates. The dependency points core → connector, never the
+# other way (a connector imports no core crate, R2), which is the same edge
+# `adapters-core` and `mapbox-routing` already use.
+qbo-export-sync = { path = "../../plugins/connectors/qbo-export-sync" }
+xero-export-sync = { path = "../../plugins/connectors/xero-export-sync" }
 # Wave 32 lane 7: the routing provider seam + the first-party Mapbox
 # provider (ADR 0013 standard set).
 core-routing = { path = "../core-routing" }

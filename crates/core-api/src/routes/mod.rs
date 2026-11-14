@@ -36,6 +36,7 @@
 //! parity holds because the legacy generation reconstructs the historical
 //! literal paths.
 
+pub mod accounting_export;
 pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerts;
@@ -60,6 +61,8 @@ pub mod checklists;
 pub mod clients;
 pub mod config_items;
 pub mod connector;
+pub mod connector_actions;
+pub mod connector_inbound;
 pub mod costs;
 pub mod credit_notes;
 pub mod custom_fields;
@@ -155,6 +158,7 @@ pub mod timers;
 pub mod tools;
 pub mod transcription;
 pub mod undo;
+pub mod user_cost_rates;
 pub mod verification;
 pub mod webhook_admin;
 pub mod webhook_receiver;
@@ -175,6 +179,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use serde::Deserialize;
 
 /// Which URL base a router build targets.
 ///
@@ -212,6 +217,23 @@ fn route_path(gen: ApiGeneration, tail: &str) -> String {
     out.push_str(gen.base());
     out.push_str(tail);
     out
+}
+
+/// Distinguishes "field absent" from "explicit null" in a PATCH body:
+/// `None` = absent, `Some(None)` = clear, `Some(Some(v))` = set.
+///
+/// Serde's own `Option<Option<T>>` cannot do this — a JSON `null` reads as
+/// `None`, the absent shape — so a field carrying this must also carry
+/// `#[serde(default, deserialize_with = "double_option")]`. Several modules
+/// keep a private copy of this one-liner; this shared copy exists for the two
+/// cost-rate routes (`user_cost_rates`, `settings`) that encode the same
+/// tri-state in the same breath.
+pub(crate) fn double_option<'de, D, T>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Option::<T>::deserialize(de).map(Some)
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -531,6 +553,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // Calendar sync (Wave 14 lane 2): the unauthenticated, token-
         // scoped OUTBOUND feed — the external calendar subscribes to it.
         .merge(calendar_sync::public_routes(gen))
+        // Connector callbacks (G7/G9): Slack and Teams post here with no
+        // Marula session, because the vendor signature IS the credential.
+        // The handlers read the raw bytes first and verify a timestamped HMAC
+        // (Slack) or the Bot Framework token (Teams) before anything parses.
+        .merge(connector_inbound::public_routes(gen))
         // Stripe webhook receiver (Wave 22): unauthenticated by design —
         // the Stripe-Signature HMAC is the auth; the handler rejects
         // typed 403 without a valid signature or configured secret.
@@ -650,6 +677,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/org/users/{id}/email-verified"),
             post(org_users::set_email_verified),
         )
+        // Labour cost rate (migration 0188): the write surface the client
+        // margin report was missing. Own-rate read for any member; another
+        // user's rate needs the money read; writes are user administration.
+        .route(
+            &rp("/org/users/{id}/cost-rate"),
+            get(user_cost_rates::get).patch(user_cost_rates::patch),
+        )
         // role directory + preset lifecycle (Wave 13 lane 6, RB1): the
         // shipped presets are data rows; fork/restore ride the envelope.
         .route(&rp("/roles"), get(roles::list))
@@ -741,6 +775,43 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/clients/{id}/assets"),
             get(clients::list_assets).post(clients::create_asset),
         )
+        // Connector read surfaces (ADR 0032/0033, migration 0185): one
+        // resolver payload for every contextual surface, and the settings
+        // roster (installation-first, so an unconfigured install still shows
+        // its Connect action). The old `connector_installations` seam above
+        // (`/connectors`) is untouched and still serves Slack/Teams; the
+        // static `/connectors/roster` outranks its `{kind}` parameter.
+        .route(
+            &rp("/records/{record_type}/{record_id}/external-actions"),
+            get(connector_actions::external_actions),
+        )
+        .route(&rp("/connectors/roster"), get(connector_actions::roster))
+        // Connector WRITE surfaces (ADR 0032; migration 0186). The paths are
+        // frozen by the contract: a connection is created under its
+        // installation, edited by id, and a destination under its connection.
+        .route(
+            &rp("/connector-installations/{installation_id}/connections"),
+            post(connector_actions::connections_create),
+        )
+        .route(
+            &rp("/connector-connections/{id}"),
+            axum::routing::patch(connector_actions::connections_update)
+                .delete(connector_actions::connections_delete),
+        )
+        .route(
+            &rp("/connector-connections/{id}/bindings"),
+            get(connector_actions::bindings_list).post(connector_actions::bindings_create),
+        )
+        .route(
+            &rp("/connector-bindings/{id}"),
+            axum::routing::patch(connector_actions::bindings_update)
+                .delete(connector_actions::bindings_delete),
+        )
+        .route(
+            &rp("/capability-defaults/{capability}"),
+            put(connector_actions::capability_default_put)
+                .delete(connector_actions::capability_default_delete),
+        )
         // boards + statuses + workflow customization + organization/RBAC
         .route(&rp("/boards"), get(boards::list).post(boards::create))
         .route(&rp("/boards/nav"), get(board_access::nav))
@@ -822,6 +893,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         .route(&rp("/tickets/{id}/status"), post(tickets::change_status))
         .route(&rp("/tickets/{id}/sla"), get(tickets::sla_status))
+        // Share the ticket card into a bound channel (G8). Staff surface: the
+        // caller must be able to read the ticket, and a restricted client's
+        // ticket is refused rather than redacted into a wider audience.
+        .route(
+            &rp("/tickets/{id}/share"),
+            post(connector_inbound::share_ticket),
+        )
         // ephemeral presence (Wave 12 lane 12): who is viewing/editing
         // what; in-memory TTL store, transitions ride the event stream.
         .route(
@@ -1447,6 +1525,38 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(&rp("/credit-notes/{id}/apply"), post(credit_notes::apply))
         .route(&rp("/credit-notes/{id}/refund"), post(credit_notes::refund))
         .route(&rp("/credit-notes/{id}/void"), post(credit_notes::void))
+        // Accounting export (claims-gaps G1–G3, migration 0187): send one
+        // document to one QuickBooks/Xero connection, read the customer's own
+        // chart of accounts and tax codes, and manage the per-connection tax
+        // mapping. The run report is how a held invoice is found.
+        .route(
+            &rp("/invoices/{id}/export"),
+            post(accounting_export::export_invoice),
+        )
+        .route(
+            &rp("/credit-notes/{id}/export"),
+            post(accounting_export::export_credit_note),
+        )
+        .route(
+            &rp("/accounting/export-runs"),
+            get(accounting_export::list_runs),
+        )
+        .route(
+            &rp("/accounting/export-runs/{id}"),
+            get(accounting_export::get_run),
+        )
+        .route(
+            &rp("/accounting/connections/{id}/ledger"),
+            get(accounting_export::read_ledger),
+        )
+        .route(
+            &rp("/accounting/tax-mappings"),
+            get(accounting_export::list_tax_mappings).put(accounting_export::upsert_tax_mapping),
+        )
+        .route(
+            &rp("/accounting/tax-mappings/{id}"),
+            axum::routing::delete(accounting_export::delete_tax_mapping),
+        )
         // import framework (the private build tracker D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.

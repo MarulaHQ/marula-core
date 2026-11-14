@@ -107,6 +107,11 @@ fn timestamp_prefixed(unix_ts: i64, body: &[u8]) -> Vec<u8> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IngestAlert {
     pub dedup_key: String,
+    /// The storm identity: one alert key on one device. Distinct alerts of a
+    /// storm share it, so the ingest folds them into one incident and its
+    /// `alert_count` rises. `None` lets the ingest default it to the dedup
+    /// key, which is the uncorrelated case and never a guess.
+    pub correlation_key: Option<String>,
     pub title: String,
     pub severity: String,
     pub description: Option<String>,
@@ -119,6 +124,12 @@ pub struct IngestAlert {
 /// contract. UniFi alert events carry `_id`/`key` + `msg`/`message` +
 /// `datetime`; the mapper keys on what the payload actually shows and
 /// never invents fields.
+///
+/// Correlation: the dedupe key is one alert delivery, while the storm key is
+/// the condition on the device (`key`, then `meta.deviceName`). It carries no
+/// timestamp and no message text, so the alerts of one storm share it and the
+/// ingest folds them into a single incident whose count rises. A payload with
+/// no condition sends no key, and the ingest's dedup-key default applies.
 ///
 /// Severity: UniFi's alert stream does not classify severity. An
 /// explicit `severity`/`level` key wins (critical|error|down →
@@ -137,6 +148,25 @@ pub fn map_alert(payload: &Value) -> Option<IngestAlert> {
     }
     let title = first_of(payload, &["msg", "message", "alert", "title"])
         .unwrap_or_else(|| format!("UniFi alert {}", dedup_key));
+
+    // A storm is one condition on one device. UniFi's alert stream names the
+    // condition with `key` (an `EVT_*` id) and the device under `meta`; neither
+    // the message nor the timestamp belongs in the key, because both change
+    // across a storm. With no condition there is nothing to correlate, and the
+    // ingest's own dedup-key default is the honest answer.
+    let condition = first_of(
+        payload,
+        &["key", "alertKey", "event", "eventKey", "event_type", "type"],
+    );
+    let device = payload
+        .get("meta")
+        .and_then(|meta| first_of(meta, &["deviceName", "device", "deviceId", "hostname"]))
+        .or_else(|| first_of(payload, &["deviceName", "deviceId", "device"]));
+    let correlation_key = match (&condition, &device) {
+        (Some(condition), Some(device)) => Some(cap_key(format!("{condition}:{device}"))),
+        (Some(condition), None) => Some(cap_key(condition.clone())),
+        _ => None,
+    };
 
     let severity = match first_of(payload, &["severity", "level"]).map(|s| s.to_ascii_lowercase()) {
         Some(level)
@@ -157,12 +187,21 @@ pub fn map_alert(payload: &Value) -> Option<IngestAlert> {
 
     Some(IngestAlert {
         dedup_key,
+        correlation_key,
         title,
         severity,
         description: first_of(payload, &["description", "detail"]),
         occurred_at: first_of(payload, &["datetime", "time", "timestamp", "occurredAt"]),
         attributes,
     })
+}
+
+/// The ingest caps both keys at 200 characters.
+fn cap_key(mut key: String) -> String {
+    if key.len() > 200 {
+        key.truncate(200);
+    }
+    key
 }
 
 fn first_of(payload: &Value, keys: &[&str]) -> Option<String> {
@@ -233,6 +272,9 @@ impl AlertForwarder {
             "severity": alert.severity,
         });
         let object = body.as_object_mut().expect("literal json object");
+        if let Some(correlation_key) = &alert.correlation_key {
+            object.insert("correlation_key".into(), json!(correlation_key));
+        }
         if let Some(description) = &alert.description {
             object.insert("description".into(), json!(description));
         }

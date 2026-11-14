@@ -61,6 +61,9 @@ struct Controller {
     requests: Arc<Mutex<Vec<(String, String, String)>>>,
     sites: Arc<Vec<Value>>,
     devices: Arc<HashMap<String, Vec<Value>>>,
+    /// When set, a request carrying any other key gets 401 — the credential
+    /// failure the per-client run must scope.
+    expected_key: Option<String>,
 }
 
 impl Controller {
@@ -76,11 +79,9 @@ impl Controller {
     }
 
     fn saw_api_key(&self) -> bool {
-        self.requests
-            .lock()
-            .unwrap()
-            .iter()
-            .all(|(_, key, _)| key == "unifi-key")
+        let expected = self.expected_key.as_deref().unwrap_or("unifi-key");
+        let requests = self.requests.lock().unwrap();
+        !requests.is_empty() && requests.iter().all(|(_, key, _)| key == expected)
     }
 
     fn device_offsets(&self) -> Vec<String> {
@@ -100,10 +101,19 @@ fn controller_stub(
     sites: Vec<Value>,
     devices_by_site: HashMap<String, Vec<Value>>,
 ) -> (Router, Controller) {
+    controller_stub_with_key(sites, devices_by_site, None)
+}
+
+fn controller_stub_with_key(
+    sites: Vec<Value>,
+    devices_by_site: HashMap<String, Vec<Value>>,
+    expected_key: Option<&str>,
+) -> (Router, Controller) {
     let controller = Controller {
         requests: Arc::new(Mutex::new(Vec::new())),
         sites: Arc::new(sites),
         devices: Arc::new(devices_by_site),
+        expected_key: expected_key.map(str::to_string),
     };
     let state = controller.clone();
     let sites_state = state.clone();
@@ -132,7 +142,14 @@ fn controller_stub(
                             key.into(),
                             offset.to_string(),
                         ));
-                        Json(state.page(&state.sites, offset, limit))
+                        if state
+                            .expected_key
+                            .as_deref()
+                            .is_some_and(|expected| expected != key)
+                        {
+                            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+                        }
+                        Json(state.page(&state.sites, offset, limit)).into_response()
                     }
                 },
             ),
@@ -162,8 +179,15 @@ fn controller_stub(
                             key.into(),
                             offset.to_string(),
                         ));
+                        if state
+                            .expected_key
+                            .as_deref()
+                            .is_some_and(|expected| expected != key)
+                        {
+                            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+                        }
                         let items = state.devices.get(&site_id).cloned().unwrap_or_default();
-                        Json(state.page(&items, offset, limit))
+                        Json(state.page(&items, offset, limit)).into_response()
                     }
                 },
             ),
@@ -427,6 +451,38 @@ fn hop_signature_verifies_raw_bytes_before_parse() {
 }
 
 #[test]
+fn unifi_storm_alerts_share_a_correlation_key() {
+    // Two distinct alerts of one storm: the id, timestamp, message and severity
+    // all differ, the condition and device do not.
+    let first = map_alert(&alert_payload()).unwrap();
+    let mut second_payload = alert_payload();
+    second_payload["_id"] = json!("alert-43");
+    second_payload["datetime"] = json!("2026-09-22T10:07:00Z");
+    second_payload["msg"] = json!("Gateway restored, then lost again");
+    second_payload["level"] = json!("critical");
+    let second = map_alert(&second_payload).unwrap();
+
+    assert_eq!(
+        first.correlation_key.as_deref(),
+        Some("EVT_Lan_DeviceDisconnected:gw-hq")
+    );
+    assert_eq!(second.correlation_key, first.correlation_key);
+    assert_ne!(second.dedup_key, first.dedup_key, "the count can rise");
+
+    // No device in the payload: the condition alone is the storm identity.
+    let mut no_device = alert_payload();
+    no_device.as_object_mut().unwrap().remove("meta");
+    assert_eq!(
+        map_alert(&no_device).unwrap().correlation_key.as_deref(),
+        Some("EVT_Lan_DeviceDisconnected")
+    );
+    // No condition either: no key, and the ingest defaults it. Never a guess.
+    let mut bare = alert_payload();
+    bare.as_object_mut().unwrap().remove("key");
+    assert_eq!(map_alert(&bare).unwrap().correlation_key, None);
+}
+
+#[test]
 fn unifi_alerts_map_onto_the_ingest_contract() {
     let alert = map_alert(&alert_payload()).unwrap();
     assert_eq!(alert.dedup_key, "alert-42");
@@ -513,6 +569,9 @@ async fn forwarder_signs_and_posts_the_exact_body() {
     assert_eq!(wire["title"], "Gateway disconnected from the LAN");
     assert_eq!(wire["severity"], "warning");
     assert_eq!(wire["occurred_at"], "2026-09-22T10:00:00Z");
+    // The storm key travels on the wire, or the ingest would key the storm on
+    // the dedup key and every distinct alert would anchor its own ticket.
+    assert_eq!(wire["correlation_key"], "EVT_Lan_DeviceDisconnected:gw-hq");
 }
 
 #[tokio::test]
@@ -547,4 +606,299 @@ async fn rejected_ingests_map_to_typed_forward_errors() {
         forwarder_at(base).forward(&alert, 0).await,
         Err(ForwardError::Rejected(_))
     ));
+}
+
+// ---------------------------------------------------------------------------
+// G11: per-client controllers.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_client_scoped_connection_wins_and_the_org_connection_is_the_fallback() {
+    let client = Uuid::from_u128(1);
+    let other = Uuid::from_u128(2);
+    let org = crate::ControllerConnection {
+        connection_id: Uuid::from_u128(10),
+        scope_client_id: None,
+        label: "org controller".into(),
+        base_url: "https://org.example".into(),
+        api_key: "org-key".into(),
+    };
+    let own = crate::ControllerConnection {
+        connection_id: Uuid::from_u128(11),
+        scope_client_id: Some(client),
+        label: "client controller".into(),
+        base_url: "https://client.example".into(),
+        api_key: "client-key".into(),
+    };
+    let elsewhere = crate::ControllerConnection {
+        connection_id: Uuid::from_u128(12),
+        scope_client_id: Some(other),
+        label: "another client".into(),
+        base_url: "https://other.example".into(),
+        api_key: "other-key".into(),
+    };
+
+    let rows = vec![org.clone(), own.clone(), elsewhere];
+    assert_eq!(
+        crate::connection_for_client(&rows, client).map(|c| c.connection_id),
+        Some(own.connection_id),
+        "the client's own controller wins"
+    );
+    assert_eq!(
+        crate::connection_for_client(&rows, other).map(|c| c.connection_id),
+        Some(Uuid::from_u128(12)),
+        "a client-scoped row is never borrowed for another client"
+    );
+    assert_eq!(
+        crate::connection_for_client(&rows, Uuid::from_u128(3)).map(|c| c.connection_id),
+        Some(org.connection_id),
+        "the org-scoped connection is the fallback"
+    );
+    assert!(crate::connection_for_client(&rows[1..], Uuid::from_u128(3)).is_none());
+
+    // The row's own settings name the origin the manifest's base_url_key reads.
+    let built = crate::ControllerConnection::from_settings(
+        Uuid::from_u128(20),
+        Some(client),
+        "from a row",
+        &json!({ "controller_url": "https://acme.hostifi.example/", "site": "acme" }),
+        "sealed-key",
+    )
+    .expect("a row with an origin");
+    assert_eq!(built.base_url, "https://acme.hostifi.example");
+    assert!(crate::ControllerConnection::from_settings(
+        Uuid::from_u128(21),
+        Some(client),
+        "no origin",
+        &json!({ "site": "acme" }),
+        "sealed-key",
+    )
+    .is_none());
+}
+
+#[tokio::test]
+async fn two_clients_on_two_controllers_sync_with_their_own_credentials() {
+    let client_a = Uuid::from_u128(0xA1);
+    let client_b = Uuid::from_u128(0xB2);
+    let feed: Arc<Mutex<Vec<(String, Uuid)>>> = Arc::new(Mutex::new(Vec::new()));
+    let feed_state = feed.clone();
+
+    let app = Router::new().route(
+        "/api/v1/config-items/feed-upsert",
+        post(move |Json(body): Json<Value>| {
+            let feed = feed_state.clone();
+            async move {
+                feed.lock().unwrap().push((
+                    body["external_id"].as_str().unwrap().to_string(),
+                    body["client_id"].as_str().unwrap().parse().unwrap(),
+                ));
+                Json(json!({
+                    "id": Uuid::now_v7(),
+                    "source_link": {
+                        "id": Uuid::now_v7(),
+                        "source_system": "unifi",
+                        "external_id": body["external_id"]
+                    },
+                    "created_item": false,
+                    "resolved_existing": true,
+                    "auto_merged": false,
+                    "queued_candidates": [],
+                    "contradictions": []
+                }))
+            }
+        }),
+    );
+    let marula = spawn(app).await;
+
+    // Client A: Hostifi-managed controller, key-a.
+    let (a_app, a_stub) = controller_stub_with_key(
+        vec![site("site-a", "Acme HQ")],
+        HashMap::from([(
+            "site-a".to_string(),
+            vec![device("dev-a", "sw-a", "94:2a:6f:00:00:0a")],
+        )]),
+        Some("key-a"),
+    );
+    let a_base = spawn(a_app).await;
+    // Client B: on-prem controller, key-b.
+    let (b_app, b_stub) = controller_stub_with_key(
+        vec![site("site-b", "Contoso DC")],
+        HashMap::from([(
+            "site-b".to_string(),
+            vec![device("dev-b", "sw-b", "94:2a:6f:00:00:0b")],
+        )]),
+        Some("key-b"),
+    );
+    let b_base = spawn(b_app).await;
+
+    let connections = vec![
+        crate::ControllerConnection {
+            connection_id: Uuid::from_u128(0xC1),
+            scope_client_id: Some(client_a),
+            label: "Hostifi — Acme".into(),
+            base_url: a_base,
+            api_key: "key-a".into(),
+        },
+        crate::ControllerConnection {
+            connection_id: Uuid::from_u128(0xC2),
+            scope_client_id: Some(client_b),
+            label: "On-prem — Contoso".into(),
+            base_url: b_base,
+            api_key: "key-b".into(),
+        },
+    ];
+    let clients = vec![
+        crate::ClientSites {
+            client_id: client_a,
+            site_ids: vec!["site-a".into()],
+        },
+        crate::ClientSites {
+            client_id: client_b,
+            site_ids: vec!["site-b".into()],
+        },
+    ];
+
+    let sink = MarulaFeederSink::new(MarulaFeederConfig {
+        base_url: marula,
+        api_key: "mrl_test_key".into(),
+    });
+    let report =
+        crate::UnifiSync::run_scoped(&connections, &clients, &sink, &crate::NoneInterfaceSink)
+            .await;
+
+    assert_eq!(report.report.synced, 2, "report: {report:?}");
+    assert_eq!(report.clients.len(), 2);
+    assert!(report.clients.iter().all(|c| c.error.is_none()));
+    assert_eq!(report.clients[0].devices, 1);
+    assert_eq!(report.clients[1].devices, 1);
+
+    // Each controller saw its own key, and each device fed its own client.
+    assert!(a_stub.saw_api_key());
+    assert!(b_stub.saw_api_key());
+    let fed = feed.lock().unwrap().clone();
+    assert!(fed.contains(&("dev-a".to_string(), client_a)));
+    assert!(fed.contains(&("dev-b".to_string(), client_b)));
+}
+
+#[tokio::test]
+async fn one_clients_credential_failure_does_not_stop_the_other() {
+    let client_a = Uuid::from_u128(0xA1);
+    let client_b = Uuid::from_u128(0xB2);
+    let fed: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let fed_state = fed.clone();
+
+    let app = Router::new().route(
+        "/api/v1/config-items/feed-upsert",
+        post(move |Json(body): Json<Value>| {
+            let fed = fed_state.clone();
+            async move {
+                fed.lock()
+                    .unwrap()
+                    .push(body["external_id"].as_str().unwrap().to_string());
+                Json(json!({
+                    "id": Uuid::now_v7(),
+                    "created_item": false,
+                    "resolved_existing": true,
+                    "queued_candidates": []
+                }))
+            }
+        }),
+    );
+    let marula = spawn(app).await;
+
+    let (a_app, _) = controller_stub_with_key(
+        vec![site("site-a", "Acme HQ")],
+        HashMap::from([(
+            "site-a".to_string(),
+            vec![device("dev-a", "sw-a", "94:2a:6f:00:00:0a")],
+        )]),
+        Some("key-a"),
+    );
+    let a_base = spawn(a_app).await;
+    // Client B's connection carries a stale key: the controller refuses it.
+    let (b_app, _) = controller_stub_with_key(
+        vec![site("site-b", "Contoso DC")],
+        HashMap::new(),
+        Some("key-b"),
+    );
+    let b_base = spawn(b_app).await;
+
+    let connections = vec![
+        crate::ControllerConnection {
+            connection_id: Uuid::from_u128(0xC1),
+            scope_client_id: Some(client_a),
+            label: "Hostifi — Acme".into(),
+            base_url: a_base,
+            api_key: "key-a".into(),
+        },
+        crate::ControllerConnection {
+            connection_id: Uuid::from_u128(0xC2),
+            scope_client_id: Some(client_b),
+            label: "On-prem — Contoso".into(),
+            base_url: b_base,
+            api_key: "stale-key".into(),
+        },
+    ];
+    let clients = vec![
+        crate::ClientSites {
+            client_id: client_a,
+            site_ids: vec!["site-a".into()],
+        },
+        crate::ClientSites {
+            client_id: client_b,
+            site_ids: vec!["site-b".into()],
+        },
+    ];
+
+    let sink = MarulaFeederSink::new(MarulaFeederConfig {
+        base_url: marula,
+        api_key: "mrl_test_key".into(),
+    });
+    let report =
+        crate::UnifiSync::run_scoped(&connections, &clients, &sink, &crate::NoneInterfaceSink)
+            .await;
+
+    // The healthy client synced; the refused one is scoped and named.
+    assert_eq!(fed.lock().unwrap().clone(), vec!["dev-a".to_string()]);
+    assert_eq!(report.report.synced, 1);
+    assert_eq!(report.clients[0].error, None);
+    let failed = &report.clients[1];
+    assert_eq!(failed.client_id, client_b);
+    assert_eq!(failed.connection_id, Uuid::from_u128(0xC2));
+    assert!(
+        failed
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("unauthorized")),
+        "scoped error: {failed:?}"
+    );
+    assert!(report
+        .report
+        .errors
+        .iter()
+        .any(|e| e.external_id == format!("client:{client_b}")));
+}
+
+#[test]
+fn the_shipped_manifest_declares_the_unifi_deep_link() {
+    let manifest: Value =
+        serde_json::from_str(include_str!("../manifest.json")).expect("manifest parses");
+    assert_eq!(manifest["product_kinds"], json!(["network"]));
+    let surfaces = &manifest["connector_surfaces"];
+    assert_eq!(surfaces["base_url_key"], json!("controller_url"));
+    let block = &surfaces["external_refs"][0];
+    assert_eq!(block["record"], json!("configuration"));
+    assert_eq!(block["external_kind"], json!("device"));
+    let open_url = block["open_url"].as_str().expect("open_url");
+    assert!(
+        open_url.starts_with("{base_url}"),
+        "origin comes from the connection"
+    );
+    assert!(open_url.contains("{settings.site}"));
+    assert!(open_url.contains("{external_id}"));
+    // The key the template reads exists in the schema it ships with.
+    let properties = &manifest["settings_schema"]["properties"];
+    for key in ["controller_url", "site"] {
+        assert!(properties.get(key).is_some(), "{key} must be declared");
+    }
 }

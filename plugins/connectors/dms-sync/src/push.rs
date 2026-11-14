@@ -47,6 +47,9 @@ pub struct MarulaSnapshot {
     pub clients: Vec<(Uuid, String)>,
     pub assets: Vec<SnapshotAsset>,
     pub documents: Vec<SnapshotDocument>,
+    /// KB articles, rendered as Hudu articles with `public` carrying
+    /// `client_visible`.
+    pub articles: Vec<SnapshotArticle>,
     pub links: Vec<SnapshotLink>,
     /// Password METADATA (title/username/url) — never secrets.
     pub credential_metadata: Vec<SnapshotCredentialMeta>,
@@ -92,6 +95,18 @@ pub struct SnapshotCredentialMeta {
     pub title: String,
     pub username: String,
     pub url: String,
+}
+
+/// One Marula KB article, as the renderer sees it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SnapshotArticle {
+    pub id: Uuid,
+    pub client_id: Option<Uuid>,
+    pub title: String,
+    pub body: String,
+    /// Marula's `client_visible`; rendered as Hudu's `public`.
+    pub client_visible: bool,
+    pub status: String,
 }
 
 #[derive(Debug, Clone)]
@@ -206,11 +221,29 @@ pub fn render_hudu_export(snapshot: &MarulaSnapshot) -> Value {
         })
         .collect();
 
+    // Articles render with `public`, the field the pull side reads back as
+    // `client_visible`. One flag, two names, no loss on either leg.
+    let articles: Vec<Value> = snapshot
+        .articles
+        .iter()
+        .map(|article| {
+            json!({
+                "id": article.id.to_string(),
+                "name": article.title,
+                "content": article.body,
+                "company_id": article.client_id.map(|id| id.to_string()),
+                "public": article.client_visible,
+                "status": article.status,
+            })
+        })
+        .collect();
+
     json!({
         "companies": companies,
         "asset_layouts": asset_layouts,
         "assets": assets,
         "websites": websites,
+        "articles": articles,
         "passwords": passwords,
     })
 }

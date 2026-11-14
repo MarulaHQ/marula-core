@@ -176,7 +176,7 @@ pub fn next_cursor(
             }
             .seal(),
         ),
-        ReportKind::TicketThroughput | ReportKind::TicketAging => None,
+        ReportKind::TicketThroughput | ReportKind::TicketAging | ReportKind::ClientMargin => None,
     }
 }
 
@@ -266,6 +266,9 @@ pub fn compile(
         }
         (ReportKind::FirstResponse, KindParams::FirstResponse(p)) => {
             compile_first_response(scope, p.user_id, cursor_raw, limit, win)
+        }
+        (ReportKind::ClientMargin, KindParams::ClientMargin(_)) => {
+            compile_client_margin(limit, win)
         }
         _ => Err(ReportsError::UnknownColumn {
             view: kind.view().qualified_name().to_string(),
@@ -803,6 +806,65 @@ fn compile_first_response(
     })
 }
 
+// --- client margin -----------------------------------------------------------------
+
+/// Invoiced revenue against costed time, one row per client for the window.
+///
+/// The row set is the CLIENT list, not the invoice list: the query starts at
+/// `ops.v1_clients` and left-joins the margin events. A client with cost and
+/// no revenue therefore appears with a negative margin instead of vanishing
+/// (the acceptance case); a client with revenue and no time appears with the
+/// full amount as margin; a dormant client appears at zero.
+///
+/// `cost`-side totals are only trustworthy when every minute carries a rate.
+/// When any minute in the row is uncosted the margin is NULL rather than
+/// revenue-minus-partial-cost, and `uncosted_minutes` says why.
+///
+/// Scope: `ops.v1_client_margin` declares no personal dimension (margin is a
+/// client fact), so RBAC narrowing cannot apply. The financial permission
+/// gate lives at the route (`invoicing:view`); this compiler deliberately
+/// does not fabricate a per-user narrowing that would hide revenue and keep
+/// cost.
+fn compile_client_margin(limit: i64, win: Window) -> Result<CompiledReport, ReportsError> {
+    let mut b = Binder::new();
+    let lo = b.ph(Bind::Date(win.start.date_naive()));
+    let hi = b.ph(Bind::Date(win.end.date_naive()));
+    let lim = b.ph(Bind::Int(limit));
+
+    let sql = format!(
+        "SELECT c.id AS client_id,\n       c.name AS client_name,\n       COALESCE(SUM(m.revenue_minor), 0)::bigint AS revenue_minor,\n       COALESCE(SUM(m.cost_minor), 0)::bigint AS cost_minor,\n       COALESCE(SUM(m.costed_minutes), 0)::bigint AS costed_minutes,\n       COALESCE(SUM(m.uncosted_minutes), 0)::bigint AS uncosted_minutes,\n       COALESCE(SUM(m.unconverted_credit_minor), 0)::bigint AS unconverted_credit_minor,\n       CASE WHEN COALESCE(SUM(m.uncosted_minutes), 0) = 0\n            THEN (COALESCE(SUM(m.revenue_minor), 0) - COALESCE(SUM(m.cost_minor), 0))::bigint\n       END AS margin_minor\nFROM {clients}\nc\nLEFT JOIN {margin}\nm\n  ON m.client_id = c.id\n AND m.period_day >= {lo}\n AND m.period_day < {hi}\nGROUP BY c.id, c.name\nORDER BY margin_minor DESC NULLS LAST, c.id ASC\nLIMIT {lim}",
+        clients = crate::catalog::CLIENTS_VIEW,
+        margin = ViewId::ClientMargin.qualified_name(),
+    );
+
+    let mut sb = Binder::new();
+    let slo = sb.ph(Bind::Date(win.start.date_naive()));
+    let shi = sb.ph(Bind::Date(win.end.date_naive()));
+    let summary_sql = format!(
+        "SELECT COUNT(DISTINCT m.client_id)::bigint AS clients_with_activity,\n       COALESCE(SUM(m.revenue_minor), 0)::bigint AS total_revenue_minor,\n       COALESCE(SUM(m.cost_minor), 0)::bigint AS total_cost_minor,\n       COALESCE(SUM(m.costed_minutes), 0)::bigint AS total_costed_minutes,\n       COALESCE(SUM(m.uncosted_minutes), 0)::bigint AS total_uncosted_minutes,\n       COALESCE(SUM(m.unconverted_credit_minor), 0)::bigint AS total_unconverted_credit_minor,\n       CASE WHEN COALESCE(SUM(m.uncosted_minutes), 0) = 0\n            THEN (COALESCE(SUM(m.revenue_minor), 0) - COALESCE(SUM(m.cost_minor), 0))::bigint\n       END AS total_margin_minor\nFROM {margin}\nm\nWHERE m.period_day >= {slo}\n  AND m.period_day < {shi}",
+        margin = ViewId::ClientMargin.qualified_name(),
+    );
+
+    Ok(CompiledReport {
+        sql,
+        binds: b.binds,
+        summary_sql,
+        summary_binds: sb.binds,
+        columns: vec![
+            col("client_id", OutType::Uuid),
+            col("client_name", OutType::Text),
+            col("revenue_minor", OutType::BigInt),
+            col("cost_minor", OutType::BigInt),
+            col("costed_minutes", OutType::BigInt),
+            col("uncosted_minutes", OutType::BigInt),
+            col("unconverted_credit_minor", OutType::BigInt),
+            col("margin_minor", OutType::BigInt),
+        ],
+        cursor_shape: CursorShape::None,
+        view: ViewId::ClientMargin,
+    })
+}
+
 // --- structural safety tests ------------------------------------------------------
 
 #[cfg(test)]
@@ -863,6 +925,9 @@ mod tests {
                     user_id: None,
                 })
             }
+            ReportKind::ClientMargin => KindParams::ClientMargin(crate::kinds::MarginParams {
+                window: crate::kinds::WindowParams { from, to: None },
+            }),
         }
     }
 
@@ -1027,7 +1092,11 @@ mod tests {
             assert_placeholders_contiguous(&paged.sql, paged.binds.len());
         }
 
-        for kind in [ReportKind::TicketThroughput, ReportKind::TicketAging] {
+        for kind in [
+            ReportKind::TicketThroughput,
+            ReportKind::TicketAging,
+            ReportKind::ClientMargin,
+        ] {
             let _ = compile(
                 kind,
                 &params_for(kind, NOW),
@@ -1038,6 +1107,97 @@ mod tests {
             )
             .expect("unpaged kinds still compile");
         }
+    }
+
+    #[test]
+    fn client_margin_starts_from_the_client_list_and_binds_a_date_window() {
+        let rep = compile(
+            ReportKind::ClientMargin,
+            &params_for(ReportKind::ClientMargin, NOW),
+            Scope::OrgWide,
+            None,
+            25,
+            win_default(NOW),
+        )
+        .expect("margin compiles");
+
+        // Row spine is the client list, not the invoice list — the whole
+        // point of the report (a client with cost and no revenue must appear).
+        assert!(
+            rep.sql
+                .contains("FROM ops.v1_clients\nc\nLEFT JOIN ops.v1_client_margin"),
+            "margin lost its client spine: {}",
+            rep.sql
+        );
+        // Date anchor: both bounds bind as dates, not timestamps.
+        assert!(matches!(rep.binds[0], Bind::Date(_)));
+        assert!(matches!(rep.binds[1], Bind::Date(_)));
+        assert!(matches!(rep.binds[2], Bind::Int(25)));
+        assert!(rep.sql.contains("m.period_day >= $1"));
+        assert!(rep.sql.contains("m.period_day < $2"));
+        assert!(rep.sql.contains("LIMIT $3"));
+        assert_statement_shape(&rep.sql);
+        assert_statement_shape(&rep.summary_sql);
+        assert_placeholders_contiguous(&rep.sql, rep.binds.len());
+        assert_placeholders_contiguous(&rep.summary_sql, rep.summary_binds.len());
+        assert_eq!(rep.cursor_shape, CursorShape::None);
+        assert_eq!(rep.view, ViewId::ClientMargin);
+    }
+
+    #[test]
+    fn client_margin_never_invents_a_per_user_narrowing() {
+        // A bookkeeper with invoicing:view is not an org admin, so the route
+        // hands the compiler Self_. Margin is a client fact: narrowing on a
+        // personal dimension would drop revenue and keep cost. The compiled
+        // statements must be identical under both scopes.
+        let org = compile(
+            ReportKind::ClientMargin,
+            &params_for(ReportKind::ClientMargin, NOW),
+            Scope::OrgWide,
+            None,
+            100,
+            win_default(NOW),
+        )
+        .expect("orgwide");
+        let self_ = compile(
+            ReportKind::ClientMargin,
+            &params_for(ReportKind::ClientMargin, NOW),
+            Scope::Self_(Uuid::nil()),
+            None,
+            100,
+            win_default(NOW),
+        )
+        .expect("self");
+        assert_eq!(org.sql, self_.sql);
+        assert_eq!(org.binds, self_.binds);
+    }
+
+    #[test]
+    fn client_margin_margin_is_null_when_cost_is_unknown() {
+        // The SQL gate: margin stays NULL while any minute in the row is
+        // uncosted, so a partially costed client is never reported as a
+        // better margin than it is.
+        let rep = compile(
+            ReportKind::ClientMargin,
+            &params_for(ReportKind::ClientMargin, NOW),
+            Scope::OrgWide,
+            None,
+            100,
+            win_default(NOW),
+        )
+        .expect("margin compiles");
+        assert!(
+            rep.sql
+                .contains("CASE WHEN COALESCE(SUM(m.uncosted_minutes), 0) = 0"),
+            "uncosted gate missing: {}",
+            rep.sql
+        );
+        assert!(
+            rep.summary_sql
+                .contains("CASE WHEN COALESCE(SUM(m.uncosted_minutes), 0) = 0"),
+            "summary lost the uncosted gate: {}",
+            rep.summary_sql
+        );
     }
 
     proptest! {

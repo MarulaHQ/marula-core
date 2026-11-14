@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.id, i.catalog_id, i.version, i.status::text AS \"status!\",\n                i.granted_capabilities, i.pending_version, i.pending_manifest,\n                i.pending_capabilities, i.installed_by, i.installed_at, i.updated_at,\n                i.revoked_at, i.revoked_reason,\n                COALESCE(s.config, '{}'::jsonb) AS \"settings!\"\n         FROM plugin_installs i\n         LEFT JOIN plugin_install_settings s ON s.install_id = i.id\n         WHERE i.org_id = $1 ORDER BY i.installed_at, i.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "catalog_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "granted_capabilities",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "pending_version",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "pending_manifest",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "pending_capabilities",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 8,
+        "name": "installed_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "installed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "revoked_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "revoked_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "settings!",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "b857662ba56b73ed7a68f575d6100c9726c153a6176e8fe144c963014fae706b"
+}

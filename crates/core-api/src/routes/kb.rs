@@ -562,6 +562,21 @@ pub async fn get_article(
     }))
 }
 
+/// The human author to record on an article, or `None` for a machine caller.
+///
+/// `kb_articles.created_by` / `updated_by` are FKs to `users`, and a machine
+/// principal (API key or service account) is deliberately NOT a user row — its
+/// synthetic id is the key id, so writing it there is an FK violation. Recording
+/// "no human author" is the honest answer: the mutation trail already names the
+/// key, and the column is nullable for exactly this reason.
+fn human_author(authed: &crate::auth::AuthedUser) -> Option<Uuid> {
+    if authed.via_api_key {
+        None
+    } else {
+        Some(authed.principal.user.id)
+    }
+}
+
 /// POST /api/kb/articles — instant-first (IF1/IF2).
 #[utoipa::path(operation_id = "kb_create_article", post, path = "/api/kb/articles", tag = "kb", security(("bearer" = [])),
     request_body = CreateArticleRequest,
@@ -639,7 +654,7 @@ pub async fn create_article(
             content_jsonb,
             status,
             req.client_visible,
-            user_id,
+            human_author(&authed),
         )
         .await
         .map_err(|e| slug_conflict(e, "article"))?;
@@ -771,7 +786,7 @@ pub async fn update_article(
                 category_id: req.category_id,
                 status: req.status,
                 client_visible: req.client_visible,
-                updated_by: Some(user_id),
+                updated_by: human_author(&authed),
             },
         )
         .await

@@ -329,6 +329,22 @@ impl ReportSpec {
             reason,
         };
 
+        // --- view ----------------------------------------------------------
+        // Financial read models back one prebuilt report and declare no
+        // personal dimension; a stored spec on them could be run by anyone
+        // holding reporting:view, so authoring is refused here — the seam
+        // every write AND every load passes through.
+        if !self.view.authorable() {
+            return Err(invalid(
+                "view",
+                format!(
+                    "'{}' backs the prebuilt client_margin report and is not \
+                     available to report authoring",
+                    self.view.slug()
+                ),
+            ));
+        }
+
         // --- filters -------------------------------------------------------
         if self.filters.len() > MAX_FILTERS {
             return Err(invalid(
@@ -807,9 +823,20 @@ mod tests {
     fn every_view_compiles_a_grand_total_spec_under_both_scopes() {
         for view in ViewId::ALL {
             for scope in [Scope::OrgWide, Scope::Self_(Uuid::nil())] {
-                let compiled = spec(view)
-                    .compile(scope, 100)
-                    .unwrap_or_else(|e| panic!("{view:?}/{scope:?}: {e}"));
+                let compiled = spec(view).compile(scope, 100);
+                if !view.authorable() {
+                    // Financial read models are refused to authoring; the
+                    // prebuilt kind is their only door.
+                    assert!(
+                        matches!(
+                            compiled,
+                            Err(ReportsError::InvalidSpec { ref field, .. }) if field == "view"
+                        ),
+                        "{view:?}: non-authorable view must be refused"
+                    );
+                    continue;
+                }
+                let compiled = compiled.unwrap_or_else(|e| panic!("{view:?}/{scope:?}: {e}"));
                 assert_eq!(compiled.view, view);
                 assert_eq!(compiled.cursor_shape, CursorShape::None);
                 assert_statement_shape(&compiled.sql);
@@ -822,8 +849,9 @@ mod tests {
 
     #[test]
     fn self_scope_adds_the_personal_dimension_predicate() {
-        for view in ViewId::ALL {
-            let dim = view.personal_dim().unwrap();
+        for view in ViewId::ALL.iter().filter(|v| v.authorable()) {
+            let view = *view;
+            let dim = view.personal_dim().expect("authorable views are personal");
             let compiled = spec(view).compile(Scope::Self_(Uuid::nil()), 10).unwrap();
             assert!(
                 compiled.sql.contains(&format!("r.{dim} = $1")),
@@ -1090,7 +1118,7 @@ mod tests {
     #[test]
     fn windowed_compile_narrows_main_and_summary_on_every_view() {
         let at = chrono::DateTime::from_timestamp(1_780_000_000, 0).unwrap();
-        for view in ViewId::ALL {
+        for view in ViewId::ALL.into_iter().filter(|v| v.authorable()) {
             let (anchor_name, anchor_ty) = view.time_anchor().unwrap();
             let c = spec(view)
                 .compile_windowed(Scope::OrgWide, 100, window(at))
@@ -1291,6 +1319,19 @@ mod tests {
         assert_eq!(nums, expected, "placeholder sequence drift in: {sql}");
     }
 
+    /// The authorable slice of the catalog: every view a stored spec may
+    /// target. ClientMargin backs one prebuilt financial report and is
+    /// refused to authoring (see `ViewId::authorable`).
+    fn authorable_views() -> Vec<ViewId> {
+        ViewId::ALL.into_iter().filter(|v| v.authorable()).collect()
+    }
+
+    #[test]
+    fn the_authorable_catalog_is_the_prebuilt_kind_views_only() {
+        assert_eq!(authorable_views().len(), 5);
+        assert!(!authorable_views().contains(&ViewId::ClientMargin));
+    }
+
     proptest::proptest! {
         /// Property: ANY spec assembled from registry-resolvable members
         /// compiles to a structurally safe statement under both scopes —
@@ -1303,7 +1344,8 @@ mod tests {
             n_measures in 1usize..=3,
             self_scoped in proptest::bool::ANY,
         ) {
-            let view = ViewId::ALL[view_idx];
+            let views = authorable_views();
+            let view = views[view_idx % views.len()];
             let mut s = spec(view);
 
             // Filters from the view's filterable inventory, uniquely.

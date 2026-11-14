@@ -2,17 +2,31 @@
 //
 // Renders the org's registered plugin surface entries (slot: dashboard or
 // ticket_pane) through TRUSTED components only: a stat card or a read-only
-// label/value list, with per-board props validated against the entry's
-// declared JSON-Schema subset before render (agent-safety §4.8 — plugin
-// content never renders raw; a plugin ships declarations, not markup or
-// code).
+// label/value list, with per-board props validated before render
+// (agent-safety §4.8 — plugin content never renders raw; a plugin ships
+// declarations, not markup or code).
+//
+// The validator is now the shared one. `props_schema` on a widget is judged by
+// `SettingsSchema::new` + `validate_config` on the server (plugins.rs
+// `PluginSurfaceProfile::validate`), which is the same subset a connector's
+// `settings_schema` uses — nested objects, arrays, `pattern`, bounds. This
+// component used to carry its own flat copy of that subset, so a widget with a
+// nested props object failed closed here while the server accepted it. It now
+// delegates to `@marula-core/ui`'s `readSettingsSchema` /
+// `validateSettingsValue`: one contract, one validator, and still failing
+// closed on anything the reader cannot render.
 //
 // Non-purpose: no plugin fetches and no arbitrary rendering — dynamic
 // data widgets arrive with the WASM execution runtime and ride the same
 // capability gates.
 "use client";
 
-import { Card } from "@marula-core/ui";
+import {
+  Card,
+  readSettingsSchema,
+  validateSettingsValue,
+  type SettingsObject,
+} from "@marula-core/ui";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 
@@ -30,46 +44,31 @@ type SurfaceEntry = {
 
 type Props = Record<string, unknown>;
 
-/** Minimal JSON-Schema subset validation — the SAME subset SettingsSchema
- * accepts server-side (string/number/integer/boolean + enum + bounds).
- * Anything the subset does not understand fails CLOSED (the widget does
- * not render rather than rendering unvalidated). */
-function validateProps(props: Props, schema: unknown): boolean {
+/**
+ * Validates the widget's props against its declared schema with the same
+ * reader and validator a connector's settings form uses. A schema outside the
+ * accepted subset, or a value that fails it, fails CLOSED: the widget renders
+ * the refusal instead of unvalidated content.
+ */
+export function validateProps(props: Props, schema: unknown): boolean {
   if (schema === null || schema === undefined) return true;
-  const obj = schema as {
-    type?: string;
-    properties?: Record<string, { type?: string; enum?: unknown[]; minimum?: number; maximum?: number; minLength?: number; maxLength?: number }>;
-    required?: string[];
-  };
-  if (obj.type !== "object" || typeof obj.properties !== "object") return false;
-  for (const key of obj.required ?? []) {
-    if (!(key in props)) return false;
+  const read = readSettingsSchema(schema);
+  if (!read.ok) return false;
+  const errors = validateSettingsValue(read.schema, props as SettingsObject);
+  return Object.keys(errors).length === 0;
+}
+
+/** A scalar prints itself; a nested value prints as JSON, never "[object Object]". */
+function displayValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
   }
-  for (const [key, value] of Object.entries(props)) {
-    const spec = obj.properties[key];
-    if (spec === undefined) return false;
-    switch (spec.type) {
-      case "string":
-        if (typeof value !== "string") return false;
-        if (spec.minLength !== undefined && value.length < spec.minLength) return false;
-        if (spec.maxLength !== undefined && value.length > spec.maxLength) return false;
-        break;
-      case "number":
-      case "integer":
-        if (typeof value !== "number") return false;
-        if (spec.type === "integer" && !Number.isInteger(value)) return false;
-        if (spec.minimum !== undefined && value < spec.minimum) return false;
-        if (spec.maximum !== undefined && value > spec.maximum) return false;
-        break;
-      case "boolean":
-        if (typeof value !== "boolean") return false;
-        break;
-      default:
-        return false;
-    }
-    if (spec.enum !== undefined && !spec.enum.includes(value)) return false;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "—";
   }
-  return true;
 }
 
 function PluginWidgetCard({ entry, entranceDelay }: { entry: SurfaceEntry; entranceDelay: number }) {
@@ -95,14 +94,14 @@ function PluginWidgetCard({ entry, entranceDelay }: { entry: SurfaceEntry; entra
           {Object.entries(raw).map(([k, v]) => (
             <li key={k} className="flex justify-between gap-3 text-[13px]">
               <span style={{ color: "var(--m-text-secondary)" }}>{k.replace(/_/g, " ")}</span>
-              <span className="truncate">{String(v)}</span>
+              <span className="truncate">{displayValue(v)}</span>
             </li>
           ))}
         </ul>
       ) : (
         <div>
           <p className="text-[26px] font-semibold leading-tight" style={{ fontVariantNumeric: "tabular-nums" }}>
-            {String(raw.value ?? "—")}
+            {displayValue(raw.value)}
           </p>
           {typeof raw.caption === "string" ? (
             <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
