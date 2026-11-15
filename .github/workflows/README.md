@@ -90,8 +90,22 @@ refuses to boot rather than under-provision), and the flake gate is strict on
 first runs — a test that needed a retry beyond the budget fails the job rather
 than absorbing it.
 
-## A green workflow is not the same as a working one
+## The runner image is pinned on purpose
 
+`rust`, `rust-tests-rest` and `e2e` run on `ubuntu-24.04`, not
+`ubuntu-latest`. The label moved to Ubuntu 26.04 on 2026-10-19 and was still
+serving mixed builds of it: one run landed on `ubuntu26/20261111.82`, which came
+up with no Ubuntu archive sources, so `apt-get update` fetched only the
+Microsoft repository and every distro package failed as "Unable to locate". The
+same step passed eighty minutes earlier on `ubuntu26/20261111.196`.
+
+Those three jobs are the only ones that install distro packages — GTK and
+WebKit headers for the Tauri member, and Playwright's browser dependencies.
+Pinning the distro is cheaper than discovering which image build a run landed
+on. When the 26.04 fleet stops disagreeing with itself, move them back and
+delete this section.
+
+## A green workflow is not the same as a working one
 These files were written and validated on a laptop. A workflow's behaviour is
 proven by a run, and a run needs a push. Nothing in this repository's history
 proves that `ci.yml` passes: the per-push commands were all executed locally

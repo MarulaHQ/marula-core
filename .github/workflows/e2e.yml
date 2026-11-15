@@ -48,7 +48,11 @@ jobs:
     concurrency:
       group: e2e-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: true
-    runs-on: ubuntu-latest
+    # Pinned to 24.04 for the reason recorded on `ci.yml`'s `rust` job:
+    # `ubuntu-latest` moved to 26.04 and is serving builds of it without Ubuntu
+    # archive sources, which breaks `playwright install --with-deps` before the
+    # suite starts.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       # The flake budget (e2e/helpers/budget.ts) only retries in CI, and the

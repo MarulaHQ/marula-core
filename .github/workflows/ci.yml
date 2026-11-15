@@ -42,7 +42,18 @@ jobs:
 
   rust:
     name: Rust — fmt · clippy · sqlx offline cache
-    runs-on: ubuntu-latest
+    # `ubuntu-24.04`, not `ubuntu-latest`. `latest` moved to Ubuntu 26.04 on
+    # 2026-10-19 (actions/runner-images#14748) and is still serving several
+    # builds of it. On run 43773681904 this job landed on
+    # `ubuntu26/20261111.82`, which came up with no Ubuntu archive sources at
+    # all: `apt-get update` fetched only the Microsoft repository, and every
+    # package below failed as "Unable to locate". The identical step passed
+    # eighty minutes earlier on `ubuntu26/20261111.196`, which had the archive
+    # and `universe`. The GTK and WebKit headers are the only reason this job
+    # touches the distro at all, and 24.04 is the LTS those headers are known
+    # on, so the distro is pinned until the 26.04 fleet stops disagreeing with
+    # itself.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         # pgvector/pgvector:pg18 — the same major the compose files and
@@ -239,7 +250,9 @@ jobs:
 
   rust-tests-rest:
     name: Rust tests — workspace except core-api
-    runs-on: ubuntu-latest
+    # Pinned for the reason recorded on the `rust` job: the same GTK/WebKit
+    # header install, and the same mixed 26.04 builds.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         # pgvector/pgvector:pg18 — the same major the compose files and
