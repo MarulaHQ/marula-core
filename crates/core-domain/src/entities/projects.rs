@@ -381,7 +381,13 @@ pub struct ProjectTask {
     pub work_type: Option<WorkType>,
     pub priority: Option<crate::status::Priority>,
     pub role_key: Option<String>,
+    // Both are new since the 0.1.0 payloads and are not `Option`, so they must
+    // default: a payload pinned before they existed still has to parse
+    // (contract policy §2, additive-only). The event conformance suite proves
+    // it with the committed goldens.
+    #[serde(default)]
     pub required_skills: Vec<String>,
+    #[serde(default)]
     pub is_critical: bool,
     pub baseline_start_at: Option<DateTime<Utc>>,
     pub baseline_duration_minutes: Option<i32>,
