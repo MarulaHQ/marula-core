@@ -960,6 +960,12 @@ async fn a_restricted_client_ticket_is_not_shareable_into_a_channel() {
 /// cannot be probed through the share route.
 #[tokio::test]
 async fn a_caller_outside_the_connection_audience_cannot_share_through_it() {
+    // The card transport is a process-wide double installed on first use. This
+    // test never posts a card, so it does not read the recorder, but it must
+    // still install one: without it the real transport refuses (no Slack
+    // credential in a test process) and the owner's share comes back 409. It
+    // passed locally only because a sibling test had already installed it.
+    let _ = recorder();
     let (state, app) = test_state().await;
     let org = register(&app, "share-audience").await;
     let team = unique_team();

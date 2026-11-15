@@ -51,9 +51,30 @@ Three rules, from user directive:
   branch, and that branch is the lane's: it disappears with the worktree. Never
   make a second branch, a scratch branch, or one on the primary checkout unless
   the user asks for it by name.
-- **Do not push unless instructed**, and never to `main`. No `git push`, no
-  force-push, no PR. "Landed" means merged into **local** `main`. Moving the
-  remote is the coordinator's decision and the user's call.
+- **Every commit is signed off, from the first one.** Use `git commit -s` (or
+  put `Signed-off-by: <name> <email>` in the message yourself, matching your
+  configured `user.name` and `user.email` exactly). The DCO and sign-off
+  checks gate the whole pull request and refuse every commit in it for one
+  missing trailer, so a lane that signs late has to rewrite its own history
+  to fix it. That rewrite is what splits a local branch from the remote and
+  turns a simple landing into a merge of two histories. Sign as you go.
+- **Work lands by pull request.** Push the lane branch and open the PR — the
+  branch only, never `main`, and never a force-push to a branch someone else
+  is reviewing. "Landed" means **merged on the remote through a PR**, not
+  merged into a local checkout. The PR is squash-merged, so the lane's
+  individual commits never reach `main`: write each commit message so it
+  stands on its own, and expect the squashed result to be the only history
+  anyone else sees.
+- **`main` is a mirror, not a workspace.** Do not commit to it, do not merge
+  into it locally, and do not treat a local merge as a landing. After a PR
+  merges, `git reset --hard origin/main` is the correct way to catch up:
+  resetting a mirror loses nothing, while merging into it creates a second
+  history of work that already shipped.
+
+Pushing is a normal part of landing now, which is the one exception to "do
+not act on the remote without being asked". Opening a PR is the deliverable;
+merging it is the user's call unless they have said otherwise. For the nested
+repos the coordinator decides when a branch is published.
 
 A fresh worktree has no `node_modules` and no build output. Install and build
 there at lane start; do not fall back to the primary checkout to dodge the
@@ -277,16 +298,18 @@ once and waits for the user before running heavy verification (user directive
 - The lane's native to-do list marks the gate step pending with the pause
   noted, so an idle lane reads as "waiting for go-ahead", not stalled.
 - Merge only after the user-approved gate run is green. Close-out is the landing
-  record and the merge.
+  record and the **pull request**; the merge itself is the user's call unless
+  they have said otherwise.
 - **Worktree cleanup after landing (corrected 2026-10-18, user directive).** The
   old "no worktree removal by tooling" rule was written for **Kilo Code**, whose
   worktree handling is fragile, and it still applies there: leave anything under
   `~/.local/share/kilo/worktree-pool/` alone. **OpenCode lanes clear their own
-  worktree once the lane has fully landed** — branch merged into `main`, landing
-  record written, tracker row moved. Confirm with `git worktree list` that the
-  branch is merged and the tree clean, then remove it. Never remove a worktree
-  whose branch is unmerged, whose tree is dirty, or that hosts a stack registered
-  in `scripts/dev-status.sh`.
+  worktree once the lane has fully landed** — the pull request merged on the
+  remote, landing record written, tracker row moved. Confirm with
+  `git worktree list` that the branch's content is on `origin/main` and the
+  tree clean, then remove it. Never remove a worktree whose work is not on the
+  remote, whose tree is dirty, or that hosts a stack registered in
+  `scripts/dev-status.sh`: a worktree holds the only copy until the PR merges.
 
 ### Cheap gates: the arithmetic, and the three commands
 
@@ -366,7 +389,8 @@ the merged tree, not each lane, is what gets verified (user directive
 - One **integration worktree** and one integration branch per group, created
   from `main`. Lanes branch from it. This is the standing exception to "do not
   create branches unless instructed" — the group branch is instructed by the
-  plan. Pushes remain off.
+  plan. Lanes push only their own branch; the group's PR is opened from the
+  integration branch once the lanes are merged into it.
 - Lanes run **light checks only** (`fmt`, `cargo check` on touched crates,
   package-level unit tests, typecheck/lint on touched apps). They do not run
   workspace `cargo test`, clippy `-D warnings`, E2E, Playwright, or the stack.
@@ -377,7 +401,8 @@ the merged tree, not each lane, is what gets verified (user directive
   directory, but its `GATES.md` points at the group's merged run instead of
   claiming a private one.
 - One `READY FOR GATES` pause per group. After the user-approved run is green,
-  the group merges to local `main` and its worktrees are removed.
+  the group opens its pull request and, once that merges, its worktrees are
+  removed.
 - P16-style final acts and any lane the plan marks solo keep the old
   per-lane gate rule.
 
