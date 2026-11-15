@@ -445,7 +445,7 @@ export default function TicketsListPage() {
   );
 
   useEffect(() => {
-    if (auth.status !== "authed" || !showsOptional.board) return;
+    if (auth.status !== "authed") return;
     let cancelled = false;
     void (async () => {
       const res = await api.api.GET("/api/v1/boards/nav");
@@ -457,7 +457,7 @@ export default function TicketsListPage() {
     return () => {
       cancelled = true;
     };
-  }, [auth.status, showsOptional.board]);
+  }, [auth.status]);
 
   useEffect(() => {
     if (auth.status !== "authed" || !showsOptional.type) return;
@@ -673,6 +673,22 @@ export default function TicketsListPage() {
     },
     [persist],
   );
+
+  // The board selector is a view control, not a hidden column: one board at a
+  // time, "All boards" clears it. It writes the same board_id clause the
+  // filter builder uses, so the chip above the table and the selector can
+  // never disagree.
+  const boardId =
+    clauses.find((c) => c.field === "board_id" && c.op === "eq")?.value ?? "";
+  const onBoard = (id: string) => {
+    const rest = clauses.filter((c) => c.field !== "board_id");
+    onClauses(
+      id === ""
+        ? rest
+        : [...rest, { id: `board_id:eq:${id}`, field: "board_id", op: "eq", value: id }],
+    );
+    setSelected(new Set());
+  };
 
   const onSort = useCallback(
     (field: string) => {
@@ -969,7 +985,7 @@ export default function TicketsListPage() {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
+    <div className="mx-auto flex w-full flex-col gap-4 p-4 md:px-6 md:py-5">
       <SurfaceHeader
         title="Tickets"
         meta={
@@ -1009,10 +1025,43 @@ export default function TicketsListPage() {
         }
       />
 
+      {/* Boards are a view of the queue, so they get their own horizontal
+          strip here instead of a second rail on Today. One board at a time;
+          "All boards" clears the same board_id clause the filter builder
+          writes, so a chip and a filter can never disagree. */}
+      {Object.keys(boardNames).length > 0 ? (
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            className="shrink-0 text-[12px] font-semibold uppercase tracking-[0.08em]"
+            style={{ color: "var(--m-text-muted)" }}
+          >
+            Boards
+          </span>
+          <div className="min-w-0 overflow-x-auto">
+            <Segmented
+              type="single"
+              value={boardId === "" ? "__all" : boardId}
+              onValueChange={(v) => onBoard(v === "__all" ? "" : v)}
+              aria-label="Filter by board"
+              className="flex-nowrap"
+            >
+              <SegmentedItem value="__all">All boards</SegmentedItem>
+              {Object.entries(boardNames)
+                .sort((a, b) => a[1].localeCompare(b[1]))
+                .map(([id, name]) => (
+                  <SegmentedItem key={id} value={id}>
+                    {name}
+                  </SegmentedItem>
+                ))}
+            </Segmented>
+          </div>
+        </div>
+      ) : null}
+
       <DataToolbar
         label="Ticket list controls"
         views={
-          <Segmented type="single" value={view} onValueChange={(v) => v && onView(v as TicketView)} aria-label="Ticket views">
+          <Segmented type="single" value={view} onValueChange={(v) => v && onView(v as TicketView)} aria-label="Ticket views" className="flex-nowrap">
             {VIEWS.map((v) => (
               <SegmentedItem key={v.id} value={v.id}>
                 {v.label}

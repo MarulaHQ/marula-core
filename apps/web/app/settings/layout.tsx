@@ -22,7 +22,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { Icon } from "@marula-core/ui/kit";
 import { SETTINGS_GROUPS, SETTINGS_RAIL, groupForPathname } from "../../lib/settings/ia";
-import { SETTINGS_COLUMN, SHELL_GAP } from "../../components/settings/settings-forms";
+import { SHELL_GAP } from "../../components/settings/settings-forms";
 
 function Chevron({ open }: { open: boolean }): React.JSX.Element {
   return (
@@ -45,9 +45,8 @@ export default function SettingsLayout({ children }: { children: ReactNode }): R
       style={{ background: "var(--m-canvas)" }}
     >
       <div
-        className="flex-1 w-full mx-auto flex flex-col lg:flex-row"
+        className="flex-1 w-full flex flex-col lg:flex-row"
         style={{
-          maxWidth: SETTINGS_COLUMN,
           gap: SHELL_GAP,
           paddingTop: 24,
           paddingBottom: 24,
@@ -68,7 +67,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }): R
               <Link
                 href="/settings"
                 aria-current={pathname === "/settings" ? "page" : undefined}
-                className="flex items-center"
+                className="flex w-full items-center"
                 style={{
                   height: 36,
                   padding: "0 12px",
@@ -152,7 +151,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }): R
           </div>
         </nav>
         <main
-          className="flex-1 min-w-0 relative"
+          className="flex-1 min-w-0 relative max-w-[960px]"
           style={{ paddingBottom: 24 }}
           data-testid="settings-main"
         >

@@ -82,6 +82,58 @@ function railState(view: OnboardingStepView | undefined, skipped: boolean): Step
   return "todo";
 }
 
+/** The enrollment QR, drawn in the page from the otpauth URI. */
+function MfaQr({ value }: { value: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setFailed(false);
+    void (async () => {
+      try {
+        // Imported in the effect so the encoder never runs on the server.
+        const { default: QRCode } = await import("qrcode");
+        // No colour option: the encoder's own default is black on white, which
+        // is what a scanner wants, and it keeps a raw hex out of this app.
+        const url = await QRCode.toDataURL(value, {
+          margin: 1,
+          width: 152,
+          errorCorrectionLevel: "M",
+        });
+        if (!cancelled) setSrc(url);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className="flex h-[152px] w-[152px] items-center justify-center overflow-hidden rounded-[10px] border bg-white"
+        style={{ borderColor: "var(--m-border)" }}
+      >
+        {src !== null ? (
+          <img src={src} alt="QR code for your authenticator app" width={152} height={152} />
+        ) : failed ? (
+          // The typed key below is the working path. Saying so beats a spinner
+          // that never resolves.
+          <p className="px-3 text-center text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+            The code could not be drawn. Type the key instead.
+          </p>
+        ) : (
+          <Spinner label="Drawing the code" />
+        )}
+      </div>
+      <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+        Scan with your authenticator app
+      </span>
+    </div>
+  );
+}
+
 export default function OnboardingPage() {
   const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
@@ -118,17 +170,26 @@ export default function OnboardingPage() {
     setTz(auth.me.timezone);
     void (async () => {
       const s = await loadSummary();
-      const first =
-        s?.members.find((m) => m.user_id === auth.me?.user_id)?.steps.find((st) => !st.resolved)
-          ?.step ?? null;
-      setFocus(first ?? USER_LAST_STEP);
       const { data: mine } = await api.api.GET("/api/v1/settings/user");
+      let mfaGraceUntil: string | null = null;
       if (mine) {
         const t = mine.find((v) => v.key === "appearance.theme_override");
         if (t && typeof t.value === "string") setTheme(t.value);
         const m = mine.find((v) => v.key === "appearance.mode");
         if (m && typeof m.value === "string") setMode(m.value);
+        const grace = mine.find((v) => v.key === "onboarding.user_mfa_skip_until");
+        if (grace && typeof grace.value === "string" && Date.parse(grace.value) > Date.now()) {
+          mfaGraceUntil = grace.value;
+          setSkipped((current) => (current.includes("mfa") ? current : [...current, "mfa"]));
+          setMfaAskAgain(grace.value);
+        }
       }
+      const first =
+        s?.members
+          .find((m) => m.user_id === auth.me?.user_id)
+          ?.steps.find((st) => !st.resolved && !(st.step === "mfa" && mfaGraceUntil !== null))
+          ?.step ?? null;
+      setFocus(first ?? USER_LAST_STEP);
     })();
   }, [auth.status, auth.me, loadSummary]);
 
@@ -237,11 +298,15 @@ export default function OnboardingPage() {
       if (!never) {
         setSkipped((current) => (current.includes(target) ? current : [...current, target]));
         // The MFA grace period is the one skip with an end date, so the card
-        // can say when it asks again.
+        // can say when it asks again. The instant is written server-side:
+        // a skip that only lives in this tab asks again on the next reload,
+        // which is exactly what "does not allow me to skip" felt like.
         if (target === "mfa") {
-          // The instant is stored, not the sentence: the day it names is the
-          // reader's, and asking again is a date they plan around.
-          setMfaAskAgain(new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toISOString());
+          const until = new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toISOString();
+          setMfaAskAgain(until);
+          await api.api.PUT("/api/v1/settings/user", {
+            body: { key: "onboarding.user_mfa_skip_until", value: until },
+          });
         }
       }
       await loadSummary();
@@ -317,7 +382,7 @@ export default function OnboardingPage() {
         right={<GuideMenu label="Your first week" onNever={() => setNeverShow(true)} />}
       />
 
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", flex: 1, minHeight: 0, justifyContent: "center", gap: 40, padding: "0 24px", width: "100%", maxWidth: 960, margin: "0 auto" }}>
         <WizardRail
           heading="Getting you started"
           steps={USER_STEP_ORDER.map((key) => labelFor(key).short)}
@@ -448,14 +513,15 @@ export default function OnboardingPage() {
               ) : (
                 <>
                   <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-                    {/* The pack draws a QR here. No QR library is available to
-                        this app and adding one would mean editing the shared
-                        dependency set while other lanes are working, so the
-                        typed key below is the working path and the gap is
-                        recorded. It is the same secret either way. */}
+                    {/* The pack draws the QR beside the instructions. The
+                        typed key stays underneath: a camera that will not
+                        focus is not a reason to be locked out. */}
+                    <MfaQr value={enroll.otpauth_url} />
                     <ol
                       style={{
                         display: "flex",
+                        flex: "1 1 300px",
+                        minWidth: 0,
                         flexDirection: "column",
                         gap: 14,
                         margin: 0,
@@ -537,9 +603,16 @@ export default function OnboardingPage() {
               {/* The pack's sentence for this step's skip, and the reason it is
                   not the same as every other step's. */}
               <p className="entry-explain">
-                <b>Skip for now</b> is allowed for <b>{MFA_GRACE_DAYS} days</b>. You&apos;ll be
-                asked again at your next sign-in, and after that you&apos;ll need it to continue.
-                It can&apos;t be switched off for good.
+                <b>Skip for now</b> is allowed for <b>{MFA_GRACE_DAYS} days</b>. We&apos;ll ask
+                again on{" "}
+                <b>
+                  {formatInTimeZone(
+                    mfaAskAgain ?? new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toISOString(),
+                    timeZone,
+                    "date",
+                  )}
+                </b>
+                , and until then nothing else changes. It can&apos;t be switched off for good.
               </p>
             </div>
           )}

@@ -197,7 +197,7 @@ export function DayRowView({ row, now }: { row: DayRow; now: number }) {
   );
   return (
     <div
-      className="row-hover flex min-h-14 items-center gap-3 px-2"
+      className="row-hover flex min-h-[56px] items-center gap-3 px-[18px]"
       style={
         isNow
           ? { background: "var(--m-surface-2)", boxShadow: `inset 2px 0 0 var(--m-accent)` }
@@ -290,19 +290,19 @@ export function YourDayPanel({ now }: { now: number }) {
     );
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-      <Card className="m-rise grid gap-1 p-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
+    <div className="grid items-start gap-3.5 xl:grid-cols-[minmax(0,1.64fr)_minmax(0,1fr)]">
+      <Card className="m-rise grid gap-0 p-0">
+        <div className="flex items-baseline justify-between gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
+          <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
             Your day
           </h2>
-          <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+          <span className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
             {formatWallClock(now, "day")} · now {formatWallClock(now, "time")}
           </span>
         </div>
         {body}
       </Card>
-      <div className="grid content-start gap-4">
+      <div className="grid content-start gap-3.5">
         <YesterdayCard now={now} />
         <OnCallCard techs={techs} now={now} />
         <TravelCard now={now} />
@@ -314,20 +314,27 @@ export function YourDayPanel({ now }: { now: number }) {
 /** The pack's quiet-day empty state: nothing booked, nothing due. */
 function QuietDayEmpty() {
   return (
-    <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+    <div className="flex flex-col items-center gap-2 px-6 py-10 text-center">
       <span
         className="flex h-14 w-14 items-center justify-center rounded-full"
         style={{ border: "1.5px dashed var(--m-border)", color: "var(--m-status-warning-fg)" }}
         aria-hidden="true"
       >
-        <Icon name="pause" size={22} />
+        <Icon name="clock" size={22} />
       </span>
-      <p className="text-sm font-medium" style={{ color: "var(--m-text)" }}>
+      <p className="text-[15px] font-medium" style={{ color: "var(--m-text)" }}>
         Nothing on today
       </p>
-      <p className="max-w-xs text-xs" style={{ color: "var(--m-text-muted)" }}>
+      <p className="max-w-sm text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
         No visits, no calls, no tickets due. The queue below still shows everything assigned to you.
       </p>
+      <a
+        href="/dispatch"
+        className="mt-1 rounded-[var(--m-radius-control)] px-3 py-1.5 text-[13px] font-medium"
+        style={{ border: "1px solid var(--m-border)", color: "var(--m-text)" }}
+      >
+        Open dispatch for today
+      </a>
     </div>
   );
 }
@@ -378,46 +385,55 @@ export function YesterdayCard({ now }: { now: number }) {
   const logged = day?.logged_minutes ?? 0;
 
   return (
-    <Card className="m-rise grid gap-2 p-3" aria-label="Missing time">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
+    <Card className="m-rise" aria-label="Missing time">
+      <div
+        className="flex items-center gap-2 border-b px-[18px] py-3.5"
+        style={{ borderColor: "var(--m-border)" }}
+      >
+        <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
           Yesterday
         </h2>
+        <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+          {formatWallClock(yesterday, "weekdayOnly")} {formatWallClock(yesterday, "dayMonth")}
+        </span>
+        <span className="flex-1" />
         {day !== null &&
           (complete ? (
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
               style={{ background: "var(--m-status-success-bg)", color: "var(--m-status-success-fg)" }}
             >
               Complete
             </span>
           ) : (
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums"
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
               style={{ background: "var(--m-status-warning-bg)", color: "var(--m-status-warning-fg)" }}
             >
               {fmtMins(day.unaccounted_minutes)} not logged
             </span>
           ))}
       </div>
-      {day === null ? (
-        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
-          No time expected for {formatWallClock(yesterday, "day")}.
-        </p>
-      ) : (
-        <>
-          <p className="text-xs tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-            {fmtMins(logged)} logged of {fmtMins(expected)}
-            {!complete && (
-              <span style={{ color: "var(--m-status-warning-fg)" }}> — {fmtMins(day.unaccounted_minutes)} unaccounted</span>
-            )}
+      <div className="flex flex-col gap-2 px-[18px] py-3.5">
+        {day === null ? (
+          <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+            No time expected for {formatWallClock(yesterday, "day")}.
           </p>
-          <GapBar dayIso={dayIso} expected={expected} logged={logged} entries={entries ?? []} />
-          <Button size="sm" onClick={onLog}>
-            Log time
-          </Button>
-        </>
-      )}
+        ) : (
+          <>
+            <p className="text-[13px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+              <b style={{ color: "var(--m-text)" }}>{fmtMins(logged)}</b> logged of {fmtMins(expected)}
+              {!complete && (
+                <span style={{ color: "var(--m-status-warning-fg)" }}> — {fmtMins(day.unaccounted_minutes)} unaccounted</span>
+              )}
+            </p>
+            <GapBar dayIso={dayIso} expected={expected} logged={logged} entries={entries ?? []} />
+            <Button size="sm" variant={complete ? "secondary" : "primary"} onClick={onLog} className="justify-center">
+              <Icon name="clock" size={14} /> Log time
+            </Button>
+          </>
+        )}
+      </div>
     </Card>
   );
 }
@@ -512,22 +528,27 @@ function OnCallCard({ techs, now }: { techs: Tech[]; now: number }) {
   );
   const tonight = blocks.find(({ block }) => new Date(block.starts_at).toDateString() === new Date(now).toDateString());
   return (
-    <Card className="m-rise grid gap-1.5 p-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
+    <Card className="m-rise">
+      <div
+        className="flex items-center gap-2 border-b px-[18px] py-3.5"
+        style={{ borderColor: "var(--m-border)" }}
+      >
+        <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
           On call
         </h2>
+        <span className="flex-1" />
         {tonight !== undefined && (
           <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
             style={{ background: "var(--m-accent)", color: "var(--m-text)" }}
           >
             Tonight
           </span>
         )}
       </div>
+      <div className="flex flex-col gap-1 px-[18px] py-3.5">
       {blocks.length === 0 ? (
-        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+        <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
           Nobody is holding a rotation right now.
         </p>
       ) : (
@@ -540,23 +561,23 @@ function OnCallCard({ techs, now }: { techs: Tech[]; now: number }) {
               .map((w) => w[0]?.toUpperCase() ?? "")
               .join("");
             return (
-              <li key={block.id} className="flex min-h-9 items-center gap-2">
+              <li key={block.id} className="flex min-h-10 items-center gap-2">
                 <span
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
-                  style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
+                  style={{ background: "var(--m-status-success-bg)", color: "var(--m-status-success-fg)" }}
                   aria-hidden="true"
                 >
                   {initials}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-xs" style={{ color: "var(--m-text)" }}>
+                <span className="min-w-0 flex-1 truncate text-[13px]" style={{ color: "var(--m-text)" }}>
                   {tech.display_name}
                 </span>
-                <span className="text-[11px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
+                <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
                   {windowLabel(block.starts_at, block.ends_at)}
                 </span>
                 {isActive && (
                   <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                    className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
                     style={{ background: "var(--m-accent)", color: "var(--m-text)" }}
                   >
                     On call
@@ -567,6 +588,7 @@ function OnCallCard({ techs, now }: { techs: Tech[]; now: number }) {
           })}
         </ul>
       )}
+      </div>
     </Card>
   );
 }
@@ -589,30 +611,35 @@ function TravelCard({ now }: { now: number }) {
     };
   }, [now]);
   return (
-    <Card className="m-rise grid gap-1.5 p-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--m-text)" }}>
+    <Card className="m-rise">
+      <div
+        className="flex items-center gap-2 border-b px-[18px] py-3.5"
+        style={{ borderColor: "var(--m-border)" }}
+      >
+        <h2 className="text-[16px] font-semibold" style={{ color: "var(--m-text)" }}>
           Travel
         </h2>
+        <span className="flex-1" />
         {drafts !== null && drafts.length > 0 && (
           <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+            className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
             style={{ background: "var(--m-accent)", color: "var(--m-text)" }}
           >
             {drafts.length} draft{drafts.length === 1 ? "" : "s"}
           </span>
         )}
       </div>
+      <div className="flex flex-col gap-1 px-[18px] py-3.5">
       {drafts === null ? (
         <Spinner label="Loading trips" />
       ) : drafts.length === 0 ? (
-        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+        <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
           No trips today.
         </p>
       ) : (
         <ul role="list" className="flex flex-col">
           {drafts.slice(0, 3).map((draft) => (
-            <li key={draft.id} className="flex min-h-9 items-center gap-2">
+            <li key={draft.id} className="flex min-h-10 items-center gap-2">
               <span
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
                 style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
@@ -621,10 +648,10 @@ function TravelCard({ now }: { now: number }) {
                 <Icon name="car" size={13} />
               </span>
               <span className="grid min-w-0 flex-1">
-                <span className="truncate text-xs font-medium" style={{ color: "var(--m-text)" }}>
+                <span className="truncate text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
                   {draftLabel(draft)}
                 </span>
-                <span className="truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                <span className="truncate text-[12px]" style={{ color: "var(--m-text-muted)" }}>
                   Ready when you arrive.
                 </span>
               </span>
@@ -639,6 +666,7 @@ function TravelCard({ now }: { now: number }) {
           ))}
         </ul>
       )}
+      </div>
     </Card>
   );
 }

@@ -88,23 +88,25 @@ export function OnboardingResumeBanner() {
 
   return (
     <Card
-      className="m-rise grid gap-2 p-4"
+      className="m-rise overflow-hidden"
       role="region"
       aria-label="Onboarding"
       data-testid="onboarding-banner"
     >
       {orgApplies && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="grid gap-0.5">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <div className="min-w-0">
             <p className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
-              Finish org setup ({orgResolved}/{summary.org.steps.length} steps resolved)
+              Finish org setup
+              <span className="ml-1.5 font-normal" style={{ color: "var(--m-text-muted)" }}>
+                {orgResolved}/{summary.org.steps.length}
+              </span>
             </p>
             <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-              Clients, board, tickets, team — every step is skippable, and "skip for now" changes
-              nothing: the org already runs on its defaults.
+              Every step is skippable; skipping changes nothing.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <a
               href="/welcome"
               className="rounded-[var(--m-radius-container)] px-3 py-1.5 text-[13px] font-medium"
@@ -128,23 +130,26 @@ export function OnboardingResumeBanner() {
         </div>
       )}
       {userApplies && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="grid gap-0.5">
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3"
+          style={{ borderColor: "var(--m-border)" }}
+        >
+          <div className="min-w-0">
             <p className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
-              Set up your workspace
+              Your first run
             </p>
             <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-              Profile, second factor, orientation, defaults — every step is skippable.
+              Profile, second factor, orientation, defaults.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <a
               href="/onboarding"
               className="rounded-[var(--m-radius-container)] px-3 py-1.5 text-[13px] font-medium"
               style={{ background: "var(--m-accent)", color: "var(--m-on-accent)" }}
               data-testid="onboarding-resume-user"
             >
-              Open first-run
+              Continue
             </a>
             <Button
               variant="ghost"

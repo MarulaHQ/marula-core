@@ -25,6 +25,7 @@ import {
   Kbd,
   Spinner,
   SurfaceHeader,
+  toast,
 } from "@marula-core/ui";
 import {
   browserTimeZone,
@@ -34,7 +35,6 @@ import {
 import { Icon } from "@marula-core/ui/kit";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BoardNav } from "../../components/board-nav";
 import { OnboardingResumeBanner } from "../../components/onboarding/resume-banner";
 import { DayPackPanel } from "../../components/today/day-pack-panel";
 import { YourDayPanel } from "../../components/today/day-surface";
@@ -288,16 +288,10 @@ export default function TodayPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-h-0 flex-1">
-        <div
-          data-testid="today-boards-rail"
-          className="hidden shrink-0 lg:block lg:border-r"
-          style={{ borderColor: "var(--m-border)" }}
-        >
-          <BoardNav />
-        </div>
-        <main
-          className="mx-auto flex w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-auto p-4 [&>*]:shrink-0"
-        >
+        {/* The pack's Today is the full content width after the 64px rail:
+            24px gutters and no centred 1024px column. Board filtering lives
+            on /tickets now — Today never carried a boards rail in the pack. */}
+        <main className="mx-auto flex w-full min-w-0 flex-1 flex-col gap-4 overflow-auto px-6 py-5 [&>*]:shrink-0">
           {/* `[&>*]:shrink-0` is load-bearing, not tidiness. This column is the
               page's scroll container (fixed height, `overflow-auto`), so its
               children must keep their content height and let the column scroll.
@@ -327,7 +321,7 @@ export default function TodayPage() {
                     <Icon name="plus" size={14} /> New ticket <Kbd tone="muted">C</Kbd>
                   </a>
                 )}
-                <Button size="sm" onClick={() => setLogOpen(true)}>
+                <Button size="sm" variant="primary" onClick={() => setLogOpen(true)}>
                   <Icon name="clock" size={14} /> Quick log <Kbd tone="muted">L</Kbd>
                 </Button>
               </>
@@ -340,7 +334,7 @@ export default function TodayPage() {
           {/* The five attention cards (pack): label + figure + one line, red
               border only for genuine breaches, all green when the day is
               clear. Each is a button that opens the filtered queue. */}
-          <div className="m-rise grid gap-3 sm:grid-cols-2 xl:grid-cols-5" style={{ animationDelay: "30ms" }}>
+          <div className="m-rise grid gap-3.5 sm:grid-cols-2 xl:grid-cols-5" style={{ animationDelay: "30ms" }}>
             <AttentionCard
               label="Yours today"
               dot="accent"
@@ -436,7 +430,24 @@ export default function TodayPage() {
 
           {/* The grouped queue. The pack draws the day; the queue keeps the
               work reachable and the attention cards anchor into it. The
-              approvals count for approvers rides the same quiet band. */}
+              approvals count for approvers rides the same quiet band. It is
+              a card with its own header so the extra surface reads as a
+              deliberate block rather than running off the end of the page. */}
+          <Card className="m-rise overflow-hidden">
+            <div
+              className="flex items-center gap-2 border-b px-[18px] py-3.5"
+              style={{ borderColor: "var(--m-border)" }}
+            >
+              <h2 className="text-[16px] font-semibold">Your queue</h2>
+              <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                {all.length} assigned
+              </span>
+              <span className="flex-1" />
+              <a href="/tickets" className="text-[13px] font-medium hover:underline">
+                All tickets
+              </a>
+            </div>
+            <div className="flex flex-col gap-2 px-[18px] py-3">
           {items === null ? (
             <div className="flex flex-1 items-center justify-center">
               <Spinner />
@@ -560,6 +571,8 @@ export default function TodayPage() {
               })}
             </>
           )}
+            </div>
+          </Card>
         </main>
       </div>
 
@@ -606,40 +619,44 @@ function AttentionCard({
   const breached = tone === "breach";
   const body = (
     <>
-      <span className="flex items-center gap-1.5">
+      <span className="flex items-center gap-2">
         <span
-          className="h-1.5 w-1.5 shrink-0 rounded-full"
+          className="h-2 w-2 shrink-0 rounded-full"
           style={{ background: dotColor }}
           aria-hidden="true"
         />
         <span
-          className="text-[10px] font-semibold uppercase tracking-wide"
-          style={{ color: breached ? "var(--m-status-danger-fg)" : "var(--m-text-muted)" }}
+          className="text-[13px] font-semibold uppercase leading-[1.45] tracking-[0.01em]"
+          style={{ color: breached ? "var(--m-status-danger-fg)" : "var(--m-text-secondary)" }}
         >
           {label}
         </span>
       </span>
       <span
-        className="text-xl font-semibold tabular-nums"
+        className="text-[32px] font-semibold leading-[1.15] tabular-nums"
         style={{ color: breached ? "var(--m-status-danger-fg)" : "var(--m-text)" }}
       >
         {format !== undefined ? format(value) : value}
       </span>
-      <span className="truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+      {/* The pack's line is allowed to wrap: a truncated "1h logged of 8h"
+          hides the number the card exists to show. */}
+      <span
+        className="text-[13px] leading-[1.4]"
+        style={{ color: "var(--m-text-secondary)" }}
+      >
         {line}
       </span>
     </>
   );
-  const cardStyle: React.CSSProperties = breached
-    ? { borderColor: "var(--m-status-danger-fg)" }
-    : {};
+  const cardStyle: React.CSSProperties = {
+    padding: "14px 16px",
+    minHeight: 112,
+    ...(breached ? { borderColor: "var(--m-status-danger-fg)" } : {}),
+  };
   if (href !== undefined) {
     return (
-      <Card
-        className="m-rise grid gap-0.5 p-3 transition-shadow duration-100 hover:shadow-md"
-        style={cardStyle}
-      >
-        <a href={href} className="grid gap-0.5 outline-offset-4">
+      <Card className="m-rise transition-shadow duration-100 hover:shadow-md" style={cardStyle}>
+        <a href={href} className="flex h-full flex-col gap-0.5 outline-offset-4">
           {body}
         </a>
       </Card>
@@ -647,8 +664,8 @@ function AttentionCard({
   }
   if (onClick !== undefined) {
     return (
-      <Card className="m-rise p-3 transition-shadow duration-100 hover:shadow-md" style={cardStyle}>
-        <button type="button" onClick={onClick} className="grid gap-0.5 text-left outline-offset-4">
+      <Card className="m-rise transition-shadow duration-100 hover:shadow-md" style={cardStyle}>
+        <button type="button" onClick={onClick} className="flex h-full w-full flex-col gap-0.5 text-left outline-offset-4">
           {body}
         </button>
       </Card>
@@ -656,10 +673,10 @@ function AttentionCard({
   }
   return (
     <Card
-      className="m-rise p-3"
+      className="m-rise"
       style={{ ...cardStyle, ...(anchor !== undefined ? { scrollMarginTop: "1rem" } : {}) }}
     >
-      <a href={anchor !== undefined ? `#${anchor}` : undefined} className="grid gap-0.5 outline-offset-4">
+      <a href={anchor !== undefined ? `#${anchor}` : undefined} className="flex h-full flex-col gap-0.5 outline-offset-4">
         {body}
       </a>
     </Card>
@@ -731,14 +748,9 @@ function FocusStrip({
     };
   }, [active?.ticket_id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (active === null) {
-    return (
-      <p
-        className="m-rise text-xs"
-        style={{ color: "var(--m-text-muted)", animationDelay: "60ms" }}
-      >
-        No active timer — start one from a row below; the work bar tracks it.
-      </p>
-    );
+    // The bottom work bar already owns the timer's resting state; a second
+    // sentence between the day and the queue was pure noise in the pack read.
+    return null;
   }
   return (
     <Card className="m-rise flex items-center gap-3 p-3" style={{ animationDelay: "60ms" }} aria-label="Active timer">
@@ -794,7 +806,11 @@ function QuickLogDialog({
 }) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent title="Quick log" description="Time you forgot to log. Nothing is submitted until you choose a work type.">
+      <DialogContent
+        title="Quick log"
+        description="Time you forgot to log. Nothing is submitted until you choose a work type."
+        width={480}
+      >
         <QuickLogForm items={items} onDone={onClose} />
       </DialogContent>
     </Dialog>
@@ -876,6 +892,7 @@ function QuickLogForm({
 
   const mins = Number.parseInt(forMinutes, 10);
   const validMins = Number.isFinite(mins) && mins > 0;
+  const ticketLabel = items.find((t) => t.id === ticketId)?.number ?? "the ticket";
   const startedOk = !Number.isNaN(new Date(`${yesterdayIso()}T${startTime}:00`).getTime());
   const overlap = useMemo(() => {
     if (!validMins || !startedOk) return null;
@@ -927,6 +944,7 @@ function QuickLogForm({
         },
       });
       if (apiError !== undefined) throw new Error("could not save the entry");
+      toast(`Logged ${durationClock(mins)} on ${ticketLabel}.`, { description: notes.trim() === "" ? undefined : notes.trim() });
       onDone();
     } catch (err) {
       setError(friendlyMutationText(err, "Save failed"));
@@ -958,21 +976,22 @@ function QuickLogForm({
         </select>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)_minmax(0,0.75fr)] gap-2">
         <div className="flex flex-col gap-1">
-          <label className="text-xs" htmlFor="log-date" style={{ color: "var(--m-text-secondary)" }}>
+          <label className="text-[13px]" htmlFor="log-date" style={{ color: "var(--m-text-secondary)" }}>
             Day
           </label>
           <input
             id="log-date"
             readOnly
             value={dayLabel}
-            className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
+            title={dayLabel}
+            className="min-w-0 rounded-[var(--m-radius-control)] px-2.5 py-2 text-[13px]"
             style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs" htmlFor="log-start" style={{ color: "var(--m-text-secondary)" }}>
+          <label className="text-[13px]" htmlFor="log-start" style={{ color: "var(--m-text-secondary)" }}>
             Started at
           </label>
           <input
@@ -980,7 +999,7 @@ function QuickLogForm({
             type="time"
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
-            className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
+            className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px]"
             style={{
               border: `1px solid ${startedOk ? "var(--m-border)" : "var(--m-status-warning-fg)"}`,
               background: "var(--m-surface)",
@@ -990,7 +1009,7 @@ function QuickLogForm({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs" htmlFor="log-minutes" style={{ color: "var(--m-text-secondary)" }}>
+          <label className="text-[13px]" htmlFor="log-minutes" style={{ color: "var(--m-text-secondary)" }}>
             For
           </label>
           <input
@@ -999,7 +1018,7 @@ function QuickLogForm({
             min={1}
             value={forMinutes}
             onChange={(e) => setForMinutes(e.target.value)}
-            className="rounded-[var(--m-radius-container)] px-2 py-1.5 text-xs"
+            className="rounded-[var(--m-radius-control)] px-3 py-2 text-[13px]"
             style={{ border: "1px solid var(--m-border)", background: "var(--m-surface)", color: "var(--m-text)" }}
             data-testid="quicklog-minutes"
           />
@@ -1037,12 +1056,12 @@ function QuickLogForm({
       </p>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium" style={{ color: "var(--m-text-secondary)" }}>
+        <span className="text-[13px] font-semibold" style={{ color: "var(--m-text-secondary)" }}>
           Work type
         </span>
         <div className="flex flex-wrap gap-1.5" data-testid="quicklog-work-types">
           {categories === null ? (
-            <span className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+            <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
               Loading categories…
             </span>
           ) : (
@@ -1060,26 +1079,29 @@ function QuickLogForm({
                     if (!c.defaultBillable) setBillable(false);
                     void refreshCategories();
                   }}
-                  className="rounded-full px-2.5 py-1 text-[11px] font-medium"
+                  className="flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[13px] font-medium"
                   style={{
-                    border: `1px ${isSuggested && !selected ? "dashed" : "solid"} var(--m-border)`,
-                    background: selected ? "var(--m-accent)" : "var(--m-surface)",
-                    color: selected ? "var(--m-text)" : "var(--m-text-secondary)",
+                    border: `1px ${isSuggested && !selected ? "dashed" : "solid"} ${selected ? "var(--m-primary)" : "var(--m-border)"}`,
+                    background: selected ? "var(--m-primary)" : "var(--m-surface)",
+                    color: selected ? "var(--m-primary-foreground)" : "var(--m-text)",
                   }}
                 >
+                  {selected && <Icon name="check" size={13} />}
                   {c.label}
                   {isSuggested && !selected && (
-                    <span className="ml-1 text-[9px] uppercase tracking-wide" style={{ color: "var(--m-text-muted)" }}>
+                    <span
+                      className="rounded-[5px] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                      style={{ background: "var(--m-surface-2)", color: "var(--m-text-secondary)" }}
+                    >
                       Suggested
                     </span>
                   )}
-                  {selected && <Icon name="check" size={11} />}
                 </button>
               );
             })
           )}
         </div>
-        <p className="text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+        <p className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
           {workTypeChosen
             ? `Chosen by you${audit !== null ? "" : "."}`
             : suggested !== null
@@ -1109,16 +1131,16 @@ function QuickLogForm({
             setBillable((b) => !b);
             if (!billable) setUnbillableReason("");
           }}
-          className="relative h-5 w-9 rounded-full transition-colors duration-100"
-          style={{ background: billable ? "var(--m-accent)" : "var(--m-border)" }}
+          className="relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-100"
+          style={{ background: billable ? "var(--m-primary)" : "var(--m-input)" }}
           data-testid="quicklog-billable"
         >
           <span
-            className="absolute top-0.5 h-4 w-4 rounded-full transition-transform duration-100"
+            className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full transition-transform duration-100"
             style={{
               background: "var(--m-surface)",
-              border: "1px solid var(--m-border)",
-              transform: `translateX(${billable ? 18 : 2}px)`,
+              boxShadow: "0 1px 2px rgb(0 0 0 / 0.18)",
+              transform: `translateX(${billable ? 20 : 0}px)`,
             }}
           />
         </button>
@@ -1219,6 +1241,7 @@ function QuickLogForm({
           </Button>
           <Button
             size="sm"
+            variant="primary"
             disabled={busy || !canSubmit}
             onClick={() => void submit()}
             data-testid="quicklog-submit"

@@ -50,6 +50,13 @@ function SettingControl({
   onChange: (next: string | number | boolean) => void;
 }) {
   const kind = decl.kind;
+  // The wide-range integer control needs a text draft so a person can clear
+  // the field to retype it: committing every keystroke refused the empty
+  // string and left the old value stuck in place.
+  const [intDraft, setIntDraft] = useState(String(value));
+  useEffect(() => {
+    setIntDraft(String(value));
+  }, [value]);
   if (kind.type === "boolean") {
     return (
       <Select
@@ -67,21 +74,59 @@ function SettingControl({
     );
   }
   if (kind.type === "integer") {
-    const options: number[] = [];
-    for (let n = kind.value.min; n <= kind.value.max; n += 1) options.push(n);
+    const { min, max } = kind.value;
+    // A bounded set small enough to scan is a select; anything wider is a
+    // number field. Building one <option> per unit is what made this page
+    // lock the renderer: weekly hours run to 8,760 and an SMTP port to
+    // 65,535, and two option lists that size freeze the tab on first paint.
+    const isHourOfDay = min === 0 && max === 23;
+    if (max - min <= 60) {
+      const options: number[] = [];
+      for (let n = min; n <= max; n += 1) options.push(n);
+      return (
+        <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
+          <SelectTrigger className="w-40" aria-label={decl.label}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {isHourOfDay ? `${String(n).padStart(2, "0")}:00` : String(n)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    }
     return (
-      <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
-        <SelectTrigger className="w-40" aria-label={decl.label}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((n) => (
-            <SelectItem key={n} value={String(n)}>
-              {String(n).padStart(2, "0")}:00
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          inputMode="numeric"
+          min={min}
+          max={max}
+          step={1}
+          value={intDraft}
+          aria-label={decl.label}
+          onChange={(e) => {
+            setIntDraft(e.target.value);
+            const next = Number(e.target.value);
+            if (e.target.value !== "" && Number.isFinite(next) && next >= min && next <= max) {
+              onChange(next);
+            }
+          }}
+          onBlur={() => {
+            const next = Number(intDraft);
+            if (intDraft === "" || !Number.isFinite(next) || next < min || next > max) {
+              setIntDraft(String(value));
+            }
+          }}
+          className="w-32"
+        />
+        <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+          {min}–{max}
+        </span>
+      </div>
     );
   }
   if (kind.type === "enumeration") {

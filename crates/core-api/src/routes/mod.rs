@@ -97,6 +97,7 @@ pub mod labels;
 pub mod loans;
 pub mod loop_termination;
 pub mod manifest;
+pub mod money_authoring;
 pub mod notifications;
 pub mod object_integrity_admin;
 pub mod oidc;
@@ -2396,6 +2397,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(labels::routes(gen))
         .merge(scan::routes(gen))
         .merge(quotes::routes(gen))
+        .merge(money_authoring::routes(gen))
         .merge(pipeline::routes(gen))
         // currency & FX (ADR 0002, Wave 12 lane 10, migration 0066): the
         // append-only rate book (manual-entry built-in provider) + the
