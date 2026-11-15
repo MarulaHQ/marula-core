@@ -62,6 +62,7 @@ import { ErrorNote } from "../../components/knowledge/ledger";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
 import { formatPackDate, renewalSignal } from "../../lib/renewal-signals";
+import { DescribeMoney } from "../../components/money/describe-money";
 
 type Contract = components["schemas"]["Contract"];
 type ContractType = components["schemas"]["ContractType"];
@@ -311,6 +312,30 @@ export default function ContractsPage() {
           </div>
         }
         actions={
+          <>
+          <DescribeMoney
+            kind="contract"
+            onDraft={(draft) => {
+              if ("lines" in draft) return;
+              setName(draft.name);
+              if (TYPES.includes(draft.contract_type as ContractType)) {
+                setType(draft.contract_type as ContractType);
+              }
+              if (draft.billing_frequency) setFrequency(draft.billing_frequency);
+              if (draft.value_minor != null) setAmount((draft.value_minor / 100).toFixed(2));
+              if (draft.currency) setCurrency(draft.currency);
+              const from = draft.effective_from ?? today();
+              setEffectiveFrom(from);
+              if (draft.term_months != null && draft.term_months > 0) {
+                const start = new Date(`${from}T00:00:00`);
+                start.setMonth(start.getMonth() + draft.term_months);
+                setEffectiveUntil(start.toISOString().slice(0, 10));
+              }
+              setCreateError(null);
+              setCreateOpen(true);
+            }}
+            testId="contracts-describe"
+          />
           <Dialog
           open={createOpen}
           onOpenChange={(open) => {
@@ -420,6 +445,7 @@ export default function ContractsPage() {
           </div>
           </DialogContent>
           </Dialog>
+          </>
         }
       />
 

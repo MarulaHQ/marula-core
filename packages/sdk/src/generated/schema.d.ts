@@ -3901,6 +3901,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/contracts/author": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/contracts/author — draft a contract from notes. No write. */
+        post: operations["contract_author"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/contracts/{id}": {
         parameters: {
             query?: never;
@@ -10255,6 +10272,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/quotes/author": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/quotes/author — draft a quote from notes. No write. */
+        post: operations["quote_author"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/quotes/{id}": {
         parameters: {
             query?: never;
@@ -15622,11 +15656,35 @@ export interface components {
             node_count: number;
             version: string;
         };
+        AuthorContractResponse: {
+            assumptions: string[];
+            draft?: components["schemas"]["ContractDraft"] | null;
+            error?: string | null;
+            issues: components["schemas"]["MoneyAuthoringIssue"][];
+            model_info: components["schemas"]["MoneyAuthorModel"];
+            saved: boolean;
+            usage: components["schemas"]["MoneyAuthorUsage"];
+            valid: boolean;
+        };
         /** @description Model-provenance summary for the response. */
         AuthorModelInfo: {
             model: string;
             provider: string;
             resolution: string;
+        };
+        AuthorMoneyRequest: {
+            /** @description The words to read: a sentence, a bullet list, or pasted meeting notes. */
+            transcript: string;
+        };
+        AuthorQuoteResponse: {
+            assumptions: string[];
+            draft?: components["schemas"]["QuoteDraft"] | null;
+            error?: string | null;
+            issues: components["schemas"]["MoneyAuthoringIssue"][];
+            model_info: components["schemas"]["MoneyAuthorModel"];
+            saved: boolean;
+            usage: components["schemas"]["MoneyAuthorUsage"];
+            valid: boolean;
         };
         AuthorReportCatalogue: {
             /**
@@ -18384,6 +18442,20 @@ export interface components {
             minimum_commitment_minor?: number | null;
             rates: components["schemas"]["ContractRate"][];
             sla_credits: components["schemas"]["ContractSlaCredit"][];
+        };
+        ContractDraft: {
+            assumptions?: string[];
+            billing_frequency?: string | null;
+            clauses?: string[];
+            contract_type: string;
+            currency: string;
+            effective_from?: string | null;
+            name: string;
+            notes?: string | null;
+            /** Format: int64 */
+            term_months?: number | null;
+            /** Format: int64 */
+            value_minor?: number | null;
         };
         /**
          * @description A scheduled escalator: the contract's per-period price uplifts by
@@ -25421,6 +25493,20 @@ export interface components {
              */
             trust_device?: boolean;
         };
+        MoneyAuthorModel: {
+            model: string;
+            provider: string;
+        };
+        MoneyAuthorUsage: {
+            /** Format: int32 */
+            completion_tokens: number;
+            /** Format: int32 */
+            prompt_tokens: number;
+        };
+        MoneyAuthoringIssue: {
+            field: string;
+            message: string;
+        };
         MoveAppointmentRequest: {
             /** Format: date-time */
             ends_at: string;
@@ -29082,6 +29168,15 @@ export interface components {
         QuoteDetail: components["schemas"]["Quote"] & {
             lines: components["schemas"]["QuoteLine"][];
         };
+        QuoteDraft: {
+            assumptions?: string[];
+            currency: string;
+            lines?: components["schemas"]["QuoteLineDraft"][];
+            notes?: string | null;
+            title: string;
+            /** Format: int64 */
+            valid_for_days?: number | null;
+        };
         /**
          * @description A lifecycle leg body (send/accept/decline/expire): envelope params
          *     only; the target status is the URL.
@@ -29114,6 +29209,19 @@ export interface components {
             unit: string;
             /** Format: int64 */
             unit_amount_minor: number;
+        };
+        QuoteLineDraft: {
+            description: string;
+            /**
+             * Format: int64
+             * @description Quantity × 1000 (the product's milli-unit).
+             */
+            quantity_milli: number;
+            /**
+             * Format: int64
+             * @description Unit price in minor currency units (cents).
+             */
+            unit_price_minor: number;
         };
         /**
          * @description One requested line. Catalog-backed lines snapshot the item's
@@ -42502,6 +42610,36 @@ export interface operations {
             };
         };
     };
+    contract_author: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorMoneyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorContractResponse"];
+                };
+            };
+            /** @description AI admission refused (typed reason in the envelope) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     contracts_get_one: {
         parameters: {
             query?: never;
@@ -55105,6 +55243,36 @@ export interface operations {
             };
             /** @description validation failure */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quote_author: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorMoneyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorQuoteResponse"];
+                };
+            };
+            /** @description AI admission refused (typed reason in the envelope) */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

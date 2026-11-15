@@ -1956,7 +1956,9 @@ mod tests {
         // Wave 50 lane T2 added general.show_record_time (user scope) = 23.
         // Wave 46 lane 2 declared dashboards.widgets, the arrangement the
         // dashboards page had been writing to an undeclared key = 24.
-        assert_eq!(declarations_for(SettingScope::User).len(), 24);
+        // The money-authoring lane added onboarding.user_mfa_skip_until,
+        // the seven-day grace the skip actually writes = 25.
+        assert_eq!(declarations_for(SettingScope::User).len(), 25);
         // Tripwire count: bump deliberately when an org-scope setting is
         // added (Wave 26 lane 1: flows_disabled + six org steps ×
         // done/dismissed = 13, so 15 → 28; Wave 26 lane 2 added

@@ -1429,6 +1429,7 @@ function ContactsCard({
               <Th>Reaches</Th>
               <Th>Role</Th>
               <Th>Portal</Th>
+              <Th>Last contact</Th>
             </tr>
           </thead>
           <tbody>
@@ -1467,6 +1468,12 @@ function ContactsCard({
                   <Td>
                     {c.is_primary ? (
                       <Badge tone="neutral">Primary</Badge>
+                    ) : portal?.role === "approver" ? (
+                      <Badge tone="neutral">Approves quotes</Badge>
+                    ) : portal?.role === "it_manager" ? (
+                      <Badge tone="neutral">IT manager</Badge>
+                    ) : portal?.role === "contact" ? (
+                      <Badge tone="neutral">Contact</Badge>
                     ) : (
                       <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
                         None
@@ -1529,6 +1536,18 @@ function ContactsCard({
                         />
                       </button>
                     )}
+                  </Td>
+                  <Td>
+                    {/* Contact activity is not recorded by this schema yet.
+                        Saying "Never" is the honest reading; the title names
+                        the gap rather than dressing a missing field as data. */}
+                    <span
+                      className="text-[13px]"
+                      title="Contact activity is not recorded yet."
+                      style={{ color: "var(--m-text-muted)" }}
+                    >
+                      Never
+                    </span>
                   </Td>
                 </Tr>
               );

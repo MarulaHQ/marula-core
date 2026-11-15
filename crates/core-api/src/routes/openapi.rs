@@ -220,6 +220,9 @@ use utoipa::OpenApi;
         crate::routes::report_defs::run_spec,
         // report authoring (Wave 46 lane 3): "describe it" → a validated draft
         crate::routes::report_authoring::author,
+        // money authoring: "describe it" → a quote/contract draft
+        crate::routes::money_authoring::author_quote,
+        crate::routes::money_authoring::author_contract,
         // scheduled report delivery (the private build tracker R4)
         crate::routes::report_schedules::list,
         crate::routes::report_schedules::create,
@@ -1775,6 +1778,16 @@ use utoipa::OpenApi;
         crate::routes::report_authoring::ReportDraft,
         crate::routes::report_authoring::ReportAuthoringIssue,
         crate::routes::report_authoring::ReportDiffEntry,
+        // money authoring
+        crate::routes::money_authoring::AuthorMoneyRequest,
+        crate::routes::money_authoring::AuthorQuoteResponse,
+        crate::routes::money_authoring::AuthorContractResponse,
+        crate::routes::money_authoring::QuoteDraft,
+        crate::routes::money_authoring::QuoteLineDraft,
+        crate::routes::money_authoring::ContractDraft,
+        crate::routes::money_authoring::MoneyAuthoringIssue,
+        crate::routes::money_authoring::MoneyAuthorUsage,
+        crate::routes::money_authoring::MoneyAuthorModel,
         // scheduled report delivery (the private build tracker R4)
         crate::routes::report_schedules::ScheduleCadence,
         crate::routes::report_schedules::ReportScheduleView,

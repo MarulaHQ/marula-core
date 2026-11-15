@@ -82,6 +82,49 @@ function railState(view: OnboardingStepView | undefined, skipped: boolean): Step
   return "todo";
 }
 
+/** The enrollment QR, drawn in the page from the otpauth URI. */
+function MfaQr({ value }: { value: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        // Imported in the effect so the encoder never runs on the server.
+        const { default: QRCode } = await import("qrcode");
+        const url = await QRCode.toDataURL(value, {
+          margin: 1,
+          width: 152,
+          errorCorrectionLevel: "M",
+          color: { dark: "#2b2a33", light: "#ffffff" },
+        });
+        if (!cancelled) setSrc(url);
+      } catch {
+        if (!cancelled) setSrc(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+  return (
+      <div className="flex flex-col items-center gap-2">
+      <div
+        className="flex h-[152px] w-[152px] items-center justify-center overflow-hidden rounded-[10px] border bg-white"
+        style={{ borderColor: "var(--m-border)" }}
+      >
+        {src === null ? (
+          <Spinner label="Drawing the code" />
+        ) : (
+          <img src={src} alt="QR code for your authenticator app" width={152} height={152} />
+        )}
+      </div>
+      <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+        Scan with your authenticator app
+      </span>
+    </div>
+  );
+}
+
 export default function OnboardingPage() {
   const { timeZone } = useTimeFormat();
   const auth = useRequireAuth();
@@ -461,14 +504,15 @@ export default function OnboardingPage() {
               ) : (
                 <>
                   <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-                    {/* The pack draws a QR here. No QR library is available to
-                        this app and adding one would mean editing the shared
-                        dependency set while other lanes are working, so the
-                        typed key below is the working path and the gap is
-                        recorded. It is the same secret either way. */}
+                    {/* The pack draws the QR beside the instructions. The
+                        typed key stays underneath: a camera that will not
+                        focus is not a reason to be locked out. */}
+                    <MfaQr value={enroll.otpauth_url} />
                     <ol
                       style={{
                         display: "flex",
+                        flex: "1 1 300px",
+                        minWidth: 0,
                         flexDirection: "column",
                         gap: 14,
                         margin: 0,

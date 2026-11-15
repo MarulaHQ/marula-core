@@ -320,7 +320,7 @@ function QuietDayEmpty() {
         style={{ border: "1.5px dashed var(--m-border)", color: "var(--m-status-warning-fg)" }}
         aria-hidden="true"
       >
-        <Icon name="pause" size={22} />
+        <Icon name="clock" size={22} />
       </span>
       <p className="text-[15px] font-medium" style={{ color: "var(--m-text)" }}>
         Nothing on today

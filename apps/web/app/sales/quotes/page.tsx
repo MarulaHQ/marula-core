@@ -59,6 +59,7 @@ import { formatQtyMilli } from "../../../lib/stock-format";
 import { daysUntil, perCurrencySum } from "../../../lib/money-summary";
 import { quotePill } from "../../../lib/money-ui";
 import { MoneyCard, MoneyHeader, MoneyPillTag } from "../../../components/money";
+import { DescribeMoney } from "../../../components/money/describe-money";
 
 type Quote = components["schemas"]["Quote"];
 type QuoteStatus = components["schemas"]["QuoteStatus"];
@@ -518,9 +519,33 @@ export default function QuotesPage(): ReactNode {
           </span>
         }
         actions={
+        <>
+        <DescribeMoney
+          kind="quote"
+          onDraft={(draft) => {
+            if (!("lines" in draft)) return;
+            setNewCurrency(draft.currency || "USD");
+            setNewValidUntil(isoDay(draft.valid_for_days ?? 30));
+            setNewTaxRateBps("0");
+            setNewNotes(draft.notes ?? "");
+            setLines(
+              draft.lines.length === 0
+                ? [{ ...EMPTY_LINE, description: "" }]
+                : draft.lines.map((line) => ({
+                    ...EMPTY_LINE,
+                    description: line.description,
+                    quantity_milli: line.quantity_milli,
+                    unit_amount_minor: line.unit_price_minor,
+                  })),
+            );
+            setCreateError(null);
+            setCreateOpen(true);
+          }}
+          testId="quotes-describe"
+        />
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="quotes-new">New quote</Button>
+            <Button variant="primary" data-testid="quotes-new">New quote</Button>
           </DialogTrigger>
           <DialogContent title="Quote builder">
             <Card className="grid max-h-[80vh] gap-3 overflow-auto p-4">
@@ -758,6 +783,7 @@ export default function QuotesPage(): ReactNode {
             </Card>
           </DialogContent>
         </Dialog>
+        </>
         }
       />
 
