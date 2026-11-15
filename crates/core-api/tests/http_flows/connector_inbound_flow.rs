@@ -876,12 +876,21 @@ async fn a_share_posts_the_card_and_registers_the_message() {
     );
 
     // The recorder saw one post to the documented Slack endpoint with the
-    // channel and the blocks.
+    // channel and the blocks. It is a process-wide double, so a sibling test
+    // can append its own post between the share and this read
+    // (a_caller_outside_the_connection_audience_... shares into C-AUDIENCE).
+    // Filtering on this test's channel names its post instead of whichever
+    // landed last, which is how shard 2 failed on main after #59 merged.
     let posts = recorder.posts.lock().expect("recorder").clone();
-    let (url, payload) = posts.last().expect("one post");
+    let mut mine: Vec<(String, Value)> = posts
+        .into_iter()
+        .filter(|(_, payload)| payload["channel"] == "C-SHARE")
+        .collect();
+    let (url, payload) = mine.pop().expect("one post to the share channel");
     assert_eq!(url, "https://slack.com/api/chat.postMessage");
     assert_eq!(payload["channel"], "C-SHARE");
     assert!(payload["blocks"].is_array());
+    assert!(mine.is_empty(), "the share posts the card once");
 
     // And the message is registered, so a press can resolve it.
     let mut tx = state.pool.begin().await.expect("tx");
