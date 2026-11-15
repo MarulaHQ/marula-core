@@ -173,7 +173,46 @@ async fn reset_reseed_loop_converges_to_the_same_shape() {
         count(&db, "SELECT count(*) FROM document_versions").await,
         2
     );
-    assert_eq!(count(&db, "SELECT count(*) FROM project_tasks").await, 4);
+    // Nine steps: seven dated, two deliberately undated so the plan has an
+    // honest "not dated yet" group to draw.
+    assert_eq!(count(&db, "SELECT count(*) FROM project_tasks").await, 9);
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM project_tasks WHERE start_at IS NOT NULL"
+        )
+        .await,
+        7
+    );
+    // The calendar pair, the kickoff baseline and one published template
+    // version are what the plan, timeline and templates surfaces read.
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM org_working_calendars").await,
+        1
+    );
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM project_working_calendars").await,
+        1
+    );
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM project_baselines").await,
+        1
+    );
+    assert_eq!(
+        count(&db, "SELECT count(*) FROM project_template_versions").await,
+        1
+    );
+    // The baseline was captured before two steps slipped, so the overlay has
+    // something true to explain.
+    assert_eq!(
+        count(
+            &db,
+            "SELECT count(*) FROM project_tasks
+              WHERE baseline_start_at IS NOT NULL AND start_at > baseline_start_at"
+        )
+        .await,
+        2
+    );
     assert_eq!(count(&db, "SELECT count(*) FROM appointments").await, 3);
     assert_eq!(count(&db, "SELECT count(*) FROM alert_incidents").await, 2);
     assert_eq!(count(&db, "SELECT count(*) FROM report_schedules").await, 1);
