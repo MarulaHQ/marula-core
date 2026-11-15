@@ -779,6 +779,10 @@ export default function ClientDetailPage() {
 
                   <OpenWorkCard work={openWork} />
                   <RecentActivityCard entries={recentActivity} />
+                  {/* Per-client workflow overrides are configuration, not the
+                      work of the record, so they sit at the foot of Overview
+                      rather than under every tab. */}
+                  <WorkflowOverridesTab clientId={clientId} />
                 </>
               ) : null}
 
@@ -789,7 +793,11 @@ export default function ClientDetailPage() {
                   portalDenied={portalDenied}
                   onTogglePortal={(user, disabled) => void setPortalStatus(user, disabled)}
                   onAddContact={() => openCreate("contact")}
-                  onAddPortalUser={() => openCreate("portalUser")}
+                  onAddPortalUserFor={(contact) => {
+                    setPuName(contact.name);
+                    setPuEmail(contact.email ?? "");
+                    openCreate("portalUser");
+                  }}
                 />
               ) : null}
 
@@ -824,10 +832,6 @@ export default function ClientDetailPage() {
                   layouts={layouts}
                 />
               ) : null}
-            </div>
-
-            <div className="mt-4">
-              <WorkflowOverridesTab clientId={clientId} />
             </div>
           </>
         }
@@ -941,9 +945,14 @@ export default function ClientDetailPage() {
                   </RecordRow>
                 </>
               ) : (
-                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  Turn it on so this client can see its own tickets and invoices.
-                </span>
+                <div className="flex flex-col gap-2">
+                  <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+                    Turn it on so this client can see its own tickets and invoices.
+                  </span>
+                  <Button size="sm" variant="secondary" onClick={() => setTab("contacts")}>
+                    Set up portal access
+                  </Button>
+                </div>
               )}
             </SummaryCard>
 
@@ -1378,14 +1387,14 @@ function ContactsCard({
   portalDenied,
   onTogglePortal,
   onAddContact,
-  onAddPortalUser,
+  onAddPortalUserFor,
 }: {
   contacts: Contact[] | null;
   portalUsers: PortalUser[] | null;
   portalDenied: boolean;
   onTogglePortal: (user: PortalUser, disabled: boolean) => void;
   onAddContact: () => void;
-  onAddPortalUser: () => void;
+  onAddPortalUserFor: (contact: Contact) => void;
 }) {
   if (contacts === null) {
     return (
@@ -1403,12 +1412,6 @@ function ContactsCard({
       <div className="flex flex-wrap items-center gap-2 border-b px-[18px] py-3.5" style={{ borderColor: "var(--m-border)" }}>
         <h2 className="text-[15px] font-semibold">Contacts</h2>
         <span className="flex-1" />
-        {portalDenied ? null : (
-          <Button size="sm" variant="secondary" onClick={onAddPortalUser} data-testid="add-portal-user">
-            <PlusIcon />
-            Add portal user
-          </Button>
-        )}
         <Button size="sm" variant="primary" onClick={onAddContact} data-testid="add-contact">
           <PlusIcon />
           Add contact
@@ -1476,9 +1479,32 @@ function ContactsCard({
                         Not available
                       </span>
                     ) : portal === undefined || portal === null ? (
-                      <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                        No login
-                      </span>
+                      // Every contact carries the switch, as the pack draws it.
+                      // A person with no login yet is off, and turning it on
+                      // opens the provision dialog with their name and email
+                      // filled in — portal access is one move from the row.
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={false}
+                        aria-label={`Portal access for ${c.name}`}
+                        onClick={() => onAddPortalUserFor(c)}
+                        data-testid={`contact-portal-${c.id}`}
+                        className="h-[26px] w-11 cursor-pointer rounded-[999px] border transition-colors duration-[120ms]"
+                        style={{
+                          background: "var(--m-surface-2)",
+                          borderColor: "var(--m-input)",
+                        }}
+                      >
+                        <span
+                          className="block h-5 w-5 rounded-[999px]"
+                          style={{
+                            background: "var(--m-input)",
+                            transform: "translateX(3px)",
+                            transition: "transform 120ms cubic-bezier(0.2,0,0,1)",
+                          }}
+                        />
+                      </button>
                     ) : (
                       <button
                         type="button"
@@ -1489,14 +1515,14 @@ function ContactsCard({
                         data-testid={`contact-portal-${c.id}`}
                         className="h-[26px] w-11 cursor-pointer rounded-[999px] border transition-colors duration-[120ms]"
                         style={{
-                          background: on ? "var(--m-primary)" : "var(--m-surface-2)",
+                          background: on ? "var(--m-accent)" : "var(--m-surface-2)",
                           borderColor: on ? "transparent" : "var(--m-input)",
                         }}
                       >
                         <span
                           className="block h-5 w-5 rounded-[999px]"
                           style={{
-                            background: on ? "var(--m-on-primary)" : "var(--m-input)",
+                            background: on ? "var(--m-text)" : "var(--m-input)",
                             transform: `translateX(${on ? 21 : 3}px)`,
                             transition: "transform 120ms cubic-bezier(0.2,0,0,1)",
                           }}

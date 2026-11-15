@@ -464,7 +464,7 @@ export default function WelcomeWizardPage() {
         right={<GuideMenu label="Setup guide" onNever={() => setNeverShow(true)} />}
       />
 
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", flex: 1, minHeight: 0, justifyContent: "center", gap: 40, padding: "0 24px", width: "100%", maxWidth: 960, margin: "0 auto" }}>
         <WizardRail
           heading={orgRailHeading}
           steps={ORG_STEP_ORDER.map((key) => labelFor(key).short)}

@@ -118,17 +118,26 @@ export default function OnboardingPage() {
     setTz(auth.me.timezone);
     void (async () => {
       const s = await loadSummary();
-      const first =
-        s?.members.find((m) => m.user_id === auth.me?.user_id)?.steps.find((st) => !st.resolved)
-          ?.step ?? null;
-      setFocus(first ?? USER_LAST_STEP);
       const { data: mine } = await api.api.GET("/api/v1/settings/user");
+      let mfaGraceUntil: string | null = null;
       if (mine) {
         const t = mine.find((v) => v.key === "appearance.theme_override");
         if (t && typeof t.value === "string") setTheme(t.value);
         const m = mine.find((v) => v.key === "appearance.mode");
         if (m && typeof m.value === "string") setMode(m.value);
+        const grace = mine.find((v) => v.key === "onboarding.user_mfa_skip_until");
+        if (grace && typeof grace.value === "string" && Date.parse(grace.value) > Date.now()) {
+          mfaGraceUntil = grace.value;
+          setSkipped((current) => (current.includes("mfa") ? current : [...current, "mfa"]));
+          setMfaAskAgain(grace.value);
+        }
       }
+      const first =
+        s?.members
+          .find((m) => m.user_id === auth.me?.user_id)
+          ?.steps.find((st) => !st.resolved && !(st.step === "mfa" && mfaGraceUntil !== null))
+          ?.step ?? null;
+      setFocus(first ?? USER_LAST_STEP);
     })();
   }, [auth.status, auth.me, loadSummary]);
 
@@ -237,11 +246,15 @@ export default function OnboardingPage() {
       if (!never) {
         setSkipped((current) => (current.includes(target) ? current : [...current, target]));
         // The MFA grace period is the one skip with an end date, so the card
-        // can say when it asks again.
+        // can say when it asks again. The instant is written server-side:
+        // a skip that only lives in this tab asks again on the next reload,
+        // which is exactly what "does not allow me to skip" felt like.
         if (target === "mfa") {
-          // The instant is stored, not the sentence: the day it names is the
-          // reader's, and asking again is a date they plan around.
-          setMfaAskAgain(new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toISOString());
+          const until = new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toISOString();
+          setMfaAskAgain(until);
+          await api.api.PUT("/api/v1/settings/user", {
+            body: { key: "onboarding.user_mfa_skip_until", value: until },
+          });
         }
       }
       await loadSummary();
@@ -317,7 +330,7 @@ export default function OnboardingPage() {
         right={<GuideMenu label="Your first week" onNever={() => setNeverShow(true)} />}
       />
 
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", flex: 1, minHeight: 0, justifyContent: "center", gap: 40, padding: "0 24px", width: "100%", maxWidth: 960, margin: "0 auto" }}>
         <WizardRail
           heading="Getting you started"
           steps={USER_STEP_ORDER.map((key) => labelFor(key).short)}
@@ -537,9 +550,16 @@ export default function OnboardingPage() {
               {/* The pack's sentence for this step's skip, and the reason it is
                   not the same as every other step's. */}
               <p className="entry-explain">
-                <b>Skip for now</b> is allowed for <b>{MFA_GRACE_DAYS} days</b>. You&apos;ll be
-                asked again at your next sign-in, and after that you&apos;ll need it to continue.
-                It can&apos;t be switched off for good.
+                <b>Skip for now</b> is allowed for <b>{MFA_GRACE_DAYS} days</b>. We&apos;ll ask
+                again on{" "}
+                <b>
+                  {formatInTimeZone(
+                    mfaAskAgain ?? new Date(Date.now() + MFA_GRACE_DAYS * 86_400_000).toISOString(),
+                    timeZone,
+                    "date",
+                  )}
+                </b>
+                , and until then nothing else changes. It can&apos;t be switched off for good.
               </p>
             </div>
           )}

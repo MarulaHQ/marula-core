@@ -76,7 +76,7 @@ export function RecordFrame({
       <aside
         aria-label="Customer"
         data-testid="record-context"
-        className="min-w-0 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto xl:border-r xl:px-[18px] xl:pt-2"
+        className="min-w-0 xl:border-r xl:px-[18px] xl:pt-2"
         style={{ borderColor: "var(--m-border)" }}
       >
         {context}
@@ -98,7 +98,7 @@ export function RecordFrame({
       <aside
         aria-label="Right now"
         data-testid="record-summary"
-        className="flex min-w-0 flex-col gap-3.5 xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto xl:border-l xl:bg-[var(--m-surface-2)] xl:px-[18px]"
+        className="flex min-w-0 flex-col gap-3.5 xl:border-l xl:bg-[var(--m-surface-2)] xl:px-[18px] xl:pb-5 xl:pt-5"
         style={{ borderColor: "var(--m-border)" }}
       >
         {summary}
@@ -146,7 +146,7 @@ export function RecordRow({
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
-    <div className="flex items-baseline justify-between gap-3 text-[13px]">
+    <div className="flex min-h-[36px] items-center justify-between gap-3 text-[13px]">
       <span style={{ color: "var(--m-text-muted)" }}>{label}</span>
       <span className="text-right font-semibold">{children}</span>
     </div>
@@ -175,11 +175,11 @@ export function SummaryCard({
         className="flex items-center gap-2.5 border-b px-[18px] py-3.5"
         style={{ borderColor: "var(--m-border)" }}
       >
-        <h3 className="text-[13px] font-semibold">{title}</h3>
+        <h3 className="text-[15px] font-semibold">{title}</h3>
         <span className="flex-1" />
         {trailing}
       </div>
-      <div className="flex flex-col gap-2 px-[18px] py-3.5">{children}</div>
+      <div className="flex flex-col gap-1 px-[18px] py-3.5">{children}</div>
     </div>
   );
 }
