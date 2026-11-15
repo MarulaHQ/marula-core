@@ -119,6 +119,33 @@ widened by the organisation deliberately, with the change recorded.
 Money is billed against a phase, a milestone or a change order. A single task
 is never billed. Billing reads the plan; the plan does not read billing.
 
+### 14. Order is one write, and a drag across phases is a phase change
+
+Phases and the tasks inside them carry `sort_order`, and reordering them is a
+single request that sends the whole plan order: the phases in the order they
+read, and each phase's tasks in theirs. The endpoint refuses an order that names
+one phase or one task twice, and one that leaves a phase or a task out, because a
+partial reorder would leave rows whose `sort_order` collides with the ones just
+written. Duplicated ids are a shape error; ids from another project are out of
+scope and answer the same 404 an invisible project does.
+
+A task dropped on another phase moves into that phase. The group a task appears
+in is its phase, so a drag can re-parent work; there is no separate "move to
+phase" step that would let a drag renumber a task into a phase it does not
+belong to. A phase change is the only part of a reorder that emits an event,
+because a reorder inside a phase is invisible to anything outside the plan.
+
+The numbers themselves are one sequence across the plan, not one per phase: the
+phases are numbered in order, then their tasks are numbered one after another in
+that same phase order, then the unphased bucket. The task list is read with a
+single `ORDER BY sort_order, created_at` for the whole project, so per-phase
+numbering would leave every phase's first task at zero and the read would fall
+back to creation time — the plan would compile out of the order it was given.
+
+The order on screen is the server's until the server says otherwise: the surface
+sends the drop and reads the plan back, rather than painting the drop first. A
+refusal therefore leaves the plan exactly as it was and states why.
+
 ## Already true, and written down here for the first time
 
 These behaviours shipped before this record and are load-bearing. A reader

@@ -108,7 +108,14 @@ export function PlanRow({
       style={{ gridTemplateColumns: columns }}
       className={cn(
         "relative grid min-h-row items-center border-b border-border text-[length:var(--m-density-fs)] last:border-b-0",
-        "hover:bg-mc-surface-2",
+        "group hover:bg-mc-surface-2",
+        // A reorder in flight: the row being carried fades, and the row under
+        // the pointer takes a gold edge on the half the drop will land on.
+        // `data-drop` and `data-carrying` are set by the consumer; the marks
+        // live here so no consumer restyles the row to draw them.
+        "data-[carrying=true]:opacity-60",
+        "data-[drop=before]:shadow-[inset_0_2px_0_var(--m-gold)]",
+        "data-[drop=after]:shadow-[inset_0_-2px_0_var(--m-gold)]",
         state && ROW_STATE[state],
         selected && "bg-mc-act shadow-[inset_3px_0_0_var(--m-gold)] hover:bg-mc-act",
         current &&
@@ -145,6 +152,9 @@ export function PlanPhaseRow({
       className={cn(
         "group relative grid min-h-row items-center border-b border-border bg-background font-semibold hover:bg-background",
         "text-[length:var(--m-density-fs)] last:border-b-0",
+        "data-[carrying=true]:opacity-60",
+        "data-[drop=before]:shadow-[inset_0_2px_0_var(--m-gold)]",
+        "data-[drop=after]:shadow-[inset_0_-2px_0_var(--m-gold)]",
         tone === "muted" && "border-t border-dashed border-input bg-muted hover:bg-muted",
         "[&>*]:min-w-0 [&>*]:overflow-hidden [&>*]:px-[var(--m-density-px)] [&>*]:text-ellipsis [&>*]:whitespace-nowrap",
         className,
