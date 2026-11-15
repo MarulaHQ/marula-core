@@ -41,6 +41,7 @@ pub(crate) use core_domain::policy::{Action, Module, Permission};
 pub(crate) use serde::{Deserialize, Serialize};
 pub(crate) use serde_json::Value;
 pub(crate) use std::collections::HashMap;
+pub(crate) use std::collections::HashSet;
 pub(crate) use utoipa::ToSchema;
 pub(crate) use uuid::Uuid;
 

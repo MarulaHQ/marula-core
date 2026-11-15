@@ -2,7 +2,7 @@
 //! (`test-binaries-rollout`, group 13 of 13).
 //!
 //! Cargo treats `tests/<dir>/main.rs` as a single target named `<dir>`, so the
-//! six `mod` lines below compile and link into one binary instead of six. Each
+//! `mod` lines below compile and link into one binary instead of one per file. Each
 //! module is one former `tests/` target, moved with its tests unchanged: only
 //! the duplicated harness at the top of each file now comes from `common`, so
 //! `cargo test --test projects_misc <name>` selects the same functions it did
@@ -26,6 +26,7 @@ mod calendar_and_collisions_flow;
 mod caller_fixture;
 mod dev_surface;
 mod entitlement_adopt_flow;
+mod order_flow;
 mod projects_flow;
 mod scheduling_flow;
 mod scheduling_links_flow;

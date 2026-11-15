@@ -1029,6 +1029,7 @@ use utoipa::OpenApi;
         crate::routes::projects::schedule_apply,
         crate::routes::projects::schedule_revert,
         crate::routes::projects::schedule_scale,
+        crate::routes::projects::reorder,
         crate::routes::projects::create_phase,
         crate::routes::projects::patch_phase,
         crate::routes::projects::complete_phase,

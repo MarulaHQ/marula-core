@@ -68,6 +68,7 @@ import {
   loadPeople,
   previewMoves,
   revertMoves,
+  savePlanOrder,
   scaleSchedule,
   startOfDay,
   taskDays,
@@ -92,6 +93,14 @@ import {
   type PlanCreateDraft,
   type PlanFilter,
 } from "./project-plan-table";
+import {
+  moveItem,
+  orderFromPlan,
+  positionOf,
+  stepOrder,
+  type OrderSource,
+  type OrderTarget,
+} from "../lib/plan-order";
 
 interface ProjectPlanSurfaceProps {
   projectId: string;
@@ -600,6 +609,75 @@ export function ProjectPlanSurface(props: ProjectPlanSurfaceProps): React.JSX.El
     }
   }, [fail, projectId, refresh, scalePreview]);
 
+  // --- order: phases and tasks --------------------------------------------------------
+
+  const planOrder = useMemo(() => orderFromPlan(phases, tasks), [phases, tasks]);
+
+  const rowName = useCallback(
+    (kind: "phase" | "task", id: string): string =>
+      kind === "phase"
+        ? (phases.find((phase) => phase.id === id)?.name ?? "The phase")
+        : (tasks.find((task) => task.id === id)?.title ?? "The task"),
+    [phases, tasks],
+  );
+
+  /**
+   * Send the whole order, then read the plan back.
+   *
+   * There is no optimistic redraw: the order on screen is the server's until it
+   * says otherwise, so a refusal leaves the plan exactly as it was and the note
+   * says why.
+   */
+  const saveOrder = useCallback(
+    async (next: ReturnType<typeof orderFromPlan>, said: string) => {
+      setPending(true);
+      setNotice(null);
+      try {
+        const result = await savePlanOrder(projectId, next);
+        setNotice(
+          result.rephased === 0
+            ? said
+            : `${said} ${result.rephased} ${result.rephased === 1 ? "task" : "tasks"} changed phase with it.`,
+        );
+        await refresh();
+      } catch (cause) {
+        fail(cause instanceof Error ? cause.message : "The new order was refused.");
+      } finally {
+        setPending(false);
+      }
+    },
+    [fail, projectId, refresh],
+  );
+
+  const reorder = useCallback(
+    (source: OrderSource, target: OrderTarget) => {
+      const next = moveItem(planOrder, source, target);
+      if (next === planOrder) return;
+      const name = rowName(source.kind, source.id);
+      const said =
+        source.kind === "task" && target.kind === "phase"
+          ? `${name} moved to the ${target.position === "before" ? "top" : "bottom"} of ${rowName("phase", target.id)}.`
+          : `${name} moved ${target.position === "before" ? "above" : "below"} ${rowName(target.kind, target.id)}.`;
+      void saveOrder(next, said);
+    },
+    [planOrder, rowName, saveOrder],
+  );
+
+  const step = useCallback(
+    (kind: "phase" | "task", id: string, direction: -1 | 1) => {
+      const next = stepOrder(planOrder, kind, id, direction);
+      if (next === planOrder) return;
+      const place = positionOf(next, kind, id);
+      void saveOrder(
+        next,
+        `${rowName(kind, id)} moved to position ${place.index + 1} of ${place.total} ${
+          kind === "phase" ? "in the project's phases" : "in its phase"
+        }.`,
+      );
+    },
+    [planOrder, rowName, saveOrder],
+  );
+
   // --- undated work: set dates (S3.2) ------------------------------------------------
 
   const undatedTasks = useMemo(
@@ -900,6 +978,8 @@ export function ProjectPlanSurface(props: ProjectPlanSurfaceProps): React.JSX.El
                 setCreating(null);
                 setCreateError(null);
               }}
+              onReorder={reorder}
+              onStep={step}
             />
           )}
 

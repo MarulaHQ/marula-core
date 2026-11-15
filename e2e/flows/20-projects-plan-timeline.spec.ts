@@ -65,3 +65,45 @@ test("neither surface shows an error state", async ({ authedPage }) => {
   await expect(authedPage.getByRole("tab", { name: /Plan/i })).toBeVisible({ timeout: 30_000 });
   await expect(authedPage.getByText(/could not load|something went wrong/i)).toHaveCount(0);
 });
+
+test("the plan's rows reorder from the keyboard, and the move can be undone", async ({
+  authedPage,
+}) => {
+  test.skip(!(await openFirstProject(authedPage)), "seed has no project");
+  await authedPage.getByRole("tab", { name: /Plan/i }).click();
+
+  const rows = authedPage.locator("[data-slot='plan-row'][aria-label]");
+  const first = await rows.first().waitFor({ state: "visible", timeout: 30_000 }).then(
+    () => true,
+    () => false,
+  );
+  test.skip(!first, "the seeded plan has no task rows");
+  const labels = await rows.evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute("aria-label") ?? ""),
+  );
+  test.skip(labels.length < 2, "reordering needs two tasks");
+
+  const firstTitle = labels[0].split(",")[0];
+  const secondTitle = (labels[1] ?? "").split(",")[0];
+  const order = () =>
+    rows.evaluateAll((nodes) =>
+      nodes.map((node) => (node.getAttribute("aria-label") ?? "").split(",")[0]),
+    );
+
+  // The grip is the keyboard path: the same write a drag makes, without a drag
+  // (a pointer drag is a flaky guest in CI, its own note in this file says).
+  const grip = (index: number, title: string) =>
+    rows.nth(index).getByRole("button", { name: `Reorder ${title}` });
+
+  await grip(0, firstTitle).focus();
+  await grip(0, firstTitle).press("ArrowDown");
+  await expect
+    .poll(async () => (await order()).slice(0, 2), { timeout: 20_000 })
+    .toEqual([secondTitle, firstTitle]);
+
+  // Put it back, so a run leaves the seeded plan as it found it.
+  await grip(1, firstTitle).press("ArrowUp");
+  await expect
+    .poll(async () => (await order()).slice(0, 2), { timeout: 20_000 })
+    .toEqual([firstTitle, secondTitle]);
+});

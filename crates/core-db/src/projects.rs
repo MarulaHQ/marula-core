@@ -770,6 +770,97 @@ where
     Ok(row_to_task(row)?)
 }
 
+/// Rewrite a project's phase order in one statement.
+///
+/// `ids` IS the order: the first id becomes 0, the second 1, and so on. The
+/// statement is scoped to the project, so an id from another project matches
+/// nothing and is never touched — the caller compares the returned row count
+/// with `ids.len()` to tell a stranger from a no-op. Callers validate that the
+/// list is a permutation of the project's phases; this function only writes.
+pub async fn set_phase_order<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+    ids: &[Uuid],
+) -> DbResult<u64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let result = sqlx::query(
+        r#"UPDATE project_phases AS p
+              SET sort_order = o.ord - 1, updated_at = now()
+             FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id, ord)
+            WHERE p.id = o.id AND p.org_id = $2 AND p.project_id = $3"#,
+    )
+    .bind(ids)
+    .bind(org_id)
+    .bind(project_id)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Rewrite the order of one group of tasks, and place them in `phase_id`.
+///
+/// The tasks of a plan are one list per phase (`None` is the unphased group),
+/// so a drag across a phase boundary is the same statement as a drag within
+/// one: the phase is part of what the order says. Scoped like
+/// [`set_phase_order`], and the caller compares the row count.
+pub async fn set_task_order<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+    phase_id: Option<Uuid>,
+    ids: &[Uuid],
+) -> DbResult<u64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let result = sqlx::query(
+        r#"UPDATE project_tasks AS t
+              SET sort_order = o.ord - 1, phase_id = $4, updated_at = now()
+             FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id, ord)
+            WHERE t.id = o.id AND t.org_id = $2 AND t.project_id = $3"#,
+    )
+    .bind(ids)
+    .bind(org_id)
+    .bind(project_id)
+    .bind(phase_id)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Every task of a project with the phase it sits in.
+///
+/// The order endpoints need the whole set, and `list_tasks` is a page (its
+/// limit is clamped for the list route), so this read is deliberately bare:
+/// two columns, no filter, no cap.
+pub async fn task_phase_map<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Vec<(Uuid, Option<Uuid>)>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query(
+        r#"SELECT id, phase_id FROM project_tasks
+            WHERE org_id = $1 AND project_id = $2"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            use sqlx::Row;
+            (row.get::<Uuid, _>("id"), row.get::<Option<Uuid>, _>("phase_id"))
+        })
+        .collect())
+}
+
 /// The completion write: stamps status + `completed_at` atomically. Callers
 /// MUST have validated dependency readiness first (see `incomplete_deps`).
 pub async fn complete_task<'e, E>(
