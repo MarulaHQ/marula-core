@@ -27975,7 +27975,7 @@ export interface components {
             external_owner?: string | null;
             /** Format: uuid */
             id: string;
-            is_critical: boolean;
+            is_critical?: boolean;
             is_milestone: boolean;
             /** Format: int64 */
             milestone_amount_minor?: number | null;
@@ -27987,7 +27987,7 @@ export interface components {
             priority?: components["schemas"]["Priority"] | null;
             /** Format: uuid */
             project_id: string;
-            required_skills: string[];
+            required_skills?: string[];
             role_key?: string | null;
             /** Format: int32 */
             sort_order: number;
