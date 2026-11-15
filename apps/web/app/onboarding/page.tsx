@@ -95,7 +95,9 @@ function MfaQr({ value }: { value: string }) {
           margin: 1,
           width: 152,
           errorCorrectionLevel: "M",
-          color: { dark: "#2b2a33", light: "#ffffff" },
+          // Black on white in both modes: a QR is a machine-readable mark, and
+          // inverting it with the theme makes it harder for older scanners.
+          color: { dark: "black", light: "white" },
         });
         if (!cancelled) setSrc(url);
       } catch {

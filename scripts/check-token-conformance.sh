@@ -42,7 +42,6 @@ ledger_hits() {
 80|apps/web/app/portal/portal.css|Portal surface: status/brand hexes pending token extraction
 10|apps/web/app/globals.css|Global web styles: base colours pending token extraction
 8|apps/web/app/settings/tags/page.tsx|Tag-colour picker palette consumed inline; token set pending
-4|apps/web/components/project-gantt.tsx|Gantt lane colours inline pending token extraction
 2|apps/web/app/layout.tsx|theme-color meta tags; a value, not a var — tokenise at launch
 2|apps/web/app/ledger.css|Ledger accents pending token extraction
 2|apps/web/components/auth/entry.css|Auth entry accents pending token extraction
