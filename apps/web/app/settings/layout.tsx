@@ -67,7 +67,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }): R
               <Link
                 href="/settings"
                 aria-current={pathname === "/settings" ? "page" : undefined}
-                className="flex items-center"
+                className="flex w-full items-center"
                 style={{
                   height: 36,
                   padding: "0 12px",
