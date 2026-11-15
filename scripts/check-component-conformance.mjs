@@ -118,8 +118,11 @@ const shipped = [
 const moduleTextCache = new Map();
 function moduleText(module) {
   if (!moduleTextCache.has(module)) {
-    const abs = module.endsWith(".tsx") ? module : `${module}.tsx`;
-    moduleTextCache.set(module, existsSync(abs) ? readFileSync(abs, "utf8") : null);
+    const candidates = module.endsWith(".tsx") || module.endsWith(".ts")
+      ? [module]
+      : [`${module}.tsx`, `${module}.ts`];
+    const found = candidates.find((c) => existsSync(c));
+    moduleTextCache.set(module, found ? readFileSync(found, "utf8") : null);
   }
   return moduleTextCache.get(module);
 }
@@ -233,6 +236,19 @@ const PACK_COUNTERPARTS = {
     anchors: [[PM, "Impact preview, nothing is saved yet"], [PM, 'class="insp imp sheet"']],
     kit: [["packages/ui/src/components/impact-preview.tsx", 'data-slot="impact-group"'], ["packages/ui/src/components/impact-preview.tsx", 'data-slot="impact-row"']],
     note: "the preview sheet: one headline, consequence groups, old date struck through, delta (S3.6)",
+  },
+  "ui/gantt-chart": {
+    anchors: [[PM, "lw:o.lw||408"], [PM, 'class="leg2"']],
+    kit: [["packages/ui/src/components/gantt-chart.tsx", 'data-slot="gantt-chart"']],
+    note: "the timeline: 408px tree, month band over week columns, phase brackets, bars carrying the assignee, elbows, today rule (S4.1)",
+  },
+  "ui/gantt-table": {
+    anchors: [[PM, "'View as table','sm','rows-4'"]],
+    kit: [["packages/ui/src/components/gantt-table.tsx", 'data-slot="gantt-table"']],
+    note: "the chart as rows: phase groups, start, end, days, who, depends on, status (S4.10)",
+  },
+  "ui/gantt-scale": {
+    standalone: "date and working-time arithmetic the chart draws from; no panel of its own",
   },
   "ui/table": { anchors: [[TL, 'class="tr th"'], [TL, 'class="tc"']], note: "header row and body cells as drawn" },
   "ui/time": { anchors: [[SK, "Timer bar, 60 px, ink in every theme"]] },
@@ -426,7 +442,7 @@ for (const { barrel, path: barrelPath, components } of shipped) {
   for (const c of components) {
     inventory.push(`${barrel}/${c.id}`);
     if (moduleText(c.module) === null) {
-      errors.push(`${barrel} barrel re-exports "./…/${c.id}" but no file exists at ${c.module}(or .tsx)`);
+      errors.push(`${barrel} barrel re-exports "./…/${c.id}" but no file exists at ${c.module}(.tsx or .ts)`);
     }
   }
 }
