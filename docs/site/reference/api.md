@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.3.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**687 paths · 915 operations · 1469 schemas.**
+**699 paths · 932 operations · 1492 schemas.**
 
 ## accounting
 
@@ -952,7 +952,11 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/project-templates` <a id="project_templates_create"></a> | POST /api/project-templates — stores a blueprint (spec validated); emits `project.template_updated`. | [CreateTemplateRequest](#schema-createtemplaterequest) |
 | `DELETE` | `/api/v1/project-templates/{id}` <a id="project_templates_delete"></a> | DELETE /api/project-templates/{id} — blueprints are data, not live references: projects already instantiated are untouched; emits `project.template_removed`. | — |
 | `PATCH` | `/api/v1/project-templates/{id}` <a id="project_templates_patch"></a> | PATCH /api/project-templates/{id} — emits `project.template_updated`. | [PatchTemplateRequest](#schema-patchtemplaterequest) |
+| `POST` | `/api/v1/project-templates/{id}/fork` <a id="projects_fork_template"></a> | POST /api/project-templates/{id}/fork — copies the current version into a new org-owned template. The fork keeps the plan it was tuned from, which is what makes a shipped template safe to improve. | [ForkTemplateRequest](#schema-forktemplaterequest) |
 | `POST` | `/api/v1/project-templates/{id}/instantiate` <a id="project_templates_instantiate"></a> | POST /api/project-templates/{id}/instantiate — expands the template into a REAL project: phases, tasks, dependencies, and every lifecycle event, all in ONE transaction (claim → expand → insert → events → record). Rollback on any failure leaves zero partial rows. | [InstantiateTemplateRequest](#schema-instantiatetemplaterequest) |
+| `GET` | `/api/v1/project-templates/{id}/versions` <a id="projects_template_versions"></a> | GET /api/project-templates/{id}/versions — every version, newest first, with the current one marked. | — |
+| `POST` | `/api/v1/project-templates/{id}/versions` <a id="projects_append_template_version"></a> | POST /api/project-templates/{id}/versions — appends a draft. The document is validated as a template spec before it is stored, so a draft that would not instantiate cannot be created. | [AppendVersionRequest](#schema-appendversionrequest) |
+| `POST` | `/api/v1/project-templates/{id}/versions/{version}/publish` <a id="projects_publish_template_version"></a> | POST /api/project-templates/{id}/versions/{version}/publish — makes a version the template's current document. Publication is what an instantiation reads, so a draft never changes a project by accident. | — |
 
 ## project-views
 
@@ -971,8 +975,13 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/projects` <a id="projects_create"></a> | POST /api/projects — creates the project and emits `project.created` in one transaction. Instant-first (IF1/IF2): idempotency-keyed, version-gated, read-your-write response. | [CreateProjectRequest](#schema-createprojectrequest) |
 | `GET` | `/api/v1/projects/{id}` <a id="projects_get_one"></a> | GET /api/projects/{id} | — |
 | `PATCH` | `/api/v1/projects/{id}` <a id="projects_patch"></a> | PATCH /api/projects/{id} — tri-state partial update. Instant-first (IF1/IF2): idempotency-keyed, version-gated, returns prior + new values. | [PatchProjectRequest](#schema-patchprojectrequest) |
+| `GET` | `/api/v1/projects/{id}/baseline` <a id="projects_get_baseline"></a> | GET /api/projects/{id}/baseline — the most recent capture, or `null` when the project has never been baselined. | — |
+| `POST` | `/api/v1/projects/{id}/baseline` <a id="projects_capture_baseline"></a> | POST /api/projects/{id}/baseline — records what the plan says now. | [CaptureBaselineRequest](#schema-capturebaselinerequest) |
 | `GET` | `/api/v1/projects/{id}/billing-releases` <a id="projects_billing_releases"></a> | GET /api/projects/{id}/billing-releases — the release ledger: every staged milestone/fee for this project with its status (`pending` bills on the next run reaching its window; `billed` carries the consuming invoice; `cancelled` terminal). | — |
 | `POST` | `/api/v1/projects/{id}/billing-releases/{release_id}/cancel` <a id="projects_billing_release_cancel"></a> | POST /api/projects/{id}/billing-releases/{release_id}/cancel — cancel a PENDING release (admin correction; terminal). Billed releases are immutable — they ride an invoice, and invoices correct through credit notes. | — |
+| `DELETE` | `/api/v1/projects/{id}/calendar` <a id="projects_clear_calendar"></a> | DELETE /api/projects/{id}/calendar — drops the override so the organisation's calendar applies again. | — |
+| `GET` | `/api/v1/projects/{id}/calendar` <a id="projects_get_calendar"></a> | GET /api/projects/{id}/calendar — the project's override, or `calendar: null` when the organisation's calendar applies. | — |
+| `PUT` | `/api/v1/projects/{id}/calendar` <a id="projects_set_calendar"></a> | PUT /api/projects/{id}/calendar — sets the project's working pattern. The project's pattern wins for its own dates; nothing else changes. | [SetProjectCalendarRequest](#schema-setprojectcalendarrequest) |
 | `GET` | `/api/v1/projects/{id}/cost-rollup` <a id="projects_cost_rollup"></a> | GET /api/projects/{id}/cost-rollup — posted PO bills in base currency (ADR 0002 locked) plus the project budget for comparison. | — |
 | `GET` | `/api/v1/projects/{id}/gantt` <a id="projects_gantt"></a> | GET /api/projects/{id}/gantt — the dated timeline plus its undated remainder, each phase carrying its budget burn. | — |
 | `GET` | `/api/v1/projects/{id}/phase-burn` <a id="projects_phase_burn"></a> | GET /api/projects/{id}/phase-burn — the burn read model (report P3): consumed approved billable minutes and card-priced value per phase against the phase's budget, with the typed `none | warn | over` alert state (`warn` at ≥80%, `over` at ≥100%). | — |
@@ -980,12 +989,20 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/projects/{id}/phases` <a id="projects_create_phase"></a> | POST /api/projects/{id}/phases — adds a phase; emits `project.phase_created`. | [CreatePhaseRequest](#schema-createphaserequest) |
 | `PATCH` | `/api/v1/projects/{id}/phases/{phase_id}` <a id="projects_patch_phase"></a> | PATCH /api/projects/{id}/phases/{phase_id} — tri-state partial update. | [PatchPhaseRequest](#schema-patchphaserequest) |
 | `POST` | `/api/v1/projects/{id}/phases/{phase_id}/complete` <a id="projects_complete_phase"></a> | POST /api/projects/{id}/phases/{phase_id}/complete — stamps the phase completed and, when it is a billing milestone, emits `project.milestone_completed` in the same transaction (the core-billing seam). Instant-first: the idempotency key guarantees a retried completion can never double-emit the billing event. | [MutationParams](#schema-mutationparams) |
+| `GET` | `/api/v1/projects/{id}/risk` <a id="projects_risk"></a> | GET /api/projects/{id}/risk — the deterministic signals this project's facts support, most severe first. | — |
+| `POST` | `/api/v1/projects/{id}/schedule/apply` <a id="projects_schedule_apply"></a> | POST /api/projects/{id}/schedule/apply — applies the same computation the preview returned, in one transaction, and hands back what to send to `/schedule/revert` to undo it. | [SchedulePlanRequest](#schema-scheduleplanrequest) |
+| `POST` | `/api/v1/projects/{id}/schedule/preview` <a id="projects_schedule_preview"></a> | POST /api/projects/{id}/schedule/preview — what a set of moves would do, computed by the same function the apply calls. Nothing is written. | [SchedulePlanRequest](#schema-scheduleplanrequest) |
+| `POST` | `/api/v1/projects/{id}/schedule/revert` <a id="projects_schedule_revert"></a> | POST /api/projects/{id}/schedule/revert — restores the values an apply handed back. A task outside the project is refused rather than skipped. | [ScheduleRevertRequest](#schema-schedulerevertrequest) |
+| `POST` | `/api/v1/projects/{id}/schedule/scale` <a id="projects_schedule_scale"></a> | POST /api/projects/{id}/schedule/scale — multiplies the length of every dated task in a window. `reschedule` re-ripples the plan from each changed task so successors follow the new lengths. | [ScheduleScaleRequest](#schema-schedulescalerequest) |
 | `GET` | `/api/v1/projects/{id}/tasks` <a id="projects_list_tasks"></a> | GET /api/projects/{id}/tasks — filtered by phase/status/assignee and the milestone flag, sort_order-ordered. | — |
 | `POST` | `/api/v1/projects/{id}/tasks` <a id="projects_create_task"></a> | POST /api/projects/{id}/tasks — creates the task (optionally with its dependency set) and emits `project.task_created` in one transaction. | [CreateTaskRequest](#schema-createtaskrequest) |
 | `PATCH` | `/api/v1/projects/{id}/tasks/{task_id}` <a id="projects_patch_task"></a> | PATCH /api/projects/{id}/tasks/{task_id} — tri-state partial update. `status: "completed"` is rejected: completion runs through the complete endpoint (dependency gating + the billing seam). | [PatchTaskRequest](#schema-patchtaskrequest) |
 | `POST` | `/api/v1/projects/{id}/tasks/{task_id}/complete` <a id="projects_complete_task"></a> | POST /api/projects/{id}/tasks/{task_id}/complete — the guarded completion: every finish-to-start dependency must already be completed (typed 409 `task_dependencies_unsatisfied` naming the blockers), then `project.task_completed` fires — plus `project.milestone_completed` when the task is a billing milestone. Instant-first: the idempotency key makes retried completions replay instead of double-billing. | [MutationParams](#schema-mutationparams) |
 | `GET` | `/api/v1/projects/{id}/tasks/{task_id}/dependencies` <a id="projects_get_dependencies"></a> | GET /api/projects/{id}/tasks/{task_id}/dependencies | — |
 | `PUT` | `/api/v1/projects/{id}/tasks/{task_id}/dependencies` <a id="projects_set_dependencies"></a> | PUT /api/projects/{id}/tasks/{task_id}/dependencies — replaces the whole dependency set, cycle-checked over the project graph BEFORE any write; emits `project.task_updated`. | [SetDependenciesRequest](#schema-setdependenciesrequest) |
+| `GET` | `/api/v1/projects/{id}/zones` <a id="projects_calendar_zones"></a> | GET /api/projects/{id}/zones — the change windows and client closures the timeline draws under the bars. | — |
+| `POST` | `/api/v1/projects/{id}/zones` <a id="projects_create_calendar_zone"></a> | POST /api/projects/{id}/zones — states a window or a closure. | [CreateCalendarZoneRequest](#schema-createcalendarzonerequest) |
+| `DELETE` | `/api/v1/projects/{id}/zones/{zone_id}` <a id="projects_delete_calendar_zone"></a> | DELETE /api/projects/{id}/zones/{zone_id} — removes the constraint. | — |
 
 ## provenance
 
@@ -1621,6 +1638,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-availabilitylistresponse"></a>`AvailabilityListResponse` | object |  |
 | <a id="schema-availabilityquery"></a>`AvailabilityQuery` | object |  |
 | <a id="schema-availabilitywindow"></a>`AvailabilityWindow` | object | One recurring weekly availability template: `weekday` (0 = Monday … 6 = Sunday), local wall-clock `[start_local, end_local)` in `timezone`, optionally bounded by an effective date range. This is a TEM |
+| <a id="schema-baselineresponse"></a>`BaselineResponse` | object |  |
+| <a id="schema-baselineview"></a>`BaselineView` | object | One captured baseline as a surface reads it. |
 | <a id="schema-batchcandidateoutcome"></a>`BatchCandidateOutcome` | object |  |
 | <a id="schema-batchcandidaterequest"></a>`BatchCandidateRequest` | object |  |
 | <a id="schema-batchcandidateresponse"></a>`BatchCandidateResponse` | object |  |
@@ -1679,6 +1698,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-calendarsyncevent"></a>`CalendarSyncEvent` | object | The inbound mirror of one external event. `exclusion_id` names the `calendar_exclusions` row the event currently feeds into the 2.12 availability foundation (NULL while not busy — cancelled or transpa |
 | <a id="schema-calendarsyncstatus"></a>`CalendarSyncStatus` | string | Connection health: `error` records the last poll failure while the connection stays configured; writes resume when a poll succeeds. |
 | <a id="schema-calendarviewresponse"></a>`CalendarViewResponse` | object |  |
+| <a id="schema-calendarzonesresponse"></a>`CalendarZonesResponse` | object |  |
+| <a id="schema-calendarzoneview"></a>`CalendarZoneView` | object | A stretch of the calendar that constrains where work may sit. |
 | <a id="schema-canceldeadworkrequest"></a>`CancelDeadWorkRequest` | object | The cancel verb's body. Required, for the same reason the quarantine release reason is: the row will be read a month later and "why did we give up on this" is the only question it will be asked. |
 | <a id="schema-cancelorderrequest"></a>`CancelOrderRequest` | composite |  |
 | <a id="schema-cancelresponse"></a>`CancelResponse` | object | What a cancel did, as the caller sees it. |
@@ -1696,6 +1717,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-capacityquery"></a>`CapacityQuery` | object | GET /api/dispatch/capacity query: `from` date (defaults to today UTC) and the horizon length in days (1..=31, default 7). |
 | <a id="schema-capreachedbehavior"></a>`CapReachedBehavior` | string | What evaluation does when a T&M contract's cap is reached (B: never a silent cutoff — the behavior is a typed choice on the cap). |
 | <a id="schema-capspec"></a>`CapSpec` | object | NTE cap spec (B): typed not-to-exceed behavior. |
+| <a id="schema-capturebaselinerequest"></a>`CaptureBaselineRequest` | object |  |
 | <a id="schema-capturedefaultsresponse"></a>`CaptureDefaultsResponse` | object | The capture surface's read: ordered picker + theHELP defaults. |
 | <a id="schema-cardheight"></a>`CardHeight` | string | Card height. Three named steps, not pixels: the grid owns the measurement so a density change never becomes a data-contract change. |
 | <a id="schema-cardrefresh"></a>`CardRefresh` | object | How often a card recomputes, and how much data one recompute covers. |
@@ -1811,6 +1833,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-createbindingrequest"></a>`CreateBindingRequest` | object |  |
 | <a id="schema-createboardrequest"></a>`CreateBoardRequest` | object |  |
 | <a id="schema-createcalendarrequest"></a>`CreateCalendarRequest` | object |  |
+| <a id="schema-createcalendarzonerequest"></a>`CreateCalendarZoneRequest` | object |  |
 | <a id="schema-createcatalogitemrequest"></a>`CreateCatalogItemRequest` | composite | POST /api/catalog-items body. |
 | <a id="schema-createcategoryrequest"></a>`CreateCategoryRequest` | composite |  |
 | <a id="schema-createchangeorderrequest"></a>`CreateChangeOrderRequest` | composite |  |
@@ -2107,7 +2130,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-forkreplysnippetrequest"></a>`ForkReplySnippetRequest` | composite |  |
 | <a id="schema-forkrolerequest"></a>`ForkRoleRequest` | composite |  |
 | <a id="schema-forksecretfolderrequest"></a>`ForkSecretFolderRequest` | object |  |
-| <a id="schema-forktemplaterequest"></a>`ForkTemplateRequest` | composite |  |
+| <a id="schema-forktemplaterequest"></a>`ForkTemplateRequest` | object |  |
 | <a id="schema-fxrateentry"></a>`FxRateEntry` | object | One `fx_rates` row: append-only; corrections add rows, never rewrite. |
 | <a id="schema-fxreconciliationrow"></a>`FxReconciliationRow` | object | One `ops.v1_fx_reconciliation` row — the FX deliverable to the books (FX7): original amount, rate, source/date, base equivalent, sync target. The core records conversions that happened; realized/unrea |
 | <a id="schema-gapdayview"></a>`GapDayView` | object |  |
@@ -2416,6 +2439,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-priority"></a>`Priority` | string | Industry-standard four-tier priority. |
 | <a id="schema-project"></a>`Project` | object | A project engagement under a client (or internal when `client_id` is `None`). |
 | <a id="schema-projectbillingrelease"></a>`ProjectBillingRelease` | object | One released milestone (report P1/P4): the durable record that a completed milestone or fixed-fee phase released its amount to the invoicing pipeline. `pending` rows bill on the first run that reaches |
+| <a id="schema-projectcalendarview"></a>`ProjectCalendarView` | object | A project's own working pattern. Absent means the organisation's calendar applies, which is the state of every project that has never needed one. |
 | <a id="schema-projectcostrollupview"></a>`ProjectCostRollupView` | object |  |
 | <a id="schema-projectganttview"></a>`ProjectGanttView` | object | The project's Gantt: dated phases as bars, undated ones as list items. |
 | <a id="schema-projectinstantiateresponse"></a>`ProjectInstantiateResponse` | composite | The instantiation result: the applied project plus the expansion counts (clients render "created N phases, M tasks" without refetching). |
@@ -2424,9 +2448,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-projectphase"></a>`ProjectPhase` | object | A phase groups tasks into a delivery stage. A phase flagged `is_milestone` is itself a billing milestone. |
 | <a id="schema-projectphasebudget"></a>`ProjectPhaseBudget` | object | A phase's billing budget and/or fixed-fee record (Wave 39 lane 4, report P3/P4). One optional row per phase: `budget_minor` is the contracted denominator the burn math consumes (T&M phases), and `fee_ |
 | <a id="schema-projectstatus"></a>`ProjectStatus` | string | Lifecycle of a project. |
-| <a id="schema-projecttask"></a>`ProjectTask` | object | A unit of project work. A task flagged `is_milestone` is a billing milestone: completing it emits `project.milestone_completed`. |
+| <a id="schema-projecttask"></a>`ProjectTask` | object | A unit of project work. A task flagged `is_milestone` is a billing milestone: completing it emits `project.milestone_completed`. Time is stored, not derived (ADR 0034 decision 1). `start_at` and `dura |
 | <a id="schema-projecttemplate"></a>`ProjectTemplate` | object | A reusable project blueprint. `spec` follows `core-projects::template` (`TemplateSpec`, additive-only evolution); instantiation is a plain transactional insert plan — templates are data, not code (pol |
 | <a id="schema-projectview"></a>`ProjectView` | object | A saved task-list view: filter/group/sort spec over one project's tasks (`project_id: None` = org-wide). The `spec` is a versioned, additive-only JSON document validated at the route layer; unknown fi |
+| <a id="schema-projectworkingcalendar"></a>`ProjectWorkingCalendar` | object | A project's own working pattern, where it differs from the organisation's. `weekdays` is a bitmask with Monday at bit 0 and Sunday at bit 6, so 31 is Monday to Friday and 63 adds Saturday. No row mean |
 | <a id="schema-proposalclassification"></a>`ProposalClassification` | string | Proposal classification: who will see the change if it lands. |
 | <a id="schema-proposallistquery"></a>`ProposalListQuery` | object | GET /api/agent-proposals query. |
 | <a id="schema-proposalstatus"></a>`ProposalStatus` | string | Proposal lifecycle state. |
@@ -2596,6 +2621,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-revokeidentitybundlerequest"></a>`RevokeIdentityBundleRequest` | object |  |
 | <a id="schema-revokeinstallrequest"></a>`RevokeInstallRequest` | object |  |
 | <a id="schema-revokesignoffrequest"></a>`RevokeSignOffRequest` | object | POST /api/sign-offs/{id}/revoke |
+| <a id="schema-riskresponse"></a>`RiskResponse` | object |  |
+| <a id="schema-risksignalview"></a>`RiskSignalView` | object | One computed signal as a surface reads it. |
 | <a id="schema-rolemutationresponse"></a>`RoleMutationResponse` | composite | Instant-first mutation response (IF2): the role at the top level plus the additive `mutation` metadata. |
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
 | <a id="schema-roleview"></a>`RoleView` | object | One org role row (preset or custom). `permissions` is the raw matrix vocabulary: `{"matrix": {"module", "action"}}` entries plus bare special strings (`"financial:read"`, `"special:manage_users"`, …). |
@@ -2626,9 +2653,18 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-scanresolverequest"></a>`ScanResolveRequest` | object |  |
 | <a id="schema-scanstatus"></a>`ScanStatus` | string | Outcome of the malware scan that runs between webhook receipt and persistence. `skipped` is the documented "none" mode (no scanner configured) — never a silent pass of an actual verdict. |
 | <a id="schema-scanview"></a>`ScanView` | object |  |
+| <a id="schema-scheduleapplyresponse"></a>`ScheduleApplyResponse` | object |  |
 | <a id="schema-schedulecadence"></a>`ScheduleCadence` | string | Wire cadence of a schedule (snake_case slugs matching the stored column and the worker's parser). |
+| <a id="schema-schedulechangeview"></a>`ScheduleChangeView` | object | One change the engine proposes or applied. |
+| <a id="schema-schedulecollisionview"></a>`ScheduleCollisionView` | object | Someone else's work that would sit at the same time as the proposed move. |
 | <a id="schema-schedulelistquery"></a>`ScheduleListQuery` | object | GET /api/report-schedules query. |
+| <a id="schema-schedulemove"></a>`ScheduleMove` | object | One task the coordinator placed. `duration_minutes: None` means "leave the length alone"; `Some(None)` clears it together with the start. |
 | <a id="schema-schedulemutationresponse"></a>`ScheduleMutationResponse` | object |  |
+| <a id="schema-scheduleplanrequest"></a>`SchedulePlanRequest` | object |  |
+| <a id="schema-scheduleplanresponse"></a>`SchedulePlanResponse` | object |  |
+| <a id="schema-schedulerestore"></a>`ScheduleRestore` | object |  |
+| <a id="schema-schedulerevertrequest"></a>`ScheduleRevertRequest` | object |  |
+| <a id="schema-schedulescalerequest"></a>`ScheduleScaleRequest` | object |  |
 | <a id="schema-schedulinggroup"></a>`SchedulingGroup` | object | A free-form admin-defined group/department — a pure availability pool ("Service Desk"). Deliberately NOT the org chart: no reporting lines, no permissions; membership only feeds unioned availability. |
 | <a id="schema-schedulinglink"></a>`SchedulingLink` | object | A shareable booking link. The raw token is generated at create, returned ONCE in the create response, and never stored (only its SHA-256 hash); the tech's visible lifecycle is the view/schedule/ revok |
 | <a id="schema-schedulinglinkbooking"></a>`SchedulingLinkBooking` | object | The link → booking trail row (mirrors the appointment for audit). |
@@ -2674,6 +2710,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
 | <a id="schema-setemailverifiedrequest"></a>`SetEmailVerifiedRequest` | object |  |
 | <a id="schema-setjourneystartrequest"></a>`SetJourneyStartRequest` | composite |  |
+| <a id="schema-setprojectcalendarrequest"></a>`SetProjectCalendarRequest` | object |  |
 | <a id="schema-setqueuerankrequest"></a>`SetQueueRankRequest` | composite | PUT /api/dispatch/queue/{ticket_id} body. |
 | <a id="schema-setsecretgrantrequest"></a>`SetSecretGrantRequest` | object |  |
 | <a id="schema-setskillenabledrequest"></a>`SetSkillEnabledRequest` | object |  |
@@ -2780,6 +2817,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-templatemutationresponse"></a>`TemplateMutationResponse` | composite |  |
 | <a id="schema-templateslistresponse"></a>`TemplatesListResponse` | object |  |
 | <a id="schema-templatevariableview"></a>`TemplateVariableView` | object |  |
+| <a id="schema-templateversionsresponse"></a>`TemplateVersionsResponse` | object |  |
+| <a id="schema-templateversionview"></a>`TemplateVersionView` | object | One version of a template, as a surface reads it. |
 | <a id="schema-templateview"></a>`TemplateView` | object | One template row: a shipped default (`is_system` + `builtin`), a fork (`forked_from`), or an org-created template. |
 | <a id="schema-templateviewresponse"></a>`TemplateViewResponse` | object |  |
 | <a id="schema-testconnectionrequest"></a>`TestConnectionRequest` | object | Request to test the connection to an AI provider. |
@@ -2990,7 +3029,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worknextqueuequery"></a>`WorkNextQueueQuery` | object |  |
 | <a id="schema-worknextqueueview"></a>`WorkNextQueueView` | object | The whole queue for one technician, in curated order. |
 | <a id="schema-worknextremovalquery"></a>`WorkNextRemovalQuery` | object |  |
+| <a id="schema-worktype"></a>`WorkType` | string | Where a unit of project work happens. The kind changes what a coordinator needs to know before placing it: an onsite visit carries travel, a bench job needs a bench, a vendor step waits on somebody ou |
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 32 operation groups; schema count 1469 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 32 operation groups; schema count 1492 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

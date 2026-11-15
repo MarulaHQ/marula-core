@@ -2227,6 +2227,41 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // phase nobody scheduled.
         .route(&rp("/projects/{id}/gantt"), get(projects::gantt))
         .route(
+            &rp("/projects/{id}/baseline"),
+            get(projects::get_baseline).post(projects::capture_baseline),
+        )
+        .route(&rp("/projects/{id}/risk"), get(projects::risk))
+        .route(
+            &rp("/projects/{id}/zones"),
+            get(projects::list_zones).post(projects::create_zone),
+        )
+        .route(
+            &rp("/projects/{id}/zones/{zone_id}"),
+            axum::routing::delete(projects::delete_zone),
+        )
+        .route(
+            &rp("/projects/{id}/schedule/preview"),
+            post(projects::schedule_preview),
+        )
+        .route(
+            &rp("/projects/{id}/schedule/apply"),
+            post(projects::schedule_apply),
+        )
+        .route(
+            &rp("/projects/{id}/schedule/revert"),
+            post(projects::schedule_revert),
+        )
+        .route(
+            &rp("/projects/{id}/schedule/scale"),
+            post(projects::schedule_scale),
+        )
+        .route(
+            &rp("/projects/{id}/calendar"),
+            get(projects::get_calendar)
+                .put(projects::set_calendar)
+                .delete(projects::clear_calendar),
+        )
+        .route(
             &rp("/projects/{id}/phases/{phase_id}"),
             axum::routing::patch(projects::patch_phase),
         )
@@ -2274,6 +2309,18 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/project-templates/{id}"),
             axum::routing::patch(projects::patch_template).delete(projects::delete_template),
+        )
+        .route(
+            &rp("/project-templates/{id}/versions"),
+            get(projects::list_versions).post(projects::append_version),
+        )
+        .route(
+            &rp("/project-templates/{id}/versions/{version}/publish"),
+            post(projects::publish_version),
+        )
+        .route(
+            &rp("/project-templates/{id}/fork"),
+            post(projects::fork_template),
         )
         .route(
             &rp("/project-templates/{id}/instantiate"),

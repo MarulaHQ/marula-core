@@ -10,6 +10,12 @@
 //! * [`template`] — the versioned template spec (additive-only JSON,
 //!   customizations-as-data per policy §5) and the pure expansion plan the
 //!   instantiate endpoint executes inside one transaction.
+//! * [`schedule`] — working-calendar resolution: a project's own pattern wins
+//!   over the organisation's, which is the rule every date calculation reads.
+//! * [`capacity`] — how much planned work a person carries: a weekly figure
+//!   against the calendar, never a second calendar.
+//! * [`risk`] — the nine deterministic rules that turn stored plan facts into
+//!   signals. Severity comes from the rule, never from a model.
 //!
 //! Milestone billing seam: completing a milestone phase/task emits
 //! `project.milestone_completed` through the transactional outbox from the
@@ -17,9 +23,11 @@
 //! billing — the event envelope is the ONLY seam to core-billing (Wave 9
 //! invoicing consumes it; no crate-level import in either direction).
 //!
-//! Non-purpose: no HTTP, no invoice rows, no labor-actuals rollups, no
-//! scheduling engine. Routes live in core-api `routes/projects.rs`;
-//! persistence in core-db `projects`.
+//! Non-purpose: no HTTP, no invoice rows, no labor-actuals rollups. Routes
+//! live in core-api `routes/projects/`; persistence in core-db `projects`.
 
+pub mod capacity;
 pub mod deps;
+pub mod risk;
+pub mod schedule;
 pub mod template;

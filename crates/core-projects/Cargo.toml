@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+chrono = { workspace = true }
 core-domain = { path = "../core-domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -12,7 +13,6 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
-chrono = { workspace = true }
 sqlx = { workspace = true }
 core-db = { path = "../core-db" }
 testcontainers = { version = "0.28", features = ["reusable-containers"] }

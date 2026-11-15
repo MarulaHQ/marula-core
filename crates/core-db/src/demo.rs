@@ -2878,13 +2878,16 @@ you go, because the escalation record is what the SLA credit claim is read from 
     .await?;
     let phase_discovery = demo_uuid(290);
     sqlx::query(
-        "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status, completed_at)
-         VALUES ($1, $2, $3, 'Discovery', 0, 'completed', $4)",
+        "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status,
+                                     completed_at, start_date, end_date)
+         VALUES ($1, $2, $3, 'Discovery', 0, 'completed', $4, $5, $6)",
     )
     .bind(phase_discovery)
     .bind(DEMO_ORG_ID)
     .bind(project_id)
     .bind(now - Duration::days(10))
+    .bind(now.date_naive() - Duration::days(22))
+    .bind(now.date_naive() - Duration::days(11))
     .execute(&mut *tx)
     .await?;
     crate::projects::insert_release(
@@ -2906,12 +2909,15 @@ you go, because the escalation record is what the SLA credit claim is read from 
     let phase_implementation = demo_uuid(291);
     sqlx::query(
         "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status,
-                                     is_milestone, milestone_amount_minor, milestone_currency)
-         VALUES ($1, $2, $3, 'Implementation', 1, 'active', true, 250000, 'USD')",
+                                     is_milestone, milestone_amount_minor, milestone_currency,
+                                     start_date, end_date)
+         VALUES ($1, $2, $3, 'Implementation', 1, 'active', true, 250000, 'USD', $4, $5)",
     )
     .bind(phase_implementation)
     .bind(DEMO_ORG_ID)
     .bind(project_id)
+    .bind(now.date_naive() - Duration::days(2))
+    .bind(now.date_naive() + Duration::days(9))
     .execute(&mut *tx)
     .await?;
     // The active phase carries a productive burn story: a budget the T&M
@@ -2929,6 +2935,19 @@ you go, because the escalation record is what the SLA credit claim is read from 
     )
     .await
     .expect("demo implementation budget records");
+    let phase_cutover = demo_uuid(292);
+    sqlx::query(
+        "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status,
+                                     start_date, end_date)
+         VALUES ($1, $2, $3, 'Cutover and handover', 2, 'pending', $4, $5)",
+    )
+    .bind(phase_cutover)
+    .bind(DEMO_ORG_ID)
+    .bind(project_id)
+    .bind(now.date_naive() + Duration::days(12))
+    .bind(now.date_naive() + Duration::days(16))
+    .execute(&mut *tx)
+    .await?;
     struct DemoTask {
         id_offset: u64,
         phase: Uuid,
@@ -2936,6 +2955,14 @@ you go, because the escalation record is what the SLA credit claim is read from 
         status: &'static str,
         milestone: bool,
         completed_days_ago: Option<i64>,
+        /// Days from "now" the work starts. `None` = undated, which the plan
+        /// draws in its own group rather than as a scheduled bar.
+        start_in_days: Option<i64>,
+        duration_minutes: Option<i32>,
+        effort_minutes: Option<i32>,
+        work_type: Option<&'static str>,
+        role_key: Option<&'static str>,
+        is_critical: bool,
     }
     let task_specs = [
         DemoTask {
@@ -2945,6 +2972,12 @@ you go, because the escalation record is what the SLA credit claim is read from 
             status: "completed",
             milestone: false,
             completed_days_ago: Some(12),
+            start_in_days: Some(-22),
+            duration_minutes: Some(480),
+            effort_minutes: Some(420),
+            work_type: Some("onsite"),
+            role_key: Some("field_technician"),
+            is_critical: true,
         },
         DemoTask {
             id_offset: 301,
@@ -2953,6 +2986,12 @@ you go, because the escalation record is what the SLA credit claim is read from 
             status: "completed",
             milestone: false,
             completed_days_ago: Some(11),
+            start_in_days: Some(-16),
+            duration_minutes: Some(240),
+            effort_minutes: Some(180),
+            work_type: Some("bench"),
+            role_key: Some("project_manager"),
+            is_critical: false,
         },
         DemoTask {
             id_offset: 302,
@@ -2961,6 +3000,40 @@ you go, because the escalation record is what the SLA credit claim is read from 
             status: "in_progress",
             milestone: false,
             completed_days_ago: None,
+            start_in_days: Some(-2),
+            duration_minutes: Some(480),
+            effort_minutes: Some(360),
+            work_type: Some("onsite"),
+            role_key: Some("field_technician"),
+            is_critical: true,
+        },
+        DemoTask {
+            id_offset: 304,
+            phase: phase_implementation,
+            title: "Stage and configure access points",
+            status: "pending",
+            milestone: false,
+            completed_days_ago: None,
+            start_in_days: Some(2),
+            duration_minutes: Some(720),
+            effort_minutes: Some(540),
+            work_type: Some("bench"),
+            role_key: Some("network_engineer"),
+            is_critical: false,
+        },
+        DemoTask {
+            id_offset: 305,
+            phase: phase_implementation,
+            title: "WAN failover test on the new line",
+            status: "blocked",
+            milestone: false,
+            completed_days_ago: None,
+            start_in_days: Some(5),
+            duration_minutes: Some(240),
+            effort_minutes: Some(120),
+            work_type: Some("remote"),
+            role_key: Some("network_engineer"),
+            is_critical: true,
         },
         DemoTask {
             id_offset: 303,
@@ -2969,14 +3042,68 @@ you go, because the escalation record is what the SLA credit claim is read from 
             status: "pending",
             milestone: true,
             completed_days_ago: None,
+            start_in_days: Some(9),
+            duration_minutes: Some(60),
+            effort_minutes: None,
+            work_type: Some("coordination"),
+            role_key: Some("project_manager"),
+            is_critical: true,
+        },
+        DemoTask {
+            id_offset: 306,
+            phase: phase_cutover,
+            title: "Cutover rehearsal in the lab",
+            status: "pending",
+            milestone: false,
+            completed_days_ago: None,
+            start_in_days: Some(12),
+            duration_minutes: Some(480),
+            effort_minutes: Some(420),
+            work_type: Some("bench"),
+            role_key: Some("network_engineer"),
+            is_critical: false,
+        },
+        // Two steps nobody has dated yet: the plan must show them as undated
+        // rather than inventing a week for them.
+        DemoTask {
+            id_offset: 307,
+            phase: phase_cutover,
+            title: "Decommission old switches",
+            status: "pending",
+            milestone: false,
+            completed_days_ago: None,
+            start_in_days: None,
+            duration_minutes: None,
+            effort_minutes: Some(240),
+            work_type: Some("onsite"),
+            role_key: Some("field_technician"),
+            is_critical: false,
+        },
+        DemoTask {
+            id_offset: 308,
+            phase: phase_cutover,
+            title: "Update asset register and documentation",
+            status: "pending",
+            milestone: false,
+            completed_days_ago: None,
+            start_in_days: None,
+            duration_minutes: None,
+            effort_minutes: Some(120),
+            work_type: Some("remote"),
+            role_key: Some("service_desk"),
+            is_critical: false,
         },
     ];
-    for spec in &task_specs {
+    for (order, spec) in task_specs.iter().enumerate() {
         sqlx::query(
             "INSERT INTO project_tasks (id, org_id, project_id, phase_id, title, status,
                                         assignee_id, is_milestone, milestone_amount_minor,
-                                        milestone_currency, completed_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                                        milestone_currency, completed_at,
+                                        start_at, duration_minutes, effort_estimate_minutes,
+                                        effort_remaining_minutes, work_type, role_key,
+                                        is_critical, sort_order)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                     $16, $17, $18, $19)",
         )
         .bind(demo_uuid(spec.id_offset))
         .bind(DEMO_ORG_ID)
@@ -2993,19 +3120,173 @@ you go, because the escalation record is what the SLA credit claim is read from 
         })
         .bind(if spec.milestone { Some("USD") } else { None })
         .bind(spec.completed_days_ago.map(|d| now - Duration::days(d)))
+        .bind(
+            spec.start_in_days
+                .map(|d| now + Duration::days(d) - Duration::hours(1)),
+        )
+        .bind(spec.duration_minutes)
+        .bind(spec.effort_minutes)
+        .bind(spec.effort_minutes)
+        .bind(spec.work_type)
+        .bind(spec.role_key)
+        .bind(spec.is_critical)
+        .bind(order as i32)
         .execute(&mut *tx)
         .await?;
     }
-    // Go-live sign-off depends on the core switch install.
+    // The chain the plan draws: survey → switch install → AP staging →
+    // failover test → go-live sign-off. It is a real chain, so the critical
+    // path and the ripple preview have something true to walk.
+    for (task, depends_on) in [(302u64, 300u64), (304, 302), (305, 304), (303, 305)] {
+        sqlx::query(
+            "INSERT INTO project_task_deps (org_id, task_id, depends_on_task_id)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(DEMO_ORG_ID)
+        .bind(demo_uuid(task))
+        .bind(demo_uuid(depends_on))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // --- working calendars: the org week and this project's own ------------
+    // Acme's sites are accessible on Saturdays during a refresh, so the
+    // project carries an override. The org stays Monday to Friday, which is
+    // what makes the override visible on the project header.
     sqlx::query(
-        "INSERT INTO project_task_deps (org_id, task_id, depends_on_task_id)
-         VALUES ($1, $2, $3)",
+        "INSERT INTO org_working_calendars (org_id, weekdays, minutes_per_day, note)
+         VALUES ($1, 31, 480, 'Standard Monday to Friday week')",
     )
     .bind(DEMO_ORG_ID)
-    .bind(demo_uuid(303))
-    .bind(demo_uuid(302))
     .execute(&mut *tx)
     .await?;
+    sqlx::query(
+        "INSERT INTO project_working_calendars
+             (project_id, org_id, weekdays, minutes_per_day, note)
+         VALUES ($1, $2, 63, 480, 'Site access includes Saturdays during the refresh')",
+    )
+    .bind(project_id)
+    .bind(DEMO_ORG_ID)
+    .execute(&mut *tx)
+    .await?;
+
+    // The calendar constraints a cutover has to respect: one agreed change
+    // window, and a client closure the chart draws as a no-go band.
+    sqlx::query(
+        "INSERT INTO project_calendar_zones
+             (id, org_id, project_id, kind, label, starts_on, ends_on, note)
+         VALUES ($1, $2, $3, 'window', 'Cutover change window', $4, $5,
+                 'Agreed with Acme: out-of-hours cutover only')",
+    )
+    .bind(demo_uuid(330))
+    .bind(DEMO_ORG_ID)
+    .bind(project_id)
+    .bind(now.date_naive() + Duration::days(12))
+    .bind(now.date_naive() + Duration::days(14))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO project_calendar_zones
+             (id, org_id, project_id, kind, label, starts_on, ends_on, note)
+         VALUES ($1, $2, $3, 'closed', 'Client closure', $4, $5,
+                 'Both sites shut; no access')",
+    )
+    .bind(demo_uuid(331))
+    .bind(DEMO_ORG_ID)
+    .bind(project_id)
+    .bind(now.date_naive() + Duration::days(18))
+    .bind(now.date_naive() + Duration::days(20))
+    .execute(&mut *tx)
+    .await?;
+
+    // --- baseline, then a slip the chart can show against it ---------------
+    // The baseline is captured at kickoff; two steps then move, which is what
+    // the baseline overlay has to explain in words.
+    crate::projects::capture_baseline(
+        &mut tx,
+        DEMO_ORG_ID,
+        project_id,
+        None,
+        Some("Kickoff baseline"),
+    )
+    .await
+    .expect("demo project baseline captures");
+    sqlx::query(
+        "UPDATE project_tasks SET start_at = start_at + interval '3 days'
+          WHERE org_id = $1 AND project_id = $2 AND id = ANY($3)",
+    )
+    .bind(DEMO_ORG_ID)
+    .bind(project_id)
+    .bind(vec![demo_uuid(304), demo_uuid(305)])
+    .execute(&mut *tx)
+    .await?;
+
+    // --- one org template, published as version 1 --------------------------
+    // Spec v2, with an enforced checkpoint before cutover, so the templates
+    // surface and the version history have a real document to read.
+    let template_id = demo_uuid(320);
+    let template_spec = serde_json::json!({
+        "spec_version": 2,
+        "billing_method": "milestone",
+        "currency": "USD",
+        "phases": [
+            { "key": "discovery", "name": "Discovery" },
+            { "key": "implementation", "name": "Implementation", "is_milestone": true,
+              "milestone_amount_minor": 250000 },
+            { "key": "cutover", "name": "Cutover and handover" }
+        ],
+        "tasks": [
+            { "key": "survey", "title": "Site survey", "phase": "discovery",
+              "duration_days": 1, "effort_minutes": 420, "work_type": "onsite",
+              "role_key": "field_technician" },
+            { "key": "bom", "title": "Draft bill of materials", "phase": "discovery",
+              "duration_days": 1, "effort_minutes": 180, "work_type": "bench",
+              "role_key": "project_manager", "depends_on": ["survey"] },
+            { "key": "stage", "title": "Stage and configure access points",
+              "phase": "implementation", "duration_days": 2, "effort_minutes": 540,
+              "work_type": "bench", "role_key": "network_engineer",
+              "depends_on": ["bom"] },
+            { "key": "go", "title": "Go or no-go for cutover", "phase": "implementation",
+              "duration_days": 1, "work_type": "coordination",
+              "role_key": "project_manager", "depends_on": ["stage"],
+              "gate": { "mode": "enforced", "name": "Cutover check",
+                        "approver_role_key": "project_manager" } },
+            { "key": "rehearsal", "title": "Cutover rehearsal", "phase": "cutover",
+              "duration_days": 1, "effort_minutes": 420, "work_type": "bench",
+              "depends_on": ["go"] },
+            { "key": "decommission", "title": "Decommission old switches",
+              "phase": "cutover", "duration_days": 1, "effort_minutes": 240,
+              "work_type": "onsite", "optional": true }
+        ]
+    });
+    sqlx::query(
+        "INSERT INTO project_templates (id, org_id, name, description, spec)
+         VALUES ($1, $2, 'Office move and network refresh',
+                 'Survey, staging, a go or no-go checkpoint, cutover and handover.', $3)",
+    )
+    .bind(template_id)
+    .bind(DEMO_ORG_ID)
+    .bind(&template_spec)
+    .execute(&mut *tx)
+    .await?;
+    let template_version_id = demo_uuid(321);
+    sqlx::query(
+        "INSERT INTO project_template_versions
+             (id, org_id, template_id, version, spec, status, source, note, published_at)
+         VALUES ($1, $2, $3, 1, $4, 'published', 'org',
+                 'Shipped with the demo org', now())",
+    )
+    .bind(template_version_id)
+    .bind(DEMO_ORG_ID)
+    .bind(template_id)
+    .bind(&template_spec)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE project_templates SET current_version_id = $2 WHERE id = $1")
+        .bind(template_id)
+        .bind(template_version_id)
+        .execute(&mut *tx)
+        .await?;
     trail_system_write(
         &mut tx,
         "project",

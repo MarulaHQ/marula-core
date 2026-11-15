@@ -1,37 +1,31 @@
-// /projects/[id] — one engagement's delivery surface (Wave 17 lane 4 UX
-// pass; Wave 41 lane 7 `p41-ui-clients` reshaped it to the pack's record
-// template).
+// /projects/[id] — one engagement's delivery surface.
 //
-// Identity header, glanceable roll-up strip (phases / tasks / milestones +
-// schedule-risk counts), a sequence rail over the phases (gantt: the dated
-// timeline is <ProjectGantt/>, mounted below — phases carry nullable
-// start/end dates since Wave 34, and the timeline draws only the ones that
-// HAVE both. The sequence rail stays, because an undated phase is still an
-// ordered stage).
+// The record follows the surface pack's project template: an identity header
+// (breadcrumb, title, status/client/billing/PM meta, and the four figures a PM
+// reads first), the promise strip under it (started, promised go-live, next
+// milestone, the commitment at risk, the baseline), the tab strip, and then the
+// work. The header stays put while the tabs change, so the record never feels
+// like it moved.
 //
-// gantt-lite: phases are ordered stages, not dated bars — the schema has
-// sort_order + status, no dates), phase/task groups with per-phase
-// progress, a needs-attention triage filter (overdue / due-soon / blocked),
-// and the finish-to-start dependency editor (PUT full set).
-// Mutations keep the IF1–IF3 envelope with optimistic status reconcile.
-// Non-purpose: no budget burn EDITING here, no ticket conversion.
+// The Plan tab is <ProjectPlanSurface/>: the S3 plan grid with phase rows, task
+// rows, undated work called out honestly, inline creation, the impact preview
+// before any date moves, named undo after a move, bulk scale, the task
+// inspector (a bottom sheet at 1024 and below) and the density control.
+// Timeline is <ProjectTimelineSurface/>: the S4 chart with its preview, tray
+// and table view. Tasks keeps the phase-grouped
+// list with the needs-attention triage filter and the dependency editor. Time
+// and budget keeps the billing reads: phase burn, released billing, the linked
+// contract and the purchase bills.
 //
-// **What Wave 41 changed** (the frame and the signals, not the behaviour):
-//   1. The page is now the pack's three-column RECORD shape — the client and
-//      the owner on the left, the delivery surface in the middle, what needs
-//      attention on the right — reusing the skeleton the client record
-//      established rather than inventing a second one for projects.
-//   2. **At risk is BLUSH; overdue is RED only once the due date has actually
-//      passed** — the existing `projectRisk` already split these, and the
-//      left column now shows both sides with their words, never colour alone.
-//   3. The right column carries a **budget bar on the Dispatch utilisation
-//      bar's language** (flat 1px track, blush overflow), fed by the real
-//      cost-rollup — one bar rule transferred rather than a new one invented.
+// Reads: the project, its client, phases, tasks and per-task dependencies
+// through the typed SDK; the project calendar, risk signals and latest baseline
+// through lib/projects-plan-types (the Wave 68 endpoints the generated client
+// does not carry yet). Writes keep the IF1–IF3 envelope with optimistic status
+// reconcile, except the schedule moves, which preview and apply through the
+// schedule endpoints and undo through the revert list the apply returns.
 //
-// Every existing capability — the roll-up strip, the phase rail, the gantt,
-// phase-grouped tasks with blocked-by chips, the attention filter, the
-// dependency editor and the optimistic complete-task envelope — is kept
-// exactly as it was. A visual rebrand does not remove function.
+// Non-purpose: no budget-burn editing, no ticket conversion, no client update
+// drafting. Those are separate surfaces or separate lanes.
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
@@ -53,6 +47,7 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
+  Diamond,
   EmptyState,
   FieldHint,
   Input,
@@ -70,16 +65,33 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
-import { ProjectGantt } from "../../../components/project-gantt";
+import { ProjectTimelineSurface } from "../../../components/project-timeline-surface";
 import { dueLabel, money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import {
-  RecordFrame,
-  RecordRow,
-  RecordSection,
-  RecordTabs,
-  SummaryCard,
-} from "../../../components/records/record-frame";
+  CommitFlexible,
+  CommitKey,
+  CommitSep,
+  CommitmentBar,
+  CrumbSep,
+  Kpi,
+  ProjectShellHeader,
+} from "../../../components/project-shell-header";
+import { ProjectPlanSurface } from "../../../components/project-plan-surface";
+import {
+  effortOf,
+  formatDay,
+  formatWeekday,
+  loadBaseline,
+  loadCalendar,
+  loadRisk,
+  workingDaysBetween,
+  type BaselineView,
+  type PlanPhase,
+  type PlanTask,
+  type RiskResponse,
+  type WorkingCalendar,
+} from "../../../lib/projects-plan-types";
 
 type Project = components["schemas"]["Project"];
 type ProjectPhase = components["schemas"]["ProjectPhase"];
@@ -121,6 +133,13 @@ export default function ProjectDetailPage() {
   const [burn, setBurn] = useState<PhaseBurn[]>([]);
   const [releases, setReleases] = useState<BillingRelease[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  // The plan's own reads: the project's working pattern, the deterministic risk
+  // signals, and the last baseline. Each answers null without failing the page
+  // because they are separate endpoints with separate permissions.
+  const [calendar, setCalendar] = useState<WorkingCalendar | null>(null);
+  const [riskSignals, setRiskSignals] = useState<RiskResponse | null>(null);
+  const [baseline, setBaseline] = useState<BaselineView | null>(null);
+  const [planLoaded, setPlanLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -129,7 +148,7 @@ export default function ProjectDetailPage() {
   // The record's tabs (DESIGN-NOTES-clients §7): the delivery plan, the
   // tasks, and time and budget. The header above them does not change
   // between tabs, so the record never feels like it moved.
-  const [tab, setTab] = useState<"plan" | "tasks" | "money">("plan");
+  const [tab, setTab] = useState<"plan" | "timeline" | "tasks" | "money">("plan");
 
   const [phaseOpen, setPhaseOpen] = useState(false);
   const [phaseName, setPhaseName] = useState("");
@@ -196,6 +215,15 @@ export default function ProjectDetailPage() {
     setBurn(burnResult.data ?? []);
     setReleases(releaseResult.data ?? []);
     setContracts((contractResult.data ?? []) as Contract[]);
+    const [calendarRead, riskRead, baselineRead] = await Promise.all([
+      loadCalendar(projectId).catch(() => null),
+      loadRisk(projectId).catch(() => null),
+      loadBaseline(projectId).catch(() => null),
+    ]);
+    setCalendar(calendarRead);
+    setRiskSignals(riskRead);
+    setBaseline(baselineRead);
+    setPlanLoaded(true);
   }, [projectId]);
 
   useEffect(() => {
@@ -413,6 +441,19 @@ export default function ProjectDetailPage() {
             assignee_id: null,
             description: null,
             due_at: null,
+            start_at: null,
+            duration_minutes: null,
+            effort_estimate_minutes: null,
+            effort_remaining_minutes: null,
+            work_type: null,
+            priority: null,
+            role_key: null,
+            required_skills: [],
+            is_critical: false,
+            baseline_start_at: null,
+            baseline_duration_minutes: null,
+            external_owner: null,
+            calendar_pin: null,
             completed_at: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -582,220 +623,242 @@ export default function ProjectDetailPage() {
   const budgetSpent = rollup?.po_bill_base_minor ?? null;
   const budgetCap = rollup?.budget_minor ?? null;
   const budgetCurrency = rollup?.base_currency ?? project.currency ?? "USD";
-  const budgetPct =
-    budgetSpent === null || budgetCap === null || budgetCap === 0
-      ? null
-      : Math.round((budgetSpent / budgetCap) * 100);
+  // The plan reads the Wave 68 task fields the SDK has not been regenerated
+  // for yet; the rows carry them at runtime. The cast stays here, at the one
+  // boundary, and disappears when the client is regenerated.
+  const planTasks = tasks as unknown as PlanTask[];
+  const planPhases = sortedPhases as unknown as PlanPhase[];
+  const planHours = effortOf(planTasks);
+  const planWorkingDays = workingDaysBetween(
+    project.start_date ?? null,
+    project.due_date ?? null,
+    calendar?.weekdays ?? 31,
+  );
+  const nextMilestone =
+    [...planPhases]
+      .filter((phase) => phase.is_milestone && phase.status !== "completed" && phase.end_date)
+      .sort((a, b) => String(a.end_date).localeCompare(String(b.end_date)))[0] ?? null;
+  const atRiskSignal = riskSignals?.signals.find((signal) => signal.severity !== "info") ?? null;
+  const atRiskSentence =
+    atRiskSignal?.message ??
+    (overdue.length > 0
+      ? `${overdue.length} task${overdue.length === 1 ? " has" : "s have"} passed the date it was promised for.`
+      : null);
+  const hoursUsedPct =
+    planHours.estimateMinutes === 0
+      ? 0
+      : Math.min(100, Math.round((planHours.loggedMinutes / planHours.estimateMinutes) * 100));
 
   return (
-    <div className="mx-auto grid w-full max-w-[1600px] gap-4 p-4 md:p-6">
-      <RecordFrame
-        context={
+    <div className="mx-auto w-full max-w-[1600px] pb-6">
+      <ProjectShellHeader
+        breadcrumb={
           <>
-            <RecordSection label="Client">
-              {client === null ? (
-                <p className="text-[16px] font-semibold">Internal</p>
-              ) : (
-                <Link
-                  href={`/clients/${client.id}`}
-                  className="text-[16px] font-semibold underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
-                >
-                  {client.name}
-                </Link>
-              )}
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <Badge tone={projectStatusTone(project.status)}>
-                  {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
-                </Badge>
-                {risk !== null ? (
-                  /* The pack's rule, on the client-facing side of the
-                     record too: a date coming up is blush, a date that has
-                     passed is red. Both carry their words. */
-                  <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Badge>
-                ) : null}
-              </div>
-            </RecordSection>
-
-            <RecordSection label="Commitment">
-              <RecordRow label="Starts">{project.start_date ?? "Not set"}</RecordRow>
-              <RecordRow label="Due">{project.due_date ?? "Not set"}</RecordRow>
-              <RecordRow label="Billing">{project.billing_method.replaceAll("_", " ")}</RecordRow>
-            </RecordSection>
-
-            <RecordSection label="Budget">
-              {budgetCap === null ? (
-                <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  No budget set on this project.
-                </p>
-              ) : (
-                <>
-                  <RecordRow label="Budget">{money(budgetCap, budgetCurrency)}</RecordRow>
-                  <RecordRow label="Committed">
-                    {budgetSpent === null ? "—" : money(budgetSpent, budgetCurrency)}
-                  </RecordRow>
-                  <div className="mt-2">
-                    <BudgetBar pct={budgetPct} />
-                  </div>
-                </>
-              )}
-            </RecordSection>
-
-            <RecordSection label="Owner">
-              {ownerName === "" ? (
-                <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  Unassigned
-                </p>
-              ) : (
-                <div className="flex items-center gap-2.5">
-                  <Monogram name={ownerName} />
-                  <span className="text-[13px] font-semibold">{ownerName}</span>
-                </div>
-              )}
-            </RecordSection>
-          </>
-        }
-        content={
-          <>
-      {/* ---- breadcrumb and actions ---- */}
-      <div className="m-rise">
-        <div className="flex flex-wrap items-center gap-2" style={{ color: "var(--m-text-secondary)" }}>
-          <Link
-            href="/projects"
-            className="text-[13px] underline decoration-[var(--m-border)] underline-offset-2"
-          >
-            Projects
-          </Link>
-          <ChevronIcon />
-          <span className="text-[13px]">{project.name}</span>
-        </div>
-
-        {/* ---- the title and its pills. This header does not change
-            between tabs, so the record never feels like it moved. ---- */}
-        <div className="mt-2 flex flex-wrap items-center gap-2.5">
-          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em]">
-            {project.name}
-          </h1>
-          <Badge tone={projectStatusTone(project.status)}>
-            {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
-          </Badge>
-          {risk !== null ? (
-            <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Badge>
-          ) : null}
-        </div>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          {client !== null ? (
-            <>
-              Client:{" "}
-              <Link href={`/clients/${client.id}`} className="underline decoration-[var(--m-border)] underline-offset-2">
+            <Link href="/projects" className="hover:text-foreground">
+              Projects
+            </Link>
+            <CrumbSep />
+            {client === null ? (
+              <span>Internal</span>
+            ) : (
+              <Link href={`/clients/${client.id}`} className="hover:text-foreground">
                 {client.name}
               </Link>
-              {" · "}
-            </>
-          ) : (
-            "Internal · "
-          )}
-          {project.billing_method.replaceAll("_", " ")}
-          {project.budget_minor !== null && project.budget_minor !== undefined
-            ? ` · budget ${money(project.budget_minor, project.currency ?? "USD")}`
-            : ""}
-          {project.due_date !== null ? ` · due ${project.due_date}` : ""}
-        </p>
-        {project.description !== null && project.description !== undefined ? (
-          <p className="mt-1 max-w-[80ch] text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-            {project.description}
-          </p>
-        ) : null}
-      </div>
+            )}
+            <CrumbSep />
+            <span className="truncate">{project.name}</span>
+          </>
+        }
+        title={project.name}
+        meta={
+          <>
+            <Badge tone={projectStatusTone(project.status)}>
+              {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
+            </Badge>
+            {risk !== null ? (
+              <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Badge>
+            ) : null}
+            {client === null ? (
+              <span>Internal</span>
+            ) : (
+              <Link href={`/clients/${client.id}`} className="max-w-[400px] truncate hover:text-foreground">
+                {client.name}
+              </Link>
+            )}
+            <span aria-hidden="true">·</span>
+            <span className="whitespace-nowrap">{project.billing_method.replaceAll("_", " ")}</span>
+            <span aria-hidden="true">·</span>
+            <span className="whitespace-nowrap">{ownerName === "" ? "No PM recorded" : `PM ${ownerName}`}</span>
+            {overdue.length > 0 ? (
+              <Badge tone="danger" data-testid="risk-overdue">
+                {overdue.length} overdue task{overdue.length === 1 ? "" : "s"}
+              </Badge>
+            ) : null}
+            {blocked.length > 0 ? (
+              <Badge tone="warning" data-testid="risk-blocked">
+                {blocked.length} blocked
+              </Badge>
+            ) : null}
+            {dueSoon.length > 0 ? (
+              <Badge tone="warning" data-testid="risk-due-soon">
+                {dueSoon.length} due in 3d
+              </Badge>
+            ) : null}
+          </>
+        }
+        stats={
+          <>
+            <Kpi
+              label="Due"
+              mono
+              value={formatWeekday(project.due_date)}
+              sub={planWorkingDays === 0 ? "No working days set" : `${planWorkingDays} working days`}
+            />
+            <Kpi
+              label="Hours"
+              width="156px"
+              value={
+                planHours.estimateMinutes === 0 ? (
+                  "Not estimated"
+                ) : (
+                  <span className="font-mono tabular-nums">
+                    {Math.round(planHours.loggedMinutes / 60)} /{" "}
+                    {Math.round(planHours.estimateMinutes / 60)} h
+                  </span>
+                )
+              }
+            >
+              {planHours.estimateMinutes === 0 ? (
+                <span className="whitespace-nowrap text-[12px] text-muted-foreground">
+                  Add effort to tasks to see burn
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <span
+                    role="meter"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={hoursUsedPct}
+                    aria-label={`Hours used: ${hoursUsedPct}%`}
+                    className="block h-[6px] min-w-[40px] flex-1 overflow-hidden rounded-pill"
+                    style={{ background: "var(--m-border)" }}
+                  >
+                    <span
+                      className="block h-full rounded-pill"
+                      style={{
+                        width: `${hoursUsedPct}%`,
+                        background:
+                          hoursUsedPct >= 80
+                            ? "var(--m-status-warning-fg)"
+                            : "var(--mc-stem)",
+                      }}
+                    />
+                  </span>
+                  <span className="whitespace-nowrap text-[12px] text-muted-foreground">
+                    {hoursUsedPct}% used, {tProgress.pct}% done
+                  </span>
+                </span>
+              )}
+            </Kpi>
+            <Kpi
+              label="Budget"
+              value={
+                (project.budget_minor ?? budgetCap) === null
+                  ? "No budget"
+                  : money(project.budget_minor ?? budgetCap ?? 0, project.currency ?? budgetCurrency)
+              }
+              sub={
+                budgetSpent === null
+                  ? "Nothing billed yet"
+                  : `${money(budgetSpent, budgetCurrency)} billed`
+              }
+            />
+          </>
+        }
+        tabs={[
+          { id: "plan", label: "Plan", testId: "record-tab-plan" },
+          { id: "timeline", label: "Timeline" },
+          { id: "tasks", label: "Tasks", count: tProgress.total, testId: "record-tab-tasks" },
+          { id: "money", label: "Time and budget", testId: "record-tab-money" },
+        ]}
+        activeTab={tab}
+        onTab={(id) => setTab(id as typeof tab)}
+        commitment={
+          <CommitmentBar>
+            <span>
+              <CommitKey>Started</CommitKey>
+              <span className="font-mono tabular-nums">{formatWeekday(project.start_date)}</span>
+            </span>
+            <CommitSep />
+            <span>
+              <CommitKey>Promised go-live</CommitKey>
+              <span className="font-mono tabular-nums">{formatWeekday(project.due_date)}</span>
+            </span>
+            <CommitSep />
+            {nextMilestone === null ? (
+              <span>
+                <CommitKey>Next milestone</CommitKey>
+                None set
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Diamond />
+                <CommitKey className="m-0">Next milestone</CommitKey>
+                <span className="max-w-[280px] truncate">{nextMilestone.name},</span>
+                <span className="font-mono tabular-nums">{formatWeekday(nextMilestone.end_date)}</span>
+              </span>
+            )}
+            <CommitSep />
+            <CommitFlexible>
+              {atRiskSentence === null ? (
+                <>
+                  <Icon name="check" size={14} />
+                  No commitment at risk.
+                </>
+              ) : (
+                <>
+                  <Icon name="alert" size={14} />
+                  <b className="font-semibold">1 commitment at risk:</b>
+                  <span className="min-w-0 truncate">{atRiskSentence}</span>
+                </>
+              )}
+            </CommitFlexible>
+            <span className="text-muted-foreground">
+              {baseline === null
+                ? "No baseline yet"
+                : `Baseline ${formatDay(baseline.captured_at)}, ${baseline.dated_tasks} of ${baseline.total_tasks} tasks dated`}
+            </span>
+          </CommitmentBar>
+        }
+      />
 
-      <div className="m-rise flex flex-wrap items-center gap-x-5 gap-y-2" style={{ animationDelay: "40ms" }}>
-        <RollUp label="phases" done={pProgress.done} total={pProgress.total} pct={pProgress.pct} />
-        <RollUp label="tasks" done={tProgress.done} total={tProgress.total} pct={tProgress.pct} />
-        {pProgress.milestonesTotal > 0 ? (
-          <RollUp
-            label="milestones"
-            done={pProgress.milestonesDone}
-            total={pProgress.milestonesTotal}
-            pct={pProgress.milestonesTotal === 0 ? 0 : Math.round((pProgress.milestonesDone / pProgress.milestonesTotal) * 100)}
-          />
-        ) : null}
-        {rollup !== null ? (
-          <span
-            className="text-[12px] tabular-nums"
-            style={{ color: "var(--m-text-secondary)" }}
-            data-testid="project-cost-rollup"
-          >
-            PO cost{" "}
-            <strong className="">{money(rollup.po_bill_base_minor, rollup.base_currency)}</strong>
-            {rollup.budget_minor !== null && rollup.budget_minor !== undefined
-              ? ` of ${money(rollup.budget_minor, rollup.budget_currency ?? rollup.base_currency)} budget`
-              : ""}
-          </span>
-        ) : null}
-        {overdue.length > 0 ? (
-          <Badge tone="danger" data-testid="risk-overdue">
-            {overdue.length} overdue task{overdue.length === 1 ? "" : "s"}
-          </Badge>
-        ) : null}
-        {blocked.length > 0 ? (
-          <Badge tone="warning" data-testid="risk-blocked">
-            {blocked.length} blocked
-          </Badge>
-        ) : null}
-        {dueSoon.length > 0 ? (
-          <Badge tone="warning" data-testid="risk-due-soon">
-            {dueSoon.length} due in 3d
-          </Badge>
-        ) : null}
-      </div>
-
-      {/* ---- the tabs. DESIGN-NOTES-clients §7 gives the project record
-          Plan, Tasks, and Time and budget; the header above them stays put
-          so the record never feels like it moved. ---- */}
-      <div className="mt-3">
-        <RecordTabs
-          tabs={[
-            { id: "plan", label: "Plan" },
-            { id: "tasks", label: "Tasks", count: tProgress.total },
-            { id: "money", label: "Time and budget" },
-          ]}
-          active={tab}
-          onChange={(id) => setTab(id as typeof tab)}
-        />
-      </div>
-
-      <div key={tab} className="mt-4 flex flex-col gap-4">
+      <div className="px-6 pt-4">
         {actionError !== null ? (
-          <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+          <p role="alert" className="mb-3 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
             {actionError}
           </p>
         ) : null}
 
         {tab === "plan" ? (
-          <>
-            {sortedPhases.length > 0 ? (
-              <PhaseRail phases={sortedPhases} />
-            ) : null}
-            {/* The dated timeline, kept on the Plan tab: a bar tells you
-                WHEN, the rail above tells you WHAT ORDER, and a planner
-                reads the bar first. Undated phases appear in the rail and
-                are named as not being on the timeline. */}
-            <Card className="m-rise p-0" data-testid="project-schedule">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
-                <div className="flex items-center gap-3">
-                  <h2 className="text-sm font-semibold">Schedule</h2>
-                  <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-                    {pProgress.done}/{pProgress.total} phases
-                  </span>
-                </div>
-                <Button size="sm" variant="secondary" onClick={() => setPhaseOpen(true)} data-testid="add-phase">
-                  Add phase
-                </Button>
-              </div>
-              <div className="p-4">
-                <ProjectGantt projectId={projectId} />
-              </div>
-            </Card>
-          </>
+          <ProjectPlanSurface
+            projectId={projectId}
+            projectDueDate={project.due_date ?? null}
+            tasks={planTasks}
+            phases={planPhases}
+            deps={deps as unknown as Record<string, PlanTask[]>}
+            calendar={calendar}
+            risk={riskSignals}
+            baseline={baseline}
+            loading={!planLoaded}
+            onChanged={refresh}
+            onAddPhase={() => setPhaseOpen(true)}
+          />
+        ) : null}
+
+        {tab === "timeline" ? (
+          <div data-testid="project-timeline">
+            <ProjectTimelineSurface projectId={projectId} />
+          </div>
         ) : null}
 
         {tab === "money" ? (
@@ -1146,217 +1209,7 @@ export default function ProjectDetailPage() {
         busy={busy}
         onSave={() => void saveDependencies()}
       />
-          </>
-        }
-        summary={
-          <>
-            <p
-              className="mb-1 text-[12px] font-semibold uppercase tracking-[0.08em]"
-              style={{ color: "var(--m-text-muted)" }}
-            >
-              Right now
-            </p>
-
-            <SummaryCard title="Budget">
-              {budgetPct === null ? (
-                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  Set a budget to see this bar.
-                </span>
-              ) : (
-                <>
-                  <RecordRow label="Budget">
-                    {money(budgetCap as number, budgetCurrency)}
-                  </RecordRow>
-                  <RecordRow label="Committed">
-                    {money(budgetSpent as number, budgetCurrency)}
-                  </RecordRow>
-                  <div className="mt-1">
-                    <BudgetBar pct={budgetPct} />
-                  </div>
-                </>
-              )}
-            </SummaryCard>
-
-            <SummaryCard title="Risk">
-              {risk === null ? (
-                <span className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  Nothing at risk.
-                </span>
-              ) : (
-                <RecordRow label="Schedule">
-                  <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>
-                    {risk.label}
-                  </Badge>
-                </RecordRow>
-              )}
-              {overdue.length > 0 ? (
-                <RecordRow label="Overdue tasks">
-                  <Badge tone="danger">{overdue.length} overdue</Badge>
-                </RecordRow>
-              ) : null}
-              {blocked.length > 0 ? (
-                <RecordRow label="Blocked">
-                  <Badge tone="warning">{blocked.length} blocked</Badge>
-                </RecordRow>
-              ) : null}
-              {dueSoon.length > 0 ? (
-                <RecordRow label="Due in 3d">
-                  <Badge tone="warning">{dueSoon.length} due in 3d</Badge>
-                </RecordRow>
-              ) : null}
-            </SummaryCard>
-
-            <SummaryCard title="Progress">
-              <RecordRow label="Phases">
-                {pProgress.done}/{pProgress.total}
-              </RecordRow>
-              <RecordRow label="Tasks">
-                {tProgress.done}/{tProgress.total}
-              </RecordRow>
-              {pProgress.milestonesTotal > 0 ? (
-                <RecordRow label="Milestones">
-                  {pProgress.milestonesDone}/{pProgress.milestonesTotal}
-                </RecordRow>
-              ) : null}
-            </SummaryCard>
-          </>
-        }
-      />
-    </div>
-  );
-}
-
-/** The account owner's monogram, the same one the client record draws. */
-function Monogram({ name }: { name: string }) {
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
-    .join("");
-  return (
-    <span
-      aria-hidden="true"
-      className="grid h-9 w-9 shrink-0 place-items-center rounded-[999px] text-[12px] font-semibold"
-      style={{ background: "var(--m-canopy-deep)", color: "var(--m-cream)" }}
-    >
-      {initials}
-    </span>
-  );
-}
-
-/** The breadcrumb's chevron, as on the client and contract records. */
-function ChevronIcon() {
-  return <Icon name="chev" size={14} />;
-}
-
-/**
- * The budget bar, on the Dispatch utilisation bar's language: a flat 1px
- * track, a flat fill, and the one rule that transfers with it — past the
- * budget the overflow is BLUSH and the percentage carries an alert icon, so
- * the number is never colour alone.
- */
-function BudgetBar({ pct }: { pct: number | null }) {
-  if (pct === null) {
-    return (
-      <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-        Set a budget to see this bar.
-      </p>
-    );
-  }
-  const over = pct > 100;
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className="h-1.5 flex-1 overflow-hidden rounded-full"
-        style={{ background: "var(--m-border)" }}
-        role="meter"
-        aria-valuenow={pct}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`Budget ${pct}% committed`}
-      >
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${Math.min(pct, 100)}%`,
-            background: over ? "var(--m-accent)" : "var(--m-text-secondary)",
-            opacity: over ? 1 : 0.7,
-          }}
-        />
       </div>
-      <span
-        className="inline-flex items-center gap-1 text-[13px] font-semibold tabular-nums"
-        style={{ color: over ? "var(--m-accent-text)" : "var(--m-text-secondary)" }}
-      >
-        {over ? <AlertGlyph /> : null}
-        {pct}%
-      </span>
-    </div>
-  );
-}
-
-function AlertGlyph() {
-  return <Icon name="alert" size={13} />;
-}
-
-function RollUp({ label, done, total, pct }: { label: string; done: number; total: number; pct: number }) {
-  return (
-    <div className="min-w-32" data-testid={`rollup-${label}`}>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[13px] font-semibold tabular-nums">{done}</span>
-        <span className="text-[12px] tabular-nums" style={{ color: "var(--m-text-muted)" }}>
-          / {total} {label}
-        </span>
-      </div>
-      <div className="mt-1 h-1 w-28 overflow-hidden rounded-full" style={{ background: "var(--m-bg-subtle)" }}>
-        <div
-          className="h-full rounded-full"
-          style={{
-            width: `${pct}%`,
-            background: pct === 100 && total > 0 ? "var(--m-status-success-fg)" : "var(--m-accent)",
-            transition: "width 120ms cubic-bezier(0.2, 0, 0, 1)",
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function PhaseRail({ phases }: { phases: ProjectPhase[] }) {
-  return (
-    <div className="m-rise" data-testid="phase-rail" style={{ animationDelay: "60ms" }} role="list" aria-label="Phase sequence">
-      <div className="flex gap-1">
-        {phases.map((phase) => {
-          const fill =
-            phase.status === "completed"
-              ? "var(--m-status-success-fg)"
-              : phase.status === "active"
-                ? "var(--m-accent)"
-                : "var(--m-bg-subtle)";
-          return (
-            <div
-              key={phase.id}
-              role="listitem"
-              className="group relative min-w-0 flex-1"
-              title={`${phase.name} — ${STATUS_LABEL[phase.status] ?? phase.status}${phase.is_milestone ? " (milestone)" : ""}`}
-            >
-              <div
-                className="h-2 rounded-full"
-                style={{
-                  background: fill,
-                  border: phase.status === "pending" ? "1px solid var(--m-border)" : undefined,
-                }}
-              />
-              <div className="mt-1 flex items-center gap-1 truncate text-[11px]" style={{ color: "var(--m-text-muted)" }}>
-                {phase.is_milestone ? <span aria-label="milestone">◆</span> : null}
-                <span className="truncate">{phase.name}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 

@@ -1117,9 +1117,27 @@ BIN="$(cargo metadata -q --no-deps --format-version 1 | python3 -c \
 # plugin that is genuinely broken. Built here for the same reason `worker` is.
 run_stage "build marula-plugin-worker (${API_PROFILE})" \
   "cargo build -p plugin-host --bin marula-plugin-worker ${API_CARGO_FLAGS}"
+
+# Run a service in its OWN session, so whatever launched this script can exit
+# (or be killed as a process group) without taking the service with it.
+# `nohup` alone is not enough: it ignores SIGHUP but keeps the process group,
+# and a harness that kills the group kills the service too. macOS has no
+# `setsid` binary, so the portable form asks python to do it.
+detach_service() {
+  local log="$1"; shift
+  if command -v setsid >/dev/null 2>&1; then
+    setsid "$@" >"$log" 2>&1 </dev/null &
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+      "$@" >"$log" 2>&1 </dev/null &
+  else
+    nohup "$@" >"$log" 2>&1 </dev/null &
+  fi
+  echo $!
+}
+
 echo "[e2e-stack] boot core-api on ${BIND_ADDR}"
-"$BIN" >"$LOG_DIR/core-api.log" 2>&1 </dev/null &
-API_PID=$!
+API_PID=$(detach_service "$LOG_DIR/core-api.log" "$BIN")
 disown "$API_PID" 2>/dev/null || true
 # The core-api release binary is now built from THIS tree's sources: claim the
 # shared dir so the next lane's guard sees whose artifacts these are.
@@ -1158,11 +1176,11 @@ echo "[e2e-stack] boot worker on 0.0.0.0:${WORKER_PORT}"
 # time loops; `INTERNAL_API_URL` is the seam the WORKFLOW executor posts node
 # effects through (worker/effects.rs), so a stale default of 127.0.0.1:8080
 # would make every node unreachable on a per-run port.
-CORE_API_URL="http://${API_HOST}" \
-  INTERNAL_API_URL="http://${API_HOST}" \
-  BIND_ADDR="0.0.0.0:${WORKER_PORT}" \
-  "$WORKER_BIN" >"$LOG_DIR/worker.log" 2>&1 </dev/null &
-WORKER_PID=$!
+WORKER_PID=$(detach_service "$LOG_DIR/worker.log" \
+  env CORE_API_URL="http://${API_HOST}" \
+      INTERNAL_API_URL="http://${API_HOST}" \
+      BIND_ADDR="0.0.0.0:${WORKER_PORT}" \
+      "$WORKER_BIN")
 disown "$WORKER_PID" 2>/dev/null || true
 echo "[e2e-stack] waiting for worker health on 0.0.0.0:${WORKER_PORT} (up to 30s) …"
 for _ in $(seq 1 30); do

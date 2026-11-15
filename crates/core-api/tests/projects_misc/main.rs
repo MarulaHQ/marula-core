@@ -22,6 +22,7 @@
 
 mod common;
 
+mod calendar_and_collisions_flow;
 mod caller_fixture;
 mod dev_surface;
 mod entitlement_adopt_flow;

@@ -22,7 +22,10 @@ const PHASE_COLS: &str = "id, org_id, project_id, name, description, sort_order,
      completed_at, created_at, updated_at";
 const TASK_COLS: &str = "id, org_id, project_id, phase_id, title, description, status, \
      assignee_id, sort_order, is_milestone, milestone_amount_minor, milestone_currency, \
-     due_at, completed_at, created_at, updated_at";
+     due_at, start_at, duration_minutes, effort_estimate_minutes, effort_remaining_minutes, \
+     work_type, priority, role_key, required_skills, is_critical, baseline_start_at, \
+     baseline_duration_minutes, external_owner, calendar_pin, completed_at, created_at, \
+     updated_at";
 const VIEW_COLS: &str = "id, org_id, project_id, name, spec, is_default, created_at, updated_at";
 const TEMPLATE_COLS: &str = "id, org_id, name, description, spec, created_at, updated_at";
 
@@ -99,6 +102,25 @@ fn row_to_task(row: sqlx::postgres::PgRow) -> Result<ProjectTask, sqlx::Error> {
         milestone_amount_minor: row.get("milestone_amount_minor"),
         milestone_currency: row.get("milestone_currency"),
         due_at: row.get("due_at"),
+        start_at: row.get("start_at"),
+        duration_minutes: row.get("duration_minutes"),
+        effort_estimate_minutes: row.get("effort_estimate_minutes"),
+        effort_remaining_minutes: row.get("effort_remaining_minutes"),
+        work_type: row
+            .get::<Option<String>, _>("work_type")
+            .map(|s| s.parse().map_err(|e| decode_err("work_type", e)))
+            .transpose()?,
+        priority: row
+            .get::<Option<String>, _>("priority")
+            .map(|s| s.parse().map_err(|e| decode_err("priority", e)))
+            .transpose()?,
+        role_key: row.get("role_key"),
+        required_skills: row.get("required_skills"),
+        is_critical: row.get("is_critical"),
+        baseline_start_at: row.get("baseline_start_at"),
+        baseline_duration_minutes: row.get("baseline_duration_minutes"),
+        external_owner: row.get("external_owner"),
+        calendar_pin: row.get("calendar_pin"),
         completed_at: row.get("completed_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -515,6 +537,17 @@ pub struct NewTask<'a> {
     pub milestone_amount_minor: Option<i64>,
     pub milestone_currency: Option<&'a str>,
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub start_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub duration_minutes: Option<i32>,
+    pub effort_estimate_minutes: Option<i32>,
+    pub effort_remaining_minutes: Option<i32>,
+    pub work_type: Option<core_domain::entities::WorkType>,
+    pub priority: Option<core_domain::status::Priority>,
+    pub role_key: Option<&'a str>,
+    pub required_skills: &'a [String],
+    pub is_critical: bool,
+    pub external_owner: Option<&'a str>,
+    pub calendar_pin: Option<Uuid>,
 }
 
 pub async fn insert_task<'e, E>(executor: E, t: NewTask<'_>) -> DbResult<ProjectTask>
@@ -524,8 +557,12 @@ where
     let sql = format!(
         r#"INSERT INTO project_tasks (id, org_id, project_id, phase_id, title, description,
                                       assignee_id, sort_order, is_milestone,
-                                      milestone_amount_minor, milestone_currency, due_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                                      milestone_amount_minor, milestone_currency, due_at,
+                                      start_at, duration_minutes, effort_estimate_minutes,
+                                      effort_remaining_minutes, work_type, priority, role_key,
+                                      required_skills, is_critical, external_owner, calendar_pin)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                   $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
            RETURNING {TASK_COLS}"#
     );
     let row = sqlx::query(&sql)
@@ -541,6 +578,17 @@ where
         .bind(t.milestone_amount_minor)
         .bind(t.milestone_currency)
         .bind(t.due_at)
+        .bind(t.start_at)
+        .bind(t.duration_minutes)
+        .bind(t.effort_estimate_minutes)
+        .bind(t.effort_remaining_minutes)
+        .bind(t.work_type.map(|w| w.as_str()))
+        .bind(t.priority.map(|p| p.as_str()))
+        .bind(t.role_key)
+        .bind(t.required_skills)
+        .bind(t.is_critical)
+        .bind(t.external_owner)
+        .bind(t.calendar_pin)
         .fetch_one(executor)
         .await?;
     Ok(row_to_task(row)?)
@@ -605,6 +653,7 @@ where
         .collect::<Result<Vec<_>, _>>()?)
 }
 
+#[derive(Default)]
 pub struct TaskPatch<'a> {
     pub title: Option<&'a str>,
     pub description: Option<Option<&'a str>>,
@@ -616,6 +665,17 @@ pub struct TaskPatch<'a> {
     pub milestone_amount_minor: Option<Option<i64>>,
     pub milestone_currency: Option<Option<&'a str>>,
     pub due_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub start_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    pub duration_minutes: Option<Option<i32>>,
+    pub effort_estimate_minutes: Option<Option<i32>>,
+    pub effort_remaining_minutes: Option<Option<i32>>,
+    pub work_type: Option<Option<core_domain::entities::WorkType>>,
+    pub priority: Option<Option<core_domain::status::Priority>>,
+    pub role_key: Option<Option<&'a str>>,
+    pub required_skills: Option<&'a [String]>,
+    pub is_critical: Option<bool>,
+    pub external_owner: Option<Option<&'a str>>,
+    pub calendar_pin: Option<Option<Uuid>>,
 }
 
 /// Tri-state task patch. `completed` is NOT settable here — completion runs
@@ -660,6 +720,41 @@ where
     }
     if let Some(v) = p.due_at {
         q.push(", due_at = ").push_bind(v);
+    }
+    if let Some(v) = p.start_at {
+        q.push(", start_at = ").push_bind(v);
+    }
+    if let Some(v) = p.duration_minutes {
+        q.push(", duration_minutes = ").push_bind(v);
+    }
+    if let Some(v) = p.effort_estimate_minutes {
+        q.push(", effort_estimate_minutes = ").push_bind(v);
+    }
+    if let Some(v) = p.effort_remaining_minutes {
+        q.push(", effort_remaining_minutes = ").push_bind(v);
+    }
+    if let Some(v) = p.work_type {
+        q.push(", work_type = ")
+            .push_bind(v.map(|w| w.as_str().to_string()));
+    }
+    if let Some(v) = p.priority {
+        q.push(", priority = ")
+            .push_bind(v.map(|p| p.as_str().to_string()));
+    }
+    if let Some(v) = p.role_key {
+        q.push(", role_key = ").push_bind(v);
+    }
+    if let Some(v) = p.required_skills {
+        q.push(", required_skills = ").push_bind(v);
+    }
+    if let Some(v) = p.is_critical {
+        q.push(", is_critical = ").push_bind(v);
+    }
+    if let Some(v) = p.external_owner {
+        q.push(", external_owner = ").push_bind(v);
+    }
+    if let Some(v) = p.calendar_pin {
+        q.push(", calendar_pin = ").push_bind(v);
     }
     q.push(" WHERE org_id = ")
         .push_bind(org_id)
@@ -1560,4 +1655,661 @@ where
             })
         })
         .collect()
+}
+
+// --- project working calendar ------------------------------------------------
+
+const CALENDAR_COLS: &str =
+    "project_id, org_id, weekdays, minutes_per_day, note, created_at, updated_at";
+
+fn row_to_calendar(
+    row: sqlx::postgres::PgRow,
+) -> Result<core_domain::entities::ProjectWorkingCalendar, sqlx::Error> {
+    Ok(core_domain::entities::ProjectWorkingCalendar {
+        project_id: row.get("project_id"),
+        org_id: row.get("org_id"),
+        weekdays: row.get("weekdays"),
+        minutes_per_day: row.get("minutes_per_day"),
+        note: row.get("note"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+/// The project's own working pattern, when it has one. `None` means the
+/// organisation's calendar applies.
+pub async fn get_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Option<core_domain::entities::ProjectWorkingCalendar>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {CALENDAR_COLS} FROM project_working_calendars \
+         WHERE org_id = $1 AND project_id = $2"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_optional(executor)
+        .await?;
+    Ok(row.map(row_to_calendar).transpose()?)
+}
+
+/// Sets or replaces the project's working pattern. One row per project: a
+/// second calendar would make "which pattern wins" a question again.
+pub async fn upsert_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+    weekdays: i16,
+    minutes_per_day: i32,
+    note: Option<&str>,
+) -> DbResult<core_domain::entities::ProjectWorkingCalendar>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"INSERT INTO project_working_calendars
+               (project_id, org_id, weekdays, minutes_per_day, note)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (project_id) DO UPDATE
+             SET weekdays = EXCLUDED.weekdays,
+                 minutes_per_day = EXCLUDED.minutes_per_day,
+                 note = EXCLUDED.note,
+                 updated_at = now()
+           RETURNING {CALENDAR_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(project_id)
+        .bind(org_id)
+        .bind(weekdays)
+        .bind(minutes_per_day)
+        .bind(note)
+        .fetch_one(executor)
+        .await?;
+    Ok(row_to_calendar(row)?)
+}
+
+/// Drops the project's override so the organisation's calendar applies again.
+pub async fn delete_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let res =
+        sqlx::query("DELETE FROM project_working_calendars WHERE org_id = $1 AND project_id = $2")
+            .bind(org_id)
+            .bind(project_id)
+            .execute(executor)
+            .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+// --- organisation working calendar -------------------------------------------
+
+/// The organisation's working week. `None` means the product's standard
+/// Monday-to-Friday, eight-hour day; a row is an organisation that works a
+/// different week.
+pub async fn get_org_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+) -> DbResult<Option<core_domain::entities::ProjectWorkingCalendar>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"SELECT org_id, org_id AS project_id, weekdays, minutes_per_day, note,
+                  created_at, updated_at
+           FROM org_working_calendars WHERE org_id = $1"#,
+    )
+    .bind(org_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(row_to_calendar).transpose()?)
+}
+
+/// Sets the organisation's working week. One row per org.
+pub async fn upsert_org_working_calendar<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    weekdays: i16,
+    minutes_per_day: i32,
+    note: Option<&str>,
+) -> DbResult<core_domain::entities::ProjectWorkingCalendar>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"INSERT INTO org_working_calendars (org_id, weekdays, minutes_per_day, note)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (org_id) DO UPDATE
+             SET weekdays = EXCLUDED.weekdays,
+                 minutes_per_day = EXCLUDED.minutes_per_day,
+                 note = EXCLUDED.note,
+                 updated_at = now()
+           RETURNING org_id, org_id AS project_id, weekdays, minutes_per_day, note,
+                     created_at, updated_at"#,
+    )
+    .bind(org_id)
+    .bind(weekdays)
+    .bind(minutes_per_day)
+    .bind(note)
+    .fetch_one(executor)
+    .await?;
+    Ok(row_to_calendar(row)?)
+}
+
+// --- baselines ----------------------------------------------------------------
+
+/// One captured baseline.
+#[derive(Debug, Clone)]
+pub struct ProjectBaseline {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub project_id: Uuid,
+    pub captured_by: Option<Uuid>,
+    pub captured_at: chrono::DateTime<chrono::Utc>,
+    pub note: Option<String>,
+    pub snapshot: serde_json::Value,
+    pub dated_tasks: i32,
+    pub total_tasks: i32,
+}
+
+fn row_to_baseline(row: sqlx::postgres::PgRow) -> Result<ProjectBaseline, sqlx::Error> {
+    Ok(ProjectBaseline {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        project_id: row.get("project_id"),
+        captured_by: row.get("captured_by"),
+        captured_at: row.get("captured_at"),
+        note: row.get("note"),
+        snapshot: row.get("snapshot"),
+        dated_tasks: row.get("dated_tasks"),
+        total_tasks: row.get("total_tasks"),
+    })
+}
+
+/// Copies every dated task's start and length into its baseline columns, then
+/// records the capture. The two writes belong together: a baseline row whose
+/// task columns were not stamped describes a plan nobody had.
+pub async fn capture_baseline(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_id: Uuid,
+    captured_by: Option<Uuid>,
+    note: Option<&str>,
+) -> DbResult<ProjectBaseline> {
+    let tasks: Vec<(Uuid, Option<chrono::DateTime<chrono::Utc>>, Option<i32>)> = sqlx::query_as(
+        r#"SELECT id, start_at, duration_minutes FROM project_tasks
+           WHERE org_id = $1 AND project_id = $2
+           ORDER BY sort_order, id"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    sqlx::query(
+        r#"UPDATE project_tasks
+              SET baseline_start_at = start_at,
+                  baseline_duration_minutes = duration_minutes
+            WHERE org_id = $1 AND project_id = $2 AND start_at IS NOT NULL"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .execute(&mut *conn)
+    .await?;
+
+    let dated = tasks.iter().filter(|t| t.1.is_some()).count() as i32;
+    let total = tasks.len() as i32;
+    let snapshot = serde_json::json!(tasks
+        .iter()
+        .map(|(id, start, minutes)| serde_json::json!({
+            "task_id": id,
+            "start_at": start,
+            "duration_minutes": minutes,
+        }))
+        .collect::<Vec<_>>());
+
+    let row = sqlx::query(
+        r#"INSERT INTO project_baselines
+               (id, org_id, project_id, captured_by, note, snapshot, dated_tasks, total_tasks)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id, org_id, project_id, captured_by, captured_at, note, snapshot,
+                     dated_tasks, total_tasks"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(project_id)
+    .bind(captured_by)
+    .bind(note)
+    .bind(&snapshot)
+    .bind(dated)
+    .bind(total)
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(row_to_baseline(row)?)
+}
+
+/// The most recent baseline, when a project has one.
+pub async fn latest_baseline<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Option<ProjectBaseline>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"SELECT id, org_id, project_id, captured_by, captured_at, note, snapshot,
+                  dated_tasks, total_tasks
+           FROM project_baselines
+           WHERE org_id = $1 AND project_id = $2
+           ORDER BY captured_at DESC
+           LIMIT 1"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(row.map(row_to_baseline).transpose()?)
+}
+
+// --- template versions --------------------------------------------------------
+
+/// One version of a project template.
+#[derive(Debug, Clone)]
+pub struct TemplateVersion {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub template_id: Uuid,
+    pub version: i32,
+    pub spec: serde_json::Value,
+    pub status: String,
+    pub source: String,
+    pub note: Option<String>,
+    pub published_by: Option<Uuid>,
+    pub published_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+const VERSION_COLS: &str = "id, org_id, template_id, version, spec, status, source, note, \
+     published_by, published_at, created_at";
+
+fn row_to_version(row: sqlx::postgres::PgRow) -> Result<TemplateVersion, sqlx::Error> {
+    Ok(TemplateVersion {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        template_id: row.get("template_id"),
+        version: row.get("version"),
+        spec: row.get("spec"),
+        status: row.get("status"),
+        source: row.get("source"),
+        note: row.get("note"),
+        published_by: row.get("published_by"),
+        published_at: row.get("published_at"),
+        created_at: row.get("created_at"),
+    })
+}
+
+/// Every version of one template, newest first.
+pub async fn list_template_versions<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    template_id: Uuid,
+) -> DbResult<Vec<TemplateVersion>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {VERSION_COLS} FROM project_template_versions \
+         WHERE org_id = $1 AND template_id = $2 ORDER BY version DESC"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(template_id)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(row_to_version)
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Appends a draft version built from the template's current spec, or from a
+/// spec the caller supplies. Versions are append-only: a published version is
+/// never rewritten, which is what lets a fork stay on the plan it was tuned
+/// from.
+pub async fn append_template_version(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    template_id: Uuid,
+    spec: Option<&serde_json::Value>,
+    note: Option<&str>,
+) -> DbResult<TemplateVersion> {
+    let sql = format!(
+        r#"INSERT INTO project_template_versions
+               (id, org_id, template_id, version, spec, status, source, note)
+           SELECT $1, $2, $3,
+                  COALESCE((SELECT MAX(version) FROM project_template_versions
+                             WHERE template_id = $3), 0) + 1,
+                  COALESCE($4, (SELECT spec FROM project_templates
+                                 WHERE org_id = $2 AND id = $3)),
+                  'draft', 'org', $5
+           RETURNING {VERSION_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(Uuid::now_v7())
+        .bind(org_id)
+        .bind(template_id)
+        .bind(spec)
+        .bind(note)
+        .fetch_one(&mut *executor)
+        .await?;
+    Ok(row_to_version(row)?)
+}
+
+/// Publishes a version: it becomes the template's current document and the one
+/// an instantiation reads.
+pub async fn publish_template_version(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    template_id: Uuid,
+    version: i32,
+    published_by: Option<Uuid>,
+) -> DbResult<TemplateVersion> {
+    let sql = format!(
+        r#"UPDATE project_template_versions
+              SET status = 'published', published_by = $4, published_at = now()
+            WHERE org_id = $1 AND template_id = $2 AND version = $3
+            RETURNING {VERSION_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(template_id)
+        .bind(version)
+        .bind(published_by)
+        .fetch_optional(&mut *executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    let published = row_to_version(row)?;
+    sqlx::query(
+        r#"UPDATE project_templates
+              SET current_version_id = $3, spec = $4, updated_at = now()
+            WHERE org_id = $1 AND id = $2"#,
+    )
+    .bind(org_id)
+    .bind(template_id)
+    .bind(published.id)
+    .bind(&published.spec)
+    .execute(&mut *executor)
+    .await?;
+    Ok(published)
+}
+
+/// The version an instantiation reads: the template's current one.
+pub async fn current_template_version<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    template_id: Uuid,
+) -> DbResult<Option<TemplateVersion>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"SELECT {VERSION_COLS} FROM project_template_versions
+            WHERE org_id = $1 AND id = (
+                SELECT current_version_id FROM project_templates
+                 WHERE org_id = $1 AND id = $2
+            )"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(template_id)
+        .fetch_optional(executor)
+        .await?;
+    Ok(row.map(row_to_version).transpose()?)
+}
+
+/// Copies a template (and its current version) into a new org-owned template
+/// whose first version records where it came from.
+pub async fn fork_template(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    template_id: Uuid,
+    name: &str,
+) -> DbResult<core_domain::entities::ProjectTemplate> {
+    let source = current_template_version(&mut *executor, org_id, template_id)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    let new_id = Uuid::now_v7();
+    let forked = sqlx::query(
+        r#"INSERT INTO project_templates
+               (id, org_id, name, spec, forked_from_version_id, is_shipped)
+           VALUES ($1, $2, $3, $4, $5, false)
+           RETURNING id, org_id, name, description, spec, created_at, updated_at"#,
+    )
+    .bind(new_id)
+    .bind(org_id)
+    .bind(name)
+    .bind(&source.spec)
+    .bind(source.id)
+    .fetch_one(&mut *executor)
+    .await?;
+    let template = project_template_from_row(forked)?;
+    let version = append_template_version(
+        &mut *executor,
+        org_id,
+        new_id,
+        Some(&source.spec),
+        Some("Forked"),
+    )
+    .await?;
+    publish_template_version(&mut *executor, org_id, new_id, version.version, None).await?;
+    Ok(template)
+}
+
+fn project_template_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<core_domain::entities::ProjectTemplate, sqlx::Error> {
+    Ok(core_domain::entities::ProjectTemplate {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        name: row.get("name"),
+        description: row.get("description"),
+        spec: row.get("spec"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}
+
+// --- calendar zones -----------------------------------------------------------
+
+/// A stretch of the calendar that constrains where work may sit.
+#[derive(Debug, Clone)]
+pub struct CalendarZone {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub project_id: Uuid,
+    pub kind: String,
+    pub label: String,
+    pub starts_on: chrono::NaiveDate,
+    pub ends_on: chrono::NaiveDate,
+    pub note: Option<String>,
+}
+
+const ZONE_COLS: &str = "id, org_id, project_id, kind, label, starts_on, ends_on, note";
+
+fn row_to_zone(row: sqlx::postgres::PgRow) -> Result<CalendarZone, sqlx::Error> {
+    Ok(CalendarZone {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        project_id: row.get("project_id"),
+        kind: row.get("kind"),
+        label: row.get("label"),
+        starts_on: row.get("starts_on"),
+        ends_on: row.get("ends_on"),
+        note: row.get("note"),
+    })
+}
+
+/// Zones on a project, soonest first.
+pub async fn list_calendar_zones<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Vec<CalendarZone>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {ZONE_COLS} FROM project_calendar_zones \
+         WHERE org_id = $1 AND project_id = $2 ORDER BY starts_on"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(row_to_zone)
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Adds a zone. The route validates the range; this refuses nothing a CHECK
+/// already refuses.
+pub struct NewCalendarZone<'a> {
+    pub org_id: Uuid,
+    pub project_id: Uuid,
+    pub kind: &'a str,
+    pub label: &'a str,
+    pub starts_on: chrono::NaiveDate,
+    pub ends_on: chrono::NaiveDate,
+    pub note: Option<&'a str>,
+}
+
+pub async fn insert_calendar_zone<'e, E>(
+    executor: E,
+    zone: NewCalendarZone<'_>,
+) -> DbResult<CalendarZone>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"INSERT INTO project_calendar_zones
+               (id, org_id, project_id, kind, label, starts_on, ends_on, note)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING {ZONE_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(Uuid::now_v7())
+        .bind(zone.org_id)
+        .bind(zone.project_id)
+        .bind(zone.kind)
+        .bind(zone.label)
+        .bind(zone.starts_on)
+        .bind(zone.ends_on)
+        .bind(zone.note)
+        .fetch_one(executor)
+        .await?;
+    Ok(row_to_zone(row)?)
+}
+
+/// Removes a zone.
+pub async fn delete_calendar_zone<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+    id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let res = sqlx::query(
+        "DELETE FROM project_calendar_zones WHERE org_id = $1 AND project_id = $2 AND id = $3",
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .bind(id)
+    .execute(executor)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+// --- cross-project commitments ------------------------------------------------
+
+/// Someone else's dated work that would sit at the same time as this work.
+#[derive(Debug, Clone)]
+pub struct OverlappingAssignment {
+    pub task_id: Uuid,
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub task_title: String,
+    pub assignee_id: Option<Uuid>,
+    pub start_at: chrono::DateTime<chrono::Utc>,
+    pub duration_minutes: i32,
+}
+
+/// Dated tasks in OTHER projects assigned to the given people, inside a window.
+///
+/// This is the read behind "collides with another commitment": a coordinator
+/// moving a bar needs to know that the technician is already booked elsewhere,
+/// and that fact lives in a different project's rows.
+pub async fn list_overlapping_assignments<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    exclude_project_id: Uuid,
+    assignee_ids: &[Uuid],
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> DbResult<Vec<OverlappingAssignment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if assignee_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query(
+        r#"SELECT t.id, t.project_id, p.name AS project_name, t.title, t.assignee_id,
+                  t.start_at, t.duration_minutes
+             FROM project_tasks t
+             JOIN projects p ON p.id = t.project_id
+            WHERE t.org_id = $1
+              AND t.project_id <> $2
+              AND t.assignee_id = ANY($3)
+              AND t.start_at IS NOT NULL
+              AND t.duration_minutes IS NOT NULL
+              AND t.status NOT IN ('completed','cancelled')
+              -- A coarse window filter; the caller compares working minutes.
+              AND t.start_at < $5
+              AND t.start_at + make_interval(mins => t.duration_minutes) > $4
+            ORDER BY t.start_at
+            LIMIT 50"#,
+    )
+    .bind(org_id)
+    .bind(exclude_project_id)
+    .bind(assignee_ids)
+    .bind(from)
+    .bind(to)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| OverlappingAssignment {
+            task_id: row.get("id"),
+            project_id: row.get("project_id"),
+            project_name: row.get("project_name"),
+            task_title: row.get("title"),
+            assignee_id: row.get("assignee_id"),
+            start_at: row.get("start_at"),
+            duration_minutes: row.get("duration_minutes"),
+        })
+        .collect())
 }

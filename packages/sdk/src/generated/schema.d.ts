@@ -9310,6 +9310,27 @@ export interface paths {
         patch: operations["project_templates_patch"];
         trace?: never;
     };
+    "/api/v1/project-templates/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/project-templates/{id}/fork — copies the current version into a
+         *     new org-owned template. The fork keeps the plan it was tuned from, which is
+         *     what makes a shipped template safe to improve.
+         */
+        post: operations["projects_fork_template"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/project-templates/{id}/instantiate": {
         parameters: {
             query?: never;
@@ -9326,6 +9347,52 @@ export interface paths {
          *     record). Rollback on any failure leaves zero partial rows.
          */
         post: operations["project_templates_instantiate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-templates/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/project-templates/{id}/versions — every version, newest first,
+         *     with the current one marked.
+         */
+        get: operations["projects_template_versions"];
+        put?: never;
+        /**
+         * POST /api/project-templates/{id}/versions — appends a draft. The document
+         *     is validated as a template spec before it is stored, so a draft that would
+         *     not instantiate cannot be created.
+         */
+        post: operations["projects_append_template_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-templates/{id}/versions/{version}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/project-templates/{id}/versions/{version}/publish — makes a
+         *     version the template's current document. Publication is what an
+         *     instantiation reads, so a draft never changes a project by accident.
+         */
+        post: operations["projects_publish_template_version"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9417,6 +9484,33 @@ export interface paths {
         patch: operations["projects_patch"];
         trace?: never;
     };
+    "/api/v1/projects/{id}/baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/baseline — the most recent capture, or `null` when
+         *     the project has never been baselined.
+         */
+        get: operations["projects_get_baseline"];
+        put?: never;
+        /**
+         * POST /api/projects/{id}/baseline — records what the plan says now.
+         * @description Every dated task's start and length are copied into its baseline columns and
+         *     the capture is recorded as an event, so a later slip has something to be
+         *     late against. Undated tasks stay undated in the baseline too: the capture
+         *     records the plan, it does not invent one.
+         */
+        post: operations["projects_capture_baseline"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/billing-releases": {
         parameters: {
             query?: never;
@@ -9456,6 +9550,36 @@ export interface paths {
          */
         post: operations["projects_billing_release_cancel"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/calendar — the project's override, or `calendar:
+         *     null` when the organisation's calendar applies.
+         */
+        get: operations["projects_get_calendar"];
+        /**
+         * PUT /api/projects/{id}/calendar — sets the project's working pattern. The
+         *     project's pattern wins for its own dates; nothing else changes.
+         * @description No outbox event: the calendar is read when a date is computed, so nothing
+         *     downstream holds a stale copy of it.
+         */
+        put: operations["projects_set_calendar"];
+        post?: never;
+        /**
+         * DELETE /api/projects/{id}/calendar — drops the override so the
+         *     organisation's calendar applies again.
+         */
+        delete: operations["projects_clear_calendar"];
         options?: never;
         head?: never;
         patch?: never;
@@ -9584,6 +9708,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/risk — the deterministic signals this project's
+         *     facts support, most severe first.
+         * @description Severity comes from the rule (ADR 0034 decision 11). An AI surface may rank
+         *     and narrate these, never invent one or raise one's weight.
+         */
+        get: operations["projects_risk"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/schedule/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/projects/{id}/schedule/apply — applies the same computation the
+         *     preview returned, in one transaction, and hands back what to send to
+         *     `/schedule/revert` to undo it.
+         */
+        post: operations["projects_schedule_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/schedule/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/projects/{id}/schedule/preview — what a set of moves would do,
+         *     computed by the same function the apply calls. Nothing is written.
+         */
+        post: operations["projects_schedule_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/schedule/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/projects/{id}/schedule/revert — restores the values an apply
+         *     handed back. A task outside the project is refused rather than skipped.
+         */
+        post: operations["projects_schedule_revert"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/schedule/scale": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/projects/{id}/schedule/scale — multiplies the length of every
+         *     dated task in a window. `reschedule` re-ripples the plan from each changed
+         *     task so successors follow the new lengths.
+         */
+        post: operations["projects_schedule_scale"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/tasks": {
         parameters: {
             query?: never;
@@ -9670,6 +9898,44 @@ export interface paths {
         put: operations["projects_set_dependencies"];
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/zones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/zones — the change windows and client closures the
+         *     timeline draws under the bars.
+         */
+        get: operations["projects_calendar_zones"];
+        put?: never;
+        /** POST /api/projects/{id}/zones — states a window or a closure. */
+        post: operations["projects_create_calendar_zone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/zones/{zone_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/projects/{id}/zones/{zone_id} — removes the constraint. */
+        delete: operations["projects_delete_calendar_zone"];
         options?: never;
         head?: never;
         patch?: never;
@@ -14973,8 +15239,12 @@ export interface components {
             scopes: string[];
         };
         AppendVersionRequest: {
-            manifest: components["schemas"]["PluginManifestBody"];
-            version: string;
+            note?: string | null;
+            /**
+             * @description The document to store. Absent means "take the template's current spec",
+             *     which is how an author starts a version from what shipped.
+             */
+            spec?: unknown;
         };
         /** @description POST /api/credit-notes/{id}/apply body. */
         ApplyCreditNoteRequest: components["schemas"]["MutationParams"] & {
@@ -15706,6 +15976,28 @@ export interface components {
             user_id: string;
             /** Format: int32 */
             weekday: number;
+        };
+        BaselineResponse: {
+            baseline?: components["schemas"]["BaselineView"] | null;
+        };
+        /** @description One captured baseline as a surface reads it. */
+        BaselineView: {
+            /** Format: date-time */
+            captured_at: string;
+            /** Format: uuid */
+            captured_by?: string | null;
+            /**
+             * Format: int32
+             * @description How many tasks carried a date when the baseline was taken, and how many
+             *     the project held in total. A baseline with little dated work is a weak
+             *     promise, and the pair says so without a judgement.
+             */
+            dated_tasks: number;
+            /** Format: uuid */
+            id: string;
+            note?: string | null;
+            /** Format: int32 */
+            total_tasks: number;
         };
         BatchCandidateOutcome: {
             detail?: string | null;
@@ -16505,6 +16797,22 @@ export interface components {
              */
             user_id?: string | null;
         };
+        /** @description A stretch of the calendar that constrains where work may sit. */
+        CalendarZoneView: {
+            /** Format: date */
+            ends_on: string;
+            /** Format: uuid */
+            id: string;
+            /** @description `window` for an agreed change window, `closed` for a client closure. */
+            kind: string;
+            label: string;
+            note?: string | null;
+            /** Format: date */
+            starts_on: string;
+        };
+        CalendarZonesResponse: {
+            zones: components["schemas"]["CalendarZoneView"][];
+        };
         /**
          * @description The cancel verb's body. Required, for the same reason the quarantine
          *     release reason is: the row will be read a month later and "why did we give
@@ -16675,6 +16983,9 @@ export interface components {
             days?: number | null;
             /** Format: date */
             from?: string | null;
+        };
+        CaptureBaselineRequest: {
+            note?: string | null;
         };
         /** @description The capture surface's read: ordered picker + theHELP defaults. */
         CaptureDefaultsResponse: {
@@ -18451,6 +18762,16 @@ export interface components {
             calendar: components["schemas"]["BusinessCalendar"];
             name: string;
         };
+        CreateCalendarZoneRequest: {
+            /** Format: date */
+            ends_on: string;
+            /** @description `window` or `closed`. */
+            kind: string;
+            label: string;
+            note?: string | null;
+            /** Format: date */
+            starts_on: string;
+        };
         /** @description POST /api/catalog-items body. */
         CreateCatalogItemRequest: components["schemas"]["MutationParams"] & {
             category?: string | null;
@@ -19339,6 +19660,8 @@ export interface components {
         CreateTaskRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             assignee_id?: string | null;
+            /** Format: uuid */
+            calendar_pin?: string | null;
             /**
              * @description Finish-to-start dependencies to create with the task; every id must
              *     be a task of the SAME project. Cycles are impossible at creation
@@ -19349,15 +19672,36 @@ export interface components {
             description?: string | null;
             /** Format: date-time */
             due_at?: string | null;
+            /** Format: int32 */
+            duration_minutes?: number | null;
+            /** Format: int32 */
+            effort_estimate_minutes?: number | null;
+            /** Format: int32 */
+            effort_remaining_minutes?: number | null;
+            /** @description Set when somebody outside the company owns the step. */
+            external_owner?: string | null;
+            is_critical?: boolean;
             is_milestone?: boolean;
             /** Format: int64 */
             milestone_amount_minor?: number | null;
             milestone_currency?: string | null;
             /** Format: uuid */
             phase_id?: string | null;
+            priority?: components["schemas"]["Priority"] | null;
+            required_skills?: string[];
+            /** @description The role this work needs, matched against a person's role on dispatch. */
+            role_key?: string | null;
             /** Format: int32 */
             sort_order?: number;
+            /**
+             * Format: date-time
+             * @description When the work starts. Both-or-neither with `duration_minutes`: a start
+             *     with no length is not a bar on a timeline, a length with no start has
+             *     nowhere to sit. Absent means undated, which is drawn as undated.
+             */
+            start_at?: string | null;
             title: string;
+            work_type?: components["schemas"]["WorkType"] | null;
         };
         CreateTaxonomyNodeRequest: components["schemas"]["MutationParams"] & {
             description?: string | null;
@@ -23064,9 +23408,8 @@ export interface components {
             /** Format: uuid */
             client_id: string;
         };
-        ForkTemplateRequest: components["schemas"]["MutationParams"] & {
+        ForkTemplateRequest: {
             name: string;
-            slug: string;
         };
         /** @description One `fx_rates` row: append-only; corrections add rows, never rewrite. */
         FxRateEntry: {
@@ -26099,19 +26442,35 @@ export interface components {
         PatchTaskRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             assignee_id?: string | null;
+            /** Format: uuid */
+            calendar_pin?: string | null;
             description?: string | null;
             /** Format: date-time */
             due_at?: string | null;
+            /** Format: int32 */
+            duration_minutes?: number | null;
+            /** Format: int32 */
+            effort_estimate_minutes?: number | null;
+            /** Format: int32 */
+            effort_remaining_minutes?: number | null;
+            external_owner?: string | null;
+            is_critical?: boolean | null;
             is_milestone?: boolean | null;
             /** Format: int64 */
             milestone_amount_minor?: number | null;
             milestone_currency?: string | null;
             /** Format: uuid */
             phase_id?: string | null;
+            priority?: components["schemas"]["Priority"] | null;
+            required_skills?: string[] | null;
+            role_key?: string | null;
             /** Format: int32 */
             sort_order?: number | null;
+            /** Format: date-time */
+            start_at?: string | null;
             status?: components["schemas"]["TaskStatus"] | null;
             title?: string | null;
+            work_type?: components["schemas"]["WorkType"] | null;
         };
         PatchTemplateRequest: {
             description?: string | null;
@@ -27428,6 +27787,13 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description A project's own working pattern. Absent means the organisation's calendar
+         *     applies, which is the state of every project that has never needed one.
+         */
+        ProjectCalendarView: {
+            calendar?: components["schemas"]["ProjectWorkingCalendar"] | null;
+        };
         ProjectCostRollupView: {
             base_currency: string;
             bills: components["schemas"]["RollupBillView"][];
@@ -27577,10 +27943,22 @@ export interface components {
         /**
          * @description A unit of project work. A task flagged `is_milestone` is a billing
          *     milestone: completing it emits `project.milestone_completed`.
+         *
+         *     Time is stored, not derived (ADR 0034 decision 1). `start_at` and
+         *     `duration_minutes` are both-or-neither: a task an organisation has not dated
+         *     carries neither, and the plan draws it as undated rather than implying a
+         *     date. `baseline_*` holds what the plan said when it was agreed, written by
+         *     the baseline capture and never by an ordinary edit.
          */
         ProjectTask: {
             /** Format: uuid */
             assignee_id?: string | null;
+            /** Format: int32 */
+            baseline_duration_minutes?: number | null;
+            /** Format: date-time */
+            baseline_start_at?: string | null;
+            /** Format: uuid */
+            calendar_pin?: string | null;
             /** Format: date-time */
             completed_at?: string | null;
             /** Format: date-time */
@@ -27588,8 +27966,16 @@ export interface components {
             description?: string | null;
             /** Format: date-time */
             due_at?: string | null;
+            /** Format: int32 */
+            duration_minutes?: number | null;
+            /** Format: int32 */
+            effort_estimate_minutes?: number | null;
+            /** Format: int32 */
+            effort_remaining_minutes?: number | null;
+            external_owner?: string | null;
             /** Format: uuid */
             id: string;
+            is_critical?: boolean;
             is_milestone: boolean;
             /** Format: int64 */
             milestone_amount_minor?: number | null;
@@ -27598,14 +27984,20 @@ export interface components {
             org_id: string;
             /** Format: uuid */
             phase_id?: string | null;
+            priority?: components["schemas"]["Priority"] | null;
             /** Format: uuid */
             project_id: string;
+            required_skills?: string[];
+            role_key?: string | null;
             /** Format: int32 */
             sort_order: number;
+            /** Format: date-time */
+            start_at?: string | null;
             status: components["schemas"]["TaskStatus"];
             title: string;
             /** Format: date-time */
             updated_at: string;
+            work_type?: components["schemas"]["WorkType"] | null;
         };
         /**
          * @description A reusable project blueprint. `spec` follows `core-projects::template`
@@ -27645,6 +28037,29 @@ export interface components {
             spec: Record<string, never>;
             /** Format: date-time */
             updated_at: string;
+        };
+        /**
+         * @description A project's own working pattern, where it differs from the organisation's.
+         *
+         *     `weekdays` is a bitmask with Monday at bit 0 and Sunday at bit 6, so 31 is
+         *     Monday to Friday and 63 adds Saturday. No row means "use the organisation's
+         *     calendar"; the project's row wins for the project's own dates (ADR 0034
+         *     decision 3). `minutes_per_day` excludes lunch.
+         */
+        ProjectWorkingCalendar: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int32 */
+            minutes_per_day: number;
+            note?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int32 */
+            weekdays: number;
         };
         /**
          * @description Proposal classification: who will see the change if it lands.
@@ -29810,6 +30225,23 @@ export interface components {
             /** @description Why the sign-off no longer stands. Part of the audit record. */
             reason: string;
         };
+        RiskResponse: {
+            /** Format: date-time */
+            generated_at: string;
+            signals: components["schemas"]["RiskSignalView"][];
+        };
+        /** @description One computed signal as a surface reads it. */
+        RiskSignalView: {
+            message: string;
+            /** @description The stable rule identifier, so a dismissal can be stored against it. */
+            rule: string;
+            /** @description `info`, `warn` or `critical`, assigned by the rule. */
+            severity: string;
+            /** @description `project`, `phase` or `task`. */
+            subject: string;
+            /** Format: uuid */
+            subject_id: string;
+        };
         /**
          * @description Instant-first mutation response (IF2): the role at the top level plus
          *     the additive `mutation` metadata.
@@ -30239,12 +30671,51 @@ export interface components {
             /** @description `clamd` (scanner wired) or `none` (scanning disabled). */
             provider: string;
         };
+        ScheduleApplyResponse: {
+            changes: components["schemas"]["ScheduleChangeView"][];
+            collisions?: components["schemas"]["ScheduleCollisionView"][];
+            critical_path: string[];
+            /**
+             * @description What each changed task held before the apply, so a revert restores
+             *     exactly these values.
+             */
+            revert: components["schemas"]["ScheduleRestore"][];
+        };
         /**
          * @description Wire cadence of a schedule (snake_case slugs matching the stored
          *     column and the worker's parser).
          * @enum {string}
          */
         ScheduleCadence: "daily" | "weekly" | "monthly";
+        /** @description One change the engine proposes or applied. */
+        ScheduleChangeView: {
+            /** Format: date-time */
+            from_start?: string | null;
+            /**
+             * @description `moved` for the task the coordinator placed, `pushed` for a successor
+             *     the move displaced.
+             */
+            reason: string;
+            /** Format: uuid */
+            task_id: string;
+            /** Format: date-time */
+            to_start?: string | null;
+        };
+        /** @description Someone else's work that would sit at the same time as the proposed move. */
+        ScheduleCollisionView: {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: date-time */
+            end_at: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: date-time */
+            start_at: string;
+            /** Format: uuid */
+            task_id: string;
+            task_title: string;
+        };
         /** @description GET /api/report-schedules query. */
         ScheduleListQuery: {
             /** @description Opaque keyset cursor from a previous page's `next_cursor`. */
@@ -30255,9 +30726,64 @@ export interface components {
              */
             limit?: number | null;
         };
+        /**
+         * @description One task the coordinator placed. `duration_minutes: None` means "leave the
+         *     length alone"; `Some(None)` clears it together with the start.
+         */
+        ScheduleMove: {
+            /** Format: int32 */
+            duration_minutes?: number | null;
+            /** Format: date-time */
+            start_at?: string | null;
+            /** Format: uuid */
+            task_id: string;
+        };
         ScheduleMutationResponse: {
             mutation: components["schemas"]["MutationMeta"];
             schedule: components["schemas"]["PmSchedule"];
+        };
+        SchedulePlanRequest: {
+            moves: components["schemas"]["ScheduleMove"][];
+        };
+        SchedulePlanResponse: {
+            changes: components["schemas"]["ScheduleChangeView"][];
+            /**
+             * @description Work in other projects, assigned to the same people, that would overlap
+             *     the moved window. Empty means nothing collides.
+             */
+            collisions?: components["schemas"]["ScheduleCollisionView"][];
+            /**
+             * @description The longest chain through the plan, in order. Empty when nothing is
+             *     dated.
+             */
+            critical_path: string[];
+        };
+        ScheduleRestore: {
+            /** Format: int32 */
+            duration_minutes?: number | null;
+            /** Format: date-time */
+            start_at?: string | null;
+            /** Format: uuid */
+            task_id: string;
+        };
+        ScheduleRevertRequest: {
+            restore: components["schemas"]["ScheduleRestore"][];
+        };
+        ScheduleScaleRequest: {
+            /**
+             * Format: double
+             * @description Multiplier applied to every dated task in range.
+             */
+            factor: number;
+            /** Format: date-time */
+            from_start_at?: string | null;
+            /**
+             * @description Scale durations without moving anything, or also reschedule the plan
+             *     from the earliest changed task.
+             */
+            reschedule?: boolean;
+            /** Format: date-time */
+            to_start_at?: string | null;
         };
         /**
          * @description A free-form admin-defined group/department — a pure availability
@@ -30963,6 +31489,19 @@ export interface components {
             site_id?: string | null;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        SetProjectCalendarRequest: {
+            /**
+             * Format: int32
+             * @description Minutes of work in one working day, lunch excluded.
+             */
+            minutes_per_day: number;
+            note?: string | null;
+            /**
+             * Format: int32
+             * @description Monday at bit 0, Sunday at bit 6. Monday to Friday is 31.
+             */
+            weekdays: number;
         };
         /** @description PUT /api/dispatch/queue/{ticket_id} body. */
         SetQueueRankRequest: components["schemas"]["MutationParams"] & {
@@ -32304,6 +32843,34 @@ export interface components {
         TemplateVariableView: {
             key: string;
             label: string;
+        };
+        /** @description One version of a template, as a surface reads it. */
+        TemplateVersionView: {
+            /** Format: date-time */
+            created_at: string;
+            /** @description Whether this is the version an instantiation would read. */
+            current: boolean;
+            /** Format: uuid */
+            id: string;
+            note?: string | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: uuid */
+            published_by?: string | null;
+            /** @description `shipped`, `org` or `fork`. */
+            source: string;
+            spec: unknown;
+            /** @description `draft`, `published` or `retired`. */
+            status: string;
+            /** Format: uuid */
+            template_id: string;
+            /** Format: int32 */
+            version: number;
+        };
+        TemplateVersionsResponse: {
+            /** Format: uuid */
+            current_version_id?: string | null;
+            versions: components["schemas"]["TemplateVersionView"][];
         };
         /**
          * @description One template row: a shipped default (`is_system` + `builtin`), a fork
@@ -34804,6 +35371,13 @@ export interface components {
              */
             user_id?: string | null;
         };
+        /**
+         * @description Where a unit of project work happens. The kind changes what a coordinator
+         *     needs to know before placing it: an onsite visit carries travel, a bench job
+         *     needs a bench, a vendor step waits on somebody outside the company.
+         * @enum {string}
+         */
+        WorkType: "onsite" | "bench" | "remote" | "vendor" | "client" | "coordination";
         WorkTypeMapRowWire: {
             category_slug: string;
             /** Format: date-time */
@@ -52344,6 +52918,52 @@ export interface operations {
             };
         };
     };
+    projects_fork_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTemplate"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description a template with this name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     project_templates_instantiate: {
         parameters: {
             query?: never;
@@ -52382,6 +53002,109 @@ export interface operations {
                 content?: never;
             };
             /** @description invalid template spec or request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_template_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateVersionsResponse"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_append_template_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendVersionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateVersionView"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_publish_template_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateVersionView"];
+                };
+            };
+            /** @description template or version not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the version does not parse as a spec */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -52656,6 +53379,66 @@ export interface operations {
             };
         };
     };
+    projects_get_baseline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaselineResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_capture_baseline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureBaselineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BaselineResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     projects_billing_releases: {
         parameters: {
             query?: never;
@@ -52698,6 +53481,101 @@ export interface operations {
                 };
             };
             /** @description release not visible/already settled (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_get_calendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCalendarView"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_set_calendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetProjectCalendarRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCalendarView"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_clear_calendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description no override to clear */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -52937,6 +53815,190 @@ export interface operations {
             };
         };
     };
+    projects_risk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_schedule_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchedulePlanRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleApplyResponse"];
+                };
+            };
+            /** @description a task or the project is not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_schedule_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchedulePlanRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchedulePlanResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_schedule_revert: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleRevertRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description a task or the project is not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_schedule_scale: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleScaleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleApplyResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     projects_list_tasks: {
         parameters: {
             query?: {
@@ -53160,6 +54222,102 @@ export interface operations {
             };
             /** @description dependency set rejected (self-dep, cross-project, or cycle) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_calendar_zones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarZonesResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_create_calendar_zone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarZoneRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarZoneView"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_delete_calendar_zone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description no such zone in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

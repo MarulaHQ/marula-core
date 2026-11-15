@@ -77,6 +77,10 @@ export * from "./components/spinner";
 export * from "./components/skeleton";
 export * from "./components/empty-state";
 export * from "./components/table";
+export * from "./components/plan-table";
+export * from "./components/inspector";
+export * from "./components/bottom-sheet";
+export * from "./components/impact-preview";
 export * from "./components/select";
 export * from "./components/menu";
 export * from "./components/dialog";
@@ -99,6 +103,11 @@ export * from "./components/bulk-action-bar";
 export * from "./components/status-pill";
 export * from "./components/capability-chip";
 export * from "./components/linked-records-strip";
+// The project timeline. `gantt-scale` is exported beside the chart because a
+// surface that formats a date without it would format it differently.
+export * from "./components/gantt-chart";
+export * from "./components/gantt-table";
+export * from "./components/gantt-scale";
 
 export * from "./editor/toolbar";
 export * from "./editor/block-menu";
