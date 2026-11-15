@@ -4,11 +4,19 @@ name: Nightly
 # PARKED (`.disabled` suffix), by user direction 2026-10-21: "keep any CI that
 # will take a lot of minutes disabled for now — keep it light." This is the
 # scheduled set, and it is the heavy one: perf smoke and the load budget build
-# release binaries, the 100k scale run seeds a large tenant, e2e boots the stack
-# for both themes, and the security and scanner legs pull containers and a
-# signature database. Rename the file back to enable it; nothing else in it
-# needs to change. The per-push and pull-request gates in `ci.yml` are the ones
-# that decide whether a change may merge, and they stay on.
+# release binaries, the 100k scale run seeds a large tenant, and the clamd leg
+# pulls a container and a signature database. Rename the file back to enable
+# it; nothing else in it needs to change. The per-push and pull-request gates in
+# `ci.yml` are the ones that decide whether a change may merge, and they stay on.
+#
+# Three jobs left this file for `ci.yml` on 2026-11-15: `api-live-conformance`,
+# `upgrade-matrix` and `container-security`. Each one fails on the change that
+# caused it — a route served but absent from the derived spec, a migration that
+# does not survive production-shaped data, a compose file that asks for more
+# privilege than it needs — and none of them needed the long clock this file
+# exists for. `e2e` now has its own file (`e2e.yml`), so it can be asked for on
+# a single pull request with the `run-e2e` label. None are duplicated back here:
+# one owner per job.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -221,158 +229,8 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------------------
-  # End to end — the flows, both themes, and the axe baseline with them.
+  # Coverage — a trend to read over time, not a per-pull-request signal.
   # ---------------------------------------------------------------------------
-
-  e2e:
-    name: E2E — Playwright flows in light + dark + shipped presets, axe baseline
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      # The flake budget (e2e/helpers/budget.ts) only retries in CI, and the
-      # flake gate fails the run when more tests than the budget needed a retry.
-      CI: "true"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Install JS deps + Playwright browsers
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
-      # Boots its own per-run database and Valkey on random high ports and
-      # writes e2e/.e2e-stack.env. No `services:` block: a service container on
-      # the runner would be a second, unused stack. Nothing here hand-sets a
-      # port or an API URL — Playwright's config reads the env file, and the
-      # build script below inlines the same values.
-      - name: Boot the seeded demo stack (migrate → seed-demo → core-api)
-        run: ./scripts/e2e-stack.sh up
-      # scripts/e2e-build-web.sh, not a bare `pnpm --filter build`: it sources
-      # the stack env so NEXT_PUBLIC_API_URL cannot drift, and it copies
-      # .next/static + public into the standalone root, without which every
-      # chunk 400s.
-      - name: Build the web app for the suite
-        run: pnpm e2e:build-web
-      - name: Lint the web app (design-system enforcement, @shadcn/lint)
-        run: pnpm turbo run lint --filter @marula-core/web
-      # Includes flows/axe-audit.spec.ts: known criticals live in
-      # e2e/axe-baseline.json and a NEW one fails the run.
-      - name: Run the flows in both themes
-        run: pnpm exec playwright test --config=e2e/playwright.config.ts
-      - name: Flake-gate verdict (budget from e2e/helpers/budget.ts)
-        if: always()
-        run: node e2e/flake-gate.ts
-      - name: Upload failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-artifacts
-          path: |
-            e2e/test-results/
-            playwright-report/
-          retention-days: 7
-      - name: Tear the stack down
-        if: always()
-        run: |
-          run_id="$(grep -m1 '^RUN_ID=' e2e/.e2e-stack.env | cut -d= -f2)"
-          [ -n "$run_id" ] && ./scripts/e2e-stack.sh down "$run_id" || true
-
-  # The third golden layer: the spec a RUNNING server serves equals the pin.
-  # Layers 1 and 2 (derived handlers, SDK snapshot) run per push in
-  # `ci.yml`; this one needs a migrated database, a booted api and a readiness
-  # loop, which is why it is here.
-  api-live-conformance:
-    name: Live API conformance — served spec vs pinned golden
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg18
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: marula_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s --health-timeout 5s --health-retries 5
-      redis:
-        image: valkey/valkey:8-alpine
-        ports: ["6379:6379"]
-    env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
-      REDIS_URL: redis://localhost:6379
-      # Dev-only CI constants; core-api refuses to boot without them.
-      JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
-      MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Migrate schema
-        run: cargo run -q -p marula-core-cli -- migrate
-      - name: Boot core-api
-        run: |
-          BIND_ADDR=127.0.0.1:18080 cargo run -q -p core-api &
-          for _ in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1 && break
-            sleep 1
-          done
-          curl -fsS http://127.0.0.1:18080/healthz
-      - name: Live spec must equal the pinned golden
-        run: MARULA_API_BASE_URL=http://127.0.0.1:18080 cargo test -q -p marula-core-cli --test golden_openapi
-
-  # ---------------------------------------------------------------------------
-  # Upgrade path and coverage — long, and a merge rarely changes the answer.
-  # ---------------------------------------------------------------------------
-
-  upgrade-matrix:
-    name: N−2 upgrade matrix — restore fixture → migrate to HEAD
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        # pgvector/pgvector:pg18 — prod parity with the fixture capture.
-        image: pgvector/pgvector:pg18
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: marula_upgrade
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s --health-timeout 5s --health-retries 5
-    env:
-      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_upgrade
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      # One leg per captured fixture (v0.2.0 onward). Restoring replays the
-      # full schema + data + migration state of the tagged release; migrating to
-      # HEAD proves the forward path on production-like data.
-      - name: Restore v0.2.0 fixture
-        run: |
-          gunzip -c fixtures/upgrades/v0.2.0.seed.sql.gz \
-            | psql postgres://postgres:postgres@localhost:5432/marula_upgrade -v ON_ERROR_STOP=1 -q
-      - name: Migrate fixture to HEAD
-        run: cargo run -q -p marula-core-cli -- migrate
-      - name: Fixture org survives the migration
-        run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc \
-            "SELECT count(*) FROM custom_field_defs WHERE org_id = '00000000-0000-4000-8000-000000000001'" \
-            | grep -q '^7$'
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-            "SELECT 1 FROM board_statuses WHERE org_id = '00000000-0000-4000-8000-000000000001' AND category = 'closed'"
-      - name: Upgrade preflight consumes the captured manifest
-        run: |
-          cargo build -q -p marula-core-cli
-          ./target/debug/marula upgrade --check \
-            --manifest fixtures/upgrades/v0.2.0.manifest.json
 
   domain-coverage:
     name: Domain-layer coverage ≥80% (crates/core-domain)
@@ -393,27 +251,6 @@ jobs:
       # stop.
       - name: Measure domain-layer coverage
         run: cargo llvm-cov -p core-domain --summary-only --fail-under-lines 80
-
-  # ---------------------------------------------------------------------------
-  # Scanners that need a daemon, a signature DB or a policy bundle.
-  # ---------------------------------------------------------------------------
-
-  container-security:
-    name: Container security — trivy config scan over deploy/
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # Compose least-privilege lint (p38). The Dockerfiles themselves are
-      # linted per push in `ci.yml` (`container-lint`): hadolint is a file lint
-      # that takes seconds, while this one downloads a policy bundle.
-      # SHA-pinned, carried from the retired `ga-gates.yml`.
-      - name: Trivy config scan (deploy/ — compose least-privilege lint)
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # v0.36.0
-        with:
-          scan-type: config
-          scan-ref: deploy/
-          severity: HIGH,CRITICAL
-          exit-code: "1"
 
   # The opt-in clamd leg from Wave 52 lane `p6f-scan-gate`, on the schedule
   # rather than per push: it boots a container, waits for a signature database to
