@@ -41,6 +41,28 @@ export interface TimelineTaskWire {
   sort_order: number;
 }
 
+/** A calendar zone: an agreed change window, or a client closure. */
+export interface CalendarZoneWire {
+  id: string;
+  kind: "window" | "closed";
+  label: string;
+  starts_on: string;
+  ends_on: string;
+  note: string | null;
+}
+
+/** Reads the project's zones. A project with none draws no bands. */
+export async function fetchCalendarZones(
+  projectId: string,
+  signal?: AbortSignal,
+): Promise<CalendarZoneWire[]> {
+  const body = await getJson<{ zones: CalendarZoneWire[] }>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/zones`,
+    signal === undefined ? {} : { signal },
+  );
+  return body.zones;
+}
+
 export interface CalendarWire {
   weekdays: number;
   minutes_per_day: number;

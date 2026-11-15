@@ -9903,6 +9903,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/zones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/projects/{id}/zones — the change windows and client closures the
+         *     timeline draws under the bars.
+         */
+        get: operations["projects_calendar_zones"];
+        put?: never;
+        /** POST /api/projects/{id}/zones — states a window or a closure. */
+        post: operations["projects_create_calendar_zone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/zones/{zone_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** DELETE /api/projects/{id}/zones/{zone_id} — removes the constraint. */
+        delete: operations["projects_delete_calendar_zone"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/provenance": {
         parameters: {
             query?: never;
@@ -16759,6 +16797,22 @@ export interface components {
              */
             user_id?: string | null;
         };
+        /** @description A stretch of the calendar that constrains where work may sit. */
+        CalendarZoneView: {
+            /** Format: date */
+            ends_on: string;
+            /** Format: uuid */
+            id: string;
+            /** @description `window` for an agreed change window, `closed` for a client closure. */
+            kind: string;
+            label: string;
+            note?: string | null;
+            /** Format: date */
+            starts_on: string;
+        };
+        CalendarZonesResponse: {
+            zones: components["schemas"]["CalendarZoneView"][];
+        };
         /**
          * @description The cancel verb's body. Required, for the same reason the quarantine
          *     release reason is: the row will be read a month later and "why did we give
@@ -18707,6 +18761,16 @@ export interface components {
             /** @description Timezone/windows/holidays/maintenance document. */
             calendar: components["schemas"]["BusinessCalendar"];
             name: string;
+        };
+        CreateCalendarZoneRequest: {
+            /** Format: date */
+            ends_on: string;
+            /** @description `window` or `closed`. */
+            kind: string;
+            label: string;
+            note?: string | null;
+            /** Format: date */
+            starts_on: string;
         };
         /** @description POST /api/catalog-items body. */
         CreateCatalogItemRequest: components["schemas"]["MutationParams"] & {
@@ -30609,6 +30673,7 @@ export interface components {
         };
         ScheduleApplyResponse: {
             changes: components["schemas"]["ScheduleChangeView"][];
+            collisions?: components["schemas"]["ScheduleCollisionView"][];
             critical_path: string[];
             /**
              * @description What each changed task held before the apply, so a revert restores
@@ -30635,6 +30700,21 @@ export interface components {
             task_id: string;
             /** Format: date-time */
             to_start?: string | null;
+        };
+        /** @description Someone else's work that would sit at the same time as the proposed move. */
+        ScheduleCollisionView: {
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: date-time */
+            end_at: string;
+            /** Format: uuid */
+            project_id: string;
+            project_name: string;
+            /** Format: date-time */
+            start_at: string;
+            /** Format: uuid */
+            task_id: string;
+            task_title: string;
         };
         /** @description GET /api/report-schedules query. */
         ScheduleListQuery: {
@@ -30667,6 +30747,11 @@ export interface components {
         };
         SchedulePlanResponse: {
             changes: components["schemas"]["ScheduleChangeView"][];
+            /**
+             * @description Work in other projects, assigned to the same people, that would overlap
+             *     the moved window. Empty means nothing collides.
+             */
+            collisions?: components["schemas"]["ScheduleCollisionView"][];
             /**
              * @description The longest chain through the plan, in order. Empty when nothing is
              *     dated.
@@ -54137,6 +54222,102 @@ export interface operations {
             };
             /** @description dependency set rejected (self-dep, cross-project, or cycle) */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_calendar_zones: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarZonesResponse"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_create_calendar_zone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarZoneRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarZoneView"];
+                };
+            };
+            /** @description project not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_delete_calendar_zone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                zone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description no such zone in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

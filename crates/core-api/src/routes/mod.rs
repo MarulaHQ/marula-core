@@ -2232,6 +2232,14 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         )
         .route(&rp("/projects/{id}/risk"), get(projects::risk))
         .route(
+            &rp("/projects/{id}/zones"),
+            get(projects::list_zones).post(projects::create_zone),
+        )
+        .route(
+            &rp("/projects/{id}/zones/{zone_id}"),
+            axum::routing::delete(projects::delete_zone),
+        )
+        .route(
             &rp("/projects/{id}/schedule/preview"),
             post(projects::schedule_preview),
         )

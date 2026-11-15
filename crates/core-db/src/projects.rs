@@ -2128,3 +2128,188 @@ fn project_template_from_row(
         updated_at: row.get("updated_at"),
     })
 }
+
+// --- calendar zones -----------------------------------------------------------
+
+/// A stretch of the calendar that constrains where work may sit.
+#[derive(Debug, Clone)]
+pub struct CalendarZone {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub project_id: Uuid,
+    pub kind: String,
+    pub label: String,
+    pub starts_on: chrono::NaiveDate,
+    pub ends_on: chrono::NaiveDate,
+    pub note: Option<String>,
+}
+
+const ZONE_COLS: &str = "id, org_id, project_id, kind, label, starts_on, ends_on, note";
+
+fn row_to_zone(row: sqlx::postgres::PgRow) -> Result<CalendarZone, sqlx::Error> {
+    Ok(CalendarZone {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        project_id: row.get("project_id"),
+        kind: row.get("kind"),
+        label: row.get("label"),
+        starts_on: row.get("starts_on"),
+        ends_on: row.get("ends_on"),
+        note: row.get("note"),
+    })
+}
+
+/// Zones on a project, soonest first.
+pub async fn list_calendar_zones<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<Vec<CalendarZone>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {ZONE_COLS} FROM project_calendar_zones \
+         WHERE org_id = $1 AND project_id = $2 ORDER BY starts_on"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(project_id)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(row_to_zone)
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Adds a zone. The route validates the range; this refuses nothing a CHECK
+/// already refuses.
+pub struct NewCalendarZone<'a> {
+    pub org_id: Uuid,
+    pub project_id: Uuid,
+    pub kind: &'a str,
+    pub label: &'a str,
+    pub starts_on: chrono::NaiveDate,
+    pub ends_on: chrono::NaiveDate,
+    pub note: Option<&'a str>,
+}
+
+pub async fn insert_calendar_zone<'e, E>(
+    executor: E,
+    zone: NewCalendarZone<'_>,
+) -> DbResult<CalendarZone>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"INSERT INTO project_calendar_zones
+               (id, org_id, project_id, kind, label, starts_on, ends_on, note)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING {ZONE_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(Uuid::now_v7())
+        .bind(zone.org_id)
+        .bind(zone.project_id)
+        .bind(zone.kind)
+        .bind(zone.label)
+        .bind(zone.starts_on)
+        .bind(zone.ends_on)
+        .bind(zone.note)
+        .fetch_one(executor)
+        .await?;
+    Ok(row_to_zone(row)?)
+}
+
+/// Removes a zone.
+pub async fn delete_calendar_zone<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+    id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let res = sqlx::query(
+        "DELETE FROM project_calendar_zones WHERE org_id = $1 AND project_id = $2 AND id = $3",
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .bind(id)
+    .execute(executor)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+// --- cross-project commitments ------------------------------------------------
+
+/// Someone else's dated work that would sit at the same time as this work.
+#[derive(Debug, Clone)]
+pub struct OverlappingAssignment {
+    pub task_id: Uuid,
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub task_title: String,
+    pub assignee_id: Option<Uuid>,
+    pub start_at: chrono::DateTime<chrono::Utc>,
+    pub duration_minutes: i32,
+}
+
+/// Dated tasks in OTHER projects assigned to the given people, inside a window.
+///
+/// This is the read behind "collides with another commitment": a coordinator
+/// moving a bar needs to know that the technician is already booked elsewhere,
+/// and that fact lives in a different project's rows.
+pub async fn list_overlapping_assignments<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    exclude_project_id: Uuid,
+    assignee_ids: &[Uuid],
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> DbResult<Vec<OverlappingAssignment>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    if assignee_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query(
+        r#"SELECT t.id, t.project_id, p.name AS project_name, t.title, t.assignee_id,
+                  t.start_at, t.duration_minutes
+             FROM project_tasks t
+             JOIN projects p ON p.id = t.project_id
+            WHERE t.org_id = $1
+              AND t.project_id <> $2
+              AND t.assignee_id = ANY($3)
+              AND t.start_at IS NOT NULL
+              AND t.duration_minutes IS NOT NULL
+              AND t.status NOT IN ('completed','cancelled')
+              -- A coarse window filter; the caller compares working minutes.
+              AND t.start_at < $5
+              AND t.start_at + make_interval(mins => t.duration_minutes) > $4
+            ORDER BY t.start_at
+            LIMIT 50"#,
+    )
+    .bind(org_id)
+    .bind(exclude_project_id)
+    .bind(assignee_ids)
+    .bind(from)
+    .bind(to)
+    .fetch_all(executor)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| OverlappingAssignment {
+            task_id: row.get("id"),
+            project_id: row.get("project_id"),
+            project_name: row.get("project_name"),
+            task_title: row.get("title"),
+            assignee_id: row.get("assignee_id"),
+            start_at: row.get("start_at"),
+            duration_minutes: row.get("duration_minutes"),
+        })
+        .collect())
+}

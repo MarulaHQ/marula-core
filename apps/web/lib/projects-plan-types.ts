@@ -82,9 +82,21 @@ export interface ScheduleChange {
   reason: "moved" | "pushed" | string;
 }
 
+/** Someone else's work that would sit at the same time as the proposed move. */
+export interface ScheduleCollision {
+  task_id: string;
+  project_id: string;
+  project_name: string;
+  task_title: string;
+  assignee_id: string | null;
+  start_at: string;
+  end_at: string;
+}
+
 export interface SchedulePreview {
   changes: ScheduleChange[];
   critical_path: string[];
+  collisions?: ScheduleCollision[];
 }
 
 export interface ScheduleRestore {

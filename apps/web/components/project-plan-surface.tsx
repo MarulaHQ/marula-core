@@ -80,6 +80,7 @@ import {
   type RiskResponse,
   type ScheduleApply,
   type ScheduleChange,
+  type ScheduleCollision,
   type ScheduleMove,
   type ScheduleRestore,
   type WorkingCalendar,
@@ -118,6 +119,8 @@ interface DraftPreview {
   phaseEndAfter: string | null;
   finishBefore: string | null;
   finishAfter: string | null;
+  /** Other projects' work the same people are already booked for. */
+  collisions: ScheduleCollision[];
 }
 
 interface UndoRecord {
@@ -451,6 +454,7 @@ export function ProjectPlanSurface(props: ProjectPlanSurfaceProps): React.JSX.El
           phaseEndAfter: phaseAfter,
           finishBefore,
           finishAfter,
+          collisions: data.collisions ?? [],
         });
       } catch (cause) {
         fail(cause instanceof Error ? cause.message : "The preview could not be computed.");
@@ -982,6 +986,27 @@ export function ProjectPlanSurface(props: ProjectPlanSurfaceProps): React.JSX.El
           }
         >
           <ImpactHeadline preview={preview} weekdays={weekdays} dueDate={props.projectDueDate} />
+          {preview.collisions.length > 0 ? (
+            <ImpactGroup
+              icon={<Icon name="alert" size={15} />}
+              title={
+                preview.collisions.length === 1
+                  ? "Collides with another commitment"
+                  : `Collides with ${preview.collisions.length} other commitments`
+              }
+              note="The same person is already booked elsewhere at this time"
+            >
+              {preview.collisions.map((collision) => (
+                <ImpactRow
+                  key={collision.task_id}
+                  label={`${collision.project_name} · ${collision.task_title}`}
+                  was={formatDay(collision.start_at)}
+                  now={formatDay(collision.end_at)}
+                  delta=""
+                />
+              ))}
+            </ImpactGroup>
+          ) : null}
           <ImpactGroup
             icon={<Icon name="rows-3" size={15} />}
             title="Moves the phase"

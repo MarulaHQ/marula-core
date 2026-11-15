@@ -1578,18 +1578,39 @@ pub struct ScheduleChangeView {
     pub reason: String,
 }
 
+/// Someone else's work that would sit at the same time as the proposed move.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ScheduleCollisionView {
+    #[schema(value_type = uuid::Uuid)]
+    pub task_id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub task_title: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub assignee_id: Option<Uuid>,
+    pub start_at: chrono::DateTime<chrono::Utc>,
+    pub end_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct SchedulePlanResponse {
     pub changes: Vec<ScheduleChangeView>,
     /// The longest chain through the plan, in order. Empty when nothing is
     /// dated.
     pub critical_path: Vec<Uuid>,
+    /// Work in other projects, assigned to the same people, that would overlap
+    /// the moved window. Empty means nothing collides.
+    #[serde(default)]
+    pub collisions: Vec<ScheduleCollisionView>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct ScheduleApplyResponse {
     pub changes: Vec<ScheduleChangeView>,
     pub critical_path: Vec<Uuid>,
+    #[serde(default)]
+    pub collisions: Vec<ScheduleCollisionView>,
     /// What each changed task held before the apply, so a revert restores
     /// exactly these values.
     pub revert: Vec<ScheduleRestore>,
@@ -1663,6 +1684,84 @@ fn compute_plan(
     changes
 }
 
+/// Finds the other projects' commitments that the proposed changes would run
+/// into. Only people, not roles: a role's placeholder is not a booking.
+async fn find_collisions(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_id: Uuid,
+    calendar: core_projects::schedule::WorkCalendar,
+    nodes: &[core_projects::schedule::TaskNode],
+    changes: &[core_projects::schedule::Change],
+) -> ApiResult<Vec<ScheduleCollisionView>> {
+    use chrono::Duration;
+    let tasks = core_db::projects::list_tasks(
+        &mut *tx,
+        org_id,
+        project_id,
+        core_db::projects::TaskFilter {
+            phase_id: None,
+            status: None,
+            assignee_id: None,
+            milestone: None,
+            limit: 10_000,
+            offset: 0,
+        },
+    )
+    .await?;
+    let mut assignees: Vec<Uuid> = Vec::new();
+    let mut from: Option<chrono::DateTime<chrono::Utc>> = None;
+    let mut to: Option<chrono::DateTime<chrono::Utc>> = None;
+    for change in changes {
+        let Some(task) = tasks.iter().find(|t| t.id == change.task_id) else {
+            continue;
+        };
+        if let Some(assignee) = task.assignee_id {
+            if !assignees.contains(&assignee) {
+                assignees.push(assignee);
+            }
+        }
+        let Some(start) = change.to_start else {
+            continue;
+        };
+        let duration = task.duration_minutes.unwrap_or(0).max(0);
+        let end = core_projects::schedule::add_working_minutes(start, duration as u32, calendar);
+        from = Some(from.map_or(start, |current| current.min(start)));
+        to = Some(to.map_or(end, |current| current.max(end)));
+    }
+    let _ = nodes;
+    let (Some(from), Some(to)) = (from, to) else {
+        return Ok(Vec::new());
+    };
+    // A day of slack either side catches work that starts just outside the
+    // window but still overlaps it.
+    let rows = core_db::projects::list_overlapping_assignments(
+        tx,
+        org_id,
+        project_id,
+        &assignees,
+        from - Duration::days(1),
+        to + Duration::days(1),
+    )
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ScheduleCollisionView {
+            task_id: row.task_id,
+            project_id: row.project_id,
+            project_name: row.project_name,
+            task_title: row.task_title,
+            assignee_id: row.assignee_id,
+            start_at: row.start_at,
+            end_at: core_projects::schedule::add_working_minutes(
+                row.start_at,
+                row.duration_minutes.max(0) as u32,
+                calendar,
+            ),
+        })
+        .collect())
+}
+
 /// POST /api/projects/{id}/schedule/preview — what a set of moves would do,
 /// computed by the same function the apply calls. Nothing is written.
 #[utoipa::path(operation_id = "projects_schedule_preview", post, path = "/api/projects/{id}/schedule/preview", tag = "projects", security(("bearer" = [])),
@@ -1692,10 +1791,12 @@ pub async fn schedule_preview(
     let nodes = load_task_nodes(&mut tx, org_id, id).await?;
     let changes = compute_plan(&nodes, calendar, &req.moves);
     let critical_path = core_projects::schedule::critical_path(&nodes);
+    let collisions = find_collisions(&mut tx, org_id, id, calendar, &nodes, &changes).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(SchedulePlanResponse {
         changes: changes.iter().map(to_view).collect(),
         critical_path,
+        collisions,
     }))
 }
 
@@ -1778,6 +1879,7 @@ pub async fn schedule_apply(
             ScheduleApplyResponse {
                 changes: changes.iter().map(to_view).collect(),
                 critical_path,
+                collisions: Vec::new(),
                 revert,
             },
         ))
@@ -2015,6 +2117,7 @@ pub async fn schedule_scale(
             ScheduleApplyResponse {
                 changes: changes.iter().map(to_view).collect(),
                 critical_path,
+                collisions: Vec::new(),
                 revert,
             },
         ))
@@ -2022,4 +2125,153 @@ pub async fn schedule_scale(
     .await?;
 
     Ok(Json(response))
+}
+
+// --- calendar zones ------------------------------------------------------------------
+
+/// A stretch of the calendar that constrains where work may sit.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct CalendarZoneView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    /// `window` for an agreed change window, `closed` for a client closure.
+    pub kind: String,
+    pub label: String,
+    pub starts_on: chrono::NaiveDate,
+    pub ends_on: chrono::NaiveDate,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct CalendarZonesResponse {
+    pub zones: Vec<CalendarZoneView>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct CreateCalendarZoneRequest {
+    /// `window` or `closed`.
+    pub kind: String,
+    pub label: String,
+    pub starts_on: chrono::NaiveDate,
+    pub ends_on: chrono::NaiveDate,
+    pub note: Option<String>,
+}
+
+fn zone_view(zone: core_db::projects::CalendarZone) -> CalendarZoneView {
+    CalendarZoneView {
+        id: zone.id,
+        kind: zone.kind,
+        label: zone.label,
+        starts_on: zone.starts_on,
+        ends_on: zone.ends_on,
+        note: zone.note,
+    }
+}
+
+/// GET /api/projects/{id}/zones — the change windows and client closures the
+/// timeline draws under the bars.
+#[utoipa::path(operation_id = "projects_calendar_zones", get, path = "/api/projects/{id}/zones", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = CalendarZonesResponse),
+              (status = 404, description = "project not visible in scope (rls_sparse)")))]
+pub async fn list_zones(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<CalendarZonesResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    core_db::projects::get_project(&mut *tx, org_id, id).await?;
+    let zones = core_db::projects::list_calendar_zones(&mut *tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(CalendarZonesResponse {
+        zones: zones.into_iter().map(zone_view).collect(),
+    }))
+}
+
+/// POST /api/projects/{id}/zones — states a window or a closure.
+#[utoipa::path(operation_id = "projects_create_calendar_zone", post, path = "/api/projects/{id}/zones", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = CreateCalendarZoneRequest,
+    responses((status = 200, body = CalendarZoneView),
+              (status = 404, description = "project not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn create_zone(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<CreateCalendarZoneRequest>,
+) -> ApiResult<Json<CalendarZoneView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    if !matches!(req.kind.as_str(), "window" | "closed") {
+        return Err(ApiError::Validation(
+            "kind must be 'window' or 'closed'".into(),
+        ));
+    }
+    if req.label.trim().is_empty() {
+        return Err(ApiError::Validation("label is required".into()));
+    }
+    if req.ends_on < req.starts_on {
+        return Err(ApiError::Validation(
+            "ends_on must not be before starts_on".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let note = req.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+
+    let zone = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_project(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let zone = core_db::projects::insert_calendar_zone(
+            &mut *ctx.tx,
+            core_db::projects::NewCalendarZone {
+                org_id,
+                project_id: id,
+                kind: &req.kind,
+                label: req.label.trim(),
+                starts_on: req.starts_on,
+                ends_on: req.ends_on,
+                note,
+            },
+        )
+        .await?;
+        Ok((ctx, zone))
+    })
+    .await?;
+
+    Ok(Json(zone_view(zone)))
+}
+
+/// DELETE /api/projects/{id}/zones/{zone_id} — removes the constraint.
+#[utoipa::path(operation_id = "projects_delete_calendar_zone", delete, path = "/api/projects/{id}/zones/{zone_id}", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("zone_id" = Uuid, Path)),
+    responses((status = 200, body = Value),
+              (status = 404, description = "no such zone in scope")))]
+pub async fn delete_zone(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path((id, zone_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<Json<Value>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let deleted =
+            core_db::projects::delete_calendar_zone(&mut *ctx.tx, org_id, id, zone_id).await?;
+        if !deleted {
+            return Err(ApiError::RlsSparse);
+        }
+        Ok((ctx, serde_json::json!({ "deleted": true })))
+    })
+    .await
+    .map(Json)
 }

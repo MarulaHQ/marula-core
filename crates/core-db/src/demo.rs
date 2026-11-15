@@ -3170,6 +3170,35 @@ you go, because the escalation record is what the SLA credit claim is read from 
     .execute(&mut *tx)
     .await?;
 
+    // The calendar constraints a cutover has to respect: one agreed change
+    // window, and a client closure the chart draws as a no-go band.
+    sqlx::query(
+        "INSERT INTO project_calendar_zones
+             (id, org_id, project_id, kind, label, starts_on, ends_on, note)
+         VALUES ($1, $2, $3, 'window', 'Cutover change window', $4, $5,
+                 'Agreed with Acme: out-of-hours cutover only')",
+    )
+    .bind(demo_uuid(330))
+    .bind(DEMO_ORG_ID)
+    .bind(project_id)
+    .bind(now.date_naive() + Duration::days(12))
+    .bind(now.date_naive() + Duration::days(14))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO project_calendar_zones
+             (id, org_id, project_id, kind, label, starts_on, ends_on, note)
+         VALUES ($1, $2, $3, 'closed', 'Client closure', $4, $5,
+                 'Both sites shut; no access')",
+    )
+    .bind(demo_uuid(331))
+    .bind(DEMO_ORG_ID)
+    .bind(project_id)
+    .bind(now.date_naive() + Duration::days(18))
+    .bind(now.date_naive() + Duration::days(20))
+    .execute(&mut *tx)
+    .await?;
+
     // --- baseline, then a slip the chart can show against it ---------------
     // The baseline is captured at kickoff; two steps then move, which is what
     // the baseline overlay has to explain in words.

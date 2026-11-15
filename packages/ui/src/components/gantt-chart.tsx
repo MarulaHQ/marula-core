@@ -955,12 +955,17 @@ export function GanttChart({
                         <GanttBaseline left={xOf(baselineStart)} width={baselineWidth} />
                       ) : null}
                       {newStart !== null && task.duration_minutes !== null ? (
+                        <>
                         <Bar
                           task={task}
                           tone={tone}
                           left={xOf(newStart)}
                           width={width}
-                          label={barLabel(task)}
+                          label={
+                            width >= (format.dayWidth >= 13 ? 46 : 34)
+                              ? barLabel(task)
+                              : null
+                          }
                           muted={muted}
                           critical={criticalSet.has(task.id) || task.is_critical}
                           moved={change !== null}
@@ -988,6 +993,31 @@ export function GanttChart({
                           }
                           onKeyDown={(event) => keyMove(event, task)}
                         />
+                        {/*
+                          A one-day bar is too narrow to carry a name inside it,
+                          so the name sits beside it. The pack does the same:
+                          the bar is the fact, the label beside it is the who.
+                        */}
+                        {width < (format.dayWidth >= 13 ? 46 : 34) && barLabel(task) !== null ? (
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              position: "absolute",
+                              left: xOf(newStart) + width + 6,
+                              top: ROW_H / 2 - 8,
+                              maxWidth: 110,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              fontSize: 11,
+                              color: "var(--m-text-secondary)",
+                              pointerEvents: "none",
+                            }}
+                          >
+                            {barLabel(task)}
+                          </span>
+                        ) : null}
+                        </>
                       ) : (
                         <span
                           style={{
@@ -1469,19 +1499,7 @@ function Bar({
       {style.icon === "alert" ? <Icon name="alert" size={12} /> : null}
       {showLabel ? (
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-      ) : (
-        <span
-          style={{
-            position: "absolute",
-            width: 1,
-            height: 1,
-            overflow: "hidden",
-            clip: "rect(0 0 0 0)",
-          }}
-        >
-          {label ?? ""}
-        </span>
-      )}
+      ) : null}
     </span>
   );
 }

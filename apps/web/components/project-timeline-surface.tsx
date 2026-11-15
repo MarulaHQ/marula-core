@@ -52,6 +52,7 @@ import {
   fetchAssigneeNames,
   fetchBaseline,
   fetchCalendar,
+  fetchCalendarZones,
   fetchDependencyEdges,
   fetchPhaseBurn,
   fetchProjectPlan,
@@ -59,6 +60,7 @@ import {
   previewSchedule,
   type BaselineWire,
   type CalendarWire,
+  type CalendarZoneWire,
   type ScheduleMoveWire,
   type SchedulePlanWire,
   type TimelinePhase,
@@ -83,6 +85,7 @@ export function ProjectTimelineSurface({ projectId }: { projectId: string }): Re
   const [edges, setEdges] = useState<{ task_id: string; depends_on_task_id: string }[]>([]);
   const [calendar, setCalendar] = useState<CalendarWire | null>(null);
   const [baseline, setBaseline] = useState<BaselineWire | null>(null);
+  const [zones, setZones] = useState<CalendarZoneWire[]>([]);
   const [assignees, setAssignees] = useState<Map<string, string>>(new Map());
   const [burn, setBurn] = useState<Map<string, { consumed: number; alert: string }>>(new Map());
   const [computedCritical, setComputedCritical] = useState<string[]>([]);
@@ -128,11 +131,12 @@ export function ProjectTimelineSurface({ projectId }: { projectId: string }): Re
       setError(null);
       try {
         const plan = await fetchProjectPlan(projectId, { signal });
-        const [calendarValue, baselineValue, names, burnRows] = await Promise.all([
+        const [calendarValue, baselineValue, names, burnRows, zoneRows] = await Promise.all([
           fetchCalendar(projectId),
           fetchBaseline(projectId),
           fetchAssigneeNames(),
           fetchPhaseBurn(projectId),
+          fetchCalendarZones(projectId).catch(() => []),
         ]);
         const edgesValue = await fetchDependencyEdges(
           projectId,
@@ -148,6 +152,7 @@ export function ProjectTimelineSurface({ projectId }: { projectId: string }): Re
         setEdges(edgesValue);
         setCalendar(calendarValue);
         setBaseline(baselineValue);
+        setZones(zoneRows);
         setAssignees(names);
         setBurn(
           new Map(
@@ -181,6 +186,18 @@ export function ProjectTimelineSurface({ projectId }: { projectId: string }): Re
       minutesPerDay: calendar?.minutes_per_day ?? 480,
     }),
     [calendar],
+  );
+
+  const chartZones = useMemo(
+    () =>
+      zones.map((zone) => ({
+        id: zone.id,
+        kind: zone.kind === "closed" ? ("closed" as const) : ("window" as const),
+        from: zone.starts_on,
+        to: zone.ends_on,
+        label: zone.label,
+      })),
+    [zones],
   );
 
   const edgesByTask = useMemo(() => {
@@ -486,6 +503,7 @@ export function ProjectTimelineSurface({ projectId }: { projectId: string }): Re
             today={today}
             window={visibleWindow}
             calendar={calendarModel}
+            zones={chartZones}
             showBaseline={showBaseline}
             criticalPath={criticalChain}
             baselineLabel={baselineLabel === null ? null : `the baseline captured ${baselineLabel}`}
