@@ -57,9 +57,10 @@
     "react-native-worklets": "0.13.1"
   },
   "devDependencies": {
+    "@eslint/compat": "^2.1.1",
     "@types/react": "~19.3.0",
     "babel-preset-expo": "~58.0.24",
-    "eslint": "^9.17.0",
+    "eslint": "^10.14.0",
     "eslint-config-expo": "~58.0.4",
     "typescript": "^6.0.3",
     "vite": "^8.3.6",
