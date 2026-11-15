@@ -58,8 +58,11 @@ split exists:
   rebuild both to ask the same question. It is the third golden layer, and the
   only one that can see a route served without being in the derived document.
 - **`container-security`** (trivy config over `deploy/`) sits beside
-  `container-lint`. The policy bundle costs about a minute, and a compose file
-  edited in a pull request deserves the same answer a Dockerfile gets.
+  `container-lint`. The policy bundle costs about a minute, and a Dockerfile
+  edited in a pull request deserves the answer a Dockerfile gets. Trivy does not
+  read compose files; pointed at one it reports `Detected config files num=0`.
+  So `scripts/check-compose-hardening.py` covers those, and its `--self-test` is
+  what stops it becoming a check that cannot fail.
 - **`upgrade-matrix`** runs on every pull request that touches
   `crates/core-db/{migrations,src}/`, `crates/marula-core-cli/src/` or
   `fixtures/upgrades/`, and on every push to `main`. `upgrade-scope` computes

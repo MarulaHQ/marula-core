@@ -30,13 +30,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  # One suite per ref. Two runs on one runner would fight over the stack's
-  # random high ports only if they shared a checkout, which they do not — but a
-  # superseded run on the same ref is minutes bought for nothing.
-  group: e2e-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   e2e:
     name: E2E — Playwright flows in light + dark + shipped presets, axe baseline
@@ -45,6 +38,16 @@ jobs:
     if: >
       github.event_name != 'pull_request' ||
       github.event.label.name == 'run-e2e'
+    # Concurrency belongs to the JOB, not the workflow. Every label starts a
+    # workflow run of its own, and the runs for other labels skip this job at
+    # the `if` above; at workflow level those runs would share the group and
+    # cancel the suite that is actually running. Keyed on the pull request
+    # number so two fork branches both called `main` are two suites rather than
+    # one, and falling back to `github.ref` for the schedule, where there is no
+    # pull request.
+    concurrency:
+      group: e2e-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -134,5 +137,14 @@ jobs:
       - name: Tear the stack down
         if: always()
         run: |
-          run_id="$(grep -m1 '^RUN_ID=' e2e/.e2e-stack.env 2>/dev/null | cut -d= -f2)"
-          [ -n "$run_id" ] && ./scripts/e2e-stack.sh down "$run_id" || true
+          # No run id argument: `down` reads MARULA_RUN_ID from the env file the
+          # boot wrote, which is the run the script itself recorded. The parked
+          # copy of this job grepped for `^RUN_ID=`, a key that file has never
+          # contained, so the lookup was always empty and the `[ -n ... ]` guard
+          # skipped teardown on every run — the containers survived to the
+          # runner's own cleanup.
+          if [ -f e2e/.e2e-stack.env ]; then
+            ./scripts/e2e-stack.sh down
+          else
+            echo "no e2e/.e2e-stack.env: the stack never recorded a run, nothing to tear down"
+          fi

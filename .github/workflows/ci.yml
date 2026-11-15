@@ -435,18 +435,33 @@ jobs:
           gunzip -c fixtures/upgrades/v0.2.0.seed.sql.gz \
             | psql postgres://postgres:postgres@localhost:5432/marula_upgrade -v ON_ERROR_STOP=1 -q
       - name: Migrate fixture to HEAD
+        # `SQLX_OFFLINE` is load-bearing here, not an optimisation. The restore
+        # above leaves a v0.2.0 schema in the database, and a compile that dials
+        # `DATABASE_URL` validates every `query!` macro against it — so a HEAD
+        # query naming a table or column added after v0.2.0 fails to compile,
+        # and the gate dies before it migrates for a reason that has nothing to
+        # do with the migration. Offline metadata is already proven current by
+        # the `rust` job's `cargo sqlx prepare --check`.
+        env:
+          SQLX_OFFLINE: "true"
         run: cargo run -q -p marula-core-cli -- migrate
       - name: Fixture org survives the migration
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc \
             "SELECT count(*) FROM custom_field_defs WHERE org_id = '00000000-0000-4000-8000-000000000001'" \
             | grep -q '^7$'
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
-            "SELECT 1 FROM board_statuses WHERE org_id = '00000000-0000-4000-8000-000000000001' AND category = 'closed'"
+          # `EXISTS` rather than `SELECT 1 ...`: zero rows is not an error to
+          # psql, so the plain form exits 0 on the data loss this step exists to
+          # catch. `-tA` prints `t`/`f` and grep's exit code is the assertion.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc \
+            "SELECT EXISTS (SELECT 1 FROM board_statuses WHERE org_id = '00000000-0000-4000-8000-000000000001' AND category = 'closed')" \
+            | grep -qx 't'
       # Fails when the captured release's manifest and HEAD disagree about
       # where the upgrade stands — the operator's preflight, run before they
       # run it.
       - name: Upgrade preflight consumes the captured manifest
+        env:
+          SQLX_OFFLINE: "true"
         run: |
           cargo build -q -p marula-core-cli
           ./target/debug/marula upgrade --check \
@@ -499,24 +514,34 @@ jobs:
           dockerfile: deploy/backup/Dockerfile.backup
           failure-threshold: error
 
-  # Least privilege for the compose files, which hadolint does not read. A
-  # container that asks for `privileged: true`, a host network or a writable
-  # root filesystem is not a style problem, and it ships the moment the change
-  # merges — so it fails in the change.
+  # Two linters, because they read different files and the split is not obvious.
   #
-  # The scan also reads the Dockerfiles under deploy/, and two of them start as
-  # root on purpose: the edge proxy binds 80/443 under a NET_BIND_SERVICE
-  # exemption, and the postgres image inherits an entrypoint that chowns the
-  # data directory before dropping to the `postgres` user. `.trivyignore.yaml`
-  # exempts those two by path with the reason and an expiry, so the rest of the
-  # tree stays honest.
+  # hadolint (above) is a file lint: seconds, no policy bundle, and a Dockerfile
+  # edited in a PR is exactly the thing that should fail in that PR.
+  #
+  # Trivy's config scan reads the Dockerfiles under deploy/ and adds what
+  # hadolint does not check — a runtime stage that never drops root (DS-0002).
+  # Two images start as root on purpose: the edge proxy binds 80/443 under a
+  # NET_BIND_SERVICE exemption, and the postgres image inherits an entrypoint
+  # that chowns the data directory before dropping to the `postgres` user.
+  # `.trivyignore.yaml` exempts those two by path with the reason and an expiry,
+  # so the rest of the tree stays honest.
+  #
+  # Trivy does NOT read compose files. Pointed at one it reports "Detected
+  # config files num=0", so `privileged: true` in a compose file would pass it
+  # untouched. `scripts/check-compose-hardening.py` is what covers those files,
+  # and its `--self-test` is what keeps it from being a check that cannot fail.
   container-security:
     name: Container security — trivy config scan over deploy/
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Compose hardening (trivy does not read compose files)
+        run: |
+          python3 scripts/check-compose-hardening.py --self-test
+          python3 scripts/check-compose-hardening.py
       # SHA-pinned, carried from the retired `ga-gates.yml` as it stood.
-      - name: Trivy config scan (deploy/ — compose least-privilege lint)
+      - name: Trivy config scan (deploy/ — Dockerfile misconfiguration)
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # v0.36.0
         with:
           scan-type: config
