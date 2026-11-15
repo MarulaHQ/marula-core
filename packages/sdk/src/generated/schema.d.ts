@@ -9310,6 +9310,27 @@ export interface paths {
         patch: operations["project_templates_patch"];
         trace?: never;
     };
+    "/api/v1/project-templates/{id}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/project-templates/{id}/fork — copies the current version into a
+         *     new org-owned template. The fork keeps the plan it was tuned from, which is
+         *     what makes a shipped template safe to improve.
+         */
+        post: operations["projects_fork_template"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/project-templates/{id}/instantiate": {
         parameters: {
             query?: never;
@@ -9326,6 +9347,52 @@ export interface paths {
          *     record). Rollback on any failure leaves zero partial rows.
          */
         post: operations["project_templates_instantiate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-templates/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/project-templates/{id}/versions — every version, newest first,
+         *     with the current one marked.
+         */
+        get: operations["projects_template_versions"];
+        put?: never;
+        /**
+         * POST /api/project-templates/{id}/versions — appends a draft. The document
+         *     is validated as a template spec before it is stored, so a draft that would
+         *     not instantiate cannot be created.
+         */
+        post: operations["projects_append_template_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/project-templates/{id}/versions/{version}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/project-templates/{id}/versions/{version}/publish — makes a
+         *     version the template's current document. Publication is what an
+         *     instantiation reads, so a draft never changes a project by accident.
+         */
+        post: operations["projects_publish_template_version"];
         delete?: never;
         options?: never;
         head?: never;
@@ -15134,8 +15201,12 @@ export interface components {
             scopes: string[];
         };
         AppendVersionRequest: {
-            manifest: components["schemas"]["PluginManifestBody"];
-            version: string;
+            note?: string | null;
+            /**
+             * @description The document to store. Absent means "take the template's current spec",
+             *     which is how an author starts a version from what shipped.
+             */
+            spec?: unknown;
         };
         /** @description POST /api/credit-notes/{id}/apply body. */
         ApplyCreditNoteRequest: components["schemas"]["MutationParams"] & {
@@ -23273,9 +23344,8 @@ export interface components {
             /** Format: uuid */
             client_id: string;
         };
-        ForkTemplateRequest: components["schemas"]["MutationParams"] & {
+        ForkTemplateRequest: {
             name: string;
-            slug: string;
         };
         /** @description One `fx_rates` row: append-only; corrections add rows, never rewrite. */
         FxRateEntry: {
@@ -32688,6 +32758,34 @@ export interface components {
         TemplateVariableView: {
             key: string;
             label: string;
+        };
+        /** @description One version of a template, as a surface reads it. */
+        TemplateVersionView: {
+            /** Format: date-time */
+            created_at: string;
+            /** @description Whether this is the version an instantiation would read. */
+            current: boolean;
+            /** Format: uuid */
+            id: string;
+            note?: string | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: uuid */
+            published_by?: string | null;
+            /** @description `shipped`, `org` or `fork`. */
+            source: string;
+            spec: unknown;
+            /** @description `draft`, `published` or `retired`. */
+            status: string;
+            /** Format: uuid */
+            template_id: string;
+            /** Format: int32 */
+            version: number;
+        };
+        TemplateVersionsResponse: {
+            /** Format: uuid */
+            current_version_id?: string | null;
+            versions: components["schemas"]["TemplateVersionView"][];
         };
         /**
          * @description One template row: a shipped default (`is_system` + `builtin`), a fork
@@ -52735,6 +52833,52 @@ export interface operations {
             };
         };
     };
+    projects_fork_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkTemplateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectTemplate"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description a template with this name already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     project_templates_instantiate: {
         parameters: {
             query?: never;
@@ -52773,6 +52917,109 @@ export interface operations {
                 content?: never;
             };
             /** @description invalid template spec or request */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_template_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateVersionsResponse"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_append_template_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendVersionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateVersionView"];
+                };
+            };
+            /** @description template not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    projects_publish_template_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateVersionView"];
+                };
+            };
+            /** @description template or version not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the version does not parse as a spec */
             422: {
                 headers: {
                     [name: string]: unknown;
