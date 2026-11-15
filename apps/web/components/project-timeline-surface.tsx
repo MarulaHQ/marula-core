@@ -419,6 +419,7 @@ export function ProjectTimelineSurface({ projectId }: { projectId: string }): Re
           <PreviewBar
             changes={changes}
             finishShift={finishShift}
+            collisions={preview.collisions?.length ?? 0}
             busy={busy}
             onCancel={() => {
               setPreview(null);
@@ -819,12 +820,15 @@ function SecondCueNote(): React.JSX.Element {
 function PreviewBar({
   changes,
   finishShift,
+  collisions,
   busy,
   onCancel,
   onApply,
 }: {
   changes: GanttPlanChange[];
   finishShift: number;
+  /** Other projects' bookings for the same people that this move overlaps. */
+  collisions: number;
   busy: boolean;
   onCancel: () => void;
   onApply: () => void;
@@ -860,6 +864,11 @@ function PreviewBar({
             : ` · the finish moves ${Math.abs(finishShift)} working ${
                 Math.abs(finishShift) === 1 ? "day" : "days"
               } ${finishShift > 0 ? "later" : "earlier"}`}
+          {collisions > 0
+            ? ` · ${collisions} ${collisions === 1 ? "booking" : "bookings"} in another ${
+                collisions === 1 ? "project" : "projects"
+              } overlaps`
+            : ""}
         </span>
       </div>
       <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>

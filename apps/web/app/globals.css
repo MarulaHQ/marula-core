@@ -22,9 +22,14 @@
 @import "@marula-core/ui/theme.css";
 
 /* Tailwind must scan the vendored kit's components, or the utilities they use
-   (bg-muted, text-muted-foreground, rounded-ctl, h-ctl) are never generated. */
+   (bg-muted, text-muted-foreground, rounded-ctl, h-ctl) are never generated.
+   `components/` is scanned for the same reason: a utility that appears only
+   inside a shared component (the impact sheet's five-column row, for one) is
+   otherwise absent from the built CSS and the row collapses to one column. */
 
 @source "../../../packages/ui/src/kit";
+
+@source "../../../packages/ui/src/components";
 
 @import "@marula-core/ui/components.css";
 

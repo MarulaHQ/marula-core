@@ -937,6 +937,16 @@ export function GanttChart({
                           workingDayOffset(baselineStart, start, calendar),
                         )} than ${baselineLabel ?? "the baseline"}`
                       : null;
+                  const sideline =
+                    newStart === null
+                      ? null
+                      : bareNamePlacement(
+                          barLabel(task),
+                          xOf(newStart),
+                          width,
+                          chartWidth,
+                          format.dayWidth >= 13 ? 46 : 34,
+                        );
                   return (
                     <div
                       key={`tr-${task.id}`}
@@ -997,24 +1007,14 @@ export function GanttChart({
                           A one-day bar is too narrow to carry a name inside it,
                           so the name sits beside it. The pack does the same:
                           the bar is the fact, the label beside it is the who.
+                          When the bar ends near the chart's right edge the name
+                          goes to its left instead of being sliced off, and when
+                          neither side can hold it the name is simply absent —
+                          a half word is worse than no word.
                         */}
-                        {width < (format.dayWidth >= 13 ? 46 : 34) && barLabel(task) !== null ? (
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              position: "absolute",
-                              left: xOf(newStart) + width + 6,
-                              top: ROW_H / 2 - 8,
-                              maxWidth: 110,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              fontSize: 11,
-                              color: "var(--m-text-secondary)",
-                              pointerEvents: "none",
-                            }}
-                          >
-                            {barLabel(task)}
+                        {sideline !== null ? (
+                          <span aria-hidden="true" style={sideline.style}>
+                            {sideline.name}
                           </span>
                         ) : null}
                         </>
@@ -1645,6 +1645,16 @@ export function GanttBaseline({ left, width }: { left: number; width: number }):
   );
 }
 
+/**
+ * Where a zone's kind word sits: inside the band when the band can hold it,
+ * else immediately before it (right-aligned), else immediately after.
+ */
+function zoneLabelPlacement(word: string, bandWidth: number): React.CSSProperties | null {
+  const estimate = word.length * 6.4;
+  if (bandWidth >= estimate + 12) return { left: 6 };
+  return { left: -estimate - 6 };
+}
+
 /** A calendar constraint: the agreed change window, or the client's closure. */
 export function GanttZoneBand({
   zone,
@@ -1659,6 +1669,7 @@ export function GanttZoneBand({
   const to = parseDay(zone.to);
   const left = Math.round(((from - view.from) / MS_PER_DAY) * dayWidth);
   const width = Math.max(dayWidth, Math.round(((to - from + 1) / MS_PER_DAY) * dayWidth));
+  const kindWord = zone.kind === "window" ? "Change window" : "Closed";
   return (
     <div
       data-slot="gantt-zone"
@@ -1683,24 +1694,30 @@ export function GanttZoneBand({
                 "repeating-linear-gradient(135deg, transparent 0 6px, var(--m-border-strong) 6px 7px)",
             }),
       }}
+      title={zone.label}
     >
-      <span
-        style={{
-          position: "absolute",
-          top: 6,
-          right: 6,
-          left: 6,
-          fontSize: 11,
-          fontWeight: 600,
-          textAlign: "right",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          color: "var(--m-text-secondary)",
-        }}
-      >
-        {zone.label}
-      </span>
+      {/*
+        The pack names a band by what it is — "Change window", "Closed" — in ink
+        at the band's top. A two-day band is narrower than those words, so the
+        name sits just outside on the side with room, the way S4.1 draws it; the
+        project's own label stays the tooltip.
+      */}
+      {zoneLabelPlacement(kindWord, width) !== null ? (
+        <span
+          style={{
+            position: "absolute",
+            top: 8,
+            ...(zoneLabelPlacement(kindWord, width) ?? {}),
+            fontSize: 12,
+            fontWeight: 600,
+            whiteSpace: "nowrap",
+            color: "var(--m-text)",
+            zIndex: 2,
+          }}
+        >
+          {kindWord}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -2348,6 +2365,44 @@ function barLabel(task: GanttTask): string | null {
   const name = task.assignee_name ?? task.external_owner;
   if (name !== null && name !== "") return firstName(name);
   if (task.role_key !== null && task.role_key !== "") return task.role_key.replaceAll("_", " ");
+  return null;
+}
+
+/**
+ * Where the name of a bar too narrow to hold it goes: to its right, or to its
+ * left when the bar ends near the chart's edge, or nowhere. A clipped half-word
+ * reads as a bug, so the name is omitted rather than sliced.
+ */
+function bareNamePlacement(
+  name: string | null,
+  left: number,
+  width: number,
+  chartWidth: number,
+  inlineMin: number,
+): { name: string; style: React.CSSProperties } | null {
+  if (name === null || width >= inlineMin) return null;
+  // 11px Figtree averages about 5.6px a glyph; 8px of air either side.
+  const estimate = name.length * 5.6 + 6;
+  const base: React.CSSProperties = {
+    position: "absolute",
+    top: ROW_H / 2 - 8,
+    maxWidth: 110,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontSize: 11,
+    color: "var(--m-text-secondary)",
+    pointerEvents: "none",
+  };
+  if (left + width + estimate + 4 <= chartWidth) {
+    return { name, style: { ...base, left: left + width + 6 } };
+  }
+  if (left - estimate - 4 >= 0) {
+    return {
+      name,
+      style: { ...base, left: Math.max(0, left - estimate - 2), textAlign: "right", width: estimate },
+    };
+  }
   return null;
 }
 

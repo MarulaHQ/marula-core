@@ -123,6 +123,24 @@ export function ImpactRow({
   );
 }
 
+/**
+ * A row that states one fact rather than a move: somebody else's booking, a
+ * person, a window. The move rows read `was → now`; a fact has no "was".
+ */
+export function ImpactFact({ label, value }: { label: ReactNode; value: ReactNode }) {
+  return (
+    <div
+      data-slot="impact-row"
+      className="flex items-center justify-between gap-3 border-t border-border px-3 py-[7px] text-[13px]"
+    >
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="shrink-0 font-mono text-[0.92em] font-semibold tabular-nums tracking-[-0.01em]">
+        {value}
+      </span>
+    </div>
+  );
+}
+
 /** A quiet sentence under the groups: what keeps its dates, or what was not
  *  checked. Never a suggestion the caller cannot substantiate. */
 export function ImpactNote({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {

@@ -85,6 +85,16 @@ export interface SchedulePlanWire {
     reason: "moved" | "pushed" | string;
   }[];
   critical_path: string[];
+  /** Work in other projects, for the same people, that the move runs into. */
+  collisions?: {
+    task_id: string;
+    project_id: string;
+    project_name: string;
+    task_title: string;
+    assignee_id: string | null;
+    start_at: string;
+    end_at: string;
+  }[];
 }
 
 export interface ScheduleApplyWire extends SchedulePlanWire {

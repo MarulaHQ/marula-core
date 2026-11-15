@@ -47,6 +47,7 @@ import {
   ImpactGroup,
   ImpactNote,
   ImpactPreview,
+  ImpactFact,
   ImpactRow,
 } from "@marula-core/ui";
 import { Icon, Segmented, SegmentedItem } from "@marula-core/ui/kit";
@@ -121,6 +122,15 @@ interface DraftPreview {
   finishAfter: string | null;
   /** Other projects' work the same people are already booked for. */
   collisions: ScheduleCollision[];
+}
+
+/** `09:00` — the hour a booking starts or ends, in the reader's own zone. */
+function clockAt(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
 }
 
 interface UndoRecord {
@@ -994,15 +1004,13 @@ export function ProjectPlanSurface(props: ProjectPlanSurfaceProps): React.JSX.El
                   ? "Collides with another commitment"
                   : `Collides with ${preview.collisions.length} other commitments`
               }
-              note="The same person is already booked elsewhere at this time"
+              note="Same person, another project"
             >
               {preview.collisions.map((collision) => (
-                <ImpactRow
+                <ImpactFact
                   key={collision.task_id}
                   label={`${collision.project_name} · ${collision.task_title}`}
-                  was={formatDay(collision.start_at)}
-                  now={formatDay(collision.end_at)}
-                  delta=""
+                  value={`${formatDay(collision.start_at)} ${clockAt(collision.start_at)}–${clockAt(collision.end_at)}`}
                 />
               ))}
             </ImpactGroup>
@@ -1052,8 +1060,8 @@ export function ProjectPlanSurface(props: ProjectPlanSurfaceProps): React.JSX.El
             <Icon name="check" size={14} className="mt-[3px] shrink-0" />
             <span>
               {Math.max(0, tasks.filter((task) => task.start_at !== null && task.start_at !== undefined).length - preview.pushed.length - 1)}{" "}
-              tasks keep their dates. Cross-project collisions are not checked by this preview; the
-              dependency engine is this project&rsquo;s own.
+              tasks keep their dates. The dependency engine is this project&rsquo;s own; other
+              projects&rsquo; bookings for the same people are checked as well.
             </span>
           </ImpactNote>
           {scheduleCritical.size > 0 ? (
