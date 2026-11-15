@@ -13,6 +13,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 ## Daily guides for technicians and service desk staff
 
 - [Work a ticket](staff-work-a-ticket.md) — Open a ticket from your morning queue, run the timer, post internal or customer-visible notes, and send your hours to approvals.
+- [Work a project](staff-work-a-project.md) — Build a plan from phases and tasks, put the work in the order it runs, move bars on the timeline through the preview, and capture a baseline you can measure change against.
 - [Dispatch from the board](staff-dispatch.md) — See technician capacity across the day, drag unassigned tickets onto open calendar slots, and resolve scheduling conflicts.
 - [Plan the week ahead](staff-dispatch-planning.md) — Read the seven-day horizon: demand by priority against roster hours, capacity per technician, skill gaps, and project load already committed.
 - [Log travel and reconcile mileage](staff-dispatch-travel.md) — Record trips against tickets, check the 14-day reconciliation, merge duplicate trips, and turn drafts into time entries and expenses.
