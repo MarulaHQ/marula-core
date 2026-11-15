@@ -171,6 +171,46 @@
   outline-offset: -2px;
 }
 
+/* ---- Surface sub-nav (page-to-page tabs) -------------------------------
+   The surface pack's `.tabs2` row, drawn on its quotes page: plain text on the
+   canvas, a 2px underline under the current tab, 22px between tabs, no pill
+   fills. The underline is --m-primary, which is ink in light and gold in dark
+   — the pack's own flip, not a hard-coded ink. */
+
+.m-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 22px;
+}
+
+.m-subnav a {
+  padding: 10px 2px;
+  border-bottom: 2px solid transparent;
+  color: var(--m-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.m-subnav a:hover {
+  color: var(--m-text);
+}
+
+.m-subnav a[aria-current="page"] {
+  border-bottom-color: var(--m-primary);
+  color: var(--m-text);
+  font-weight: 600;
+}
+
+/* The strip sits under a page header, so it needs a little air above the
+   content it introduces and none on the sides (the page already pads). */
+.m-subnav-row {
+  margin: 2px 0 4px;
+}
+
 /* ---- Top bar: unified search pill -------------------------------------- */
 
 .m-top-search {

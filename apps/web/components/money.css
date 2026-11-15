@@ -39,35 +39,6 @@
   gap: 8px 14px;
 }
 
-.m-money-subnav {
-  display: flex;
-  gap: 2px;
-  margin-left: 6px;
-}
-
-.m-money-subnav a {
-  height: 36px;
-  padding: 0 12px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--m-radius-control);
-  color: var(--m-text-secondary);
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background-color 100ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-.m-money-subnav a:hover {
-  background: var(--m-surface-2);
-}
-
-.m-money-subnav a[aria-current="page"] {
-  background: var(--m-surface-2);
-  color: var(--m-text);
-  font-weight: 600;
-}
-
 .m-money-stats {
   display: flex;
   gap: 8px;

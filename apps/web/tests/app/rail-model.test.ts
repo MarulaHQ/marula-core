@@ -9,6 +9,7 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { RAIL_SECTIONS } from "../../components/shell/rail-model";
 import { SETTINGS_RAIL } from "../../lib/settings/ia";
+import { SURFACE_SUBNAVS } from "../../lib/nav/surface-subnavs";
 
 // The old top-header nav tree (components/main-nav.tsx, absorbed by the
 // rail in Wave 15 lane 6) — kept here verbatim as the reachability record:
@@ -126,6 +127,27 @@ describe("rail model route coverage", () => {
     expect(Object.values(SETTINGS_RAIL).flat().length).toBeGreaterThan(20);
   });
 
+  it("keeps every demoted page one tab away from its parent", () => {
+    // These left the rail on purpose (nav-accordion lane). Each one must still
+    // be a tab on the page that now owns it — a cut with no tab is a page
+    // nobody finds, and this list is the record of what was cut.
+    const DEMOTED_TO_TABS = [
+      "/dispatch/planning",
+      "/dispatch/travel",
+      "/billing/credit-notes",
+      "/sales/quotes",
+      "/sales/catalog",
+      "/stock/loans",
+      "/settings/integrations",
+      "/kb/secrets",
+      "/provenance",
+    ];
+    const tabHrefs = new Set(SURFACE_SUBNAVS.flatMap((set) => set.tabs.map((tab) => tab.href)));
+    for (const href of DEMOTED_TO_TABS) {
+      expect(tabHrefs.has(href), `${href} has no tab`).toBe(true);
+    }
+  });
+
   it("carries over every MainNav surface (nothing lost in the move)", () => {
     // /search moved deliberately: the slim top bar owns unified search via
     // the ⌘K launcher (Wave 15 lane 6 scope) — the rail keeps content nav.
@@ -145,6 +167,11 @@ describe("rail model route coverage", () => {
     // keeps the reachability record honest without keeping a twenty-row
     // submenu in the main nav.
     for (const page of Object.values(SETTINGS_RAIL).flat()) railHrefs.add(page.href);
+    // Pages that left the rail for a tab strip on a parent page are reachable
+    // from that page (lib/nav/surface-subnavs.ts), so they count too.
+    for (const set of SURFACE_SUBNAVS) {
+      for (const tab of set.tabs) railHrefs.add(tab.href);
+    }
     for (const href of MAIN_NAV_SURFACES) {
       if (MOVED_TO_TOP_BAR.has(href)) continue;
       const target = REDIRECTS[href] ?? href;

@@ -56,8 +56,8 @@ export const RAIL_SECTIONS: RailSection[] = [
       { label: "Boards", href: "/boards" },
       { label: "Calendar", href: "/calendar" },
       { label: "Dispatch", href: "/dispatch" },
-      { label: "Planning", href: "/dispatch/planning", group: "Schedules" },
-      { label: "Travel", href: "/dispatch/travel", group: "Schedules" },
+      // Planning and Travel are dispatch views, and the dispatch header draws
+      // them as its own sub-nav on every dispatch route.
     ],
   },
   {
@@ -70,11 +70,11 @@ export const RAIL_SECTIONS: RailSection[] = [
       { label: "Projects", href: "/projects" },
       { label: "Contracts", href: "/contracts" },
       { label: "Billing", href: "/billing", group: "Money" },
-      { label: "Credit notes", href: "/billing/credit-notes", group: "Money" },
       { label: "Time approvals", href: "/approvals", group: "Money" },
-      { label: "Sales pipeline", href: "/sales/pipeline", group: "Growth" },
-      { label: "Quotes", href: "/sales/quotes", group: "Growth" },
-      { label: "Catalog", href: "/sales/catalog", group: "Growth" },
+      // The money strip carries Pipeline, Quotes, Catalog, Contracts,
+      // Approvals, Invoices and Credit notes (lib/nav/surface-subnavs.ts); the
+      // rail keeps one row that lands on the cluster.
+      { label: "Sales", href: "/sales/pipeline" },
     ],
   },
   {
@@ -97,8 +97,8 @@ export const RAIL_SECTIONS: RailSection[] = [
     links: [
       { label: "Stock", href: "/stock" },
       { label: "Locations", href: "/stock/locations" },
+      // Loans is the tools board's second tab.
       { label: "Tools", href: "/stock/tools" },
-      { label: "Loans", href: "/stock/loans" },
     ],
   },
   {
@@ -119,8 +119,9 @@ export const RAIL_SECTIONS: RailSection[] = [
     links: [
       { label: "Automations", href: "/automations" },
       { label: "Alerts", href: "/alerts" },
-      { label: "Runs", href: "/automations/runs", group: "Activity" },
-      { label: "Webhook activity", href: "/settings/integrations", group: "Activity" },
+      // Webhook deliveries are the second tab on Runs, and are administered
+      // on the integrations page.
+      { label: "Runs", href: "/automations/runs" },
     ],
   },
   {
@@ -131,9 +132,9 @@ export const RAIL_SECTIONS: RailSection[] = [
     links: [
       { label: "Knowledge base", href: "/kb" },
       { label: "Documents", href: "/documents" },
+      // Secret categories are the vault's second tab.
+      { label: "Vault", href: "/passwords" },
       { label: "Imports", href: "/imports" },
-      { label: "Vault", href: "/passwords", group: "Security" },
-      { label: "Secret categories", href: "/kb/secrets", group: "Security" },
     ],
   },
   {
@@ -145,8 +146,8 @@ export const RAIL_SECTIONS: RailSection[] = [
       { label: "Reports", href: "/reports" },
       { label: "Dashboards", href: "/dashboards" },
       { label: "Scorecards", href: "/scorecards" },
-      { label: "Provenance", href: "/provenance", group: "Evidence" },
-      { label: "Audit", href: "/audit", group: "Evidence" },
+      // Provenance is the audit trail's second tab.
+      { label: "Audit", href: "/audit" },
     ],
   },
   {

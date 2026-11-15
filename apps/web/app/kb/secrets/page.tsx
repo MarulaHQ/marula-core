@@ -76,6 +76,7 @@ import {
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { friendlyMutationError } from "../../../lib/error-copy";
 import { newIdempotencyKey } from "../../../lib/envelope-write";
+import { SurfaceSubnav } from "../../../components/shell/surface-subnav";
 
 type SecretFolder = components["schemas"]["SecretFolder"];
 type SecretRecord = components["schemas"]["SecretRecord"];
@@ -415,6 +416,7 @@ export default function SecretsVaultPage() {
           </>
         }
       />
+      <SurfaceSubnav setId="vault" />
 
       <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div className="min-h-0 overflow-auto">
