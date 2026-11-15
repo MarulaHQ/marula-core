@@ -11,7 +11,8 @@
 // rows, undated work called out honestly, inline creation, the impact preview
 // before any date moves, named undo after a move, bulk scale, the task
 // inspector (a bottom sheet at 1024 and below) and the density control.
-// Timeline keeps the shipped <ProjectGantt/>. Tasks keeps the phase-grouped
+// Timeline is <ProjectTimelineSurface/>: the S4 chart with its preview, tray
+// and table view. Tasks keeps the phase-grouped
 // list with the needs-attention triage filter and the dependency editor. Time
 // and budget keeps the billing reads: phase burn, released billing, the linked
 // contract and the purchase bills.
@@ -64,7 +65,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
-import { ProjectGantt } from "../../../components/project-gantt";
+import { ProjectTimelineSurface } from "../../../components/project-timeline-surface";
 import { dueLabel, money } from "../../../lib/format";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import {
@@ -855,19 +856,9 @@ export default function ProjectDetailPage() {
         ) : null}
 
         {tab === "timeline" ? (
-          <Card className="p-0" data-testid="project-timeline">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4" style={{ borderColor: "var(--m-border)" }}>
-              <div>
-                <h2 className="text-sm font-semibold">Timeline</h2>
-                <p className="m-0 text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                  Bars read from the stored start and length. Undated work is on the Plan tab, not here.
-                </p>
-              </div>
-            </div>
-            <div className="p-4">
-              <ProjectGantt projectId={projectId} />
-            </div>
-          </Card>
+          <div data-testid="project-timeline">
+            <ProjectTimelineSurface projectId={projectId} />
+          </div>
         ) : null}
 
         {tab === "money" ? (
