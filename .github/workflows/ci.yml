@@ -651,11 +651,17 @@ jobs:
           }
         env:
           BIND_ADDR: 127.0.0.1:18080
-          # Dev-only CI constants: core-api refuses to boot without explicit
-          # values (fail-closed since Wave 19). They never leave this ephemeral
-          # runner.
+          # core-api refuses to boot without explicit values for these four
+          # (fail-closed since Wave 19; the machine-seam pair since Wave 55).
+          # The first two are the secrets the server signs with; the second two
+          # are the bearer and the send token of the worker↔api seam. A missing
+          # one is a panic at boot, not a degraded server, which is why the
+          # failure above this step is short and loud instead of a 60-second
+          # timeout. Dev-only constants on an ephemeral runner, never a secret.
           JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
           MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
+          MARULA_INTERNAL_TOKEN: 4b1f8e2c9a7d6350f4e8b2a6c9d1357e0a4c8f2b6d9e1357a0c4e8f2b6d9357a
+          EMAIL_INTERNAL_TOKEN: 8c3d7a1f5e9b2460d8c4a0f6e2b9d571c3f7a9e1d5b8c2f6a4e0d8b1c5f9a726
       # The same test target, with the live leg switched on: it is env-gated
       # (`MARULA_API_BASE_URL`) so an offline run skips it and prints why.
       - name: Live spec vs pin (the server that actually runs)
