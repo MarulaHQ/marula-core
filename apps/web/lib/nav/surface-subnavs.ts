@@ -63,7 +63,7 @@ export const SURFACE_SUBNAVS: SurfaceSubnavSet[] = [
     label: "Tool views",
     tabs: [
       { label: "Tools", href: "/stock/tools" },
-      { label: "Loans", href: "/stock/loans" },
+      { label: "Client loans", href: "/stock/loans" },
     ],
   },
   {

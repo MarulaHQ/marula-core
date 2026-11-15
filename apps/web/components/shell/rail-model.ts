@@ -66,15 +66,15 @@ export const RAIL_SECTIONS: RailSection[] = [
     href: "/clients",
     match: ["/clients", "/projects", "/contracts", "/billing", "/approvals", "/sales"],
     links: [
-      { label: "Clients", href: "/clients" },
-      { label: "Projects", href: "/projects" },
-      { label: "Contracts", href: "/contracts" },
+      { label: "Clients", href: "/clients", group: "Accounts" },
+      { label: "Projects", href: "/projects", group: "Accounts" },
+      { label: "Contracts", href: "/contracts", group: "Accounts" },
       { label: "Billing", href: "/billing", group: "Money" },
       { label: "Time approvals", href: "/approvals", group: "Money" },
       // The money strip carries Pipeline, Quotes, Catalog, Contracts,
       // Approvals, Invoices and Credit notes (lib/nav/surface-subnavs.ts); the
       // rail keeps one row that lands on the cluster.
-      { label: "Sales", href: "/sales/pipeline" },
+      { label: "Sales", href: "/sales/pipeline", group: "Growth" },
     ],
   },
   {
