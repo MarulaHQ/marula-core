@@ -85,23 +85,24 @@ function railState(view: OnboardingStepView | undefined, skipped: boolean): Step
 /** The enrollment QR, drawn in the page from the otpauth URI. */
 function MfaQr({ value }: { value: string }) {
   const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
+    setFailed(false);
     void (async () => {
       try {
         // Imported in the effect so the encoder never runs on the server.
         const { default: QRCode } = await import("qrcode");
+        // No colour option: the encoder's own default is black on white, which
+        // is what a scanner wants, and it keeps a raw hex out of this app.
         const url = await QRCode.toDataURL(value, {
           margin: 1,
           width: 152,
           errorCorrectionLevel: "M",
-          // Black on white in both modes: a QR is a machine-readable mark, and
-          // inverting it with the theme makes it harder for older scanners.
-          color: { dark: "black", light: "white" },
         });
         if (!cancelled) setSrc(url);
       } catch {
-        if (!cancelled) setSrc(null);
+        if (!cancelled) setFailed(true);
       }
     })();
     return () => {
@@ -109,15 +110,21 @@ function MfaQr({ value }: { value: string }) {
     };
   }, [value]);
   return (
-      <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2">
       <div
         className="flex h-[152px] w-[152px] items-center justify-center overflow-hidden rounded-[10px] border bg-white"
         style={{ borderColor: "var(--m-border)" }}
       >
-        {src === null ? (
-          <Spinner label="Drawing the code" />
-        ) : (
+        {src !== null ? (
           <img src={src} alt="QR code for your authenticator app" width={152} height={152} />
+        ) : failed ? (
+          // The typed key below is the working path. Saying so beats a spinner
+          // that never resolves.
+          <p className="px-3 text-center text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+            The code could not be drawn. Type the key instead.
+          </p>
+        ) : (
+          <Spinner label="Drawing the code" />
         )}
       </div>
       <span className="text-[12px]" style={{ color: "var(--m-text-muted)" }}>
