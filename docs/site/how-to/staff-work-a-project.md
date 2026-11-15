@@ -7,12 +7,11 @@ description: "A project is delivery work with dates: phases, tasks, a plan you r
 > **Audience:** both. Coordinators spend their day here. Technicians read the
 > same page to see where their work sits and why a date moved.
 
-A ticket answers "what happened today". A project answers "what are we
-delivering, in what order, and when does it finish". Marula keeps the two
-separate: a project holds phases and tasks, the plan is a table you edit in
-place, and the timeline draws that plan on a calendar you can move work
-around in. A move on the chart is previewed before it is written, and the change
-can be undone by name afterwards.
+A ticket answers "what happened today". A project answers a harder question:
+what are we delivering, in what order, and when does it finish. Marula keeps the
+two apart. The plan is a table you edit in place. The timeline draws that plan on
+a calendar you can move work around in, and a move on the chart is previewed
+before it is written. Any change you apply can be undone by name afterwards.
 
 ## Prerequisites
 
@@ -46,7 +45,7 @@ A plan is a list of phases, and each phase holds tasks. Use **Phase** to add a
 container and **Task** (or press `A`) to add work. A new row appears in place,
 under its phase. `Enter` commits it, and `Escape` walks away without writing.
 
-Each task row carries the facts a coordinator needs in one line:
+One row, one task, and the facts a coordinator needs on it:
 
 | Column | What it says |
 |---|---|
@@ -61,9 +60,9 @@ Each task row carries the facts a coordinator needs in one line:
 The row menu holds the rest: open the details, set a start date, add a task to
 that phase, move the row up or down, and scale the phase.
 
-Work with no dates is not hidden and not guessed at. It collects in a
-**Not dated yet** group at the bottom of the table, because undated work is a
-real state and a plan that hides it lies about its own readiness.
+Undated work is a real state, so it collects in a **Not dated yet** group at
+the bottom of the table instead of being guessed at or left out. A plan that
+hides its undated work looks finished when it is not.
 
 Filters across the top narrow the table to what needs attention:
 **Unassigned**, **Late or at risk**, **Blocked**, and **Critical path**. A
@@ -114,8 +113,8 @@ tells you why.
 
 ## 5. Read the timeline
 
-The **Timeline** tab draws the same plan as bars on a calendar. The toolbar is
-where the reading happens:
+The **Timeline** tab draws the same plan as bars on a calendar. The toolbar
+changes what you read and how much of it you see:
 
 - **Chart** or **View as table** — the table is the non-visual equivalent and
   carries the same columns, so colour and position are never the only way to
@@ -135,16 +134,16 @@ Drag a bar to move it, or drag a card from the **Not dated** tray onto a day to
 place it. Nothing is written yet: a preview bar appears saying **Preview,
 nothing saved**, how many tasks move, and what happens downstream.
 
-That sentence is the point of the whole surface. Moving a bar ripples: a later
-task may be pushed, the finish may shift, and the change may land on work the
-same person is already doing in another project. The preview says which, then:
+A move ripples. A later task may be pushed, the finish may shift, or the change
+may land on work the same person is already doing in another project. The preview
+says which:
 
 - **Apply** writes it, in one transaction, with one audit entry per change.
 - **Cancel** (or `Escape`) discards it.
 - After applying, an **Undo** bar names what you did and reverses it through the
   same engine.
 
-Two refusals you will meet, both stated rather than silent:
+Two refusals you will meet:
 
 - **A predecessor that has not finished.** A task cannot start before the work
   it depends on ends. The bar marks the earliest legal day and says which
@@ -152,15 +151,15 @@ Two refusals you will meet, both stated rather than silent:
   different from its place in the graph.
 - **A booking in another project.** If the move lands on the same person's
   committed time elsewhere, the preview names the other project and when that
-  work ends. It is a warning with the fact attached, not a wall.
+  work ends. It warns you and hands you the fact; it does not stop you.
 
 ## 7. Scale a phase or a selection
 
-**Scale** changes how long a set of work runs, without retyping dates. Choose the scope: a phase, or rows you
-ticked. Set a factor such as `1.25` and read the projection, which gives hours
-before and after plus the new finish. Apply moves the dates. The panel says
-plainly that this scale cannot be undone from the panel, so scale with the change
-in front of you.
+**Scale** changes how long a set of work runs, without retyping dates. Choose
+the scope: a phase, or rows you ticked. Set a factor such as `1.25` and read the
+projection, which gives hours before and after plus the new finish. Apply moves
+the dates. This scale has no undo in the panel, and the panel says so, so scale
+with the change in front of you.
 
 ## 8. Capture a baseline, then read the change
 
@@ -189,7 +188,7 @@ is a read.
 
 ## 10. What this build does not do yet
 
-Worth knowing before you look for it:
+These are not in the build yet, so the surfaces will look unfinished:
 
 - **No board view on a project.** The Board segment is disabled. A project board
   needs the organisation's workflow-to-column map, which this build does not
@@ -204,7 +203,7 @@ Worth knowing before you look for it:
 
 - [How to bill project work](project-billing.md) — contracts, phase budgets and
   milestone releases.
-- [How to run dispatch](staff-dispatch.md) — where a technician's day and a
-  project's tasks meet.
+- [How to run dispatch](staff-dispatch.md) — where a technician's day meets a
+  project's tasks.
 - [How to use keyboard shortcuts](staff-keyboard-shortcuts.md) — the keys this
   page assumes.
