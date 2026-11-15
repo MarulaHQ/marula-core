@@ -1043,6 +1043,10 @@ use utoipa::OpenApi;
         crate::routes::projects::create_template,
         crate::routes::projects::patch_template,
         crate::routes::projects::delete_template,
+        crate::routes::projects::list_versions,
+        crate::routes::projects::append_version,
+        crate::routes::projects::publish_version,
+        crate::routes::projects::fork_template,
         crate::routes::projects::instantiate,
         // alert ingestor (the private build tracker Phase 3): HMAC webhook ingest →
         // dedup/correlation → incident tickets

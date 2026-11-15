@@ -1920,3 +1920,211 @@ where
     .await?;
     Ok(row.map(row_to_baseline).transpose()?)
 }
+
+// --- template versions --------------------------------------------------------
+
+/// One version of a project template.
+#[derive(Debug, Clone)]
+pub struct TemplateVersion {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub template_id: Uuid,
+    pub version: i32,
+    pub spec: serde_json::Value,
+    pub status: String,
+    pub source: String,
+    pub note: Option<String>,
+    pub published_by: Option<Uuid>,
+    pub published_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+const VERSION_COLS: &str = "id, org_id, template_id, version, spec, status, source, note, \
+     published_by, published_at, created_at";
+
+fn row_to_version(row: sqlx::postgres::PgRow) -> Result<TemplateVersion, sqlx::Error> {
+    Ok(TemplateVersion {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        template_id: row.get("template_id"),
+        version: row.get("version"),
+        spec: row.get("spec"),
+        status: row.get("status"),
+        source: row.get("source"),
+        note: row.get("note"),
+        published_by: row.get("published_by"),
+        published_at: row.get("published_at"),
+        created_at: row.get("created_at"),
+    })
+}
+
+/// Every version of one template, newest first.
+pub async fn list_template_versions<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    template_id: Uuid,
+) -> DbResult<Vec<TemplateVersion>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {VERSION_COLS} FROM project_template_versions \
+         WHERE org_id = $1 AND template_id = $2 ORDER BY version DESC"
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(template_id)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(row_to_version)
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Appends a draft version built from the template's current spec, or from a
+/// spec the caller supplies. Versions are append-only: a published version is
+/// never rewritten, which is what lets a fork stay on the plan it was tuned
+/// from.
+pub async fn append_template_version(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    template_id: Uuid,
+    spec: Option<&serde_json::Value>,
+    note: Option<&str>,
+) -> DbResult<TemplateVersion> {
+    let sql = format!(
+        r#"INSERT INTO project_template_versions
+               (id, org_id, template_id, version, spec, status, source, note)
+           SELECT $1, $2, $3,
+                  COALESCE((SELECT MAX(version) FROM project_template_versions
+                             WHERE template_id = $3), 0) + 1,
+                  COALESCE($4, (SELECT spec FROM project_templates
+                                 WHERE org_id = $2 AND id = $3)),
+                  'draft', 'org', $5
+           RETURNING {VERSION_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(Uuid::now_v7())
+        .bind(org_id)
+        .bind(template_id)
+        .bind(spec)
+        .bind(note)
+        .fetch_one(&mut *executor)
+        .await?;
+    Ok(row_to_version(row)?)
+}
+
+/// Publishes a version: it becomes the template's current document and the one
+/// an instantiation reads.
+pub async fn publish_template_version(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    template_id: Uuid,
+    version: i32,
+    published_by: Option<Uuid>,
+) -> DbResult<TemplateVersion> {
+    let sql = format!(
+        r#"UPDATE project_template_versions
+              SET status = 'published', published_by = $4, published_at = now()
+            WHERE org_id = $1 AND template_id = $2 AND version = $3
+            RETURNING {VERSION_COLS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(template_id)
+        .bind(version)
+        .bind(published_by)
+        .fetch_optional(&mut *executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    let published = row_to_version(row)?;
+    sqlx::query(
+        r#"UPDATE project_templates
+              SET current_version_id = $3, spec = $4, updated_at = now()
+            WHERE org_id = $1 AND id = $2"#,
+    )
+    .bind(org_id)
+    .bind(template_id)
+    .bind(published.id)
+    .bind(&published.spec)
+    .execute(&mut *executor)
+    .await?;
+    Ok(published)
+}
+
+/// The version an instantiation reads: the template's current one.
+pub async fn current_template_version<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    template_id: Uuid,
+) -> DbResult<Option<TemplateVersion>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        r#"SELECT {VERSION_COLS} FROM project_template_versions
+            WHERE org_id = $1 AND id = (
+                SELECT current_version_id FROM project_templates
+                 WHERE org_id = $1 AND id = $2
+            )"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(template_id)
+        .fetch_optional(executor)
+        .await?;
+    Ok(row.map(row_to_version).transpose()?)
+}
+
+/// Copies a template (and its current version) into a new org-owned template
+/// whose first version records where it came from.
+pub async fn fork_template(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    template_id: Uuid,
+    name: &str,
+) -> DbResult<core_domain::entities::ProjectTemplate> {
+    let source = current_template_version(&mut *executor, org_id, template_id)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    let new_id = Uuid::now_v7();
+    let forked = sqlx::query(
+        r#"INSERT INTO project_templates
+               (id, org_id, name, spec, forked_from_version_id, is_shipped)
+           VALUES ($1, $2, $3, $4, $5, false)
+           RETURNING id, org_id, name, description, spec, created_at, updated_at"#,
+    )
+    .bind(new_id)
+    .bind(org_id)
+    .bind(name)
+    .bind(&source.spec)
+    .bind(source.id)
+    .fetch_one(&mut *executor)
+    .await?;
+    let template = project_template_from_row(forked)?;
+    let version = append_template_version(
+        &mut *executor,
+        org_id,
+        new_id,
+        Some(&source.spec),
+        Some("Forked"),
+    )
+    .await?;
+    publish_template_version(&mut *executor, org_id, new_id, version.version, None).await?;
+    Ok(template)
+}
+
+fn project_template_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<core_domain::entities::ProjectTemplate, sqlx::Error> {
+    Ok(core_domain::entities::ProjectTemplate {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        name: row.get("name"),
+        description: row.get("description"),
+        spec: row.get("spec"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    })
+}

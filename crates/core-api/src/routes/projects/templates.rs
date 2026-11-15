@@ -486,3 +486,246 @@ pub async fn instantiate(
 
     Ok(Json(outcome.into_response()?))
 }
+
+// --- template versions ----------------------------------------------------------------
+
+/// One version of a template, as a surface reads it.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct TemplateVersionView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub template_id: Uuid,
+    pub version: i32,
+    pub spec: Value,
+    /// `draft`, `published` or `retired`.
+    pub status: String,
+    /// `shipped`, `org` or `fork`.
+    pub source: String,
+    pub note: Option<String>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub published_by: Option<Uuid>,
+    pub published_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Whether this is the version an instantiation would read.
+    pub current: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct TemplateVersionsResponse {
+    pub versions: Vec<TemplateVersionView>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub current_version_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct AppendVersionRequest {
+    /// The document to store. Absent means "take the template's current spec",
+    /// which is how an author starts a version from what shipped.
+    pub spec: Option<Value>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ForkTemplateRequest {
+    pub name: String,
+}
+
+fn version_view(
+    v: core_db::projects::TemplateVersion,
+    current: Option<Uuid>,
+) -> TemplateVersionView {
+    TemplateVersionView {
+        current: current == Some(v.id),
+        id: v.id,
+        template_id: v.template_id,
+        version: v.version,
+        spec: v.spec,
+        status: v.status,
+        source: v.source,
+        note: v.note,
+        published_by: v.published_by,
+        published_at: v.published_at,
+        created_at: v.created_at,
+    }
+}
+
+async fn current_version_id(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    template_id: Uuid,
+) -> ApiResult<Option<Uuid>> {
+    let row: Option<(Option<Uuid>,)> = sqlx::query_as(
+        "SELECT current_version_id FROM project_templates WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(template_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    match row {
+        Some((id,)) => Ok(id),
+        None => Err(ApiError::RlsSparse),
+    }
+}
+
+/// GET /api/project-templates/{id}/versions — every version, newest first,
+/// with the current one marked.
+#[utoipa::path(operation_id = "projects_template_versions", get, path = "/api/project-templates/{id}/versions", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = TemplateVersionsResponse),
+              (status = 404, description = "template not visible in scope (rls_sparse)")))]
+pub async fn list_versions(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<TemplateVersionsResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let current = current_version_id(&mut tx, org_id, id).await?;
+    let versions = core_db::projects::list_template_versions(&mut *tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(TemplateVersionsResponse {
+        versions: versions
+            .into_iter()
+            .map(|v| version_view(v, current))
+            .collect(),
+        current_version_id: current,
+    }))
+}
+
+/// POST /api/project-templates/{id}/versions — appends a draft. The document
+/// is validated as a template spec before it is stored, so a draft that would
+/// not instantiate cannot be created.
+#[utoipa::path(operation_id = "projects_append_template_version", post, path = "/api/project-templates/{id}/versions", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = AppendVersionRequest,
+    responses((status = 200, body = TemplateVersionView),
+              (status = 404, description = "template not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn append_version(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AppendVersionRequest>,
+) -> ApiResult<Json<TemplateVersionView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    if let Some(spec) = req.spec.as_ref() {
+        core_projects::template::parse_spec(spec)
+            .map_err(|e| ApiError::Validation(e.to_string()))?;
+    }
+    let note = req.note.as_deref().map(str::trim).filter(|n| !n.is_empty());
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let version = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_template(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let version = core_db::projects::append_template_version(
+            &mut ctx.tx,
+            org_id,
+            id,
+            req.spec.as_ref(),
+            note,
+        )
+        .await?;
+        Ok((ctx, version))
+    })
+    .await?;
+
+    Ok(Json(version_view(version, None)))
+}
+
+/// POST /api/project-templates/{id}/versions/{version}/publish — makes a
+/// version the template's current document. Publication is what an
+/// instantiation reads, so a draft never changes a project by accident.
+#[utoipa::path(operation_id = "projects_publish_template_version", post, path = "/api/project-templates/{id}/versions/{version}/publish", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("version" = i32, Path)),
+    responses((status = 200, body = TemplateVersionView),
+              (status = 404, description = "template or version not visible in scope (rls_sparse)"),
+              (status = 422, description = "the version does not parse as a spec")))]
+pub async fn publish_version(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path((id, version)): Path<(Uuid, i32)>,
+) -> ApiResult<Json<TemplateVersionView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let published = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let published = core_db::projects::publish_template_version(
+            &mut ctx.tx,
+            org_id,
+            id,
+            version,
+            Some(user_id),
+        )
+        .await
+        .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        core_projects::template::parse_spec(&published.spec)
+            .map_err(|e| ApiError::Validation(e.to_string()))?;
+        ctx.emit(
+            types::PROJECT_TEMPLATE_UPDATED,
+            "project_template",
+            Some(id.to_string().as_str()),
+            &serde_json::json!({ "template_id": id, "version": published.version }),
+        )
+        .await?;
+        Ok((ctx, published))
+    })
+    .await?;
+
+    Ok(Json(version_view(published, None)))
+}
+
+/// POST /api/project-templates/{id}/fork — copies the current version into a
+/// new org-owned template. The fork keeps the plan it was tuned from, which is
+/// what makes a shipped template safe to improve.
+#[utoipa::path(operation_id = "projects_fork_template", post, path = "/api/project-templates/{id}/fork", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = ForkTemplateRequest,
+    responses((status = 200, body = ProjectTemplate),
+              (status = 404, description = "template not visible in scope (rls_sparse)"),
+              (status = 409, description = "a template with this name already exists"),
+              (status = 422, description = "validation failed")))]
+pub async fn fork_template(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ForkTemplateRequest>,
+) -> ApiResult<Json<core_domain::entities::ProjectTemplate>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Create))?;
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::Validation("name is required".into()));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    let template = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_template(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let taken = core_db::projects::list_templates(&mut *ctx.tx, org_id)
+            .await?
+            .iter()
+            .any(|t| t.name.eq_ignore_ascii_case(name));
+        if taken {
+            return Err(ApiError::Conflict(
+                "a template with this name already exists".into(),
+            ));
+        }
+        let template = core_db::projects::fork_template(&mut ctx.tx, org_id, id, name).await?;
+        Ok((ctx, template))
+    })
+    .await?;
+
+    Ok(Json(template))
+}

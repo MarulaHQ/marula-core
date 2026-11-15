@@ -2303,6 +2303,18 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             axum::routing::patch(projects::patch_template).delete(projects::delete_template),
         )
         .route(
+            &rp("/project-templates/{id}/versions"),
+            get(projects::list_versions).post(projects::append_version),
+        )
+        .route(
+            &rp("/project-templates/{id}/versions/{version}/publish"),
+            post(projects::publish_version),
+        )
+        .route(
+            &rp("/project-templates/{id}/fork"),
+            post(projects::fork_template),
+        )
+        .route(
             &rp("/project-templates/{id}/instantiate"),
             post(projects::instantiate),
         )
