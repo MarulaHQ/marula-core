@@ -191,15 +191,16 @@ async fn the_order_is_written_for_phases_and_tasks() {
         phase_names(&app, &token, project).await,
         vec!["Handover", "Build", "Discovery"]
     );
-    // The list is ordered by sort_order, so each phase's work reads in the
-    // order it was sent, and Install now belongs to Handover.
+    // The list is ordered by sort_order, and the order numbers the groups one
+    // after another in phase order, so the plan reads top to bottom in a single
+    // read: Handover's work first, then Build's, then Discovery's.
     let tasks = task_titles(&app, &token, project).await;
     let install_phase = tasks
         .iter()
         .find(|(title, _)| title == "Install")
         .and_then(|(_, phase)| *phase);
     assert_eq!(install_phase, Some(handover), "Install moved into Handover");
-    assert_eq!(titles(&tasks), vec!["Survey", "Clean up", "Install"]);
+    assert_eq!(titles(&tasks), vec!["Install", "Clean up", "Survey"]);
 
     // A second call that sends the same order changes nothing and reports none.
     let (status, body) = reorder(
@@ -283,7 +284,10 @@ async fn a_partial_or_duplicated_order_is_refused() {
         phase_names(&app, &token, project).await,
         vec!["First", "Second"]
     );
-    assert_eq!(titles(&task_titles(&app, &token, project).await), vec!["One", "Two"]);
+    assert_eq!(
+        titles(&task_titles(&app, &token, project).await),
+        vec!["One", "Two"]
+    );
 }
 
 #[tokio::test]
@@ -309,7 +313,8 @@ async fn another_orgs_task_is_out_of_scope() {
 
     let their_project = create_project(&app, &theirs, "Theirs").await;
     let their_phase = create_phase(&app, &theirs, their_project, "Only", 0).await;
-    let their_task = create_task(&app, &theirs, their_project, Some(their_phase), "Theirs", 0).await;
+    let their_task =
+        create_task(&app, &theirs, their_project, Some(their_phase), "Theirs", 0).await;
 
     // Their task id inside my order names nothing I can see.
     let (status, _) = reorder(
@@ -325,7 +330,10 @@ async fn another_orgs_task_is_out_of_scope() {
     assert_eq!(status, 404, "a foreign task is out of scope");
 
     // And my order did not move.
-    assert_eq!(titles(&task_titles(&app, &mine, my_project).await), vec!["Mine"]);
+    assert_eq!(
+        titles(&task_titles(&app, &mine, my_project).await),
+        vec!["Mine"]
+    );
     // Their plan still reads as one task in their phase.
     let their_tasks = task_titles(&app, &theirs, their_project).await;
     assert_eq!(titles(&their_tasks), vec!["Theirs"]);

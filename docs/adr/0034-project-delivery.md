@@ -135,6 +135,13 @@ phase" step that would let a drag renumber a task into a phase it does not
 belong to. A phase change is the only part of a reorder that emits an event,
 because a reorder inside a phase is invisible to anything outside the plan.
 
+The numbers themselves are one sequence across the plan, not one per phase: the
+phases are numbered in order, then their tasks are numbered one after another in
+that same phase order, then the unphased bucket. The task list is read with a
+single `ORDER BY sort_order, created_at` for the whole project, so per-phase
+numbering would leave every phase's first task at zero and the read would fall
+back to creation time — the plan would compile out of the order it was given.
+
 The order on screen is the server's until the server says otherwise: the surface
 sends the drop and reads the plan back, rather than painting the drop first. A
 refusal therefore leaves the plan exactly as it was and states why.

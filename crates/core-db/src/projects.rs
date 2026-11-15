@@ -802,6 +802,13 @@ where
 
 /// Rewrite the order of one group of tasks, and place them in `phase_id`.
 ///
+/// `start` is where the group begins in the plan's ONE sequence: groups are
+/// numbered one after another in phase order, not each from zero. A global
+/// sequence is what makes the task list read in plan order, because the read is
+/// `ORDER BY sort_order, created_at` across the whole project; per-phase
+/// numbering would leave every phase's first task at zero and the list would
+/// fall back to creation time.
+///
 /// The tasks of a plan are one list per phase (`None` is the unphased group),
 /// so a drag across a phase boundary is the same statement as a drag within
 /// one: the phase is part of what the order says. Scoped like
@@ -812,13 +819,14 @@ pub async fn set_task_order<'e, E>(
     project_id: Uuid,
     phase_id: Option<Uuid>,
     ids: &[Uuid],
+    start: i32,
 ) -> DbResult<u64>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let result = sqlx::query(
         r#"UPDATE project_tasks AS t
-              SET sort_order = o.ord - 1, phase_id = $4, updated_at = now()
+              SET sort_order = $5::int + o.ord - 1, phase_id = $4, updated_at = now()
              FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id, ord)
             WHERE t.id = o.id AND t.org_id = $2 AND t.project_id = $3"#,
     )
@@ -826,6 +834,7 @@ where
     .bind(org_id)
     .bind(project_id)
     .bind(phase_id)
+    .bind(start)
     .execute(executor)
     .await?;
     Ok(result.rows_affected())
@@ -856,7 +865,10 @@ where
         .into_iter()
         .map(|row| {
             use sqlx::Row;
-            (row.get::<Uuid, _>("id"), row.get::<Option<Uuid>, _>("phase_id"))
+            (
+                row.get::<Uuid, _>("id"),
+                row.get::<Option<Uuid>, _>("phase_id"),
+            )
         })
         .collect())
 }

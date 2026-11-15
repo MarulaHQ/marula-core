@@ -2226,8 +2226,13 @@ pub async fn reorder(
 
         // An id that is not this project's is out of scope, and says so the same
         // way an invisible project does.
-        if req.phases.iter().any(|phase_id| !phase_ids.contains(phase_id))
-            || tasks_seen.iter().any(|task_id| !task_phase.contains_key(task_id))
+        if req
+            .phases
+            .iter()
+            .any(|phase_id| !phase_ids.contains(phase_id))
+            || tasks_seen
+                .iter()
+                .any(|task_id| !task_phase.contains_key(task_id))
             || req
                 .tasks
                 .iter()
@@ -2249,19 +2254,14 @@ pub async fn reorder(
             ));
         }
 
-        let rephased: Vec<Uuid> = req
-            .tasks
-            .iter()
-            .flat_map(|group| {
-                group
-                    .task_ids
-                    .iter()
-                    .filter(move |task_id| {
-                        task_phase.get(task_id).copied().flatten() != group.phase_id
-                    })
-                    .copied()
-            })
-            .collect();
+        let mut rephased: Vec<Uuid> = Vec::new();
+        for group in &req.tasks {
+            for task_id in &group.task_ids {
+                if task_phase.get(task_id).copied().flatten() != group.phase_id {
+                    rephased.push(*task_id);
+                }
+            }
+        }
 
         let phase_rows = core_db::projects::set_phase_order(&mut *ctx.tx, org_id, id, &req.phases)
             .await
@@ -2270,7 +2270,19 @@ pub async fn reorder(
             return Err(ApiError::RlsSparse);
         }
         let mut task_rows = 0u64;
-        for group in &req.tasks {
+        // Number the groups one after another in phase order, then the unphased
+        // bucket, so the plan reads top to bottom from a single read.
+        let mut cursor: i32 = 0;
+        for phase_id in req
+            .phases
+            .iter()
+            .copied()
+            .map(Some)
+            .chain(std::iter::once(None))
+        {
+            let Some(group) = req.tasks.iter().find(|group| group.phase_id == phase_id) else {
+                continue;
+            };
             if group.task_ids.is_empty() {
                 continue;
             }
@@ -2278,11 +2290,13 @@ pub async fn reorder(
                 &mut *ctx.tx,
                 org_id,
                 id,
-                group.phase_id,
+                phase_id,
                 &group.task_ids,
+                cursor,
             )
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            cursor += group.task_ids.len() as i32;
         }
         if task_rows as usize != tasks_seen.len() {
             return Err(ApiError::RlsSparse);
