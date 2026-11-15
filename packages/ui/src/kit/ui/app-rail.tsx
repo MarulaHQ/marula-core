@@ -24,7 +24,7 @@ export function AppRail({ expanded = false, onExpandedChange, className, childre
   )
 }
 
-const tile = "relative flex h-11 shrink-0 items-center rounded-ctl text-muted-foreground no-underline hover:bg-muted"
+const tile = "relative flex h-11 shrink-0 items-center rounded-[12px] text-muted-foreground no-underline hover:bg-muted"
 const tileSize = (expanded: boolean) => (expanded ? "w-auto justify-start gap-3 px-3 font-medium" : "w-11 justify-center")
 
 /** A destination. Collapsed it needs its name for screen readers, so `label` is always required. Only Tickets carries a count.

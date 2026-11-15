@@ -132,23 +132,43 @@ const GLOBAL_COMMANDS: CommandDef[] = [
   },
 ];
 
-/** Rail navigation: Alt+1..9 mirror the rail sections in order. Built once
- * so the registry, the groups, and the dispatcher share the same objects. */
-const RAIL_COMMANDS: ReadonlyArray<CommandDef> = RAIL_SECTIONS.slice(0, 9).map(
-  (section, index): CommandDef => ({
-    id: `navigate.${section.id}`,
-    verb: "navigate" as CommandVerb,
-    label: `Go to ${section.label}`,
-    description: `Jump to the ${section.label} section, same as the rail's ${section.label} entry.`,
-    chord: `alt+${index + 1}`,
-    surfaces: [],
-    targets: [],
-    run: (ctx: CommandContext) => {
-      ctx.navigate(section.href);
-      return RAN;
+/** Rail navigation: stable chords, not positions. Today takes Alt+0 and the
+ * nine sections that existed before keep Alt+1…Alt+9, because people learned
+ * those and the /tickets nav flow asserts Alt+2 lands on Clients; inserting a
+ * whole section at the top of the rail must not renumber the rest. A section
+ * with no chord here gets no command, and the registry test fails on it. */
+const RAIL_CHORDS: Readonly<Record<string, string>> = {
+  today: "alt+0",
+  tickets: "alt+1",
+  clients: "alt+2",
+  devices: "alt+3",
+  stock: "alt+4",
+  purchasing: "alt+5",
+  automation: "alt+6",
+  knowledge: "alt+7",
+  reports: "alt+8",
+  settings: "alt+9",
+};
+
+const RAIL_COMMANDS: ReadonlyArray<CommandDef> = RAIL_SECTIONS.flatMap((section) => {
+  const chord = RAIL_CHORDS[section.id];
+  if (chord === undefined) return [];
+  return [
+    {
+      id: `navigate.${section.id}`,
+      verb: "navigate" as CommandVerb,
+      label: `Go to ${section.label}`,
+      description: `Jump to the ${section.label} section, same as the rail's ${section.label} entry.`,
+      chord,
+      surfaces: [],
+      targets: [],
+      run: (ctx: CommandContext) => {
+        ctx.navigate(section.href);
+        return RAN;
+      },
     },
-  }),
-);
+  ];
+});
 
 /**
  * Per-surface new-record commands — the same verb, the same chord, one
@@ -280,7 +300,7 @@ export function registryGroups(): ReadonlyArray<{ title: string; commands: Reado
   return [
     { title: "Everywhere", commands: GLOBAL_COMMANDS },
     {
-      title: `Navigation (Alt+1…${Math.min(RAIL_SECTIONS.length, 9)})`,
+      title: `Navigation (Alt+0…${Math.min(RAIL_SECTIONS.length, 9)})`,
       commands: RAIL_COMMANDS,
     },
     { title: "On specific surfaces", commands: [...NEW_RECORD_COMMANDS, ...COPY_LINK_COMMANDS] },

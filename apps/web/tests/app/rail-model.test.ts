@@ -1,6 +1,6 @@
-// Rail model integrity: every rail href (sections + flyout links) must
-// resolve to an actual route under apps/web/app — no dead links (Wave 15
-// lane 6 binding: "ALL existing routes keep their paths; no dead links").
+// Rail model integrity: every rail href (sections + their pages) must resolve
+// to an actual route under apps/web/app — no dead links (Wave 15 lane 6
+// binding: "ALL existing routes keep their paths; no dead links").
 // Also: the Tickets section's primary target must be the real standalone
 // list route (resolves the /tickets 404 QA finding), and the old MainNav
 // groups must be fully represented (no surface lost in the move).
@@ -8,6 +8,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { RAIL_SECTIONS } from "../../components/shell/rail-model";
+import { SETTINGS_RAIL } from "../../lib/settings/ia";
 
 // The old top-header nav tree (components/main-nav.tsx, absorbed by the
 // rail in Wave 15 lane 6) — kept here verbatim as the reachability record:
@@ -97,7 +98,7 @@ describe("rail model route coverage", () => {
     }
   });
 
-  it("resolves every rail flyout link to a real route", () => {
+  it("resolves every section page to a real route", () => {
     for (const section of RAIL_SECTIONS) {
       for (const link of section.links) {
         expect(routeExists(routes, link.href), `${link.href} missing`).toBe(true);
@@ -111,25 +112,50 @@ describe("rail model route coverage", () => {
     expect(tickets?.href).toBe("/tickets");
   });
 
+  it("Today is the first destination and is not a child of anything", () => {
+    const first = RAIL_SECTIONS[0];
+    expect(first?.id).toBe("today");
+    expect(first?.href).toBe("/today");
+    expect(first?.links).toEqual([]);
+    expect(RAIL_SECTIONS.some((s) => s.links.some((l) => l.href === "/today"))).toBe(false);
+  });
+
+  it("Settings is a leaf: /settings owns its own grouped section rail", () => {
+    const settings = RAIL_SECTIONS.find((s) => s.id === "settings");
+    expect(settings?.links).toEqual([]);
+    expect(Object.values(SETTINGS_RAIL).flat().length).toBeGreaterThan(20);
+  });
+
   it("carries over every MainNav surface (nothing lost in the move)", () => {
     // /search moved deliberately: the slim top bar owns unified search via
     // the ⌘K launcher (Wave 15 lane 6 scope) — the rail keeps content nav.
     const MOVED_TO_TOP_BAR = new Set(["/search"]);
+    // /settings/mail is a client redirect to /settings/email (the route exists
+    // only so old deep links keep working), so it is reachable as that page
+    // rather than as a row of its own.
+    const REDIRECTS: Record<string, string> = { "/settings/mail": "/settings/email" };
     const railHrefs = new Set<string>();
     for (const section of RAIL_SECTIONS) {
       railHrefs.add(section.href);
       for (const link of section.links) railHrefs.add(link.href);
     }
+    // Settings pages left the main rail on purpose: /settings draws a grouped
+    // section rail that lists all of them (lib/settings/ia.ts), so they are
+    // reachable in one click from the Settings destination. Counting them here
+    // keeps the reachability record honest without keeping a twenty-row
+    // submenu in the main nav.
+    for (const page of Object.values(SETTINGS_RAIL).flat()) railHrefs.add(page.href);
     for (const href of MAIN_NAV_SURFACES) {
       if (MOVED_TO_TOP_BAR.has(href)) continue;
+      const target = REDIRECTS[href] ?? href;
       expect(
-        railHrefs.has(href),
+        railHrefs.has(target),
         `MainNav surface ${href} is unreachable from the rail`,
       ).toBe(true);
     }
   });
 
-  it("flyout links are unique within a section", () => {
+  it("section pages are unique within a section", () => {
     for (const section of RAIL_SECTIONS) {
       const hrefs = section.links.map((l) => l.href);
       expect(new Set(hrefs).size).toBe(hrefs.length);

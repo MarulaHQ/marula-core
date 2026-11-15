@@ -1,25 +1,34 @@
-// Rail model — the left icon rail's sections and their flyout links.
+// Rail model — the left icon rail's sections and their pages.
 //
-// Purpose: the app-shell navigation tree (Wave 15 lane 6). The old top
-// header's grouped nav (Workspace/Dispatch/Money/Ops/Settings) is absorbed
-// here: every staff surface stays reachable through its section's flyout
-// panel, at its existing URL — no route moves, no dead links (enforced by
-// tests/app/rail-model.test.tsx, which resolves every href against the
-// actual route tree under apps/web/app).
+// Purpose: the app-shell navigation tree (Wave 15 lane 6, restructured in the
+// nav-accordion lane). The old top header's grouped nav is absorbed here: every
+// staff surface stays reachable through its section's disclosure, at its
+// existing URL — no route moves, no dead links (enforced by
+// tests/app/rail-model.test.ts, which resolves every href against the actual
+// route tree under apps/web/app).
 //
-// Non-purpose: no permissions filtering (surfaces 404/RBAC-guard
-// themselves, as they did under MainNav); no badges beyond the Tickets
-// open-count (owned by the rail component).
+// Shape: Today is a destination of its own, first, with no children — it used
+// to be the second link inside Tickets, four clicks from the rail. Settings is
+// also a leaf: /settings carries its own grouped section rail
+// (lib/settings/ia.ts), so twenty settings links do not belong in the main nav.
+// Every other section lists its pages inline, with optional `group` headings
+// so a long list reads as two or three short ones.
+//
+// Non-purpose: no permissions filtering (surfaces 404/RBAC-guard themselves);
+// no badges beyond the Tickets open-count (owned by the rail component).
 
 export interface RailLink {
   label: string;
   href: string;
+  /** Sub-heading inside the section's disclosure. Consecutive links that share
+   *  a group render under one heading; the heading is presentational only. */
+  group?: string;
 }
 
 export interface RailSection {
   id: string;
   label: string;
-  /** The section's primary page — where the rail icon navigates. */
+  /** The section's primary page — where the rail row navigates. */
   href: string;
   /** Pathname prefixes (besides href) that count as "in this section". */
   match: string[];
@@ -28,18 +37,27 @@ export interface RailSection {
 
 export const RAIL_SECTIONS: RailSection[] = [
   {
+    // Promoted out of Tickets (nav-accordion lane): the day's queue is the
+    // surface techs open first, and it was buried inside another section's
+    // flyout. No children — /today is a page, not a folder.
+    id: "today",
+    label: "Today",
+    href: "/today",
+    match: ["/today"],
+    links: [],
+  },
+  {
     id: "tickets",
     label: "Tickets",
     href: "/tickets",
-    match: ["/tickets", "/today", "/boards", "/calendar", "/dispatch"],
+    match: ["/tickets", "/boards", "/calendar", "/dispatch"],
     links: [
-      { label: "Tickets", href: "/tickets" },
-      { label: "Today", href: "/today" },
+      { label: "All tickets", href: "/tickets" },
       { label: "Boards", href: "/boards" },
       { label: "Calendar", href: "/calendar" },
-      { label: "Dispatch board", href: "/dispatch" },
-      { label: "Planning", href: "/dispatch/planning" },
-      { label: "Travel", href: "/dispatch/travel" },
+      { label: "Dispatch", href: "/dispatch" },
+      { label: "Planning", href: "/dispatch/planning", group: "Schedules" },
+      { label: "Travel", href: "/dispatch/travel", group: "Schedules" },
     ],
   },
   {
@@ -51,12 +69,12 @@ export const RAIL_SECTIONS: RailSection[] = [
       { label: "Clients", href: "/clients" },
       { label: "Projects", href: "/projects" },
       { label: "Contracts", href: "/contracts" },
-      { label: "Billing", href: "/billing" },
-      { label: "Credit notes", href: "/billing/credit-notes" },
-      { label: "Time approvals", href: "/approvals" },
-      { label: "Sales pipeline", href: "/sales/pipeline" },
-      { label: "Quotes", href: "/sales/quotes" },
-      { label: "Catalog", href: "/sales/catalog" },
+      { label: "Billing", href: "/billing", group: "Money" },
+      { label: "Credit notes", href: "/billing/credit-notes", group: "Money" },
+      { label: "Time approvals", href: "/approvals", group: "Money" },
+      { label: "Sales pipeline", href: "/sales/pipeline", group: "Growth" },
+      { label: "Quotes", href: "/sales/quotes", group: "Growth" },
+      { label: "Catalog", href: "/sales/catalog", group: "Growth" },
     ],
   },
   {
@@ -66,9 +84,8 @@ export const RAIL_SECTIONS: RailSection[] = [
     match: ["/assets", "/inventory"],
     links: [
       { label: "Devices", href: "/assets" },
-      // Renamed from "Inventory" (Wave 32 lane 4): this surface is the
-      // configuration-item ledger + merge queue, not physical stock. The
-      // route keeps its path; /stock owns physical goods now.
+      // This surface is the configuration-item ledger + merge queue, not
+      // physical stock. The route keeps its path; /stock owns physical goods.
       { label: "Config inventory", href: "/inventory" },
     ],
   },
@@ -96,17 +113,14 @@ export const RAIL_SECTIONS: RailSection[] = [
   },
   {
     id: "automation",
-    label: "Automation",
+    label: "Automations",
     href: "/automations",
     match: ["/automations", "/alerts"],
     links: [
       { label: "Automations", href: "/automations" },
-      // The run ledger and the webhook deliveries ledger are the automation
-      // section's two read surfaces; both already existed and both were
-      // unreachable from the rail (Wave 43 lane 18).
-      { label: "Runs", href: "/automations/runs" },
-      { label: "Webhook activity", href: "/settings/integrations" },
       { label: "Alerts", href: "/alerts" },
+      { label: "Runs", href: "/automations/runs", group: "Activity" },
+      { label: "Webhook activity", href: "/settings/integrations", group: "Activity" },
     ],
   },
   {
@@ -117,9 +131,9 @@ export const RAIL_SECTIONS: RailSection[] = [
     links: [
       { label: "Knowledge base", href: "/kb" },
       { label: "Documents", href: "/documents" },
-      { label: "Vault", href: "/passwords" },
-      { label: "Secret categories", href: "/kb/secrets" },
       { label: "Imports", href: "/imports" },
+      { label: "Vault", href: "/passwords", group: "Security" },
+      { label: "Secret categories", href: "/kb/secrets", group: "Security" },
     ],
   },
   {
@@ -131,37 +145,19 @@ export const RAIL_SECTIONS: RailSection[] = [
       { label: "Reports", href: "/reports" },
       { label: "Dashboards", href: "/dashboards" },
       { label: "Scorecards", href: "/scorecards" },
-      { label: "Provenance", href: "/provenance" },
-      { label: "Audit", href: "/audit" },
+      { label: "Provenance", href: "/provenance", group: "Evidence" },
+      { label: "Audit", href: "/audit", group: "Evidence" },
     ],
   },
   {
+    // No children: /settings renders its own grouped section rail
+    // (apps/web/lib/settings/ia.ts), which lists all 28 settings pages. The
+    // main rail used to duplicate twenty of them in one flyout.
     id: "settings",
     label: "Settings",
     href: "/settings",
     match: ["/settings"],
-    links: [
-      { label: "Overview", href: "/settings" },
-      { label: "Boards", href: "/settings/boards" },
-      { label: "General", href: "/settings/general" },
-      { label: "Team", href: "/settings/team" },
-      { label: "Workflow", href: "/settings/workflow" },
-      { label: "Tags", href: "/settings/tags" },
-      { label: "PM schedules", href: "/settings/pm-schedules" },
-      { label: "SLA", href: "/settings/sla" },
-      { label: "Taxonomy", href: "/settings/taxonomy" },
-      { label: "FX rates", href: "/settings/fx" },
-      { label: "Notifications", href: "/settings/notifications" },
-      { label: "Preferences", href: "/settings/preferences" },
-      { label: "Shortcuts", href: "/settings/shortcuts" },
-      { label: "Portal", href: "/settings/portal" },
-      { label: "Mail", href: "/settings/mail" },
-      { label: "Security", href: "/settings/security" },
-      { label: "API keys", href: "/settings/api-keys" },
-      { label: "Integrations", href: "/settings/integrations" },
-      { label: "AI", href: "/settings/ai" },
-      { label: "Agent platform", href: "/settings/agent-platform" },
-    ],
+    links: [],
   },
 ];
 
@@ -179,4 +175,21 @@ export function activeRailSection(pathname: string): RailSection | null {
 /** Is a specific rail link "the page you are on"? (exact or child-of). */
 export function isRailLinkActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * The single page in a section that is "the page you are on".
+ *
+ * Longest match wins, because the shortest does too much: on
+ * /billing/credit-notes both "/billing" and "/billing/credit-notes" match, and
+ * marking both `aria-current="page"` tells a screen reader the person is in two
+ * places. The nested route is the one page that is actually open.
+ */
+export function activeRailHref(pathname: string, section: RailSection): string | null {
+  let best: string | null = null;
+  for (const link of section.links) {
+    if (!isRailLinkActive(pathname, link.href)) continue;
+    if (best === null || link.href.length > best.length) best = link.href;
+  }
+  return best;
 }
