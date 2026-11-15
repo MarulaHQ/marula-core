@@ -3094,16 +3094,16 @@ you go, because the escalation record is what the SLA credit claim is read from 
             is_critical: false,
         },
     ];
-    for spec in &task_specs {
+    for (order, spec) in task_specs.iter().enumerate() {
         sqlx::query(
             "INSERT INTO project_tasks (id, org_id, project_id, phase_id, title, status,
                                         assignee_id, is_milestone, milestone_amount_minor,
                                         milestone_currency, completed_at,
                                         start_at, duration_minutes, effort_estimate_minutes,
                                         effort_remaining_minutes, work_type, role_key,
-                                        is_critical)
+                                        is_critical, sort_order)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                     $16, $17, $18)",
+                     $16, $17, $18, $19)",
         )
         .bind(demo_uuid(spec.id_offset))
         .bind(DEMO_ORG_ID)
@@ -3130,6 +3130,7 @@ you go, because the escalation record is what the SLA credit claim is read from 
         .bind(spec.work_type)
         .bind(spec.role_key)
         .bind(spec.is_critical)
+        .bind(order as i32)
         .execute(&mut *tx)
         .await?;
     }

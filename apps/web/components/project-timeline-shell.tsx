@@ -18,6 +18,7 @@
 import Link from "next/link";
 import { Badge } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
+import { formatWeekday } from "../lib/projects-plan-types";
 import { projectRisk, projectStatusTone } from "../lib/projects-metrics";
 import type { TimelinePhase, TimelineProject } from "../lib/projects-timeline-types";
 
@@ -91,7 +92,7 @@ export function ProjectTimelineShell({
         </div>
 
         <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--m-text-secondary)" }}>
-          {project.start_date !== null ? `Starts ${project.start_date}` : "No start date"}
+          {project.start_date !== null ? `Starts ${formatWeekday(project.start_date)}` : "No start date"}
           {project.due_date !== null ? ` · due ${project.due_date}` : ""}
           {` · ${phasesDone}/${phases.length} phases · ${taskCount} ${taskCount === 1 ? "task" : "tasks"}`}
         </p>
@@ -110,9 +111,9 @@ export function ProjectTimelineShell({
           fontSize: 13,
         }}
       >
-        <Commitment label="Started" value={project.start_date ?? "Not dated"} />
+        <Commitment label="Started" value={project.start_date ? formatWeekday(project.start_date) : "Not dated"} />
         <Separator />
-        <Commitment label="Promised go-live" value={project.due_date ?? "Not dated"} />
+        <Commitment label="Promised go-live" value={project.due_date ? formatWeekday(project.due_date) : "Not dated"} />
         {nextMilestone !== undefined ? (
           <>
             <Separator />
@@ -130,7 +131,7 @@ export function ProjectTimelineShell({
                   color: "var(--m-text-secondary)",
                 }}
               >
-                {nextMilestone.start_date ?? "Not dated"}
+                {nextMilestone.start_date ? formatWeekday(nextMilestone.start_date) : "Not dated"}
               </span>
             </span>
           </>
