@@ -18,6 +18,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 const CLIENT = "70000000-0000-4000-8000-000000000001";
+
+const SURFACES = {
+  surfaces: [
+    { surface_key: "quote_authoring", granted: true, models_available: true },
+  ],
+};
 const ITEM = "70000000-0000-4000-8000-000000000002";
 const INV = "70000000-0000-4000-8000-000000000003";
 
@@ -88,6 +94,7 @@ function setupApi(): MockApi {
   const created: Record<string, unknown>[] = [];
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+  mock.on("GET", "/api/v1/ai/me/surfaces", () => ({ json: SURFACES }));
   mock.on("GET", "/api/v1/catalog-items", () => ({ json: [catalogItem] }));
   mock.on("GET", "/api/v1/clients", () => ({ json: [client] }));
   mock.on("GET", "/api/v1/quotes", () => ({
@@ -118,6 +125,7 @@ function setupApi(): MockApi {
 function setupApiForDetail(id: string = "q1", status: string = "draft"): MockApi {
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+  mock.on("GET", "/api/v1/ai/me/surfaces", () => ({ json: SURFACES }));
   mock.on("GET", "/api/v1/catalog-items", () => ({ json: [catalogItem] }));
   mock.on("GET", "/api/v1/clients", () => ({ json: [client] }));
   mock.on("GET", "/api/v1/stock-items", () => ({ json: [] }));
@@ -206,16 +214,165 @@ describe("/sales/quotes integration", () => {
     );
     await screen.findByText("Q-0001");
     await user.click(screen.getByTestId("quotes-new"));
-    await user.click(screen.getByTestId("quote-client"));
+    await user.click(await screen.findByTestId("quote-client"));
     const clientOptions = await screen.findAllByRole("option", { name: "Acme Corp" });
     await user.click(clientOptions[0] as HTMLElement);
-    await user.click(await screen.findByTestId("quote-line-item-0"));
-    const itemOptions = await screen.findAllByRole("option", { name: "Block hours" });
-    await user.click(itemOptions[0] as HTMLElement);
+    // The catalogue is the manual control that is always there (Q09).
+    await user.selectOptions(await screen.findByTestId("quote-from-catalogue"), ITEM);
     await screen.findAllByText("$150.00");
     await user.click(screen.getByTestId("quote-save"));
     await waitFor(() => expect(mock.callsTo("POST", "/api/v1/quotes").length).toBe(1));
     expect(body0Unit(mock)).toBe(15000);
+    cleanup();
+  });
+
+  it("offers Describe it in the split New menu, and only with the grant", async () => {
+    setupApi();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <QuotesPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Q-0001");
+    expect(await screen.findByTestId("quotes-describe")).toBeInTheDocument();
+    await user.click(screen.getByTestId("quotes-new-menu"));
+    expect(await screen.findByTestId("quotes-new-blank")).toBeInTheDocument();
+    expect(await screen.findByTestId("quotes-new-describe")).toBeInTheDocument();
+    cleanup();
+  });
+
+  it("opens a draft from the panel in the builder, with provenance and the check list", async () => {
+    const mock = setupApi();
+    seedDraftFromNotes(mock);
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <QuotesPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Q-0001");
+    await user.click(screen.getByTestId("quotes-describe"));
+    await user.type(await screen.findByTestId("describe-transcript"), "Six APs for Acme");
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    // The ordinary builder, with the marks and the things to check.
+    expect(await screen.findByTestId("quote-from-notes")).toBeInTheDocument();
+    expect(screen.getByTestId("quote-checks-count")).toHaveTextContent("1 to check");
+    // The line is editable, so its description is a field, and its row carries
+    // the dot and the assumed mark the draft came with.
+    expect(screen.getByDisplayValue("Ubiquiti U7 Pro access point")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Configuration and handover")).toBeInTheDocument();
+    const rows = screen.getAllByTestId(/quote-line-\d/);
+    expect(rows[0]).toHaveAttribute("data-proposed", "false");
+    expect(screen.getAllByLabelText("Assumed, please check").length).toBeGreaterThan(0);
+    // Nothing was saved by building it.
+    expect(mock.callsTo("POST", "/api/v1/quotes")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("proposes a change, marks the rows it touches, and only applies when told to", async () => {
+    const mock = setupApi();
+    seedDraftFromNotes(mock);
+    let changeCalls = 0;
+    mock.on("POST", "/api/v1/quotes/author/change", () => {
+      changeCalls += 1;
+      return {
+        json: {
+          valid: true,
+          saved: false,
+          sentence: "One edit to this draft",
+          operations: [
+            {
+              path: "lines[0].unit_price_minor",
+              value: 17_955,
+              summary: "Take 5% off the access points",
+              kind: "edit",
+            },
+          ],
+          resulting_total_minor: 165_475,
+          currency: "USD",
+          draft: {
+            title: "Wi-Fi refresh",
+            currency: "USD",
+            valid_for_days: 30,
+            notes: "Six access points.",
+            client_id: CLIENT,
+            client_name: "Acme Corp",
+            budget_minor: 100_000,
+            lines: [
+              {
+                description: "Ubiquiti U7 Pro access point",
+                quantity_milli: 6000,
+                unit_price_minor: 17_955,
+                unit: "each",
+                section: "Hardware",
+                optional: false,
+                source: "notes",
+                source_span: { source_id: "typed-1", start: 0, end: 12 },
+                quantity_assumed: false,
+                price_assumed: false,
+              },
+              {
+                description: "Configuration and handover",
+                quantity_milli: 4000,
+                unit_price_minor: 14_500,
+                unit: "hour",
+                section: "Labour",
+                optional: false,
+                source: "assumed",
+                source_span: null,
+                quantity_assumed: true,
+                price_assumed: true,
+              },
+            ],
+            assumptions: [],
+            understanding: null,
+            checks: [],
+          },
+          issues: [],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+          model_info: { provider: "test", model: "test" },
+        },
+      };
+    });
+    mock.install();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <QuotesPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Q-0001");
+    await user.click(screen.getByTestId("quotes-describe"));
+    await user.type(await screen.findByTestId("describe-transcript"), "Six APs for Acme");
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    // The slim bar is one move away; the Describe tab holds the proposal.
+    await user.click(screen.getByLabelText("Describe a change"));
+    await user.type(await screen.findByTestId("change-instruction"), "Take 5% off the hardware");
+    await user.click(screen.getByTestId("change-submit"));
+
+    expect(await screen.findByText(/Take 5% off the access points/i)).toBeInTheDocument();
+    expect(changeCalls).toBe(1);
+
+    // Touched rows are tinted and tagged; nothing changed yet.
+    const rowsBefore = screen.getAllByTestId(/quote-line-\d/);
+    expect(rowsBefore[0]).toHaveAttribute("data-proposed", "true");
+    expect(screen.getAllByText("Proposed").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("189.00")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("change-apply"));
+
+
+    // Applied: the price is the proposal's, the tint is gone, still unsaved.
+    expect(await screen.findByDisplayValue("179.55")).toBeInTheDocument();
+    expect(screen.getAllByTestId(/quote-line-\d/)[0]).toHaveAttribute("data-proposed", "false");
+    expect(mock.callsTo("POST", "/api/v1/quotes")).toHaveLength(0);
     cleanup();
   });
 });
@@ -291,6 +448,68 @@ describe("/sales/quotes/[id] integration", () => {
     cleanup();
   });
 });
+
+
+/** The panel's two reads, and a draft with one from-the-notes line and one assumed. */
+function seedDraftFromNotes(mock: MockApi): void {
+  mock.on("POST", "/api/v1/quotes/extract", () => ({
+    json: { fields: [{ key: "client", value: "Acme Corp" }], characters: 20 },
+  }));
+  mock.on("POST", "/api/v1/quotes/author", () => ({
+    json: {
+      valid: true,
+      saved: false,
+      draft: {
+        title: "Wi-Fi refresh",
+        currency: "USD",
+        valid_for_days: 30,
+        notes: "Six access points.",
+        client_id: CLIENT,
+        client_name: "Acme Corp",
+        budget_minor: 100_000,
+        lines: [
+          {
+            description: "Ubiquiti U7 Pro access point",
+            quantity_milli: 6000,
+            unit_price_minor: 18_900,
+            unit: "each",
+            section: "Hardware",
+            optional: false,
+            source: "notes",
+            source_span: { source_id: "typed-1", start: 0, end: 12 },
+            quantity_assumed: false,
+            price_assumed: false,
+          },
+          {
+            description: "Configuration and handover",
+            quantity_milli: 4000,
+            unit_price_minor: 14_500,
+            unit: "hour",
+            section: "Labour",
+            optional: false,
+            source: "assumed",
+            source_span: null,
+            quantity_assumed: true,
+            price_assumed: true,
+          },
+        ],
+        assumptions: [],
+        understanding: {
+          statement: "A project quote for Acme: better Wi-Fi.",
+          facts: [{ label: "Client", value: "Acme Corp, matched" }],
+          questions: [],
+          assumptions: [],
+        },
+        checks: ["The price for Configuration and handover was not in your notes."],
+      },
+      assumptions: [],
+      issues: [],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+      model_info: { provider: "test", model: "test" },
+    },
+  }));
+  mock.install();
+}
 
 function body0Unit(mock: MockApi): number {
   const body = mock.lastBody<{ lines: { unit_amount_minor: number }[] }>("POST", "/api/v1/quotes");

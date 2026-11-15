@@ -35,6 +35,7 @@
 @import "./components/auth/entry.css";
 @import "./components/insight/insight-table.css";
 @import "./components/money.css";
+@import "./components/money/authoring.css";
 @import "./components/ticket-workspace/ticket-fields.css";
 @import "./components/tickets/ledger-chrome.css";
 @import "./components/tickets/legacy-chrome.css";

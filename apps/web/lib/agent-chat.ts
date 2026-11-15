@@ -36,7 +36,9 @@ export interface ChatTurnResult {
   refusalMessage?: string;
 }
 
-/** One bounded model turn; resolves when the SSE stream closes. */
+/** One bounded model turn; resolves when the SSE stream closes. `onFrame`
+ *  receives each parsed frame as it arrives, which is what lets a chat surface
+ *  render deltas, sources and proposals while the turn runs. */
 export async function runChatTurn(
   sessionId: string,
   turn: {
@@ -46,6 +48,7 @@ export async function runChatTurn(
     model?: string | null;
     session_opener?: boolean;
   },
+  onFrame?: (frame: ChatFrame) => void,
 ): Promise<ChatTurnResult> {
   const base = apiBaseUrl();
   const tokens = loadTokens();
@@ -100,7 +103,9 @@ export async function runChatTurn(
       if (currentEvent === "" || data === "") continue;
       const parsed = safeJson(data);
       if (parsed === null) continue;
-      frames.push({ event: currentEvent as ChatFrameName, data: parsed });
+      const frame: ChatFrame = { event: currentEvent as ChatFrameName, data: parsed };
+      frames.push(frame);
+      onFrame?.(frame);
       if (currentEvent === "assistant_delta" && typeof parsed.delta === "string") {
         text += parsed.delta;
       } else if (currentEvent === "turn_completed" && typeof parsed.text === "string") {

@@ -73,6 +73,13 @@ import {
   renewalQuoteDueDate,
   renewalSignal,
 } from "../../../lib/renewal-signals";
+import { ClientKnowledgeCard } from "../../../components/knowledge/client-knowledge-card";
+import {
+  contactActivitySummary,
+  contactKindLabel,
+  fetchContactActivity,
+  type ContactActivity,
+} from "../../../lib/contact-activity";
 import {
   RecordFrame,
   RecordRow,
@@ -180,6 +187,7 @@ export default function ClientDetailPage() {
 
   const [sites, setSites] = useState<Site[] | null>(null);
   const [contacts, setContacts] = useState<Contact[] | null>(null);
+  const [contactActivity, setContactActivity] = useState<Record<string, ContactActivity>>({});
   const [portalUsers, setPortalUsers] = useState<PortalUser[] | null>(null);
   const [portalDenied, setPortalDenied] = useState(false);
   const [assets, setAssets] = useState<DeviceAsset[] | null>(null);
@@ -250,6 +258,7 @@ export default function ClientDetailPage() {
     setFormError(null);
     void api.api.GET("/api/v1/clients/{id}/sites", { params: { path: { id: clientId } } }).then(({ data }) => setSites(data ?? []));
     void api.api.GET("/api/v1/clients/{id}/contacts", { params: { path: { id: clientId } } }).then(({ data }) => setContacts(data ?? []));
+    void fetchContactActivity(clientId).then(setContactActivity);
     void api.api.GET("/api/v1/clients/{id}/assets", { params: { path: { id: clientId } } }).then(({ data }) => setAssets(data ?? []));
     void api.api.GET("/api/v1/documents", { params: { query: { client_id: clientId } } }).then(({ data }) => setDocuments(data ?? []));
     void api.api.GET("/api/v1/documents/layouts").then(({ data }) => setLayouts(data ?? []));
@@ -789,6 +798,7 @@ export default function ClientDetailPage() {
               {tab === "contacts" ? (
                 <ContactsCard
                   contacts={contacts}
+                  activity={contactActivity}
                   portalUsers={portalUsers}
                   portalDenied={portalDenied}
                   onTogglePortal={(user, disabled) => void setPortalStatus(user, disabled)}
@@ -968,6 +978,10 @@ export default function ClientDetailPage() {
                 </>
               )}
             </SummaryCard>
+
+            {/* The documentation summary: how complete this client's knowledge
+                is, what is missing, and the door to the hub. */}
+            <ClientKnowledgeCard clientId={clientId} />
 
             <CompletenessCard
               completeness={completeness}
@@ -1383,6 +1397,7 @@ function isPastDue(ticket: Ticket): boolean {
  * access as a switch that applies at once. */
 function ContactsCard({
   contacts,
+  activity,
   portalUsers,
   portalDenied,
   onTogglePortal,
@@ -1390,12 +1405,14 @@ function ContactsCard({
   onAddPortalUserFor,
 }: {
   contacts: Contact[] | null;
+  activity: Record<string, ContactActivity>;
   portalUsers: PortalUser[] | null;
   portalDenied: boolean;
   onTogglePortal: (user: PortalUser, disabled: boolean) => void;
   onAddContact: () => void;
   onAddPortalUserFor: (contact: Contact) => void;
 }) {
+  const [activityContact, setActivityContact] = useState<Contact | null>(null);
   if (contacts === null) {
     return (
       <div className="p-4">
@@ -1403,6 +1420,7 @@ function ContactsCard({
       </div>
     );
   }
+  const openActivity = activityContact === null ? undefined : activity[activityContact.id];
   return (
     <div
       className="overflow-hidden rounded-2xl border"
@@ -1538,16 +1556,29 @@ function ContactsCard({
                     )}
                   </Td>
                   <Td>
-                    {/* Contact activity is not recorded by this schema yet.
-                        Saying "Never" is the honest reading; the title names
-                        the gap rather than dressing a missing field as data. */}
-                    <span
-                      className="text-[13px]"
-                      title="Contact activity is not recorded yet."
-                      style={{ color: "var(--m-text-muted)" }}
-                    >
-                      Never
-                    </span>
+                    {/* Derived from email on this client's tickets, portal
+                        replies and calls. A person with none of those reads
+                        Never, which is the true answer rather than a guess. */}
+                    {activity[c.id]?.last_at ? (
+                      <button
+                        type="button"
+                        onClick={() => setActivityContact(c)}
+                        className="text-left text-[13px] underline-offset-2 hover:underline"
+                        style={{ color: "var(--m-text-secondary)" }}
+                        title="See the recent trail"
+                        data-testid={`contact-activity-${c.id}`}
+                      >
+                        {contactActivitySummary(activity[c.id])}
+                      </button>
+                    ) : (
+                      <span
+                        className="text-[13px]"
+                        title="No email, portal reply or call recorded for this person."
+                        style={{ color: "var(--m-text-muted)" }}
+                      >
+                        Never
+                      </span>
+                    )}
                   </Td>
                 </Tr>
               );
@@ -1555,6 +1586,48 @@ function ContactsCard({
           </tbody>
         </Table>
       )}
+      <Dialog
+        open={activityContact !== null}
+        onOpenChange={(open) => {
+          if (!open) setActivityContact(null);
+        }}
+      >
+        <DialogContent
+          title={activityContact === null ? "Contact activity" : `Contact with ${activityContact.name}`}
+          description="Email on this client's tickets, portal replies and calls. Derived, never edited."
+        >
+          {openActivity === undefined || openActivity.recent.length === 0 ? (
+            <p className="p-4 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+              Nothing recorded for this person yet.
+            </p>
+          ) : (
+            <ul className="m-0 flex list-none flex-col gap-0 p-0">
+              {openActivity.recent.map((event) => (
+                <li
+                  key={`${event.at}-${event.kind}`}
+                  className="flex flex-col gap-0.5 border-b px-4 py-3 last:border-b-0"
+                  style={{ borderColor: "var(--m-border)" }}
+                >
+                  <span className="flex flex-wrap items-baseline gap-2 text-[13px]">
+                    <span className="font-medium">{contactKindLabel(event.kind)}</span>
+                    <span style={{ color: "var(--m-text-muted)" }}>
+                      {new Date(event.at).toLocaleString(undefined, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </span>
+                  </span>
+                  {event.detail !== null && event.detail !== "" ? (
+                    <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                      {event.detail}
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
