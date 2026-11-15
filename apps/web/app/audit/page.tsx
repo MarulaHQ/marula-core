@@ -50,6 +50,7 @@ import { useTimeFormat } from "../../lib/use-time-format";
 import { SurfaceTabs } from "../../components/insight/surface-tabs";
 import { InsightState } from "../../components/insight/insight-state";
 import "../../components/insight/insight-table.css";
+import { SurfaceSubnav } from "../../components/shell/surface-subnav";
 type AuditEvent = components["schemas"]["AuditEvent"];
 
 const SURFACE_KEY = "audit.ledger";
@@ -280,6 +281,7 @@ export default function AuditPage() {
           "Every security change, administrative action and domain lifecycle event, in order. Rows expand in place to their structured detail. Nothing here can be edited or deleted."
         }
       />
+      <SurfaceSubnav setId="audit" />
 
       {/* A rejected appearance.data_surfaces write reverts the user's
           columns and sort; it says so in the status danger pair. */}

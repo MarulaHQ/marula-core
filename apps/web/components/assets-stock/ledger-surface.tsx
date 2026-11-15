@@ -93,6 +93,8 @@ export interface LedgerSurfaceProps {
   surface: string;
   title: string;
   subtitle?: ReactNode;
+  /** A view strip under the header (Tools / Loans), drawn by the page. */
+  subnav?: ReactNode;
   /** The header's right side: the primary action. */
   headerAction?: ReactNode;
   /** Counters in the title row that toggle a filter, per the pack. */
@@ -142,6 +144,7 @@ export function LedgerSurface({
   surface,
   title,
   subtitle,
+  subnav,
   headerAction,
   shortcuts,
   views,
@@ -258,6 +261,8 @@ export function LedgerSurface({
         </div>
         {subtitle != null ? <p className="m-ledger-subtitle">{subtitle}</p> : null}
       </header>
+
+      {subnav != null ? <div className="m-subnav-row">{subnav}</div> : null}
 
       <DataToolbar
         label={`${title} controls`}

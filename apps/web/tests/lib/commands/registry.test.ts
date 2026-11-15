@@ -39,11 +39,12 @@ describe("the shipped registry is lint-clean", () => {
     expect(lintRegistry(COMMAND_REGISTRY)).toEqual([]);
   });
 
-  it("every rail section has exactly one alt-digit chord, in rail order", () => {
+  it("gives the nine sections Alt+1..9 in rail order, and Today Alt+0", () => {
     const rails = COMMAND_REGISTRY.filter((c) => c.verb === "navigate");
-    expect(rails.map((c) => c.chord)).toEqual(
-      RAIL_SECTIONS.slice(0, 9).map((_, i) => `alt+${i + 1}`),
+    expect(rails.filter((c) => c.id !== "navigate.today").map((c) => c.chord)).toEqual(
+      RAIL_SECTIONS.slice(1, 10).map((_, i) => `alt+${i + 1}`),
     );
+    expect(rails.find((c) => c.id === "navigate.today")?.chord).toBe("alt+0");
   });
 
   it("uses Alt as the activation key for command chords (mod+k is the one whitelisted exception)", () => {
@@ -133,12 +134,26 @@ describe("dispatch resolution", () => {
     };
   }
 
-  it("resolves Alt+1..9 to the rail sections", () => {
+  it("keeps Alt+1..9 on their sections and gives Today Alt+0", () => {
+    // The rail order changed (Today is first) but the chords did not: people
+    // learned Alt+1..9, and a flow asserts Alt+2 lands on Clients.
+    expect(commandForChord("alt+1", "/tickets")?.id).toBe("navigate.tickets");
+    expect(commandForChord("alt+2", "/tickets")?.id).toBe("navigate.clients");
+    expect(commandForChord("alt+9", "/tickets")?.id).toBe("navigate.settings");
     const c = ctx("/tickets");
-    const first = commandForChord("alt+1", "/tickets");
-    expect(first?.id).toBe(`navigate.${RAIL_SECTIONS[0]?.id ?? ""}`);
-    first?.run(c);
-    expect(c.navigated).toEqual([RAIL_SECTIONS[0]!.href]);
+    const today = commandForChord("alt+0", "/tickets");
+    expect(today?.id).toBe("navigate.today");
+    today?.run(c);
+    expect(c.navigated).toEqual(["/today"]);
+  });
+
+  it("gives every rail section a navigate command", () => {
+    for (const section of RAIL_SECTIONS) {
+      expect(
+        COMMAND_REGISTRY.some((c) => c.id === `navigate.${section.id}`),
+        `${section.id} has no navigate command`,
+      ).toBe(true);
+    }
   });
 
   it("new resolves per surface and stays absent where no create exists", () => {

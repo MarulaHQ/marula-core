@@ -39,6 +39,7 @@ import {
   type WorkflowRunStatus,
 } from "../../../lib/workflow/run-labels";
 import { DotPill } from "./RunStatusPill";
+import { SurfaceSubnav } from "../../../components/shell/surface-subnav";
 
 type AutomationRuleRow = { id: string; name: string };
 
@@ -209,6 +210,7 @@ export default function RunLedger({
           </>
         }
       />
+      <SurfaceSubnav setId="automation-activity" />
 
       {errorMsg !== null ? (
         <div className="mb-2" role="alert">

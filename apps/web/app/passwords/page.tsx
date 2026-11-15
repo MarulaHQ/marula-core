@@ -81,6 +81,7 @@ import {
 import { EntityPicker } from "../../components/entities/entity-picker";
 import { PasswordLinksPanel, SecretSharePanel, SecretTargetPicker } from "../../components/secret-share";
 import type { LinkTarget } from "../../lib/entity-links";
+import { SurfaceSubnav } from "../../components/shell/surface-subnav";
 
 type SecretFolder = components["schemas"]["SecretFolder"];
 type SecretRecord = components["schemas"]["SecretRecord"];
@@ -553,6 +554,7 @@ export default function VaultPage() {
           </>
         }
       />
+      <SurfaceSubnav setId="vault" />
 
       <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
         <div className="min-h-0 overflow-auto">
