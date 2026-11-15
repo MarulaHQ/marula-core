@@ -10,9 +10,15 @@ import { expect, test } from "../helpers/harness";
 /** Open the first project in the list, or skip when the seed has none. */
 async function openFirstProject(page: import("@playwright/test").Page): Promise<boolean> {
   await page.goto("/projects");
-  const row = page.locator("table tbody tr a, a[href^='/projects/']").first();
-  if ((await row.count()) === 0) return false;
-  await row.click();
+  // The list fills in from the API, so wait for a row rather than counting
+  // immediately — a count taken too early reads as "no projects seeded".
+  const row = page.locator('[data-testid^="project-row-"]').first();
+  const appeared = await row
+    .waitFor({ state: "visible", timeout: 30_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!appeared) return false;
+  await row.locator("a").first().click();
   await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}/, { timeout: 30_000 });
   return true;
 }
