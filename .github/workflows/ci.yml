@@ -503,6 +503,13 @@ jobs:
   # container that asks for `privileged: true`, a host network or a writable
   # root filesystem is not a style problem, and it ships the moment the change
   # merges — so it fails in the change.
+  #
+  # The scan also reads the Dockerfiles under deploy/, and two of them start as
+  # root on purpose: the edge proxy binds 80/443 under a NET_BIND_SERVICE
+  # exemption, and the postgres image inherits an entrypoint that chowns the
+  # data directory before dropping to the `postgres` user. `.trivyignore.yaml`
+  # exempts those two by path with the reason and an expiry, so the rest of the
+  # tree stays honest.
   container-security:
     name: Container security — trivy config scan over deploy/
     runs-on: ubuntu-latest
@@ -515,6 +522,7 @@ jobs:
           scan-type: config
           scan-ref: deploy/
           severity: HIGH,CRITICAL
+          trivyignores: .trivyignore.yaml
           exit-code: "1"
 
   rls-pool-reads:
