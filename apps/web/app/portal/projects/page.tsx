@@ -26,7 +26,7 @@ export default function PortalProjectsPage() {
   }, []);
 
   return (
-    <div className="portal-page">
+    <div>
       <div className="portal-heading-row">
         <div>
           <h1 className="portal-title">Your projects</h1>

@@ -360,7 +360,7 @@ export function TemplateEditor() {
             <tbody>
               {preview.phases.map((phase) => (
                 <Fragment key={phase.key}>
-                  <Tr className="bg-muted/40">
+                  <Tr style={{ background: "var(--m-surface-2)" }}>
                     <Td className="font-semibold">{phase.name}</Td>
                     <Td />
                     <Td />
@@ -381,16 +381,16 @@ export function TemplateEditor() {
                             </Badge>
                           ) : null}
                         </Td>
-                        <Td className="text-muted-foreground">{task.role_key ?? "—"}</Td>
+                        <Td><span className="text-muted-foreground">{task.role_key ?? "—"}</span></Td>
                         <Td className="text-right font-mono tabular-nums">
                           {task.duration_days ?? "—"}
                         </Td>
                         <Td className="text-right font-mono tabular-nums">
                           {minutesLabel(task.effort_minutes)}
                         </Td>
-                        <Td className="text-[12px] text-muted-foreground">
+                        <Td><span className="text-[12px] text-muted-foreground">
                           {task.depends_on.length === 0 ? "—" : task.depends_on.join(", ")}
-                        </Td>
+                        </span></Td>
                       </Tr>
                     ))}
                 </Fragment>
@@ -541,8 +541,8 @@ export function TemplateEditor() {
                       {version.current ? "current" : version.status}
                     </Badge>
                   </Td>
-                  <Td className="text-muted-foreground">{version.source}</Td>
-                  <Td className="text-muted-foreground">{version.note ?? "—"}</Td>
+                  <Td><span className="text-muted-foreground">{version.source}</span></Td>
+                  <Td><span className="text-muted-foreground">{version.note ?? "—"}</span></Td>
                   <Td className="font-mono text-[12px]">
                     {version.published_at?.slice(0, 10) ?? "—"}
                   </Td>

@@ -55,7 +55,7 @@ export default function PortalProjectPage() {
 
   if (error !== null && project === null) {
     return (
-      <div className="portal-page">
+      <div>
         <PortalCard title="We could not load this project">
           <p className="portal-hint" role="alert">
             {error}
@@ -70,7 +70,7 @@ export default function PortalProjectPage() {
 
   if (project === null) {
     return (
-      <div className="portal-page">
+      <div>
         <p className="portal-hint">Loading the project…</p>
       </div>
     );
@@ -79,7 +79,7 @@ export default function PortalProjectPage() {
   const waiting = project.change_orders.filter((order) => order.acknowledged_at === null);
 
   return (
-    <div className="portal-page">
+    <div>
       <p className="portal-back">
         <Link href="/portal/projects">← All projects</Link>
       </p>
@@ -128,7 +128,7 @@ export default function PortalProjectPage() {
               </span>
               <button
                 type="button"
-                className="portal-btn portal-btn--primary"
+                className="portal-btn"
                 disabled={busy === order.id}
                 onClick={() => void onAcknowledge(order.id)}
               >
@@ -162,7 +162,7 @@ export default function PortalProjectPage() {
                     : `${longDate(step.start_date, timeZone)} – ${longDate(step.end_date, timeZone)}`}
                 </span>
               </span>
-              <span className="portal-pill portal-pill--open">{step.status_text}</span>
+              <span className="portal-pill portal-pill--working">{step.status_text}</span>
             </div>
           ))
         )}
@@ -184,7 +184,7 @@ export default function PortalProjectPage() {
                 </b>
                 <span>{index === 0 ? "Latest" : "Earlier update"}</span>
               </summary>
-              <pre className="portal-prose">{update.body}</pre>
+              <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{update.body}</pre>
             </details>
           ))
         )}
