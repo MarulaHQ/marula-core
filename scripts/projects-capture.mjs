@@ -65,7 +65,13 @@ async function resolveProjectId(page) {
 }
 
 async function settle(page, surface) {
-  const marker = surface === "timeline" ? '[data-testid="gantt-chart"], [data-testid="gantt-list"], [data-testid="gantt-table"]' : '[data-testid="record-tabs"]';
+  // The plan surface was rebuilt on its own shell, so wait for the plan grid
+  // itself rather than the old record-tab strip; the timeline waits for the
+  // chart or its table.
+  const marker =
+    surface === "timeline"
+      ? '[data-testid="gantt-chart"], [data-testid="gantt-list"], [data-testid="gantt-table"]'
+      : '[data-slot="plan-table"], [data-testid="project-schedule"], [data-testid="plan-loading"]';
   await page.locator(marker).first().waitFor({ timeout: 30_000 });
   // The chart draws after its reads, its dependency edges and the computed
   // chain land; one quiet moment is the honest wait.

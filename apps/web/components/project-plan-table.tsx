@@ -511,8 +511,21 @@ export function ProjectPlanTable(props: PlanTableProps): React.JSX.Element {
         const open = expanded.has(phase.id);
         const burn = effortOf(phaseTasks);
         const done = phaseTasks.filter((task) => task.status === "completed").length;
-        const start = phase.start_date ?? null;
-        const end = phase.end_date ?? null;
+        // A phase often has no window of its own while its tasks do. Derive the
+        // span from the work rather than telling a planner "No dates" about a
+        // phase whose steps are plainly dated.
+        const derivedStart = phaseDated.reduce<string | null>(
+          (min, task) =>
+            task.start_at && (min === null || task.start_at < min) ? task.start_at : min,
+          null,
+        );
+        const derivedEnd = phaseDated.reduce<string | null>((max, task) => {
+          const finish = taskEnd(task);
+          if (finish === null) return max;
+          return max === null || finish > max ? finish : max;
+        }, null);
+        const start = phase.start_date ?? derivedStart;
+        const end = phase.end_date ?? derivedEnd;
         const allSelectedHere =
           phaseTasks.length > 0 && phaseTasks.every((task) => selected.has(task.id));
         const phaseMenu: MenuItem[] = [

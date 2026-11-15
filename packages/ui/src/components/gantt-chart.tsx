@@ -1046,7 +1046,12 @@ export function GanttChart({
         <FloatingCard>
           <strong style={{ fontWeight: 600 }}>
             Drop {trayTask.title} on a day to place it at{" "}
-            {durationInWords(trayTask.duration_minutes ?? calendar.minutesPerDay, calendar)}
+            {durationInWords(
+              trayTask.duration_minutes ??
+                trayTask.effort_estimate_minutes ??
+                calendar.minutesPerDay,
+              calendar,
+            )}
           </strong>
           <span>Press S on the tray card instead to type the dates.</span>
         </FloatingCard>
@@ -1698,7 +1703,13 @@ export function GanttTray({
   onBeginDrag?: (event: React.PointerEvent, task: GanttTask) => void;
   draggingId?: string | null;
 }): React.JSX.Element {
-  const totalMinutes = tasks.reduce((sum, task) => sum + (task.duration_minutes ?? 0), 0);
+  // Undated work has no duration by definition, so the honest figure is the
+  // effort it is expected to need; falling back to zero would tell a planner
+  // that two unplaced steps cost no time at all.
+  const totalMinutes = tasks.reduce(
+    (sum, task) => sum + (task.duration_minutes ?? task.effort_estimate_minutes ?? 0),
+    0,
+  );
   return (
     <aside
       aria-label="Tasks with no dates"

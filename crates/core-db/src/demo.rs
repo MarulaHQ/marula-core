@@ -2878,13 +2878,16 @@ you go, because the escalation record is what the SLA credit claim is read from 
     .await?;
     let phase_discovery = demo_uuid(290);
     sqlx::query(
-        "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status, completed_at)
-         VALUES ($1, $2, $3, 'Discovery', 0, 'completed', $4)",
+        "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status,
+                                     completed_at, start_date, end_date)
+         VALUES ($1, $2, $3, 'Discovery', 0, 'completed', $4, $5, $6)",
     )
     .bind(phase_discovery)
     .bind(DEMO_ORG_ID)
     .bind(project_id)
     .bind(now - Duration::days(10))
+    .bind(now.date_naive() - Duration::days(22))
+    .bind(now.date_naive() - Duration::days(11))
     .execute(&mut *tx)
     .await?;
     crate::projects::insert_release(
@@ -2906,12 +2909,15 @@ you go, because the escalation record is what the SLA credit claim is read from 
     let phase_implementation = demo_uuid(291);
     sqlx::query(
         "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status,
-                                     is_milestone, milestone_amount_minor, milestone_currency)
-         VALUES ($1, $2, $3, 'Implementation', 1, 'active', true, 250000, 'USD')",
+                                     is_milestone, milestone_amount_minor, milestone_currency,
+                                     start_date, end_date)
+         VALUES ($1, $2, $3, 'Implementation', 1, 'active', true, 250000, 'USD', $4, $5)",
     )
     .bind(phase_implementation)
     .bind(DEMO_ORG_ID)
     .bind(project_id)
+    .bind(now.date_naive() - Duration::days(2))
+    .bind(now.date_naive() + Duration::days(9))
     .execute(&mut *tx)
     .await?;
     // The active phase carries a productive burn story: a budget the T&M
@@ -2931,12 +2937,15 @@ you go, because the escalation record is what the SLA credit claim is read from 
     .expect("demo implementation budget records");
     let phase_cutover = demo_uuid(292);
     sqlx::query(
-        "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status)
-         VALUES ($1, $2, $3, 'Cutover and handover', 2, 'pending')",
+        "INSERT INTO project_phases (id, org_id, project_id, name, sort_order, status,
+                                     start_date, end_date)
+         VALUES ($1, $2, $3, 'Cutover and handover', 2, 'pending', $4, $5)",
     )
     .bind(phase_cutover)
     .bind(DEMO_ORG_ID)
     .bind(project_id)
+    .bind(now.date_naive() + Duration::days(12))
+    .bind(now.date_naive() + Duration::days(16))
     .execute(&mut *tx)
     .await?;
     struct DemoTask {
