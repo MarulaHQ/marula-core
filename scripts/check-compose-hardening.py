@@ -43,12 +43,21 @@ not a comment, and a `#` only opens a comment at a word boundary.
 
 This is a scanner, not a YAML parser: PyYAML is not in the standard library and
 a workflow that shells out to `pip install` to lint a file is a worse trade than
-a scan that reads the three spellings above. What it cannot see is a setting
-assembled by an anchor or a merge key, and a value that a quoted scalar spells
-out (`command: ["privileged: true"]`) is skipped rather than reported, because
-the closing quote is not where a value can end. Anything it does report is worth
-a look: the setting is either there or it was written in a way Compose would
-also misread.
+a scan that reads the spellings above.
+
+Two things it must tell apart, and both come up in real compose files:
+
+  "privileged": true                        a quoted *key* still sets it
+  command: ["echo", "privileged: true"]     quoted *text* sets nothing
+
+So each quoted scalar on a line is located, and a match that lands inside one
+counts only when that scalar is a key (the closing quote is followed by `:`).
+The socket rule is exempt, because a mount is written as a quoted path by
+design.
+
+What it still cannot see is a setting assembled through an anchor or a merge
+key. Anything it does report is worth a look: the setting is either there, or
+it was written where Compose would read it too.
 
 EXEMPTIONS
 ----------
@@ -84,22 +93,28 @@ KEY_START = r"(?:^|[\s{,])"
 
 def rule(key: str, value: str) -> re.Pattern[str]:
     return re.compile(
-        rf"{KEY_START}[\"']?{key}[\"']?\s*:\s*[\"']?{value}[\"']?(?=[\s,}}]|$)"
+        rf"{KEY_START}(?P<key>[\"']?{key}[\"']?)\s*:\s*[\"']?{value}[\"']?(?=[\s,}}]|$)"
     )
 
 
 # (pattern, what a human should read instead of the finding)
-RULES: list[tuple[re.Pattern[str], str]] = [
+# (pattern, what a human should read instead of the finding, may the match sit
+# inside a quoted scalar?)
+#
+# The socket rule must: a mount is written `"/var/run/docker.sock:/var/run/…"`,
+# so the path is quoted by design. The setting rules must not: `command:
+# ["privileged: true"]` passes a word to a program and sets nothing.
+RULES: list[tuple[re.Pattern[str], str, bool]] = [
     (rule("privileged", BOOL),
-     "`privileged: true` hands the container every capability the host has"),
+     "`privileged: true` hands the container every capability the host has", False),
     (rule("network_mode", HOST),
-     "`network_mode: host` puts the container on the host's network stack"),
+     "`network_mode: host` puts the container on the host's network stack", False),
     (rule("pid", HOST),
-     "`pid: host` lets the container see and signal host processes"),
+     "`pid: host` lets the container see and signal host processes", False),
     (rule("ipc", HOST),
-     "`ipc: host` shares host shared memory"),
+     "`ipc: host` shares host shared memory", False),
     (re.compile(r"/var/run/docker\.sock"),
-     "the Docker socket is root on the host, and a mount hands it over"),
+     "the Docker socket is root on the host, and a mount hands it over", True),
 ]
 
 
@@ -135,6 +150,61 @@ def strip_comment(line: str) -> str:
     return "".join(kept)
 
 
+def quoted_spans(line: str) -> list[tuple[int, int]]:
+    """Span of every quoted scalar on the line, quotes included.
+
+    A quote opens a scalar only where YAML allows one to start: at the beginning
+    of a line, or after `:`, `-`, `[`, `{`, `,` or `?` (spaces between). Any
+    other quote is ordinary text inside a plain scalar. A double-quoted scalar
+    honours backslash escapes; a single-quoted one escapes by doubling.
+    """
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char in "\"'":
+            before = index - 1
+            while before >= 0 and line[before] in " \t":
+                before -= 1
+            if before < 0 or line[before] in ":-[{,?":
+                quote = char
+                cursor = index + 1
+                closing: int | None = None
+                while cursor < len(line):
+                    if quote == '"' and line[cursor] == "\\":
+                        cursor += 2
+                        continue
+                    if line[cursor] == quote:
+                        if quote == "'" and cursor + 1 < len(line) and line[cursor + 1] == "'":
+                            cursor += 2
+                            continue
+                        closing = cursor
+                        break
+                    cursor += 1
+                if closing is not None:
+                    spans.append((index, closing))
+                    index = closing + 1
+                    continue
+        index += 1
+    return spans
+
+
+def is_value_text(start: int, line: str, spans: list[tuple[int, int]]) -> bool:
+    """True when `start` falls inside a quoted scalar that is a value, not a key.
+
+    A quoted *key* ends at a `:` and sets something, so `"privileged": true` is
+    still a finding. A quoted value is text: `command: ["privileged: true"]`
+    passes the flag to a program and sets nothing.
+    """
+    for begin, end in spans:
+        if begin <= start <= end:
+            after = end + 1
+            while after < len(line) and line[after] in " \t":
+                after += 1
+            return not (after < len(line) and line[after] == ":")
+    return False
+
+
 def exemptions_above(lines: list[str], index: int) -> bool:
     """True when the comment block immediately above `index` exempts it.
 
@@ -162,11 +232,20 @@ def scan_file(path: Path) -> list[tuple[int, str, str]]:
         code = strip_comment(line)
         if not code.strip():
             continue
-        for pattern, reason in RULES:
-            if pattern.search(code):
-                if not exemptions_above(lines, index):
-                    findings.append((index + 1, line.strip(), reason))
-                break
+        spans = quoted_spans(code)
+        for pattern, reason, quoted_ok in RULES:
+            match = pattern.search(code)
+            if match is None:
+                continue
+            if not quoted_ok and is_value_text(
+                match.start("key") if "key" in pattern.groupindex else match.start(),
+                code,
+                spans,
+            ):
+                continue
+            if not exemptions_above(lines, index):
+                findings.append((index + 1, line.strip(), reason))
+            break
     return findings
 
 
@@ -247,6 +326,20 @@ NOT_A_COMMENT = """services:
     command: ["sh", "-c", "echo #1 privileged: true"]
 """
 
+# Command text is not configuration. The first line is the case the previous
+# scan reported: the closing quote there does not follow the value, so nothing
+# stopped the match at `true`.
+COMMAND_TEXT = """services:
+  web:
+    image: alpine:3.20
+    command: ["echo", "privileged: true is forbidden"]
+    entrypoint: ["/bin/sh", "-c", "network_mode: host"]
+  other:
+    image: alpine:3.20
+    command:
+      - "privileged: true"
+"""
+
 
 def self_test() -> int:
     """Prove the gate can fail, and can tell a comment from a directive."""
@@ -261,6 +354,7 @@ def self_test() -> int:
             "flow.yml": FLOW_STYLE,
             "quoted.yml": QUOTED_KEY,
             "notacomment.yml": NOT_A_COMMENT,
+            "commandtext.yml": COMMAND_TEXT,
         }
         for name, body in cases.items():
             (root / name).write_text(body, encoding="utf-8")
@@ -278,6 +372,7 @@ def self_test() -> int:
             # A quoted scalar is not a key, and its closing quote stops the value
             # from ending there, so nothing is reported.
             "notacomment.yml": 0,
+            "commandtext.yml": 0,
         }
         for name, count in expected.items():
             if found[name] != count:
