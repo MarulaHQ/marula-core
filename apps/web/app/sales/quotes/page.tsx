@@ -1,29 +1,32 @@
-// /sales/quotes — quote ledger + builder (Wave 12 lane 2 backends, 0060).
+// /sales/quotes — quote ledger + the Describe it authoring surface.
 //
 // Purpose: quotes CRUD end-to-end: the org's quote list (filterable by
-// status), the quote builder (client, currency, validity, flat tax rate,
-// line editor backed by the product catalog), and the lifecycle legs —
-// send, accept, decline, expire — plus convert-to-invoice for accepted
-// quotes. Lifecycle mutations ride the IF1–IF3 envelope with idempotency
-// keys; rejections surface inline as role="alert" and the optimistic
-// status rolls back.
+// status), and one builder that is used for every way a quote starts — blank,
+// from a dictionary of catalogue items, or from words the agent read. The
+// lifecycle legs (send, accept, decline, expire, convert) stay on the document
+// page; the ledger carries no per-row actions.
 //
-// Non-purpose: no invoice editing here (convert hands the result to the
-// billing ledger; the invoice surfaces on /billing).
+// The Describe it panel (pack Q01–Q11, Q14) docks on the right at 440px, it
+// composes typed, spoken and uploaded sources, and it says what it understood
+// before it builds. A draft it produces fills this builder with provenance on
+// every line: gold for the words it came from, blush for what it assumed, and a
+// "things to check" list beside the total. Nothing is saved until the ordinary
+// create route runs from the builder, which re-validates.
+//
+// Non-purpose: no invoice editing (convert hands the result to the billing
+// ledger), and no AI trace at all without the grant — no door, no key, no mark,
+// no gap (pack Q12).
 "use client";
 
 import { rejectionText } from "../../../lib/error-copy";
 import {
-  Badge,
   Button,
   Card,
   ColumnChooser,
   DataToolbar,
   DensitySwitch,
   Dialog,
-  DialogActions,
   DialogContent,
-  DialogTrigger,
   EmptyState,
   ExportControl,
   FieldHint,
@@ -48,18 +51,41 @@ import {
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useEffect, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
 import { downloadRowsCsv } from "../../../lib/csv-download";
 import { useDataSurfacePrefs, useSavedChoice } from "../../../lib/data-surface-prefs";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
-import { formatQtyMilli } from "../../../lib/stock-format";
 import { daysUntil, perCurrencySum } from "../../../lib/money-summary";
 import { quotePill } from "../../../lib/money-ui";
+import {
+  proposeQuoteChange,
+  type ChangeOperation,
+  type MoneySource,
+  type QuoteDraft,
+  type Understanding,
+} from "../../../lib/money-authoring";
 import { MoneyCard, MoneyHeader, MoneyPillTag } from "../../../components/money";
-import { DescribeMoney } from "../../../components/money/describe-money";
+import {
+  DescribeMoney,
+  DescribePanel,
+  NewMoneySplit,
+  useMoneyAuthoring,
+} from "../../../components/money/describe-money";
+import {
+  ChangeProposalCard,
+  QuoteContextColumn,
+  QuoteItemsTable,
+  QuoteNotesTab,
+  QuoteSummary,
+  type BuilderTab,
+  type EditableLine,
+} from "../../../components/money/quote-draft-builder";
+import { proposedLineIndexes, quoteTotals } from "../../../components/money/draft-math";
+import { lineNumbers } from "../../../components/money/draft-provenance";
+import { formatQtyMilli } from "../../../lib/stock-format";
 
 type Quote = components["schemas"]["Quote"];
 type QuoteStatus = components["schemas"]["QuoteStatus"];
@@ -68,8 +94,6 @@ type CatalogItem = components["schemas"]["CatalogItemView"];
 type Client = components["schemas"]["Client"];
 type StockItemView = components["schemas"]["StockItemView"];
 type OnHandRow = components["schemas"]["OnHandRow"];
-
-type QuoteAction = "send" | "accept" | "decline" | "expire" | "convert-to-invoice";
 
 const STATUSES: readonly (QuoteStatus | "all")[] = [
   "all",
@@ -86,12 +110,6 @@ interface ColumnDef {
   required?: boolean;
 }
 
-/** The quote ledger's columns, in the quoting surface's order: the quote, its
- *  client, the value, the status, when it moves. The canonical ledger ends at
- *  STATUS and draws no per-row actions — the lifecycle legs live on
- *  `/sales/quotes/[id]` — so the Actions column is gone and the QUOTE cell is
- *  the way in. Actions are also outside the column set, so the chooser can
- *  never offer to hide them. */
 const COLUMNS: readonly ColumnDef[] = [
   { key: "number", label: "Quote", required: true },
   { key: "client", label: "Client" },
@@ -107,7 +125,6 @@ const FILTER_FIELDS = [
   { key: "valid_until", label: "Valid until" },
 ];
 
-/** Saved clauses back into the builder's shape, dropping unknown fields. */
 function clausesFromSaved(
   saved: { field: string; op: string; value?: string }[],
 ): FilterClause[] {
@@ -122,13 +139,19 @@ function clausesFromSaved(
     }));
 }
 
-const EMPTY_LINE: QuoteLineInput = {
-  description: null,
-  catalog_item_id: null,
-  unit: "each",
+const EMPTY_LINE: EditableLine = {
+  description: "",
   quantity_milli: 1000,
-  unit_amount_minor: 0,
+  unit_price_minor: 0,
+  unit: "each",
+  catalog_item_id: null,
   taxable: true,
+  optional: false,
+  section: null,
+  source: "assumed",
+  source_span: null,
+  quantity_assumed: false,
+  price_assumed: false,
 };
 
 function isoDay(offsetDays: number): string {
@@ -145,23 +168,16 @@ export default function QuotesPage(): ReactNode {
   const [clients, setClients] = useState<Client[] | null>(null);
   const [stockItems, setStockItems] = useState<StockItemView[]>([]);
   const [stockOnHand, setStockOnHand] = useState<OnHandRow[]>([]);
-  const [stockPick, setStockPick] = useState<Record<number, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const granted = useMoneyAuthoring("quote_authoring");
 
   // The ledger shell is the shared one, so the quotes ledger answers the pack's
   // money-cluster toolbar rule (views left, filters, Columns/Filter/Export
   // right) exactly as the invoice and credit-note ledgers do.
   const prefs = useDataSurfacePrefs();
   const saved = useMemo(() => prefs.view("quotes"), [prefs]);
-  /* The document resolves after the first paint; apply the saved lifecycle
-     step when it does, rather than capturing "all" in the initialiser. */
-  const [statusFilter, setStatusFilter] = useSavedChoice(
-    prefs.ready,
-    saved.view,
-    STATUSES,
-    "all",
-  );
+  const [statusFilter, setStatusFilter] = useSavedChoice(prefs.ready, saved.view, STATUSES, "all");
   const [filterOpen, setFilterOpen] = useState(false);
   const [clauses, setClauses] = useState<FilterClause[]>([]);
   const savedColumns = saved.columns;
@@ -187,8 +203,6 @@ export default function QuotesPage(): ReactNode {
     setOrder([...known, ...COLUMNS.map((c) => c.key).filter((k) => !known.includes(k))]);
   }, [prefs.ready, savedColumns]);
 
-  /* The filters were saved on every chip change but never read back. Apply
-     them once, after the document resolves. */
   const filtersRestored = useRef(false);
   useEffect(() => {
     if (!prefs.ready || filtersRestored.current) return;
@@ -197,7 +211,7 @@ export default function QuotesPage(): ReactNode {
     if (restored.length > 0) setClauses(restored);
   }, [prefs.ready, saved.filters]);
 
-  // Builder state
+  // ---- builder state -----------------------------------------------------
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
@@ -206,7 +220,30 @@ export default function QuotesPage(): ReactNode {
   const [newValidUntil, setNewValidUntil] = useState(isoDay(30));
   const [newTaxRateBps, setNewTaxRateBps] = useState("0");
   const [newNotes, setNewNotes] = useState("");
-  const [lines, setLines] = useState<QuoteLineInput[]>([{ ...EMPTY_LINE, description: "" }]);
+  const [lines, setLines] = useState<EditableLine[]>([{ ...EMPTY_LINE }]);
+  const [catalogPick, setCatalogPick] = useState("");
+
+  // The draft's own memory: the words it came from, what to check, and the
+  // check step's answers. All of it is in-memory only — nothing is stored.
+  const [sources, setSources] = useState<MoneySource[]>([]);
+  const [checks, setChecks] = useState<string[]>([]);
+  const [understanding, setUnderstanding] = useState<Understanding | null>(null);
+  const [budgetMinor, setBudgetMinor] = useState<number | null>(null);
+  const [fromNotes, setFromNotes] = useState(false);
+  const [builderTab, setBuilderTab] = useState<BuilderTab>("summary");
+
+  // ---- changes by describing (Q11) --------------------------------------
+  const [changeInstruction, setChangeInstruction] = useState("");
+  const [changeBusy, setChangeBusy] = useState(false);
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [changeSentence, setChangeSentence] = useState<string | null>(null);
+  const [changeOperations, setChangeOperations] = useState<ChangeOperation[]>([]);
+  const [changeDraft, setChangeDraft] = useState<QuoteDraft | null>(null);
+  const [changeTotal, setChangeTotal] = useState<number | null>(null);
+  const [proposed, setProposed] = useState<Set<number>>(new Set());
+
+  // ---- describe panel ----------------------------------------------------
+  const [describeOpen, setDescribeOpen] = useState(false);
 
   useEffect(() => {
     if (auth.status !== "authed") return;
@@ -239,7 +276,6 @@ export default function QuotesPage(): ReactNode {
     [clients],
   );
 
-  /** The status view narrows first; the filter clauses narrow what is left. */
   const filtered = useMemo(
     () => (quotes ?? []).filter((q) => statusFilter === "all" || q.status === statusFilter),
     [quotes, statusFilter],
@@ -336,8 +372,6 @@ export default function QuotesPage(): ReactNode {
         return (
           <>
             <span className="tabular-nums">{q.valid_until}</span>
-            {/* A quote past its date is a fact about money, not a breach:
-                blush, and with the days in words. */}
             {validDays !== null && validDays < 0 && q.status === "sent" ? (
               <span className="m-money-pill m-money-pill-blush" style={{ marginLeft: 6 }}>
                 past valid-until
@@ -354,66 +388,151 @@ export default function QuotesPage(): ReactNode {
     }
   };
 
-  function quoteTotals(): { subtotalMinor: number; taxMinor: number; totalMinor: number } {
-    let subtotalMinor = 0;
-    let taxableMinor = 0;
-    for (const line of lines) {
-      const amount = Math.round((line.quantity_milli / 1000) * (line.unit_amount_minor ?? 0));
-      subtotalMinor += amount;
-      if (line.taxable === true) taxableMinor += amount;
-    }
-    const rate = Math.max(0, Number(newTaxRateBps) || 0);
-    const taxMinor = Math.round((taxableMinor * rate) / 10000);
-    return { subtotalMinor, taxMinor, totalMinor: subtotalMinor + taxMinor };
+  const totals = quoteTotals(lines, Math.max(0, Number(newTaxRateBps) || 0));
+  const noteNumbers = lineNumbers(lines);
+
+  function setLine(index: number, patch: Partial<EditableLine>): void {
+    setLines((cur) =>
+      cur.map((l, i) => (i === index ? { ...l, ...patch } : l)),
+    );
   }
 
-  function setLine(index: number, patch: Partial<QuoteLineInput>): void {
-    setLines((cur) => cur.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  function removeLine(index: number): void {
+    setLines((cur) => (cur.length === 1 ? [{ ...EMPTY_LINE }] : cur.filter((_, i) => i !== index)));
+    setProposed(new Set());
   }
 
-  function pickCatalogItem(index: number, itemId: string): void {
+  function appendCatalogLine(itemId: string): void {
     const item = (catalog ?? []).find((c) => c.id === itemId);
-    if (item === undefined) {
-      setLine(index, { catalog_item_id: null });
-      return;
-    }
-    setLine(index, {
-      catalog_item_id: item.id,
-      description: item.description ?? item.name,
-      unit: item.unit,
-      unit_amount_minor: item.unit_price_minor,
-      taxable: item.taxable,
-    });
+    if (item === undefined) return;
+    setLines((cur) => [
+      ...cur.filter((line) => line.description.trim() !== ""),
+      {
+        ...EMPTY_LINE,
+        description: item.description ?? item.name,
+        unit: item.unit,
+        unit_price_minor: item.unit_price_minor,
+        taxable: item.taxable,
+        catalog_item_id: item.id,
+        source: "catalogue",
+      },
+    ]);
   }
 
-  /**
-   * Pulls a line from stock: the item's own identity fills the line, and a
-   * soft catalog link (when the stock item has one) brings the sell price.
-   * Availability is shown, never reserved — a quote is not a hold.
-   */
-  function pickStockItem(index: number, itemId: string): void {
+  function pickStockItem(itemId: string): void {
     const item = stockItems.find((s) => s.id === itemId);
     if (item === undefined) return;
     const linked = (catalog ?? []).find((c) => c.id === item.catalog_item_id);
-    setLine(index, {
-      catalog_item_id: linked?.id ?? null,
-      description: item.name,
-      unit: item.unit,
-      unit_amount_minor: linked?.unit_price_minor ?? 0,
-      taxable: linked?.taxable ?? true,
-    });
+    setLines((cur) => [
+      ...cur.filter((line) => line.description.trim() !== ""),
+      {
+        ...EMPTY_LINE,
+        description: item.name,
+        unit: item.unit,
+        unit_price_minor: linked?.unit_price_minor ?? 0,
+        taxable: linked?.taxable ?? true,
+        catalog_item_id: linked?.id ?? null,
+        source: linked !== undefined ? "catalogue" : "assumed",
+      },
+    ]);
   }
 
-  function stockAvailability(itemId: string | null): { totalMilli: number; low: boolean } | null {
-    if (itemId === null) return null;
-    const rows = stockOnHand.filter((row) => row.stock_item_id === itemId);
-    if (rows.length === 0) return { totalMilli: 0, low: false };
+  /** The draft the change endpoint takes: the builder's own lines, as they are. */
+  function currentDraft(): QuoteDraft {
     return {
-      totalMilli: rows.reduce((sum, row) => sum + row.qty_milli, 0),
-      low: rows.some((row) => row.low),
+      title: "Quote",
+      currency: newCurrency,
+      valid_for_days: Math.max(
+        1,
+        Math.round(
+          (new Date(`${newValidUntil}T00:00:00`).getTime() - Date.now()) / 86_400_000,
+        ),
+      ),
+      notes: newNotes.trim() === "" ? null : newNotes,
+      client_id: newClientId === "" ? null : newClientId,
+      client_name: newClientId === "" ? null : clientName(newClientId),
+      budget_minor: budgetMinor,
+      lines: lines.map((line) => ({
+        description: line.description,
+        quantity_milli: line.quantity_milli,
+        unit_price_minor: line.unit_price_minor,
+        unit: line.unit ?? null,
+        section: line.section ?? null,
+        optional: line.optional === true,
+        catalog_item_id: line.catalog_item_id ?? null,
+        source: line.source ?? "assumed",
+        source_span: line.source_span ?? null,
+        quantity_assumed: line.quantity_assumed === true,
+        price_assumed: line.price_assumed === true,
+      })),
+      assumptions: [],
+      understanding,
+      checks,
     };
   }
 
+  function applyDraft(next: QuoteDraft): void {
+    setNewCurrency(next.currency || "USD");
+    setNewValidUntil(isoDay(next.valid_for_days ?? 30));
+    setNewNotes(next.notes ?? "");
+    if (next.client_id !== null && next.client_id !== undefined) setNewClientId(next.client_id);
+    setBudgetMinor(next.budget_minor ?? null);
+    setLines(
+      next.lines.length === 0
+        ? [{ ...EMPTY_LINE }]
+        : next.lines.map((line) => ({
+            description: line.description,
+            quantity_milli: line.quantity_milli,
+            unit_price_minor: line.unit_price_minor,
+            unit: line.unit ?? "each",
+            catalog_item_id: line.catalog_item_id ?? null,
+            taxable: true,
+            optional: line.optional === true,
+            section: line.section ?? null,
+            source: line.source ?? "assumed",
+            source_span: line.source_span ?? null,
+            quantity_assumed: line.quantity_assumed === true,
+            price_assumed: line.price_assumed === true,
+          })),
+    );
+    setProposed(new Set());
+  }
+
+  async function proposeChange(): Promise<void> {
+    setChangeBusy(true);
+    setChangeError(null);
+    const outcome = await proposeQuoteChange(currentDraft(), changeInstruction.trim());
+    setChangeBusy(false);
+    if (!outcome.ok) {
+      setChangeError(outcome.message);
+      return;
+    }
+    if (!outcome.result.valid || outcome.result.draft === null || outcome.result.draft === undefined) {
+      setChangeError(
+        outcome.result.issues[0]?.message ?? "I could not read a change in that sentence.",
+      );
+      return;
+    }
+    setChangeSentence(outcome.result.sentence);
+    setChangeOperations(outcome.result.operations);
+    setChangeDraft(outcome.result.draft);
+    setChangeTotal(outcome.result.resulting_total_minor);
+    setProposed(proposedLineIndexes(outcome.result.operations.map((o) => o.path)));
+  }
+
+  function applyChange(): void {
+    // The server returns the resulting draft, which is the authority for every
+    // field a change may touch; the client never re-applies operations itself.
+    if (changeDraft === null || changeDraft === undefined) return;
+    applyDraft(changeDraft);
+    setChangeInstruction("");
+    setChangeSentence(null);
+    setChangeOperations([]);
+    setChangeDraft(null);
+    setChangeTotal(null);
+  }
+
+  // ---- create ------------------------------------------------------------
   async function refreshQuotes(): Promise<void> {
     const { data } = await api.api.GET("/api/v1/quotes");
     setQuotes(data ?? []);
@@ -425,9 +544,16 @@ export default function QuotesPage(): ReactNode {
       setCreateError("Choose a client for the quote.");
       return;
     }
-    const validLines = lines.filter(
-      (l) => (l.description ?? "").trim() !== "" && (l.quantity_milli ?? 0) > 0,
-    );
+    const validLines: QuoteLineInput[] = lines
+      .filter((l) => l.description.trim() !== "" && l.quantity_milli > 0)
+      .map((line) => ({
+        description: line.description.trim(),
+        catalog_item_id: line.catalog_item_id ?? null,
+        unit: line.unit ?? "each",
+        quantity_milli: line.quantity_milli,
+        unit_amount_minor: line.unit_price_minor,
+        taxable: line.taxable ?? true,
+      }));
     if (validLines.length === 0) {
       setCreateError("At least one line with a description and quantity is required.");
       return;
@@ -456,10 +582,10 @@ export default function QuotesPage(): ReactNode {
             currency: newCurrency,
             issued_on: isoDay(0),
             valid_until: newValidUntil,
-            subtotal_minor: quoteTotals().subtotalMinor,
+            subtotal_minor: totals.subtotalMinor,
             tax_rate_bps: Math.max(0, Number(newTaxRateBps) || 0),
-            tax_minor: quoteTotals().taxMinor,
-            total_minor: quoteTotals().totalMinor,
+            tax_minor: totals.taxMinor,
+            total_minor: totals.totalMinor,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             sent_at: null,
@@ -487,11 +613,48 @@ export default function QuotesPage(): ReactNode {
       return;
     }
     setCreateOpen(false);
-    setLines([{ ...EMPTY_LINE, description: "" }]);
+    setLines([{ ...EMPTY_LINE }]);
     setNewNotes("");
     setNewTaxRateBps("0");
+    setFromNotes(false);
+    setChecks([]);
+    setUnderstanding(null);
+    setSources([]);
+    setProposed(new Set());
     await refreshQuotes();
   }
+
+  function openBlank(): void {
+    setLines([{ ...EMPTY_LINE }]);
+    setNewNotes("");
+    setChecks([]);
+    setUnderstanding(null);
+    setBudgetMinor(null);
+    setFromNotes(false);
+    setSources([]);
+    setCreateError(null);
+    setBuilderTab("summary");
+    setCreateOpen(true);
+  }
+
+  // ---- keyboard: D opens the panel, or the change composer ---------------
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() !== "d") return;
+      if (!granted) return;
+      const target = event.target as HTMLElement | null;
+      if (target !== null && /^(input|textarea|select)$/i.test(target.tagName)) return;
+      if (createOpen) {
+        setBuilderTab("describe");
+        document.getElementById("change-composer")?.focus();
+        return;
+      }
+      setDescribeOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [createOpen, granted]);
 
   if (quotes === null && loadError === null) {
     return <Spinner />;
@@ -500,249 +663,263 @@ export default function QuotesPage(): ReactNode {
     return <EmptyState message={loadError} />;
   }
 
-  const totals = quoteTotals();
   const ledgerTotal = perCurrencySum(
     filteredByClause.map((q) => ({ currency: q.currency as string, amount: q.total_minor })),
   );
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
-      <MoneyHeader
-        title="Quotes"
-        eyebrow="Billing"
-        stats={
-          /* The quoting surface pairs its count with the title; the cluster's
-             own shortcut pills still read from the unfiltered ledger. */
-          <span className="m-money-count" data-testid="quotes-count">
-            <span className="m-money-count-dot" aria-hidden="true" />
-            {(quotes ?? []).length}
-          </span>
-        }
-        actions={
-        <>
-        <DescribeMoney
+    <div className="m-dsc-shell">
+      <div className="m-dsc-main">
+        <div className="mx-auto grid w-full max-w-[1400px] gap-6 p-4 md:p-6">
+          <MoneyHeader
+            title="Quotes"
+            eyebrow="Billing"
+            stats={
+              <span className="m-money-count" data-testid="quotes-count">
+                <span className="m-money-count-dot" aria-hidden="true" />
+                {(quotes ?? []).length}
+              </span>
+            }
+            actions={
+              <>
+                <DescribeMoney
+                  kind="quote"
+                  available={granted}
+                  onOpen={() => setDescribeOpen(true)}
+                  testId="quotes-describe"
+                />
+                <NewMoneySplit
+                  label="New quote"
+                  menuLabel="More ways to start a quote"
+                  testId="quotes-new"
+                  showDescribe={granted}
+                  onBlank={openBlank}
+                  onDescribe={() => setDescribeOpen(true)}
+                />
+              </>
+            }
+          />
+
+          <DataToolbar
+            label="Quote ledger controls"
+            views={
+              <ViewSwitch
+                label="Quote lifecycle"
+                activeId={statusFilter}
+                onChange={(id) => {
+                  setStatusFilter(id as QuoteStatus | "all");
+                  void prefs.save("quotes", {
+                    ...saved,
+                    view: id,
+                    columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                    filters: clauses,
+                  });
+                }}
+                views={STATUSES.map((st) => ({
+                  id: st,
+                  label: st === "all" ? "All quotes" : st,
+                  hint:
+                    st === "all"
+                      ? String((quotes ?? []).length)
+                      : String((quotes ?? []).filter((q) => q.status === st).length),
+                }))}
+              />
+            }
+            chips={
+              <FilterChips
+                fields={FILTER_FIELDS}
+                clauses={clauses}
+                onChange={(next) => {
+                  setClauses(next);
+                  void prefs.save("quotes", {
+                    ...saved,
+                    view: statusFilter,
+                    columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                    filters: next,
+                  });
+                }}
+                onAdd={() => setFilterOpen(true)}
+              />
+            }
+            filter={
+              <FilterTrigger
+                fields={FILTER_FIELDS}
+                clauses={clauses}
+                onChange={(next) => {
+                  setClauses(next);
+                  void prefs.save("quotes", {
+                    ...saved,
+                    view: statusFilter,
+                    columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
+                    filters: next,
+                  });
+                }}
+                open={filterOpen}
+                onOpenChange={setFilterOpen}
+              />
+            }
+            columns={
+              <ColumnChooser
+                columns={columns.map((c) => ({
+                  key: c.key,
+                  label: c.label,
+                  visible: c.visible,
+                  required: c.required,
+                }))}
+                onChange={(next) => {
+                  const merged = next.map((n) => {
+                    const def = COLUMNS.find((d) => d.key === n.key);
+                    return { key: n.key, label: def?.label ?? n.key, visible: n.visible, required: def?.required };
+                  });
+                  setColumns(merged);
+                  void prefs.save("quotes", {
+                    ...saved,
+                    view: statusFilter,
+                    columns: merged.map((c) => ({ key: c.key, visible: c.visible })),
+                    filters: clauses,
+                  });
+                }}
+              />
+            }
+            export={
+              <ExportControl
+                columns={visibleColumns.map((c) => c.label)}
+                rowCount={filteredByClause.length}
+                filters={clauses}
+                onExport={exportQuotes}
+                formats={["csv"]}
+              />
+            }
+          />
+
+          {actionError !== null && (
+            <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="quotes-action-error">
+              {actionError}
+            </p>
+          )}
+
+          <MoneyCard testId="quotes-ledger">
+            <div className="m-money-bar">
+              <span>
+                <b>{filteredByClause.length}</b> {statusFilter === "all" ? "quotes" : statusFilter} ·{" "}
+                <b>{ledgerTotal.value}</b> in total
+              </span>
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <Table data-testid="quotes-table">
+                <thead>
+                  <tr>
+                    {visibleColumns.map((column) => (
+                      <Th
+                        key={column.key}
+                        columnKey={column.key}
+                        className={column.key === "total" ? "text-right" : undefined}
+                      >
+                        {column.label}
+                      </Th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredByClause.map((q) => (
+                    <Tr key={q.id} className="row-hover" data-testid={`quotes-row-${q.id}`}>
+                      {visibleColumns.map((column) => (
+                        <Td key={column.key}>{cell(column.key, q)}</Td>
+                      ))}
+                    </Tr>
+                  ))}
+                  {filteredByClause.length === 0 && (
+                    <Tr>
+                      <Td>
+                        <EmptyState message="No quotes match this filter yet." />
+                      </Td>
+                    </Tr>
+                  )}
+                </tbody>
+              </Table>
+            </div>
+          </MoneyCard>
+
+          <footer className="m-money-foot">
+            <span className="m-money-foot-sp" />
+            <DensitySwitch
+              value={prefs.density}
+              onChange={(step) => {
+                applyDensity(step);
+                void prefs.setDensity(step);
+              }}
+            />
+          </footer>
+        </div>
+      </div>
+
+      {granted ? (
+        <DescribePanel
           kind="quote"
-          onDraft={(draft) => {
-            if (!("lines" in draft)) return;
-            setNewCurrency(draft.currency || "USD");
-            setNewValidUntil(isoDay(draft.valid_for_days ?? 30));
-            setNewTaxRateBps("0");
-            setNewNotes(draft.notes ?? "");
-            setLines(
-              draft.lines.length === 0
-                ? [{ ...EMPTY_LINE, description: "" }]
-                : draft.lines.map((line) => ({
-                    ...EMPTY_LINE,
-                    description: line.description,
-                    quantity_milli: line.quantity_milli,
-                    unit_amount_minor: line.unit_price_minor,
-                  })),
-            );
-            setCreateError(null);
+          open={describeOpen}
+          onClose={() => setDescribeOpen(false)}
+          clients={(clients ?? []).map((client) => ({ id: client.id, name: client.name }))}
+          onBuild={(draft, nextSources, nextKind) => {
+            if (nextKind !== "quote" || !("lines" in draft)) return;
+            applyDraft(draft);
+            setSources(nextSources);
+            setChecks(draft.checks ?? []);
+            setUnderstanding(draft.understanding ?? null);
+            setBudgetMinor(draft.budget_minor ?? null);
+            setFromNotes(true);
+            setBuilderTab("summary");
             setCreateOpen(true);
           }}
-          testId="quotes-describe"
+          onReady={() => setDescribeOpen(true)}
+          onStartBlank={(nextSources) => {
+            openBlank();
+            setSources(nextSources);
+            setFromNotes(true);
+            setBuilderTab(nextSources.length > 0 ? "notes" : "summary");
+          }}
+          testId="quotes-describe-panel"
         />
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button variant="primary" data-testid="quotes-new">New quote</Button>
-          </DialogTrigger>
-          <DialogContent title="Quote builder">
-            <Card className="grid max-h-[80vh] gap-3 overflow-auto p-4">
-              <h2 className="text-sm font-semibold">Quote builder</h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div className="grid gap-1">
-                  <Label htmlFor="quote-client">Client</Label>
-                  <Select value={newClientId} onValueChange={(v) => setNewClientId(v)}>
-                    <SelectTrigger id="quote-client" data-testid="quote-client">
-                      <SelectValue placeholder="Choose client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(clients ?? []).map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-1">
-                  <Label htmlFor="quote-currency">Currency</Label>
-                  <Input
-                    id="quote-currency"
-                    value={newCurrency}
-                    maxLength={3}
-                    onChange={(e) => setNewCurrency(e.target.value.toUpperCase())}
-                  />
-                </div>
-                <div className="grid gap-1">
-                  <Label htmlFor="quote-valid">Valid until</Label>
-                  <Input
-                    id="quote-valid"
-                    type="date"
-                    value={newValidUntil}
-                    onChange={(e) => setNewValidUntil(e.target.value)}
-                  />
-                </div>
-              </div>
+      ) : null}
 
-              <div className="grid gap-2">
-                <Label>Lines</Label>
-                {lines.map((line, index) => (
-                  <div
-                    key={index}
-                    className="grid gap-2 rounded-[var(--m-radius-control)] border p-2.5"
-                    style={{ borderColor: "var(--m-border)" }}
-                    data-testid={`quote-line-${index}`}
-                  >
-                    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1.3fr)]">
-                      <div className="grid gap-1">
-                        <Label>From catalog</Label>
-                        <Select
-                          value={line.catalog_item_id ?? "none"}
-                          onValueChange={(v) => pickCatalogItem(index, v)}
-                        >
-                          <SelectTrigger data-testid={`quote-line-item-${index}`} className="w-full [&>span]:truncate">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">— free-text line —</SelectItem>
-                            {(catalog ?? []).map((item) => (
-                              <SelectItem key={item.id} value={item.id}>
-                                {item.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>From stock</Label>
-                        <Select
-                          value={stockPick[index] ?? "none"}
-                          onValueChange={(v) => {
-                            setStockPick((cur) => ({ ...cur, [index]: v }));
-                            if (v !== "none") pickStockItem(index, v);
-                          }}
-                        >
-                          <SelectTrigger data-testid={`quote-line-stock-${index}`} className="w-full [&>span]:truncate">
-                            <SelectValue placeholder="— none —" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">— none —</SelectItem>
-                            {stockItems
-                              .filter((item) => item.active)
-                              .map((item) => (
-                                <SelectItem key={item.id} value={item.id}>
-                                  {item.name}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Description</Label>
-                        <Input
-                          value={line.description ?? ""}
-                          onChange={(e) => setLine(index, { description: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    {(() => {
-                      const stockItem = stockItems.find((s) => s.id === stockPick[index]);
-                      const availability = stockAvailability(stockItem?.id ?? null);
-                      if (stockItem === undefined || availability === null) return null;
-                      return (
-                        <p
-                          className="text-[12px]"
-                          style={{
-                            color:
-                              availability.totalMilli > 0
-                                ? "var(--m-text-secondary)"
-                                : "var(--m-status-warning-fg)",
-                          }}
-                          data-testid={`quote-line-availability-${index}`}
-                        >
-                          {formatQtyMilli(availability.totalMilli, stockItem.unit)} on hand
-                          {availability.low ? " · low stock" : ""}
-                          {availability.totalMilli === 0 ? " — the line is not reserved" : ""}
-                        </p>
-                      );
-                    })()}
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      <div className="grid gap-1">
-                        <Label>Quantity</Label>
-                        <Input
-                          inputMode="decimal"
-                          value={String((line.quantity_milli ?? 0) / 1000)}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            setLine(index, {
-                              quantity_milli: Number.isNaN(v) ? 0 : Math.round(v * 1000),
-                            });
-                          }}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Unit</Label>
-                        <Input
-                          value={line.unit ?? "each"}
-                          onChange={(e) => setLine(index, { unit: e.target.value || "each" })}
-                        />
-                      </div>
-                      <div className="grid gap-1">
-                        <Label>Unit price (major)</Label>
-                        <Input
-                          inputMode="decimal"
-                          value={String(((line.unit_amount_minor ?? 0) / 100).toFixed(2))}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            setLine(index, {
-                              unit_amount_minor: Number.isNaN(v) ? 0 : Math.round(v * 100),
-                            });
-                          }}
-                          data-testid={`quote-line-price-${index}`}
-                        />
-                      </div>
-                      <div className="grid content-end gap-1">
-                        <label className="flex items-center gap-1 text-xs" style={{ color: "var(--m-text-secondary)" }}>
-                          <input
-                            type="checkbox"
-                            checked={line.taxable === true}
-                            onChange={(e) => setLine(index, { taxable: e.target.checked })}
-                          />
-                          Taxable
-                        </label>
-                        <span style={{ color: "var(--m-text-muted)" }}>
-                          {money(
-                            Math.round((line.quantity_milli / 1000) * (line.unit_amount_minor ?? 0)),
-                            newCurrency,
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                    {lines.length > 1 && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setLines((cur) => cur.filter((_, i) => i !== index))}
-                      >
-                        Remove line
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => setLines((cur) => [...cur, { ...EMPTY_LINE, description: "" }])}
-                  data-testid="quote-add-line"
-                >
-                  Add line
-                </Button>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent title="Quote builder">
+          <Card className="grid max-h-[84vh] gap-3 overflow-auto p-4" data-testid="quote-builder">
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="grid min-w-[180px] flex-1 gap-1">
+                <Label htmlFor="quote-client">Client</Label>
+                <Select value={newClientId} onValueChange={(v) => setNewClientId(v)}>
+                  <SelectTrigger id="quote-client" data-testid="quote-client">
+                    <SelectValue placeholder="Choose client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(clients ?? []).map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-
-              <div className="grid gap-1">
-                <Label htmlFor="quote-tax">Tax rate (bps, applied to taxable subtotal)</Label>
+              <div className="grid w-[92px] gap-1">
+                <Label htmlFor="quote-currency">Currency</Label>
+                <Input
+                  id="quote-currency"
+                  value={newCurrency}
+                  maxLength={3}
+                  onChange={(e) => setNewCurrency(e.target.value.toUpperCase())}
+                />
+              </div>
+              <div className="grid w-[150px] gap-1">
+                <Label htmlFor="quote-valid">Valid until</Label>
+                <Input
+                  id="quote-valid"
+                  type="date"
+                  value={newValidUntil}
+                  onChange={(e) => setNewValidUntil(e.target.value)}
+                />
+              </div>
+              <div className="grid w-[110px] gap-1">
+                <Label htmlFor="quote-tax">Tax (bps)</Label>
                 <Input
                   id="quote-tax"
                   inputMode="numeric"
@@ -751,194 +928,225 @@ export default function QuotesPage(): ReactNode {
                 />
                 <FieldHint>800 = 8%.</FieldHint>
               </div>
-              <div className="grid gap-1">
-                <Label htmlFor="quote-notes">Notes</Label>
-                <Input id="quote-notes" value={newNotes} onChange={(e) => setNewNotes(e.target.value)} />
+            </div>
+
+            {fromNotes ? (
+              <div className="m-dsc-legend" data-testid="quote-from-notes">
+                <span>
+                  <span className="m-dsc-dot" data-source="notes" aria-hidden="true" /> From your notes
+                </span>
+                <span>
+                  <span className="m-dsc-dot" data-source="assumed" aria-hidden="true" /> Assumed, please check
+                </span>
+                <span>
+                  <span className="m-dsc-dot" data-source="catalogue" aria-hidden="true" /> From the catalogue
+                </span>
+                <span className="m-dsc-sp" />
+                {checks.length > 0 ? (
+                  <button
+                    type="button"
+                    className="m-dsc-option"
+                    onClick={() => setBuilderTab("summary")}
+                    data-testid="quote-checks-count"
+                  >
+                    {checks.length} to check
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="m-dsc-builder">
+              <div className="m-dsc-builder-main">
+                <div>
+                  <Label htmlFor="quote-notes">Scope and notes</Label>
+                  <textarea
+                    id="quote-notes"
+                    className="m-dsc-textarea"
+                    style={{ minHeight: 88, border: "1px solid var(--m-input)", borderRadius: "var(--m-radius-control)" }}
+                    value={newNotes}
+                    onChange={(e) => setNewNotes(e.target.value)}
+                    placeholder="What the customer will read on the quote."
+                  />
+                </div>
+
+                <div className="m-dsc-panel-card">
+                  <QuoteItemsTable
+                    lines={lines}
+                    currency={newCurrency}
+                    onChange={(index, patch) => setLine(index, patch)}
+                    showProvenance={fromNotes}
+                    noteNumbers={noteNumbers}
+                    proposed={proposed}
+                    editable
+                    onRemove={removeLine}
+                    testIdPrefix="quote"
+                  />
+                  <div className="flex flex-wrap items-center gap-2 border-t px-3 py-2" style={{ borderColor: "var(--m-border)" }}>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setLines((cur) => [...cur.filter((l) => l.description.trim() !== ""), { ...EMPTY_LINE }])}
+                      data-testid="quote-add-item"
+                    >
+                      Add item
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setLines((cur) => cur.filter((_, i) => i !== lines.length - 1))}
+                      data-testid="quote-remove-item"
+                    >
+                      Remove last
+                    </Button>
+                    <span className="flex-1" />
+                    <select
+                      className="m-dsc-select"
+                      style={{ width: 260 }}
+                      value={catalogPick}
+                      aria-label="From the catalogue"
+                      data-testid="quote-from-catalogue"
+                      onChange={(event) => {
+                        setCatalogPick("");
+                        if (event.target.value !== "") appendCatalogLine(event.target.value);
+                      }}
+                    >
+                      <option value="">From the catalogue…</option>
+                      {(catalog ?? []).map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} · {money(item.unit_price_minor, item.currency)}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="m-dsc-select"
+                      style={{ width: 220 }}
+                      value=""
+                      aria-label="From stock"
+                      data-testid="quote-from-stock"
+                      onChange={(event) => {
+                        if (event.target.value !== "") pickStockItem(event.target.value);
+                      }}
+                    >
+                      <option value="">From stock…</option>
+                      {stockItems
+                        .filter((item) => item.active)
+                        .map((item) => {
+                          const onHand = stockOnHand
+                            .filter((row) => row.stock_item_id === item.id)
+                            .reduce((sum, row) => sum + row.qty_milli, 0);
+                          return (
+                            <option key={item.id} value={item.id}>
+                              {item.name} · {formatQtyMilli(onHand, item.unit)} on hand
+                            </option>
+                          );
+                        })}
+                    </select>
+                  </div>
+                </div>
+
+                {fromNotes ? <ChangeBar onOpen={() => setBuilderTab("describe")} /> : null}
               </div>
 
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs">
-                <dt style={{ color: "var(--m-text-muted)" }}>Subtotal</dt>
-                <dd style={{ color: "var(--m-text)" }}>{money(totals.subtotalMinor, newCurrency)}</dd>
-                <dt style={{ color: "var(--m-text-muted)" }}>Tax</dt>
-                <dd style={{ color: "var(--m-text)" }}>{money(totals.taxMinor, newCurrency)}</dd>
-                <dt style={{ color: "var(--m-text-muted)" }}>Total</dt>
-                <dd className="font-semibold" style={{ color: "var(--m-text)" }}>
-                  {money(totals.totalMinor, newCurrency)}
-                </dd>
-              </dl>
+              <QuoteContextColumn
+                tab={fromNotes ? builderTab : "summary"}
+                onTab={setBuilderTab}
+                showTabs={fromNotes}
+                summary={
+                  <QuoteSummary
+                    clientName={newClientId === "" ? null : clientName(newClientId)}
+                    totalMinor={totals.totalMinor}
+                    optionalMinor={totals.optionalMinor}
+                    currency={newCurrency}
+                    validForDays={validDays(newValidUntil)}
+                    checks={checks}
+                    budgetMinor={budgetMinor}
+                    understanding={understanding}
+                  />
+                }
+                notes={
+                  <QuoteNotesTab
+                    sources={sources}
+                    lines={lines}
+                    noteNumbers={noteNumbers}
+                    emptyHint="This quote was built by hand. There are no words behind its lines."
+                  />
+                }
+                describe={
+                  <ChangeProposalCard
+                    instruction={changeInstruction}
+                    sentence={changeSentence}
+                    operations={changeOperations}
+                    resultingTotalMinor={changeTotal}
+                    currency={newCurrency}
+                    busy={changeBusy}
+                    error={changeError}
+                    onInstruction={setChangeInstruction}
+                    onSubmit={() => void proposeChange()}
+                    onApply={applyChange}
+                    onDismiss={() => {
+                      setChangeOperations([]);
+                      setChangeDraft(null);
+                      setChangeSentence(null);
+                      setChangeTotal(null);
+                      setProposed(new Set());
+                    }}
+                  />
+                }
+              />
+            </div>
 
-              {createError !== null && (
-                <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="quote-create-error">
-                  {createError}
-                </p>
-              )}
-              <DialogActions>
-                <Button variant="secondary" onClick={() => setCreateOpen(false)}>
-                  Cancel
-                </Button>
-                <Button disabled={createBusy} onClick={() => void createQuote()} data-testid="quote-save">
-                  Create quote
-                </Button>
-              </DialogActions>
-            </Card>
-          </DialogContent>
-        </Dialog>
-        </>
-        }
-      />
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-0.5 text-xs">
+              <dt style={{ color: "var(--m-text-muted)" }}>Subtotal</dt>
+              <dd style={{ color: "var(--m-text)" }}>{money(totals.subtotalMinor, newCurrency)}</dd>
+              <dt style={{ color: "var(--m-text-muted)" }}>Tax</dt>
+              <dd style={{ color: "var(--m-text)" }}>{money(totals.taxMinor, newCurrency)}</dd>
+              <dt style={{ color: "var(--m-text-muted)" }}>Total</dt>
+              <dd className="font-semibold" style={{ color: "var(--m-text)" }}>
+                {money(totals.totalMinor, newCurrency)}
+              </dd>
+            </dl>
 
-      <DataToolbar
-        label="Quote ledger controls"
-        views={
-          <ViewSwitch
-            label="Quote lifecycle"
-            activeId={statusFilter}
-            onChange={(id) => {
-              setStatusFilter(id as QuoteStatus | "all");
-              void prefs.save("quotes", {
-                ...saved,
-                view: id,
-                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
-                filters: clauses,
-              });
-            }}
-            views={STATUSES.map((st) => ({
-              id: st,
-              label: st === "all" ? "All quotes" : st,
-              hint:
-                st === "all"
-                  ? String((quotes ?? []).length)
-                  : String((quotes ?? []).filter((q) => q.status === st).length),
-            }))}
-          />
-        }
-        chips={
-          <FilterChips
-            fields={FILTER_FIELDS}
-            clauses={clauses}
-            onChange={(next) => {
-              setClauses(next);
-              void prefs.save("quotes", {
-                ...saved,
-                view: statusFilter,
-                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
-                filters: next,
-              });
-            }}
-            onAdd={() => setFilterOpen(true)}
-          />
-        }
-        filter={
-          <FilterTrigger
-            fields={FILTER_FIELDS}
-            clauses={clauses}
-            onChange={(next) => {
-              setClauses(next);
-              void prefs.save("quotes", {
-                ...saved,
-                view: statusFilter,
-                columns: columns.map((c) => ({ key: c.key, visible: c.visible })),
-                filters: next,
-              });
-            }}
-            open={filterOpen}
-            onOpenChange={setFilterOpen}
-          />
-        }
-        columns={
-          <ColumnChooser
-            columns={columns.map((c) => ({
-              key: c.key,
-              label: c.label,
-              visible: c.visible,
-              required: c.required,
-            }))}
-            onChange={(next) => {
-              const merged = next.map((n) => {
-                const def = COLUMNS.find((d) => d.key === n.key);
-                return { key: n.key, label: def?.label ?? n.key, visible: n.visible, required: def?.required };
-              });
-              setColumns(merged);
-              void prefs.save("quotes", {
-                ...saved,
-                view: statusFilter,
-                columns: merged.map((c) => ({ key: c.key, visible: c.visible })),
-                filters: clauses,
-              });
-            }}
-          />
-        }
-        export={
-          <ExportControl
-            columns={visibleColumns.map((c) => c.label)}
-            rowCount={filteredByClause.length}
-            filters={clauses}
-            onExport={exportQuotes}
-            formats={["csv"]}
-          />
-        }
-      />
-
-      {actionError !== null && (
-        <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="quotes-action-error">
-          {actionError}
-        </p>
-      )}
-
-      <MoneyCard testId="quotes-ledger">
-        <div className="m-money-bar">
-          <span>
-            <b>{filteredByClause.length}</b> {statusFilter === "all" ? "quotes" : statusFilter} ·{" "}
-            {/* Only ever a single-currency roll-up: a mixed set says so
-                rather than inventing an FX total. */}
-            <b>{ledgerTotal.value}</b> in total
-          </span>
-        </div>
-        <div style={{ overflowX: "auto" }}>
-        <Table data-testid="quotes-table">
-          <thead>
-            <tr>
-              {visibleColumns.map((column) => (
-                <Th
-                  key={column.key}
-                  columnKey={column.key}
-                  className={column.key === "total" ? "text-right" : undefined}
-                >
-                  {column.label}
-                </Th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredByClause.map((q) => (
-              <Tr key={q.id} className="row-hover" data-testid={`quotes-row-${q.id}`}>
-                {visibleColumns.map((column) => (
-                  <Td key={column.key}>{cell(column.key, q)}</Td>
-                ))}
-              </Tr>
-            ))}
-            {filteredByClause.length === 0 && (
-              <Tr>
-                <Td>
-                  <EmptyState message="No quotes match this filter yet." />
-                </Td>
-              </Tr>
+            {createError !== null && (
+              <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert" data-testid="quote-create-error">
+                {createError}
+              </p>
             )}
-          </tbody>
-        </Table>
-        </div>
-      </MoneyCard>
-
-      <footer className="m-money-foot">
-        <span className="m-money-foot-sp" />
-        <DensitySwitch
-          value={prefs.density}
-          onChange={(step) => {
-            applyDensity(step);
-            void prefs.setDensity(step);
-          }}
-        />
-      </footer>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => setCreateOpen(false)}>
+                Cancel
+              </Button>
+              <span className="flex-1" />
+              <Button disabled={createBusy} onClick={() => void createQuote()} data-testid="quote-save">
+                Create quote
+              </Button>
+            </div>
+          </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
+}
+
+/** The slim bar under the item table: changes stay one move away (key D). */
+function ChangeBar({ onOpen }: { onOpen: () => void }): ReactNode {
+  return (
+    <div className="m-dsc-bar" data-testid="quote-change-bar">
+      <span
+        className="flex flex-1 items-center gap-2"
+        style={{ color: "var(--m-text-secondary)", fontSize: 14 }}
+      >
+        <Kbd>D</Kbd>
+        Change something, or add an item
+      </span>
+      <button type="button" className="m-dsc-option" aria-label="Describe a change" onClick={onOpen}>
+        Describe a change
+      </button>
+    </div>
+  );
+}
+
+function validDays(iso: string): number | null {
+  const target = new Date(`${iso}T00:00:00`).getTime();
+  if (Number.isNaN(target)) return null;
+  return Math.max(0, Math.round((target - Date.now()) / 86_400_000));
 }

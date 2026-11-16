@@ -17,7 +17,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
-import KbPage from "../../app/kb/page";
+import KbPage from "../../app/kb/articles/page";
 import DocumentsPage from "../../app/documents/page";
 import AlertsPage from "../../app/alerts/page";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
@@ -165,7 +165,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("/kb — publish state", () => {
+describe("/kb/articles — publish state", () => {
   it("marks an article in the portal only when it AND its category are client-facing", async () => {
     setupKb();
     render(

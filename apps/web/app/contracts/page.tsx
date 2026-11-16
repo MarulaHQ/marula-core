@@ -1,5 +1,4 @@
-// /contracts — the contract ledger, rebuilt against the Marula surface pack
-// (Wave 41 lane 7 `p41-ui-clients`).
+// /contracts — the contract ledger and the Describe it authoring surface.
 //
 // DERIVATION-GUIDE: `/contracts` and `/contracts/[id]` **Derive** from TL and
 // the KIT components, changing two things: the ledger carries a Status
@@ -12,14 +11,16 @@
 // approaching its end is none of them. A term that has ALREADY elapsed is
 // different: the contract has run past its end, which is a real commercial
 // event, so that one is allowed red, and only once it is actually past.
-// `renewalSignal` in lib/renewal-signals.ts is the single implementation of
-// that rule, shared with the client record so the two can never disagree.
 //
-// Purpose: know what was promised, for how long, and when it renews
-// (marula-surface-brief §5.8).
+// Purpose: know what was promised, for how long, and when it renews. The
+// Describe it panel (pack C01–C06) docks at 440px and builds a draft the same
+// way the quote panel does — with one rule it states out loud: **no legal
+// wording is written by a model.** A draft names clauses from the approved
+// library and may fill one parameter; a clause that differs from the standard
+// is flagged for legal review, and that flag survives with no grant too.
 //
-// Non-purpose: no contract authoring on this page beyond the create dialog
-// (which the record also carries); no invoice runs.
+// Non-purpose: no contract authoring on this page beyond the builder (which the
+// record also carries); no invoice runs.
 "use client";
 
 import {
@@ -28,9 +29,7 @@ import {
   ColumnChooser,
   DataToolbar,
   Dialog,
-  DialogActions,
   DialogContent,
-  DialogTrigger,
   EmptyState,
   ExportControl,
   FieldHint,
@@ -42,19 +41,19 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceFooter,
   SurfaceHeader,
   Table,
   Td,
   Th,
   Tr,
   ViewSwitch,
-  SurfaceFooter,
   DensitySwitch,
 } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { rejectionText } from "../../lib/error-copy";
 import { api, useRequireAuth } from "../../lib/api";
 import { money } from "../../lib/format";
@@ -62,7 +61,36 @@ import { ErrorNote } from "../../components/knowledge/ledger";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
 import { formatPackDate, renewalSignal } from "../../lib/renewal-signals";
-import { DescribeMoney } from "../../components/money/describe-money";
+import {
+  contractClauses,
+  proposeContractChange,
+  type ChangeOperation,
+  type ClauseRef,
+  type ContractDraft,
+  type ContractPriceLine,
+  type MoneySource,
+  type Understanding,
+} from "../../lib/money-authoring";
+import {
+  DescribeMoney,
+  DescribePanel,
+  NewMoneySplit,
+  useMoneyAuthoring,
+} from "../../components/money/describe-money";
+import {
+  ChangeProposalCard,
+  QuoteContextColumn,
+  type BuilderTab,
+} from "../../components/money/quote-draft-builder";
+import {
+  ClauseList,
+  ContractParties,
+  ContractPricing,
+  ContractServiceLevels,
+  ContractSummary,
+  proposedPricingIndexes,
+} from "../../components/money/contract-draft-builder";
+import { contractTotal, formatMoneyMinor } from "../../components/money/draft-math";
 
 type Contract = components["schemas"]["Contract"];
 type ContractType = components["schemas"]["ContractType"];
@@ -94,8 +122,6 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-/** The pack's views: the ledger itself plus the two things an account manager
- * hunts for in it. */
 const VIEWS = [
   { id: "all", label: "All" },
   { id: "active", label: "Active" },
@@ -120,19 +146,29 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export default function ContractsPage() {
+function addMonths(iso: string, months: number): string {
+  const date = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+  date.setMonth(date.getMonth() + months);
+  return date.toISOString().slice(0, 10);
+}
+
+export default function ContractsPage(): ReactNode {
   const auth = useRequireAuth();
   const prefs = useDataSurfacePrefs();
+  const granted = useMoneyAuthoring("contract_authoring");
 
   const [contracts, setContracts] = useState<Contract[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [library, setLibrary] = useState<ClauseRef[]>([]);
 
   const [view, setView] = useState("all");
   const [typeFilter, setTypeFilter] = useState<ContractType | "all">("all");
   const [clientFilter, setClientFilter] = useState<string>("all");
   const [query, setQuery] = useState("");
 
+  // ---- builder -----------------------------------------------------------
   const [createOpen, setCreateOpen] = useState(false);
   const [number, setNumber] = useState("");
   const [name, setName] = useState("");
@@ -145,6 +181,34 @@ export default function ContractsPage() {
   const [frequency, setFrequency] = useState<string>("monthly");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // The draft's memory.
+  const [pricing, setPricing] = useState<ContractPriceLine[]>([]);
+  const [clauseRefs, setClauseRefs] = useState<ClauseRef[]>([]);
+  const [sources, setSources] = useState<MoneySource[]>([]);
+  const [checks, setChecks] = useState<string[]>([]);
+  const [understanding, setUnderstanding] = useState<Understanding | null>(null);
+  const [termMonths, setTermMonths] = useState<number | null>(null);
+  const [fromNotes, setFromNotes] = useState(false);
+  const [builderTab, setBuilderTab] = useState<BuilderTab>("summary");
+
+  // ---- changes by describing --------------------------------------------
+  const [changeInstruction, setChangeInstruction] = useState("");
+  const [changeBusy, setChangeBusy] = useState(false);
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [changeSentence, setChangeSentence] = useState<string | null>(null);
+  const [changeOperations, setChangeOperations] = useState<ChangeOperation[]>([]);
+  const [changeDraft, setChangeDraft] = useState<ContractDraft | null>(null);
+  const [changeTotal, setChangeTotal] = useState<number | null>(null);
+  const [proposed, setProposed] = useState<Set<number>>(new Set());
+
+  // ---- describe ----------------------------------------------------------
+  const [describeOpen, setDescribeOpen] = useState(false);
+  const [renewal, setRenewal] = useState<{
+    text: string;
+    using: { label: string; icon: "file" | "ticket" | "chart" }[];
+  } | null>(null);
+  const renewHandled = useRef(false);
 
   const now = Date.now();
 
@@ -167,6 +231,15 @@ export default function ContractsPage() {
     if (auth.status === "authed") void refresh();
   }, [auth.status, refresh]);
 
+  // The clause library is read once: it is the only source of clause text, and
+  // the builder shows it with no grant too (where its own column has no marks).
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    void contractClauses()
+      .then((rows) => setLibrary(rows))
+      .catch(() => undefined);
+  }, [auth.status]);
+
   const clientName = useMemo(() => {
     const map = new Map(clients.map((c) => [c.id, c.name]));
     return (id: string) => map.get(id) ?? "—";
@@ -177,9 +250,6 @@ export default function ContractsPage() {
     return {
       active: list.filter((c) => c.status === "active").length,
       draft: list.filter((c) => c.status === "draft").length,
-      // Every contract whose term is inside the renewal window, and every
-      // contract whose term has already elapsed. One definition, used by the
-      // pill and the view that filters on it.
       renewing: list.filter((c) => {
         const s = renewalSignal(c.effective_until, now);
         return s !== null && s.days >= 0;
@@ -213,9 +283,7 @@ export default function ContractsPage() {
   }, [contracts, view, typeFilter, clientFilter, query, clientName, now]);
 
   const saved = prefs.view(SURFACE);
-  const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(
-    COLUMNS.map((c) => c.id),
-  );
+  const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(COLUMNS.map((c) => c.id));
   useEffect(() => {
     if (!prefs.ready) return;
     const savedIds = saved.columns.map((c) => c.key as ColumnId);
@@ -244,9 +312,50 @@ export default function ContractsPage() {
   const createDisabled =
     creating || number.trim() === "" || name.trim() === "" || clientId === "";
 
+  const pricingTotal = contractTotal(pricing, amount.trim() === "" ? null : Math.round(Number(amount) * 100));
+
+  function resetDraft(): void {
+    setPricing([]);
+    setClauseRefs([]);
+    setSources([]);
+    setChecks([]);
+    setUnderstanding(null);
+    setTermMonths(null);
+    setFromNotes(false);
+    setProposed(new Set());
+    setBuilderTab("summary");
+    setChangeInstruction("");
+    setChangeOperations([]);
+    setChangeSentence(null);
+    setChangeDraft(null);
+    setChangeTotal(null);
+  }
+
+  /** The renewal path (C05): prefill the panel from the contract it starts at. */
+  useEffect(() => {
+    if (renewHandled.current || contracts === null) return;
+    if (typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("renew");
+    if (id === null || id === "") return;
+    const contract = contracts.find((c) => c.id === id);
+    if (contract === undefined) return;
+    renewHandled.current = true;
+    const start = contract.effective_until ?? today();
+    setRenewal({
+      text: `Renew ${contract.name} for ${clientName(contract.client_id)} from ${formatPackDate(start) ?? start} on the same terms.`,
+      using: [
+        { label: `Contract ${contract.number}`, icon: "file" },
+        { label: "12 months of tickets", icon: "ticket" },
+        { label: "Usage and invoices", icon: "chart" },
+      ],
+    });
+    setDescribeOpen(true);
+  }, [contracts, clientName]);
+
   const createContract = async () => {
     setCreating(true);
     setCreateError(null);
+    const monthly = pricingTotal > 0 ? pricingTotal : null;
     const result = await runEnvelopeMutation<
       components["schemas"]["CreateContractRequest"],
       ContractMutationResponse
@@ -264,7 +373,7 @@ export default function ContractsPage() {
         currency: currency.trim() === "" ? "USD" : currency.trim(),
         effective_from: effectiveFrom,
         effective_until: effectiveUntil === "" ? null : effectiveUntil,
-        amount_minor: amount.trim() === "" ? null : Math.round(Number(amount) * 100),
+        amount_minor: monthly,
         billing_frequency:
           type === "recurring" || type === "retainer"
             ? (frequency as components["schemas"]["BillingFrequency"])
@@ -284,372 +393,691 @@ export default function ContractsPage() {
     setClientId("");
     setAmount("");
     setEffectiveUntil("");
+    resetDraft();
     void refresh();
   };
+
+  function currentDraft(): ContractDraft {
+    const months =
+      termMonths ??
+      (effectiveUntil === "" ? null : monthsBetween(effectiveFrom, effectiveUntil));
+    return {
+      name,
+      contract_type: type,
+      billing_frequency: frequency,
+      value_minor: pricingTotal > 0 ? pricingTotal : null,
+      currency,
+      term_months: months,
+      effective_from: effectiveFrom,
+      notes: null,
+      clauses: clauseRefs.map((clause) => clause.title),
+      clause_refs: clauseRefs,
+      pricing,
+      client_id: clientId === "" ? null : clientId,
+      client_name: clientId === "" ? null : clientName(clientId),
+      assumptions: [],
+      understanding,
+      checks,
+    };
+  }
+
+  function applyContract(draft: ContractDraft): void {
+    setName(draft.name);
+    if (TYPES.includes(draft.contract_type as ContractType)) setType(draft.contract_type as ContractType);
+    if (draft.billing_frequency !== null && draft.billing_frequency !== undefined) {
+      setFrequency(draft.billing_frequency);
+    }
+    if (draft.currency !== "") setCurrency(draft.currency);
+    if (draft.client_id !== null && draft.client_id !== undefined) setClientId(draft.client_id);
+    if (draft.effective_from !== null && draft.effective_from !== undefined) {
+      setEffectiveFrom(draft.effective_from);
+    }
+    setTermMonths(draft.term_months ?? null);
+    if (draft.term_months !== null && draft.term_months !== undefined) {
+      setEffectiveUntil(addMonths(draft.effective_from ?? today(), draft.term_months));
+    }
+    setPricing(draft.pricing ?? []);
+    setClauseRefs(draft.clause_refs ?? []);
+    setAmount(
+      draft.value_minor === null || draft.value_minor === undefined
+        ? ""
+        : (draft.value_minor / 100).toFixed(2),
+    );
+    setChecks(draft.checks ?? []);
+    setUnderstanding(draft.understanding ?? null);
+    setProposed(new Set());
+  }
+
+  async function proposeChange(): Promise<void> {
+    setChangeBusy(true);
+    setChangeError(null);
+    const outcome = await proposeContractChange(currentDraft(), changeInstruction.trim());
+    setChangeBusy(false);
+    if (!outcome.ok) {
+      setChangeError(outcome.message);
+      return;
+    }
+    if (!outcome.result.valid || outcome.result.draft === null || outcome.result.draft === undefined) {
+      setChangeError(
+        outcome.result.issues[0]?.message ?? "I could not read a change in that sentence.",
+      );
+      return;
+    }
+    setChangeSentence(outcome.result.sentence);
+    setChangeOperations(outcome.result.operations);
+    setChangeDraft(outcome.result.draft);
+    setChangeTotal(outcome.result.resulting_total_minor);
+    setProposed(proposedPricingIndexes(outcome.result.operations.map((o) => o.path)));
+  }
+
+  function applyChange(): void {
+    if (changeDraft === null || changeDraft === undefined) return;
+    applyContract(changeDraft);
+    setChangeInstruction("");
+    setChangeOperations([]);
+    setChangeSentence(null);
+    setChangeDraft(null);
+    setChangeTotal(null);
+  }
+
+  function openBlank(): void {
+    resetDraft();
+    setCreateError(null);
+    setCreateOpen(true);
+  }
+  function currentClauseDraft(): ContractDraft {
+    return {
+      name,
+      contract_type: type,
+      billing_frequency: frequency,
+      value_minor: pricingTotal > 0 ? pricingTotal : null,
+      currency,
+      term_months: termMonths,
+      effective_from: effectiveFrom,
+      notes: null,
+      clauses: clauseRefs.map((clause) => clause.title),
+      clause_refs: clauseRefs,
+      pricing,
+      client_id: clientId === "" ? null : clientId,
+      client_name: clientId === "" ? null : clientName(clientId),
+      assumptions: [],
+      understanding,
+      checks,
+    };
+  }
+
+
+  // ---- keyboard ----------------------------------------------------------
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key.toLowerCase() !== "d") return;
+      if (!granted) return;
+      const target = event.target as HTMLElement | null;
+      if (target !== null && /^(input|textarea|select)$/i.test(target.tagName)) return;
+      if (createOpen) {
+        setBuilderTab("describe");
+        document.getElementById("change-composer")?.focus();
+        return;
+      }
+      setDescribeOpen(true);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [createOpen, granted]);
 
   if (auth.status !== "authed") return null;
 
   const cell = (id: ColumnId) => visibleColumns.includes(id);
 
   return (
-    <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
-      <SurfaceHeader
-        title="Contracts"
-        meta={
-          <div className="flex flex-wrap items-center gap-2">
-          <StatPill label="active" count={posture.active} active={view === "active"} dot="var(--m-canopy)" onToggle={() => setView(view === "active" ? "all" : "active")} />
-          <StatPill
-          label="renewing soon"
-          count={posture.renewing}
-          active={view === "renewing"}
-          dot="var(--m-blush)"
-          onToggle={() => setView(view === "renewing" ? "all" : "renewing")}
+    <div className="m-dsc-shell">
+      <div className="m-dsc-main">
+        <div className="mx-auto grid w-full max-w-[1400px] gap-4 p-4 md:p-6">
+          <SurfaceHeader
+            title="Contracts"
+            meta={
+              <div className="flex flex-wrap items-center gap-2">
+                <StatPill label="active" count={posture.active} active={view === "active"} dot="var(--m-canopy)" onToggle={() => setView(view === "active" ? "all" : "active")} />
+                <StatPill
+                  label="renewing soon"
+                  count={posture.renewing}
+                  active={view === "renewing"}
+                  dot="var(--m-blush)"
+                  onToggle={() => setView(view === "renewing" ? "all" : "renewing")}
+                />
+                <StatPill label="draft" count={posture.draft} active={false} dot="var(--m-input)" onToggle={() => undefined} />
+                {posture.elapsed > 0 ? (
+                  <StatPill label="term elapsed" count={posture.elapsed} active={false} dot="var(--m-danger)" onToggle={() => undefined} />
+                ) : null}
+              </div>
+            }
+            actions={
+              <>
+                <DescribeMoney
+                  kind="contract"
+                  available={granted}
+                  onOpen={() => setDescribeOpen(true)}
+                  testId="contracts-describe"
+                />
+                <NewMoneySplit
+                  label="New contract"
+                  menuLabel="More ways to start a contract"
+                  testId="new-contract"
+                  showDescribe={granted}
+                  onBlank={openBlank}
+                  onDescribe={() => setDescribeOpen(true)}
+                />
+              </>
+            }
           />
-          <StatPill label="draft" count={posture.draft} active={false} dot="var(--m-input)" onToggle={() => undefined} />
-          {posture.elapsed > 0 ? (
-          <StatPill label="term elapsed" count={posture.elapsed} active={false} dot="var(--m-danger)" onToggle={() => undefined} />
-          ) : null}
+
+          <div style={{ "--m-card-padding": "0px" } as React.CSSProperties}>
+            <DataToolbar
+              views={<ViewSwitch views={VIEWS} activeId={view} onChange={setView} label="Contract views" />}
+              filters={
+                <>
+                  <div className="w-52">
+                    <Input
+                      aria-label="Search contracts"
+                      placeholder="Search number, name or client…"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-40">
+                    <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as ContractType | "all")}>
+                      <SelectTrigger aria-label="Filter by type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All types</SelectItem>
+                        {TYPES.map((t) => (
+                          <SelectItem key={t} value={t}>
+                            {TYPE_LABEL[t]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-44">
+                    <Select value={clientFilter} onValueChange={setClientFilter}>
+                      <SelectTrigger aria-label="Filter by client">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All clients</SelectItem>
+                        {clients.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              }
+              columns={
+                <ColumnChooser
+                  columns={COLUMNS.map((c) => ({
+                    key: c.id,
+                    label: c.label,
+                    visible: visibleColumns.includes(c.id),
+                  }))}
+                  onChange={onColumnsChange}
+                />
+              }
+              export={
+                <ExportControl
+                  columns={visible.map((c) => c.label)}
+                  rowCount={filtered === null ? 0 : filtered.length}
+                  onExport={() => {}}
+                />
+              }
+            />
           </div>
-        }
-        actions={
-          <>
-          <DescribeMoney
-            kind="contract"
-            onDraft={(draft) => {
-              if ("lines" in draft) return;
-              setName(draft.name);
-              if (TYPES.includes(draft.contract_type as ContractType)) {
-                setType(draft.contract_type as ContractType);
-              }
-              if (draft.billing_frequency) setFrequency(draft.billing_frequency);
-              if (draft.value_minor != null) setAmount((draft.value_minor / 100).toFixed(2));
-              if (draft.currency) setCurrency(draft.currency);
-              const from = draft.effective_from ?? today();
-              setEffectiveFrom(from);
-              if (draft.term_months != null && draft.term_months > 0) {
-                const start = new Date(`${from}T00:00:00`);
-                start.setMonth(start.getMonth() + draft.term_months);
-                setEffectiveUntil(start.toISOString().slice(0, 10));
-              }
-              setCreateError(null);
-              setCreateOpen(true);
-            }}
-            testId="contracts-describe"
+
+          <div
+            className="overflow-hidden rounded-2xl border"
+            style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
+          >
+            {loadError !== null ? (
+              <div className="p-4">
+                <ErrorNote>{loadError}</ErrorNote>
+              </div>
+            ) : filtered === null ? (
+              <div className="p-4">
+                <Spinner />
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="p-4">
+                <EmptyState message="No contracts match this view. A contract is what an invoice run bills against." />
+              </div>
+            ) : (
+              <Table>
+                <thead>
+                  <tr>
+                    {cell("number") ? <Th>Number</Th> : null}
+                    {cell("name") ? <Th>Name</Th> : null}
+                    {cell("client") ? <Th>Client</Th> : null}
+                    {cell("type") ? <Th>Type</Th> : null}
+                    {cell("status") ? <Th>Status</Th> : null}
+                    {cell("term") ? <Th>Term</Th> : null}
+                    {cell("amount") ? <Th className="text-right">Per period</Th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((contract, i) => {
+                    const signal = renewalSignal(contract.effective_until, now);
+                    return (
+                      <Tr
+                        key={contract.id}
+                        className="m-entity-row"
+                        style={{ animationDelay: `${Math.min(i * 20, 160)}ms` }}
+                        data-testid={`contract-row-${contract.id}`}
+                      >
+                        {cell("number") ? (
+                          <Td>
+                            <Link
+                              href={`/contracts/${contract.id}`}
+                              className="text-[13px] underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
+                            >
+                              {contract.number}
+                            </Link>
+                          </Td>
+                        ) : null}
+                        {cell("name") ? <Td className="font-medium">{contract.name}</Td> : null}
+                        {cell("client") ? (
+                          <Td>
+                            <Link href={`/clients/${contract.client_id}`} className="text-[13px] underline underline-offset-2">
+                              {clientName(contract.client_id)}
+                            </Link>
+                          </Td>
+                        ) : null}
+                        {cell("type") ? (
+                          <Td>
+                            <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
+                              {TYPE_LABEL[contract.contract_type]}
+                            </span>
+                          </Td>
+                        ) : null}
+                        {cell("status") ? (
+                          <Td>
+                            <Badge tone={statusTone(contract.status)}>
+                              {STATUS_LABEL[contract.status] ?? contract.status}
+                            </Badge>
+                          </Td>
+                        ) : null}
+                        {cell("term") ? (
+                          <Td>
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span className="text-[13px] tabular-nums">
+                                {formatPackDate(contract.effective_from) ?? "—"}
+                                {" → "}
+                                {contract.effective_until != null && contract.effective_until !== ""
+                                  ? formatPackDate(contract.effective_until)
+                                  : "open"}
+                              </span>
+                              {signal !== null ? (
+                                <Badge tone={signal.tone === "danger" ? "danger" : "due"}>
+                                  <span className="inline-flex items-center gap-1">
+                                    <Icon name="clock" size={13} />
+                                    {signal.label}
+                                  </span>
+                                </Badge>
+                              ) : null}
+                            </span>
+                          </Td>
+                        ) : null}
+                        {cell("amount") ? (
+                          <Td className="text-right text-[13px] font-semibold tabular-nums">
+                            {contract.amount_minor != null ? (
+                              <>
+                                {money(contract.amount_minor, contract.currency)}
+                                <span className="ml-1 font-normal" style={{ color: "var(--m-text-muted)" }}>
+                                  / {contract.billing_frequency ?? "period"}
+                                </span>
+                              </>
+                            ) : (
+                              <span style={{ color: "var(--m-text-muted)" }}>—</span>
+                            )}
+                          </Td>
+                        ) : null}
+                      </Tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            )}
+          </div>
+
+          <SurfaceFooter
+            shown={filtered?.length ?? 0}
+            total={
+              filtered !== null && contracts !== null && filtered.length !== contracts.length
+                ? contracts.length
+                : undefined
+            }
+            noun="contract"
+            density={<DensitySwitch value={prefs.density} onChange={(step) => void prefs.setDensity(step)} variant="icons" label="Row density" />}
+            trailing={<span className="tabular-nums">Booked per period: {posture.book}</span>}
           />
-          <Dialog
-          open={createOpen}
-          onOpenChange={(open) => {
+        </div>
+      </div>
+
+      {granted ? (
+        <DescribePanel
+          kind="contract"
+          open={describeOpen}
+          onClose={() => setDescribeOpen(false)}
+          clients={clients.map((client) => ({ id: client.id, name: client.name }))}
+          prefilled={renewal}
+          onBuild={(draft, nextSources, nextKind) => {
+            if (nextKind !== "contract" || "lines" in draft) return;
+            applyContract(draft);
+            setSources(nextSources);
+            setFromNotes(true);
+            setBuilderTab("summary");
+            setCreateOpen(true);
+          }}
+          onReady={() => setDescribeOpen(true)}
+          onStartBlank={(nextSources) => {
+            openBlank();
+            setSources(nextSources);
+            setFromNotes(true);
+            setBuilderTab(nextSources.length > 0 ? "notes" : "summary");
+          }}
+          testId="contracts-describe-panel"
+        />
+      ) : null}
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
           setCreateOpen(open);
           if (!open) setCreateError(null);
-          }}
-          >
-          <DialogTrigger asChild>
-          <Button variant="primary" data-testid="new-contract">
-          <PlusIcon />
-          New contract
-          </Button>
-          </DialogTrigger>
-          <DialogContent
-          title="New contract"
+        }}
+      >
+        <DialogContent
+          title="Contract builder"
           description="A contract is the commercial agreement an invoice run bills against. Draft contracts preview and are refused by invoice runs."
-          >
-          <div className="grid gap-3 p-4">
-          <div className="grid grid-cols-2 gap-3">
-          <div>
-          <Label htmlFor="ct-number">Number</Label>
-          <Input id="ct-number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="CTR-2026-04" />
-          </div>
-          <div>
-          <Label htmlFor="ct-name">Name</Label>
-          <Input id="ct-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Managed Gold" />
-          </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-          <div>
-          <Label htmlFor="ct-client">Client</Label>
-          <Select value={clientId} onValueChange={setClientId}>
-          <SelectTrigger id="ct-client" className="w-full">
-          <SelectValue placeholder="Choose a client" />
-          </SelectTrigger>
-          <SelectContent>
-          {clients.map((c) => (
-          <SelectItem key={c.id} value={c.id}>
-          {c.name}
-          </SelectItem>
-          ))}
-          </SelectContent>
-          </Select>
-          </div>
-          <div>
-          <Label htmlFor="ct-type">Type</Label>
-          <Select value={type} onValueChange={(v) => setType(v as ContractType)}>
-          <SelectTrigger id="ct-type" className="w-full">
-          <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-          {TYPES.map((t) => (
-          <SelectItem key={t} value={t}>
-          {TYPE_LABEL[t]}
-          </SelectItem>
-          ))}
-          </SelectContent>
-          </Select>
-          </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-          <div>
-          <Label htmlFor="ct-from">Effective from</Label>
-          <Input id="ct-from" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-          </div>
-          <div>
-          <Label htmlFor="ct-until">Effective until</Label>
-          <Input id="ct-until" type="date" value={effectiveUntil} onChange={(e) => setEffectiveUntil(e.target.value)} />
-          <FieldHint>Empty means open-ended: there is nothing to renew.</FieldHint>
-          </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-          <div>
-          <Label htmlFor="ct-amount">Per-period price</Label>
-          <Input id="ct-amount" type="number" min={0} step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Optional" />
-          </div>
-          <div>
-          <Label htmlFor="ct-freq">Billing frequency</Label>
-          <Select value={frequency} onValueChange={setFrequency}>
-          <SelectTrigger id="ct-freq" className="w-full">
-          <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-          {["weekly", "monthly", "quarterly", "semiannual", "annual"].map((f) => (
-          <SelectItem key={f} value={f}>
-          {f}
-          </SelectItem>
-          ))}
-          </SelectContent>
-          </Select>
-          <FieldHint>Applies to recurring and retainer contracts.</FieldHint>
-          </div>
-          </div>
-          {createError !== null ? (
-          <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {createError}
-          </p>
-          ) : null}
-          <DialogActions>
-          <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-          Cancel
-          </Button>
-          <Button onClick={() => void createContract()} disabled={createDisabled}>
-          {creating ? <Spinner /> : null} Create contract
-          </Button>
-          </DialogActions>
-          </div>
-          </DialogContent>
-          </Dialog>
-          </>
-        }
-      />
+        >
+          <div className="grid max-h-[84vh] gap-4 overflow-auto p-4" data-testid="contract-builder">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="ct-number">Number</Label>
+                <Input id="ct-number" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="CTR-2026-04" />
+              </div>
+              <div>
+                <Label htmlFor="ct-name">Name</Label>
+                <Input id="ct-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Managed Gold" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="ct-client">Client</Label>
+                <Select value={clientId} onValueChange={setClientId}>
+                  <SelectTrigger id="ct-client" className="w-full">
+                    <SelectValue placeholder="Choose a client" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="ct-type">Type</Label>
+                <Select value={type} onValueChange={(v) => setType(v as ContractType)}>
+                  <SelectTrigger id="ct-type" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TYPE_LABEL[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="ct-from">Effective from</Label>
+                <Input id="ct-from" type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="ct-until">Effective until</Label>
+                <Input id="ct-until" type="date" value={effectiveUntil} onChange={(e) => setEffectiveUntil(e.target.value)} />
+                <FieldHint>Empty means open-ended: there is nothing to renew.</FieldHint>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="ct-amount">Per-period price</Label>
+                <Input
+                  id="ct-amount"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={pricing.length > 0 ? (pricingTotal / 100).toFixed(2) : amount}
+                  onChange={(e) => {
+                    setPricing([]);
+                    setAmount(e.target.value);
+                  }}
+                  placeholder="Optional"
+                  data-testid="ct-amount"
+                />
+                <FieldHint>
+                  {pricing.length > 0
+                    ? "Built from the quantities and rates below."
+                    : "Type a price, or let a described draft build it from quantities."}
+                </FieldHint>
+              </div>
+              <div>
+                <Label htmlFor="ct-freq">Billing frequency</Label>
+                <Select value={frequency} onValueChange={setFrequency}>
+                  <SelectTrigger id="ct-freq" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["weekly", "monthly", "quarterly", "semiannual", "annual"].map((f) => (
+                      <SelectItem key={f} value={f}>
+                        {f}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldHint>Applies to recurring and retainer contracts.</FieldHint>
+              </div>
+            </div>
 
-      {/* The toolbar's vertical padding is `var(--m-card-padding)`, and the
-          pack's toolbar sits flush under the page head. The primitive takes no
-          `style`, so the override rides a wrapper that owns the custom
-          property — that keeps the fix on this surface instead of
-          restyling a component every data surface in the app shares. */}
-      <div style={{ "--m-card-padding": "0px" } as React.CSSProperties}>
-      <DataToolbar
-        views={<ViewSwitch views={VIEWS} activeId={view} onChange={setView} label="Contract views" />}
-        filters={
-          <>
-            <div className="w-52">
-              {/* Widths ride wrapper divs, not the controls: `.m-input` and
-                  `.m-select-trigger` are unlayered `width: 100%` rules that
-                  outrank a Tailwind utility on the element itself. */}
-              <Input
-                aria-label="Search contracts"
-                placeholder="Search number, name or client…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+            <div className="m-dsc-builder">
+              <div className="m-dsc-builder-main">
+                {fromNotes && checks.length > 0 ? (
+                  <div className="m-dsc-legend">
+                    <span>
+                      <span className="m-dsc-dot" data-source="notes" aria-hidden="true" /> From your words
+                    </span>
+                    <span>
+                      <span className="m-dsc-dot" data-source="assumed" aria-hidden="true" /> Assumed, please check
+                    </span>
+                    <span className="m-dsc-sp" />
+                    <button
+                      type="button"
+                      className="m-dsc-option"
+                      onClick={() => setBuilderTab("summary")}
+                      data-testid="contract-checks-count"
+                    >
+                      {checks.length} to check
+                    </button>
+                  </div>
+                ) : null}
+
+                {pricing.length > 0 ? (
+                  <div className="m-dsc-panel-card">
+                    <div className="m-dsc-panel-head">
+                      <h3>Pricing</h3>
+                    </div>
+                    <div className="p-3">
+                      <ContractPricing
+                        pricing={pricing}
+                        currency={currency}
+                        frequency={frequency}
+                        proposed={proposed}
+                        onChange={(index, patch) =>
+                          setPricing((cur) => cur.map((line, i) => (i === index ? { ...line, ...patch } : line)))
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {clauseRefs.length > 0 || library.length > 0 ? (
+                  <div className="m-dsc-panel-card" data-testid="contract-clause-card">
+                    <div className="m-dsc-panel-head">
+                      <h3>Clauses</h3>
+                      <span className="flex-1" />
+                      <span className="m-dsc-hint">From your approved library</span>
+                    </div>
+                    <div className="p-3">
+                      <ClauseList draft={currentClauseDraft()} library={library} />
+                    </div>
+                  </div>
+                ) : null}
+
+                {pricing.length === 0 && clauseRefs.length === 0 ? (
+                  <div className="m-dsc-panel-card p-4">
+                    <p className="m-dsc-hint">
+                      This contract is being built by hand. Describe it to fill the parties, the
+                      pricing and the clauses from your approved library.
+                    </p>
+                  </div>
+                ) : null}
+
+                {fromNotes ? (
+                  <div className="m-dsc-bar" data-testid="contract-change-bar">
+                    <span className="flex flex-1 items-center gap-2" style={{ fontSize: 14 }}>
+                      <span className="m-dsc-pill m-dsc-pill-muted">D</span>
+                      Change something, or add a clause value
+                    </span>
+                    <button
+                      type="button"
+                      className="m-dsc-option"
+                      onClick={() => setBuilderTab("describe")}
+                    >
+                      Describe a change
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <QuoteContextColumn
+                tab={fromNotes ? builderTab : "summary"}
+                onTab={setBuilderTab}
+                showTabs={fromNotes}
+                summary={
+                  <ContractSummary
+                    draft={currentClauseDraft()}
+                    currency={currency}
+                    library={library}
+                    checks={checks}
+                    understanding={understanding}
+                  />
+                }
+                notes={
+                  <ContractNotes sources={sources} pricing={pricing} currency={currency} />
+                }
+                describe={
+                  <ChangeProposalCard
+                    instruction={changeInstruction}
+                    sentence={changeSentence}
+                    operations={changeOperations}
+                    resultingTotalMinor={changeTotal}
+                    currency={currency}
+                    busy={changeBusy}
+                    error={changeError}
+                    onInstruction={setChangeInstruction}
+                    onSubmit={() => void proposeChange()}
+                    onApply={applyChange}
+                    onDismiss={() => {
+                      setChangeOperations([]);
+                      setChangeDraft(null);
+                      setChangeSentence(null);
+                      setChangeTotal(null);
+                      setProposed(new Set());
+                    }}
+                  />
+                }
               />
             </div>
-            <div className="w-40">
-              <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as ContractType | "all")}>
-                <SelectTrigger aria-label="Filter by type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All types</SelectItem>
-                  {TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {TYPE_LABEL[t]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="w-44">
-              <Select value={clientFilter} onValueChange={setClientFilter}>
-                <SelectTrigger aria-label="Filter by client">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All clients</SelectItem>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </>
-        }
-        columns={
-          <ColumnChooser
-            columns={COLUMNS.map((c) => ({
-              key: c.id,
-              label: c.label,
-              visible: visibleColumns.includes(c.id),
-            }))}
-            onChange={onColumnsChange}
-          />
-        }
-        export={
-          <ExportControl
-            columns={visible.map((c) => c.label)}
-            rowCount={filtered === null ? 0 : filtered.length}
-            onExport={() => {}}
-          />
-        }
-      />
-      </div>
 
-      <div
-        className="overflow-hidden rounded-2xl border"
-        style={{ borderColor: "var(--m-border)", background: "var(--m-surface)" }}
-      >
-        {loadError !== null ? (
-          <div className="p-4">
-            <ErrorNote>{loadError}</ErrorNote>
+            {createError !== null ? (
+              <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+                {createError}
+              </p>
+            ) : null}
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" onClick={() => setCreateOpen(false)}>
+                Cancel
+              </Button>
+              <span className="flex-1" />
+              <Button onClick={() => void createContract()} disabled={createDisabled} data-testid="contract-save">
+                {creating ? <Spinner /> : null} Create contract
+              </Button>
+            </div>
           </div>
-        ) : filtered === null ? (
-          <div className="p-4">
-            <Spinner />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="p-4">
-            <EmptyState message="No contracts match this view. A contract is what an invoice run bills against." />
-          </div>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                {cell("number") ? <Th>Number</Th> : null}
-                {cell("name") ? <Th>Name</Th> : null}
-                {cell("client") ? <Th>Client</Th> : null}
-                {cell("type") ? <Th>Type</Th> : null}
-                {cell("status") ? <Th>Status</Th> : null}
-                {cell("term") ? <Th>Term</Th> : null}
-                {cell("amount") ? <Th className="text-right">Per period</Th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((contract, i) => {
-                const signal = renewalSignal(contract.effective_until, now);
-                return (
-                  <Tr
-                    key={contract.id}
-                    className="m-entity-row"
-                    style={{ animationDelay: `${Math.min(i * 20, 160)}ms` }}
-                    data-testid={`contract-row-${contract.id}`}
-                  >
-                    {cell("number") ? (
-                      <Td>
-                        <Link
-                          href={`/contracts/${contract.id}`}
-                          className="text-[13px] underline decoration-transparent underline-offset-2 hover:decoration-[var(--m-border-strong)]"
-                        >
-                          {contract.number}
-                        </Link>
-                      </Td>
-                    ) : null}
-                    {cell("name") ? <Td className="font-medium">{contract.name}</Td> : null}
-                    {cell("client") ? (
-                      <Td>
-                        <Link href={`/clients/${contract.client_id}`} className="text-[13px] underline underline-offset-2">
-                          {clientName(contract.client_id)}
-                        </Link>
-                      </Td>
-                    ) : null}
-                    {cell("type") ? (
-                      <Td>
-                        <span className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                          {TYPE_LABEL[contract.contract_type]}
-                        </span>
-                      </Td>
-                    ) : null}
-                    {cell("status") ? (
-                      <Td>
-                        <Badge tone={statusTone(contract.status)}>
-                          {STATUS_LABEL[contract.status] ?? contract.status}
-                        </Badge>
-                      </Td>
-                    ) : null}
-                    {cell("term") ? (
-                      <Td>
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="text-[13px] tabular-nums">
-                            {formatPackDate(contract.effective_from) ?? "—"}
-                            {" → "}
-                            {contract.effective_until != null && contract.effective_until !== ""
-                              ? formatPackDate(contract.effective_until)
-                              : "open"}
-                          </span>
-                          {/* THE rule: a renewal inside its window is BLUSH.
-                              Red is only ever a breach that already happened,
-                              which for a term means it is already past. */}
-                          {signal !== null ? (
-                            <Badge tone={signal.tone === "danger" ? "danger" : "due"}>
-                              <span className="inline-flex items-center gap-1">
-                                <ClockIcon />
-                                {signal.label}
-                              </span>
-                            </Badge>
-                          ) : null}
-                        </span>
-                      </Td>
-                    ) : null}
-                    {cell("amount") ? (
-                      <Td className="text-right text-[13px] font-semibold tabular-nums">
-                        {contract.amount_minor != null ? (
-                          <>
-                            {money(contract.amount_minor, contract.currency)}
-                            <span className="ml-1 font-normal" style={{ color: "var(--m-text-muted)" }}>
-                              / {contract.billing_frequency ?? "period"}
-                            </span>
-                          </>
-                        ) : (
-                          <span style={{ color: "var(--m-text-muted)" }}>—</span>
-                        )}
-                      </Td>
-                    ) : null}
-                  </Tr>
-                );
-              })}
-            </tbody>
-          </Table>
-        )}
-      </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
 
-      <SurfaceFooter
-        shown={filtered?.length ?? 0}
-        total={
-          filtered !== null && contracts !== null && filtered.length !== contracts.length
-            ? contracts.length
-            : undefined
-        }
-        noun="contract"
-        density={<DensitySwitch value={prefs.density} onChange={(step) => void prefs.setDensity(step)} variant="icons" label="Row density" />}
-        trailing={<span className="tabular-nums">Booked per period: {posture.book}</span>}
-      />
+}
+
+function ContractNotes({
+  sources,
+  pricing,
+  currency,
+}: {
+  sources: MoneySource[];
+  pricing: ContractPriceLine[];
+  currency: string;
+}): ReactNode {
+  if (sources.length === 0) {
+    return (
+      <p className="m-dsc-hint">
+        This contract was built by hand. There are no words behind its clauses.
+      </p>
+    );
+  }
+  return (
+    <div className="grid gap-3" data-testid="contract-source-notes">
+      <div className="m-dsc-chips">
+        {sources.map((source) => (
+          <span className="m-dsc-chip m-dsc-chip-neutral" key={source.id ?? source.name}>
+            <Icon name={source.kind === "transcript" ? "mic" : "file"} size={13} />
+            {source.name ?? source.kind}
+          </span>
+        ))}
+      </div>
+      {sources.map((source) => (
+        <div key={source.id ?? source.name}>
+          <p className="m-dsc-lab" style={{ marginBottom: 6 }}>
+            {source.name ?? source.kind}
+          </p>
+          <p className="m-dsc-notes">{source.text}</p>
+        </div>
+      ))}
+      {pricing.length > 0 ? (
+        <p className="m-dsc-hint">
+          The pricing came from quantities in these words: {pricing.map((line) => line.label).join(", ")}.
+          The total is {formatMoneyMinor(contractTotal(pricing, null), currency)} a period.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -667,7 +1095,7 @@ function StatPill({
   active: boolean;
   dot: string;
   onToggle: () => void;
-}) {
+}): ReactNode {
   return (
     <button
       type="button"
@@ -688,8 +1116,6 @@ function StatPill({
   );
 }
 
-/** The booked value per period across live contracts, or an honest "mixed
- * currencies" when the book spans more than one. */
 function moneyOf(list: Contract[]): string {
   const priced = list
     .filter((c) => c.status === "active" && c.amount_minor != null)
@@ -714,10 +1140,9 @@ function statusTone(status: string): "success" | "warning" | "danger" | "neutral
   }
 }
 
-function ClockIcon() {
-  return <Icon name="clock" size={13} />;
-}
-
-function PlusIcon() {
-  return <Icon name="plus" size={16} />;
+function monthsBetween(from: string, until: string): number | null {
+  const start = new Date(`${from}T00:00:00`).getTime();
+  const end = new Date(`${until}T00:00:00`).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  return Math.max(1, Math.round((end - start) / (86_400_000 * 30.44)));
 }

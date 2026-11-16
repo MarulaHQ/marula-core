@@ -269,7 +269,7 @@ describe("/today integration", () => {
     expect(await screen.findByText("Yours today", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.getByText("At risk")).toBeInTheDocument();
     expect(screen.getByText("Breached")).toBeInTheDocument();
-    expect(screen.getByText("Not logged yesterday")).toBeInTheDocument();
+    expect(screen.getByText("Gap in yesterday's time")).toBeInTheDocument();
     expect(screen.getByText("Changed since you looked")).toBeInTheDocument();
     // Yesterday card: 5h logged of 8h expected, 3h unaccounted.
     expect(
@@ -289,7 +289,7 @@ describe("/today integration", () => {
         <TodayPage />
       </AuthProvider>,
     );
-    await screen.findByText("Not logged yesterday", {}, { timeout: 5000 });
+    await screen.findByText("Gap in yesterday's time", {}, { timeout: 5000 });
     fireEvent.click(screen.getByRole("button", { name: /Quick log/ }));
     const dialog = await screen.findByRole("dialog", { name: "Quick log" });
     expect(dialog).toBeInTheDocument();

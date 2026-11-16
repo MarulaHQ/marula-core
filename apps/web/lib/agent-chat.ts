@@ -11,7 +11,7 @@
 // branch on the machine reason and render typed not-available states,
 // never a dead spinner.
 
-import { apiBaseUrl, loadTokens } from "./api";
+import { apiBaseUrl, authReady, loadTokens } from "./api";
 
 export type ChatFrameName =
   | "turn_started"
@@ -36,7 +36,9 @@ export interface ChatTurnResult {
   refusalMessage?: string;
 }
 
-/** One bounded model turn; resolves when the SSE stream closes. */
+/** One bounded model turn; resolves when the SSE stream closes. `onFrame`
+ *  receives each parsed frame as it arrives, which is what lets a chat surface
+ *  render deltas, sources and proposals while the turn runs. */
 export async function runChatTurn(
   sessionId: string,
   turn: {
@@ -46,18 +48,22 @@ export async function runChatTurn(
     model?: string | null;
     session_opener?: boolean;
   },
+  onFrame?: (frame: ChatFrame) => void,
 ): Promise<ChatTurnResult> {
   const base = apiBaseUrl();
+  // A full page load restores the token from the session cookie. Wait for
+  // that only when there is no token yet; a seeded test session proceeds.
+  if (loadTokens() === null) await authReady();
   const tokens = loadTokens();
-  if (tokens === null) return { frames: [], text: "", refusal: "auth", refusalMessage: "not signed in" };
   const response = await fetch(
     `${base}/api/v1/ai/chat/sessions/${sessionId}/turns`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "content-type": "application/json",
         accept: "text/event-stream",
-        authorization: `Bearer ${tokens.access_token}`,
+        ...(tokens === null ? {} : { authorization: `Bearer ${tokens.access_token}` }),
       },
       body: JSON.stringify(turn),
     },
@@ -100,7 +106,9 @@ export async function runChatTurn(
       if (currentEvent === "" || data === "") continue;
       const parsed = safeJson(data);
       if (parsed === null) continue;
-      frames.push({ event: currentEvent as ChatFrameName, data: parsed });
+      const frame: ChatFrame = { event: currentEvent as ChatFrameName, data: parsed };
+      frames.push(frame);
+      onFrame?.(frame);
       if (currentEvent === "assistant_delta" && typeof parsed.delta === "string") {
         text += parsed.delta;
       } else if (currentEvent === "turn_completed" && typeof parsed.text === "string") {

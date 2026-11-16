@@ -341,7 +341,9 @@ where
         r#"SELECT ticket_id FROM email_messages
            WHERE org_id = $1 AND ticket_id IS NOT NULL
              AND (lower(rfc_message_id) = ANY($2) OR lower(in_reply_to) = ANY($2))
-           ORDER BY created_at DESC
+           -- Newest wins. A batch written inside one transaction shares now(),
+           -- so created_at alone is a tie; the v7 id keeps the order total.
+           ORDER BY created_at DESC, id DESC
            LIMIT 1"#,
     )
     .bind(org_id)

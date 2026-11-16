@@ -38,6 +38,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { OnboardingResumeBanner } from "../../components/onboarding/resume-banner";
 import { DayPackPanel } from "../../components/today/day-pack-panel";
 import { YourDayPanel } from "../../components/today/day-surface";
+import { ProjectTodaySection } from "../../components/projects/my-work";
 import { api, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation } from "../../lib/envelope-write";
 import { dueBucket, dueLabel, fmtMins } from "../../lib/format";
@@ -383,7 +384,7 @@ export default function TodayPage() {
               anchor="overdue"
             />
             <AttentionCard
-              label="Not logged yesterday"
+              label="Gap in yesterday's time"
               dot={day === undefined || !day.has_gap ? "clear" : "warning"}
               value={day === undefined ? 0 : day.unaccounted_minutes}
               format={fmtMins}
@@ -416,6 +417,11 @@ export default function TodayPage() {
             pausedCount={pausedCount}
             elapsed={active === null ? 0 : sessionElapsedSecs(active, nowMs)}
           />
+
+          {/* Project work on the day surface (pack S14): the same personal feed
+              as /projects/my-work, compact. It renders nothing when the person
+              has no project tasks, so a tickets-only day is unchanged. */}
+          <ProjectTodaySection />
 
           {error !== null && (
             <p className="text-xs" style={{ color: "var(--m-status-danger-fg)" }} role="alert">
