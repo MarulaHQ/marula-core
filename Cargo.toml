@@ -223,7 +223,13 @@ totp-rs = { version = "6", default-features = false, features = ["otpauth"] }
 webauthn-rs = { version = "0.5", features = ["danger-allow-state-serialisation"] }
 webauthn-rs-core = "0.5"
 aes-gcm = "0.11"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart"] }
+# `stream` is declared here because we stream response bodies ourselves
+# (`core-api` reads chunks to enforce size caps and to relay SSE). It used to
+# arrive transitively: object_store 0.12 depended on reqwest 0.12 and its
+# `cloud` feature enabled `reqwest/stream`, which unified with this dependency.
+# object_store 0.14 moved to reqwest 0.13, so that unification no longer
+# happens and any API behind `stream` disappears from our 0.12 build.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "multipart", "stream"] }
 url = "2"
 regex = "1"
 data-encoding = "2"
