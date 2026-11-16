@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRequireAuth } from "../../../lib/api";
 import { SurfaceHeader } from "@marula-core/ui";
 import {
@@ -21,7 +21,7 @@ import {
   type KnowledgeRequestError,
 } from "../../../components/knowledge/knowledge-api";
 
-export default function DomainsPage() {
+function DomainsPage() {
   // A full page load restores the session after mount; a request fired before
   // that carries no bearer, so it waits for the authenticated status.
   const { status } = useRequireAuth();
@@ -137,5 +137,15 @@ export default function DomainsPage() {
         )}
       </div>
     </PageFrame>
+  );
+}
+
+// The route reads its filters from the query string, which bails the page out
+// of prerendering. Next requires a Suspense boundary for that at build time.
+export default function DomainsRoute() {
+  return (
+    <Suspense fallback={null}>
+      <DomainsPage />
+    </Suspense>
   );
 }

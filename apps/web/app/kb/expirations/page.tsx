@@ -7,7 +7,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRequireAuth } from "../../../lib/api";
 import { SurfaceHeader } from "@marula-core/ui";
 import { ErrorNote, PageFrame, SkeletonRows } from "../../../components/knowledge/ledger";
@@ -27,7 +27,7 @@ const KINDS = [
   { id: "secret_rotation", label: "Credential rotation" },
 ] as const;
 
-export default function ExpirationsPage() {
+function ExpirationsPage() {
   useRequireAuth();
   const search = useSearchParams();
   const clientId = search.get("client_id");
@@ -128,5 +128,15 @@ export default function ExpirationsPage() {
         )}
       </div>
     </PageFrame>
+  );
+}
+
+// The route reads its filters from the query string, which bails the page out
+// of prerendering. Next requires a Suspense boundary for that at build time.
+export default function ExpirationsRoute() {
+  return (
+    <Suspense fallback={null}>
+      <ExpirationsPage />
+    </Suspense>
   );
 }

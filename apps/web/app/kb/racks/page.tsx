@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRequireAuth } from "../../../lib/api";
 import { SurfaceHeader } from "@marula-core/ui";
 import {
@@ -20,7 +20,7 @@ import {
   type Rack,
 } from "../../../components/knowledge/knowledge-api";
 
-export default function RacksPage() {
+function RacksPage() {
   useRequireAuth();
   const search = useSearchParams();
   const clientId = search.get("client_id");
@@ -120,5 +120,15 @@ export default function RacksPage() {
         )}
       </div>
     </PageFrame>
+  );
+}
+
+// The route reads its filters from the query string, which bails the page out
+// of prerendering. Next requires a Suspense boundary for that at build time.
+export default function RacksRoute() {
+  return (
+    <Suspense fallback={null}>
+      <RacksPage />
+    </Suspense>
   );
 }

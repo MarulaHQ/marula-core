@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Spinner, SurfaceHeader } from "@marula-core/ui";
 import { useRequireAuth } from "../../lib/api";
 import { LocalTime } from "../../components/local-time";
@@ -60,7 +60,7 @@ const KIND_LABEL: Record<string, string> = {
   secret: "Credential",
 };
 
-export default function KnowledgeHomePage() {
+function KnowledgeHomePage() {
   useRequireAuth();
   // The client scope is the query string, the same state the client-scoped KB
   // lists keep (`/kb/domains?client_id=…`), so a link into one client's
@@ -539,5 +539,15 @@ function OrgCard({
     <Link href={href} className={className} style={style}>
       {children}
     </Link>
+  );
+}
+
+// The route reads its filters from the query string, which bails the page out
+// of prerendering. Next requires a Suspense boundary for that at build time.
+export default function KnowledgeHomeRoute() {
+  return (
+    <Suspense fallback={null}>
+      <KnowledgeHomePage />
+    </Suspense>
   );
 }
