@@ -32,4 +32,42 @@ describe("runChatTurn", () => {
     expect(result.refusalMessage).toMatch(/sign in/i);
     expect(result.text).toBe("");
   });
+
+  it("names a successful response that carried no stream as a transport refusal", async () => {
+    // A read that returns 2xx but no body is not an answer: without the typed
+    // refusal the surface would report "No answer came back" for a transport
+    // fault the person cannot act on.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ status: 200, body: null }) as unknown as Response),
+    );
+
+    const result = await runChatTurn(SESSION, {
+      surface_key: "general_chat",
+      messages: [{ role: "user", content: "hello" }],
+    });
+
+    expect(result.refusal).toBe("transport");
+    expect(result.refusalMessage).toBe("no stream");
+    expect(result.frames).toEqual([]);
+  });
+
+  it("returns no frames and no text when the stream closes without a turn", async () => {
+    const empty = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(empty, { status: 200 })),
+    );
+
+    const result = await runChatTurn(SESSION, {
+      surface_key: "general_chat",
+      messages: [{ role: "user", content: "hello" }],
+    });
+
+    expect(result).toEqual({ frames: [], text: "" });
+  });
 });

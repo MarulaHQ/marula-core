@@ -70,6 +70,10 @@ export default function PortalTicketPage() {
   const [attachments, setAttachments] = useState<PortalAttachmentView[] | null>(null);
   const [attachmentsUnavailable, setAttachmentsUnavailable] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  // The attachments retry has its own key: a failed file read must not re-run
+  // the ticket effect, which resets the composer and would delete a reply the
+  // person had already typed.
+  const [attachmentsReloadKey, setAttachmentsReloadKey] = useState(0);
   // Guards a late answer from the id we just navigated away from.
   const requestId = useRef(0);
   const [reply, setReply] = useState("");
@@ -126,7 +130,7 @@ export default function PortalTicketPage() {
     return () => {
       cancelled = true;
     };
-  }, [params.id, reloadKey]);
+  }, [params.id, reloadKey, attachmentsReloadKey]);
 
   async function submitReply(e: React.FormEvent) {
     e.preventDefault();
@@ -370,7 +374,7 @@ export default function PortalTicketPage() {
           <button
             type="button"
             className="portal-link"
-            onClick={() => setReloadKey((key) => key + 1)}
+            onClick={() => setAttachmentsReloadKey((key) => key + 1)}
           >
             Try again
           </button>

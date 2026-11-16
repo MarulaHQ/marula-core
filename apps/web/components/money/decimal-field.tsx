@@ -30,6 +30,7 @@ function parsed(text: string, scale: number): number | null {
 }
 
 export function DecimalField({
+  id,
   label,
   value,
   scale,
@@ -37,6 +38,8 @@ export function DecimalField({
   decimals,
   onCommit,
 }: {
+  /** The input's id, so a caller's `<label htmlFor>` reaches this field. */
+  id?: string;
   /** The field's accessible name, which says which row it belongs to. */
   label: string;
   /** The committed number, in the same unit as `scale`. */
@@ -61,6 +64,7 @@ export function DecimalField({
 
   return (
     <input
+      id={id}
       className="m-input m-dsc-num"
       style={{ width }}
       inputMode="decimal"
@@ -88,6 +92,7 @@ export function DecimalInput({
   onCommit,
   decimals,
   label,
+  id,
   width = 110,
 }: {
   value: number;
@@ -100,6 +105,7 @@ export function DecimalInput({
 }): React.JSX.Element {
   return (
     <DecimalField
+      id={id}
       label={label ?? "Amount"}
       value={value}
       scale={scale}

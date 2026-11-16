@@ -61,7 +61,7 @@ import { formatNumber } from "@marula-core/ui";
 import { LocalTime } from "../../components/local-time";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api, useAuth, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation, newIdempotencyKey } from "../../lib/envelope-write";
@@ -225,6 +225,8 @@ export default function VaultPage() {
   const [recordsError, setRecordsError] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [records, setRecords] = useState<SecretRecord[] | null>(null);
+  /** The newest records read; an older one that lands late is dropped. */
+  const recordsRequest = useRef(0);
   const [openRecord, setOpenRecord] = useState<SecretRecord | null>(null);
   const [folderDialog, setFolderDialog] = useState<"new" | "edit" | "fork" | null>(null);
   const [folderForDialog, setFolderForDialog] = useState<SecretFolder | null>(null);
@@ -289,6 +291,7 @@ export default function VaultPage() {
 
   useEffect(() => {
     if (auth.status !== "authed" || selectedFolder === null) return;
+    const request = ++recordsRequest.current;
     setRecords(null);
     setRecordsError(null);
     api.api
@@ -296,6 +299,9 @@ export default function VaultPage() {
         params: { query: { folder_id: selectedFolder, ...scopeOf(scope) } },
       })
       .then(({ data, error }) => {
+        // An older category's answer must not overwrite the active one: its
+        // failure would keep hiding a category that has already loaded.
+        if (request !== recordsRequest.current) return;
         if (error !== undefined || data === undefined) {
           // A refused read is not an empty category.
           setRecords([]);
@@ -316,12 +322,16 @@ export default function VaultPage() {
 
   const reloadRecords = useCallback(() => {
     if (selectedFolder === null) return;
+    const request = ++recordsRequest.current;
     setRecordsError(null);
     api.api
       .GET("/api/v1/secrets/records", {
         params: { query: { folder_id: selectedFolder, ...scopeOf(scope) } },
       })
       .then(({ data, error }) => {
+        // The retry may finish after the effect has moved to another
+        // category; only the newest read may write.
+        if (request !== recordsRequest.current) return;
         if (error !== undefined || data === undefined) {
           setRecords([]);
           setRecordsError("The records in this category did not load.");

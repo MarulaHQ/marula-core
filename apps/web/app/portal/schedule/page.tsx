@@ -94,7 +94,10 @@ export default function PortalSchedulePage() {
   const load = useCallback(() => {
     let cancelled = false;
     setError(null);
-    setRequestsError(false);
+    // A retry starts from "unknown", and the failure flag stays up until a
+    // read succeeds: clearing it here let the card say "Nothing booked" for a
+    // read that had not answered yet.
+    setRequests(null);
     portalApi
       .scheduleSlots(range.from, range.to)
       .then((list) => {
@@ -106,7 +109,10 @@ export default function PortalSchedulePage() {
     portalApi
       .listAppointmentRequests()
       .then((list) => {
-        if (!cancelled) setRequests(Array.isArray(list) ? list : []);
+        if (!cancelled) {
+          setRequests(Array.isArray(list) ? list : []);
+          setRequestsError(false);
+        }
       })
       .catch(() => {
         // A failed read is not "nothing booked": name it and offer the retry.

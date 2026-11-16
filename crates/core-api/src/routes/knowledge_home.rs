@@ -1371,8 +1371,11 @@ pub async fn add_reservation(
         .map_err(ApiError::from)?
         .ok_or(ApiError::NotFound)?;
         // Valid `inet` syntax does not make an address part of this subnet, so
-        // containment is asked of the database rather than assumed.
-        let inside: bool = sqlx::query_scalar("SELECT $1::inet <<= $2::inet")
+        // containment is asked of the database rather than assumed. The host
+        // is what belongs to a subnet: `10.0.0.7/24` is the reservation
+        // `10.0.0.7` (0227/0231), and asking with the mask would compare a
+        // network against the subnet instead of an address inside it.
+        let inside: bool = sqlx::query_scalar("SELECT host($1::inet) <<= $2::inet")
             .bind(&address)
             .bind(&cidr)
             .fetch_one(&mut *ctx.tx)

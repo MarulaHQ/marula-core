@@ -39,6 +39,9 @@ function NetworksPage() {
 
   useEffect(() => {
     if (clientId === null) {
+      // Clearing the scope clears its failure too, or the previous client's
+      // error stands in front of the "choose a client" prompt.
+      setError(null);
       setRows([]);
       return;
     }

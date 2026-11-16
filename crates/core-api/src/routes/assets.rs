@@ -75,6 +75,12 @@ fn validate_warranty_end(fields: &Value) -> ApiResult<()> {
     let Some(raw) = fields.get("warranty_end") else {
         return Ok(());
     };
+    // A JSON null is "not set", the same answer a typed layout gives it: the
+    // layout-less path must not reject a document the typed one accepts, and
+    // an update that keeps a null must not fail on the way through.
+    if raw.is_null() {
+        return Ok(());
+    }
     let Some(text) = raw.as_str() else {
         return Err(ApiError::Validation(
             "field 'warranty_end' must be a date string (YYYY-MM-DD)".into(),
