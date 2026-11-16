@@ -61,8 +61,9 @@ split exists:
   `container-lint`. The policy bundle costs about a minute, and a Dockerfile
   edited in a pull request deserves the answer a Dockerfile gets. Trivy does not
   read compose files; pointed at one it reports `Detected config files num=0`.
-  So `scripts/check-compose-hardening.py` covers those, and its `--self-test` is
-  what stops it becoming a check that cannot fail.
+  So `scripts/check-compose-hardening.mjs` covers those, and its `--self-test` is
+  what stops it becoming a check that cannot fail. It reads compose with the
+  `yaml` parser, which is why `container-security` installs the workspace.
 - **`upgrade-matrix`** runs on every pull request that touches
   `crates/core-db/{migrations,src}/`, `crates/marula-core-cli/src/` or
   `fixtures/upgrades/`, and on every push to `main`. `upgrade-scope` computes

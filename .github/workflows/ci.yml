@@ -542,17 +542,29 @@ jobs:
   #
   # Trivy does NOT read compose files. Pointed at one it reports "Detected
   # config files num=0", so `privileged: true` in a compose file would pass it
-  # untouched. `scripts/check-compose-hardening.py` is what covers those files,
+  # untouched. `scripts/check-compose-hardening.mjs` is what covers those files,
   # and its `--self-test` is what keeps it from being a check that cannot fail.
+  #
+  # That checker is the one step in this file that needs an install: it reads
+  # compose with the `yaml` parser rather than a regex, because the regex
+  # version missed a trailing comment, flow style and a quoted key, then
+  # reported a command string as configuration. The script header records both
+  # rounds. The install costs about fifteen seconds against a warm pnpm store.
   container-security:
     name: Container security — trivy config scan over deploy/
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Compose hardening (trivy does not read compose files)
         run: |
-          python3 scripts/check-compose-hardening.py --self-test
-          python3 scripts/check-compose-hardening.py
+          node scripts/check-compose-hardening.mjs --self-test
+          node scripts/check-compose-hardening.mjs
       # SHA-pinned, carried from the retired `ga-gates.yml` as it stood.
       - name: Trivy config scan (deploy/ — Dockerfile misconfiguration)
         uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # v0.36.0
