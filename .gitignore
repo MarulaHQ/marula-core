@@ -204,3 +204,8 @@ apps/web/.harness/in.css
 # Python bytecode (lane tooling imports repo modules by path)
 __pycache__/
 *.pyc
+
+# Next.js writes this package-local agent note on every `next dev`; the
+# binding rules live in the repository's root AGENTS.md, so the generated copy
+# stays out of history and out of every lane's status.
+/apps/web/AGENTS.md
