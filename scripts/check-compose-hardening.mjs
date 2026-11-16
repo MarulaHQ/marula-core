@@ -22,55 +22,56 @@
 // grant the edge file uses for NET_BIND_SERVICE; the second already carries an
 // `EXEMPTION (read_only)` convention in the files themselves.
 //
-// HOW IT READS THE FILES
-// ----------------------
-// With the `yaml` parser, not a regex. An earlier scanner missed three idiomatic
-// spellings (a trailing comment, flow style, a quoted key) and then reported a
-// command string as configuration. A parser settles all of it: the settings are
-// read from the service mappings that Compose itself would read.
+// COMPOSE COMPOSITION
+// -------------------
+// A service's settings are not always written where the service is. Compose
+// resolves three indirections before a container exists, and this checker
+// follows all three:
 //
-// Detection runs on the *resolved* document, so a setting reached through an
-// anchor or a `<<` merge key counts too, and the node tree supplies the line
-// for the report. A compose file that is not valid YAML fails the gate rather
-// than being skipped.
+//   extends: {file: base.yml, service: base}  inherits from another file
+//   extends: base                             inherits from this file
+//   include: [other.yml] / include: [dir/]    adds whole files to the project
 //
-// A `${VAR}` or `${VAR:-default}` in one of these settings is reported, not
-// evaluated. Compose substitutes before the container exists, so
-// `network_mode: "${NET_MODE:-host}"` is host networking in a deployment where
-// NET_MODE is unset, and reads as an ordinary string here. A value this file
-// cannot know is not a value known to be safe; an exemption carries the reason.
+// Resolution is recursive (a base can extend a base), memoised, and guarded
+// against cycles. Each finding is reported in the file where the setting is
+// written, not in the file that pulled it in, because that is where a reader
+// has to change it, and the message names the file that reached it.
 //
-// `include:` and `extends:` are refused for the same kind of reason. Both pull
-// settings in from a file this scan never opened, and following Compose's
-// file-resolution rules is a larger job than reading one document. A directive
-// this checker cannot follow is reported; an exemption says the other file was
-// read by a person.
+// The merge follows Compose: a local setting wins over an inherited one, except
+// `volumes`, which is appended — a socket mounted in the base survives a local
+// `volumes:` list. A reference that cannot be resolved, or a cycle, is a
+// finding: a config this check cannot read is not a config known to be safe.
 //
-// Files are selected by name (`*compose*.yml`), because `deploy/helm` holds
-// Go-templated chart files that are not valid YAML until rendered and are not
-// Compose in any case.
+// WHAT IT DOES NOT EVALUATE
+// -------------------------
+// A `${VAR}` or `${VAR:-default}` in a protected setting is reported, not
+// substituted. Compose resolves it before the container exists, so
+// `network_mode: "${NET_MODE:-host}"` is host networking wherever NET_MODE is
+// unset, and reads as an ordinary string here. A value this file cannot know is
+// not a value known to be safe.
 //
 // EXEMPTIONS
 // ----------
 // A setting is exempt when the comment directly above its key carries
-// `EXEMPTION (compose)` with a reason. The parser attaches exactly that
-// comment block to the key, so a marker higher up the file cannot drift onto a
-// setting somebody adds later. That is the same convention the files already
-// use for `EXEMPTION (read_only)`.
+// `EXEMPTION (compose)` with a reason. The parser attaches exactly that comment
+// block to the key, so a marker higher up the file cannot drift onto a setting
+// somebody adds later. That is the convention the files already use for
+// `EXEMPTION (read_only)`.
 //
 // USAGE
 //   node scripts/check-compose-hardening.mjs             # scan deploy/
 //   node scripts/check-compose-hardening.mjs --self-test # prove it can fail
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LineCounter, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { LineCounter, isMap, parseDocument } from 'yaml';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_SCAN_DIR = join(ROOT, 'deploy');
 const MARKER = 'EXEMPTION (compose)';
+const COMPOSE_NAMES = ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'];
 
 // Compose reads `true`/`yes`/`on`/`1` as a boolean; the YAML core schema keeps
 // the last three as strings, so both spellings are accepted here.
@@ -93,6 +94,12 @@ const SOCKET_KEY = 'volumes';
 const SOCKET_PATH = '/var/run/docker.sock';
 const SOCKET_REASON = 'the Docker socket is root on the host, and a mount hands it over';
 
+const rel = (path) =>
+  path.startsWith(ROOT + sep) ? relative(ROOT, path).split(sep).join('/') : path;
+
+/** A failure that belongs in the report rather than in a stack trace. */
+class Refusal extends Error {}
+
 /** Resolve an alias to its target; any other node comes back unchanged. */
 function deref(node, doc) {
   let current = node;
@@ -104,32 +111,10 @@ function deref(node, doc) {
   return current;
 }
 
-/** Map of service name -> { pair, map } for the document's `services:`. */
-function servicesOf(doc) {
-  // `services: *anchor` makes this node an Alias, so it has to be resolved
-  // before it can be indexed. Without this the index came back empty while
-  // `toJS()` still resolved the services, and looking the service up returned
-  // undefined — which then threw in pairFor.
-  const services = deref(doc.get('services', true), doc);
-  if (!isMap(services)) return new Map();
-  const byName = new Map();
-  for (const pair of services.items) {
-    const name = String(pair.key?.value ?? '');
-    const map = deref(pair.value, doc);
-    byName.set(name, { pair, map: isMap(map) ? map : null });
-  }
-  return byName;
-}
-
 /** The Pair for `key` in a mapping, or undefined. */
 function pairInMap(map, key) {
   if (!isMap(map)) return undefined;
   return map.items.find((item) => String(item.key?.value ?? '') === key);
-}
-
-/** The Pair for `key` in a service mapping, or undefined when it came from a merge. */
-function pairFor(service, key) {
-  return pairInMap(service?.map, key);
 }
 
 /** True when the comment block directly above `pair` carries the marker. */
@@ -139,9 +124,8 @@ function exempted(pair) {
   return String(comment).includes(MARKER);
 }
 
-/** Source line of a node, falling back to the service's own key. */
-function lineOf(node, service, lineCounter) {
-  const offset = node?.key?.range?.[0] ?? node?.range?.[0] ?? service?.pair?.key?.range?.[0];
+function lineOf(node, lineCounter) {
+  const offset = node?.key?.range?.[0] ?? node?.range?.[0];
   return offset == null ? 1 : lineCounter.linePos(offset).line;
 }
 
@@ -152,89 +136,225 @@ function socketsIn(value) {
   return false;
 }
 
-function scanText(text, label) {
+/**
+ * Find the file a reference names. A directory means the compose file inside
+ * it, which is what `include: []` and a bare `extends` file both accept.
+ */
+function resolveRef(fromPath, reference) {
+  const base = resolve(dirname(fromPath), reference);
+  if (existsSync(base) && statSync(base).isDirectory()) {
+    for (const name of COMPOSE_NAMES) {
+      const candidate = join(base, name);
+      if (existsSync(candidate)) return candidate;
+    }
+    throw new Refusal(`includes a directory with no compose file in it (${reference})`);
+  }
+  if (!existsSync(base)) throw new Refusal(`refers to a file that does not exist (${reference})`);
+  return base;
+}
+
+/** Minimal glob: a `*` matches within a segment and `**` crosses segments. */
+function expandGlob(fromPath, pattern) {
+  if (!pattern.includes('*')) return [resolveRef(fromPath, pattern)];
+  const base = resolve(dirname(fromPath), pattern);
+  const segments = base.split(sep);
+  const firstWild = segments.findIndex((segment) => segment.includes('*'));
+  const root = segments.slice(0, firstWild).join(sep) || sep;
+  const rest = segments.slice(firstWild);
+  const matcher = new RegExp(`^${rest.join('/')
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '\u0000')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\u0000/g, '.*')}$`);
+  const hits = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name.startsWith('.')) continue;
+      const path = join(dir, name);
+      const tail = path.slice(root.length + 1).split(sep).join('/');
+      if (statSync(path).isDirectory()) walk(path);
+      else if (matcher.test(tail)) hits.push(path);
+    }
+  };
+  walk(root);
+  return hits.sort();
+}
+
+/** Compose file paths a document includes. */
+function includesOf(doc, path) {
+  const raw = doc.toJS()?.include;
+  if (raw === undefined) return [];
+  const entries = Array.isArray(raw) ? raw : [raw];
+  const paths = [];
+  for (const entry of entries) {
+    const spec = typeof entry === 'string' ? entry : entry?.path;
+    if (typeof spec !== 'string') throw new Refusal('has an `include:` entry with no path');
+    for (const hit of expandGlob(path, spec)) paths.push(hit);
+  }
+  return paths;
+}
+
+/** Reference a service inherits from, or undefined. */
+function extendsOf(config, path) {
+  const raw = config?.extends;
+  if (raw === undefined) return undefined;
+  if (typeof raw === 'string') return { path, name: raw };
+  if (raw && typeof raw === 'object' && typeof raw.service === 'string') {
+    return {
+      path: typeof raw.file === 'string' ? resolveRef(path, raw.file) : path,
+      name: raw.service,
+    };
+  }
+  throw new Refusal('has an `extends:` that names no service');
+}
+
+/** One loaded document, with the node tree kept for lines and comments. */
+function load(path, cache) {
+  if (cache.has(path)) return cache.get(path);
   const lineCounter = new LineCounter();
-  const doc = parseDocument(text, { lineCounter, merge: true });
+  const doc = parseDocument(readFileSync(path, 'utf8'), { lineCounter, merge: true });
   if (doc.errors.length > 0) {
-    return { error: `${label}: not valid YAML — ${doc.errors[0].message}` };
+    throw new Refusal(`is not valid YAML — ${doc.errors[0].message.split('\n')[0]}`);
   }
-
-  const services = servicesOf(doc);
-  const resolved = doc.toJS()?.services;
-  if (!resolved || typeof resolved !== 'object') return { findings: [] };
-
-  const findings = [];
-
-  // Compose composition is refused, not followed. `include:` adds whole files
-  // and `extends:` inherits one service from another file; either can carry a
-  // protected setting into a file that passes this scan, and this checker does
-  // not implement Compose's file-resolution rules. A directive that cannot be
-  // followed is a finding, not a clean result.
-  const includePair = pairInMap(deref(doc.contents, doc), 'include');
-  if (includePair && !exempted(includePair)) {
-    findings.push({
-      line: lineOf(includePair, undefined, lineCounter),
-      text: 'include:',
-      reason: 'pulls other files in, and this check does not follow Compose composition',
-    });
-  }
-
-  for (const [name, service] of Object.entries(resolved)) {
-    if (!service || typeof service !== 'object') continue;
-    const located = services.get(name);
-
-    const extendsPair = pairFor(located, 'extends');
-    if (service.extends !== undefined && !exempted(extendsPair)) {
-      findings.push({
-        line: lineOf(extendsPair, located, lineCounter),
-        text: 'extends:',
-        reason: 'inherits settings from another file, and this check does not follow Compose composition',
-      });
+  const configs = doc.toJS()?.services;
+  const servicesNode = deref(doc.get('services', true), doc);
+  const index = new Map();
+  if (isMap(servicesNode)) {
+    for (const pair of servicesNode.items) {
+      index.set(String(pair.key?.value ?? ''), { pair, map: deref(pair.value, doc) });
     }
+  }
+  const entry = {
+    path,
+    doc,
+    lineCounter,
+    configs: configs && typeof configs === 'object' ? configs : {},
+    index,
+  };
+  cache.set(path, entry);
+  return entry;
+}
 
+/**
+ * A service's effective settings, plus where each protected key was written.
+ *
+ * `extends` inherits first and the local file wins, except `volumes`, which
+ * Compose appends to — so a socket mounted in the base survives a local
+ * `volumes:` list.
+ */
+function resolveService(path, name, cache, stack = []) {
+  const key = `${path}::${name}`;
+  if (stack.includes(key)) throw new Refusal(`extends itself in a cycle (${name})`);
+  const file = load(path, cache);
+  const own = file.configs[name];
+  if (!own) throw new Refusal(`names a service that does not exist (${name})`);
+
+  const inherited = { config: {}, origin: new Map() };
+  const parent = extendsOf(own, path);
+  if (parent) {
+    const base = resolveService(parent.path, parent.name, cache, [...stack, key]);
+    inherited.config = { ...base.config };
+    for (const [setting, where] of base.origin) inherited.origin.set(setting, where);
+    inherited.config.volumes = [...(base.config.volumes ?? [])];
+  }
+
+  const located = file.index.get(name);
+  const origin = new Map(inherited.origin);
+  const config = inherited.config;
+  for (const [setting, value] of Object.entries(own)) {
+    if (setting === 'extends') continue;
+    if (setting === SOCKET_KEY && inherited.config[SOCKET_KEY]) {
+      config[setting] = [...inherited.config[SOCKET_KEY], ...(Array.isArray(value) ? value : [value])];
+    } else {
+      config[setting] = value;
+    }
+    if (SETTINGS.some((candidate) => candidate.key === setting) || setting === SOCKET_KEY) {
+      origin.set(setting, { path, pair: pairInMap(located?.map, setting), lineCounter: file.lineCounter });
+    }
+  }
+  return { config, origin };
+}
+
+/** Every compose file reachable from `path` through `include:`, recursively. */
+function projectFiles(path, cache, seen = new Set(), onError = () => {}) {
+  if (seen.has(path)) return seen;
+  seen.add(path);
+  let included = [];
+  try {
+    included = includesOf(load(path, cache).doc, path);
+  } catch (error) {
+    if (!(error instanceof Refusal)) throw error;
+    onError(path, error);
+    return seen;
+  }
+  for (const next of included) {
+    try {
+      load(next, cache);
+    } catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      onError(path, error);
+      continue;
+    }
+    projectFiles(next, cache, seen, onError);
+  }
+  return seen;
+}
+
+function scanFile(path, cache, findings, reported) {
+  const file = load(path, cache);
+  const report = (kind, target, line, text, reason) => {
+    const dedupe = `${kind}:${target}:${line}:${text}:${reason}`;
+    if (reported.has(dedupe)) return;
+    reported.add(dedupe);
+    findings.push({ kind, path: target, line, text, reason });
+  };
+
+  for (const name of Object.keys(file.configs)) {
+    let resolvedService;
+    try {
+      resolvedService = resolveService(path, name, cache);
+    } catch (error) {
+      if (!(error instanceof Refusal)) throw error;
+      // A config this check cannot read is not a config known to be safe.
+      report('reference', path, lineOf(file.index.get(name)?.pair, file.lineCounter), '', error.message);
+      continue;
+    }
+    const { config, origin } = resolvedService;
     for (const setting of SETTINGS) {
-      const raw = service[setting.key];
-      if (raw === undefined || raw === null) continue;
-      // Compose substitutes `${VAR}` and `${VAR:-default}` before a service is
-      // created, so a value this file cannot evaluate is not a value known to
-      // be safe. `${NET_MODE:-host}` reads as an ordinary string here and
-      // becomes host networking in the deployment. Fail closed and let an
-      // exemption carry the reason.
-      const substitution = typeof raw === 'string' && raw.includes('${');
-      if (!substitution && !setting.hit(raw)) continue;
-      const pair = pairFor(located, setting.key);
-      if (exempted(pair)) continue;
-      const where = pair ? '' : ' (reached through a merge key or alias)';
-      findings.push({
-        line: lineOf(pair, located, lineCounter),
-        text: `${setting.key}: ${raw}`,
-        reason: substitution
-          ? `is a Compose substitution, which this check cannot evaluate${where}`
-          : `${setting.reason}${where}`,
-      });
+      const value = config[setting.key];
+      if (value === undefined || value === null) continue;
+      const substitution = typeof value === 'string' && value.includes('${');
+      if (!substitution && !setting.hit(value)) continue;
+      const where = origin.get(setting.key) ?? { path, pair: undefined, lineCounter: file.lineCounter };
+      if (exempted(where.pair)) continue;
+      const through = where.path === path ? '' : ` (reached from ${rel(path)})`;
+      report(
+        'setting',
+        where.path,
+        lineOf(where.pair, where.lineCounter),
+        `${setting.key}: ${value}`,
+        (substitution
+          ? 'is a Compose substitution, which this check cannot evaluate'
+          : setting.reason) + through,
+      );
     }
 
-    if (socketsIn(service[SOCKET_KEY])) {
-      const pair = pairFor(located, SOCKET_KEY);
-      if (!exempted(pair)) {
-        const where = pair ? '' : ' (reached through a merge key or alias)';
-        findings.push({
-          line: lineOf(pair, located, lineCounter),
-          text: `${SOCKET_KEY}: ${SOCKET_PATH}${where}`,
-          reason: SOCKET_REASON,
-        });
+    const volumes = config[SOCKET_KEY];
+    if (socketsIn(volumes)) {
+      const where = origin.get(SOCKET_KEY) ?? { path, pair: undefined, lineCounter: file.lineCounter };
+      if (!exempted(where.pair)) {
+        const through = where.path === path ? '' : ` (reached from ${rel(path)})`;
+        report('setting', where.path, lineOf(where.pair, where.lineCounter),
+          `${SOCKET_KEY}: ${SOCKET_PATH}`, SOCKET_REASON + through);
       }
     }
   }
-  findings.sort((a, b) => a.line - b.line);
-  return { findings };
 }
 
 function composeFiles(directory) {
   const found = [];
   // By name, not by directory: deploy/helm holds Go-templated chart files that
-  // are not valid YAML until rendered, and they are not Compose. Every compose
-  // file in this tree carries `compose` in its basename.
+  // are not valid YAML until rendered, and they are not Compose.
   const walk = (current) => {
     for (const name of readdirSync(current)) {
       const path = join(current, name);
@@ -246,49 +366,72 @@ function composeFiles(directory) {
   return found.sort();
 }
 
-function run(directory) {
-  const files = composeFiles(directory);
-  let total = 0;
-  for (const path of files) {
-    const label = relative(ROOT, path).split(sep).join('/');
-    const result = scanText(readFileSync(path, 'utf8'), label);
-    if (result.error) {
-      process.stderr.write(`${result.error}\n`);
-      total += 1;
-      continue;
-    }
-    for (const finding of result.findings) {
-      process.stderr.write(`${label}:${finding.line}: ${finding.text}\n`);
-      process.stderr.write(
-        `    It ${finding.reason}. Remove it, or record why with ` +
-        `\`# ${MARKER}: ...\` above it.\n`,
-      );
-      total += 1;
+function scan(directory) {
+  const cache = new Map();
+  const findings = [];
+  const reported = new Set();
+  const scanned = new Set();
+
+  for (const root of composeFiles(directory)) {
+    const roots = projectFiles(root, cache, new Set(), (from, error) => {
+      findings.push({ kind: 'reference', path: from, line: 1, text: '', reason: error.message });
+    });
+    for (const path of roots) {
+      // A file reachable twice (two roots including it, or a chain) is scanned
+      // once; `reported` also dedupes a setting that is both written and
+      // inherited inside the same project.
+      if (scanned.has(path)) continue;
+      scanned.add(path);
+      try {
+        scanFile(path, cache, findings, reported);
+      } catch (error) {
+        if (!(error instanceof Refusal)) throw error;
+        findings.push({ kind: 'reference', path, line: 1, text: '', reason: error.message });
+      }
     }
   }
-  if (total === 0) {
-    process.stdout.write(`compose hardening: clean (${files.length} compose file(s) under ${relative(ROOT, directory) || '.'}/)\n`);
+  findings.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+  return { findings, scanned: scanned.size };
+}
+
+function run(directory) {
+  const { findings, scanned } = scan(directory);
+  for (const finding of findings) {
+    process.stderr.write(`${rel(finding.path)}:${finding.line}: ${finding.text || 'reference'}\n`);
+    if (finding.kind === 'reference') {
+      // An unreadable reference cannot be exempted; it has to be fixed.
+      process.stderr.write(`    It ${finding.reason}.\n`);
+    } else {
+      process.stderr.write(
+        `    It ${finding.reason}. Remove it, or record why with \`# ${MARKER}: ...\` above it.\n`,
+      );
+    }
+  }
+  if (findings.length === 0) {
+    process.stdout.write(
+      `compose hardening: clean (${scanned} compose file(s) under ${rel(directory) || '.'}/)\n`,
+    );
     return 0;
   }
-  process.stderr.write(`compose hardening: ${total} finding(s)\n`);
+  process.stderr.write(`compose hardening: ${findings.length} finding(s)\n`);
   return 1;
 }
 
 const FIXTURES = {
-  clean: `services:
+  clean: { 'docker-compose.yml': `services:
   web:
     image: alpine:3.20
     read_only: true
     security_opt: ["no-new-privileges"]
     # a comment mentioning privileged: true sets nothing
-`,
-  exempt: `services:
+` },
+  exempt: { 'docker-compose.yml': `services:
   proxy:
     image: alpine:3.20
     # EXEMPTION (compose): this fixture binds the host network on purpose.
     network_mode: host
-`,
-  bad: `services:
+` },
+  bad: { 'docker-compose.yml': `services:
   escape:
     image: alpine:3.20
     privileged: true
@@ -297,22 +440,20 @@ const FIXTURES = {
     ipc: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-`,
-  // The three spellings the old scanner missed.
-  inlineComment: `services:
+` },
+  inlineComment: { 'docker-compose.yml': `services:
   escape:
     image: alpine:3.20
     privileged: true   # required temporarily
-`,
-  flowStyle: `services: {web: {image: alpine:3.20, privileged: true}}
-`,
-  quotedKey: `services:
+` },
+  flowStyle: { 'docker-compose.yml': `services: {web: {image: alpine:3.20, privileged: true}}
+` },
+  quotedKey: { 'docker-compose.yml': `services:
   escape:
     image: alpine:3.20
     "network_mode": "host"
-`,
-  // Command text is not configuration.
-  commandText: `services:
+` },
+  commandText: { 'docker-compose.yml': `services:
   web:
     image: alpine:3.20
     command: ["echo", "privileged: true is forbidden"]
@@ -320,115 +461,191 @@ const FIXTURES = {
     image: alpine:3.20
     command:
       - "privileged: true"
-`,
-  // The case the second scanner missed: quoted text first, a real setting after.
-  mixed: `services: {sneaky: {command: ["privileged: true is forbidden"], privileged: true}}
-`,
-  // A setting that only exists after the merge key is resolved.
-  merged: `services:
+` },
+  mixed: { 'docker-compose.yml': `services: {sneaky: {command: ["privileged: true is forbidden"], privileged: true}}
+` },
+  merged: { 'docker-compose.yml': `services:
   shared: &base
     image: alpine:3.20
     privileged: true
   web:
     <<: *base
-`,
-  // A marker one line above a different key must not cover this one.
-  staleMarker: `services:
+` },
+  staleMarker: { 'docker-compose.yml': `services:
   web:
     image: alpine:3.20
     # EXEMPTION (compose): stale marker
     command: ["true"]
     privileged: true
-`,
-  // `services:` as an alias. The index used to come back empty here and throw.
-  aliasedServices: `x-services: &all
+` },
+  aliasedServices: { 'docker-compose.yml': `x-services: &all
   web:
     image: alpine:3.20
     # EXEMPTION (compose): this proxy needs host networking.
     network_mode: host
 services: *all
-`,
-  // Compose substitutes before the container exists, so the value cannot be
-  // known to be safe. `${NET_MODE:-host}` becomes host networking in a
-  // deployment where NET_MODE is unset.
-  substitution: `services:
+` },
+  substitution: { 'docker-compose.yml': `services:
   web:
     image: alpine:3.20
     network_mode: "\${NET_MODE:-host}"
-`,
-  // Even a default that looks harmless is unresolved here. Fail closed.
-  benignSubstitution: `services:
+` },
+  benignSubstitution: { 'docker-compose.yml': `services:
   web:
     image: alpine:3.20
     privileged: "\${PRIV:-false}"
-`,
-  // Compose composition comes from another file, so the settings in it are not
-  // in this document. Refused rather than followed.
-  extendsService: `services:
+` },
+  // extends across files: the setting is written in base.yml and reported there.
+  extendsFile: {
+    'docker-compose.yml': `services:
   web:
     image: alpine:3.20
     extends:
       file: base.yml
       service: base
 `,
-  // Same for `include:`, which adds whole files.
-  includeFiles: `include:
-  - base-compose.yml
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    privileged: true
+`,
+  },
+  // A chain, two files deep.
+  extendsChain: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: mid.yml, service: mid}
+`,
+    'mid.yml': `services:
+  mid:
+    extends: {file: deep.yml, service: deep}
+`,
+    'deep.yml': `services:
+  deep:
+    image: alpine:3.20
+    pid: host
+`,
+  },
+  // Same file, by name.
+  extendsSameFile: { 'docker-compose.yml': `services:
+  base:
+    image: alpine:3.20
+    privileged: true
+  web:
+    extends: base
+` },
+  // The exemption lives where the setting is written, and still applies.
+  extendsExempt: {
+    'docker-compose.yml': `services:
+  web:
+    image: alpine:3.20
+    extends: {file: base.yml, service: base}
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    # EXEMPTION (compose): base.yml reviewed, the proxy binds 80/443.
+    network_mode: host
+`,
+  },
+  // include: another file, and a directory.
+  includeFile: {
+    'docker-compose.yml': `include:
+  - extra.yml
 services:
   web:
     image: alpine:3.20
 `,
-  // A refused directive can still be exempted, with the reason beside it.
-  extendsExempt: `services:
+    'extra.yml': `services:
+  extra:
+    image: alpine:3.20
+    privileged: true
+`,
+  },
+  includeDirectory: {
+    'docker-compose.yml': `include:
+  - sub
+services:
   web:
     image: alpine:3.20
-    # EXEMPTION (compose): base.yml carries no protected setting; reviewed.
-    extends:
-      file: base.yml
-      service: base
 `,
+    'sub/compose.yaml': `services:
+  nested:
+    image: alpine:3.20
+    ipc: host
+`,
+  },
+  // A setting written locally wins over an inherited one. `base.yml` is a
+  // fragment, not a project entry, so its unattached service is not deployable
+  // on its own and is not reported.
+  extendsLocalWins: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    privileged: false
+`,
+    'base.yml': `services:
+  base:
+    privileged: true
+`,
+  },
+  // References that cannot be read are findings, not silence.
+  missingExtendsFile: { 'docker-compose.yml': `services:
+  web:
+    extends: {file: nowhere.yml, service: base}
+` },
+  extendsCycle: {
+    'docker-compose.yml': `services:
+  a:
+    extends: {file: b.yml, service: b}
+`,
+    'b.yml': `services:
+  b:
+    extends: {file: docker-compose.yml, service: a}
+`,
+  },
 };
 
 const EXPECTED = {
-  clean: 0,
-  exempt: 0,
-  bad: 5,
-  inlineComment: 1,
-  flowStyle: 1,
-  quotedKey: 1,
-  commandText: 0,
-  mixed: 1,
-  // `shared` sets it for real, and `web` inherits it through the merge key.
-  merged: 2,
-  staleMarker: 1,
-  aliasedServices: 0,
-  substitution: 1,
-  benignSubstitution: 1,
-  extendsService: 1,
-  includeFiles: 1,
-  extendsExempt: 0,
+  clean: 0, exempt: 0, bad: 5, inlineComment: 1, flowStyle: 1, quotedKey: 1,
+  commandText: 0, mixed: 1, merged: 2, staleMarker: 1, aliasedServices: 0,
+  substitution: 1, benignSubstitution: 1,
+  extendsFile: 1, extendsChain: 1, extendsSameFile: 1,
+  extendsExempt: 0, includeFile: 1, includeDirectory: 1,
+  extendsLocalWins: 0, missingExtendsFile: 1, extendsCycle: 1,
 };
 
 function selfTest() {
-  const dir = mkdtempSync(join(tmpdir(), 'compose-hardening-'));
   const failures = [];
-  try {
-    for (const [name, body] of Object.entries(FIXTURES)) {
-      const path = join(dir, `${name}.yml`);
-      writeFileSync(path, body);
-      const result = scanText(readFileSync(path, 'utf8'), `${name}.yml`);
-      const count = result.error ? `error: ${result.error}` : result.findings.length;
-      if (count !== EXPECTED[name]) {
-        failures.push(`${name}: reported ${count}, expected ${EXPECTED[name]}`);
+  for (const [name, files] of Object.entries(FIXTURES)) {
+    const dir = mkdtempSync(join(tmpdir(), 'compose-hardening-'));
+    try {
+      for (const [file, body] of Object.entries(files)) {
+        const target = join(dir, file);
+        mkdirp(dirname(target));
+        writeFileSync(target, body);
       }
+      const { findings } = scan(dir);
+      if (findings.length !== EXPECTED[name]) {
+        const detail = findings.map((f) => `${relative(dir, f.path)}:${f.line}`).join(', ');
+        failures.push(`${name}: reported ${findings.length} (${detail || 'none'}), expected ${EXPECTED[name]}`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
   for (const failure of failures) process.stderr.write(`FAIL: ${failure}\n`);
   if (failures.length > 0) return 1;
-  process.stdout.write(`compose hardening self-test: ${Object.keys(FIXTURES).length} fixtures behave as intended\n`);
+  process.stdout.write(
+    `compose hardening self-test: ${Object.keys(FIXTURES).length} fixtures behave as intended\n`,
+  );
   return 0;
+}
+
+function mkdirp(dir) {
+  if (existsSync(dir)) return;
+  mkdirp(dirname(dir));
+  mkdirSync(dir);
 }
 
 const argv = process.argv.slice(2);
