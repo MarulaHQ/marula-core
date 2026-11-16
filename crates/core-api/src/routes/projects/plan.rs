@@ -2127,6 +2127,211 @@ pub async fn schedule_scale(
     Ok(Json(response))
 }
 
+// --- plan order ------------------------------------------------------------------
+
+/// One group of the plan in order: the tasks of a single phase, or the unphased
+/// group when `phase_id` is null.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ReorderTaskGroup {
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub phase_id: Option<Uuid>,
+    #[schema(value_type = Vec<uuid::Uuid>)]
+    pub task_ids: Vec<Uuid>,
+}
+
+/// The plan's order as a drop leaves it.
+///
+/// Both lists are complete: `phases` names every phase of the project once,
+/// `tasks` names every task of the project once in the phase it should sit in.
+/// A drag that crosses a phase boundary therefore re-parents the task — the
+/// group it appears in is where it will live. Requiring the whole set is what
+/// makes the write unambiguous: no task keeps a stale `sort_order` that the new
+/// ones happen to equal.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ReorderRequest {
+    #[schema(value_type = Vec<uuid::Uuid>)]
+    pub phases: Vec<Uuid>,
+    pub tasks: Vec<ReorderTaskGroup>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ReorderResponse {
+    pub phases: u64,
+    pub tasks: u64,
+    /// Tasks whose phase changed, so the caller can name the move.
+    pub rephased: usize,
+}
+
+/// PUT /api/projects/{id}/order — the plan's order, written in one transaction.
+///
+/// A drag is one request, not one request per row: a reorder that half-landed
+/// would leave the plan in an order nobody chose. A duplicate id in the request
+/// is a client bug and is refused as a shape error; an id that is not the
+/// project's is out of scope and answers the same 404 an invisible project does.
+#[utoipa::path(operation_id = "projects_reorder", put, path = "/api/projects/{id}/order", tag = "projects", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = ReorderRequest,
+    responses((status = 200, body = ReorderResponse),
+              (status = 404, description = "the project, a phase or a task is not visible in scope (rls_sparse)"),
+              (status = 422, description = "validation failed")))]
+pub async fn reorder(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ReorderRequest>,
+) -> ApiResult<Json<ReorderResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, projects(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+
+    // Shape first, so a duplicated id is a 422 even before the database is read.
+    let mut phases_seen = HashSet::new();
+    for phase_id in &req.phases {
+        if !phases_seen.insert(*phase_id) {
+            return Err(ApiError::Validation(
+                "the order names a phase more than once".into(),
+            ));
+        }
+    }
+    let mut tasks_seen = HashSet::new();
+    let mut groups_seen = HashSet::new();
+    for group in &req.tasks {
+        if !groups_seen.insert(group.phase_id) {
+            return Err(ApiError::Validation(
+                "the order names one phase's tasks twice".into(),
+            ));
+        }
+        for task_id in &group.task_ids {
+            if !tasks_seen.insert(*task_id) {
+                return Err(ApiError::Validation(
+                    "the order names a task more than once".into(),
+                ));
+            }
+        }
+    }
+
+    let response = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::projects::get_project(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let phases = core_db::projects::list_phases(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        let current = core_db::projects::task_phase_map(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+
+        let phase_ids: HashSet<Uuid> = phases.iter().map(|phase| phase.id).collect();
+        let task_phase: HashMap<Uuid, Option<Uuid>> = current.into_iter().collect();
+
+        // An id that is not this project's is out of scope, and says so the same
+        // way an invisible project does.
+        if req
+            .phases
+            .iter()
+            .any(|phase_id| !phase_ids.contains(phase_id))
+            || tasks_seen
+                .iter()
+                .any(|task_id| !task_phase.contains_key(task_id))
+            || req
+                .tasks
+                .iter()
+                .filter_map(|group| group.phase_id)
+                .any(|phase_id| !phase_ids.contains(&phase_id))
+        {
+            return Err(ApiError::RlsSparse);
+        }
+        // A complete set is the contract: a partial one would leave rows whose
+        // sort_order now collides with the ones being written.
+        if req.phases.len() != phase_ids.len() {
+            return Err(ApiError::Validation(
+                "the order must name every phase of the project".into(),
+            ));
+        }
+        if tasks_seen.len() != task_phase.len() {
+            return Err(ApiError::Validation(
+                "the order must name every task of the project".into(),
+            ));
+        }
+
+        let mut rephased: Vec<Uuid> = Vec::new();
+        for group in &req.tasks {
+            for task_id in &group.task_ids {
+                if task_phase.get(task_id).copied().flatten() != group.phase_id {
+                    rephased.push(*task_id);
+                }
+            }
+        }
+
+        let phase_rows = core_db::projects::set_phase_order(&mut *ctx.tx, org_id, id, &req.phases)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        if phase_rows as usize != req.phases.len() {
+            return Err(ApiError::RlsSparse);
+        }
+        let mut task_rows = 0u64;
+        // Number the groups one after another in phase order, then the unphased
+        // bucket, so the plan reads top to bottom from a single read.
+        let mut cursor: i32 = 0;
+        for phase_id in req
+            .phases
+            .iter()
+            .copied()
+            .map(Some)
+            .chain(std::iter::once(None))
+        {
+            let Some(group) = req.tasks.iter().find(|group| group.phase_id == phase_id) else {
+                continue;
+            };
+            if group.task_ids.is_empty() {
+                continue;
+            }
+            task_rows += core_db::projects::set_task_order(
+                &mut *ctx.tx,
+                org_id,
+                id,
+                phase_id,
+                &group.task_ids,
+                cursor,
+            )
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            cursor += group.task_ids.len() as i32;
+        }
+        if task_rows as usize != tasks_seen.len() {
+            return Err(ApiError::RlsSparse);
+        }
+
+        // Only a phase change is news to a subscriber: a reorder that stays
+        // inside a phase moves nothing anyone outside the plan can see.
+        for task_id in &rephased {
+            ctx.emit(
+                types::PROJECT_TASK_UPDATED,
+                "project_task",
+                Some(task_id.to_string().as_str()),
+                &serde_json::to_value(core_domain::events::ProjectTaskUpdated {
+                    task_id: *task_id,
+                    project_id: id,
+                })
+                .unwrap_or_default(),
+            )
+            .await?;
+        }
+
+        Ok((
+            ctx,
+            ReorderResponse {
+                phases: phase_rows,
+                tasks: task_rows,
+                rephased: rephased.len(),
+            },
+        ))
+    })
+    .await?;
+
+    Ok(Json(response))
+}
+
 // --- calendar zones ------------------------------------------------------------------
 
 /// A stretch of the calendar that constrains where work may sit.

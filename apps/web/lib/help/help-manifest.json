@@ -698,6 +698,12 @@
     "projects": {
       "docs": [
         {
+          "path": "how-to/staff-work-a-project",
+          "audience": "both",
+          "updated": "2026-11-16",
+          "title": "How to work a project \u2014 the plan and the timeline"
+        },
+        {
           "path": "how-to/project-billing",
           "audience": "admin",
           "updated": "2026-09-29",

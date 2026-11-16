@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.3.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**699 paths · 932 operations · 1492 schemas.**
+**702 paths · 935 operations · 1504 schemas.**
 
 ## accounting
 
@@ -426,6 +426,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/contracts/{id}/change-orders/{order_id}/transition` <a id="contracts_change_orders_transition"></a> | POST /api/contracts/{id}/change-orders/{order_id}/transition — move a draft order through its lifecycle. `approve` stamps the approver + time (the audit trail's who/when); `reject`/`cancel` are terminal. | [TransitionChangeOrderRequest](#schema-transitionchangeorderrequest) |
 | `POST` | `/api/v1/contracts/{id}/sla-credits` <a id="contracts_sla_credits_create"></a> | POST /api/contracts/{id}/sla-credits — record a pending service credit. NEGATIVE at billing: the next run whose window covers `applies_on` prices it as the invoice's `sla_credit` line. | [CreateSlaCreditRequest](#schema-createslacreditrequest) |
 | `POST` | `/api/v1/contracts/{id}/sla-credits/{credit_id}/cancel` <a id="contracts_sla_credits_cancel"></a> | POST /api/contracts/{id}/sla-credits/{credit_id}/cancel — withdraw a pending credit before any run consumes it. Applied credits are immutable (additive-ledger rule: corrections issue NEW credits). | — |
+| `POST` | `/api/v1/contracts/author` <a id="contract_author"></a> | POST /api/contracts/author — draft a contract from notes. No write. | [AuthorMoneyRequest](#schema-authormoneyrequest) |
 
 ## credit-notes
 
@@ -984,6 +985,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `PUT` | `/api/v1/projects/{id}/calendar` <a id="projects_set_calendar"></a> | PUT /api/projects/{id}/calendar — sets the project's working pattern. The project's pattern wins for its own dates; nothing else changes. | [SetProjectCalendarRequest](#schema-setprojectcalendarrequest) |
 | `GET` | `/api/v1/projects/{id}/cost-rollup` <a id="projects_cost_rollup"></a> | GET /api/projects/{id}/cost-rollup — posted PO bills in base currency (ADR 0002 locked) plus the project budget for comparison. | — |
 | `GET` | `/api/v1/projects/{id}/gantt` <a id="projects_gantt"></a> | GET /api/projects/{id}/gantt — the dated timeline plus its undated remainder, each phase carrying its budget burn. | — |
+| `PUT` | `/api/v1/projects/{id}/order` <a id="projects_reorder"></a> | PUT /api/projects/{id}/order — the plan's order, written in one transaction. | [ReorderRequest](#schema-reorderrequest) |
 | `GET` | `/api/v1/projects/{id}/phase-burn` <a id="projects_phase_burn"></a> | GET /api/projects/{id}/phase-burn — the burn read model (report P3): consumed approved billable minutes and card-priced value per phase against the phase's budget, with the typed `none | warn | over` alert state (`warn` at ≥80%, `over` at ≥100%). | — |
 | `GET` | `/api/v1/projects/{id}/phases` <a id="projects_list_phases"></a> | GET /api/projects/{id}/phases — ordered by sort_order. | — |
 | `POST` | `/api/v1/projects/{id}/phases` <a id="projects_create_phase"></a> | POST /api/projects/{id}/phases — adds a phase; emits `project.phase_created`. | [CreatePhaseRequest](#schema-createphaserequest) |
@@ -1052,6 +1054,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/quotes/{id}/decline` <a id="quotes_decline"></a> | POST /api/quotes/{id}/decline — sent → declined. Terminal. | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 | `POST` | `/api/v1/quotes/{id}/expire` <a id="quotes_expire"></a> | POST /api/quotes/{id}/expire — explicitly expire a quote PAST its validity window (decline is the in-window exit). | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
 | `POST` | `/api/v1/quotes/{id}/send` <a id="quotes_send"></a> | One lifecycle leg: shared shape for send/accept/decline (expire has a POST /api/quotes/{id}/send — draft → sent. Locks the document. | [QuoteLifecycleRequest](#schema-quotelifecyclerequest) |
+| `POST` | `/api/v1/quotes/author` <a id="quote_author"></a> | POST /api/quotes/author — draft a quote from notes. No write. | [AuthorMoneyRequest](#schema-authormoneyrequest) |
 
 ## rag
 
@@ -1621,9 +1624,12 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-auditevent"></a>`AuditEvent` | object |  |
 | <a id="schema-auditpage"></a>`AuditPage` | object |  |
 | <a id="schema-authorcatalogueinfo"></a>`AuthorCatalogueInfo` | object | The registry provenance the draft was validated against. |
+| <a id="schema-authorcontractresponse"></a>`AuthorContractResponse` | object |  |
 | <a id="schema-authoringissue"></a>`AuthoringIssue` | object | One author-time refusal, pointed and stable so a UI can render it. |
 | <a id="schema-authoringtoolcall"></a>`AuthoringToolCall` | object | One tool call the model made, as the response reports it. |
 | <a id="schema-authormodelinfo"></a>`AuthorModelInfo` | object | Model-provenance summary for the response. |
+| <a id="schema-authormoneyrequest"></a>`AuthorMoneyRequest` | object |  |
+| <a id="schema-authorquoteresponse"></a>`AuthorQuoteResponse` | object |  |
 | <a id="schema-authorreportcatalogue"></a>`AuthorReportCatalogue` | object |  |
 | <a id="schema-authorreportrequest"></a>`AuthorReportRequest` | object |  |
 | <a id="schema-authorreportresponse"></a>`AuthorReportResponse` | object |  |
@@ -1809,6 +1815,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-contractcap"></a>`ContractCap` | object | A T&M not-to-exceed cap. `scope` picks the boundary: `period` enforces per billing period, `contract` enforces over the contract's whole effective window. |
 | <a id="schema-contractchangeorder"></a>`ContractChangeOrder` | object | An approved change order: a billable amendment with its own lifecycle (E). Riding existing approval/audit patterns: statuses `draft → approved → billed`, rejected/cancelled terminal. |
 | <a id="schema-contractdetail"></a>`ContractDetail` | composite | The contract aggregate as one view: the agreement plus its rate card, fee schedule, prepaid blocks, and caps. |
+| <a id="schema-contractdraft"></a>`ContractDraft` | object |  |
 | <a id="schema-contractescalator"></a>`ContractEscalator` | object | A scheduled escalator: the contract's per-period price uplifts by `uplift_bps` basis points each anniversary of the billing anchor (E). Pure math at evaluation — no state. |
 | <a id="schema-contractfixedfee"></a>`ContractFixedFee` | object | Fixed-fee schedule entry: becomes a candidate line when `due_on` falls inside the evaluation window (and the effective window). |
 | <a id="schema-contractlistquery"></a>`ContractListQuery` | object |  |
@@ -2272,6 +2279,9 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-mfastepupresponse"></a>`MfaStepUpResponse` | object |  |
 | <a id="schema-mfatokenrequest"></a>`MfaTokenRequest` | object |  |
 | <a id="schema-mfaverifyrequest"></a>`MfaVerifyRequest` | object |  |
+| <a id="schema-moneyauthoringissue"></a>`MoneyAuthoringIssue` | object |  |
+| <a id="schema-moneyauthormodel"></a>`MoneyAuthorModel` | object |  |
+| <a id="schema-moneyauthorusage"></a>`MoneyAuthorUsage` | object |  |
 | <a id="schema-moveappointmentrequest"></a>`MoveAppointmentRequest` | object |  |
 | <a id="schema-moveboardrequest"></a>`MoveBoardRequest` | composite |  |
 | <a id="schema-movementlistquery"></a>`MovementListQuery` | object |  |
@@ -2523,8 +2533,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-quotametricview"></a>`QuotaMetricView` | object | A single metric's reading: the measured usage, the configured limit (when one exists), and the percentage of the limit in use. |
 | <a id="schema-quote"></a>`Quote` | object | The quote document. `subtotal/tax/total` are persisted roll-ups of the lines, recomputed on every draft edit. |
 | <a id="schema-quotedetail"></a>`QuoteDetail` | composite | The quote aggregate: document + lines. |
+| <a id="schema-quotedraft"></a>`QuoteDraft` | object |  |
 | <a id="schema-quotelifecyclerequest"></a>`QuoteLifecycleRequest` | composite | A lifecycle leg body (send/accept/decline/expire): envelope params only; the target status is the URL. |
 | <a id="schema-quoteline"></a>`QuoteLine` | object | One quote line. `amount_minor` is the half-even product of `quantity_milli × unit_amount_minor / 1000`; the API recomputes it. |
+| <a id="schema-quotelinedraft"></a>`QuoteLineDraft` | object |  |
 | <a id="schema-quotelineinput"></a>`QuoteLineInput` | object | One requested line. Catalog-backed lines snapshot the item's description/unit/price/taxability at write time; free lines name their own. |
 | <a id="schema-quotelistquery"></a>`QuoteListQuery` | object | GET /api/quotes query. |
 | <a id="schema-quotemutationresponse"></a>`QuoteMutationResponse` | composite | Instant-first mutation response (IF2) for quote mutations. |
@@ -2578,6 +2590,9 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-renderreplysnippetrequest"></a>`RenderReplySnippetRequest` | object |  |
 | <a id="schema-rendertemplaterequest"></a>`RenderTemplateRequest` | object |  |
 | <a id="schema-reordercategoriesrequest"></a>`ReorderCategoriesRequest` | composite |  |
+| <a id="schema-reorderrequest"></a>`ReorderRequest` | object | The plan's order as a drop leaves it. Both lists are complete: `phases` names every phase of the project once, `tasks` names every task of the project once in the phase it should sit in. A drag that c |
+| <a id="schema-reorderresponse"></a>`ReorderResponse` | object |  |
+| <a id="schema-reordertaskgroup"></a>`ReorderTaskGroup` | object | One group of the plan in order: the tasks of a single phase, or the unphased group when `phase_id` is null. |
 | <a id="schema-reparentcategoryrequest"></a>`ReparentCategoryRequest` | composite |  |
 | <a id="schema-replacecontactsrequest"></a>`ReplaceContactsRequest` | composite |  |
 | <a id="schema-replaceladderrequest"></a>`ReplaceLadderRequest` | object |  |
@@ -3033,4 +3048,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 32 operation groups; schema count 1492 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 32 operation groups; schema count 1504 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

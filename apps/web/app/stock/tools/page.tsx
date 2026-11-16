@@ -58,6 +58,7 @@ import {
   serialStatusLabel,
 } from "../../../lib/stock-format";
 import type { FilterClause } from "@marula-core/ui";
+import { SurfaceSubnav } from "../../../components/shell/surface-subnav";
 
 type StockItemView = components["schemas"]["StockItemView"];
 type StockLocationView = components["schemas"]["StockLocationView"];
@@ -444,6 +445,7 @@ export default function StockToolsPage(): ReactNode {
       surface="stock-tools"
       testId="tools-ledger"
       title="Tool checkout"
+      subnav={<SurfaceSubnav setId="stock-tools" />}
       subtitle="Who holds each tool unit now, and what sits in stock per location."
       shortcuts={[
         {

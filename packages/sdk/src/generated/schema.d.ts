@@ -9642,6 +9642,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * PUT /api/projects/{id}/order — the plan's order, written in one transaction.
+         * @description A drag is one request, not one request per row: a reorder that half-landed
+         *     would leave the plan in an order nobody chose. A duplicate id in the request
+         *     is a client bug and is refused as a shape error; an id that is not the
+         *     project's is out of scope and answers the same 404 an invisible project does.
+         */
+        put: operations["projects_reorder"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/phase-burn": {
         parameters: {
             query?: never;
@@ -29845,6 +29868,37 @@ export interface components {
         ReorderCategoriesRequest: components["schemas"]["MutationParams"] & {
             /** @description Category ids in their new display order. */
             ordered_ids: string[];
+        };
+        /**
+         * @description The plan's order as a drop leaves it.
+         *
+         *     Both lists are complete: `phases` names every phase of the project once,
+         *     `tasks` names every task of the project once in the phase it should sit in.
+         *     A drag that crosses a phase boundary therefore re-parents the task — the
+         *     group it appears in is where it will live. Requiring the whole set is what
+         *     makes the write unambiguous: no task keeps a stale `sort_order` that the new
+         *     ones happen to equal.
+         */
+        ReorderRequest: {
+            phases: string[];
+            tasks: components["schemas"]["ReorderTaskGroup"][];
+        };
+        ReorderResponse: {
+            /** Format: int64 */
+            phases: number;
+            /** @description Tasks whose phase changed, so the caller can name the move. */
+            rephased: number;
+            /** Format: int64 */
+            tasks: number;
+        };
+        /**
+         * @description One group of the plan in order: the tasks of a single phase, or the unphased
+         *     group when `phase_id` is null.
+         */
+        ReorderTaskGroup: {
+            /** Format: uuid */
+            phase_id?: string | null;
+            task_ids: string[];
         };
         ReparentCategoryRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -53768,6 +53822,45 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProjectGanttView"];
                 };
+            };
+        };
+    };
+    projects_reorder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReorderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReorderResponse"];
+                };
+            };
+            /** @description the project, a phase or a task is not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

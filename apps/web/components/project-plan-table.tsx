@@ -38,7 +38,7 @@ import {
   type MenuItem,
 } from "@marula-core/ui";
 import { Avatar, Icon, Pill } from "@marula-core/ui/kit";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   effortOf,
   formatDay,
@@ -52,6 +52,7 @@ import {
   type PlanPhase,
   type PlanTask,
 } from "../lib/projects-plan-types";
+import type { DropPosition, OrderSource, OrderTarget } from "../lib/plan-order";
 
 export type PlanFilter = "all" | "unassigned" | "risk" | "blocked" | "critical";
 
@@ -96,6 +97,10 @@ export interface PlanTableProps {
   onCreatingChange: (patch: Partial<PlanCreateDraft>) => void;
   onCreateCommit: () => void;
   onCreateCancel: () => void;
+  /** A row was dropped on another row. The surface turns this into the order. */
+  onReorder: (source: OrderSource, target: OrderTarget) => void;
+  /** The keyboard path: move one row up or down in its own list. */
+  onStep: (kind: "phase" | "task", id: string, direction: -1 | 1) => void;
 }
 
 /** The status word and the pill tone, shared by every row that shows one. */
@@ -258,7 +263,109 @@ export function ProjectPlanTable(props: PlanTableProps): React.JSX.Element {
     onCreatingChange,
     onCreateCommit,
     onCreateCancel,
+    onReorder,
+    onStep,
   } = props;
+
+  // The row a drag is carrying, and the row-and-half it would land on. Both are
+  // local: nothing is sent until the drop, and the surface decides what the
+  // whole order becomes.
+  const [carrying, setCarrying] = useState<OrderSource | null>(null);
+  const [dropAt, setDropAt] = useState<OrderTarget | null>(null);
+
+  const dragProps = (item: OrderSource) => ({
+    draggable: !busy,
+    onDragStart: (event: React.DragEvent) => {
+      if (busy) {
+        event.preventDefault();
+        return;
+      }
+      event.dataTransfer.effectAllowed = "move";
+      // Some browsers refuse a drag with no payload; the text is only a token.
+      event.dataTransfer.setData("text/plain", `${item.kind}:${item.id}`);
+      setCarrying(item);
+    },
+    onDragEnd: () => {
+      setCarrying(null);
+      setDropAt(null);
+    },
+    onDragOver: (event: React.DragEvent) => {
+      if (carrying === null) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      // The half a person aimed at is the half the row goes to.
+      const rect = event.currentTarget.getBoundingClientRect();
+      const position: DropPosition =
+        event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+      setDropAt({ kind: item.kind, id: item.id, position });
+    },
+    onDrop: (event: React.DragEvent) => {
+      if (carrying === null) return;
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const position: DropPosition =
+        event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+      const source = carrying;
+      setCarrying(null);
+      setDropAt(null);
+      onReorder(source, { kind: item.kind, id: item.id, position });
+    },
+  });
+
+  const dropAttrs = (item: {
+    kind: OrderSource["kind"];
+    id: string;
+  }): Record<string, string | undefined> => {
+    const landing =
+      dropAt !== null && dropAt.kind === item.kind && dropAt.id === item.id
+        ? dropAt.position
+        : undefined;
+    return {
+      "data-drop": landing,
+      "data-carrying":
+        carrying !== null && carrying.kind === item.kind && carrying.id === item.id
+          ? "true"
+          : undefined,
+    };
+  };
+
+  // The grip is the affordance and the keyboard control; the whole row is the
+  // drag. It stays out of the way until the row is hovered or focused, and it
+  // is the only thing that carries an arrow key.
+  const grip = (
+    label: string,
+    kind: "phase" | "task",
+    id: string,
+  ): ReactNode => (
+    <button
+      type="button"
+      aria-label={`Reorder ${label}`}
+      title="Drag to reorder, or press the up and down arrows"
+      draggable={false}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+        event.preventDefault();
+        event.stopPropagation();
+        onStep(kind, id, event.key === "ArrowUp" ? -1 : 1);
+      }}
+      className="inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-[5px] border-0 bg-transparent text-muted-foreground opacity-0 hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 active:cursor-grabbing"
+    >
+      <Icon name="grip" size={14} />
+    </button>
+  );
+
+  /** True when the row can move in that direction at all. */
+  const canStep = (kind: "phase" | "task", id: string, direction: -1 | 1): boolean => {
+    if (kind === "phase") {
+      const at = phases.findIndex((phase) => phase.id === id);
+      return direction < 0 ? at > 0 : at >= 0 && at < phases.length - 1;
+    }
+    const phaseId = tasks.find((task) => task.id === id)?.phase_id ?? null;
+    const siblings = tasks.filter((task) => (task.phase_id ?? null) === phaseId);
+    const at = siblings.findIndex((task) => task.id === id);
+    return direction < 0 ? at > 0 : at >= 0 && at < siblings.length - 1;
+  };
 
   const columns = narrow ? PLAN_COLUMNS_NARROW : PLAN_COLUMNS;
   const phaseColumns = narrow ? PLAN_PHASE_COLUMNS_NARROW : PLAN_PHASE_COLUMNS;
@@ -291,6 +398,18 @@ export function ProjectPlanTable(props: PlanTableProps): React.JSX.Element {
         onSelect: () => onOpenTask(task),
       },
       {
+        label: "Move up",
+        icon: <Icon name="chev" size={14} className="rotate-90" />,
+        disabled: busy || !canStep("task", task.id, -1),
+        onSelect: () => onStep("task", task.id, -1),
+      },
+      {
+        label: "Move down",
+        icon: <Icon name="chev" size={14} className="-rotate-90" />,
+        disabled: busy || !canStep("task", task.id, 1),
+        onSelect: () => onStep("task", task.id, 1),
+      },
+      {
         label: "Add task in this phase",
         onSelect: () => onAddTask(phaseId),
       },
@@ -313,6 +432,8 @@ export function ProjectPlanTable(props: PlanTableProps): React.JSX.Element {
         current={focusId === task.id}
         tabIndex={0}
         aria-label={`${task.title}, ${task.status.replaceAll("_", " ")}`}
+        {...dropAttrs({ kind: "task", id: task.id })}
+        {...dragProps({ kind: "task", id: task.id })}
         onFocus={() => onFocusRow(task.id)}
         onClick={() => {
           onFocusRow(task.id);
@@ -339,6 +460,7 @@ export function ProjectPlanTable(props: PlanTableProps): React.JSX.Element {
           />
         </PlanCheckCell>
         <PlanCell>
+          {grip(task.title, "task", task.id)}
           {task.is_milestone ? (
             <Diamond className="mx-[6px]" tone={task.status === "completed" ? "done" : "default"} />
           ) : (
@@ -532,13 +654,29 @@ export function ProjectPlanTable(props: PlanTableProps): React.JSX.Element {
           { label: "Add task in this phase", onSelect: () => onAddTask(phase.id) },
           { label: "Scale this phase…", onSelect: () => onScalePhase(phase) },
           {
+            label: "Move phase up",
+            icon: <Icon name="chev" size={14} className="rotate-90" />,
+            disabled: busy || !canStep("phase", phase.id, -1),
+            onSelect: () => onStep("phase", phase.id, -1),
+          },
+          {
+            label: "Move phase down",
+            icon: <Icon name="chev" size={14} className="-rotate-90" />,
+            disabled: busy || !canStep("phase", phase.id, 1),
+            onSelect: () => onStep("phase", phase.id, 1),
+          },
+          {
             label: allSelectedHere ? "Clear this phase's selection" : "Select every task in this phase",
             onSelect: () => onTogglePhaseSelected(phase.id, !allSelectedHere),
           },
         ];
         return (
           <div key={phase.id} role="rowgroup">
-            <PlanPhaseRow columns={phaseColumns} aria-expanded={open}>
+            <PlanPhaseRow
+              columns={phaseColumns}
+              aria-expanded={open}
+              {...dropAttrs({ kind: "phase", id: phase.id })}
+              {...dragProps({ kind: "phase", id: phase.id })}            >
               <PlanCheckCell align="start">
                 <button
                   type="button"
@@ -551,6 +689,7 @@ export function ProjectPlanTable(props: PlanTableProps): React.JSX.Element {
                 </button>
               </PlanCheckCell>
               <PlanCell flushLeft>
+                {grip(phase.name, "phase", phase.id)}
                 <button
                   type="button"
                   onClick={() => onTogglePhase(phase.id)}

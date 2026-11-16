@@ -72,18 +72,143 @@
   outline-offset: 1px;
 }
 
-.m-rail-flyout {
-  animation: m-rail-in 120ms ease forwards;
+/* ---- Rail section disclosure ------------------------------------------
+   A section's pages open inside the rail, never in a flyout. `grid-template-
+   rows: 0fr -> 1fr` is the one height animation that needs no measurement, and
+   it stays inside the 100ms motion budget (docs/theme.md §5). Closed pages stay
+   mounted for the animation, so the component marks them `inert`. */
+
+.m-rail-disclosure {
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 100%;
+  transition: grid-template-rows 100ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.m-rail-flyout-link {
+.m-rail-disclosure[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.m-rail-disclosure > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.m-rail-children {
+  position: relative;
+  padding: 2px 0 4px;
+}
+
+/* The guide line sits on the icon column (12px tile padding + a 20px glyph),
+   so a child reads as one level under the glyph it belongs to instead of as
+   another destination. The child metrics are the handoff kit's `.sub2`: 36px
+   rows, 13px labels, a 46px text column. */
+.m-rail-children::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 8px;
+  left: 22px;
+  width: 1px;
+  background: var(--m-border);
+}
+
+.m-rail-group {
+  padding: 8px 8px 2px 46px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--m-text-muted);
+}
+
+.m-rail-child {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 8px 0 46px;
+  border-radius: 12px;
+  color: var(--m-text-secondary);
+  font-size: 13px;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition:
     background-color 100ms ease,
     color 100ms ease;
 }
 
-.m-rail-flyout-link:hover {
-  background-color: color-mix(in srgb, var(--m-text-dark) 8%, transparent) !important;
+.m-rail-child:hover {
+  background-color: color-mix(in srgb, var(--m-text-dark) 6%, transparent);
+  color: var(--m-text);
+}
+
+.m-rail-child[aria-current="page"] {
+  color: var(--m-text);
+  font-weight: 600;
+}
+
+/* The dot lands on the guide line: the current page reads without a second
+   filled tile, which would compete with the section's own active tile. */
+.m-rail-child[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 18.5px;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 999px;
+  background: var(--m-gold);
+  box-shadow: 0 0 0 2px var(--m-sidebar);
+}
+
+.m-rail-child:focus-visible {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: -2px;
+}
+
+/* ---- Surface sub-nav (page-to-page tabs) -------------------------------
+   The surface pack's `.tabs2` row, drawn on its quotes page: plain text on the
+   canvas, a 2px underline under the current tab, 22px between tabs, no pill
+   fills. The underline is --m-primary, which is ink in light and gold in dark
+   — the pack's own flip, not a hard-coded ink. */
+
+.m-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 22px;
+}
+
+.m-subnav a {
+  padding: 10px 2px;
+  border-bottom: 2px solid transparent;
+  color: var(--m-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.m-subnav a:hover {
+  color: var(--m-text);
+}
+
+.m-subnav a[aria-current="page"] {
+  border-bottom-color: var(--m-primary);
+  color: var(--m-text);
+  font-weight: 600;
+}
+
+/* The strip sits under a page header, so it needs a little air above the
+   content it introduces and none on the sides (the page already pads). */
+.m-subnav-row {
+  margin: 2px 0 4px;
 }
 
 /* ---- Top bar: unified search pill -------------------------------------- */
@@ -240,8 +365,8 @@ button.m-workbar-wrapup:focus-visible {
   .m-rail-item,
   .m-rail-item > svg,
   .m-rail-item-wrap,
-  .m-rail-flyout,
-  .m-rail-flyout-link,
+  .m-rail-disclosure,
+  .m-rail-child,
   .m-top-search,
   .m-workbar-note,
   .m-workbar-ghost,

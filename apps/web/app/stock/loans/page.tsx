@@ -53,6 +53,7 @@ import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
 import { dateInputValue } from "../../../lib/stock-format";
 import type { FilterClause } from "@marula-core/ui";
+import { SurfaceSubnav } from "../../../components/shell/surface-subnav";
 
 type StockItemView = components["schemas"]["StockItemView"];
 type StockLocationView = components["schemas"]["StockLocationView"];
@@ -444,6 +445,7 @@ export default function StockLoansPage(): ReactNode {
       surface="stock-loans"
       testId="loans-ledger"
       title="Client loans"
+      subnav={<SurfaceSubnav setId="stock-tools" />}
       subtitle="Devices and tools that left stock on a client agreement. Returns land back in a chosen location."
       shortcuts={[
         {

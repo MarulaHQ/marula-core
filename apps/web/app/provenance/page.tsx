@@ -51,6 +51,7 @@ import { useDataSurfacePrefs } from "../../lib/data-surface-prefs";
 import { SurfaceTabs } from "../../components/insight/surface-tabs";
 import { InsightState } from "../../components/insight/insight-state";
 import "../../components/insight/insight-table.css";
+import { SurfaceSubnav } from "../../components/shell/surface-subnav";
 
 type ProvenanceEvent = components["schemas"]["ProvenanceEvent"];
 
@@ -319,6 +320,7 @@ export default function ProvenancePage() {
           "Who changed what, field by field, across every applied write — including agent sessions and imports. It never rewrites history."
         }
       />
+      <SurfaceSubnav setId="audit" />
 
       {/* A rejected appearance.data_surfaces write reverts the user's
           columns and sort; it says so in the status danger pair. */}

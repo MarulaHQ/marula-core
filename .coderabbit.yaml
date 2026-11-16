@@ -1,0 +1,180 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit configuration for Marula Core.
+# Reference: https://docs.coderabbit.ai/reference/configuration
+# `version` is left out on purpose: V2 is what an omitted version selects, and
+# the V2 schema has no `version` key of its own.
+
+language: "en-US"
+
+reviews:
+  # "chill" keeps feedback welcoming for outside contributors. "assertive" is
+  # the stricter setting if maintainers want more (and more nitpicky) comments.
+  profile: "chill"
+
+  # Reviews are advisory here: CI (fmt, clippy, tsc, eslint, tests,
+  # migration-diff, DCO) gates the merge and a maintainer decides. This key
+  # replaces the legacy `reviews.request_changes_workflow`; setting both is a
+  # configuration error, so only one is used.
+  auto_approvals:
+    enabled: false
+
+  # The V2 defaults, stated so a future default change cannot silently add
+  # noise or hide the summary.
+  high_level_summary: true
+  collapse_walkthrough: true
+  poem: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    # These entries are regexes, not literals: "^main$" matches only main,
+    # where "main" would also match a later main-2 branch.
+    base_branches:
+      - "^main$"
+    auto_incremental_review: true
+    # The OSS allowance is 1-10 PR reviews per hour and 100-300 files per
+    # review, so a long-running PR must not spend the whole hour at once.
+    auto_pause_after_reviewed_commits: 5
+    ignore_title_keywords:
+      - "wip"
+      - "do not review"
+
+  # CodeRabbit already skips dist/, node_modules/, .next/, lock files (except
+  # Cargo.lock), *.min.*, generated/, binaries, images, *.log and *.tsbuildinfo.
+  # These two are the machine-owned paths it does not know about.
+  path_filters:
+    - "!.sqlx/**"
+    - "!**/Cargo.lock"
+
+  path_instructions:
+    - path: "**/*.rs"
+      instructions: |
+        - No `unwrap()`, `expect()` or `panic!` outside tests: return a typed
+          error and let the layer above map it. Flag any new one.
+        - Queries use the `sqlx::query!` / `query_as!` macros with the offline
+          cache in `.sqlx/`; a new or changed query needs `cargo sqlx prepare`
+          in the same PR, or the build breaks in CI.
+        - Every query on user data is scoped to the caller's organization. A
+          new user-data table needs an `org_id` column and an RLS policy, or
+          the CI coverage test fails.
+        - A new or renamed unique constraint needs an arm in
+          `map_unique_constraint` (`crates/core-api/src/error.rs`), otherwise
+          clients get the generic `conflict` instead of a typed message.
+        - Flag blocking work (sync I/O, CPU-heavy loops, `std::thread::sleep`)
+          on the async runtime.
+
+    - path: "crates/core-db/migrations/**"
+      instructions: |
+        - Migrations are additive-first. Destructive statements (DROP, TRUNCATE,
+          a column type change, an unfiltered UPDATE/DELETE) need `--breaking`
+          in the filename, upgrade docs, and a forward path; comment on the
+          data loss, not the syntax.
+        - A column type change, a table rewrite, or a non-concurrent index on a
+          large table takes a lock on a hot table; say what it costs at the
+          sizes this schema reaches.
+        - A migration that creates a user-data table ships its `org_id` column
+          and RLS policy in the same PR.
+        - A new or renamed unique constraint must add the matching
+          `map_unique_constraint` entry in `crates/core-api/src/error.rs`.
+        - Check the upgrade-compatibility policy when a migration touches a
+          construct that customization rows reference
+          (`docs/upgrade-compatibility-policy.md`).
+
+    - path: "apps/web/**"
+      instructions: |
+        - Design tokens only: no raw hex, `rgb()` or `hsl()` outside the
+          `packages/ui` token files. The CI hex-scan fails on them, and the
+          retired colour families (Workbench, Tangerine, Ember) must never
+          reappear.
+        - Typography is Figtree for interface text, Fraunces for the wordmark
+          and marketing surfaces only, and JetBrains Mono for code and data.
+        - Motion stays on transform/opacity, at or under 120ms, and honours
+          `prefers-reduced-motion`.
+        - Default to server components; a new `"use client"` boundary needs a
+          reason.
+        - Hold the WCAG 2.2 AA floor: accessible names, focus order, keyboard
+          reachability, and a visible focus ring.
+
+    - path: "packages/ui/**"
+      instructions: |
+        - Token values live here and nowhere else. A change to a token file
+          changes every surface, so call out what it visually affects.
+        - Typography and motion are not themeable: they are fixed by
+          `docs/theme.md`, so a new token must not carry a font, duration or
+          easing.
+        - Light and dark are one token set with two values; a new role needs
+          both, plus the `tokens.ts` mirror.
+
+    - path: "fixtures/events/**"
+      instructions: |
+        - These are pinned wire-shape fixtures. Payloads evolve additively
+          only: removing or renaming a field, or narrowing a type, is a
+          contract break.
+        - A retired event type co-emits with its replacement for one
+          generation and is registered in
+          `crates/core-events/src/contract.rs` and root `deprecations.json`.
+
+    - path: "{fixtures/openapi/**,packages/sdk/openapi.json}"
+      instructions: |
+        - These are pinned snapshots regenerated by
+          `scripts/regen-openapi-pins.sh`. A hand edit is a bug: flag a spec
+          change that ships without the regenerated pair and the SDK.
+
+    - path: "**/{tests,test,e2e}/**"
+      instructions: |
+        - Assertions must be meaningful: a test that cannot fail is worse than
+          no test.
+        - Cover the error and empty paths, not only the happy one.
+        - E2E flows are order-independent and retry their own login; a flow
+          that depends on another flow's state is flaky by construction.
+
+    - path: "**/*.{test,spec}.{ts,tsx,js,jsx}"
+      instructions: |
+        - Assertions must be meaningful: a test that cannot fail is worse than
+          no test.
+        - Cover the error and empty paths, not only the happy one.
+
+    - path: "{CHANGELOG.md,ROADMAP.md,docs/site/**}"
+      instructions: |
+        - These are public pages the website builds from. Keep the register
+          user-facing: no lane or wave numbers, no internal planning
+          references, no unreleased commercial plans.
+        - `CHANGELOG.md` follows Keep a Changelog; bullets go under
+          `[Unreleased]` and answer "what changed for me?".
+        - `ROADMAP.md` columns are Shipped / In flight / Later; never put a
+          date on an item nobody owns.
+        - Flag copy that reads generic or machine-written: plain words, active
+          voice, no filler openers.
+
+  # Only the misfits are listed; every other linter keeps its default (on).
+  # The defaults that matter here are clippy and eslint, squawk (Postgres
+  # migration safety), oasdiff (the pinned OpenAPI pair), hadolint, actionlint,
+  # zizmor, osvScanner, and the gitleaks/trufflehog secret scanners.
+  tools:
+    # ESLint and tsc are the configured linters; Biome has no config here.
+    biome:
+      enabled: false
+    # No markdownlint config, and the docs wrap prose at no fixed column.
+    markdownlint:
+      enabled: false
+    # SQLFluff needs a dialect config this repository does not carry; Squawk
+    # covers the Postgres migration safety this project actually gates on.
+    sqlfluff:
+      enabled: false
+
+  # Defaults, kept so an outside contributor can ask about a review and get an
+  # answer without waiting for a maintainer.
+chat:
+  auto_reply: true
+  allow_non_org_members: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    # AGENTS.md, CLAUDE.md, GEMINI.md and .github/copilot-instructions.md are
+    # discovered by name already; only CONTRIBUTING.md needs naming.
+    filePatterns:
+      - "**/CONTRIBUTING.md"
+  learnings:
+    scope: "local"

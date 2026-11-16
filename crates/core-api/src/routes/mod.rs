@@ -2257,6 +2257,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             post(projects::schedule_scale),
         )
         .route(
+            &rp("/projects/{id}/order"),
+            axum::routing::put(projects::reorder),
+        )
+        .route(
             &rp("/projects/{id}/calendar"),
             get(projects::get_calendar)
                 .put(projects::set_calendar)

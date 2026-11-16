@@ -238,6 +238,34 @@ export function scaleSchedule(
   });
 }
 
+/** One group of the plan: the tasks of a phase, or the unphased group. */
+export interface PlanOrderGroup {
+  phase_id: string | null;
+  task_ids: string[];
+}
+
+/** The whole plan order, as a drop leaves it. */
+export interface PlanOrder {
+  phases: string[];
+  tasks: PlanOrderGroup[];
+}
+
+/**
+ * Write the plan's order in one request.
+ *
+ * A drag can cross a phase boundary, so a task's group is also its phase: the
+ * endpoint re-parents it rather than only renumbering it.
+ */
+export function savePlanOrder(
+  projectId: string,
+  order: PlanOrder,
+): Promise<{ phases: number; tasks: number; rephased: number }> {
+  return planFetch<{ phases: number; tasks: number; rephased: number }>(
+    `/api/v1/projects/${projectId}/order`,
+    { method: "PUT", body: JSON.stringify(order) },
+  );
+}
+
 export async function loadCalendar(projectId: string): Promise<WorkingCalendar | null> {
   const body = await planFetch<{ calendar: WorkingCalendar | null }>(
     `/api/v1/projects/${projectId}/calendar`,

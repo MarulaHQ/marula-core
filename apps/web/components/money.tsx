@@ -16,16 +16,10 @@
 import { SurfaceHeader } from "@marula-core/ui";
 import { Icon as KitIcon } from "@marula-core/ui/kit";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-import {
-  MONEY_NAV,
-  hms,
-  moneyItemFor,
-  type AgeingBucket,
-  type MoneyPill,
-} from "../lib/money-ui";
+import { hms, type AgeingBucket, type MoneyPill } from "../lib/money-ui";
+import { SurfaceSubnav } from "./shell/surface-subnav";
 import "./money.css";
 
 // ---------------------------------------------------------------- icons ----
@@ -39,24 +33,11 @@ function Icon({ name }: { name: "check" | "clock" | "alert" | "info" }) {
 /**
  * The money sub-navigation. It is the cluster's own table of contents, so it
  * renders on every page in the cluster, including a document page like the
- * invoice detail, which stays under Invoices.
+ * invoice detail, which stays under Invoices. The tabs are the surface pack's
+ * `.tabs2` row (see components/shell/surface-subnav.tsx), not pills.
  */
 export function MoneySubnav(): React.JSX.Element {
-  const pathname = usePathname();
-  const active = moneyItemFor(pathname);
-  return (
-    <nav className="m-money-subnav" aria-label="Money">
-      {MONEY_NAV.map((item) => (
-        <Link
-          key={item.id}
-          href={item.href}
-          aria-current={item.id === active ? "page" : undefined}
-        >
-          {item.label}
-        </Link>
-      ))}
-    </nav>
-  );
+  return <SurfaceSubnav setId="money" />;
 }
 
 export interface MoneyStatPillProps {
@@ -128,21 +109,20 @@ export function MoneyHeader({
 }: MoneyHeaderProps): React.JSX.Element {
   // The frame is the shared one (`SurfaceHeader`, the chrome lane's), so the
   // title size is decided in one place for the whole app rather than spelled
-  // here a fifth time. The money sub-navigation rides in `meta`, beside the
-  // title on its baseline, which is where the pack draws it.
+  // here a fifth time. The pack draws the money tabs in their own row UNDER
+  // the title (its quotes page), not on the title's baseline, so the strip
+  // renders after the header rather than in `meta`.
   return (
-    <SurfaceHeader
-      title={title}
-      eyebrow={eyebrow}
-      meta={
-        <>
-          {nav ? <MoneySubnav /> : null}
-          {stats}
-        </>
-      }
-      actions={actions}
-      className="m-money-head"
-    />
+    <>
+      <SurfaceHeader
+        title={title}
+        eyebrow={eyebrow}
+        meta={stats}
+        actions={actions}
+        className="m-money-head"
+      />
+      {nav ? <MoneySubnav /> : null}
+    </>
   );
 }
 
