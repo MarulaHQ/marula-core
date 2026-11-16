@@ -466,14 +466,21 @@ export default function ContractsPage(): ReactNode {
     if (draft.effective_from !== null && draft.effective_from !== undefined) {
       setEffectiveFrom(draft.effective_from);
     }
-    // Apply the term only when it disagrees with the end date on screen. A
-    // price-only proposal that keeps the term must not rewrite a non-month-
-    // aligned end date (31 Jan + 1 month would land on 28 Feb).
+    // Apply the term only when the proposal leaves BOTH the start date and
+    // the term alone. A price-only proposal must not rewrite a non-month-
+    // aligned end date (31 Jan + 1 month would land on 28 Feb), but a new
+    // start date must move the end: a one-month contract starting on the 15th
+    // ends on the 15th, not on the old month boundary.
     const start = draft.effective_from ?? effectiveFrom;
+    const startUnchanged = start === effectiveFrom;
     const termUnchanged =
       effectiveUntil !== "" &&
       draft.term_months === monthsBetween(start, effectiveUntil);
-    if (draft.term_months !== null && draft.term_months !== undefined && !termUnchanged) {
+    if (
+      draft.term_months !== null &&
+      draft.term_months !== undefined &&
+      !(startUnchanged && termUnchanged)
+    ) {
       setEffectiveUntil(addMonths(start, draft.term_months));
     }
     setPricing(draft.pricing ?? []);

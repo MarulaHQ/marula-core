@@ -13,6 +13,31 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+### Added
+
+- One AI control with three states. **Off** runs nothing, **shadow** runs the
+  models and records what they would have said on the shadow page, and **live**
+  lets each surface act on its own mode.
+- Tickets, sites and documents can be archived and restored. Archived records
+  stay readable, leave the lists, boards, pickers, search and the portal, and
+  link strips stop pointing at them.
+- Quote lines can be marked optional: priced and shown, outside the subtotal
+  and the tax, and refused as the only line on a convertible quote.
+- The knowledge home has a client scope picker, and search applies that scope
+  on the server before the result limit.
+- A project pause can carry a reason the client reads, and resuming returns the
+  project to the status it held before the pause.
+
+### Changed
+
+- Taxability from a proposed quote change now survives the change instead of
+  returning to the catalogue default.
+- Money fields on change orders, billing releases and phase burn read as
+  hidden rather than zero for people without financial access.
+- Template-created projects check the billing contract in the same transaction
+  that creates them, so a contract cannot expire between the check and the
+  insert.
+
 ## [0.3.3] - 2026-11-05
 
 ### Added

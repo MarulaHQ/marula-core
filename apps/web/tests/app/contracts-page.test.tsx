@@ -414,6 +414,56 @@ describe("/contracts", () => {
     expect(screen.getAllByText(/out of date/i).length).toBeGreaterThan(0);
   });
 
+
+  it("moves the end date when a proposal changes the start date", async () => {
+    // A one-month contract that starts on the 15th ends on the 15th. The term
+    // alone ("1 month" from both old and new start) must not preserve the old
+    // month boundary when the start itself moved.
+    const mock = setup();
+    mock.on("POST", "/api/v1/contracts/author", () => authorResponse({ term_months: 1 }));
+    mock.on("POST", "/api/v1/contracts/author/change", () => ({
+      json: {
+        valid: true,
+        saved: false,
+        sentence: "Moves the start to the 15th.",
+        operations: [
+          { path: "effective_from", value: "2026-11-15", summary: "Start on the 15th", kind: "term" },
+        ],
+        draft: authorDraft({ term_months: 1, effective_from: "2026-11-15" }),
+        resulting_total_minor: 62_400,
+        currency: "USD",
+        issues: [],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+        model_info: { provider: "test", model: "test" },
+      },
+    }));
+    mock.install();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <ContractsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("C-101");
+    await user.click(screen.getByTestId("contracts-describe"));
+    await user.type(
+      await screen.findByTestId("describe-transcript"),
+      "Managed Silver for Acme, one month from 1 November",
+    );
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    const until = await screen.findByLabelText("Effective until");
+    expect(until).toHaveValue("2026-12-01");
+
+    await user.click(screen.getByTestId("draft-tab-describe"));
+    await user.type(screen.getByTestId("change-instruction"), "start on the 15th{Enter}");
+    await user.click(await screen.findByTestId("change-apply"));
+
+    await waitFor(() => expect(screen.getByLabelText("Effective until")).toHaveValue("2026-12-15"));
+  });
+
   it("prefills the panel from the contract a renewal starts at", async () => {
     window.history.replaceState({}, "", "/contracts?renew=101");
     setup();
