@@ -17,7 +17,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use object_store::{
-    signer::Signer, Attribute, Attributes, ObjectStore as OsObjectStore, PutOptions, PutPayload,
+    signer::Signer, Attribute, Attributes, ObjectStore as OsObjectStore, ObjectStoreExt,
+    PutOptions, PutPayload,
 };
 use std::time::Duration;
 
@@ -54,6 +55,14 @@ impl S3Store {
             .with_region(&config.region)
             .with_access_key_id(&config.access_key_id)
             .with_secret_access_key(&config.secret_access_key)
+            // 0.13 moved `delete` off the client and onto `ObjectStoreExt`,
+            // which routes it through `delete_stream`: one key becomes a
+            // `DeleteObjects` batch (`POST /?delete`). Not every S3-compatible
+            // endpoint implements that API, and a rejected batch is not a
+            // missing object — the delete would surface as `Unavailable` and
+            // the object would stay. Nothing here deletes in bulk, so this
+            // keeps every delete a plain `DELETE /key`.
+            .with_disable_bulk_delete(true)
             .with_allow_http(allow_http);
         if let Some(endpoint) = &config.endpoint {
             builder = builder.with_endpoint(endpoint);
