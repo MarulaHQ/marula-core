@@ -315,9 +315,74 @@ pub async fn connect(url: &str) -> DbResult<PgPool> {
     connect_with(url, PoolConfig::default()).await
 }
 
+/// Migrations whose COMMENTS were rewritten after they shipped.
+///
+/// On 2026-10-21 a repository-wide prose sweep (`b0153db3`) edited 53 files
+/// under `migrations/`, every changed line a `--` comment. sqlx digests the
+/// whole file, comments included, so an installation created before that sweep
+/// records the old digest and `migrate` refuses to start with "migration N was
+/// previously applied but has been modified" — the upgrade matrix caught this
+/// at version 11, which is the first rewritten file.
+///
+/// For THESE versions only, a recorded digest is normalised to the file on
+/// disk before validation. The SQL in them is byte-identical apart from comment
+/// text, so nothing about the schema is being waved through. A real edit to any
+/// other migration still fails the check, and `scripts/check-migrations.sh`
+/// now refuses any edit to a shipped migration at all (it compares the tree
+/// against the newest upgrade fixture's recorded digests), so this list is the
+/// whole exemption and it must not grow.
+const COMMENT_ONLY_REWRITES: &[i64] = &[
+    11, 13, 14, 15, 16, 17, 19, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+    38, 39, 40, 41, 42, 43, 44, 45, 56, 57, 58, 59, 60, 63, 69, 70, 74, 106, 112, 113, 124, 125,
+    126, 128, 129, 131, 134, 135, 136,
+];
+
+/// Rewrites the recorded digest of a [`COMMENT_ONLY_REWRITES`] version to the
+/// digest of the file in this binary. A fresh installation has no
+/// `_sqlx_migrations` table yet — the migrator creates it — so this is a no-op
+/// there, and an installation already carrying the current digest is untouched.
+async fn normalise_comment_only_checksums(pool: &PgPool) -> DbResult<()> {
+    let table: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
+            .fetch_one(pool)
+            .await?;
+    if table.is_none() {
+        return Ok(());
+    }
+    let migrator = sqlx::migrate!("./migrations");
+    let mut repaired: Vec<i64> = Vec::new();
+    for migration in migrator.migrations.iter() {
+        if !COMMENT_ONLY_REWRITES.contains(&migration.version) {
+            continue;
+        }
+        let changed = sqlx::query(
+            "UPDATE _sqlx_migrations SET checksum = $1
+              WHERE version = $2 AND checksum <> $1",
+        )
+        .bind(migration.checksum.to_vec())
+        .bind(migration.version)
+        .execute(pool)
+        .await?
+        .rows_affected();
+        if changed > 0 {
+            repaired.push(migration.version);
+        }
+    }
+    if !repaired.is_empty() {
+        // One line, not 53: an operator should see that an upgrade normalised
+        // the digests of comment-only rewrites, and which versions they were.
+        tracing::info!(
+            versions = ?repaired,
+            "normalised the recorded checksums of comment-only rewritten migrations"
+        );
+    }
+    Ok(())
+}
+
 /// Applies all pending migrations in filename order. Idempotent: applied
 /// migrations are checksum-verified and skipped.
 pub async fn run_migrations(pool: &PgPool) -> DbResult<()> {
+    normalise_comment_only_checksums(pool).await?;
     sqlx::migrate!("./migrations").run(pool).await?;
     // Record the node catalogue release this build runs: a workflow
     // document can then say which release it was validated against, and
@@ -518,5 +583,30 @@ mod pool_config_tests {
             !message.contains("secret") && !message.contains('@'),
             "the message carries no credential: {message}"
         );
+    }
+
+    /// The exemption list names real migrations, in order and once each. A typo
+    /// here would silently leave an installation unfixed, and the normaliser
+    /// only ever touches what it can match to an embedded migration.
+    #[test]
+    fn comment_only_rewrite_versions_exist_and_are_sorted() {
+        let migrator = sqlx::migrate!("./migrations");
+        let embedded: Vec<i64> = migrator
+            .migrations
+            .iter()
+            .map(|migration| migration.version)
+            .collect();
+        let mut previous = 0;
+        for version in super::COMMENT_ONLY_REWRITES {
+            assert!(
+                embedded.contains(version),
+                "version {version} in the exemption list has no migration file"
+            );
+            assert!(
+                *version > previous,
+                "the exemption list must stay sorted and deduplicated"
+            );
+            previous = *version;
+        }
     }
 }
