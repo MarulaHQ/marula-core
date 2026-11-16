@@ -1152,7 +1152,7 @@ dependencies = [
  "axum",
  "barcoders",
  "base32",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "chrono",
  "chrono-tz",
@@ -1399,7 +1399,7 @@ version = "0.3.3"
 dependencies = [
  "async-trait",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "core-domain",
  "hex",
@@ -1450,7 +1450,7 @@ dependencies = [
 name = "core-reports"
 version = "0.3.3"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "proptest",
  "serde",
@@ -4291,7 +4291,7 @@ version = "0.3.3"
 dependencies = [
  "anyhow",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "core-api",
  "core-db",
  "core-domain",

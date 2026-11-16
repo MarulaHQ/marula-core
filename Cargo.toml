@@ -228,7 +228,7 @@ url = "2"
 regex = "1"
 data-encoding = "2"
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 proptest = "1"
 object_store = { version = "0.12", default-features = false, features = ["aws"] }
 tokio-util = { version = "0.7", features = ["codec"] }
