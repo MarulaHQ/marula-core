@@ -2276,6 +2276,31 @@ pub struct TotpCodeResponse {
     pub otpauth_url: Option<String>,
 }
 
+/// The credential's category chain must allow the caller, exactly as
+/// `/secrets/records/{id}/reveal` requires. A code read, a seed attach and a
+/// removal all touch the reveal-grade material, so all three pass this gate
+/// with `need_edit` before anything is unsealed or written.
+async fn require_credential_grant(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    role_ids: &[Uuid],
+    record_id: Uuid,
+) -> ApiResult<()> {
+    let record = core_db::secret_vault::get_record(conn, org_id, record_id)
+        .await
+        .map_err(ApiError::from)?;
+    let allowed =
+        core_db::secret_vault::folder_access(conn, org_id, role_ids, record.folder_id, true)
+            .await
+            .map_err(ApiError::from)?;
+    if !allowed {
+        return Err(ApiError::Forbidden(
+            "category locked to your role; request a grant to reveal here".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn totp_aad(org_id: Uuid, record_id: Uuid) -> Vec<u8> {
     format!("knowledge-totp:{org_id}:{record_id}").into_bytes()
 }
@@ -2421,18 +2446,10 @@ pub async fn attach_totp(
     let issuer_c = issuer.clone();
     let account_c = account.clone();
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        // The record must exist in scope before a seed can attach to it.
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM secret_records WHERE org_id = $1 AND id = $2)",
-        )
-        .bind(org_id)
-        .bind(record_id)
-        .fetch_one(&mut *ctx.tx)
-        .await
-        .map_err(ApiError::from)?;
-        if !exists {
-            return Err(ApiError::NotFound);
-        }
+        // The record must exist in scope AND its category must allow the
+        // caller: attaching a seed writes the material a code read protects.
+        let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
+        require_credential_grant(&mut ctx.tx, org_id, &role_ids, record_id).await?;
         let sealed = crate::crypto::seal_with_aad(&secret_key, &seed, &totp_aad(org_id, record_id))
             .map_err(|e| ApiError::Internal(anyhow::anyhow!("totp seal failed: {e}")))?;
         kh::upsert_secret_totp(
@@ -2551,6 +2568,8 @@ pub async fn delete_totp(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
+        require_credential_grant(&mut ctx.tx, org_id, &role_ids, record_id).await?;
         kh::delete_secret_totp(&mut *ctx.tx, org_id, record_id).await?;
         audit(
             &mut ctx.tx,
