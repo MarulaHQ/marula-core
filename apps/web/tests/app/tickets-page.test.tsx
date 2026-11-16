@@ -146,6 +146,37 @@ describe("/tickets ledger", () => {
     cleanup();
   });
 
+  it("counts the tickets touched since this browser last opened the list", async () => {
+    // The prior visit is two hours old. Every fixture was updated an hour ago,
+    // so all three are "changed since you looked".
+    window.localStorage.setItem("tickets:last-visit-at", String(NOW - 2 * HOUR));
+    setupApi();
+    render(
+      <AuthProvider>
+        <TicketsListPage />
+      </AuthProvider>,
+    );
+
+    await screen.findByText("Switch uplink flapping", {}, { timeout: 5000 });
+    const shortcut = screen.getByRole("button", { name: /Changed since you looked/ });
+    expect(shortcut.textContent).toContain("3");
+    cleanup();
+  });
+
+  it("shows zero changed tickets on a first visit rather than guessing", async () => {
+    setupApi();
+    render(
+      <AuthProvider>
+        <TicketsListPage />
+      </AuthProvider>,
+    );
+
+    await screen.findByText("Switch uplink flapping", {}, { timeout: 5000 });
+    const shortcut = screen.getByRole("button", { name: /Changed since you looked/ });
+    expect(shortcut.textContent).toContain("0");
+    cleanup();
+  });
+
   it("reads the countdown from the SLA status, the due date, or neither", async () => {
     setupApi();
     render(

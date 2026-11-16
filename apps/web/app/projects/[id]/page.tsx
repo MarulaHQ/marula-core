@@ -832,6 +832,17 @@ export default function ProjectDetailPage() {
         }
       />
 
+      {/* The delivery record's own pages. Change orders are their own document
+          because approval, apply and bill are three separate acts (S13.6). */}
+      <nav aria-label="Project records" className="flex gap-4 px-6 pt-3 text-[13px]">
+        <Link href={`/projects/${projectId}/change-orders`} className="font-semibold hover:underline">
+          Change orders
+        </Link>
+        <Link href={`/projects/${projectId}/timeline`} className="text-muted-foreground hover:underline">
+          Timeline
+        </Link>
+      </nav>
+
       <div className="px-6 pt-4">
         {actionError !== null ? (
           <p role="alert" className="mb-3 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>

@@ -1,0 +1,948 @@
+/**
+ * Describe it — the docked authoring panel and the draft builder's marks.
+ *
+ * Co-located with the components that own these classes, beside money.css
+ * rather than inside it: the money cluster's chrome and this lane's panel are
+ * two owners, and a shared sheet that one lane extends stops being shared.
+ *
+ * Every colour is a --m-* token and every size is one of the scale's steps
+ * (docs/theme.md §3/§5). Motion is transform/opacity only, 120ms, and the
+ * reduced-motion block at the foot collapses it.
+ *
+ * Geometry from the pack (DESIGN-NOTES-quoting.md §Matching the other screens):
+ * the panel is 440px, the context column 400px, titles 26px, cards 14px by
+ * 18px with a 16px title, buttons 44px or 30px.
+ */
+
+/* ---- the shell --------------------------------------------------------- */
+
+/* The page becomes two columns while the panel is open: the list keeps its
+   width and stays usable, and only the column that must scroll does. */
+.m-dsc-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+}
+
+.m-dsc-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.m-dsc-panel {
+  width: 440px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  border-left: 1px solid var(--m-border);
+  background: var(--m-surface);
+  animation: m-dsc-in 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes m-dsc-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.m-dsc-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--m-border);
+  flex-shrink: 0;
+}
+
+.m-dsc-head-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.m-dsc-head-sub {
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+  line-height: 1.4;
+  display: block;
+  margin-top: 2px;
+}
+
+.m-dsc-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.m-dsc-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.m-dsc-foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-canvas);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.m-dsc-foot-hint {
+  margin-right: auto;
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+  line-height: 1.45;
+  max-width: 200px;
+}
+
+/* ---- labels, small print ---------------------------------------------- */
+
+.m-dsc-lab {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--m-text-secondary);
+  font-weight: 600;
+  margin: 0;
+}
+
+.m-dsc-hint {
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* ---- the composer ------------------------------------------------------ */
+
+.m-dsc-composer {
+  border: 1px solid var(--m-input);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.m-dsc-composer:focus-within {
+  outline: 2px solid var(--m-focus-ring);
+  outline-offset: 2px;
+}
+
+.m-dsc-textarea {
+  border: none;
+  background: transparent;
+  color: var(--m-text);
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.55;
+  padding: 12px 14px;
+  min-height: 150px;
+  resize: vertical;
+  width: 100%;
+}
+
+.m-dsc-textarea::placeholder {
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-dsc-composer-bar .m-dsc-sp {
+  flex: 1;
+}
+
+/* ---- the field row (a plain control row, not a filter) ----------------- */
+
+.m-dsc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.m-dsc-select {
+  height: var(--m-density-control);
+  border: 1px solid var(--m-input);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+  color: var(--m-text);
+  font: inherit;
+  font-size: 13.5px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+/* ---- chips ------------------------------------------------------------- */
+
+.m-dsc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.m-dsc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-dsc-chip-neutral {
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-chip-gold {
+  background: var(--m-time);
+  color: var(--m-time-fg);
+}
+
+.m-dsc-chip svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+/* ---- the talk card ----------------------------------------------------- */
+
+.m-dsc-talk {
+  border: 1px solid var(--m-gold);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.m-dsc-talk-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.m-dsc-talk-clock {
+  margin-left: auto;
+  font-family: var(--m-font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A recording indicator, not a measurement: it says "live", it does not claim
+   a level the browser did not give us. */
+.m-dsc-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 44px;
+}
+
+.m-dsc-wave i {
+  display: block;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--m-input);
+  height: 8px;
+  animation: m-dsc-wave 900ms ease-in-out infinite alternate;
+}
+
+.m-dsc-wave i:nth-child(3n) {
+  background: var(--m-gold);
+}
+
+.m-dsc-wave i:nth-child(1) { animation-delay: 0ms; }
+.m-dsc-wave i:nth-child(2) { animation-delay: 60ms; }
+.m-dsc-wave i:nth-child(3) { animation-delay: 120ms; }
+.m-dsc-wave i:nth-child(4) { animation-delay: 180ms; }
+.m-dsc-wave i:nth-child(5) { animation-delay: 240ms; }
+.m-dsc-wave i:nth-child(6) { animation-delay: 300ms; }
+.m-dsc-wave i:nth-child(7) { animation-delay: 360ms; }
+.m-dsc-wave i:nth-child(8) { animation-delay: 420ms; }
+.m-dsc-wave i:nth-child(9) { animation-delay: 480ms; }
+.m-dsc-wave i:nth-child(10) { animation-delay: 540ms; }
+.m-dsc-wave i:nth-child(11) { animation-delay: 300ms; }
+.m-dsc-wave i:nth-child(12) { animation-delay: 120ms; }
+
+@keyframes m-dsc-wave {
+  from {
+    transform: scaleY(1);
+  }
+  to {
+    transform: scaleY(4.5);
+  }
+}
+
+.m-dsc-transcript {
+  font-size: 14.5px;
+  line-height: 1.55;
+  margin: 0;
+  min-height: 72px;
+}
+
+.m-dsc-transcript .m-dsc-dim {
+  color: var(--m-text-secondary);
+}
+
+/* ---- sources ----------------------------------------------------------- */
+
+.m-dsc-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-control);
+  background: var(--m-surface);
+}
+
+.m-dsc-source-name {
+  display: block;
+  font-weight: 600;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-dsc-source-meta {
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-drop {
+  border: 1.5px dashed var(--m-input);
+  border-radius: var(--m-radius-container);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--m-text-secondary);
+  font-size: 13.5px;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+
+.m-dsc-drop:hover {
+  background: var(--m-surface-2);
+}
+
+.m-dsc-drop strong {
+  color: var(--m-text);
+}
+
+/* ---- reading progress -------------------------------------------------- */
+
+.m-dsc-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 9px 0;
+}
+
+.m-dsc-step + .m-dsc-step {
+  border-top: 1px solid var(--m-border);
+}
+
+.m-dsc-step-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-step-dot[data-state="done"] {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-dsc-step-dot[data-state="working"] {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  border: 1.5px dashed var(--m-gold);
+}
+
+.m-dsc-step-dot[data-state="todo"] {
+  border: 1px solid var(--m-border);
+  background: transparent;
+}
+
+.m-dsc-step b {
+  display: block;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.m-dsc-step span {
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+}
+
+/* ---- the understanding card ------------------------------------------- */
+
+.m-dsc-understanding {
+  border-radius: var(--m-radius-container);
+  background: var(--m-asb);
+  color: var(--m-asf);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.m-dsc-understanding .m-dsc-lab {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.m-dsc-understanding-sentence {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.m-dsc-understanding p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.m-dsc-facts {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 6px 10px;
+  font-size: 13px;
+  border-top: 1px solid var(--m-asline);
+  padding-top: 10px;
+}
+
+.m-dsc-facts dt {
+  opacity: 0.8;
+}
+
+.m-dsc-facts dd {
+  margin: 0;
+}
+
+/* ---- questions --------------------------------------------------------- */
+
+.m-dsc-question {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.m-dsc-question-text {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.m-dsc-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.m-dsc-option {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--m-border);
+  background: var(--m-surface);
+  color: var(--m-text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.m-dsc-option[aria-pressed="true"] {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/* ---- the assumed list -------------------------------------------------- */
+
+.m-dsc-assumptions {
+  display: flex;
+  flex-direction: column;
+}
+
+.m-dsc-assumption {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 7px 0;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-dsc-assumption:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.m-dsc-assumption svg {
+  color: var(--m-status-due-fg);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* ---- failure ----------------------------------------------------------- */
+
+.m-dsc-failure {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border-radius: var(--m-radius-control);
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.m-dsc-failure b {
+  font-weight: 700;
+}
+
+.m-dsc-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--m-font-mono);
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+}
+
+/* ---- the draft builder ------------------------------------------------- */
+
+.m-dsc-builder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: 16px;
+  align-items: start;
+}
+
+.m-dsc-builder-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.m-dsc-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--m-text-secondary);
+  flex-wrap: wrap;
+}
+
+.m-dsc-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.m-dsc-legend .m-dsc-sp {
+  flex: 1;
+}
+
+/* The provenance dots. Gold: the line came from the notes. Blush: assumed.
+   Neither is ever the only signal — the row carries the words too. */
+.m-dsc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  display: inline-block;
+  background: var(--m-gold);
+}
+
+.m-dsc-dot[data-source="assumed"] {
+  background: var(--m-blush);
+}
+
+.m-dsc-dot[data-source="catalogue"] {
+  background: var(--m-canopy);
+}
+
+/* An assumed number sits on blush, so the number reads as a question. */
+.m-dsc-assumed-value {
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-weight: 600;
+}
+
+.m-dsc-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.m-dsc-items {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.m-dsc-items th {
+  height: var(--m-density-row);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--m-text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-canvas);
+  white-space: nowrap;
+}
+
+.m-dsc-items td {
+  padding: 0 12px;
+  min-height: var(--m-density-row);
+  height: var(--m-density-row);
+  border-bottom: 1px solid var(--m-border);
+  vertical-align: middle;
+}
+
+.m-dsc-items tr:last-child td {
+  border-bottom: none;
+}
+
+.m-dsc-items .m-dsc-section-row td {
+  background: var(--m-canvas);
+  font-weight: 600;
+  font-size: 13px;
+  height: 36px;
+}
+
+.m-dsc-items .m-dsc-section-row span {
+  font-weight: 400;
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-items tr[data-optional="true"] td {
+  background: var(--m-canvas);
+}
+
+/* A row a proposal touches. Tinted, and tagged in words as well. */
+.m-dsc-items tr[data-proposed="true"] td {
+  background: var(--m-accent);
+}
+
+.m-dsc-item-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.m-dsc-item-detail {
+  color: var(--m-text-secondary);
+  font-weight: 400;
+}
+
+/* The numbered mark a line carries, matching a highlight in the notes. */
+.m-dsc-mark-num {
+  display: inline-block;
+  font-family: var(--m-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--m-gold);
+  color: var(--m-ink);
+  border-radius: 5px;
+  padding: 0 5px;
+  margin-left: 2px;
+}
+
+/* The highlighted words on the notes tab. */
+.m-dsc-highlight {
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+.m-dsc-notes {
+  font-size: 13.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.m-dsc-panel-card {
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface);
+  overflow: hidden;
+}
+
+.m-dsc-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--m-border);
+}
+
+.m-dsc-panel-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.m-dsc-context {
+  width: 400px;
+  border: 1px solid var(--m-border);
+  border-radius: var(--m-radius-container);
+  background: var(--m-surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.m-dsc-context-body {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.m-dsc-total {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.m-dsc-total small {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.m-dsc-kv > :first-child {
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-kv > :last-child {
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-dsc-check {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 6px 0;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-dsc-check:first-child {
+  border-top: none;
+}
+
+.m-dsc-check svg {
+  color: var(--m-status-due-fg);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* The slim bar: changes are one move away from the draft. */
+.m-dsc-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--m-input);
+  border-radius: 999px;
+  background: var(--m-surface);
+  padding: 0 6px 0 16px;
+  min-height: 48px;
+  color: var(--m-text-secondary);
+  font-size: 14px;
+}
+
+.m-dsc-bar input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--m-text);
+  font: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.m-dsc-bar input::placeholder {
+  color: var(--m-text-secondary);
+}
+
+/* A proposed row tag: words first, gold second. */
+.m-dsc-proposed-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--m-accent);
+  color: var(--m-on-accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Clause rows in the contract builder. */
+.m-dsc-clause {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--m-border);
+  font-size: 13.5px;
+}
+
+.m-dsc-clause:first-child {
+  border-top: none;
+}
+
+.m-dsc-clause b {
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.m-dsc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.m-dsc-pill-standard {
+  background: var(--m-status-success-bg);
+  color: var(--m-status-success-fg);
+}
+
+.m-dsc-pill-variant {
+  background: var(--m-status-due-bg);
+  color: var(--m-status-due-fg);
+}
+
+.m-dsc-pill-muted {
+  background: var(--m-surface-2);
+  color: var(--m-text-secondary);
+}
+
+.m-dsc-pill-gold {
+  background: var(--m-time);
+  color: var(--m-time-fg);
+}
+
+/* ---- a field left empty on submit -------------------------------------- */
+
+.m-dsc-invalid {
+  border-color: var(--m-destructive) !important;
+}
+
+/* ---- responsive -------------------------------------------------------- */
+
+@media (max-width: 1180px) {
+  .m-dsc-builder {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .m-dsc-context {
+    width: auto;
+  }
+}
+
+@media (max-width: 1024px) {
+  /* A phone or a narrow window gets the panel over the page: the list behind
+     it is still there, and the panel is the whole task while it is open. */
+  .m-dsc-panel {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(440px, 100%);
+    z-index: 30;
+    border-left: 1px solid var(--m-border);
+    box-shadow: var(--m-shadow-overlay);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-dsc-panel {
+    animation: none;
+  }
+
+  .m-dsc-wave i {
+    animation: none;
+    height: 18px;
+  }
+}

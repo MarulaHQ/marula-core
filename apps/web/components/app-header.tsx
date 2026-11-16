@@ -13,7 +13,8 @@
 // (one bordered square each) except the avatar, which is unframed — that
 // rhythm is what makes the bar read as chrome rather than a toolbar.
 //
-// Non-purpose: no navigation state of its own; the search page owns results;
+// Non-purpose: no navigation state of its own; the command palette owns the
+// search overlay and the full /search page owns the full-page results;
 // notification preferences live at /settings/notifications.
 
 "use client";
@@ -33,6 +34,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { API_BASE, useAuth } from "../lib/api";
 import { BrandLockup, BrandMark, LOCKUP_COMPLIANT_HEIGHT } from "./brand";
+import { CommandPaletteHost } from "./command-palette";
+import { actions as paletteActions } from "./command-palette/store";
 import { NotificationDock } from "./notification-dock";
 import { HelpPanel } from "./help/help-panel";
 import { OutboxDock } from "./instant/outbox-dock";
@@ -54,21 +57,24 @@ function ThemeToggle() {
 }
 
 /**
- * Unified-search entry: the mockup's search field, opening /search instead of
- * filtering in place, because results live on their own page (grouped by kind
- * with a keyboard cursor). It borrows the kit field's shell rather than
- * restyling a lookalike, so the launcher and any real field stay identical.
- * The global ⌘K / Ctrl+K chord rides the Wave 29 command registry
- * (components/shortcuts) — one dispatcher, no duplicate listener.
+ * Unified-search entry: the mockup's search field now opens the command
+ * palette (K01) instead of navigating. The palette searches the same
+ * `GET /api/v1/search` endpoint and keeps its own footer link to the full
+ * /search page, so that page remains reachable without duplicating the entry.
+ * It borrows the kit field's shell rather than restyling a lookalike, so the
+ * launcher and any real field stay identical.
+ *
+ * Cmd/Ctrl+K is owned by the palette host (capture phase), which also stops
+ * the command registry's mod+k row from navigating behind the overlay.
  */
 function SearchLauncher() {
-  const router = useRouter();
   return (
     <button
       type="button"
       data-testid="search-launcher"
-      onClick={() => router.push("/search")}
-      aria-label="Search (Command K)"
+      onClick={() => paletteActions.open("search")}
+      aria-label="Open the command palette"
+      aria-haspopup="dialog"
       className={cn(topBarSearchClasses, "m-top-search cursor-pointer text-left")}
     >
       <Icon name="search" size={16} className="shrink-0" />
@@ -231,6 +237,9 @@ export function AppHeader() {
         <NotificationDock />
         <UserMenu />
       </div>
+      {/* The palette and panel live outside the bar's flex row; both are
+          overlays (a portalled dialog and a fixed panel). */}
+      <CommandPaletteHost />
     </TopBar>
   );
 }

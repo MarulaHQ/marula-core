@@ -9,7 +9,7 @@ chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"
 utoipa = { workspace = true, optional = true, features = ["uuid", "chrono"] }
 
 [features]

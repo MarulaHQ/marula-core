@@ -16,7 +16,7 @@ testcontainers = { version = "0.28", features = ["reusable-containers"] }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 rsa = { version = "0.9", features = ["sha2", "getrandom"] }
-serial_test = "3"
+serial_test = "4"
 # The CI feeder gate drives the REAL feeder adapters over the wire
 # (public API contract) against this router — test-only edge; the
 # connector never imports the core.
@@ -34,7 +34,7 @@ path = "src/bin/dump_openapi.rs"
 
 [dependencies]
 async-trait = { workspace = true }
-core-db = { path = "../core-db" }
+core-db = { path = "../core-db", features = ["openapi"] }
 core-decision = { path = "../core-decision" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 plugin-host = { path = "../plugin-host" }
@@ -106,7 +106,7 @@ reqwest = { workspace = true }
 url = { workspace = true }
 data-encoding = { workspace = true }
 base32 = "0.5"
-base64 = "0.22"
+base64 = "0.23"
 bytes = { workspace = true }
 
 # Windows has no system OpenSSL for the TLS chain (reqwest → native-tls,

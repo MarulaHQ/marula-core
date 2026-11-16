@@ -27,6 +27,7 @@ import { surfaceMatchesOne } from "./chords";
 import { failed, inapplicable, RAN, reportCommandOutcome } from "./outcome";
 import { attr, clickTarget, testid } from "./targets";
 import type { CommandContext, CommandDef, CommandOutcome, CommandVerb } from "./types";
+import { actions as paletteActions } from "../../components/command-palette/store";
 
 /**
  * Click-parity target for surfaces that expose their own create control.
@@ -89,12 +90,12 @@ const GLOBAL_COMMANDS: CommandDef[] = [
     id: "palette.search",
     verb: "palette",
     label: "Search & commands",
-    description: "Open the command palette — unified search across tickets, clients, devices, and more.",
+    description: "Open the command palette — search across tickets, clients and devices, or ask when chat is granted.",
     chord: "mod+k",
     surfaces: [],
     targets: [],
-    run: (ctx) => {
-      ctx.navigate("/search");
+    run: () => {
+      paletteActions.open("search");
       return RAN;
     },
   },
