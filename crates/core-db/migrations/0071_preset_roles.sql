@@ -134,7 +134,13 @@ BEGIN
         ('read_only', 'Read Only', v_view_all)
       ) AS t(b, name, perms)
       WHERE NOT EXISTS (
-        SELECT 1 FROM roles r WHERE r.org_id = org.id AND r.builtin = t.b
+        -- `roles_org_id_name_key` is (org_id, name), so a role that already
+        -- holds this preset's name would collide even with a different
+        -- `builtin` tag (pre-preset rows carry NULL). Matching on either key
+        -- keeps the backfill idempotent against both shapes; an existing row
+        -- keeps its permissions rather than being rewritten.
+        SELECT 1 FROM roles r
+         WHERE r.org_id = org.id AND (r.builtin = t.b OR r.name = t.name)
       )
     LOOP
       INSERT INTO roles (id, org_id, name, builtin, permissions, is_system)
@@ -143,7 +149,10 @@ BEGIN
 
     -- Dispatcher: full tickets/scheduling/clients + view/edit on the
     -- secondary set + vault view + board admin.
-    IF NOT EXISTS (SELECT 1 FROM roles WHERE org_id = org.id AND builtin = 'dispatcher') THEN
+    -- Either key: the unique constraint is (org_id, name), and a
+    -- pre-preset role of this name carries no builtin tag.
+    IF NOT EXISTS (SELECT 1 FROM roles
+                     WHERE org_id = org.id AND (builtin = 'dispatcher' OR name = 'Dispatcher')) THEN
       INSERT INTO roles (id, org_id, name, builtin, permissions, is_system)
       VALUES (gen_random_uuid(), org.id, 'Dispatcher', 'dispatcher',
         (SELECT jsonb_agg(jsonb_build_object('matrix', jsonb_build_object('module', m, 'action', a))
@@ -168,7 +177,10 @@ BEGIN
 
     -- Technician: full tickets + KB, vault use, client/time/scheduling/
     -- reporting reads, time + scheduling writes.
-    IF NOT EXISTS (SELECT 1 FROM roles WHERE org_id = org.id AND builtin = 'technician') THEN
+    -- Either key: the unique constraint is (org_id, name), and a
+    -- pre-preset role of this name carries no builtin tag.
+    IF NOT EXISTS (SELECT 1 FROM roles
+                     WHERE org_id = org.id AND (builtin = 'technician' OR name = 'Technician')) THEN
       INSERT INTO roles (id, org_id, name, builtin, permissions, is_system)
       VALUES (gen_random_uuid(), org.id, 'Technician', 'technician',
         (SELECT jsonb_agg(jsonb_build_object('matrix', jsonb_build_object('module', m, 'action', a))
@@ -194,7 +206,13 @@ BEGIN
         ('auditor', 'Auditor', v_view_all || '["view_audit_log"]'::jsonb)
       ) AS t(b, name, perms)
       WHERE NOT EXISTS (
-        SELECT 1 FROM roles r WHERE r.org_id = org.id AND r.builtin = t.b
+        -- `roles_org_id_name_key` is (org_id, name), so a role that already
+        -- holds this preset's name would collide even with a different
+        -- `builtin` tag (pre-preset rows carry NULL). Matching on either key
+        -- keeps the backfill idempotent against both shapes; an existing row
+        -- keeps its permissions rather than being rewritten.
+        SELECT 1 FROM roles r
+         WHERE r.org_id = org.id AND (r.builtin = t.b OR r.name = t.name)
       )
     LOOP
       INSERT INTO roles (id, org_id, name, builtin, permissions, is_system)

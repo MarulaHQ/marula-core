@@ -50,6 +50,7 @@
 63 comment-only rewrite (2026-10-21 prose sweep)
 69 comment-only rewrite (2026-10-21 prose sweep)
 70 unassigned-record fix: the shipped backfill referenced its own loop record
+71 name-aware preset backfill: the insert collided with a pre-preset role of the same name
 74 comment-only rewrite (2026-10-21 prose sweep)
 106 comment-only rewrite (2026-10-21 prose sweep)
 112 comment-only rewrite (2026-10-21 prose sweep)
@@ -63,3 +64,4 @@
 134 comment-only rewrite (2026-10-21 prose sweep)
 135 comment-only rewrite (2026-10-21 prose sweep)
 136 comment-only rewrite (2026-10-21 prose sweep)
+182 unassigned-record fix: the shipped backfill referenced its own loop record
