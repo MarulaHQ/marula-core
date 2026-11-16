@@ -1713,7 +1713,7 @@ pub fn is_link_kind(kind: &str) -> bool {
 /// Drops the edges one record owned. Neither endpoint can be a foreign key —
 /// a link names a record by kind and id — so deleting the record has to delete
 /// them; a leftover edge reads as a relationship to something that is gone.
-pub(crate) async fn delete_links_for(
+pub async fn delete_links_for(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     kind: &str,

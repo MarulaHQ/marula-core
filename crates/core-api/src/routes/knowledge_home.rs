@@ -87,9 +87,12 @@ pub(crate) async fn purge_links(
     kind: &str,
     id: Uuid,
 ) -> ApiResult<()> {
-    for link in kh::links_for(&mut **tx, org_id, kind, id).await? {
-        kh::delete_link(&mut **tx, org_id, link.id).await?;
-    }
+    // The bulk delete, not `links_for` + `delete_link`: `links_for` hides an
+    // edge whose other end is an archived ticket, site or document, so a
+    // restoring record would come back holding a link to the deleted one.
+    // `delete_links_for` matches both endpoints with no archive filter, which
+    // is what deleting the record itself needs.
+    kh::delete_links_for(&mut *tx, org_id, kind, id).await?;
     Ok(())
 }
 

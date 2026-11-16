@@ -867,8 +867,12 @@ pg_ready() { # pg_ready <server-url>
     pg_isready -q -d "$1" 2>/dev/null
   else
     # A runner without the postgres client: the container this run started
-    # carries one, and it answers for the server the URL names.
-    "$DOCKER" exec "marula-e2e-pg-$RUN_ID" pg_isready -U postgres -q 2>/dev/null
+    # carries one. Probe over TCP on the persistent server's own port, not the
+    # default socket: during first-time initialization the image entrypoint
+    # starts a temporary server that answers on the socket only, and treating
+    # that as ready races the CREATE DATABASE below against its shutdown.
+    "$DOCKER" exec "marula-e2e-pg-$RUN_ID" \
+      pg_isready -h 127.0.0.1 -p 5432 -d postgres -U postgres -q 2>/dev/null
   fi
 }
 

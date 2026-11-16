@@ -38,7 +38,7 @@ pub(crate) fn tickets(action: core_domain::policy::Action) -> Permission {
 /// not contain the caller — and whose caller is not owner/admin — is a 404 on
 /// every by-id path, the same answer the client read gives. A ticket with no
 /// client is org-level and always visible; the helper owns the predicate.
-async fn require_ticket_visible(
+pub(crate) async fn require_ticket_visible(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     ticket: &core_domain::entities::Ticket,
@@ -626,6 +626,18 @@ pub async fn create(
         )
         .await?
         {
+            // A replay hands back a stored response, so the visibility gate
+            // has to answer first: losing access to the client must not still
+            // return the body captured while it was granted.
+            if let Some(client_id) = req.client_id {
+                super::clients::require_client_visible(
+                    &mut ctx.tx,
+                    org_id,
+                    client_id,
+                    &authed.principal,
+                )
+                .await?;
+            }
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         // Board-level RBAC first (deny wins): a viewer-role membership row
@@ -814,6 +826,16 @@ pub async fn get_one(
     let org_id = authed.principal.user.org_id;
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    // The ticket and its revision must come from one committed state. At the
+    // default READ COMMITTED each statement takes its own snapshot, so an
+    // update landing between the two reads can pair the old body with the new
+    // ETag — and the next conditional GET then answers 304 for a body the
+    // client never received. This is the first statement in the transaction;
+    // the org/user bind below is a query and would take the snapshot.
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -939,12 +961,31 @@ pub async fn patch(
         )
         .await?
         {
+            // Replay returns the stored body before the fresh path's checks
+            // run, so the ticket's visibility is answered here too.
+            let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+                .await
+                .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            require_ticket_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
         require_ticket_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
+        // Moving a ticket INTO a client is a write the read boundary has to
+        // allow: otherwise a caller who can edit this ticket can hand it to a
+        // client whose restricted list excludes them and read it back in the
+        // response. Clearing the client is always legal.
+        if let Some(Some(client_id)) = req.client_id {
+            super::clients::require_client_visible(
+                &mut ctx.tx,
+                org_id,
+                client_id,
+                &authed.principal,
+            )
+            .await?;
+        }
         // Classification validation (Wave 11 lane 3): the node must exist
         // in this org and not be retired; clearing is always legal. A
         // retired node already ON the ticket stays (retirement never
@@ -1305,6 +1346,12 @@ pub async fn add_comment(
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: a stored comment
+        // body must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -1318,10 +1365,6 @@ pub async fn add_comment(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
-        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -1809,6 +1852,12 @@ pub async fn add_checklist_item(
     let item_id = Uuid::now_v7();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: a stored checklist
+        // item must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -1822,10 +1871,6 @@ pub async fn add_checklist_item(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
-        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -1939,6 +1984,12 @@ pub async fn set_checklist_item(
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: the stored item
+        // state must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -1952,10 +2003,6 @@ pub async fn set_checklist_item(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
-        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -2180,6 +2227,12 @@ pub async fn complete_all_checklist(
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: the stored batch
+        // result must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -2193,10 +2246,6 @@ pub async fn complete_all_checklist(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
-        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
