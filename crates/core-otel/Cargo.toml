@@ -14,5 +14,5 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-serial_test = "3"
+serial_test = "4"
 serde_json = { workspace = true }
