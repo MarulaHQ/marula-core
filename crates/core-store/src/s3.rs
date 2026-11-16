@@ -263,11 +263,14 @@ mod tests {
         };
         let st = S3Store::new(cfg);
         let key = format!("smoke/{}", uuid::Uuid::now_v7());
-        st.put(&key, "text/plain", Bytes::from_static(b"marula-live"))
-            .await
-            .expect("put");
+        let payload = Bytes::from_static(b"marula-live");
+        // Derived from the payload rather than written out: the literal is 11
+        // bytes, so the 13 this used to assert could never hold, which is why
+        // this smoke has never passed for anyone who ran it.
+        let expected_len = payload.len() as u64;
+        st.put(&key, "text/plain", payload).await.expect("put");
         let obj = st.get(&key).await.expect("get");
-        assert_eq!(obj.size_bytes, 13);
+        assert_eq!(obj.size_bytes, expected_len);
         st.delete(&key).await.expect("delete");
         assert!(matches!(
             st.get(&key).await.expect_err("gone"),
