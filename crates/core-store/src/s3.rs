@@ -277,4 +277,66 @@ mod tests {
             StoreError::NotFound(_)
         ));
     }
+
+    /// The bulk-delete opt-out is invisible until an endpoint that lacks
+    /// `DeleteObjects` refuses the batch, and by then the object is already
+    /// undeleted. Assert the wire shape directly instead: deleting one key must
+    /// be one `DELETE /key`, never a `POST /?delete` batch. A stub socket
+    /// stands in for S3 so this runs everywhere, including CI.
+    #[tokio::test]
+    async fn delete_issues_a_single_object_request_not_a_batch() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stub");
+        let port = listener.local_addr().expect("stub addr").port();
+        let (record, recorded) = mpsc::channel::<String>();
+        let stub = std::thread::spawn(move || {
+            // One connection carrying one request is all a single delete needs.
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).expect("request line");
+            record
+                .send(request_line.trim().to_string())
+                .expect("record");
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 || header == "\r\n" {
+                    break;
+                }
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("respond");
+        });
+
+        let store = S3Store::new(S3Config {
+            endpoint: Some(format!("http://127.0.0.1:{port}")),
+            bucket: "marula".into(),
+            region: "us-east-1".into(),
+            access_key_id: "key".into(),
+            secret_access_key: "secret".into(),
+        });
+        let deleted = store.delete("org/x/attachments/abc").await;
+
+        let request_line = recorded.recv().expect("the delete must reach S3");
+        stub.join().expect("stub thread");
+        // Assert the shape before the outcome. If the bulk path ever comes
+        // back, the client's own error ("invalid DeleteObjects response") says
+        // nothing about which request it sent, and that is what is worth
+        // naming in the failure.
+        assert!(
+            request_line.starts_with("DELETE /marula/org/x/attachments/abc"),
+            "a single-key delete must be DELETE /key, saw: {request_line}"
+        );
+        assert!(
+            !request_line.contains("?delete"),
+            "must not use the bulk DeleteObjects endpoint, saw: {request_line}"
+        );
+        deleted.expect("delete");
+    }
 }
