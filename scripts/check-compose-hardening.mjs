@@ -34,6 +34,12 @@
 // for the report. A compose file that is not valid YAML fails the gate rather
 // than being skipped.
 //
+// A `${VAR}` or `${VAR:-default}` in one of these settings is reported, not
+// evaluated. Compose substitutes before the container exists, so
+// `network_mode: "${NET_MODE:-host}"` is host networking in a deployment where
+// NET_MODE is unset, and reads as an ordinary string here. A value this file
+// cannot know is not a value known to be safe; an exemption carries the reason.
+//
 // Files are selected by name (`*compose*.yml`), because `deploy/helm` holds
 // Go-templated chart files that are not valid YAML until rendered and are not
 // Compose in any case.
@@ -94,7 +100,11 @@ function deref(node, doc) {
 
 /** Map of service name -> { pair, map } for the document's `services:`. */
 function servicesOf(doc) {
-  const services = doc.get('services', true);
+  // `services: *anchor` makes this node an Alias, so it has to be resolved
+  // before it can be indexed. Without this the index came back empty while
+  // `toJS()` still resolved the services, and looking the service up returned
+  // undefined — which then threw in pairFor.
+  const services = deref(doc.get('services', true), doc);
   if (!isMap(services)) return new Map();
   const byName = new Map();
   for (const pair of services.items) {
@@ -107,7 +117,7 @@ function servicesOf(doc) {
 
 /** The Pair for `key` in a service mapping, or undefined when it came from a merge. */
 function pairFor(service, key) {
-  if (!service.map) return undefined;
+  if (!service?.map) return undefined;
   return service.map.items.find((item) => String(item.key?.value ?? '') === key);
 }
 
@@ -148,14 +158,24 @@ function scanText(text, label) {
     const located = services.get(name);
 
     for (const setting of SETTINGS) {
-      if (!setting.hit(service[setting.key])) continue;
+      const raw = service[setting.key];
+      if (raw === undefined || raw === null) continue;
+      // Compose substitutes `${VAR}` and `${VAR:-default}` before a service is
+      // created, so a value this file cannot evaluate is not a value known to
+      // be safe. `${NET_MODE:-host}` reads as an ordinary string here and
+      // becomes host networking in the deployment. Fail closed and let an
+      // exemption carry the reason.
+      const substitution = typeof raw === 'string' && raw.includes('${');
+      if (!substitution && !setting.hit(raw)) continue;
       const pair = pairFor(located, setting.key);
       if (exempted(pair)) continue;
-      const where = pair ? undefined : ' (reached through a merge key or alias)';
+      const where = pair ? '' : ' (reached through a merge key or alias)';
       findings.push({
         line: lineOf(pair, located, lineCounter),
-        text: `${setting.key}: ${service[setting.key]}`,
-        reason: `${setting.reason}${where}`,
+        text: `${setting.key}: ${raw}`,
+        reason: substitution
+          ? `is a Compose substitution, which this check cannot evaluate${where}`
+          : `${setting.reason}${where}`,
       });
     }
 
@@ -285,6 +305,28 @@ const FIXTURES = {
     command: ["true"]
     privileged: true
 `,
+  // `services:` as an alias. The index used to come back empty here and throw.
+  aliasedServices: `x-services: &all
+  web:
+    image: alpine:3.20
+    # EXEMPTION (compose): this proxy needs host networking.
+    network_mode: host
+services: *all
+`,
+  // Compose substitutes before the container exists, so the value cannot be
+  // known to be safe. `${NET_MODE:-host}` becomes host networking in a
+  // deployment where NET_MODE is unset.
+  substitution: `services:
+  web:
+    image: alpine:3.20
+    network_mode: "\${NET_MODE:-host}"
+`,
+  // Even a default that looks harmless is unresolved here. Fail closed.
+  benignSubstitution: `services:
+  web:
+    image: alpine:3.20
+    privileged: "\${PRIV:-false}"
+`,
 };
 
 const EXPECTED = {
@@ -299,6 +341,9 @@ const EXPECTED = {
   // `shared` sets it for real, and `web` inherits it through the merge key.
   merged: 2,
   staleMarker: 1,
+  aliasedServices: 0,
+  substitution: 1,
+  benignSubstitution: 1,
 };
 
 function selfTest() {
