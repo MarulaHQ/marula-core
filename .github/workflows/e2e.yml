@@ -1,0 +1,154 @@
+name: E2E
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The Playwright suite: 37 flow specs across six projects (light, dark, the
+# warm and high-contrast shipped presets, each in both modes), the axe baseline
+# and the flake gate. It does not decide whether a change may merge.
+#
+# It moved out of `nightly.yml` so it owns its triggers. In there it loaded a
+# short-clock set of nine jobs and could only run on a schedule; here it can be
+# asked for on a single pull request without paying for the perf, scale,
+# upgrade and scanner legs that have nothing to do with a diff.
+#
+# Three triggers, one job:
+#   - schedule — daily at 05:30 UTC. Catches what the per-push gates cannot
+#     see: layout, focus order, contrast, a theme pack, a flow that only breaks
+#     with a real stack behind it.
+#   - workflow_dispatch — ask for it by name.
+#   - pull_request labelled `run-e2e` — a reviewer's lever for a change that
+#     touches a flow, a theme pack or the router. The label is the whole gate:
+#     an unlabelled pull request never pays these minutes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    - cron: "30 5 * * *" # ~05:30 UTC, before the workday pile-up
+  workflow_dispatch: {}
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: E2E — Playwright flows in light + dark + shipped presets, axe baseline
+    # A `labeled` event fires for every label the pull request gains. Only the
+    # one this workflow acts on may start the suite.
+    if: >
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'run-e2e'
+    # Concurrency belongs to the JOB, not the workflow. Every label starts a
+    # workflow run of its own, and the runs for other labels skip this job at
+    # the `if` above; at workflow level those runs would share the group and
+    # cancel the suite that is actually running. Keyed on the pull request
+    # number so two fork branches both called `main` are two suites rather than
+    # one, and falling back to `github.ref` for the schedule, where there is no
+    # pull request.
+    concurrency:
+      group: e2e-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    # Pinned to 24.04 for the reason recorded on `ci.yml`'s `rust` job:
+    # `ubuntu-latest` moved to 26.04 and is serving builds of it without Ubuntu
+    # archive sources, which breaks `playwright install --with-deps` before the
+    # suite starts.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # The flake budget (e2e/helpers/budget.ts) only retries in CI, and the
+      # flake gate fails the run when more tests than the budget needed a retry.
+      CI: "true"
+      # A 2-core runner is below the `standard` embedding tier's floor (4
+      # cores), and core-api refuses to boot rather than under-provision the
+      # model silently. The stack boots core-api as a child process, so it
+      # inherits this from the job environment — the same reason every Rust job
+      # in `ci.yml` carries it.
+      MARULA_EMBEDDING_TIER: minimal
+    steps:
+      - uses: actions/checkout@v7
+      # The runner's disk failure mode is silent until it is loud: rustc
+      # reports "IO failure on output stream", the linker dies with a Bus error
+      # that reads like a compiler crash, and GitHub's own warning ("Free space
+      # left: 0 MB") arrives after the damage. This suite builds core-api and
+      # the worker in release, the plugin worker, and a Next standalone bundle,
+      # so it starts with the same headroom the Rust jobs give themselves.
+      - name: Reclaim runner disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          echo "--- after reclaim ---"
+          df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # No `version:` here on purpose: package.json's `packageManager`
+      # (pnpm@12.16.1) is the single source of truth, and naming a version in
+      # both places makes this action fail with "Multiple versions of pnpm
+      # specified" before the first step of the job.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install the workspace
+        run: pnpm install --frozen-lockfile
+      # The browser binary is the slow half and it rarely moves; the apt
+      # dependencies still run on every invocation, which is why `--with-deps`
+      # stays on the uncached branch of the install.
+      - name: Cache the Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Chromium for the suite
+        run: pnpm exec playwright install --with-deps chromium
+      # Boots its own per-run database and Valkey on random high ports and
+      # writes e2e/.e2e-stack.env. No `services:` block: a service container on
+      # the runner would be a second, unused stack. Nothing here hand-sets a
+      # port or an API URL — Playwright's config reads the env file, and the
+      # build script below inlines the same values.
+      - name: Boot the seeded demo stack (migrate → seed-demo → core-api)
+        run: ./scripts/e2e-stack.sh up
+      # scripts/e2e-build-web.sh, not a bare `pnpm --filter build`: it sources
+      # the stack env so NEXT_PUBLIC_API_URL cannot drift, and it copies
+      # .next/static + public into the standalone root, without which every
+      # chunk 400s.
+      - name: Build the web app for the suite
+        run: pnpm e2e:build-web
+      - name: Lint the web app (design-system enforcement, @shadcn/lint)
+        run: pnpm turbo run lint --filter @marula-core/web
+      # Includes flows/axe-audit.spec.ts: known criticals live in
+      # e2e/axe-baseline.json and a NEW one fails the run.
+      - name: Run the flows in both themes
+        run: pnpm exec playwright test --config=e2e/playwright.config.ts
+      - name: Flake-gate verdict (budget from e2e/helpers/budget.ts)
+        if: always()
+        run: node e2e/flake-gate.ts
+      # A boot that never reached a healthy core-api leaves its reason in the
+      # service logs, which no other artifact carries: the suite's own reports
+      # only exist once Playwright started.
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            e2e/test-results/
+            playwright-report/
+            .kilo/e2e-logs/
+          retention-days: 7
+      - name: Tear the stack down
+        if: always()
+        run: |
+          # No run id argument: `down` reads MARULA_RUN_ID from the env file the
+          # boot wrote, which is the run the script itself recorded. The parked
+          # copy of this job grepped for `^RUN_ID=`, a key that file has never
+          # contained, so the lookup was always empty and the `[ -n ... ]` guard
+          # skipped teardown on every run — the containers survived to the
+          # runner's own cleanup.
+          if [ -f e2e/.e2e-stack.env ]; then
+            ./scripts/e2e-stack.sh down
+          else
+            echo "no e2e/.e2e-stack.env: the stack never recorded a run, nothing to tear down"
+          fi

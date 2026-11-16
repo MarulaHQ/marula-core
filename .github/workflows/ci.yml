@@ -42,7 +42,18 @@ jobs:
 
   rust:
     name: Rust — fmt · clippy · sqlx offline cache
-    runs-on: ubuntu-latest
+    # `ubuntu-24.04`, not `ubuntu-latest`. `latest` moved to Ubuntu 26.04 on
+    # 2026-10-19 (actions/runner-images#14748) and is still serving several
+    # builds of it. On run 43773681904 this job landed on
+    # `ubuntu26/20261111.82`, which came up with no Ubuntu archive sources at
+    # all: `apt-get update` fetched only the Microsoft repository, and every
+    # package below failed as "Unable to locate". The identical step passed
+    # eighty minutes earlier on `ubuntu26/20261111.196`, which had the archive
+    # and `universe`. The GTK and WebKit headers are the only reason this job
+    # touches the distro at all, and 24.04 is the LTS those headers are known
+    # on, so the distro is pinned until the 26.04 fleet stops disagreeing with
+    # itself.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         # pgvector/pgvector:pg18 — the same major the compose files and
@@ -239,7 +250,9 @@ jobs:
 
   rust-tests-rest:
     name: Rust tests — workspace except core-api
-    runs-on: ubuntu-latest
+    # Pinned for the reason recorded on the `rust` job: the same GTK/WebKit
+    # header install, and the same mixed 26.04 builds.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         # pgvector/pgvector:pg18 — the same major the compose files and
@@ -357,6 +370,116 @@ jobs:
       - name: Customization-aware migration cross-check (U9)
         run: ./scripts/check-customization-crosscheck.sh
 
+  # The two gates above read FILES. This pair replays production-shaped DATA:
+  # a captured v0.2.0 fixture is restored, migrated to HEAD, and asserted to
+  # survive with its customization rows intact, then the upgrade preflight runs
+  # against the captured manifest. That is the forward path an operator walks,
+  # and it is the one thing a migration PR can break without any file lint
+  # noticing.
+  #
+  # Scoped rather than unconditional: a UI or docs change cannot move the
+  # answer, and the job pays for a database restore, a migration run and a
+  # `marula-core-cli` build. On a push to main there is no base branch to
+  # compare against, so the matrix always runs — a merge is exactly where the
+  # forward path from a shipped release can break.
+  upgrade-scope:
+    name: Upgrade matrix — is this change in scope?
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+      # No `fetch-depth: 0`: the remote base branch is fetched at depth 1 and
+      # compared as a tree, which is all a two-dot diff needs. Cloning the full
+      # history of this repository to answer one grep would cost more than the
+      # job it gates.
+      - id: scope
+        name: Changed paths that can move the forward path
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -z "$BASE_REF" ]; then
+            echo "not a pull request — running the matrix"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin \
+            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          changed="$(git diff --name-only "origin/$BASE_REF" HEAD)"
+          echo "$changed"
+          # Migrations and the runner that applies them; the CLI crate, where
+          # both `migrate` and `upgrade --check` live (in `main.rs`, so the
+          # crate is the narrowest honest unit); the captured fixtures.
+          if echo "$changed" | grep -Eq '^(crates/core-db/(migrations|src)/|crates/marula-core-cli/src/|fixtures/upgrades/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "not in scope — no migration, runner or fixture changed"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  upgrade-matrix:
+    name: N−2 upgrade matrix — restore fixture → migrate to HEAD
+    needs: upgrade-scope
+    if: needs.upgrade-scope.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector/pgvector:pg18 — prod parity with the fixture capture.
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marula_upgrade
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_upgrade
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Restoring replays the full schema + data + migration state of the
+      # tagged release; migrating to HEAD proves the forward path on
+      # production-like data.
+      - name: Restore v0.2.0 fixture
+        run: |
+          gunzip -c fixtures/upgrades/v0.2.0.seed.sql.gz \
+            | psql postgres://postgres:postgres@localhost:5432/marula_upgrade -v ON_ERROR_STOP=1 -q
+      - name: Migrate fixture to HEAD
+        # `SQLX_OFFLINE` is load-bearing here, not an optimisation. The restore
+        # above leaves a v0.2.0 schema in the database, and a compile that dials
+        # `DATABASE_URL` validates every `query!` macro against it — so a HEAD
+        # query naming a table or column added after v0.2.0 fails to compile,
+        # and the gate dies before it migrates for a reason that has nothing to
+        # do with the migration. Offline metadata is already proven current by
+        # the `rust` job's `cargo sqlx prepare --check`.
+        env:
+          SQLX_OFFLINE: "true"
+        run: cargo run -q -p marula-core-cli -- migrate
+      - name: Fixture org survives the migration
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc \
+            "SELECT count(*) FROM custom_field_defs WHERE org_id = '00000000-0000-4000-8000-000000000001'" \
+            | grep -q '^7$'
+          # `EXISTS` rather than `SELECT 1 ...`: zero rows is not an error to
+          # psql, so the plain form exits 0 on the data loss this step exists to
+          # catch. `-tA` prints `t`/`f` and grep's exit code is the assertion.
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc \
+            "SELECT EXISTS (SELECT 1 FROM board_statuses WHERE org_id = '00000000-0000-4000-8000-000000000001' AND category = 'closed')" \
+            | grep -qx 't'
+      # Fails when the captured release's manifest and HEAD disagree about
+      # where the upgrade stands — the operator's preflight, run before they
+      # run it.
+      - name: Upgrade preflight consumes the captured manifest
+        env:
+          SQLX_OFFLINE: "true"
+        run: |
+          cargo build -q -p marula-core-cli
+          ./target/debug/marula upgrade --check \
+            --manifest fixtures/upgrades/v0.2.0.manifest.json
+
   openapi-pins:
     name: OpenAPI pin format (compact minified snapshots, byte-identical pair — DX12)
     runs-on: ubuntu-latest
@@ -366,9 +489,10 @@ jobs:
 
   # Folded in from the retired `ga-gates.yml`. hadolint is a file lint: seconds,
   # no network policy bundle, and a Dockerfile edited in a PR is exactly the
-  # thing that should fail in that PR. The trivy config scan over deploy/ stays
-  # nightly, because it downloads a policy bundle and a compose lint is not a
-  # merge blocker.
+  # thing that should fail in that PR. The trivy config scan over deploy/ used
+  # to stay nightly; it is `container-security` below now, because the bundle it
+  # downloads costs about a minute and a compose file edited in a PR is the same
+  # argument as a Dockerfile.
   container-lint:
     name: Dockerfiles — hadolint (p38 supply chain)
     runs-on: ubuntu-latest
@@ -402,6 +526,54 @@ jobs:
         with:
           dockerfile: deploy/backup/Dockerfile.backup
           failure-threshold: error
+
+  # Two linters, because they read different files and the split is not obvious.
+  #
+  # hadolint (above) is a file lint: seconds, no policy bundle, and a Dockerfile
+  # edited in a PR is exactly the thing that should fail in that PR.
+  #
+  # Trivy's config scan reads the Dockerfiles under deploy/ and adds what
+  # hadolint does not check — a runtime stage that never drops root (DS-0002).
+  # Two images start as root on purpose: the edge proxy binds 80/443 under a
+  # NET_BIND_SERVICE exemption, and the postgres image inherits an entrypoint
+  # that chowns the data directory before dropping to the `postgres` user.
+  # `.trivyignore.yaml` exempts those two by path with the reason and an expiry,
+  # so the rest of the tree stays honest.
+  #
+  # Trivy does NOT read compose files. Pointed at one it reports "Detected
+  # config files num=0", so `privileged: true` in a compose file would pass it
+  # untouched. `scripts/check-compose-hardening.mjs` is what covers those files,
+  # and its `--self-test` is what keeps it from being a check that cannot fail.
+  #
+  # That checker is the one step in this file that needs an install: it reads
+  # compose with the `yaml` parser rather than a regex, because the regex
+  # version missed a trailing comment, flow style and a quoted key, then
+  # reported a command string as configuration. The script header records both
+  # rounds. The install costs about fifteen seconds against a warm pnpm store.
+  container-security:
+    name: Container security — trivy config scan over deploy/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Compose hardening (trivy does not read compose files)
+        run: |
+          node scripts/check-compose-hardening.mjs --self-test
+          node scripts/check-compose-hardening.mjs
+      # SHA-pinned, carried from the retired `ga-gates.yml` as it stood.
+      - name: Trivy config scan (deploy/ — Dockerfile misconfiguration)
+        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: deploy/
+          severity: HIGH,CRITICAL
+          trivyignores: .trivyignore.yaml
+          exit-code: "1"
 
   rls-pool-reads:
     name: RLS pool-read gate (no new unscoped &state.pool reads in routes)
@@ -445,14 +617,19 @@ jobs:
           SQLX_OFFLINE: "true"
 
   rust-contract:
+    # This display name is a required status check in the "Main" ruleset, which
+    # matches contexts by exact string. Renaming it does not rename the
+    # requirement: the required check simply never reports, and the pull request
+    # waits on it forever. The live leg lives in the steps below, not in the
+    # name.
     name: Rust contract — deprecation clock · API conformance · golden OpenAPI
     runs-on: ubuntu-latest
     services:
       postgres:
         # api_versioning builds the real router and needs a database; the
-        # golden suites read the pinned fixture and need none, but share the job
-        # because they answer one question: does the pinned surface still match
-        # the code?
+        # live leg boots core-api on this one. The pinned-fixture suites need
+        # none, but share the job because they answer one question: does the
+        # pinned surface still match the code?
         image: pgvector/pgvector:pg18
         env:
           POSTGRES_PASSWORD: postgres
@@ -494,10 +671,63 @@ jobs:
           SQLX_OFFLINE: "true"
       # Two of the three golden layers: the spec derived from the compiled
       # handlers equals the pin, and packages/sdk/openapi.json equals the pin.
-      # The third layer compares a RUNNING server's served spec and boots a
-      # database, an api and a 60-second readiness loop — that is the nightly
-      # `api-live-conformance` job, not this one.
+      # The third layer — the spec a RUNNING server serves — is the last two
+      # steps of this job.
       - name: Golden OpenAPI conformance (derived + SDK snapshot vs pin)
         run: cargo test -q -p marula-core-cli --test golden_openapi
+        env:
+          SQLX_OFFLINE: "true"
+      # The third layer, and the one the other two cannot reach: a route can be
+      # served without being in the derived document, and a document can be
+      # derived that no handler answers on. It lives in this job rather than in
+      # one of its own because the test binary is already built and the database
+      # is already up — a second job would rebuild both to ask the same
+      # question.
+      - name: Boot core-api for the live contract check
+        run: |
+          cargo run -q -p marula-core-cli -- migrate
+          # Build before booting. `cargo run` would compile inside the
+          # background job, and a first build of the server outlasts the
+          # readiness loop below — which would then report a healthy compile as
+          # a dead server.
+          cargo build -q -p core-api
+          cargo run -q -p core-api > "$RUNNER_TEMP/core-api.log" 2>&1 &
+          # `/readyz` is the readiness probe: it checks the database with a
+          # bounded SELECT 1. `/livez` only says the process is answering, and
+          # core-api does not serve `/healthz` — that is the worker's route.
+          for _ in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:18080/readyz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/readyz || {
+            echo "core-api never became ready — its log follows" >&2
+            tail -n 40 "$RUNNER_TEMP/core-api.log" >&2
+            exit 1
+          }
+        env:
+          BIND_ADDR: 127.0.0.1:18080
+          # Compile from the committed `.sqlx` metadata, not from the service
+          # container. This step compiles `marula-core-cli` (which pulls in
+          # `core-db`'s query macros) before it migrates anything, so a live
+          # compile would validate every macro against an empty database and
+          # die on the first missing relation. It has been passing on artifacts
+          # left by the steps above, which is luck: a cold cache would have
+          # failed it. The runtime connection still uses `DATABASE_URL`.
+          SQLX_OFFLINE: "true"
+          # core-api refuses to boot without explicit values for these four
+          # (fail-closed since Wave 19; the machine-seam pair since Wave 55).
+          # The first two are the secrets the server signs with; the second two
+          # are the bearer and the send token of the worker↔api seam. A missing
+          # one is a panic at boot, not a degraded server, which is why the
+          # failure above this step is short and loud instead of a 60-second
+          # timeout. Dev-only constants on an ephemeral runner, never a secret.
+          JWT_SECRET: 5d1a2f0b3c4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5061728394a5b6c7d8e
+          MARULA_SECRET_KEY: 6e6808490009ad97fe176b954f03a7eeeca54af4e10c384c7beb7ce43e0e7b21
+          MARULA_INTERNAL_TOKEN: 4b1f8e2c9a7d6350f4e8b2a6c9d1357e0a4c8f2b6d9e1357a0c4e8f2b6d9357a
+          EMAIL_INTERNAL_TOKEN: 8c3d7a1f5e9b2460d8c4a0f6e2b9d571c3f7a9e1d5b8c2f6a4e0d8b1c5f9a726
+      # The same test target, with the live leg switched on: it is env-gated
+      # (`MARULA_API_BASE_URL`) so an offline run skips it and prints why.
+      - name: Live spec vs pin (the server that actually runs)
+        run: MARULA_API_BASE_URL=http://127.0.0.1:18080 cargo test -q -p marula-core-cli --test golden_openapi
         env:
           SQLX_OFFLINE: "true"

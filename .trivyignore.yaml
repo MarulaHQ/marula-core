@@ -1,0 +1,40 @@
+# Scoped exemptions for the misconfiguration scan in `.github/workflows/ci.yml`.
+#
+# Both entries name the same check, DS-0002 ("specify a USER command"), on the
+# two images that start as root on purpose. Neither is something to fix by
+# adding a `USER` line. The file that needs root says so, and the reason is in
+# the file.
+#
+#   edge/Dockerfile.caddy-dns  The edge proxy binds 80/443 itself. The one
+#                              privilege it is handed is NET_BIND_SERVICE, and
+#                              that exemption is written down in
+#                              deploy/edge/compose.edge.yml. The runtime stage
+#                              keeps the stock image's root identity, as its own
+#                              comment says at the COPY.
+#
+#   postgres/Dockerfile        This one extends the official pgvector image and
+#                              inherits its entrypoint, which starts as root to
+#                              chown the data directory and then execs as the
+#                              `postgres` user. `USER postgres` would break the
+#                              chown on a host-owned volume, which is the
+#                              failure a self-hosted overlay cannot afford.
+#
+# The paths are globs so the exemption holds however the scan is invoked. The CI
+# step scans `deploy/` and the report prints `edge/Dockerfile.caddy-dns`, while
+# `trivy config .` from the repo root prints `deploy/edge/...`. A literal path
+# matches only one of those.
+#
+# `expired_at` is the point of the entry. An exemption nobody revisits becomes a
+# policy by accident, so when these dates pass the scan fails again and the
+# question gets asked.
+misconfigurations:
+  - id: DS-0002
+    paths:
+      - "**/Dockerfile.caddy-dns"
+    statement: The edge proxy binds 80/443 as root under a NET_BIND_SERVICE exemption recorded in deploy/edge/compose.edge.yml.
+    expired_at: 2027-06-30
+  - id: DS-0002
+    paths:
+      - "**/postgres/Dockerfile"
+    statement: The official postgres entrypoint starts as root to chown the data directory, then execs as the postgres user.
+    expired_at: 2027-06-30
