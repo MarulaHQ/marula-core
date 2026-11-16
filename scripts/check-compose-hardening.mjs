@@ -40,6 +40,12 @@
 // NET_MODE is unset, and reads as an ordinary string here. A value this file
 // cannot know is not a value known to be safe; an exemption carries the reason.
 //
+// `include:` and `extends:` are refused for the same kind of reason. Both pull
+// settings in from a file this scan never opened, and following Compose's
+// file-resolution rules is a larger job than reading one document. A directive
+// this checker cannot follow is reported; an exemption says the other file was
+// read by a person.
+//
 // Files are selected by name (`*compose*.yml`), because `deploy/helm` holds
 // Go-templated chart files that are not valid YAML until rendered and are not
 // Compose in any case.
@@ -115,10 +121,15 @@ function servicesOf(doc) {
   return byName;
 }
 
+/** The Pair for `key` in a mapping, or undefined. */
+function pairInMap(map, key) {
+  if (!isMap(map)) return undefined;
+  return map.items.find((item) => String(item.key?.value ?? '') === key);
+}
+
 /** The Pair for `key` in a service mapping, or undefined when it came from a merge. */
 function pairFor(service, key) {
-  if (!service?.map) return undefined;
-  return service.map.items.find((item) => String(item.key?.value ?? '') === key);
+  return pairInMap(service?.map, key);
 }
 
 /** True when the comment block directly above `pair` carries the marker. */
@@ -153,9 +164,33 @@ function scanText(text, label) {
   if (!resolved || typeof resolved !== 'object') return { findings: [] };
 
   const findings = [];
+
+  // Compose composition is refused, not followed. `include:` adds whole files
+  // and `extends:` inherits one service from another file; either can carry a
+  // protected setting into a file that passes this scan, and this checker does
+  // not implement Compose's file-resolution rules. A directive that cannot be
+  // followed is a finding, not a clean result.
+  const includePair = pairInMap(deref(doc.contents, doc), 'include');
+  if (includePair && !exempted(includePair)) {
+    findings.push({
+      line: lineOf(includePair, undefined, lineCounter),
+      text: 'include:',
+      reason: 'pulls other files in, and this check does not follow Compose composition',
+    });
+  }
+
   for (const [name, service] of Object.entries(resolved)) {
     if (!service || typeof service !== 'object') continue;
     const located = services.get(name);
+
+    const extendsPair = pairFor(located, 'extends');
+    if (service.extends !== undefined && !exempted(extendsPair)) {
+      findings.push({
+        line: lineOf(extendsPair, located, lineCounter),
+        text: 'extends:',
+        reason: 'inherits settings from another file, and this check does not follow Compose composition',
+      });
+    }
 
     for (const setting of SETTINGS) {
       const raw = service[setting.key];
@@ -327,6 +362,31 @@ services: *all
     image: alpine:3.20
     privileged: "\${PRIV:-false}"
 `,
+  // Compose composition comes from another file, so the settings in it are not
+  // in this document. Refused rather than followed.
+  extendsService: `services:
+  web:
+    image: alpine:3.20
+    extends:
+      file: base.yml
+      service: base
+`,
+  // Same for `include:`, which adds whole files.
+  includeFiles: `include:
+  - base-compose.yml
+services:
+  web:
+    image: alpine:3.20
+`,
+  // A refused directive can still be exempted, with the reason beside it.
+  extendsExempt: `services:
+  web:
+    image: alpine:3.20
+    # EXEMPTION (compose): base.yml carries no protected setting; reviewed.
+    extends:
+      file: base.yml
+      service: base
+`,
 };
 
 const EXPECTED = {
@@ -344,6 +404,9 @@ const EXPECTED = {
   aliasedServices: 0,
   substitution: 1,
   benignSubstitution: 1,
+  extendsService: 1,
+  includeFiles: 1,
+  extendsExempt: 0,
 };
 
 function selfTest() {
