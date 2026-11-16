@@ -364,6 +364,16 @@ export default function ProjectsPage() {
           </div>
         }
         actions={
+          <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="ghost" size="sm">
+          <Link href="/projects/templates">Templates</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+          <Link href="/projects/portfolio">Portfolio</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+          <Link href="/projects/my-work">My project work</Link>
+          </Button>
           <Dialog
           open={createOpen}
           onOpenChange={(open) => {
@@ -438,6 +448,7 @@ export default function ProjectsPage() {
           </div>
           </DialogContent>
           </Dialog>
+          </div>
         }
       />
 

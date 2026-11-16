@@ -12,6 +12,7 @@ use axum::{
     http::Extensions,
     Json,
 };
+use chrono::{DateTime, Utc};
 use core_domain::events::types;
 use core_domain::policy::{Module, Permission};
 use serde::{Deserialize, Serialize};
@@ -322,6 +323,76 @@ pub async fn list_contacts(
         core_db::clients::list_contacts(&mut *tx, authed.principal.user.org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(contacts))
+}
+
+/// One dated contact event, as the client record reads it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ContactActivityEventView {
+    pub at: DateTime<Utc>,
+    /// `email_in`, `email_out`, `portal_reply`, `call_in` or `call_out`.
+    pub kind: String,
+    pub detail: Option<String>,
+}
+
+/// The last contact with one person, plus the recent trail behind it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ContactActivityView {
+    pub contact_id: Uuid,
+    #[schema(value_type = Option<String>, format = DateTime)]
+    pub last_at: Option<DateTime<Utc>>,
+    pub last_kind: Option<String>,
+    pub recent: Vec<ContactActivityEventView>,
+}
+
+/// GET /api/clients/{id}/contacts/activity
+///
+/// Derived, never written: email on this client's tickets, portal replies and
+/// calls, matched to the contact's own address or number. A contact with no
+/// matching event is absent from the answer rather than sent with a zero.
+#[utoipa::path(operation_id = "clients_contact_activity", get, path = "/api/clients/{id}/contacts/activity", tag = "clients", security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses((status = 200, body = [ContactActivityView])))]
+pub async fn contact_activity(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Vec<ContactActivityView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, client_view_permission())?;
+    let org_id = authed.principal.user.org_id;
+
+    // RLS-scoped read (pool carries no app.org_id GUC).
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let events = core_db::contact_activity::list_for_client(&mut tx, org_id, id, 10).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let mut out: Vec<ContactActivityView> = Vec::new();
+    for event in events {
+        match out
+            .iter_mut()
+            .find(|row| row.contact_id == event.contact_id)
+        {
+            Some(row) => row.recent.push(ContactActivityEventView {
+                at: event.at,
+                kind: event.kind,
+                detail: event.detail,
+            }),
+            None => out.push(ContactActivityView {
+                contact_id: event.contact_id,
+                last_at: Some(event.at),
+                last_kind: Some(event.kind.clone()),
+                recent: vec![ContactActivityEventView {
+                    at: event.at,
+                    kind: event.kind,
+                    detail: event.detail,
+                }],
+            }),
+        }
+    }
+    Ok(Json(out))
 }
 
 /// POST /api/clients/{id}/contacts

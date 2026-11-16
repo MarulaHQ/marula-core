@@ -183,7 +183,7 @@ describe("heavy libraries stay behind their boundary", () => {
     const consumers = {
       "components/dashboards/report-widget.tsx": "widget-charts-lazy",
       "components/report-builder.tsx": "report-chart-lazy",
-      "app/kb/page.tsx": "kb-article-editor-lazy",
+      "app/kb/articles/page.tsx": "kb-article-editor-lazy",
       "app/settings/email/templates/[id]/page.tsx": "email-template-editor-lazy",
     };
     for (const [file, boundary] of Object.entries(consumers)) {

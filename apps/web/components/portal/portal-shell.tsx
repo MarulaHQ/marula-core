@@ -30,10 +30,12 @@ export const DESK_NAME = portalOrgName() ?? "Marula";
 /** The links in the client's own order: what she came for, then help. */
 const PORTAL_LINKS: readonly { href: string; label: string }[] = [
   { href: "/portal/tickets", label: "Tickets" },
+  { href: "/portal/projects", label: "Projects" },
   { href: "/portal/invoices", label: "Invoices" },
   { href: "/portal/quotes", label: "Quotes" },
   { href: "/portal/schedule", label: "Schedule" },
   { href: "/portal/kb", label: "Help" },
+  { href: "/portal/knowledge", label: "Documentation" },
 ];
 
 function NavLink({ href, label }: { href: string; label: string }) {

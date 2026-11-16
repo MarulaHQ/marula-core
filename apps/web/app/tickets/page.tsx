@@ -80,6 +80,10 @@ import {
 
 /** The D12 key this surface's display state is saved under. */
 const SURFACE = "tickets.list";
+/** The prior visit this browser last opened the list at. The pack's third
+ *  attention shortcut counts what changed since then. A separate key from
+ *  Today's, because the two surfaces are not always visited together. */
+const LAST_VISIT_KEY = "tickets:last-visit-at";
 const TICKET_VIEW_IDS = ["mine", "unassigned", "all"] as const;
 type TicketView = (typeof TICKET_VIEW_IDS)[number];
 /** One page. Deep pages go through the keyset cursor, which a bulk-selection
@@ -234,8 +238,13 @@ export default function TicketsListPage() {
   /** The builder's popover, shared by the chips' `+ Add filter` chip and the
    *  toolbar's Filter button — the template draws both, and both open this. */
   const [filterOpen, setFilterOpen] = useState(false);
-  /** The attention shortcut the mockup puts in the title row: null, "risk" or "breach". */
-  const [attention, setAttention] = useState<null | "risk" | "breach">(null);
+  /** The attention shortcut the mockup puts in the title row: null, "risk",
+   *  "breach" or "changed". */
+  const [attention, setAttention] = useState<null | "risk" | "breach" | "changed">(null);
+  /** The prior visit, read and then replaced once the rows land. Null on a
+   *  first visit, which reads as zero changed rather than "all of them". */
+  const [lastVisit, setLastVisit] = useState<number | null>(null);
+  const [visitKnown, setVisitKnown] = useState(false);
 
   const columns = useMemo(() => reconcileColumns(saved.columns), [saved.columns]);
   /** A shared link's state, read once. Applied to the saved document below, so
@@ -507,19 +516,37 @@ export default function TicketsListPage() {
   }, [rows, myId]);
 
 
-  // The two attention shortcuts the mockup puts in the title row. "Changed
-  // since you looked" needs an unread flag the list payload does not carry, so
-  // it is not built yet.
+  // The three attention shortcuts the mockup puts in the title row. The
+  // third reads the same per-browser prior visit Today uses: a ticket touched
+  // after the last time this list was opened counts as changed.
   const attentionCounts = useMemo(() => {
     let risk = 0;
     let breach = 0;
+    let changed = 0;
     for (const r of rows ?? []) {
       const tone = slaReading(r, sla[r.id] ?? null)?.tone;
       if (tone === "danger") breach += 1;
       else if (tone === "warning") risk += 1;
+      if (lastVisit !== null && r.updated_at !== undefined && Date.parse(r.updated_at) > lastVisit) {
+        changed += 1;
+      }
     }
-    return { risk, breach };
-  }, [rows, sla]);
+    return { risk, breach, changed };
+  }, [rows, sla, lastVisit]);
+
+  // Stamp the visit once the first page is on screen, so the count is against
+  // the previous visit rather than the render that is happening now.
+  useEffect(() => {
+    if (rows === null || visitKnown) return;
+    try {
+      const prior = Number(window.localStorage.getItem(LAST_VISIT_KEY) ?? "0");
+      setLastVisit(Number.isFinite(prior) && prior > 0 ? prior : null);
+      window.localStorage.setItem(LAST_VISIT_KEY, String(Date.now()));
+    } catch {
+      setLastVisit(null);
+    }
+    setVisitKnown(true);
+  }, [rows, visitKnown]);
 
   const filtered = useMemo(() => {
     if (rows === null) return null;
@@ -528,6 +555,9 @@ export default function TicketsListPage() {
     else if (view === "unassigned") base = base.filter((r) => !r.assignee_id);
     if (attention !== null) {
       base = base.filter((r) => {
+        if (attention === "changed") {
+          return lastVisit !== null && r.updated_at !== undefined && Date.parse(r.updated_at) > lastVisit;
+        }
         const tone = slaReading(r, sla[r.id] ?? null)?.tone;
         return attention === "breach" ? tone === "danger" : tone === "warning";
       });
@@ -991,13 +1021,14 @@ export default function TicketsListPage() {
         meta={
           /* The mockup's attention shortcuts ride the title row, doubling as
              filters. Blush for "at risk", red for "breached"; the count is the
-             number of rows that match. "Changed since you looked" is the pack's
-             third shortcut and still unbuilt (the list payload carries no unread
-             flag). The title row's "New ticket" primary is likewise unbuilt:
+             number of rows that match. "Changed since you looked" counts rows
+             touched after this browser last opened the list.
+             The title row's "New ticket" primary is likewise unbuilt:
              the only create flow in the product is the board's dialog, so the
              slot stays empty rather than shipping a dead button. */
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Attention shortcuts">
             {([
+              { id: "changed", label: "Changed since you looked", colour: "var(--m-accent)", count: attentionCounts.changed },
               { id: "risk", label: "At risk", colour: "var(--m-blush)", count: attentionCounts.risk },
               { id: "breach", label: "Breached", colour: "var(--m-status-danger-fg)", count: attentionCounts.breach },
             ] as const).map((s) => {

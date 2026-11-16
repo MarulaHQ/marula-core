@@ -57,6 +57,7 @@ import {
   SurfaceFooter,
 } from "@marula-core/ui";
 import { LocalTime } from "../../../components/local-time";
+import Link from "next/link";
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -928,6 +929,13 @@ function RecordDialog({
                 <Button variant="ghost" onClick={() => setEditing(true)}>
                   Edit / rotate fields
                 </Button>
+                <Link
+                  href={`/kb/secrets/${current.id}`}
+                  className="inline-flex h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold underline underline-offset-2"
+                  style={{ color: "var(--m-text)" }}
+                >
+                  Open full record
+                </Link>
               </div>
             ) : null}
 

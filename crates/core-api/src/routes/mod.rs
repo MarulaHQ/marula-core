@@ -93,6 +93,7 @@ pub mod internal;
 pub mod invoices;
 pub mod kb;
 pub mod kb_rich;
+pub mod knowledge_home;
 pub mod labels;
 pub mod loans;
 pub mod loop_termination;
@@ -118,6 +119,7 @@ pub mod portal;
 pub mod portal_admin;
 pub mod portal_v2;
 pub mod presence;
+pub mod project_delivery;
 pub mod projects;
 pub mod provenance;
 pub mod purchasing;
@@ -513,6 +515,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/portal/quotes/{id}/decline"),
             post(portal_v2::decline_quote),
         )
+        // Surface-pack portal project view (change-order acknowledgement,
+        // plain-language status and the client-visible update list). Same
+        // portal auth stack, same client scoping.
+        .merge(project_delivery::portal_routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // portal auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))
@@ -778,6 +784,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .route(
             &rp("/clients/{id}/contacts"),
             get(clients::list_contacts).post(clients::create_contact),
+        )
+        .route(
+            &rp("/clients/{id}/contacts/activity"),
+            get(clients::contact_activity),
         )
         .route(
             &rp("/clients/{id}/assets"),
@@ -2331,6 +2341,9 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/project-templates/{id}/instantiate"),
             post(projects::instantiate),
         )
+        // project delivery extras (surface pack): change orders, portfolio,
+        // pods, client updates, ticket conversion and the portal project view.
+        .merge(project_delivery::routes(gen))
         // report definitions (the private build tracker R3): stored specs as data, RBAC-
         // scoped, instant-first write path; module owns its own router.
         .merge(report_defs::routes(gen))
@@ -2398,6 +2411,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // template CRUD, the deterministic draft preview + entity render,
         // and the typed scanned-payload resolver every scanner surface
         // (web keyboard-wedge now, mobile camera in Wave 33) consumes.
+        .merge(knowledge_home::routes(gen))
         .merge(labels::routes(gen))
         .merge(scan::routes(gen))
         .merge(quotes::routes(gen))

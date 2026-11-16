@@ -34,7 +34,7 @@ path = "src/bin/dump_openapi.rs"
 
 [dependencies]
 async-trait = { workspace = true }
-core-db = { path = "../core-db" }
+core-db = { path = "../core-db", features = ["openapi"] }
 core-decision = { path = "../core-decision" }
 core-domain = { path = "../core-domain", features = ["openapi"] }
 plugin-host = { path = "../plugin-host" }
@@ -106,7 +106,7 @@ reqwest = { workspace = true }
 url = { workspace = true }
 data-encoding = { workspace = true }
 base32 = "0.5"
-base64 = "0.22"
+base64 = "0.23"
 bytes = { workspace = true }
 
 # Windows has no system OpenSSL for the TLS chain (reqwest → native-tls,

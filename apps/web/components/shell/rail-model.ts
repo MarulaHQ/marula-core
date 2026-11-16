@@ -130,7 +130,15 @@ export const RAIL_SECTIONS: RailSection[] = [
     href: "/kb",
     match: ["/kb", "/documents", "/passwords", "/imports", "/kb/secrets"],
     links: [
-      { label: "Knowledge base", href: "/kb" },
+      // The client directory is the front door; articles, expiries and the
+      // record types are the rooms behind it.
+      { label: "Clients", href: "/kb" },
+      { label: "Articles", href: "/kb/articles" },
+      { label: "Expirations", href: "/kb/expirations" },
+      { label: "Racks", href: "/kb/racks" },
+      { label: "Networks", href: "/kb/networks" },
+      { label: "Procedures", href: "/kb/procedures" },
+      { label: "Domains", href: "/kb/domains" },
       { label: "Documents", href: "/documents" },
       // Secret categories are the vault's second tab.
       { label: "Vault", href: "/passwords" },

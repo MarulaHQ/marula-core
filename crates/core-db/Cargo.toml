@@ -32,6 +32,13 @@ sha2 = { workspace = true }
 # reads from, so a prospect who clicks "download" in the demo gets a file
 # rather than a 500. Only the `LocalFsStore` adapter is used here.
 core-store = { path = "../core-store" }
+# OpenAPI schema derives for the knowledge read models. Compile-time only and
+# gated, matching core-domain: the persistence crate carries no HTTP policy.
+utoipa = { workspace = true, optional = true, features = ["uuid", "chrono"] }
+
+[features]
+# Lets core-api document the knowledge read models without mirroring them.
+openapi = ["dep:utoipa"]
 
 [dev-dependencies]
 aes-gcm = { workspace = true }

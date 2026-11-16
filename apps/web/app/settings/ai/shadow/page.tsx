@@ -142,21 +142,33 @@ export default function ShadowRunsPage(): React.JSX.Element {
         title="Shadow runs"
         description="What a surface would have said, recorded without anyone seeing it."
       >
-        <label className="flex items-center gap-2">
-          <span className="sr-only">Surface</span>
-          <Select value={selected === "" ? undefined : selected} onValueChange={setSelected}>
-            <SelectTrigger aria-label="Surface" data-testid="ai-shadow-surface">
-              <SelectValue placeholder="No surfaces" />
-            </SelectTrigger>
-            <SelectContent>
-              {surfaces.map((s) => (
-                <SelectItem key={s.surface_key} value={s.surface_key}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
+        {featuresEnabled && surfaces.length > 0 ? (
+          <label className="flex items-center gap-2">
+            <span className="sr-only">Surface</span>
+            <Select value={selected === "" ? undefined : selected} onValueChange={setSelected}>
+              <SelectTrigger aria-label="Surface" data-testid="ai-shadow-surface">
+                <SelectValue placeholder="Choose a surface" />
+              </SelectTrigger>
+              <SelectContent>
+                {surfaces.map((s) => (
+                  <SelectItem key={s.surface_key} value={s.surface_key}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        ) : (
+          /* A picker with nothing to pick reads as broken. The note below says
+             why there is nothing to watch, so the header stays quiet. */
+          <span
+            data-testid="ai-shadow-surface-unavailable"
+            className="text-[13px]"
+            style={{ color: "var(--m-text-muted)" }}
+          >
+            {featuresEnabled ? "No decision surfaces yet" : "AI is off"}
+          </span>
+        )}
       </SettingsHeader>
 
       {!featuresEnabled ? (
