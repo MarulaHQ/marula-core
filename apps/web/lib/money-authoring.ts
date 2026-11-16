@@ -39,6 +39,8 @@ export type DraftLine = {
   unit?: string | null;
   section?: string | null;
   optional?: boolean;
+  /** `null` when nothing established it; the create route then taxes the line. */
+  taxable?: boolean | null;
   catalog_item_id?: string | null;
   source?: LineProvenance;
   source_span?: SourceSpan | null;

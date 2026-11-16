@@ -1,92 +1,67 @@
 // Typed transport for the project-delivery endpoints these surfaces call.
 //
-// The paths are in the generated schema (packages/sdk); this module still owns
-// their transport because every surface here needs one thing the typed client
-// does not do — a refusal shown in the API's own words — and the fetch helper
-// below does that in one place. The interfaces are this module's reading of
-// the responses, narrower than the schema's, and go away with the helper when
-// these surfaces move onto `api.api`.
+// Every endpoint function below rides the generated client (`api.api`): the
+// path, its query and body, and the response shape all come from
+// `@marula-core/sdk`, so a spec rename fails `tsc` here instead of 404ing in
+// the browser. The exported interfaces are the narrow reading these surfaces
+// need, derived from the schema types (`Solid`, `Pick`, `Omit`) rather than
+// hand-copied, so a shape cannot drift silently from the contract.
+//
+// One thing still uses the raw `deliveryFetch` helper: `template-editor.tsx`
+// reads a gallery card through it with a runtime-built path. The export stays
+// for that caller; it is not part of this module's own endpoint set.
+//
+// `deliveryFetch` also keeps the auth wait that a full page load needs. The
+// generated client only sends the bearer once the restore has stored it, and
+// every surface importing this module already gates its first call on
+// `auth.status === "authed"`, so the typed functions do not repeat that wait.
+//
+// The shared-portfolio read is NOT unauthenticated: the route requires a
+// signed-in principal with `projects:view` and scopes the token to that org
+// (crates/core-api/src/routes/project_delivery/portfolio.rs), so it rides the
+// same authenticated client as everything else and keeps sending the staff
+// bearer. Do not move it onto an anonymous transport.
 
+import type { components } from "@marula-core/sdk";
 import { api, authReady, loadTokens, resolveApiBaseUrl } from "../../lib/api";
+
+type Schemas = components["schemas"];
+type Wire<K extends keyof Schemas> = Schemas[K];
+
+/** A wire shape read as present: the API emits every declared key (a nullable
+ * field is a value, not a missing one), which is the claim the surfaces make. */
+type Solid<T> = { [K in keyof T]-?: Exclude<T[K], undefined> };
 
 // --- shared shapes ----------------------------------------------------------
 
-export interface GalleryTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  category: string | null;
-  typical_days: number | null;
-  effort_min_minutes: number | null;
-  effort_max_minutes: number | null;
-  archived: boolean;
-  is_shipped: boolean;
-  current_version: number | null;
-  forked_from_version_id: string | null;
-  phase_count: number;
-  task_count: number;
-  created_at: string;
-  updated_at: string;
-}
+export type GalleryTemplate = Solid<Wire<"GalleryTemplateView">>;
 
-export interface PreviewTask {
-  key: string;
-  title: string;
-  phase_key: string | null;
-  phase_name: string | null;
-  role_key: string | null;
-  work_type: string | null;
-  duration_days: number | null;
-  effort_minutes: number | null;
-  depends_on: string[];
-  optional: boolean;
-  is_milestone: boolean;
-}
+export type PreviewTask = Solid<Wire<"PreviewTask">>;
 
-export interface TemplatePreview {
-  name: string;
-  billing_method: string | null;
-  currency: string | null;
-  phases: {
-    key: string;
-    name: string;
-    is_milestone: boolean;
-    task_count: number;
-    effort_minutes: number;
-  }[];
+export type TemplatePreview = Omit<
+  Solid<Wire<"TemplatePreviewView">>,
+  "phases" | "tasks" | "roles"
+> & {
+  phases: Solid<Wire<"PreviewPhase">>[];
   tasks: PreviewTask[];
-  roles: { role_key: string; task_count: number; effort_minutes: number }[];
-  total_effort_minutes: number;
-  dated_tasks: number;
-  undated_tasks: number;
-}
+  roles: Solid<Wire<"PreviewRole">>[];
+};
 
-export interface ValidationIssue {
-  code: string;
+export type ValidationIssue = Omit<Solid<Wire<"ValidationIssue">>, "severity"> & {
   severity: "error" | "warning" | "info";
-  message: string;
-  task_key: string | null;
-  phase_key: string | null;
-}
+};
 
-export interface ValidationReport {
-  publishable: boolean;
+export type ValidationReport = Omit<Solid<Wire<"ValidationReport">>, "issues"> & {
   issues: ValidationIssue[];
-}
+};
 
-export interface TemplateLesson {
-  id: string;
-  template_id: string;
-  project_id: string | null;
-  kind: string;
-  message: string;
-  evidence: Record<string, unknown>;
+export type TemplateLesson = Omit<
+  Solid<Wire<"LessonView">>,
+  "state" | "evidence"
+> & {
   state: "open" | "accepted" | "dismissed";
-  dismiss_reason: string | null;
-  decided_by: string | null;
-  decided_at: string | null;
-  created_at: string;
-}
+  evidence: Record<string, unknown>;
+};
 
 export type ChangeOrderStatus =
   | "draft"
@@ -98,145 +73,59 @@ export type ChangeOrderStatus =
   | "billing_failed"
   | "billed";
 
-export interface ChangeOrder {
-  id: string;
-  project_id: string;
-  reference: string;
-  title: string;
+export type ChangeOrder = Omit<
+  Solid<Wire<"ChangeOrderView">>,
+  "created_by" | "status" | "source" | "confidence" | "scope_changes" | "evidence"
+> & {
   status: ChangeOrderStatus;
   source: "manual" | "scope_signal" | "client_request";
-  reason: string;
-  scope_changes: Record<string, unknown>;
-  client_summary: string | null;
-  evidence: unknown[];
-  coverage_note: string | null;
   confidence: "strong" | "fair" | "unsure" | null;
-  contract_clause: string | null;
-  amount_minor: number | null;
-  currency: string | null;
-  submitted_at: string | null;
-  submitted_by: string | null;
-  decided_at: string | null;
-  decided_by: string | null;
-  decision_note: string | null;
-  applied_at: string | null;
-  applied_by: string | null;
-  applied_baseline_id: string | null;
-  billed_at: string | null;
-  billing_release_id: string | null;
-  billing_error: string | null;
-  client_ack_required: boolean;
-  client_ack_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
+  scope_changes: Record<string, unknown>;
+  evidence: unknown[];
+};
 
-export interface ApplyResult {
+export type ApplyResult = Omit<Solid<Wire<"ApplyResponse">>, "change_order"> & {
   change_order: ChangeOrder;
-  tasks_added: number;
-  tasks_shifted: number;
-  baseline_id: string | null;
-}
+};
 
-export interface ClientUpdate {
-  id: string;
-  project_id: string;
+export type ClientUpdate = Omit<
+  Solid<Wire<"ClientUpdateView">>,
+  "created_by" | "status" | "facts"
+> & {
   status: "draft" | "approved" | "sent" | "withheld";
-  body: string;
   facts: unknown[];
-  period_start: string | null;
-  period_end: string | null;
-  withheld_reason: string | null;
-  approved_by: string | null;
-  approved_at: string | null;
-  sent_at: string | null;
-  created_at: string;
-  updated_at: string;
-}
+};
 
-export interface PortfolioProject {
-  id: string;
-  name: string;
-  status: string;
-  client_id: string | null;
-  client_name: string | null;
-  start_date: string | null;
-  due_date: string | null;
-  at_risk: boolean;
-  risk_reasons: string[];
-  has_dated_phase: boolean;
-  phases: {
-    id: string;
-    name: string;
-    status: string;
-    start_date: string;
-    end_date: string;
-  }[];
-}
+export type PortfolioProject = Omit<
+  Solid<Wire<"PortfolioProject">>,
+  "phases"
+> & {
+  phases: Solid<Wire<"PortfolioPhase">>[];
+};
 
-export interface PortfolioGroup {
-  key: string;
-  label: string;
-  project_count: number;
-  at_risk_count: number;
+export type PortfolioGroup = Omit<
+  Solid<Wire<"PortfolioGroup">>,
+  "projects"
+> & {
   projects: PortfolioProject[];
-}
+};
 
-export interface PortfolioView {
-  from: string;
-  to: string;
-  zoom: string;
-  group_by: string;
-  weeks: { start: string; label: string }[];
+export type PortfolioView = Omit<
+  Solid<Wire<"PortfolioView">>,
+  "weeks" | "groups" | "unscheduled"
+> & {
+  weeks: Solid<Wire<"PortfolioWeek">>[];
   groups: PortfolioGroup[];
-  unscheduled: {
-    id: string;
-    name: string;
-    status: string;
-    start_date: string | null;
-    due_date: string | null;
-  }[];
-}
+  unscheduled: Solid<Wire<"UnscheduledProject">>[];
+};
 
-export interface MyTask {
-  task_id: string;
-  project_id: string;
-  project_name: string;
-  phase_name: string | null;
-  title: string;
-  status: string;
-  blocker_type: string | null;
-  blocker_note: string | null;
-  blocked_since: string | null;
-  due_at: string | null;
-  start_at: string | null;
-  duration_minutes: number | null;
-  effort_remaining_minutes: number | null;
-  work_type: string | null;
-  is_milestone: boolean;
-  ticket_id: string | null;
-}
+export type MyTask = Solid<Wire<"MyTaskView">>;
 
-export interface PodSettings {
-  surface: string;
-  role_key: string;
-  pods: string[];
-  updated_at: string;
-}
+export type PodSettings = Solid<Wire<"PodSettingsView">>;
 
-export interface PodPrefs {
-  surface: string;
-  hidden: string[];
-  pod_order: string[];
-}
+export type PodPrefs = Solid<Wire<"PodPrefsView">>;
 
-export interface PromoteResult {
-  task_id: string;
-  project_id: string;
-  ticket_id: string;
-  ticket_number: string;
-  created: boolean;
-}
+export type PromoteResult = Solid<Wire<"PromoteResponse">>;
 
 // --- transport --------------------------------------------------------------
 
@@ -244,10 +133,54 @@ interface ErrorEnvelope {
   error?: { message?: string };
 }
 
-export async function deliveryFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  // A full page load restores the token from the session cookie. Wait for
-  // that only when there is no token yet; a seeded test session proceeds.
+/** The generated client's result, without its per-path generics. */
+interface ApiResponse {
+  data?: unknown;
+  error?: unknown;
+  response: Response;
+}
+
+/**
+ * A full page load restores the token from the session cookie. Wait for that
+ * only when there is no token yet; a seeded test session proceeds.
+ *
+ * Kept for `deliveryFetch`: the typed helpers below are reached only after a
+ * surface has seen `auth.status === "authed"`, so the restore has already set
+ * the client's bearer by then.
+ */
+async function awaitAuth(): Promise<void> {
   if (loadTokens() === null) await authReady();
+}
+
+/** Throws the API's own refusal text, exactly as this module always has. */
+function refusalMessage(status: number, body: unknown): string {
+  const message = (body as ErrorEnvelope | null | undefined)?.error?.message;
+  return typeof message === "string" ? message : `The server refused this with ${status}.`;
+}
+
+/**
+ * Unwraps one generated-client result. A refusal becomes the same `Error` the
+ * raw helper produced: the API's message when the envelope carries one, and
+ * the status sentence when it does not.
+ */
+function unwrap<T>(result: ApiResponse): T {
+  if (!result.response.ok) {
+    throw new Error(refusalMessage(result.response.status, result.error));
+  }
+  return result.data as T;
+}
+
+/** Reads a wire object as the present shape its surface expects. */
+function solid<T extends object>(wire: T): Solid<T> {
+  return wire as Solid<T>;
+}
+
+/**
+ * Generic escape hatch for the one caller named in the header. Everything in
+ * this module's own endpoint set uses `api.api` through `unwrap`.
+ */
+export async function deliveryFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  await awaitAuth();
   const token = api.tokens.accessToken;
   const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
     ...init,
@@ -259,58 +192,145 @@ export async function deliveryFetch<T>(path: string, init?: RequestInit): Promis
     },
   });
   if (!response.ok) {
-    let message = `The server refused this with ${response.status}.`;
+    let body: ErrorEnvelope | null = null;
     try {
-      const body = (await response.json()) as ErrorEnvelope;
-      if (body.error?.message !== undefined) message = body.error.message;
+      body = (await response.json()) as ErrorEnvelope;
     } catch {
       // A non-JSON body is not worth guessing at; the status stands.
     }
-    throw new Error(message);
+    throw new Error(refusalMessage(response.status, body));
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
+// --- view mappers -----------------------------------------------------------
+
+function toChangeOrder(wire: Wire<"ChangeOrderView">): ChangeOrder {
+  return {
+    ...solid(wire),
+    status: wire.status as ChangeOrderStatus,
+    source: wire.source as ChangeOrder["source"],
+    confidence: wire.confidence as ChangeOrder["confidence"],
+    scope_changes: wire.scope_changes as Record<string, unknown>,
+    evidence: wire.evidence as unknown[],
+  };
+}
+
+function toApplyResult(wire: Solid<Wire<"ApplyResponse">>): ApplyResult {
+  return {
+    change_order: toChangeOrder(wire.change_order),
+    tasks_added: wire.tasks_added,
+    tasks_shifted: wire.tasks_shifted,
+    baseline_id: wire.baseline_id,
+  };
+}
+
+function toClientUpdate(wire: Wire<"ClientUpdateView">): ClientUpdate {
+  return {
+    ...solid(wire),
+    status: wire.status as ClientUpdate["status"],
+    facts: wire.facts as unknown[],
+  };
+}
+
+function toTemplateLesson(wire: Wire<"LessonView">): TemplateLesson {
+  return {
+    ...solid(wire),
+    state: wire.state as TemplateLesson["state"],
+    evidence: wire.evidence as Record<string, unknown>,
+  };
+}
+
+function toValidationReport(wire: Solid<Wire<"ValidationReport">>): ValidationReport {
+  return {
+    publishable: wire.publishable,
+    issues: wire.issues.map((issue) => ({
+      ...solid(issue),
+      severity: issue.severity as ValidationIssue["severity"],
+    })),
+  };
+}
+
+function toTemplatePreview(wire: Wire<"TemplatePreviewView">): TemplatePreview {
+  return {
+    ...solid(wire),
+    phases: wire.phases.map(solid),
+    tasks: wire.tasks.map(solid),
+    roles: wire.roles.map(solid),
+  };
+}
+
+function toPortfolioView(wire: Wire<"PortfolioView">): PortfolioView {
+  return {
+    ...solid(wire),
+    weeks: wire.weeks.map(solid),
+    groups: wire.groups.map((group) => ({
+      ...solid(group),
+      projects: group.projects.map((project) => ({
+        ...solid(project),
+        phases: project.phases.map(solid),
+      })),
+    })),
+    unscheduled: wire.unscheduled.map(solid),
+  };
+}
+
 // --- templates --------------------------------------------------------------
 
-export function fetchTemplateGallery(includeArchived = false): Promise<GalleryTemplate[]> {
-  const query = includeArchived ? "?include_archived=true" : "";
-  return deliveryFetch<GalleryTemplate[]>(`/api/v1/projects/template-gallery${query}`);
-}
-
-export function archiveTemplate(id: string, archived: boolean): Promise<GalleryTemplate> {
-  return deliveryFetch<GalleryTemplate>(`/api/v1/project-templates/${id}/archive`, {
-    method: "POST",
-    body: JSON.stringify({ archived }),
+export async function fetchTemplateGallery(includeArchived = false): Promise<GalleryTemplate[]> {
+  const result = await api.api.GET("/api/v1/projects/template-gallery", {
+    params: { query: includeArchived ? { include_archived: true } : {} },
   });
+  return unwrap<Wire<"GalleryTemplateView">[]>(result).map(solid);
 }
 
-export function fetchTemplatePreview(id: string): Promise<TemplatePreview> {
-  return deliveryFetch<TemplatePreview>(`/api/v1/project-templates/${id}/preview`);
+export async function archiveTemplate(id: string, archived: boolean): Promise<GalleryTemplate> {
+  const result = await api.api.POST("/api/v1/project-templates/{id}/archive", {
+    params: { path: { id } },
+    body: { archived },
+  });
+  return solid(unwrap<Wire<"GalleryTemplateView">>(result));
 }
 
-export function fetchTemplateValidation(id: string): Promise<ValidationReport> {
-  return deliveryFetch<ValidationReport>(`/api/v1/project-templates/${id}/validate`);
+export async function fetchTemplatePreview(id: string): Promise<TemplatePreview> {
+  const result = await api.api.GET("/api/v1/project-templates/{id}/preview", {
+    params: { path: { id } },
+  });
+  return toTemplatePreview(unwrap<Wire<"TemplatePreviewView">>(result));
 }
 
-export function fetchTemplateLessons(id: string): Promise<TemplateLesson[]> {
-  return deliveryFetch<TemplateLesson[]>(`/api/v1/project-templates/${id}/lessons`);
+export async function fetchTemplateValidation(id: string): Promise<ValidationReport> {
+  const result = await api.api.GET("/api/v1/project-templates/{id}/validate", {
+    params: { path: { id } },
+  });
+  return toValidationReport(unwrap<Wire<"ValidationReport">>(result));
 }
 
-export function decideTemplateLesson(
+export async function fetchTemplateLessons(id: string): Promise<TemplateLesson[]> {
+  const result = await api.api.GET("/api/v1/project-templates/{id}/lessons", {
+    params: { path: { id } },
+  });
+  return unwrap<Wire<"LessonView">[]>(result).map(toTemplateLesson);
+}
+
+export async function decideTemplateLesson(
   templateId: string,
   lessonId: string,
   state: "accepted" | "dismissed",
   reason?: string,
 ): Promise<TemplateLesson> {
-  return deliveryFetch<TemplateLesson>(
-    `/api/v1/project-templates/${templateId}/lessons/${lessonId}/decide`,
-    { method: "POST", body: JSON.stringify({ state, reason: reason ?? null }) },
+  const result = await api.api.POST(
+    "/api/v1/project-templates/{id}/lessons/{lesson_id}/decide",
+    {
+      params: { path: { id: templateId, lesson_id: lessonId } },
+      body: { state, reason: reason ?? null },
+    },
   );
+  return toTemplateLesson(unwrap<Wire<"LessonView">>(result));
 }
 
-export function setTemplateMeta(
+export async function setTemplateMeta(
   id: string,
   meta: {
     category: string | null;
@@ -319,237 +339,344 @@ export function setTemplateMeta(
     effort_max_minutes: number | null;
   },
 ): Promise<GalleryTemplate> {
-  return deliveryFetch<GalleryTemplate>(`/api/v1/project-templates/${id}/meta`, {
-    method: "PUT",
-    body: JSON.stringify(meta),
+  const result = await api.api.PUT("/api/v1/project-templates/{id}/meta", {
+    params: { path: { id } },
+    body: meta,
   });
+  return solid(unwrap<Wire<"GalleryTemplateView">>(result));
 }
 
-export interface CreateFromTemplateRequest {
-  name: string;
-  client_id: string | null;
-  start_date: string | null;
-  due_date: string | null;
-  assignee_map: Record<string, string>;
-}
+export type CreateFromTemplateRequest = Solid<
+  Pick<
+    Wire<"CreateFromTemplateRequest">,
+    "name" | "client_id" | "start_date" | "due_date" | "assignee_map"
+  >
+>;
 
-export function createFromTemplate(
+export async function createFromTemplate(
   id: string,
   body: CreateFromTemplateRequest,
 ): Promise<{ id: string; name: string; phase_count: number; task_count: number }> {
-  return deliveryFetch(`/api/v1/project-templates/${id}/create`, {
-    method: "POST",
-    body: JSON.stringify(body),
+  const result = await api.api.POST("/api/v1/project-templates/{id}/create", {
+    params: { path: { id } },
+    body,
   });
+  return solid(unwrap<Wire<"ProjectInstantiateResponse">>(result));
 }
 
-export function forkTemplate(id: string, name: string): Promise<{ id: string; name: string }> {
-  return deliveryFetch(`/api/v1/project-templates/${id}/fork`, {
-    method: "POST",
-    body: JSON.stringify({ name }),
+export async function forkTemplate(
+  id: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  const result = await api.api.POST("/api/v1/project-templates/{id}/fork", {
+    params: { path: { id } },
+    body: { name },
   });
+  return solid(unwrap<Wire<"ProjectTemplate">>(result));
 }
 
 // --- change orders ----------------------------------------------------------
 
-export function fetchChangeOrders(projectId: string): Promise<ChangeOrder[]> {
-  return deliveryFetch<ChangeOrder[]>(`/api/v1/projects/${projectId}/change-orders`);
+export async function fetchChangeOrders(projectId: string): Promise<ChangeOrder[]> {
+  const result = await api.api.GET("/api/v1/projects/{id}/change-orders", {
+    params: { path: { id: projectId } },
+  });
+  return unwrap<Wire<"ChangeOrderView">[]>(result).map(toChangeOrder);
 }
 
-export interface NewChangeOrder {
-  title: string;
+type NewChangeOrderWire = Solid<
+  Pick<
+    Wire<"CreateProjectChangeOrderRequest">,
+    | "title"
+    | "source"
+    | "reason"
+    | "scope_changes"
+    | "client_summary"
+    | "evidence"
+    | "coverage_note"
+    | "confidence"
+    | "contract_clause"
+    | "amount_minor"
+    | "currency"
+    | "client_ack_required"
+  >
+>;
+
+export type NewChangeOrder = Omit<
+  NewChangeOrderWire,
+  "source" | "confidence" | "scope_changes" | "evidence"
+> & {
   source: ChangeOrder["source"];
-  reason: string;
-  scope_changes: Record<string, unknown>;
-  client_summary: string | null;
-  evidence: unknown[];
-  coverage_note: string | null;
   confidence: ChangeOrder["confidence"];
-  contract_clause: string | null;
-  amount_minor: number | null;
-  currency: string | null;
-  client_ack_required: boolean;
-}
+  scope_changes: Record<string, unknown>;
+  evidence: unknown[];
+};
 
-export function createChangeOrder(
+export async function createChangeOrder(
   projectId: string,
   body: NewChangeOrder,
 ): Promise<ChangeOrder> {
-  return deliveryFetch<ChangeOrder>(`/api/v1/projects/${projectId}/change-orders`, {
-    method: "POST",
-    body: JSON.stringify(body),
+  const result = await api.api.POST("/api/v1/projects/{id}/change-orders", {
+    params: { path: { id: projectId } },
+    body,
   });
+  return toChangeOrder(unwrap<Wire<"ChangeOrderView">>(result));
 }
 
-export function patchChangeOrder(
+export async function patchChangeOrder(
   projectId: string,
   id: string,
   patch: Partial<NewChangeOrder>,
 ): Promise<ChangeOrder> {
-  return deliveryFetch<ChangeOrder>(
-    `/api/v1/projects/${projectId}/change-orders/${id}`,
-    { method: "PATCH", body: JSON.stringify(patch) },
+  const result = await api.api.PATCH(
+    "/api/v1/projects/{id}/change-orders/{change_order_id}",
+    {
+      params: { path: { id: projectId, change_order_id: id } },
+      body: patch,
+    },
   );
+  return toChangeOrder(unwrap<Wire<"ChangeOrderView">>(result));
 }
 
-export function changeOrderAction(
+export async function changeOrderAction(
   projectId: string,
   id: string,
   action: "submit" | "approve" | "reject" | "apply" | "bill",
   note?: string,
 ): Promise<ChangeOrder | ApplyResult> {
-  return deliveryFetch(`/api/v1/projects/${projectId}/change-orders/${id}/${action}`, {
-    method: "POST",
-    body: action === "approve" || action === "reject" ? JSON.stringify({ note }) : "{}",
-  });
+  const params = { path: { id: projectId, change_order_id: id } };
+  switch (action) {
+    case "submit": {
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/change-orders/{change_order_id}/submit",
+        { params },
+      );
+      return toChangeOrder(unwrap<Wire<"ChangeOrderView">>(result));
+    }
+    case "approve": {
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/change-orders/{change_order_id}/approve",
+        { params, body: { note: note ?? null } },
+      );
+      return toChangeOrder(unwrap<Wire<"ChangeOrderView">>(result));
+    }
+    case "reject": {
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/change-orders/{change_order_id}/reject",
+        { params, body: { note: note ?? null } },
+      );
+      return toChangeOrder(unwrap<Wire<"ChangeOrderView">>(result));
+    }
+    case "apply": {
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/change-orders/{change_order_id}/apply",
+        { params },
+      );
+      return toApplyResult(solid(unwrap<Wire<"ApplyResponse">>(result)));
+    }
+    case "bill": {
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/change-orders/{change_order_id}/bill",
+        { params },
+      );
+      return toChangeOrder(unwrap<Wire<"ChangeOrderView">>(result));
+    }
+  }
 }
 
 // --- client updates ---------------------------------------------------------
 
-export function fetchClientUpdates(projectId: string): Promise<ClientUpdate[]> {
-  return deliveryFetch<ClientUpdate[]>(`/api/v1/projects/${projectId}/client-updates`);
+export async function fetchClientUpdates(projectId: string): Promise<ClientUpdate[]> {
+  const result = await api.api.GET("/api/v1/projects/{id}/client-updates", {
+    params: { path: { id: projectId } },
+  });
+  return unwrap<Wire<"ClientUpdateView">[]>(result).map(toClientUpdate);
 }
 
-export function draftClientUpdate(
+export async function draftClientUpdate(
   projectId: string,
   body: { period_start: string | null; period_end: string | null; closing: string | null },
 ): Promise<ClientUpdate> {
-  return deliveryFetch<ClientUpdate>(`/api/v1/projects/${projectId}/client-updates`, {
-    method: "POST",
-    body: JSON.stringify(body),
+  const result = await api.api.POST("/api/v1/projects/{id}/client-updates", {
+    params: { path: { id: projectId } },
+    body,
   });
+  return toClientUpdate(unwrap<Wire<"ClientUpdateView">>(result));
 }
 
-export function editClientUpdate(
+export async function editClientUpdate(
   projectId: string,
   id: string,
   body: string,
 ): Promise<ClientUpdate> {
-  return deliveryFetch<ClientUpdate>(
-    `/api/v1/projects/${projectId}/client-updates/${id}`,
-    { method: "PATCH", body: JSON.stringify({ body }) },
+  const result = await api.api.PATCH(
+    "/api/v1/projects/{id}/client-updates/{update_id}",
+    {
+      params: { path: { id: projectId, update_id: id } },
+      body: { body },
+    },
   );
+  return toClientUpdate(unwrap<Wire<"ClientUpdateView">>(result));
 }
 
-export function clientUpdateAction(
+export async function clientUpdateAction(
   projectId: string,
   id: string,
   action: "approve" | "send" | "withhold",
   reason?: string,
 ): Promise<ClientUpdate> {
-  return deliveryFetch<ClientUpdate>(
-    `/api/v1/projects/${projectId}/client-updates/${id}/${action}`,
-    {
-      method: "POST",
-      body: action === "withhold" ? JSON.stringify({ reason }) : "{}",
-    },
-  );
+  const params = { path: { id: projectId, update_id: id } };
+  switch (action) {
+    case "approve": {
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/client-updates/{update_id}/approve",
+        { params },
+      );
+      return toClientUpdate(unwrap<Wire<"ClientUpdateView">>(result));
+    }
+    case "send": {
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/client-updates/{update_id}/send",
+        { params },
+      );
+      return toClientUpdate(unwrap<Wire<"ClientUpdateView">>(result));
+    }
+    case "withhold": {
+      // A missing reason is sent as absent, so the API refuses with the same
+      // validation text it produced for the JSON `{}` this used to send.
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/client-updates/{update_id}/withhold",
+        {
+          params,
+          body: { reason } as Wire<"WithholdUpdateRequest">,
+        },
+      );
+      return toClientUpdate(unwrap<Wire<"ClientUpdateView">>(result));
+    }
+  }
 }
 
 // --- portfolio --------------------------------------------------------------
 
-export function fetchPortfolio(params: {
+interface PortfolioQuery {
+  from?: string;
+  to?: string;
+  group_by?: string;
+  at_risk_only?: boolean;
+  zoom?: string;
+}
+
+function portfolioQuery(params: PortfolioQuery): PortfolioQuery {
+  const query: PortfolioQuery = {};
+  if (params.from) query.from = params.from;
+  if (params.to) query.to = params.to;
+  if (params.group_by) query.group_by = params.group_by;
+  if (params.at_risk_only) query.at_risk_only = true;
+  if (params.zoom) query.zoom = params.zoom;
+  return query;
+}
+
+export async function fetchPortfolio(params: {
   from?: string;
   to?: string;
   group_by?: string;
   at_risk_only?: boolean;
   zoom?: string;
 }): Promise<PortfolioView> {
-  const query = new URLSearchParams();
-  if (params.from) query.set("from", params.from);
-  if (params.to) query.set("to", params.to);
-  if (params.group_by) query.set("group_by", params.group_by);
-  if (params.at_risk_only) query.set("at_risk_only", "true");
-  if (params.zoom) query.set("zoom", params.zoom);
-  return deliveryFetch<PortfolioView>(`/api/v1/projects/portfolio?${query.toString()}`);
+  const result = await api.api.GET("/api/v1/projects/portfolio", {
+    params: { query: portfolioQuery(params) },
+  });
+  return toPortfolioView(unwrap<Wire<"PortfolioView">>(result));
 }
 
-export function sharePortfolio(params: {
+export async function sharePortfolio(params: {
   from?: string;
   to?: string;
   group_by?: string;
   at_risk_only?: boolean;
   zoom?: string;
 }): Promise<{ token: string; path: string }> {
-  const query = new URLSearchParams();
-  if (params.from) query.set("from", params.from);
-  if (params.to) query.set("to", params.to);
-  if (params.group_by) query.set("group_by", params.group_by);
-  if (params.at_risk_only) query.set("at_risk_only", "true");
-  if (params.zoom) query.set("zoom", params.zoom);
-  return deliveryFetch(`/api/v1/projects/portfolio/share?${query.toString()}`, {
-    method: "POST",
-    body: "{}",
+  const result = await api.api.POST("/api/v1/projects/portfolio/share", {
+    params: { query: portfolioQuery(params) },
   });
+  return solid(unwrap<Wire<"ShareView">>(result));
 }
 
-export function fetchSharedPortfolio(token: string): Promise<PortfolioView> {
-  // The token arrives from a link, so it is attacker-controllable: encode it
-  // before it becomes a path segment, or `..%2F..` would decode into one.
-  return deliveryFetch<PortfolioView>(
-    `/api/v1/projects/portfolio/shared/${encodeURIComponent(token)}`,
-  );
+export async function fetchSharedPortfolio(token: string): Promise<PortfolioView> {
+  // The generated client encodes the path segment itself, so the token cannot
+  // turn `..%2F..` into a path. The read is authenticated staff-side (see the
+  // header), so it stays on `api.api` and keeps the bearer.
+  const result = await api.api.GET("/api/v1/projects/portfolio/shared/{token}", {
+    params: { path: { token } },
+  });
+  return toPortfolioView(unwrap<Wire<"PortfolioView">>(result));
 }
 
 // --- pods, work and promotion ----------------------------------------------
 
-export function fetchMyWork(): Promise<MyTask[]> {
-  return deliveryFetch<MyTask[]>("/api/v1/projects/my-work");
+export async function fetchMyWork(): Promise<MyTask[]> {
+  const result = await api.api.GET("/api/v1/projects/my-work");
+  return unwrap<Wire<"MyTaskView">[]>(result).map(solid);
 }
 
-export function setTaskBlocker(
+export async function setTaskBlocker(
   projectId: string,
   taskId: string,
   body: { kind: string; note: string | null; owner_id: string | null },
 ): Promise<{ blocked: boolean }> {
-  return deliveryFetch(`/api/v1/projects/${projectId}/tasks/${taskId}/blocker`, {
-    method: "PUT",
-    body: JSON.stringify(body),
+  const result = await api.api.PUT("/api/v1/projects/{id}/tasks/{task_id}/blocker", {
+    params: { path: { id: projectId, task_id: taskId } },
+    body,
   });
+  return unwrap<{ blocked: boolean }>(result);
 }
 
-export function clearTaskBlocker(
+export async function clearTaskBlocker(
   projectId: string,
   taskId: string,
 ): Promise<{ cleared: boolean }> {
-  return deliveryFetch(`/api/v1/projects/${projectId}/tasks/${taskId}/blocker`, {
-    method: "DELETE",
+  const result = await api.api.DELETE("/api/v1/projects/{id}/tasks/{task_id}/blocker", {
+    params: { path: { id: projectId, task_id: taskId } },
   });
+  return unwrap<{ cleared: boolean }>(result);
 }
 
-export function promoteTask(
+export async function promoteTask(
   projectId: string,
   taskId: string,
   body: { board_id: string | null; priority: string | null },
 ): Promise<PromoteResult> {
-  return deliveryFetch<PromoteResult>(
-    `/api/v1/projects/${projectId}/tasks/${taskId}/promote`,
-    { method: "POST", body: JSON.stringify(body) },
-  );
+  const result = await api.api.POST("/api/v1/projects/{id}/tasks/{task_id}/promote", {
+    params: { path: { id: projectId, task_id: taskId } },
+    body,
+  });
+  return solid(unwrap<Wire<"PromoteResponse">>(result));
 }
 
-export function fetchPodSettings(surface = "project_task"): Promise<PodSettings[]> {
-  return deliveryFetch<PodSettings[]>(`/api/v1/project-pods/settings?surface=${surface}`);
+export async function fetchPodSettings(surface = "project_task"): Promise<PodSettings[]> {
+  const result = await api.api.GET("/api/v1/project-pods/settings", {
+    params: { query: { surface } },
+  });
+  return unwrap<Wire<"PodSettingsView">[]>(result).map(solid);
 }
 
-export function putPodSettings(body: {
+export async function putPodSettings(body: {
   surface: string;
   role_key: string;
   pods: string[];
 }): Promise<PodSettings> {
-  return deliveryFetch<PodSettings>("/api/v1/project-pods/settings", {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+  const result = await api.api.PUT("/api/v1/project-pods/settings", { body });
+  return solid(unwrap<Wire<"PodSettingsView">>(result));
 }
 
-export function fetchPodPrefs(surface = "project_task"): Promise<PodPrefs> {
-  return deliveryFetch<PodPrefs>(`/api/v1/project-pods/prefs?surface=${surface}`);
+export async function fetchPodPrefs(surface = "project_task"): Promise<PodPrefs> {
+  const result = await api.api.GET("/api/v1/project-pods/prefs", {
+    params: { query: { surface } },
+  });
+  return solid(unwrap<Wire<"PodPrefsView">>(result));
 }
 
-export function putPodPrefs(body: PodPrefs): Promise<PodPrefs> {
-  return deliveryFetch<PodPrefs>("/api/v1/project-pods/prefs", {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+export async function putPodPrefs(body: PodPrefs): Promise<PodPrefs> {
+  const result = await api.api.PUT("/api/v1/project-pods/prefs", { body });
+  return solid(unwrap<Wire<"PodPrefsView">>(result));
 }

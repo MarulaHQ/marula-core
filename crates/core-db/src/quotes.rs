@@ -276,15 +276,16 @@ where
     let quantities: Vec<i64> = lines.iter().map(|l| l.quantity_milli).collect();
     let units_amounts: Vec<i64> = lines.iter().map(|l| l.unit_amount_minor).collect();
     let taxables: Vec<bool> = lines.iter().map(|l| l.taxable).collect();
+    let optionals: Vec<bool> = lines.iter().map(|l| l.optional).collect();
     let amounts: Vec<i64> = lines.iter().map(|l| l.amount_minor).collect();
     let positions: Vec<i32> = lines.iter().enumerate().map(|(i, _)| i as i32).collect();
     sqlx::query(
         r#"INSERT INTO quote_lines (id, org_id, quote_id, catalog_item_id, description, unit,
-                                    quantity_milli, unit_amount_minor, taxable, amount_minor,
-                                    position)
+                                    quantity_milli, unit_amount_minor, taxable, optional,
+                                    amount_minor, position)
            SELECT * FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
                                 $6::text[], $7::bigint[], $8::bigint[], $9::boolean[],
-                                $10::bigint[], $11::int[])"#,
+                                $10::boolean[], $11::bigint[], $12::int[])"#,
     )
     .bind(&ids)
     .bind(&orgs)
@@ -295,6 +296,7 @@ where
     .bind(&quantities)
     .bind(&units_amounts)
     .bind(&taxables)
+    .bind(&optionals)
     .bind(&amounts)
     .bind(&positions)
     .execute(executor)
@@ -343,12 +345,13 @@ where
         quantity_milli: i64,
         unit_amount_minor: i64,
         taxable: bool,
+        optional: bool,
         amount_minor: i64,
         position: i32,
     }
     let rows = sqlx::query_as::<_, LineRow>(
         r#"SELECT id, org_id, quote_id, catalog_item_id, description, unit, quantity_milli,
-                  unit_amount_minor, taxable, amount_minor, position
+                  unit_amount_minor, taxable, optional, amount_minor, position
            FROM quote_lines
            WHERE org_id = $1 AND quote_id = $2
            ORDER BY position, id"#,
@@ -369,6 +372,7 @@ where
             quantity_milli: r.quantity_milli,
             unit_amount_minor: r.unit_amount_minor,
             taxable: r.taxable,
+            optional: r.optional,
             amount_minor: r.amount_minor,
             position: r.position,
         })

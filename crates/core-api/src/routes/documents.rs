@@ -96,6 +96,18 @@ pub fn validate_fields(layout: &DocumentLayout, fields: &Value) -> ApiResult<()>
                 f.key, f.r#type
             )));
         }
+        // A date is a calendar fact, not any string: "2026-02-30" parses as
+        // nothing, and a stored non-date only fails later, in whatever reads
+        // it. The shape is the one the other kinds use (`field '<key>' ...`).
+        if f.r#type == "date" {
+            let s = v.as_str().unwrap_or_default();
+            if chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_err() {
+                return Err(ApiError::Validation(format!(
+                    "field '{}' must be a calendar date in YYYY-MM-DD form",
+                    f.key
+                )));
+            }
+        }
         if f.r#type == "select" && !f.options.is_empty() {
             let s = v.as_str().unwrap_or_default();
             if !f.options.iter().any(|o| o == s) {
@@ -1276,5 +1288,68 @@ pub(crate) async fn link_target_exists(
     match found {
         Some(true) => Ok(()),
         _ => Err(ApiError::NotFound),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn layout_with_date_field(required: bool) -> DocumentLayout {
+        DocumentLayout {
+            id: Uuid::nil(),
+            org_id: Uuid::nil(),
+            slug: "server".into(),
+            name: "Server".into(),
+            description: String::new(),
+            icon: "server".into(),
+            fields: vec![LayoutField {
+                key: "warranty_ends".into(),
+                label: "Warranty ends".into(),
+                r#type: "date".into(),
+                required,
+                position: 0,
+                options: Vec::new(),
+            }],
+            is_system: false,
+            semantic_class: None,
+            created_at: chrono::Utc.timestamp_opt(0, 0).unwrap(),
+            updated_at: chrono::Utc.timestamp_opt(0, 0).unwrap(),
+        }
+    }
+
+    fn reject(fields: &Value) -> String {
+        let err = validate_fields(&layout_with_date_field(false), fields)
+            .expect_err("an invalid calendar date must be refused");
+        err.to_string()
+    }
+
+    #[test]
+    fn date_field_accepts_a_real_calendar_day() {
+        let fields = serde_json::json!({ "warranty_ends": "2026-02-28" });
+        assert!(validate_fields(&layout_with_date_field(true), &fields).is_ok());
+    }
+
+    #[test]
+    fn date_field_rejects_a_day_the_month_does_not_have() {
+        let fields = serde_json::json!({ "warranty_ends": "2026-02-30" });
+        let message = reject(&fields);
+        assert!(message.contains("warranty_ends"), "{message}");
+        assert!(message.contains("calendar date"), "{message}");
+    }
+
+    #[test]
+    fn date_field_rejects_an_impossible_month_and_day() {
+        let fields = serde_json::json!({ "warranty_ends": "2026-13-45" });
+        let message = reject(&fields);
+        assert!(message.contains("warranty_ends"), "{message}");
+        assert!(message.contains("calendar date"), "{message}");
+    }
+
+    #[test]
+    fn date_field_still_accepts_null_when_optional() {
+        let fields = serde_json::json!({ "warranty_ends": null });
+        assert!(validate_fields(&layout_with_date_field(false), &fields).is_ok());
     }
 }

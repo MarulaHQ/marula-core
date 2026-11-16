@@ -306,7 +306,7 @@ describe("/sales/quotes integration", () => {
     cleanup();
   });
 
-  it("does not bill an optional line the preview leaves out", async () => {
+  it("posts an optional line as optional, priced outside the total", async () => {
     const mock = setupApi();
     seedDraftFromNotes(mock);
     // A draft with a priced extra the customer has not agreed to yet.
@@ -375,15 +375,87 @@ describe("/sales/quotes integration", () => {
     await screen.findByTestId("describe-understanding");
     await user.click(screen.getByTestId("describe-build"));
 
-    // The builder shows the optional line and keeps it out of the total.
+    // The builder shows the optional line and keeps it out of the total. The
+    // total preview is the required line only: $100.00, with the $200.00
+    // support plan shown beside it as an optional extra.
     expect(await screen.findByDisplayValue("Support plan")).toBeInTheDocument();
     expect(screen.getByTestId("draft-total")).toHaveTextContent("$100.00");
 
     await user.click(screen.getByTestId("quote-save"));
     await waitFor(() => expect(mock.callsTo("POST", "/api/v1/quotes").length).toBe(1));
-    // The saved quote bills what the person reviewed, not the optional extra.
-    const body = mock.lastBody<{ lines: { description: string }[] }>("POST", "/api/v1/quotes");
-    expect(body.lines.map((line) => line.description)).toEqual(["Access point"]);
+    // Both lines are posted; the optional flag is what keeps the extra out of
+    // the quote's total, not a client-side drop.
+    const body = mock.lastBody<{ lines: { description: string; optional: boolean }[] }>(
+      "POST",
+      "/api/v1/quotes",
+    );
+    expect(body.lines.map((line) => line.description)).toEqual(["Access point", "Support plan"]);
+    expect(body.lines.map((line) => line.optional)).toEqual([false, true]);
+    cleanup();
+  });
+
+  it("keeps a draft's taxability over the catalogue's answer", async () => {
+    const mock = setupApi();
+    seedDraftFromNotes(mock);
+    // The catalogue item is taxable; the draft says this line is not, and the
+    // builder must keep the draft's answer rather than re-reading the item.
+    mock.on("POST", "/api/v1/quotes/author", () => ({
+      json: {
+        valid: true,
+        saved: false,
+        draft: {
+          title: "Non-taxable block",
+          currency: "USD",
+          valid_for_days: 30,
+          notes: null,
+          client_id: CLIENT,
+          client_name: "Acme Corp",
+          budget_minor: null,
+          lines: [
+            {
+              description: "Block hours",
+              quantity_milli: 1000,
+              unit_price_minor: 15_000,
+              unit: "hour",
+              section: null,
+              optional: false,
+              taxable: false,
+              catalog_item_id: ITEM,
+              source: "catalogue",
+              source_span: null,
+              quantity_assumed: false,
+              price_assumed: false,
+            },
+          ],
+          assumptions: [],
+          understanding: null,
+          checks: [],
+        },
+        assumptions: [],
+        issues: [],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+        model_info: { provider: "test", model: "test" },
+      },
+    }));
+    mock.install();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <QuotesPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Q-0001");
+    await user.click(screen.getByTestId("quotes-describe"));
+    await user.type(await screen.findByTestId("describe-transcript"), "Tax-free block hours for Acme");
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    await screen.findByDisplayValue("Block hours");
+    await user.click(screen.getByTestId("quote-save"));
+    await waitFor(() => expect(mock.callsTo("POST", "/api/v1/quotes").length).toBe(1));
+    const body = mock.lastBody<{ lines: { taxable: boolean }[] }>("POST", "/api/v1/quotes");
+    expect(body.lines[0]?.taxable).toBe(false);
     cleanup();
   });
 

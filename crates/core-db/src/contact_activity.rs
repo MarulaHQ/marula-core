@@ -48,26 +48,41 @@ pub async fn list_for_client(
         ),
         events AS (
             -- Email tied to one of this client's tickets, in either direction.
+            -- Two legs, not one OR: each leg is a predicate an index can
+            -- serve, where the OR over "from the contact" / "to the contact"
+            -- could use neither. Pairing the address with the direction is
+            -- what stops a colleague copied on a customer's email from
+            -- reading as a contact that never happened.
             SELECT
                 a.contact_id,
                 em.created_at AS at,
-                CASE WHEN em.direction = 'inbound' THEN 'email_in' ELSE 'email_out' END AS kind,
+                'email_in' AS kind,
                 COALESCE(NULLIF(em.subject, ''), NULLIF(t.number, ''), NULL) AS detail
             FROM address_book a
             JOIN email_messages em
               ON em.org_id = $1
              AND a.email <> ''
-             AND (
-                  -- Inbound mail is from the contact; outbound mail is to them.
-                  -- Pairing the address with the direction is what stops a
-                  -- colleague copied on a customer's email from reading as a
-                  -- contact that never happened.
-                  (em.direction = 'inbound' AND lower(em.from_address) = a.email)
-                  OR (em.direction = 'outbound' AND EXISTS (
-                        SELECT 1 FROM unnest(em.to_addresses) AS addr
-                        WHERE lower(addr) = a.email
-                      ))
-             )
+             AND em.direction = 'inbound'
+             AND lower(em.from_address) = a.email
+            JOIN tickets t ON t.id = em.ticket_id AND t.org_id = $1 AND t.client_id = $2
+
+            UNION ALL
+
+            -- Outbound mail is to the contact. `to_addresses` is stored
+            -- lowercased (enqueue_outbound normalizes every recipient), so
+            -- containment is the equality this leg means, and the GIN index
+            -- on the array can answer it.
+            SELECT
+                a.contact_id,
+                em.created_at AS at,
+                'email_out' AS kind,
+                COALESCE(NULLIF(em.subject, ''), NULLIF(t.number, ''), NULL) AS detail
+            FROM address_book a
+            JOIN email_messages em
+              ON em.org_id = $1
+             AND a.email <> ''
+             AND em.direction = 'outbound'
+             AND em.to_addresses @> ARRAY[a.email]
             JOIN tickets t ON t.id = em.ticket_id AND t.org_id = $1 AND t.client_id = $2
 
             UNION ALL

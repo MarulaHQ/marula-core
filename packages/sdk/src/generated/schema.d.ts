@@ -10859,7 +10859,8 @@ export interface paths {
          * GET /api/projects/{id}/phase-burn — the burn read model (report P3):
          *     consumed approved billable minutes and card-priced value per phase
          *     against the phase's budget, with the typed `none | warn | over`
-         *     alert state (`warn` at ≥80%, `over` at ≥100%).
+         *     alert state (`warn` at ≥80%, `over` at ≥100%). Without
+         *     `financial:read` the amounts and the alert are redacted (RB2).
          */
         get: operations["projects_phase_burn"];
         put?: never;
@@ -27132,6 +27133,13 @@ export interface components {
             /** Format: uuid */
             org_id: string;
             permissions: string[];
+            /**
+             * @description The caller's role keys, which the web panel needs to apply its pod
+             *     role ceiling. A builtin role contributes its preset key (`owner`,
+             *     `technician`, `senior_tech`, …); a custom role contributes its name,
+             *     because the Role entity carries no separate key column.
+             */
+            roles: string[];
             /** @description `user` for a human session, `agent` for a service-account key. */
             subject: string;
             timezone: string;
@@ -28444,6 +28452,15 @@ export interface components {
             billing_method?: components["schemas"]["BillingMethod"] | null;
             /** Format: int64 */
             budget_minor?: number | null;
+            /**
+             * @description The reason the CLIENT is given while the project is on hold, in the
+             *     PM's own words (never composed by the server). Stored only when the
+             *     effective status after this patch is `on_hold`; cleared when the patch
+             *     takes the project out of hold. An empty or whitespace-only value
+             *     removes a reason already stored, so a PM can clear one without
+             *     resuming the project.
+             */
+            client_hold_reason?: string | null;
             /** Format: uuid */
             client_id?: string | null;
             currency?: string | null;
@@ -28668,6 +28685,40 @@ export interface components {
          * @enum {string}
          */
         PhaseBurnAlert: "none" | "warn" | "over";
+        /**
+         * @description The phase-burn row as the CALLER may see it. The amounts are financial
+         *     data: `consumed_minor`, `budget_minor` and `currency` serialize `null`
+         *     without `financial:read` (RB2, ADR 0004), and `alert` collapses to `none`
+         *     because "over budget" is itself a money fact — an over-budget badge would
+         *     disclose by itself what the amounts were redacted to hide. The consumed
+         *     minutes and the phase identity stay visible, so the plan still reads.
+         */
+        PhaseBurnView: {
+            /** @description `none` without `financial:read` (RB2). */
+            alert: components["schemas"]["PhaseBurnAlert"];
+            /**
+             * Format: int64
+             * @description `null` without `financial:read`, and also `null` for a phase that has
+             *     no contracted budget — the two read the same because the caller may
+             *     never learn either.
+             */
+            budget_minor?: number | null;
+            /**
+             * Format: int64
+             * @description `null` without `financial:read` (RB2).
+             */
+            consumed_minor?: number | null;
+            /**
+             * Format: int64
+             * @description Consumed approved billable minutes — not money, so always visible.
+             */
+            consumed_minutes: number;
+            currency?: string | null;
+            /** Format: uuid */
+            phase_id: string;
+            phase_name: string;
+            phase_status: components["schemas"]["PhaseStatus"];
+        };
         /** @description One phase as the Gantt draws it, with its budget burn attached. */
         PhaseGanttView: {
             /** Format: int64 */
@@ -29490,7 +29541,12 @@ export interface components {
             change_orders: components["schemas"]["PortalChangeOrder"][];
             /** Format: date */
             due_date?: string | null;
-            /** @description A client-safe reason, only when the project is on hold. */
+            /**
+             * @description A client-safe reason, only when the project is on hold. `null` when the
+             *     project is not paused, and also when it is paused and the PM has not
+             *     written one: the status text still says the work is on hold, and this
+             *     field never invents a reason the PM did not type.
+             */
             hold_reason?: string | null;
             /** Format: uuid */
             id: string;
@@ -29560,6 +29616,8 @@ export interface components {
             /** Format: int64 */
             amount_minor: number;
             description: string;
+            /** @description Priced and shown beside the total, never counted inside it. */
+            optional: boolean;
             /** Format: int32 */
             position: number;
             /**
@@ -29977,6 +30035,14 @@ export interface components {
              * @description Project budget in minor units; `None` = unbudgeted.
              */
             budget_minor?: number | null;
+            /**
+             * @description The reason the client is given while the project is on hold, in the
+             *     PM's own words. It is the only reason text that crosses the portal
+             *     boundary; the staff hold note stays staff-side. `None` = the PM has not
+             *     written one (the portal then says only that work is paused), and it is
+             *     cleared when the project leaves hold.
+             */
+            client_hold_reason?: string | null;
             /** Format: uuid */
             client_id?: string | null;
             /** Format: date-time */
@@ -31421,6 +31487,8 @@ export interface components {
             description: string;
             /** Format: uuid */
             id: string;
+            /** @description Priced and shown, excluded from the subtotal and the tax. */
+            optional: boolean;
             /** Format: uuid */
             org_id: string;
             /** Format: int32 */
@@ -31458,6 +31526,12 @@ export interface components {
             /** @description `notes` | `assumed` | `catalogue`. `notes` always carries a span. */
             source?: string;
             source_span?: components["schemas"]["SourceSpan"] | null;
+            /**
+             * @description Whether the line is taxed. Set from the catalogue item when one matched,
+             *     so the builder keeps the catalogue's answer; `None` when nothing
+             *     established it (the create route then treats the line as taxable).
+             */
+            taxable?: boolean | null;
             unit?: string | null;
             /**
              * Format: int64
@@ -31475,6 +31549,11 @@ export interface components {
             catalog_item_id?: string | null;
             /** @description Required when no catalog item backs the line. */
             description?: string | null;
+            /**
+             * @description Priced and shown, excluded from the subtotal and the tax. An optional
+             *     line is never dropped; `false` keeps the required-line behaviour.
+             */
+            optional?: boolean;
             /**
              * Format: int64
              * @description Quantity in thousandths of a unit (1.5 = 1500).
@@ -51023,6 +51102,7 @@ export interface operations {
             query: {
                 q: string;
                 limit?: number;
+                client_id?: string;
             };
             header?: never;
             path?: never;
@@ -57622,7 +57702,13 @@ export interface operations {
     };
     project_portfolio_share: {
         parameters: {
-            query?: never;
+            query?: {
+                from?: string;
+                to?: string;
+                group_by?: string;
+                at_risk_only?: boolean;
+                zoom?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -58496,7 +58582,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PhaseBurn"][];
+                    "application/json": components["schemas"]["PhaseBurnView"][];
                 };
             };
             /** @description project not visible in scope (rls_sparse) */

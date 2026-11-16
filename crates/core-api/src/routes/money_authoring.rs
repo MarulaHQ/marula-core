@@ -130,6 +130,11 @@ pub struct QuoteLineDraft {
     /// An optional extra: priced and shown, not counted in the total.
     #[serde(default)]
     pub optional: bool,
+    /// Whether the line is taxed. Set from the catalogue item when one matched,
+    /// so the builder keeps the catalogue's answer; `None` when nothing
+    /// established it (the create route then treats the line as taxable).
+    #[serde(default)]
+    pub taxable: Option<bool>,
     /// Present when the line's name matched a catalogue item.
     #[serde(default)]
     pub catalog_item_id: Option<Uuid>,
@@ -743,6 +748,7 @@ struct CatalogRow {
     name: String,
     unit: String,
     unit_price_minor: i64,
+    taxable: bool,
 }
 
 fn normalise(text: &str) -> String {
@@ -1260,6 +1266,9 @@ fn validate_quote(
         if let Some(item) = match_catalog(&line.description, catalog) {
             line.catalog_item_id = Some(item.id);
             line.unit_price_minor = item.unit_price_minor;
+            // The catalogue owns taxability for the items it knows; a free line
+            // keeps whatever it carried, and `None` when nothing set it.
+            line.taxable = Some(item.taxable);
             if line.unit.as_deref().unwrap_or("").trim().is_empty() {
                 line.unit = Some(item.unit.clone());
             }
@@ -1829,7 +1838,7 @@ async fn read_clients(
 async fn read_catalog(state: &AppState, org_id: Uuid, user_id: Uuid) -> ApiResult<Vec<CatalogRow>> {
     let mut tx = org_bound_tx(state, org_id, user_id).await?;
     let rows = sqlx::query_as::<_, CatalogRow>(
-        "SELECT id, name, unit, unit_price_minor FROM catalog_items
+        "SELECT id, name, unit, unit_price_minor, taxable FROM catalog_items
           WHERE org_id = $1 AND active
           ORDER BY name, id
           LIMIT 500",
@@ -1949,6 +1958,9 @@ pub async fn author_quote(
                         unit: line.unit.clone(),
                         section: line.section.clone(),
                         optional: line.optional,
+                        // The model never states taxability; the catalogue match
+                        // in `validate_quote` is what establishes it.
+                        taxable: None,
                         catalog_item_id: None,
                         source: if resolve_span(&sources, line.span.as_deref()).is_some() {
                             "notes".into()
@@ -2854,6 +2866,7 @@ mod tests {
             unit: Some("each".into()),
             section: None,
             optional: false,
+            taxable: None,
             catalog_item_id: None,
             source: "notes".into(),
             source_span: None,
@@ -3021,6 +3034,7 @@ mod tests {
             name: "24 port PoE switch".into(),
             unit: "each".into(),
             unit_price_minor: 54_000,
+            taxable: true,
         }];
         let mut draft = empty_draft();
         draft.lines.push(line("24 port PoE switch", 1000, 0));
@@ -3037,12 +3051,50 @@ mod tests {
     }
 
     #[test]
+    fn the_catalogue_carries_its_taxability_into_the_draft() {
+        let catalog = vec![CatalogRow {
+            id: Uuid::now_v7(),
+            name: "Managed workstation".into(),
+            unit: "month".into(),
+            unit_price_minor: 9_900,
+            taxable: false,
+        }];
+        let mut draft = empty_draft();
+        draft.lines.push(line("Managed workstation", 1000, 0));
+        validate_quote(&mut draft, &[], &catalog, &[]);
+        assert_eq!(draft.lines[0].catalog_item_id, Some(catalog[0].id));
+        assert_eq!(draft.lines[0].taxable, Some(false));
+    }
+
+    #[test]
+    fn a_free_line_leaves_taxability_unset() {
+        let mut draft = empty_draft();
+        draft.lines.push(line("Weekend callout", 1000, 12_000));
+        validate_quote(&mut draft, &[], &[], &[]);
+        // Nothing established it, so the draft does not invent a value; the
+        // create route treats an absent flag as taxable.
+        assert_eq!(draft.lines[0].catalog_item_id, None);
+        assert_eq!(draft.lines[0].taxable, None);
+    }
+
+    #[test]
+    fn a_free_line_keeps_taxability_it_already_carried() {
+        let mut draft = empty_draft();
+        let mut row = line("Weekend callout", 1000, 12_000);
+        row.taxable = Some(false);
+        draft.lines.push(row);
+        validate_quote(&mut draft, &[], &[], &[]);
+        assert_eq!(draft.lines[0].taxable, Some(false));
+    }
+
+    #[test]
     fn a_single_generic_word_does_not_match_the_catalogue() {
         let catalog = vec![CatalogRow {
             id: Uuid::now_v7(),
             name: "Support plan".into(),
             unit: "each".into(),
             unit_price_minor: 19_500,
+            taxable: false,
         }];
         assert!(match_catalog("plan the office move", &catalog).is_none());
         assert!(match_catalog("Support plan, access points", &catalog).is_some());
@@ -3210,6 +3262,7 @@ mod tests {
             name: "48 port PoE switch".into(),
             unit: "each".into(),
             unit_price_minor: 88_000,
+            taxable: true,
         }];
         assert!(match_catalog("24 port PoE switch", &catalog).is_none());
         assert!(match_catalog("48 port PoE switch", &catalog).is_some());

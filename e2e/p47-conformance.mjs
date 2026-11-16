@@ -1093,7 +1093,7 @@ async function putSetting(ctx, api, tokens, key, value, scope = "user") {
 async function enableAi(ctx, api, tokens) {
   const auth = { authorization: `Bearer ${tokens.access_token}` };
   await ctx.request.put(`${api}/api/v1/settings/ai/decision/features`, {
-    data: { enabled: true, idempotency_key: `features:p47:${Date.now()}` },
+    data: { mode: "live", idempotency_key: `features:p47:${Date.now()}` },
     headers: auth,
   });
   const roles = await ctx.request.get(`${api}/api/v1/roles`, { headers: auth });

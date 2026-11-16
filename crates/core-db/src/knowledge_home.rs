@@ -2222,9 +2222,18 @@ pub struct KnowledgeSearchHit {
 /// first (a client and a secret outrank a document) and recency second, which
 /// is the order an MSP technician searches in: "the client, the password for
 /// it, then the runbook".
+///
+/// `client_id` narrows the answer to one client. The filter rides EVERY store
+/// leg, before the ranking and the limit, rather than trimming the finished
+/// list: a post-limit filter spends the `limit` on rows the caller cannot see
+/// and answers a scoped search with fewer hits than it asked for. Stores that
+/// belong to no client (the org knowledge base, org documents, the org vault)
+/// drop out when a client is named — "scoped to Acme" is Acme's records, not
+/// everything Acme might read.
 pub async fn search<'e, E>(
     executor: E,
     org_id: Uuid,
+    client_id: Option<Uuid>,
     pattern: &str,
     limit: i64,
 ) -> DbResult<Vec<KnowledgeSearchHit>>
@@ -2239,60 +2248,72 @@ where
                     '/kb/clients/' || c.id::text AS href, 0 AS rank,
                     c.updated_at AS touched
                FROM clients c
-              WHERE c.org_id = $1 AND c.name ILIKE $2
+              WHERE c.org_id = $1 AND c.name ILIKE $3
+                AND ($2::uuid IS NULL OR c.id = $2)
              UNION ALL
              SELECT 'secret', r.id, r.title, 'Credential · value hidden',
                     r.client_id, c.name,
                     '/kb/secrets?record=' || r.id::text, 1, r.updated_at
                FROM secret_records r
                LEFT JOIN clients c ON c.id = r.client_id
-              WHERE r.org_id = $1 AND r.title ILIKE $2
+              WHERE r.org_id = $1 AND r.title ILIKE $3
+                AND ($2::uuid IS NULL OR r.client_id = $2)
              UNION ALL
              SELECT 'asset', a.id, a.name, coalesce(nullif(a.kind, ''), 'Configuration'),
                     a.client_id, c.name, '/assets/' || a.id::text, 2, a.updated_at
                FROM device_assets a
                LEFT JOIN clients c ON c.id = a.client_id
-              WHERE a.org_id = $1 AND a.name ILIKE $2
+              WHERE a.org_id = $1 AND a.name ILIKE $3
+                AND ($2::uuid IS NULL OR a.client_id = $2)
              UNION ALL
              SELECT 'rack', r.id, r.name, 'Rack',
                     r.client_id, c.name, '/kb/racks/' || r.id::text, 2, r.updated_at
                FROM knowledge_racks r
                JOIN clients c ON c.id = r.client_id
-              WHERE r.org_id = $1 AND r.name ILIKE $2
+              WHERE r.org_id = $1 AND r.name ILIKE $3
+                AND ($2::uuid IS NULL OR r.client_id = $2)
              UNION ALL
              SELECT 'network', n.id, n.name, 'Network',
                     n.client_id, c.name, '/kb/networks/' || n.id::text, 2, n.updated_at
                FROM knowledge_networks n
                JOIN clients c ON c.id = n.client_id
-              WHERE n.org_id = $1 AND n.name ILIKE $2
+              WHERE n.org_id = $1 AND n.name ILIKE $3
+                AND ($2::uuid IS NULL OR n.client_id = $2)
              UNION ALL
              SELECT 'domain', d.id, d.domain, 'Domain or certificate',
                     d.client_id, c.name, '/kb/domains?domain=' || d.id::text, 2, d.updated_at
                FROM knowledge_domains d
                JOIN clients c ON c.id = d.client_id
-              WHERE d.org_id = $1 AND d.domain ILIKE $2
+              WHERE d.org_id = $1 AND d.domain ILIKE $3
+                AND ($2::uuid IS NULL OR d.client_id = $2)
              UNION ALL
              SELECT 'procedure', p.id, p.title, 'Procedure',
                     p.client_id, c.name, '/kb/procedures/' || p.id::text, 3, p.updated_at
                FROM knowledge_procedures p
                JOIN clients c ON c.id = p.client_id
-              WHERE p.org_id = $1 AND p.title ILIKE $2
+              WHERE p.org_id = $1 AND p.title ILIKE $3
+                AND ($2::uuid IS NULL OR p.client_id = $2)
              UNION ALL
+             -- The knowledge base is org-wide (kb_articles has no client), so
+             -- a client scope excludes it rather than pretending it belongs.
              SELECT 'article', a.id, a.title, 'Knowledge article',
                     NULL::uuid, NULL::text, '/kb/articles?article=' || a.id::text, 3, a.updated_at
                FROM kb_articles a
-              WHERE a.org_id = $1 AND a.title ILIKE $2
+              WHERE a.org_id = $1 AND a.title ILIKE $3
+                AND $2::uuid IS NULL
              UNION ALL
              SELECT 'document', d.id, d.title, 'Document',
                     d.client_id, c.name, '/documents/' || d.id::text, 3, d.updated_at
                FROM documents d
                LEFT JOIN clients c ON c.id = d.client_id
-              WHERE d.org_id = $1 AND d.title ILIKE $2
+              WHERE d.org_id = $1 AND d.title ILIKE $3
+                AND ($2::uuid IS NULL OR d.client_id = $2)
            ) hit
           ORDER BY rank ASC, touched DESC
-          LIMIT $3"#,
+          LIMIT $4"#,
     )
     .bind(org_id)
+    .bind(client_id)
     .bind(pattern)
     .bind(limit)
     .fetch_all(executor)

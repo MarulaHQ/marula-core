@@ -341,12 +341,14 @@ pub async fn expirations(
 pub struct SearchQuery {
     pub q: String,
     pub limit: Option<i64>,
+    /// Narrow the answer to one client, before the limit rather than after it.
+    pub client_id: Option<Uuid>,
 }
 
 /// GET /api/knowledge/search — every documentation store, one ranked list.
 /// A secret appears as its record only; no value and no sealed field is read.
 #[utoipa::path(operation_id = "knowledge_search", get, path = "/api/knowledge/search", tag = "knowledge", security(("bearer" = [])), 
-    params(("q" = String, Query), ("limit" = Option<i64>, Query)),
+    params(("q" = String, Query), ("limit" = Option<i64>, Query), ("client_id" = Option<Uuid>, Query)),
     responses((status = 200, body = [kh::KnowledgeSearchHit])))]
 pub async fn search(
     State(state): State<AppState>,
@@ -372,7 +374,7 @@ pub async fn search(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let rows = kh::search(&mut *tx, org_id, &pattern, limit).await?;
+    let rows = kh::search(&mut *tx, org_id, q.client_id, &pattern, limit).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }

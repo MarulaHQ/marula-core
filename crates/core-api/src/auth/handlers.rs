@@ -1058,6 +1058,7 @@ pub async fn me(
         permissions: principal.permissions.iter().map(|p| p.key()).collect(),
         subject: if authed.via_api_key { "agent" } else { "user" }.to_string(),
         mcp_capabilities,
+        roles: role_keys(&principal.roles),
     }))
 }
 
@@ -1160,6 +1161,7 @@ pub async fn patch_me(
             .collect(),
         subject: "user".to_string(),
         mcp_capabilities: granted_mcp_capabilities(&state, org_id, user_id).await?,
+        roles: role_keys(&authed.principal.roles),
     }))
 }
 
@@ -1282,6 +1284,23 @@ pub struct MeResponse {
     /// (`GET /api/v1/mcp/capabilities`, admin-only). Returned here so a
     /// session's adapter can filter tools without an admin credential.
     pub mcp_capabilities: Vec<String>,
+    /// The caller's role keys, which the web panel needs to apply its pod
+    /// role ceiling. A builtin role contributes its preset key (`owner`,
+    /// `technician`, `senior_tech`, …); a custom role contributes its name,
+    /// because the Role entity carries no separate key column.
+    pub roles: Vec<String>,
+}
+
+/// See `MeResponse::roles`: builtin presets have a stable key, custom roles
+/// have only their name.
+fn role_keys(roles: &[core_domain::entities::Role]) -> Vec<String> {
+    roles
+        .iter()
+        .map(|role| match role.builtin {
+            Some(builtin) => builtin.as_str().to_string(),
+            None => role.name.clone(),
+        })
+        .collect()
 }
 
 // Silence unused-import lint for AccessClaims (used by jwt module re-export).
@@ -1290,8 +1309,34 @@ fn _claims_type_check(_c: AccessClaims) {}
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_password, MIN_PASSWORD_LEN};
+    use super::{role_keys, validate_password, MIN_PASSWORD_LEN};
     use crate::error::ApiError;
+    use core_domain::entities::Role;
+    use core_domain::policy::BuiltinRole;
+
+    fn role(name: &str, builtin: Option<BuiltinRole>) -> Role {
+        Role {
+            id: uuid::Uuid::now_v7(),
+            org_id: uuid::Uuid::now_v7(),
+            name: name.into(),
+            builtin,
+            permissions: Vec::new(),
+            is_system: builtin.is_some(),
+        }
+    }
+
+    /// The pod role ceiling keys off the builtin preset name, so `Me` must
+    /// carry that key and not the display name ("Senior Tech" would never
+    /// match `senior_tech`). A custom role has no key column, so its name is
+    /// the only identity it can contribute.
+    #[test]
+    fn me_role_keys_use_the_preset_key_not_the_display_name() {
+        let keys = role_keys(&[
+            role("Senior Tech", Some(BuiltinRole::SeniorTech)),
+            role("Weekend Crew", None),
+        ]);
+        assert_eq!(keys, vec!["senior_tech", "Weekend Crew"]);
+    }
 
     /// The floor is 12 (Wave 41). This test exists to make the number itself
     /// assertable: if somebody lowers the constant to make a fixture pass, this

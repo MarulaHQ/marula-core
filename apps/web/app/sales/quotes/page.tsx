@@ -459,6 +459,7 @@ export default function QuotesPage(): ReactNode {
         unit: line.unit ?? null,
         section: line.section ?? null,
         optional: line.optional === true,
+        taxable: line.taxable ?? null,
         catalog_item_id: line.catalog_item_id ?? null,
         source: line.source ?? "assumed",
         source_span: line.source_span ?? null,
@@ -493,10 +494,10 @@ export default function QuotesPage(): ReactNode {
             unit_price_minor: line.unit_price_minor,
             unit: line.unit ?? "each",
             catalog_item_id: line.catalog_item_id ?? null,
-            // The draft contract has no taxability field, so a catalogue line
-            // takes its flag from the catalogue it came from; anything else
-            // stays taxable, as the create payload defaults.
-            taxable: taxableOf(line.catalog_item_id),
+            // A draft that states taxability wins; the catalogue is only the
+            // fallback for a draft that left it unset, and the create payload's
+            // default is the last resort.
+            taxable: line.taxable ?? taxableOf(line.catalog_item_id),
             optional: line.optional === true,
             section: line.section ?? null,
             source: line.source ?? "assumed",
@@ -582,13 +583,11 @@ export default function QuotesPage(): ReactNode {
       setCreateError("Choose a client for the quote.");
       return;
     }
-    // Optional lines are priced and shown, but they are not part of the total
-    // the person reviewed; the create route has no optional flag to carry, so
-    // they do not become billable lines.
+    // Optional lines are priced and shown beside the total, never inside it.
+    // The create route carries the flag, so they persist as optional rows
+    // instead of being dropped from the quote.
     const validLines: QuoteLineInput[] = lines
-      .filter(
-        (l) => l.description.trim() !== "" && l.quantity_milli > 0 && l.optional !== true,
-      )
+      .filter((l) => l.description.trim() !== "" && l.quantity_milli > 0)
       .map((line) => ({
         description: line.description.trim(),
         catalog_item_id: line.catalog_item_id ?? null,
@@ -596,6 +595,7 @@ export default function QuotesPage(): ReactNode {
         quantity_milli: line.quantity_milli,
         unit_amount_minor: line.unit_price_minor,
         taxable: line.taxable ?? true,
+        optional: line.optional === true,
       }));
     if (validLines.length === 0) {
       setCreateError("At least one line with a description and quantity is required.");

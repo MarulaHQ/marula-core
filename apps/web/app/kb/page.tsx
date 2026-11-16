@@ -13,6 +13,7 @@
 // and the hub is a reading surface (§ brief, Phase 1).
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Spinner, SurfaceHeader } from "@marula-core/ui";
 import { useRequireAuth } from "../../lib/api";
@@ -60,6 +61,11 @@ const KIND_LABEL: Record<string, string> = {
 
 export default function KnowledgeHomePage() {
   useRequireAuth();
+  // The client scope is the query string, the same state the client-scoped KB
+  // lists keep (`/kb/domains?client_id=…`), so a link into one client's
+  // knowledge carries its search scope with it.
+  const params = useSearchParams();
+  const clientId = params.get("client_id");
   const [home, setHome] = useState<KnowledgeHome | null>(null);
   const [expiries, setExpiries] = useState<ExpiryRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -122,9 +128,13 @@ export default function KnowledgeHomePage() {
     // result, a true empty result, or this error — never an empty result
     // standing in for a failure.
     setSearchError(null);
+    // The client scope rides the request, not a filter over the reply: the
+    // server spends its limit on rows this client can see.
+    const searchParams = new URLSearchParams({ q: needle, limit: "24" });
+    if (clientId !== null) searchParams.set("client_id", clientId);
     const timer = window.setTimeout(() => {
       knowledgeApi
-        .get<SearchHit[]>(`/api/v1/knowledge/search?q=${encodeURIComponent(needle)}&limit=24`)
+        .get<SearchHit[]>(`/api/v1/knowledge/search?${searchParams.toString()}`)
         .then((rows) => {
           if (!cancelled) {
             setHits(rows);
@@ -143,7 +153,7 @@ export default function KnowledgeHomePage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, clientId]);
 
   const filtered = useMemo(() => {
     const allowed = SCOPE_KINDS[scope];

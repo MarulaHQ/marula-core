@@ -6,10 +6,15 @@
 //!
 //! * line amount = half-even(quantity_milli × unit_amount_minor / 1000)
 //!   — fractions of a unit stay integer-only (`1.5` hours = `1500`).
-//! * subtotal = sum(line amounts).
+//! * subtotal = sum(required line amounts).
 //! * tax = half-even(taxable subtotal × tax_rate_bps / 10000), where the
-//!   taxable subtotal sums only lines whose `taxable` flag is set.
+//!   taxable subtotal sums only required lines whose `taxable` flag is set.
 //! * total = subtotal + tax.
+//!
+//! An `optional` line is priced and shown but excluded from the subtotal and
+//! therefore the tax: it is an extra the client may take, not work the quote
+//! bills for. Quote lines carry no section, so the exclusion is unconditional —
+//! there is no "this section is all optional" case to special-case here.
 //!
 //! **Immutability once sent:** only a `draft` quote may be edited; the
 //! lifecycle legs (send/accept/decline/expire/convert) are the only later
@@ -111,6 +116,8 @@ pub struct QuoteRollup {
     pub subtotal_minor: i64,
     pub tax_minor: i64,
     pub total_minor: i64,
+    /// The priced optional extras: shown beside the total, never inside it.
+    pub optional_minor: i64,
 }
 
 /// `numerator / denominator` rounded half-even (banker's rounding).
@@ -147,6 +154,8 @@ pub fn line_amount_minor(quantity_milli: i64, unit_amount_minor: i64) -> Result<
 
 /// Rolls line amounts + flat tax rate into subtotal/tax/total. Tax applies
 /// to the taxable subtotal only; `tax_rate_bps` is basis points (800 = 8%).
+/// Optional lines are priced into `optional_minor` and excluded from both the
+/// subtotal and the taxable base.
 pub fn rollup(lines: &[QuoteLine], tax_rate_bps: i32) -> Result<QuoteRollup, DomainError> {
     if !(0..=10_000).contains(&tax_rate_bps) {
         return Err(DomainError::Validation(
@@ -155,8 +164,13 @@ pub fn rollup(lines: &[QuoteLine], tax_rate_bps: i32) -> Result<QuoteRollup, Dom
     }
     let mut subtotal_i: i128 = 0;
     let mut taxable_i: i128 = 0;
+    let mut optional_i: i128 = 0;
     for line in lines {
         line.validate()?;
+        if line.optional {
+            optional_i += line.amount_minor as i128;
+            continue;
+        }
         subtotal_i += line.amount_minor as i128;
         if line.taxable {
             taxable_i += line.amount_minor as i128;
@@ -167,6 +181,8 @@ pub fn rollup(lines: &[QuoteLine], tax_rate_bps: i32) -> Result<QuoteRollup, Dom
         .map_err(|_| DomainError::MoneyOverflow(subtotal_i.to_string(), "subtotal".into()))?;
     let tax_minor = i64::try_from(tax_i)
         .map_err(|_| DomainError::MoneyOverflow(tax_i.to_string(), "tax".into()))?;
+    let optional_minor = i64::try_from(optional_i)
+        .map_err(|_| DomainError::MoneyOverflow(optional_i.to_string(), "optional".into()))?;
     let total_minor = subtotal_minor
         .checked_add(tax_minor)
         .ok_or_else(|| DomainError::MoneyOverflow(subtotal_minor.to_string(), "total".into()))?;
@@ -174,6 +190,7 @@ pub fn rollup(lines: &[QuoteLine], tax_rate_bps: i32) -> Result<QuoteRollup, Dom
         subtotal_minor,
         tax_minor,
         total_minor,
+        optional_minor,
     })
 }
 
@@ -274,6 +291,8 @@ pub struct QuoteLine {
     pub quantity_milli: i64,
     pub unit_amount_minor: i64,
     pub taxable: bool,
+    /// Priced and shown, excluded from the subtotal and the tax.
+    pub optional: bool,
     pub amount_minor: i64,
     pub position: i32,
 }
@@ -319,8 +338,16 @@ mod tests {
             quantity_milli: qty_milli,
             unit_amount_minor: unit,
             taxable,
+            optional: false,
             amount_minor: line_amount_minor(qty_milli, unit).unwrap(),
             position: 0,
+        }
+    }
+
+    fn optional_line(qty_milli: i64, unit: i64, taxable: bool) -> QuoteLine {
+        QuoteLine {
+            optional: true,
+            ..usd_line(qty_milli, unit, taxable)
         }
     }
 
@@ -374,6 +401,21 @@ mod tests {
         assert_eq!(r.subtotal_minor, 250);
         assert_eq!(r.tax_minor, 16); // 200 * 0.08
         assert_eq!(r.total_minor, 266);
+        assert_eq!(r.optional_minor, 0);
+    }
+
+    #[test]
+    fn an_optional_line_is_priced_but_outside_the_subtotal_and_tax() {
+        let lines = vec![
+            usd_line(2_000, 100, true),       // 200 taxable, required
+            optional_line(1_000, 500, true),  // 500 optional, shown only
+            optional_line(1_000, 200, false), // 200 optional, shown only
+        ];
+        let r = rollup(&lines, 800).unwrap();
+        assert_eq!(r.subtotal_minor, 200);
+        assert_eq!(r.tax_minor, 16); // 8% of the required 200 only
+        assert_eq!(r.total_minor, 216);
+        assert_eq!(r.optional_minor, 700);
     }
 
     #[test]

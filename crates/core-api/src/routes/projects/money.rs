@@ -2,21 +2,75 @@ use super::*;
 
 // --- phase burn + billing releases (Wave 39 lane 4) -------------------------
 
+/// The phase-burn row as the CALLER may see it. The amounts are financial
+/// data: `consumed_minor`, `budget_minor` and `currency` serialize `null`
+/// without `financial:read` (RB2, ADR 0004), and `alert` collapses to `none`
+/// because "over budget" is itself a money fact — an over-budget badge would
+/// disclose by itself what the amounts were redacted to hide. The consumed
+/// minutes and the phase identity stay visible, so the plan still reads.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PhaseBurnView {
+    #[schema(value_type = uuid::Uuid)]
+    pub phase_id: Uuid,
+    pub phase_name: String,
+    pub phase_status: core_domain::entities::PhaseStatus,
+    /// Consumed approved billable minutes — not money, so always visible.
+    pub consumed_minutes: i64,
+    /// `null` without `financial:read` (RB2).
+    #[schema(nullable = true)]
+    pub consumed_minor: Option<i64>,
+    /// `null` without `financial:read`, and also `null` for a phase that has
+    /// no contracted budget — the two read the same because the caller may
+    /// never learn either.
+    #[schema(nullable = true)]
+    pub budget_minor: Option<i64>,
+    #[schema(nullable = true)]
+    pub currency: Option<String>,
+    /// `none` without `financial:read` (RB2).
+    pub alert: core_domain::entities::PhaseBurnAlert,
+}
+
+impl PhaseBurnView {
+    fn visible(burn: core_domain::entities::PhaseBurn, financial: bool) -> Self {
+        Self {
+            phase_id: burn.phase_id,
+            phase_name: burn.phase_name,
+            phase_status: burn.phase_status,
+            consumed_minutes: burn.consumed_minutes,
+            consumed_minor: financial.then_some(burn.consumed_minor),
+            // `budget_minor` is already `None` for an unbudgeted phase; the
+            // extra filter hides a real budget from a caller without the
+            // financial grant.
+            budget_minor: burn.budget_minor.filter(|_| financial),
+            currency: if financial { burn.currency } else { None },
+            alert: if financial {
+                burn.alert
+            } else {
+                core_domain::entities::PhaseBurnAlert::None
+            },
+        }
+    }
+}
+
 /// GET /api/projects/{id}/phase-burn — the burn read model (report P3):
 /// consumed approved billable minutes and card-priced value per phase
 /// against the phase's budget, with the typed `none | warn | over`
-/// alert state (`warn` at ≥80%, `over` at ≥100%).
+/// alert state (`warn` at ≥80%, `over` at ≥100%). Without
+/// `financial:read` the amounts and the alert are redacted (RB2).
 #[utoipa::path(operation_id = "projects_phase_burn", get, path = "/api/projects/{id}/phase-burn", tag = "projects", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
-    responses((status = 200, body = [core_domain::entities::PhaseBurn]),
+    responses((status = 200, body = [PhaseBurnView]),
               (status = 404, description = "project not visible in scope (rls_sparse)")))]
 pub async fn phase_burn(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<Vec<core_domain::entities::PhaseBurn>>> {
+) -> ApiResult<Json<Vec<PhaseBurnView>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::View))?;
+    let financial =
+        core_domain::policy::check(&authed.principal.permissions, Permission::ViewFinancials)
+            .is_allowed();
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(
@@ -28,7 +82,12 @@ pub async fn phase_burn(
     .map_err(ApiError::from)?;
     let burns = core_db::projects::phase_burn(&mut *tx, authed.principal.user.org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(burns))
+    Ok(Json(
+        burns
+            .into_iter()
+            .map(|burn| PhaseBurnView::visible(burn, financial))
+            .collect(),
+    ))
 }
 
 /// The release ledger row as the CALLER may see it. The amount and its currency

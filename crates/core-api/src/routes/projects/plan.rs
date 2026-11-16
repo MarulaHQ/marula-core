@@ -41,6 +41,13 @@ pub struct PatchProjectRequest {
     /// `Some(Some(v))` links the contract; `Some(None)` unlinks;
     /// `None` = no change (Wave 39 lane 4, report P2).
     pub billing_contract_id: Option<Option<Uuid>>,
+    /// The reason the CLIENT is given while the project is on hold, in the
+    /// PM's own words (never composed by the server). Stored only when the
+    /// effective status after this patch is `on_hold`; cleared when the patch
+    /// takes the project out of hold. An empty or whitespace-only value
+    /// removes a reason already stored, so a PM can clear one without
+    /// resuming the project.
+    pub client_hold_reason: Option<String>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
     /// version. Absent in legacy clients — purely additive.
     #[serde(flatten, default)]
@@ -263,6 +270,13 @@ pub async fn patch(
             )));
         }
     }
+    if let Some(reason) = req.client_hold_reason.as_deref() {
+        if reason.trim().chars().count() > 500 {
+            return Err(ApiError::Validation(
+                "client_hold_reason is limited to 500 characters".into(),
+            ));
+        }
+    }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
@@ -304,6 +318,28 @@ pub async fn patch(
         if let Some(contract_id) = req.billing_contract_id.flatten() {
             validate_billing_link(&mut ctx.tx, org_id, eff_client, contract_id).await?;
         }
+        // The client-safe hold reason follows the status this patch lands on,
+        // not the one it started from: typing a reason is part of pausing, and
+        // resuming drops it so a later pause cannot inherit a stale sentence.
+        let eff_status = req.status.unwrap_or(before.status);
+        let hold_reason: Option<Option<&str>> =
+            match (req.client_hold_reason.as_deref(), eff_status) {
+                (Some(raw), ProjectStatus::OnHold) => {
+                    let trimmed = raw.trim();
+                    Some(if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed)
+                    })
+                }
+                (Some(_), _) => {
+                    return Err(ApiError::Validation(
+                        "client_hold_reason is only stored while the project is on hold".into(),
+                    ))
+                }
+                (None, ProjectStatus::OnHold) => None,
+                (None, _) => (before.status == ProjectStatus::OnHold).then_some(None),
+            };
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -328,6 +364,7 @@ pub async fn patch(
                 start_date: req.start_date,
                 due_date: req.due_date,
                 billing_contract_id: req.billing_contract_id,
+                client_hold_reason: hold_reason,
             },
         )
         .await?;

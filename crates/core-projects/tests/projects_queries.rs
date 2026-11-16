@@ -86,6 +86,7 @@ async fn project_crud_filters_and_tri_state_patch() {
             start_date: None,
             due_date: None,
             billing_contract_id: None,
+            client_hold_reason: None,
         },
     )
     .await
@@ -134,6 +135,7 @@ async fn project_crud_filters_and_tri_state_patch() {
             start_date: None,
             due_date: None,
             billing_contract_id: None,
+            client_hold_reason: None,
         },
     )
     .await

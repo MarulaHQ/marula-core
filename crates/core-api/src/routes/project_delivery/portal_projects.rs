@@ -129,7 +129,10 @@ pub struct PortalProjectView {
     pub name: String,
     pub status: String,
     pub status_text: String,
-    /// A client-safe reason, only when the project is on hold.
+    /// A client-safe reason, only when the project is on hold. `null` when the
+    /// project is not paused, and also when it is paused and the PM has not
+    /// written one: the status text still says the work is on hold, and this
+    /// field never invents a reason the PM did not type.
     pub hold_reason: Option<String>,
     pub due_date: Option<NaiveDate>,
     pub steps: Vec<PortalStep>,
@@ -176,10 +179,12 @@ pub async fn get_one(
         status: project.status.as_str().to_string(),
         status_text: plain_status(project.status.as_str()).to_string(),
         hold_reason: if project.status.as_str() == "on_hold" {
-            // A pause is a fact; the cause belongs to the PM. This screen has
-            // no client-safe reason recorded yet, so it says only what it
-            // knows instead of guessing one.
-            Some("Work is paused.".into())
+            // A pause is a fact; the cause belongs to the PM. The reason is
+            // shown only when the PM wrote one FOR the client — the staff hold
+            // note never crosses this boundary, and a pause without a
+            // client-safe reason says only that work is paused, through
+            // `status_text`.
+            project.client_hold_reason
         } else {
             None
         },

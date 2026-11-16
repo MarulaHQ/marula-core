@@ -16,7 +16,8 @@ use sqlx::{Postgres, Row};
 use uuid::Uuid;
 
 const PROJECT_COLS: &str = "id, org_id, client_id, name, description, status, billing_method, \
-     budget_minor, currency, start_date, due_date, billing_contract_id, created_at, updated_at";
+     budget_minor, currency, start_date, due_date, billing_contract_id, client_hold_reason, \
+     created_at, updated_at";
 const PHASE_COLS: &str = "id, org_id, project_id, name, description, sort_order, status, \
      is_milestone, milestone_amount_minor, milestone_currency, start_date, end_date, \
      completed_at, created_at, updated_at";
@@ -56,6 +57,7 @@ fn row_to_project(row: sqlx::postgres::PgRow) -> Result<Project, sqlx::Error> {
         start_date: row.get("start_date"),
         due_date: row.get("due_date"),
         billing_contract_id: row.get("billing_contract_id"),
+        client_hold_reason: row.get("client_hold_reason"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -277,6 +279,10 @@ pub struct ProjectPatch<'a> {
     pub due_date: Option<Option<chrono::NaiveDate>>,
     /// `Some(Some(v))` links; `Some(None)` unlinks; `None` = no change.
     pub billing_contract_id: Option<Option<Uuid>>,
+    /// `Some(Some(v))` sets the client-safe hold reason; `Some(None)` clears
+    /// it; `None` = no change. The route decides when a change is legal (set
+    /// while on hold, cleared on the way out of hold).
+    pub client_hold_reason: Option<Option<&'a str>>,
 }
 
 /// Tri-state patch (QueryBuilder pattern from `tickets::update_ticket`):
@@ -322,6 +328,9 @@ where
     }
     if let Some(v) = p.billing_contract_id {
         q.push(", billing_contract_id = ").push_bind(v);
+    }
+    if let Some(v) = p.client_hold_reason {
+        q.push(", client_hold_reason = ").push_bind(v);
     }
     q.push(" WHERE org_id = ")
         .push_bind(org_id)

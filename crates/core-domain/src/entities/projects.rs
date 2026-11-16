@@ -227,6 +227,13 @@ pub struct Project {
     /// app layer (same client, active-or-draft contract).
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub billing_contract_id: Option<ContractId>,
+    /// The reason the client is given while the project is on hold, in the
+    /// PM's own words. It is the only reason text that crosses the portal
+    /// boundary; the staff hold note stays staff-side. `None` = the PM has not
+    /// written one (the portal then says only that work is paused), and it is
+    /// cleared when the project leaves hold.
+    #[serde(default)]
+    pub client_hold_reason: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

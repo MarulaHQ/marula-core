@@ -11,12 +11,10 @@
 import type { ContractDraft, ContractPriceLine, DraftLine, QuoteDraft } from "../../lib/money-authoring";
 
 /**
- * A draft line as the builder holds it. The draft contract itself has no
- * `taxable` field (`crates/core-api/src/routes/money_authoring.rs`), but an
- * editable line does — it is what the create payload sends per line — so the
- * preview has to read it without widening the wire type.
+ * A draft line as the builder holds it. The draft contract carries `taxable`
+ * (`null` when nothing established it), so the preview reads it directly.
  */
-export type TaxableLine = DraftLine & { taxable?: boolean };
+export type TaxableLine = DraftLine;
 
 /** Quantity (milli) × price (minor), half-to-even, positive operands. */
 export function lineAmountMinor(quantityMilli: number, unitPriceMinor: number): number {

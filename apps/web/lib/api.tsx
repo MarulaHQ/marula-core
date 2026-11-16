@@ -111,6 +111,8 @@ export interface Me {
   display_name: string;
   timezone: string;
   permissions: readonly string[];
+  /** The caller's role keys: a builtin preset key or a custom role's name. */
+  roles: readonly string[];
 }
 
 interface AuthState {
@@ -143,11 +145,20 @@ const authReadyPromise = new Promise<void>((resolve) => {
 });
 
 /** Resolves when the first auth restore settles (authed OR anonymous, so a
- * genuinely signed-out page never hangs). Instant-store hydrates await it. */
+ * genuinely signed-out page never hangs), or at `timeoutMs` if it lags.
+ * Instant-store hydrates await it. */
 export function authReady(timeoutMs = 5_000): Promise<void> {
-  const timer = setTimeout(() => authReadyResolve?.(), timeoutMs);
-  void timer;
-  return authReadyPromise;
+  return new Promise<void>((resolve) => {
+    // First settle wins. The settle handler clears the deadline it outran, so a
+    // page whose auth restore completed carries no stray timer; the deadline
+    // path leaves the module-level gate alone, so a later caller still waits
+    // for the real settle instead of being told the restore finished.
+    const timer = setTimeout(resolve, timeoutMs);
+    void authReadyPromise.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 function notifyAuthSettled(): void {

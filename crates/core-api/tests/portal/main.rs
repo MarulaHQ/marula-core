@@ -32,5 +32,6 @@ mod common;
 
 mod client_vault_record_scope;
 mod portal_flow;
+mod portal_project_hold_flow;
 mod portal_v2_flow;
 mod share_links_flow;

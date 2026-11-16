@@ -11,10 +11,14 @@ import { AuthProvider } from "../../lib/api";
 import KnowledgeHomePage from "../../app/kb/page";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 
+// The page reads the client scope from the query string, so the mock keeps one
+// instance the tests can point at a client before rendering.
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   usePathname: () => "/kb",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => nav.params,
   useParams: () => ({}),
 }));
 
@@ -113,6 +117,7 @@ describe("/kb knowledge home", () => {
   beforeEach(() => {
     cleanup();
     seedAuthTokens();
+    nav.params = new URLSearchParams();
   });
 
   it("leads with clients and their counted completeness", async () => {
@@ -155,5 +160,29 @@ describe("/kb knowledge home", () => {
       expect(screen.queryByText("Firewall admin")).toBeNull();
     });
     expect(screen.getByText("ACME-FW01")).toBeTruthy();
+  });
+
+  it("sends the selected client scope with the search", async () => {
+    // A scoped page (?client_id=…) must ask the server for that client, not
+    // filter a global answer afterwards — the limit would already be spent.
+    nav.params = new URLSearchParams({ client_id: CLIENT_ID });
+    const mock = new MockApi()
+      .on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }))
+      .on("GET", "/api/v1/knowledge/home", () => ({ json: HOME }))
+      .on("GET", "/api/v1/knowledge/expirations", () => ({ json: EXPIRIES }))
+      .on("GET", "/api/v1/knowledge/search", () => ({ json: SEARCH_HITS }))
+      .install();
+    renderPage();
+
+    await screen.findAllByText("Acme Corporation");
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Search knowledge"), "acme fw");
+
+    await waitFor(() => {
+      expect(mock.callsTo("GET", "/api/v1/knowledge/search")).toHaveLength(1);
+    });
+    const sent = mock.callsTo("GET", "/api/v1/knowledge/search")[0];
+    expect(sent?.query.q).toBe("acme fw");
+    expect(sent?.query.client_id).toBe(CLIENT_ID);
   });
 });

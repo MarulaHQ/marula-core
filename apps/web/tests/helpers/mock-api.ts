@@ -147,4 +147,5 @@ export const ME_FIXTURE = {
   display_name: "Owner",
   timezone: "UTC",
   permissions: ["special:manage_boards"],
+  roles: ["owner"],
 };

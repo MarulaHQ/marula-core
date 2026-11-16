@@ -64,6 +64,40 @@ const BLOCKER_KINDS = [
   ["other", "Something else"],
 ] as const;
 
+/**
+ * Which of `pods` the caller's roles may see.
+ *
+ * The org's pod documents (`PodSettings`) name the pods each role gets, so a pod
+ * belongs to a role only while a document grants it there. A pod no document
+ * mentions is unrestricted and stays visible. With no documents loaded — or no
+ * roles on the caller — the ceiling does not apply, because hiding work on
+ * missing data is worse than showing a pod the person can already hide.
+ */
+export function roleCeiling(
+  pods: readonly string[],
+  settings: PodSettings[] | null,
+  roles: readonly string[],
+): Set<string> {
+  if (settings === null || settings.length === 0 || roles.length === 0) {
+    return new Set(pods);
+  }
+  const grantedTo = new Map<string, Set<string>>();
+  for (const row of settings) {
+    for (const pod of row.pods) {
+      const holders = grantedTo.get(pod) ?? new Set<string>();
+      holders.add(row.role_key);
+      grantedTo.set(pod, holders);
+    }
+  }
+  return new Set(
+    pods.filter((pod) => {
+      const holders = grantedTo.get(pod);
+      if (holders === undefined) return true;
+      return [...holders].some((role) => roles.includes(role));
+    }),
+  );
+}
+
 interface DepRow {
   id: string;
   title: string;
@@ -222,7 +256,12 @@ export function TaskPodsPanel({
   // property on the aside, so the note and the settings block keep their
   // places around them.
   const SECTIONS: readonly string[] = ["status", "chain", "links"];
-  const podShown = (pod: string): boolean => prefs === null || !prefs.hidden.includes(pod);
+  // The role ceiling: the org's pod documents grant a pod to a role. A pod
+  // named only for roles the caller does not hold is hidden; a pod no document
+  // names is unrestricted. Personal hide/order still layers on top.
+  const roleAllowed = roleCeiling(SECTIONS, settings, auth.me?.roles ?? []);
+  const podShown = (pod: string): boolean =>
+    roleAllowed.has(pod) && (prefs === null || !prefs.hidden.includes(pod));
   const podOrder = (pod: string): number => {
     if (prefs === null) return SECTIONS.indexOf(pod);
     const preferred = prefs.pod_order.indexOf(pod);

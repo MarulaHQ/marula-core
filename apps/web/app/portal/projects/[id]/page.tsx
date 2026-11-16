@@ -151,9 +151,9 @@ export default function PortalProjectPage() {
         </PortalCard>
       ) : null}
 
-      {project.hold_reason !== null ? (
-        <PortalCard title="Work is paused">
-          <p className="portal-hint">{project.hold_reason}</p>
+      {project.status === "on_hold" ? (
+        <PortalCard title="Work is paused" testId="portal-hold">
+          <p className="portal-hint">{project.hold_reason ?? "Work is paused."}</p>
         </PortalCard>
       ) : null}
 
