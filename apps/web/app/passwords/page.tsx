@@ -67,6 +67,7 @@ import { api, useAuth, useRequireAuth } from "../../lib/api";
 import { runEnvelopeMutation, newIdempotencyKey } from "../../lib/envelope-write";
 import {
   AlertIcon,
+  ErrorNote,
   HEAD_CELL_CLASS,
   LockIcon,
   NoMatches,
@@ -221,6 +222,7 @@ export default function VaultPage() {
   const [scope, setScope] = useState<VaultScope>({ kind: "org" });
   const [folders, setFolders] = useState<SecretFolder[] | null>(null);
   const [foldersError, setFoldersError] = useState<string | null>(null);
+  const [recordsError, setRecordsError] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [records, setRecords] = useState<SecretRecord[] | null>(null);
   const [openRecord, setOpenRecord] = useState<SecretRecord | null>(null);
@@ -288,12 +290,19 @@ export default function VaultPage() {
   useEffect(() => {
     if (auth.status !== "authed" || selectedFolder === null) return;
     setRecords(null);
+    setRecordsError(null);
     api.api
       .GET("/api/v1/secrets/records", {
         params: { query: { folder_id: selectedFolder, ...scopeOf(scope) } },
       })
       .then(({ data, error }) => {
-        setRecords(error === undefined && data !== undefined ? [...data] : []);
+        if (error !== undefined || data === undefined) {
+          // A refused read is not an empty category.
+          setRecords([]);
+          setRecordsError("The records in this category did not load.");
+          return;
+        }
+        setRecords([...data]);
       });
   }, [auth.status, selectedFolder, scope]);
 
@@ -307,12 +316,18 @@ export default function VaultPage() {
 
   const reloadRecords = useCallback(() => {
     if (selectedFolder === null) return;
+    setRecordsError(null);
     api.api
       .GET("/api/v1/secrets/records", {
         params: { query: { folder_id: selectedFolder, ...scopeOf(scope) } },
       })
-      .then(({ data }) => {
-        if (data !== undefined) setRecords([...data]);
+      .then(({ data, error }) => {
+        if (error !== undefined || data === undefined) {
+          setRecords([]);
+          setRecordsError("The records in this category did not load.");
+          return;
+        }
+        setRecords([...data]);
       });
   }, [selectedFolder, scope]);
 
@@ -807,6 +822,13 @@ export default function VaultPage() {
 
                 {selectedFolder === null ? (
                   <EmptyState message="Pick a category in the tree to browse its records. Restricted categories you cannot access are hidden entirely — never dead entries." />
+                ) : recordsError !== null ? (
+                  <ErrorNote
+                    title="The records did not load."
+                    onRetry={() => reloadRecords()}
+                  >
+                    {recordsError}
+                  </ErrorNote>
                 ) : records === null ? (
                   <SkeletonRows sentence="Loading the category records." columns={4} />
                 ) : sortedRecords.length === 0 ? (

@@ -36,7 +36,7 @@ import {
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api, useRequireAuth } from "../../../../lib/api";
 import { runEnvelopeMutation } from "../../../../lib/envelope-write";
@@ -45,10 +45,14 @@ import { formatQtyMilli } from "../../../../lib/stock-format";
 import { daysUntil } from "../../../../lib/money-summary";
 import { quotePill } from "../../../../lib/money-ui";
 import { MoneyCard, MoneyHeader, MoneyKv, MoneyPillTag } from "../../../../components/money";
+import { lineAmountMinor, taxOf } from "../../../../components/money/draft-math";
+import { DecimalInput } from "../../../../components/money/decimal-field";
+import type { QuoteDetailRecord, QuoteLineDraft, QuoteRecord } from "../../../../components/money/quote-types";
+import { isOptionalLine } from "../../../../components/money/quote-types";
 
-type Quote = components["schemas"]["Quote"];
+type Quote = QuoteRecord;
 type QuoteStatus = components["schemas"]["QuoteStatus"];
-type QuoteLineInput = components["schemas"]["QuoteLineInput"];
+type QuoteLineInput = QuoteLineDraft;
 type CatalogItem = components["schemas"]["CatalogItemView"];
 type Client = components["schemas"]["Client"];
 
@@ -77,8 +81,9 @@ function isoDay(offsetDays: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Quantity × price in the same half-even rule the API stores. */
 function lineAmount(line: QuoteLineInput): number {
-  return Math.round(((line.quantity_milli ?? 0) / 1000) * (line.unit_amount_minor ?? 0));
+  return lineAmountMinor(line.quantity_milli ?? 0, line.unit_amount_minor ?? 0);
 }
 
 export default function QuoteDetailPage(): ReactNode {
@@ -86,7 +91,7 @@ export default function QuoteDetailPage(): ReactNode {
   const quoteId = params.id;
   const auth = useRequireAuth();
 
-  const [quote, setQuote] = useState<components["schemas"]["QuoteDetail"] | null>(null);
+  const [quote, setQuote] = useState<QuoteDetailRecord | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[] | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -99,9 +104,15 @@ export default function QuoteDetailPage(): ReactNode {
   const [lines, setLines] = useState<QuoteLineInput[] | null>(null);
   const [validUntil, setValidUntil] = useState("");
   const [taxRateBps, setTaxRateBps] = useState("0");
+  /** The newest read of this quote; an older one that lands late is dropped. */
+  const requestSeq = useRef(0);
 
   const refresh = useCallback(async () => {
+    requestSeq.current += 1;
+    const seq = requestSeq.current;
     const res = await api.api.GET("/api/v1/quotes/{id}", { params: { path: { id: quoteId } } });
+    // A response for the quote the URL no longer shows must not paint the page.
+    if (seq !== requestSeq.current) return;
     if (res.data === undefined) {
       setLoadError("Could not load this quote — try reloading.");
       return;
@@ -117,6 +128,9 @@ export default function QuoteDetailPage(): ReactNode {
         quantity_milli: l.quantity_milli,
         unit_amount_minor: l.unit_amount_minor,
         taxable: l.taxable,
+        // Carried back on save: the PATCH replaces the whole line list, so a
+        // dropped flag would turn a quoted extra into a billed one.
+        optional: isOptionalLine(l),
       })),
     );
     setLoadError(null);
@@ -124,6 +138,11 @@ export default function QuoteDetailPage(): ReactNode {
 
   useEffect(() => {
     if (auth.status !== "authed") return;
+    // Start from nothing when the id changes: the previous quote's figures and
+    // lines must not sit under the new URL while its read is out.
+    setQuote(null);
+    setLines(null);
+    setLoadError(null);
     void refresh();
     void (async () => {
       const [catalogRes, clientRes] = await Promise.all([
@@ -146,14 +165,19 @@ export default function QuoteDetailPage(): ReactNode {
     if (lines === null) return null;
     let subtotalMinor = 0;
     let taxableMinor = 0;
+    let optionalMinor = 0;
     for (const line of lines) {
       const amount = lineAmount(line);
+      if (line.optional === true) {
+        optionalMinor += amount;
+        continue;
+      }
       subtotalMinor += amount;
       if (line.taxable === true) taxableMinor += amount;
     }
     const rate = Math.max(0, Number(taxRateBps) || 0);
-    const taxMinor = Math.round((taxableMinor * rate) / 10000);
-    return { subtotalMinor, taxMinor, totalMinor: subtotalMinor + taxMinor };
+    const taxMinor = taxOf(taxableMinor, rate);
+    return { subtotalMinor, taxMinor, totalMinor: subtotalMinor + taxMinor, optionalMinor };
   }, [lines, taxRateBps]);
 
   if (quote === null && loadError === null) return <Spinner />;
@@ -163,6 +187,12 @@ export default function QuoteDetailPage(): ReactNode {
 
   const isDraft = quote.status === "draft";
   const validDays = daysUntil(quote.valid_until ?? "");
+  // The optional extras are never billed, so the stored document reads the
+  // server's own roll-up (`quotes.optional_minor`); a draft shows the same
+  // live preview as subtotal/tax/total while its lines are being edited.
+  const optionalMinor = isDraft
+    ? (totals?.optionalMinor ?? quote.optional_minor ?? 0)
+    : (quote.optional_minor ?? totals?.optionalMinor ?? 0);
 
   /** A lifecycle leg. Conversion is its own call so the two response shapes
    *  never widen one generic. */
@@ -482,38 +512,35 @@ export default function QuoteDetailPage(): ReactNode {
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <div className="grid gap-1">
                         <Label htmlFor={`quote-edit-qty-${index}`}>Quantity</Label>
-                        <Input
+                        <DecimalInput
                           id={`quote-edit-qty-${index}`}
-                          inputMode="decimal"
-                          value={String((line.quantity_milli ?? 0) / 1000)}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
+                          label="Quantity"
+                          value={line.quantity_milli ?? 0}
+                          scale={1000}
+                          onCommit={(quantity_milli) =>
                             setLines((cur) =>
                               (cur ?? []).map((l, i) =>
-                                i === index
-                                  ? { ...l, quantity_milli: Number.isNaN(v) ? 0 : Math.round(v * 1000) }
-                                  : l,
+                                i === index ? { ...l, quantity_milli } : l,
                               ),
-                            );
-                          }}
+                            )
+                          }
                         />
                       </div>
                       <div className="grid gap-1">
                         <Label htmlFor={`quote-edit-price-${index}`}>Unit price (major)</Label>
-                        <Input
+                        <DecimalInput
                           id={`quote-edit-price-${index}`}
-                          inputMode="decimal"
-                          value={String(((line.unit_amount_minor ?? 0) / 100).toFixed(2))}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
+                          label="Unit price (major)"
+                          value={line.unit_amount_minor ?? 0}
+                          scale={100}
+                          decimals={2}
+                          onCommit={(unit_amount_minor) =>
                             setLines((cur) =>
                               (cur ?? []).map((l, i) =>
-                                i === index
-                                  ? { ...l, unit_amount_minor: Number.isNaN(v) ? 0 : Math.round(v * 100) }
-                                  : l,
+                                i === index ? { ...l, unit_amount_minor } : l,
                               ),
-                            );
-                          }}
+                            )
+                          }
                         />
                       </div>
                       <div className="grid gap-1">
@@ -603,6 +630,9 @@ export default function QuoteDetailPage(): ReactNode {
             <MoneyKv label="Total">
               {money(totals?.totalMinor ?? quote.total_minor, quote.currency)}
             </MoneyKv>
+            {optionalMinor > 0 ? (
+              <MoneyKv label="Optional, not billed">{money(optionalMinor, quote.currency)}</MoneyKv>
+            ) : null}
             <MoneyKv label="Valid until">{quote.valid_until}</MoneyKv>
             <MoneyKv label="Updated">
               {new Date(quote.updated_at).toISOString().slice(0, 10)}

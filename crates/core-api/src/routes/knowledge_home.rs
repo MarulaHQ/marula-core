@@ -74,6 +74,38 @@ fn one_of(field: &str, value: &str, allowed: &[&str]) -> ApiResult<()> {
     }
 }
 
+/// Sweep every `knowledge_links` edge that names one record, in either
+/// direction, inside the caller's transaction. The generic edge table keeps
+/// its kind columns as open text (0217), so nothing cascades when the record
+/// is deleted; without this sweep the link panel keeps serving an id that no
+/// longer resolves. The mounts that own a deletable record — racks, networks,
+/// domains and procedures here, documents, articles, assets and credentials in
+/// their own modules — all call this on the way out.
+pub(crate) async fn purge_links(
+    tx: &mut sqlx::Transaction<'static, sqlx::Postgres>,
+    org_id: Uuid,
+    kind: &str,
+    id: Uuid,
+) -> ApiResult<()> {
+    for link in kh::links_for(&mut **tx, org_id, kind, id).await? {
+        kh::delete_link(&mut **tx, org_id, link.id).await?;
+    }
+    Ok(())
+}
+
+/// A rack lives in exactly one client, so its gate is that client's gate: a
+/// non-empty `restricted_to` list that excludes the caller reads as a 404 on
+/// every rack path, elevation writes included. The helper owns the predicate.
+async fn require_rack_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    rack: &kh::RackRecord,
+    principal: &core_domain::entities::Principal,
+) -> ApiResult<()> {
+    super::clients::require_client_visible(conn, org_id, rack.client_id, principal).await?;
+    Ok(())
+}
+
 /// Append-only audit row in the caller's transaction. The action vocabulary is
 /// dotted and prefixed `knowledge.` so the admin audit query can select the
 /// documentation story without a join.
@@ -343,12 +375,30 @@ pub struct SearchQuery {
     pub limit: Option<i64>,
     /// Narrow the answer to one client, before the limit rather than after it.
     pub client_id: Option<Uuid>,
+    /// Comma-separated stores to search (`client`, `article`, `document`,
+    /// `asset`, `rack`, `network`, `domain`, `procedure`, `secret`). Absent
+    /// searches all of them.
+    pub kinds: Option<String>,
 }
+
+/// The stores the search knows, so a scope chip cannot ask for a kind the
+/// query would silently ignore.
+const SEARCH_KINDS: [&str; 9] = [
+    "client",
+    "article",
+    "document",
+    "asset",
+    "rack",
+    "network",
+    "domain",
+    "procedure",
+    "secret",
+];
 
 /// GET /api/knowledge/search — every documentation store, one ranked list.
 /// A secret appears as its record only; no value and no sealed field is read.
 #[utoipa::path(operation_id = "knowledge_search", get, path = "/api/knowledge/search", tag = "knowledge", security(("bearer" = [])), 
-    params(("q" = String, Query), ("limit" = Option<i64>, Query), ("client_id" = Option<Uuid>, Query)),
+    params(("q" = String, Query), ("limit" = Option<i64>, Query), ("client_id" = Option<Uuid>, Query), ("kinds" = Option<String>, Query)),
     responses((status = 200, body = [kh::KnowledgeSearchHit])))]
 pub async fn search(
     State(state): State<AppState>,
@@ -370,11 +420,36 @@ pub async fn search(
         .replace('_', "\\_");
     let pattern = format!("%{escaped}%");
     let limit = q.limit.unwrap_or(20).clamp(1, 50);
+    let kinds = match q.kinds.as_deref() {
+        None => None,
+        Some(raw) => {
+            let mut parsed: Vec<String> = Vec::new();
+            for kind in raw.split(',').map(str::trim).filter(|k| !k.is_empty()) {
+                if !SEARCH_KINDS.contains(&kind) {
+                    return Err(ApiError::Validation(format!(
+                        "unknown search kind '{kind}'"
+                    )));
+                }
+                parsed.push(kind.to_string());
+            }
+            if parsed.is_empty() {
+                None
+            } else {
+                Some(parsed)
+            }
+        }
+    };
+    let scope = kh::KnowledgeSearchScope {
+        client_id: q.client_id,
+        kinds,
+        user_id: authed.principal.user.id,
+        is_admin: authed.principal.is_owner_or_admin(),
+    };
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let rows = kh::search(&mut *tx, org_id, q.client_id, &pattern, limit).await?;
+    let rows = kh::search(&mut *tx, org_id, &pattern, limit, scope).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
@@ -452,6 +527,9 @@ pub async fn list_racks(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
+    // A rack list is client-scoped, so the client's gate answers first: a
+    // restricted client's racks are a 404, not an empty elevation.
+    super::clients::require_client_visible(&mut tx, org_id, q.client_id, &authed.principal).await?;
     let rows = kh::list_racks(&mut *tx, org_id, q.client_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
@@ -474,6 +552,7 @@ pub async fn get_rack(
         .await
         .map_err(ApiError::from)?;
     let rack = kh::get_rack(&mut *tx, org_id, id).await?;
+    require_rack_visible(&mut tx, org_id, &rack, &authed.principal).await?;
     let devices = kh::list_rack_devices(&mut *tx, org_id, id).await?;
     let links = kh::links_for(&mut *tx, org_id, "rack", id).await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -512,6 +591,13 @@ pub async fn create_rack(
         .unwrap_or_else(|| Value::Object(Default::default()));
     let id = Uuid::now_v7();
     let rack = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        super::clients::require_client_visible(
+            &mut ctx.tx,
+            org_id,
+            req.client_id,
+            &authed.principal,
+        )
+        .await?;
         let rack = kh::insert_rack(
             &mut *ctx.tx,
             org_id,
@@ -572,6 +658,7 @@ pub async fn update_rack(
         .unwrap_or_else(|| Value::Object(Default::default()));
     let rack = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let current = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
+        require_rack_visible(&mut ctx.tx, org_id, &current, &authed.principal).await?;
         if req.units < current.units {
             // A device mounted above the new top would be drawn outside the
             // elevation it is in, so the rack cannot shrink under it.
@@ -638,6 +725,8 @@ pub async fn delete_rack(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let rack = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
+        require_rack_visible(&mut ctx.tx, org_id, &rack, &authed.principal).await?;
         kh::delete_rack(&mut ctx.tx, org_id, id).await?;
         audit(
             &mut ctx.tx,
@@ -715,6 +804,7 @@ pub async fn add_rack_device(
     let new_id = Uuid::now_v7();
     let device = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let rack = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
+        require_rack_visible(&mut ctx.tx, org_id, &rack, &authed.principal).await?;
         let top = req.unit_start + req.unit_height - 1;
         if top > rack.units {
             return Err(ApiError::Validation(format!(
@@ -802,6 +892,7 @@ pub async fn update_rack_device(
             return Err(ApiError::NotFound);
         }
         let rack = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
+        require_rack_visible(&mut ctx.tx, org_id, &rack, &authed.principal).await?;
         let top = req.unit_start + req.unit_height - 1;
         if top > rack.units {
             return Err(ApiError::Validation(format!(
@@ -873,6 +964,8 @@ pub async fn delete_rack_device(
         if !kh::rack_device_on(&mut *ctx.tx, org_id, id, device_id).await? {
             return Err(ApiError::NotFound);
         }
+        let rack = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
+        require_rack_visible(&mut ctx.tx, org_id, &rack, &authed.principal).await?;
         kh::delete_rack_device(&mut ctx.tx, org_id, device_id).await?;
         audit(
             &mut ctx.tx,

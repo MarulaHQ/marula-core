@@ -76,3 +76,36 @@ export function DecimalField({
     />
   );
 }
+
+/**
+ * The same field for a surface that lays its own table: the caller supplies
+ * the accessible label and, optionally, a width. `id` is accepted so an
+ * existing form can pass one; the field is labelled by `label`.
+ */
+export function DecimalInput({
+  value,
+  scale,
+  onCommit,
+  decimals,
+  label,
+  width = 110,
+}: {
+  value: number;
+  scale: number;
+  onCommit: (value: number) => void;
+  decimals?: number;
+  label?: string;
+  id?: string;
+  width?: number;
+}): React.JSX.Element {
+  return (
+    <DecimalField
+      label={label ?? "Amount"}
+      value={value}
+      scale={scale}
+      decimals={decimals}
+      width={width}
+      onCommit={onCommit}
+    />
+  );
+}

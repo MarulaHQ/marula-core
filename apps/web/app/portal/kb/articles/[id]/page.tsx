@@ -12,7 +12,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { friendlyMutationText } from "../../../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalKbArticle } from "../../../../../lib/portal-api";
@@ -87,18 +87,30 @@ export default function PortalKbArticlePage() {
   const router = useRouter();
   const [article, setArticle] = useState<PortalKbArticle | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  // Drops an answer from the article we just navigated away from.
+  const requestId = useRef(0);
 
   const load = useCallback(async () => {
+    const token = requestId.current;
     try {
-      setArticle(await portalApi.kbArticle(params.id));
+      const data = await portalApi.kbArticle(params.id);
+      if (requestId.current !== token) return;
+      setArticle(data);
+      setError(null);
     } catch (err) {
+      if (requestId.current !== token) return;
       setError(friendlyMutationText(err, "We couldn't open that help page."));
     }
   }, [params.id]);
 
   useEffect(() => {
+    // Reset first: another article's body must not render under this id.
+    requestId.current += 1;
+    setArticle(null);
+    setError(null);
     void load();
-  }, [load]);
+  }, [load, reloadKey]);
 
   if (error !== null) {
     return (
@@ -109,6 +121,13 @@ export default function PortalKbArticlePage() {
             <span>{error}</span>
           </p>
           <p>
+            <button
+              type="button"
+              className="portal-link"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              Try again
+            </button>{" "}
             <button type="button" className="portal-link" onClick={() => router.push("/portal/kb")}>
               Back to help
             </button>

@@ -448,6 +448,17 @@ pub async fn remove_cost_line(
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         ticket_for_board_check(&mut ctx.tx, &authed.principal, org_id, id, BoardOp::View).await?;
+        // A3: the route names the ticket, but the delete is by line id alone.
+        // Resolve the line through the ticket's own collection first, so ticket
+        // A's URL can never delete ticket B's line (a cost line's ticket is
+        // immutable, so this stays true for the rest of the transaction).
+        let belongs = core_db::costs::list_cost_lines(&mut *ctx.tx, org_id, id)
+            .await?
+            .iter()
+            .any(|line| line.id == line_id);
+        if !belongs {
+            return Err(ApiError::NotFound);
+        }
         let removed = core_db::costs::remove_cost_line(&mut ctx.tx, org_id, line_id).await?;
         if !removed {
             return Err(ApiError::NotFound);
@@ -839,6 +850,15 @@ pub async fn remove_expense(
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         ticket_for_board_check(&mut ctx.tx, &authed.principal, org_id, id, BoardOp::View).await?;
+        // A3: same binding as the cost-line delete — the expense must be one of
+        // THIS ticket's expenses before it is removed by id.
+        let belongs = core_db::costs::list_expenses(&mut *ctx.tx, org_id, id)
+            .await?
+            .iter()
+            .any(|expense| expense.id == expense_id);
+        if !belongs {
+            return Err(ApiError::NotFound);
+        }
         let removed = core_db::costs::remove_expense(&mut ctx.tx, org_id, expense_id).await?;
         if !removed {
             return Err(ApiError::NotFound);

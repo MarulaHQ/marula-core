@@ -84,29 +84,52 @@ pub async fn list_assets<'e, E>(
     scope: Option<&str>,
     layout_id: Option<Uuid>,
     q: Option<&str>,
+    visibility: Option<crate::tickets::ClientVisibility>,
 ) -> DbResult<Vec<DeviceAsset>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query(&format!(
-        r#"SELECT {ASSET_COLUMNS}
-           FROM device_assets
-           WHERE org_id = $1
-             AND ($2::uuid IS NULL OR client_id = $2)
-             AND ($3::text IS NULL OR scope = $3)
-             AND ($4::uuid IS NULL OR layout_id = $4)
-             AND ($5::text IS NULL OR
-                  tag ILIKE '%' || $5 || '%' OR name ILIKE '%' || $5 || '%' OR
-                  fields::text ILIKE '%' || $5 || '%')
-           ORDER BY tag, name"#
-    ))
-    .bind(org_id)
-    .bind(client_id)
-    .bind(scope)
-    .bind(layout_id)
-    .bind(q.map(|s| s.trim()).filter(|s| !s.is_empty()))
-    .fetch_all(executor)
-    .await?;
+    // A client-restricted row is filtered before the result set, never after:
+    // this list is not paginated today, but an unqualified read here becomes a
+    // short page the moment it grows one.
+    let visibility_clause = if visibility.is_some() {
+        r#"AND (client_id IS NULL OR NOT EXISTS (
+                 SELECT 1 FROM clients c
+                  WHERE c.id = device_assets.client_id
+                    AND c.org_id = device_assets.org_id
+                    AND jsonb_array_length(c.restricted_to) > 0
+                    AND NOT (c.restricted_to ? $6::text)
+                    AND NOT $7))"#
+    } else {
+        ""
+    };
+    let rows = {
+        let sql = format!(
+            r#"SELECT {ASSET_COLUMNS}
+               FROM device_assets
+               WHERE org_id = $1
+                 AND ($2::uuid IS NULL OR client_id = $2)
+                 AND ($3::text IS NULL OR scope = $3)
+                 AND ($4::uuid IS NULL OR layout_id = $4)
+                 AND ($5::text IS NULL OR
+                      tag ILIKE '%' || $5 || '%' OR name ILIKE '%' || $5 || '%' OR
+                      fields::text ILIKE '%' || $5 || '%')
+                 {visibility_clause}
+               ORDER BY tag, name"#
+        );
+        let mut query = sqlx::query(&sql)
+            .bind(org_id)
+            .bind(client_id)
+            .bind(scope)
+            .bind(layout_id)
+            .bind(q.map(|s| s.trim()).filter(|s| !s.is_empty()));
+        if let Some(visibility) = visibility {
+            query = query
+                .bind(visibility.user_id.to_string())
+                .bind(visibility.is_admin);
+        }
+        query.fetch_all(executor).await?
+    };
     Ok(rows.into_iter().map(row_to_asset).collect())
 }
 

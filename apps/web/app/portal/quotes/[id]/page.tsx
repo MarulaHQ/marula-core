@@ -20,7 +20,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { friendlyMutationText } from "../../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import {
@@ -50,6 +50,9 @@ export default function PortalQuotePage() {
   const router = useRouter();
   const [quote, setQuote] = useState<PortalQuoteDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  // Guards a late answer from the id we just navigated away from.
+  const requestId = useRef(0);
   // The accept dialog's own state. It is a decision, so it is asked once and
   // the dialog says what accepting and declining each mean.
   const [accepting, setAccepting] = useState(false);
@@ -60,17 +63,29 @@ export default function PortalQuotePage() {
   const [declineReason, setDeclineReason] = useState("");
   const [declining, setDeclining] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
+    const token = requestId.current;
     try {
-      setQuote(await portalApi.getQuote(params.id));
+      const data = await portalApi.getQuote(params.id);
+      if (requestId.current !== token) return false;
+      setQuote(data);
+      setError(null);
+      return true;
     } catch (err) {
+      if (requestId.current !== token) return false;
       setError(friendlyMutationText(err, "We couldn't open this quote. Try again in a moment."));
+      return false;
     }
   }, [params.id]);
 
   useEffect(() => {
+    // A new id clears the old quote before the read, and the token drops any
+    // answer that belongs to the id we just left.
+    requestId.current += 1;
+    setQuote(null);
+    setError(null);
     void load();
-  }, [load]);
+  }, [load, reloadKey]);
 
   async function accept(e: React.FormEvent) {
     e.preventDefault();
@@ -129,6 +144,13 @@ export default function PortalQuotePage() {
             <span>{error}</span>
           </p>
           <p>
+            <button
+              type="button"
+              className="portal-link"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              Try again
+            </button>{" "}
             <button
               type="button"
               className="portal-link"
@@ -192,11 +214,32 @@ export default function PortalQuotePage() {
         </div>
         {quote.lines.map((l, i) => (
           <div className="portal-line" key={`${l.description}-${i}`}>
-            <span>{l.description}</span>
+            <span>
+              {l.description}
+              {l.optional === true ? (
+                <span className="portal-hint" style={{ display: "block", fontSize: 13 }}>
+                  Optional, not included in the total
+                </span>
+              ) : null}
+            </span>
             <span>{quantity(l.quantity_milli)}</span>
             <span>{money(l.amount_minor, quote.currency)}</span>
           </div>
         ))}
+        {quote.lines.some((l) => l.optional === true) && (
+          <div className="portal-line">
+            <span>Optional items, not in the total</span>
+            <span>&mdash;</span>
+            <span>
+              {money(
+                quote.lines
+                  .filter((l) => l.optional === true)
+                  .reduce((sum, l) => sum + l.amount_minor, 0),
+                quote.currency,
+              )}
+            </span>
+          </div>
+        )}
         {quote.tax_minor > 0 && (
           <div className="portal-line">
             <span>Tax</span>

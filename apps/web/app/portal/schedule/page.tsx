@@ -80,6 +80,7 @@ export default function PortalSchedulePage() {
 
   const [slots, setSlots] = useState<PortalStaffSlots[] | null>(null);
   const [requests, setRequests] = useState<PortalAppointmentRequest[] | null>(null);
+  const [requestsError, setRequestsError] = useState(false);
   const [picked, setPicked] = useState<Slot | null>(null);
   // The day is chosen first and separately from the time, so the time row only
   // ever offers the hours that are actually open on the day in hand.
@@ -93,6 +94,7 @@ export default function PortalSchedulePage() {
   const load = useCallback(() => {
     let cancelled = false;
     setError(null);
+    setRequestsError(false);
     portalApi
       .scheduleSlots(range.from, range.to)
       .then((list) => {
@@ -104,10 +106,14 @@ export default function PortalSchedulePage() {
     portalApi
       .listAppointmentRequests()
       .then((list) => {
-        if (!cancelled) setRequests(list);
+        if (!cancelled) setRequests(Array.isArray(list) ? list : []);
       })
       .catch(() => {
-        if (!cancelled) setRequests([]);
+        // A failed read is not "nothing booked": name it and offer the retry.
+        if (!cancelled) {
+          setRequests([]);
+          setRequestsError(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -209,8 +215,17 @@ export default function PortalSchedulePage() {
         </div>
       )}
 
+      {requestsError && (
+        <p className="portal-hint" role="alert">
+          We couldn&apos;t load your requests just now.{" "}
+          <button type="button" className="portal-link" onClick={() => void load()}>
+            Try again
+          </button>
+        </p>
+      )}
+
       <PortalCard title="Coming up" testId="portal-schedule-confirmed">
-        {confirmed.length === 0 ? (
+        {requestsError ? null : confirmed.length === 0 ? (
           <div className="portal-empty" style={{ padding: "32px 24px" }}>
             <p className="portal-hint">
               Nothing booked. Ask for a time below and a person will confirm it.
