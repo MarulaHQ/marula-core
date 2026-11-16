@@ -38,9 +38,13 @@
 // has to change it, and the message names the file that reached it.
 //
 // The merge follows Compose: a local setting wins over an inherited one, except
-// `volumes`, which is appended — a socket mounted in the base survives a local
-// `volumes:` list. A reference that cannot be resolved, or a cycle, is a
-// finding: a config this check cannot read is not a config known to be safe.
+// `volumes`, which is appended. Each mount keeps its own origin, so an
+// exemption written above a local `volumes:` speaks only for the mounts in that
+// list, never for one inherited from a base.
+//
+// A reference that cannot be resolved, or a cycle in either `extends` or
+// `include`, is a finding: a config this check cannot read is not a config
+// known to be safe.
 //
 // WHAT IT DOES NOT EVALUATE
 // -------------------------
@@ -92,7 +96,7 @@ const SETTINGS = [
 
 const SOCKET_KEY = 'volumes';
 const SOCKET_PATH = '/var/run/docker.sock';
-const SOCKET_REASON = 'the Docker socket is root on the host, and a mount hands it over';
+const SOCKET_REASON = 'mounts the Docker socket, which is root on the host';
 
 const rel = (path) =>
   path.startsWith(ROOT + sep) ? relative(ROOT, path).split(sep).join('/') : path;
@@ -235,12 +239,18 @@ function load(path, cache) {
   return entry;
 }
 
+function asArray(value) {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 /**
  * A service's effective settings, plus where each protected key was written.
  *
  * `extends` inherits first and the local file wins, except `volumes`, which
- * Compose appends to — so a socket mounted in the base survives a local
- * `volumes:` list.
+ * Compose appends to. Volume provenance is tracked per mount rather than per
+ * key, because one list can carry a local mount and an inherited one, and an
+ * exemption above the local `volumes:` must not speak for the inherited mount.
  */
 function resolveService(path, name, cache, stack = []) {
   const key = `${path}::${name}`;
@@ -249,34 +259,59 @@ function resolveService(path, name, cache, stack = []) {
   const own = file.configs[name];
   if (!own) throw new Refusal(`names a service that does not exist (${name})`);
 
-  const inherited = { config: {}, origin: new Map() };
+  let config = {};
+  const origin = new Map();
+  let inheritedVolumes = [];
+  let inheritedVolumeOrigins = [];
   const parent = extendsOf(own, path);
   if (parent) {
     const base = resolveService(parent.path, parent.name, cache, [...stack, key]);
-    inherited.config = { ...base.config };
-    for (const [setting, where] of base.origin) inherited.origin.set(setting, where);
-    inherited.config.volumes = [...(base.config.volumes ?? [])];
+    config = { ...base.config };
+    delete config[SOCKET_KEY];
+    for (const [setting, where] of base.origin) origin.set(setting, where);
+    inheritedVolumes = base.volumes;
+    inheritedVolumeOrigins = base.volumeOrigins;
   }
 
   const located = file.index.get(name);
-  const origin = new Map(inherited.origin);
-  const config = inherited.config;
+  const localVolumes = asArray(own[SOCKET_KEY]);
+  const localVolumeOrigin = {
+    path,
+    pair: pairInMap(located?.map, SOCKET_KEY),
+    lineCounter: file.lineCounter,
+  };
+
   for (const [setting, value] of Object.entries(own)) {
-    if (setting === 'extends') continue;
-    if (setting === SOCKET_KEY && inherited.config[SOCKET_KEY]) {
-      config[setting] = [...inherited.config[SOCKET_KEY], ...(Array.isArray(value) ? value : [value])];
-    } else {
-      config[setting] = value;
-    }
-    if (SETTINGS.some((candidate) => candidate.key === setting) || setting === SOCKET_KEY) {
-      origin.set(setting, { path, pair: pairInMap(located?.map, setting), lineCounter: file.lineCounter });
+    if (setting === 'extends' || setting === SOCKET_KEY) continue;
+    config[setting] = value;
+    if (SETTINGS.some((candidate) => candidate.key === setting)) {
+      origin.set(setting, {
+        path,
+        pair: pairInMap(located?.map, setting),
+        lineCounter: file.lineCounter,
+      });
     }
   }
-  return { config, origin };
+
+  const volumes = [...inheritedVolumes, ...localVolumes];
+  const volumeOrigins = [
+    ...inheritedVolumeOrigins,
+    ...localVolumes.map(() => localVolumeOrigin),
+  ];
+  if (volumes.length > 0) config[SOCKET_KEY] = volumes;
+
+  return { config, origin, volumes, volumeOrigins };
 }
 
 /** Every compose file reachable from `path` through `include:`, recursively. */
-function projectFiles(path, cache, seen = new Set(), onError = () => {}) {
+function projectFiles(path, cache, seen = new Set(), stack = [], onError = () => {}) {
+  // A file that includes one of its own ancestors is a cycle. A file reached
+  // twice without being an ancestor is a diamond, which is fine and is scanned
+  // once — `seen` handles that, the stack handles the cycle.
+  if (stack.includes(path)) {
+    onError(stack[stack.length - 1] ?? path, new Refusal(`includes ${rel(path)} in a cycle`));
+    return seen;
+  }
   if (seen.has(path)) return seen;
   seen.add(path);
   let included = [];
@@ -295,7 +330,7 @@ function projectFiles(path, cache, seen = new Set(), onError = () => {}) {
       onError(path, error);
       continue;
     }
-    projectFiles(next, cache, seen, onError);
+    projectFiles(next, cache, seen, [...stack, path], onError);
   }
   return seen;
 }
@@ -339,15 +374,18 @@ function scanFile(path, cache, findings, reported) {
       );
     }
 
-    const volumes = config[SOCKET_KEY];
-    if (socketsIn(volumes)) {
-      const where = origin.get(SOCKET_KEY) ?? { path, pair: undefined, lineCounter: file.lineCounter };
-      if (!exempted(where.pair)) {
-        const through = where.path === path ? '' : ` (reached from ${rel(path)})`;
-        report('setting', where.path, lineOf(where.pair, where.lineCounter),
-          `${SOCKET_KEY}: ${SOCKET_PATH}`, SOCKET_REASON + through);
-      }
-    }
+    const volumes = config[SOCKET_KEY] ?? [];
+    const volumeOrigins = resolvedService.volumeOrigins ?? [];
+    volumes.forEach((mount, index) => {
+      if (!socketsIn(mount)) return;
+      // Each mount answers to its own origin: an exemption above the local
+      // `volumes:` says nothing about a mount that came from the base.
+      const where = volumeOrigins[index] ?? { path, pair: undefined, lineCounter: file.lineCounter };
+      if (exempted(where.pair)) return;
+      const through = where.path === path ? '' : ` (reached from ${rel(path)})`;
+      report('setting', where.path, lineOf(where.pair, where.lineCounter),
+        `${SOCKET_KEY}: ${SOCKET_PATH}`, SOCKET_REASON + through);
+    });
   }
 }
 
@@ -373,7 +411,7 @@ function scan(directory) {
   const scanned = new Set();
 
   for (const root of composeFiles(directory)) {
-    const roots = projectFiles(root, cache, new Set(), (from, error) => {
+    const roots = projectFiles(root, cache, new Set(), [], (from, error) => {
       findings.push({ kind: 'reference', path: from, line: 1, text: '', reason: error.message });
     });
     for (const path of roots) {
@@ -604,6 +642,87 @@ services:
     extends: {file: docker-compose.yml, service: a}
 `,
   },
+  // An exemption above the LOCAL volumes: must not speak for a mount that came
+  // from the base. The inherited mount is still reported, in the base file.
+  inheritedSocketExemptLocal: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    # EXEMPTION (compose): local volumes reviewed, nothing here
+    volumes: []
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+`,
+  },
+  // ... while an exemption above the base's own volumes: does apply.
+  inheritedSocketExemptBase: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    volumes: []
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    # EXEMPTION (compose): base reviewed, the socket mount is required.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+`,
+  },
+  // A file whose only content is `include:` — no local services at all.
+  includeOnly: {
+    'docker-compose.yml': `include:
+  - extra.yml
+`,
+    'extra.yml': `services:
+  extra:
+    image: alpine:3.20
+    privileged: true
+`,
+  },
+  // Included services merged alongside local ones: both are part of the
+  // project, so both are scanned.
+  mergedInclude: {
+    'docker-compose.yml': `include: [extra.yml]
+services:
+  web:
+    image: alpine:3.20
+`,
+    'extra.yml': `services:
+  extra:
+    image: alpine:3.20
+    network_mode: host
+`,
+  },
+  // include of a file that includes a third.
+  nestedInclude: {
+    'docker-compose.yml': `include: [mid.yml]
+`,
+    'mid.yml': `include: [deep.yml]
+`,
+    'deep.yml': `services:
+  deep:
+    image: alpine:3.20
+    ipc: host
+`,
+  },
+  // include cycles are findings, like extends cycles.
+  includeCycle: {
+    'docker-compose.yml': `include: [other.yml]
+services:
+  web:
+    image: alpine:3.20
+`,
+    'other.yml': `include: [docker-compose.yml]
+services:
+  other:
+    image: alpine:3.20
+`,
+  },
 };
 
 const EXPECTED = {
@@ -613,6 +732,8 @@ const EXPECTED = {
   extendsFile: 1, extendsChain: 1, extendsSameFile: 1,
   extendsExempt: 0, includeFile: 1, includeDirectory: 1,
   extendsLocalWins: 0, missingExtendsFile: 1, extendsCycle: 1,
+  inheritedSocketExemptLocal: 1, inheritedSocketExemptBase: 0,
+  includeOnly: 1, mergedInclude: 1, nestedInclude: 1, includeCycle: 1,
 };
 
 function selfTest() {
