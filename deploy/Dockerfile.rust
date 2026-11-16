@@ -21,14 +21,16 @@ FROM dhi.io/rust:1.95-dev@sha256:f6e61d660495bd925b8e76288b0c5c50c2f70a0d981181e
 # SAME builder layer and `docker compose build` compiles the workspace once
 # instead of three times. BIN only picks which binary the runtime stage keeps.
 WORKDIR /src
-# openssl-sys (reachable through the native-TLS stack on Linux) needs
-# pkg-config and the OpenSSL headers at build time. The hardened DHI rust
-# image ships neither, so the build failed at the first -sys crate. The
-# runtime stage already carries libssl3 + ca-certificates, so only the build
-# stage needs this. Installed before the source COPYs so a source change does
-# not re-run it.
+# Two -sys crates need host tooling that the hardened DHI rust image does not
+# ship. openssl-sys (reachable through the native-TLS stack on Linux) needs
+# pkg-config and the OpenSSL headers. aws-lc-sys — pulled in by object_store's
+# `aws` feature, which hard-wires aws-lc-rs — compiles BoringSSL from source
+# with CMake, and this base carries gcc, make and perl but not cmake (checked
+# against the pinned digest above). Both are build-only: the runtime stage
+# already carries libssl3 + ca-certificates. Installed before the source COPYs
+# so a source change does not re-run it.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends pkg-config libssl-dev \
+    && apt-get install -y --no-install-recommends pkg-config libssl-dev cmake \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates

@@ -17,7 +17,8 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::StreamExt;
 use object_store::{
-    signer::Signer, Attribute, Attributes, ObjectStore as OsObjectStore, PutOptions, PutPayload,
+    signer::Signer, Attribute, Attributes, ObjectStore as OsObjectStore, ObjectStoreExt,
+    PutOptions, PutPayload,
 };
 use std::time::Duration;
 
@@ -54,6 +55,14 @@ impl S3Store {
             .with_region(&config.region)
             .with_access_key_id(&config.access_key_id)
             .with_secret_access_key(&config.secret_access_key)
+            // 0.13 moved `delete` off the client and onto `ObjectStoreExt`,
+            // which routes it through `delete_stream`: one key becomes a
+            // `DeleteObjects` batch (`POST /?delete`). Not every S3-compatible
+            // endpoint implements that API, and a rejected batch is not a
+            // missing object — the delete would surface as `Unavailable` and
+            // the object would stay. Nothing here deletes in bulk, so this
+            // keeps every delete a plain `DELETE /key`.
+            .with_disable_bulk_delete(true)
             .with_allow_http(allow_http);
         if let Some(endpoint) = &config.endpoint {
             builder = builder.with_endpoint(endpoint);
@@ -254,15 +263,80 @@ mod tests {
         };
         let st = S3Store::new(cfg);
         let key = format!("smoke/{}", uuid::Uuid::now_v7());
-        st.put(&key, "text/plain", Bytes::from_static(b"marula-live"))
-            .await
-            .expect("put");
+        let payload = Bytes::from_static(b"marula-live");
+        // Derived from the payload rather than written out: the literal is 11
+        // bytes, so the 13 this used to assert could never hold, which is why
+        // this smoke has never passed for anyone who ran it.
+        let expected_len = payload.len() as u64;
+        st.put(&key, "text/plain", payload).await.expect("put");
         let obj = st.get(&key).await.expect("get");
-        assert_eq!(obj.size_bytes, 13);
+        assert_eq!(obj.size_bytes, expected_len);
         st.delete(&key).await.expect("delete");
         assert!(matches!(
             st.get(&key).await.expect_err("gone"),
             StoreError::NotFound(_)
         ));
+    }
+
+    /// The bulk-delete opt-out is invisible until an endpoint that lacks
+    /// `DeleteObjects` refuses the batch, and by then the object is already
+    /// undeleted. Assert the wire shape directly instead: deleting one key must
+    /// be one `DELETE /key`, never a `POST /?delete` batch. A stub socket
+    /// stands in for S3 so this runs everywhere, including CI.
+    #[tokio::test]
+    async fn delete_issues_a_single_object_request_not_a_batch() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+        use std::sync::mpsc;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stub");
+        let port = listener.local_addr().expect("stub addr").port();
+        let (record, recorded) = mpsc::channel::<String>();
+        let stub = std::thread::spawn(move || {
+            // One connection carrying one request is all a single delete needs.
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).expect("request line");
+            record
+                .send(request_line.trim().to_string())
+                .expect("record");
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).unwrap_or(0) == 0 || header == "\r\n" {
+                    break;
+                }
+            }
+            stream
+                .write_all(
+                    b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .expect("respond");
+        });
+
+        let store = S3Store::new(S3Config {
+            endpoint: Some(format!("http://127.0.0.1:{port}")),
+            bucket: "marula".into(),
+            region: "us-east-1".into(),
+            access_key_id: "key".into(),
+            secret_access_key: "secret".into(),
+        });
+        let deleted = store.delete("org/x/attachments/abc").await;
+
+        let request_line = recorded.recv().expect("the delete must reach S3");
+        stub.join().expect("stub thread");
+        // Assert the shape before the outcome. If the bulk path ever comes
+        // back, the client's own error ("invalid DeleteObjects response") says
+        // nothing about which request it sent, and that is what is worth
+        // naming in the failure.
+        assert!(
+            request_line.starts_with("DELETE /marula/org/x/attachments/abc"),
+            "a single-key delete must be DELETE /key, saw: {request_line}"
+        );
+        assert!(
+            !request_line.contains("?delete"),
+            "must not use the bulk DeleteObjects endpoint, saw: {request_line}"
+        );
+        deleted.expect("delete");
     }
 }
