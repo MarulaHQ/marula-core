@@ -34,6 +34,33 @@ pub(crate) fn tickets(action: core_domain::policy::Action) -> Permission {
     }
 }
 
+/// A ticket whose client carries a non-empty `restricted_to` list that does
+/// not contain the caller — and whose caller is not owner/admin — is a 404 on
+/// every by-id path, the same answer the client read gives. A ticket with no
+/// client is org-level and always visible; the helper owns the predicate.
+pub(crate) async fn require_ticket_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    ticket: &core_domain::entities::Ticket,
+    principal: &core_domain::entities::Principal,
+) -> ApiResult<()> {
+    if let Some(client_id) = ticket.client_id {
+        super::clients::require_client_visible(conn, org_id, client_id, principal).await?;
+    }
+    Ok(())
+}
+
+/// The visibility inputs the SQL list filter takes, or `None` for a caller
+/// that must not be filtered (none today — every staff path passes Some).
+fn visibility_of(
+    principal: &core_domain::entities::Principal,
+) -> core_db::tickets::ClientVisibility {
+    core_db::tickets::ClientVisibility {
+        user_id: principal.user.id,
+        is_admin: principal.is_owner_or_admin(),
+    }
+}
+
 /// The board's close-enforcement posture: ACTIVE only when a checklist
 /// template exists AND the board's require_checklist_close toggle is on
 /// (defaults-first doctrine — see migration 0016's header).
@@ -431,12 +458,24 @@ pub async fn list(
         offset: if anchor.is_some() { 0 } else { q.offset.max(0) },
         cursor: anchor,
     };
-    let rows = core_db::tickets::list_tickets(&mut *tx, org_id, filter.clone()).await?;
+    let rows = core_db::tickets::list_tickets_visible(
+        &mut *tx,
+        org_id,
+        filter.clone(),
+        Some(visibility_of(&authed.principal)),
+    )
+    .await?;
     let enriched = TicketWithFields::load_many(&mut tx, org_id, rows).await?;
     // The denominator rides the SAME transaction, so the page and its total
     // answer the same database state. `count_tickets` matches this call's
     // filter; the cursor/offset/limit scrolls the window, not the set.
-    let total = core_db::tickets::count_tickets(&mut *tx, org_id, &filter).await?;
+    let total = core_db::tickets::count_tickets_visible(
+        &mut *tx,
+        org_id,
+        &filter,
+        Some(visibility_of(&authed.principal)),
+    )
+    .await?;
     tx.commit().await.map_err(ApiError::from)?;
     // A full page hints another exists; anchor it to the LAST row (the
     // sort order is global + id-tiebroken, so this anchor is exact).
@@ -490,11 +529,12 @@ pub async fn my_work(
         )
         .await
         .map_err(ApiError::from)?;
-        let rows = core_db::tickets::my_work_annotated(
+        let rows = core_db::tickets::my_work_annotated_scoped(
             &mut *tx,
             authed.principal.user.org_id,
             authed.principal.user.id,
             100,
+            Some(visibility_of(&authed.principal)),
         )
         .await?;
         tx.commit().await.map_err(ApiError::from)?;
@@ -586,6 +626,18 @@ pub async fn create(
         )
         .await?
         {
+            // A replay hands back a stored response, so the visibility gate
+            // has to answer first: losing access to the client must not still
+            // return the body captured while it was granted.
+            if let Some(client_id) = req.client_id {
+                super::clients::require_client_visible(
+                    &mut ctx.tx,
+                    org_id,
+                    client_id,
+                    &authed.principal,
+                )
+                .await?;
+            }
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         // Board-level RBAC first (deny wins): a viewer-role membership row
@@ -597,6 +649,18 @@ pub async fn create(
             BoardOp::CreateTicket,
         )
         .await?;
+        // A ticket may not be filed under a client the caller cannot see: the
+        // restricted list is a read boundary, and a create is the write that
+        // would otherwise hand the row back.
+        if let Some(client_id) = req.client_id {
+            super::clients::require_client_visible(
+                &mut ctx.tx,
+                org_id,
+                client_id,
+                &authed.principal,
+            )
+            .await?;
+        }
         let status = core_db::boards::default_status_for_board(&mut *ctx.tx, req.board_id).await?;
         let (prefix, seq) = core_db::orgs::next_ticket_number(&mut *ctx.tx, org_id).await?;
         let number = format!("{prefix}-{seq}");
@@ -762,15 +826,25 @@ pub async fn get_one(
     let org_id = authed.principal.user.org_id;
     // RLS-scoped read (pool carries no app.org_id GUC).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    // The ticket and its revision must come from one committed state. At the
+    // default READ COMMITTED each statement takes its own snapshot, so an
+    // update landing between the two reads can pair the old body with the new
+    // ETag — and the next conditional GET then answers 304 for a body the
+    // client never received. This is the first statement in the transaction;
+    // the org/user bind below is a query and would take the snapshot.
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
     // The per-entity seq IS the entity's revision, so it is exactly the weak
-    // validator a conditional read wants. Read it first — a point lookup on
-    // the counter's primary key, inside the same org-bound tx — so an
-    // unchanged entity short-circuits to 304 without materializing anything.
-    // No counter row (never written through the instant path) means no
-    // validator: fall through to the plain read, byte-identical to before.
+    // validator a conditional read wants. The row loads first now: an ETag
+    // answer still says the entity exists, so a restricted client's ticket
+    // must be a 404 before the validator can short-circuit anything.
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    require_ticket_visible(&mut tx, org_id, &ticket, &authed.principal).await?;
     let etag = core_db::instant::read_entity_seq(&mut *tx, org_id, "ticket", id)
         .await?
         .map(|seq| crate::http_version::weak_etag("ticket", &id.to_string(), seq));
@@ -783,7 +857,6 @@ pub async fn get_one(
             return Ok(not_modified(etag));
         }
     }
-    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
     let enriched = TicketWithFields::load(&mut tx, org_id, ticket).await?;
     tx.commit().await.map_err(ApiError::from)?;
     // The 200 body stays byte-identical to the pre-ETag response; the
@@ -888,11 +961,31 @@ pub async fn patch(
         )
         .await?
         {
+            // Replay returns the stored body before the fresh path's checks
+            // run, so the ticket's visibility is answered here too.
+            let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+                .await
+                .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            require_ticket_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
+        // Moving a ticket INTO a client is a write the read boundary has to
+        // allow: otherwise a caller who can edit this ticket can hand it to a
+        // client whose restricted list excludes them and read it back in the
+        // response. Clearing the client is always legal.
+        if let Some(Some(client_id)) = req.client_id {
+            super::clients::require_client_visible(
+                &mut ctx.tx,
+                org_id,
+                client_id,
+                &authed.principal,
+            )
+            .await?;
+        }
         // Classification validation (Wave 11 lane 3): the node must exist
         // in this org and not be retired; clearing is always legal. A
         // retired node already ON the ticket stays (retirement never
@@ -1056,6 +1149,18 @@ pub async fn change_status(
     Json(req): Json<ChangeStatusRequest>,
 ) -> ApiResult<Json<TicketStatusMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    // The service owns the transition's own guards, but not the client gate:
+    // resolve the ticket here and 404 a restricted client before any write.
+    {
+        let org_id = authed.principal.user.org_id;
+        let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+        core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+            .await
+            .map_err(ApiError::from)?;
+        let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+        require_ticket_visible(&mut tx, org_id, &ticket, &authed.principal).await?;
+        tx.commit().await.map_err(ApiError::from)?;
+    }
     // The whole legal transition path lives in `services::tickets` now, so
     // the workflow executor's `ticket.transition` node rides the SAME
     // gate this route does (Wave 43 lane 20, item E).
@@ -1098,6 +1203,7 @@ pub async fn sla_status(
         authed.principal.user.id,
         |mut ctx| async move {
             let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+            require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
             // None-mode: a ticket created without an applicable SLA policy
             // has no state row — that is a typed empty state, not a 404.
             let Some(state_row) = core_db::sla::get_ticket_state(&mut *ctx.tx, id).await? else {
@@ -1188,6 +1294,16 @@ pub async fn list_comments(
     )
     .await
     .map_err(ApiError::from)?;
+    // The comment ledger carries the ticket's visibility: a restricted
+    // client's thread is a 404, not an empty list.
+    let ticket = core_db::tickets::get_ticket(&mut *tx, authed.principal.user.org_id, id).await?;
+    require_ticket_visible(
+        &mut tx,
+        authed.principal.user.org_id,
+        &ticket,
+        &authed.principal,
+    )
+    .await?;
     let comments = core_db::tickets::list_comments(
         &mut *tx,
         authed.principal.user.org_id,
@@ -1230,6 +1346,12 @@ pub async fn add_comment(
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: a stored comment
+        // body must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -1243,9 +1365,6 @@ pub async fn add_comment(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -1693,6 +1812,7 @@ pub async fn get_checklist(
     // Instantiation is idempotent; a plain read must never fail because the
     // template changed, so it runs inside its own committed transaction.
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    require_ticket_visible(&mut tx, org_id, &ticket, &authed.principal).await?;
     core_db::checklists::instantiate_missing(&mut tx, org_id, ticket.board_id, id).await?;
     let view = checklist_view(&mut tx, org_id, &ticket).await?;
     tx.commit()
@@ -1732,6 +1852,12 @@ pub async fn add_checklist_item(
     let item_id = Uuid::now_v7();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: a stored checklist
+        // item must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -1745,9 +1871,6 @@ pub async fn add_checklist_item(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -1861,6 +1984,12 @@ pub async fn set_checklist_item(
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: the stored item
+        // state must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -1874,9 +2003,6 @@ pub async fn set_checklist_item(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -2042,6 +2168,14 @@ pub async fn ticket_time_entries(
     )
     .await
     .map_err(ApiError::from)?;
+    let ticket = core_db::tickets::get_ticket(&mut *tx, authed.principal.user.org_id, id).await?;
+    require_ticket_visible(
+        &mut tx,
+        authed.principal.user.org_id,
+        &ticket,
+        &authed.principal,
+    )
+    .await?;
     let entries = core_db::timers::list_time_entries(
         &mut *tx,
         authed.principal.user.org_id,
@@ -2093,6 +2227,12 @@ pub async fn complete_all_checklist(
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // The visibility gate answers before a replay does: the stored batch
+        // result must not be returned to a caller who has lost the ticket.
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_ticket_visible(&mut ctx.tx, org_id, &ticket, &authed.principal).await?;
         if let InstantClaim::Replay(stored) = instant::claim(
             &mut ctx,
             instant::ClaimSpec {
@@ -2106,9 +2246,6 @@ pub async fn complete_all_checklist(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-            .await
-            .map_err(|e| instant::mutation_scope_err(e.into()))?;
         authorize_board_op(
             &mut ctx.tx,
             &authed.principal,
@@ -2238,6 +2375,8 @@ pub async fn get_note_draft(
     core_db::set_org(&mut tx, org_id)
         .await
         .map_err(ApiError::from)?;
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    require_ticket_visible(&mut tx, org_id, &ticket, &authed.principal).await?;
     core_db::note_drafts::purge_stale(&mut *tx).await.ok();
     let row = core_db::note_drafts::get_draft(&mut *tx, org_id, id, user_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2304,18 +2443,10 @@ pub async fn put_note_draft(
     core_db::set_org(&mut tx, org_id)
         .await
         .map_err(ApiError::from)?;
-    // RLS makes visibility the guard: an out-of-scope ticket id fails here.
-    let exists = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM tickets WHERE org_id = $1 AND id = $2)",
-    )
-    .bind(org_id)
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| ApiError::Internal(e.into()))?;
-    if !exists {
-        return Err(ApiError::RlsSparse);
-    }
+    // RLS scopes the org; the client's restricted list is a second gate that
+    // RLS does not know about, so the row is read and checked explicitly.
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    require_ticket_visible(&mut tx, org_id, &ticket, &authed.principal).await?;
     if req.body.trim().is_empty() {
         core_db::note_drafts::delete(&mut *tx, org_id, id, user_id).await?;
         tx.commit().await.map_err(ApiError::from)?;
@@ -2364,6 +2495,8 @@ pub async fn delete_note_draft(
     core_db::set_org(&mut tx, org_id)
         .await
         .map_err(ApiError::from)?;
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    require_ticket_visible(&mut tx, org_id, &ticket, &authed.principal).await?;
     core_db::note_drafts::delete(&mut *tx, org_id, id, user_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "cleared": true })))
@@ -2399,23 +2532,16 @@ pub async fn refine_note(
         return Err(ApiError::Validation("refine needs draft text".into()));
     }
     let org_id = authed.principal.user.org_id;
-    // RLS-scoped existence guard so a foreign ticket id reads as rls_sparse.
+    // RLS-scoped existence guard so a foreign ticket id reads as rls_sparse;
+    // the client's restricted list is checked explicitly because RLS is blind
+    // to it.
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org(&mut tx, org_id)
         .await
         .map_err(ApiError::from)?;
-    let visible = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM tickets WHERE org_id = $1 AND id = $2)",
-    )
-    .bind(org_id)
-    .bind(id)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|e| ApiError::Internal(e.into()))?;
+    let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, id).await?;
+    require_ticket_visible(&mut tx, org_id, &ticket, &authed.principal).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    if !visible {
-        return Err(ApiError::RlsSparse);
-    }
     let provider = crate::ai::resolve_org_completion_provider(&state, org_id).await;
     use core_domain::completion::CompletionProvider;
     let prompt = [

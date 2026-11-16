@@ -63,7 +63,7 @@ import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../../lib/api";
 import { scoreTone } from "../../../lib/docs-completeness";
 import { money } from "../../../lib/format";
@@ -194,6 +194,8 @@ export default function ClientDetailPage() {
   // A failed activity read is "unknown", never "Never": the column must not
   // tell staff nobody has ever contacted someone because a request failed.
   const [contactActivityFailed, setContactActivityFailed] = useState(false);
+  /** The newest activity read, keyed to the client it was made for. */
+  const activityRequest = useRef({ clientId, seq: 0 });
   const [portalUsers, setPortalUsers] = useState<PortalUser[] | null>(null);
   const [portalDenied, setPortalDenied] = useState(false);
   const [assets, setAssets] = useState<DeviceAsset[] | null>(null);
@@ -261,7 +263,15 @@ export default function ClientDetailPage() {
   }, [clientId]);
 
   const refreshContactActivity = useCallback(async () => {
+    const request = ++activityRequest.current.seq;
+    activityRequest.current.clientId = clientId;
     const rows = await fetchContactActivity(clientId);
+    // An answer for the previous client, or one a newer refresh has already
+    // superseded, must not decide this page's state: the newer read is the
+    // one whose success the page has to keep.
+    if (request !== activityRequest.current.seq || activityRequest.current.clientId !== clientId) {
+      return;
+    }
     if (rows === null) {
       setContactActivityFailed(true);
       return;

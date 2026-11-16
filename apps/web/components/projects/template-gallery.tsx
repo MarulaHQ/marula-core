@@ -198,12 +198,18 @@ export function TemplateGallery() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const loadSeq = useRef(0);
+  // The filter on screen NOW. An action's follow-up reload runs with the value
+  // the person is looking at, not the one captured when the action started:
+  // otherwise archiving while "Show archived" was ticked would refresh with
+  // the old filter and leave the checkbox disagreeing with the list.
+  const includeArchivedRef = useRef(includeArchived);
+  includeArchivedRef.current = includeArchived;
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     setError(null);
     try {
-      const next = await fetchTemplateGallery(includeArchived);
+      const next = await fetchTemplateGallery(includeArchivedRef.current);
       // Toggling "Show archived" while another load is in flight can finish
       // in the wrong order; only the newest answer may replace the list.
       if (seq !== loadSeq.current) return;
@@ -212,12 +218,12 @@ export function TemplateGallery() {
       if (seq !== loadSeq.current) return;
       setError((e as Error).message);
     }
-  }, [includeArchived]);
+  }, []);
 
   useEffect(() => {
     if (auth.status !== "authed") return;
     void load();
-  }, [auth.status, load]);
+  }, [auth.status, load, includeArchived]);
 
   const categories = useMemo(() => {
     const seen = new Set<string>();

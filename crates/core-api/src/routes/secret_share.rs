@@ -77,6 +77,36 @@ fn secrets(action: Action) -> Permission {
     }
 }
 
+/// The category gate a share link inherits from its subject. A legacy
+/// `passwords` row carries no folder, so it rides the module permission alone;
+/// a native record is reveal-grade material, and every lifecycle step on its
+/// links asks the same folder grant the mint path asks.
+async fn require_subject_grant(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    principal: &core_domain::entities::Principal,
+    subject_id: Uuid,
+    subject_kind: ShareSubjectKind,
+) -> ApiResult<()> {
+    if subject_kind != ShareSubjectKind::SecretRecord {
+        return Ok(());
+    }
+    let record = core_db::secret_vault::get_record(&mut *conn, org_id, subject_id)
+        .await
+        .map_err(|_| ApiError::NotFound)?;
+    let roles: Vec<Uuid> = principal.roles.iter().map(|r| r.id).collect();
+    let allowed =
+        core_db::secret_vault::folder_access(&mut *conn, org_id, &roles, record.folder_id, true)
+            .await
+            .map_err(ApiError::from)?;
+    if !allowed {
+        return Err(ApiError::Forbidden(
+            "category locked to your role; request a grant to manage shares from here".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn passwords(action: Action) -> Permission {
     Permission::Matrix {
         module: Module::Passwords,
@@ -615,6 +645,7 @@ async fn list_share_links_inner(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
+    require_subject_grant(&mut tx, org_id, &authed.principal, subject_id, subject_kind).await?;
     let links =
         core_db::share_links::list_for_subject(&mut *tx, org_id, subject_kind, subject_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -635,6 +666,17 @@ async fn revoke_share_link_inner(
 
     org_tx::with_org_tx(state, org_id, actor, |ctx| async move {
         let mut ctx = ctx;
+        // Minting a link re-arms the reveal gate, so the ledger that lists and
+        // revokes links asks the same question: a credential whose category is
+        // locked to another role has no share link this caller can manage.
+        require_subject_grant(
+            &mut ctx.tx,
+            org_id,
+            &authed.principal,
+            subject_id,
+            subject_kind,
+        )
+        .await?;
         // The link must belong to THIS subject (visibility through its
         // subject scope — revoking another subject's link is a 404).
         let link = core_db::share_links::get_by_id(&mut *ctx.tx, org_id, share_id)

@@ -188,6 +188,31 @@ pub struct TicketCursor {
     pub id: Uuid,
 }
 
+/// Whose client restrictions apply to a read: the caller's user id plus the
+/// owner/admin bypass. `None` at a call site means "no visibility gate" —
+/// system paths keep their statement byte-identical (see
+/// [`crate::capacity::page1_explain_sql`], which fills binds only up to `$8`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClientVisibility {
+    pub user_id: Uuid,
+    pub is_admin: bool,
+}
+
+/// The restriction clause over the joined client row, in two forms. A row with
+/// no client is org-level and always visible; a `client_id` whose row is gone
+/// stays visible too, so a dangling reference never hides a record. Bind
+/// slots are passed in because each statement has its own numbering.
+fn owner_visible_clause(user_bind: i32, admin_bind: i32, client_alias: &str) -> String {
+    format!(
+        "AND ({client_alias}.client_id IS NULL OR NOT EXISTS ( \
+             SELECT 1 FROM clients c \
+              WHERE c.id = {client_alias}.client_id AND c.org_id = {client_alias}.org_id \
+                AND jsonb_array_length(c.restricted_to) > 0 \
+                AND NOT (c.restricted_to ? ${user_bind}::text) \
+                AND NOT ${admin_bind}))"
+    )
+}
+
 /// The list filter, and `Clone` because the route reads the page AND its
 /// denominator from one transaction: the rows first, then the count over the
 /// same filter.
@@ -223,8 +248,23 @@ pub async fn list_tickets<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let sql = page_sql(&f);
-    let rows = sqlx::query(&sql)
+    list_tickets_visible(executor, org_id, f, None).await
+}
+
+/// [`list_tickets`] with the client-visibility gate. The predicate rides the
+/// page statement itself, before `LIMIT`, so a restricted client's rows cannot
+/// shorten the page the caller receives.
+pub async fn list_tickets_visible<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    f: TicketFilter,
+    visibility: Option<ClientVisibility>,
+) -> DbResult<Vec<Ticket>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = page_sql_visible(&f, visibility);
+    let mut query = sqlx::query(&sql)
         .bind(org_id)
         .bind(f.board_id)
         .bind(f.assignee_id)
@@ -237,9 +277,13 @@ where
         .bind(f.cursor.map(|c| c.priority_rank))
         .bind(f.cursor.and_then(|c| c.due_at))
         .bind(f.cursor.map(|c| c.created_at))
-        .bind(f.cursor.map(|c| c.id))
-        .fetch_all(executor)
-        .await?;
+        .bind(f.cursor.map(|c| c.id));
+    if let Some(visibility) = visibility {
+        query = query
+            .bind(visibility.user_id.to_string())
+            .bind(visibility.is_admin);
+    }
+    let rows = query.fetch_all(executor).await?;
     Ok(rows
         .into_iter()
         .map(row_to_ticket)
@@ -254,6 +298,12 @@ where
 /// the predicate moves the plan signal with it. A copied string is how an
 /// EXPLAIN starts measuring a query nobody runs.
 pub(crate) fn page_sql(f: &TicketFilter) -> String {
+    page_sql_visible(f, None)
+}
+
+/// [`page_sql`] plus the optional client-visibility clause, which takes binds
+/// `$14`/`$15`. `None` leaves the statement byte-identical to the plan probe's.
+fn page_sql_visible(f: &TicketFilter, visibility: Option<ClientVisibility>) -> String {
     // Tag clause (lane 9): semi-join against ticket_tags, $9. Built as a
     // literal fragment + bound array — no value interpolation, so the
     // injection surface stays exactly the bind parameter.
@@ -293,6 +343,11 @@ pub(crate) fn page_sql(f: &TicketFilter) -> String {
             pr = PRIORITY_RANK
         ),
     };
+    // Visibility binds ride after the keyset's, so the statement keeps its
+    // numbering whether or not the walk is a cursor page.
+    let visibility_clause = visibility
+        .map(|_| owner_visible_clause(14, 15, "tickets"))
+        .unwrap_or_default();
     // The `id` tiebreaker makes the total order deterministic so the
     // cursor resume is exact even on (due_at, created_at) collisions.
     format!(
@@ -306,6 +361,7 @@ pub(crate) fn page_sql(f: &TicketFilter) -> String {
              {tag_clause}
              {archived_clause}
              {keyset_clause}
+             {visibility_clause}
            ORDER BY
              {PRIORITY_RANK},
              due_at NULLS LAST, created_at, id
@@ -322,8 +378,26 @@ pub async fn count_tickets<'e, E>(executor: E, org_id: Uuid, f: &TicketFilter) -
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    count_tickets_visible(executor, org_id, f, None).await
+}
+
+/// [`count_tickets`] with the same client-visibility gate the page applies, so
+/// the footer's denominator and the rows agree.
+pub async fn count_tickets_visible<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    f: &TicketFilter,
+    visibility: Option<ClientVisibility>,
+) -> DbResult<i64>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    // Count numbers its own binds: the tag array is `$7`, so visibility takes
+    // `$8`/`$9` here rather than the page statement's `$14`/`$15`.
     let tag_clause = if f.tag_ids.as_ref().is_some_and(|v| !v.is_empty()) {
-        crate::tags::tag_filter_sql(9)
+        // The count binds the tag array seventh; its clause must say so, or
+        // the statement asks for a parameter the bind list never supplies.
+        crate::tags::tag_filter_sql(7)
     } else {
         String::new()
     };
@@ -332,6 +406,9 @@ where
     } else {
         "AND archived_at IS NULL"
     };
+    let visibility_clause = visibility
+        .map(|_| owner_visible_clause(8, 9, "tickets"))
+        .unwrap_or_default();
     let sql = format!(
         r#"SELECT count(*) FROM tickets
            WHERE org_id = $1
@@ -341,19 +418,24 @@ where
              AND ($5::text IS NULL OR category = $5)
              AND ($6::text IS NULL OR priority = $6)
              {tag_clause}
-             {archived_clause}"#
+             {archived_clause}
+             {visibility_clause}"#
     );
     let sql = sql.as_str();
-    let row: (i64,) = sqlx::query_as(sql)
+    let mut query = sqlx::query_as::<_, (i64,)>(sql)
         .bind(org_id)
         .bind(f.board_id)
         .bind(f.assignee_id)
         .bind(f.client_id)
         .bind(f.category.map(|c| c.as_str().to_string()))
         .bind(f.priority.map(|p| p.as_str().to_string()))
-        .bind(f.tag_ids.clone().unwrap_or_default())
-        .fetch_one(executor)
-        .await?;
+        .bind(f.tag_ids.clone().unwrap_or_default());
+    if let Some(visibility) = visibility {
+        query = query
+            .bind(visibility.user_id.to_string())
+            .bind(visibility.is_admin);
+    }
+    let row = query.fetch_one(executor).await?;
     Ok(row.0)
 }
 
@@ -445,7 +527,32 @@ pub async fn my_work_annotated<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    my_work_annotated_scoped(executor, org_id, user_id, limit, None).await
+}
+
+/// [`my_work_annotated`] with the client-visibility gate applied in SQL, so a
+/// restricted client's tickets never consume one of the queue's 100 slots.
+pub async fn my_work_annotated_scoped<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    user_id: Uuid,
+    limit: i64,
+    visibility: Option<ClientVisibility>,
+) -> DbResult<Vec<MyWorkRow>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let cols = TICKET_COLS.replace(", ", ", t.");
+    // The clients row is already LEFT JOINed for the annotation, so the gate
+    // reads it directly: a NULL join (client missing) is visible, and an empty
+    // list is org-wide.
+    let visibility_clause = if visibility.is_some() {
+        "AND (t.client_id IS NULL OR c.id IS NULL \
+              OR jsonb_array_length(c.restricted_to) = 0 \
+              OR c.restricted_to ? $4::text OR $5)"
+    } else {
+        ""
+    };
     let sql = format!(
         r#"SELECT t.{cols},
                   c.name  AS client_name,
@@ -459,18 +566,20 @@ where
            LEFT JOIN ticket_sla_state s ON s.ticket_id = t.id
            WHERE t.org_id = $1 AND t.assignee_id = $2 AND t.category <> 'closed'
              AND t.archived_at IS NULL
+             {visibility_clause}
            ORDER BY
              CASE t.priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
              COALESCE(s.resolution_due, t.due_at) NULLS LAST,
              t.created_at
            LIMIT $3"#
     );
-    let rows = sqlx::query(&sql)
-        .bind(org_id)
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(executor)
-        .await?;
+    let mut query = sqlx::query(&sql).bind(org_id).bind(user_id).bind(limit);
+    if let Some(visibility) = visibility {
+        query = query
+            .bind(visibility.user_id.to_string())
+            .bind(visibility.is_admin);
+    }
+    let rows = query.fetch_all(executor).await?;
     rows.into_iter().map(my_work_row_from).collect()
 }
 

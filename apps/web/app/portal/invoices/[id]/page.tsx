@@ -13,7 +13,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { friendlyMutationText } from "../../../../lib/error-copy";
 import { Spinner } from "@marula-core/ui";
 import { portalApi, useRequirePortalAuth, type PortalInvoiceDetail } from "../../../../lib/portal-api";
@@ -43,18 +43,27 @@ export default function PortalInvoicePage() {
   const router = useRouter();
   const [detail, setDetail] = useState<PortalInvoiceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      setDetail(await portalApi.getInvoice(params.id));
-    } catch (err) {
-      setError(friendlyMutationText(err, "We couldn't open this invoice. Try again in a moment."));
-    }
-  }, [params.id]);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    // Reset first: another invoice's figures must not render under this one.
+    setDetail(null);
+    setError(null);
+    portalApi
+      .getInvoice(params.id)
+      .then((data) => {
+        if (!cancelled) setDetail(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(friendlyMutationText(err, "We couldn't open this invoice. Try again in a moment."));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.id, reloadKey]);
 
   if (error !== null) {
     return (
@@ -65,6 +74,13 @@ export default function PortalInvoicePage() {
             <span>{error}</span>
           </p>
           <p>
+            <button
+              type="button"
+              className="portal-link"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              Try again
+            </button>{" "}
             <button
               type="button"
               className="portal-link"

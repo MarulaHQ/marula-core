@@ -25,7 +25,8 @@ use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::routes::board_access::authorize_board_op;
 use crate::routes::tickets::{
-    checklist_enforcement, tickets, ChangeStatusRequest, TaskGateItem, TicketStatusMutationResponse,
+    checklist_enforcement, require_ticket_visible, tickets, ChangeStatusRequest, TaskGateItem,
+    TicketStatusMutationResponse,
 };
 use crate::state::AppState;
 use core_domain::entities::{Actor, AuditEvent, Principal};
@@ -88,6 +89,14 @@ async fn apply_transition(
 )> {
     let org_id = principal.user.org_id;
     let user_id = principal.user.id;
+    // The ticket is loaded and gated before the claim: a replay hands back a
+    // stored response, and a caller who has lost the ticket (its client is now
+    // restricted) must not receive it. This also covers
+    // `transition_status_with_pool` callers that skip the route's precheck.
+    let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
+        .await
+        .map_err(|e| instant::mutation_scope_err(e.into()))?;
+    require_ticket_visible(&mut ctx.tx, org_id, &before, principal).await?;
     if let InstantClaim::Replay(stored) = instant::claim(
         &mut ctx,
         instant::ClaimSpec {
@@ -101,9 +110,6 @@ async fn apply_transition(
     {
         return Ok((ctx, MutationOutcome::Replayed(stored)));
     }
-    let before = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id)
-        .await
-        .map_err(|e| instant::mutation_scope_err(e.into()))?;
     // The board's statuses + explicit transition matrix define what is
     // legal here; with no explicit matrix the semantic-category floor
     // governs (core-domain `workflow`).

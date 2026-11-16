@@ -315,9 +315,89 @@ pub async fn connect(url: &str) -> DbResult<PgPool> {
     connect_with(url, PoolConfig::default()).await
 }
 
+/// Shipped migrations whose SQL is not the SQL a released installation
+/// recorded. The list lives in `migrations/APPLIED_REWRITES` because
+/// `scripts/check-migrations.sh` reads the same file — one authority, not two.
+///
+/// sqlx digests a migration file whole, comments included, and refuses to run
+/// when an already-applied version differs from the file on disk. A prose sweep
+/// on 2026-10-21 rewrote 53 files' comments, which made every installation
+/// created before it fail with "migration N was previously applied but has been
+/// modified" — the upgrade matrix caught it at version 11, the first rewritten
+/// file. Version 70 is the other entry: its backfill referenced the loop record
+/// it was filling, so the statement could only ever fail, and it did so on the
+/// first installation that had an org at migrate time.
+///
+/// For these versions only, a recorded digest is normalised to the file on
+/// disk before validation. An edit to any other migration still fails the
+/// check, and the two guards — `rewritten_versions_*` below and the fixture
+/// comparison in `scripts/check-migrations.sh` — keep this list honest.
+const APPLIED_REWRITES: &str = include_str!("../migrations/APPLIED_REWRITES");
+
+/// The manifest as `(version, reason)` pairs. Parsing is total: a malformed
+/// line is a bug in a file this crate ships, and the test below refuses it.
+fn rewritten_versions() -> Vec<(i64, String)> {
+    APPLIED_REWRITES
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| {
+            let (version, reason) = line.split_once(char::is_whitespace)?;
+            Some((version.parse::<i64>().ok()?, reason.trim().to_string()))
+        })
+        .collect()
+}
+
+/// Rewrites the recorded digest of a [`COMMENT_ONLY_REWRITES`] version to the
+/// digest of the file in this binary. A fresh installation has no
+/// `_sqlx_migrations` table yet — the migrator creates it — so this is a no-op
+/// there, and an installation already carrying the current digest is untouched.
+async fn normalise_comment_only_checksums(pool: &PgPool) -> DbResult<()> {
+    let table: Option<String> =
+        sqlx::query_scalar("SELECT to_regclass('public._sqlx_migrations')::text")
+            .fetch_one(pool)
+            .await?;
+    if table.is_none() {
+        return Ok(());
+    }
+    let migrator = sqlx::migrate!("./migrations");
+    let rewritten: Vec<i64> = rewritten_versions()
+        .into_iter()
+        .map(|(version, _reason)| version)
+        .collect();
+    let mut repaired: Vec<i64> = Vec::new();
+    for migration in migrator.migrations.iter() {
+        if !rewritten.contains(&migration.version) {
+            continue;
+        }
+        let changed = sqlx::query(
+            "UPDATE _sqlx_migrations SET checksum = $1
+              WHERE version = $2 AND checksum <> $1",
+        )
+        .bind(migration.checksum.to_vec())
+        .bind(migration.version)
+        .execute(pool)
+        .await?
+        .rows_affected();
+        if changed > 0 {
+            repaired.push(migration.version);
+        }
+    }
+    if !repaired.is_empty() {
+        // One line, not 53: an operator should see that an upgrade normalised
+        // the digests of comment-only rewrites, and which versions they were.
+        tracing::info!(
+            versions = ?repaired,
+            "normalised the recorded checksums of comment-only rewritten migrations"
+        );
+    }
+    Ok(())
+}
+
 /// Applies all pending migrations in filename order. Idempotent: applied
 /// migrations are checksum-verified and skipped.
 pub async fn run_migrations(pool: &PgPool) -> DbResult<()> {
+    normalise_comment_only_checksums(pool).await?;
     sqlx::migrate!("./migrations").run(pool).await?;
     // Record the node catalogue release this build runs: a workflow
     // document can then say which release it was validated against, and
@@ -518,5 +598,40 @@ mod pool_config_tests {
             !message.contains("secret") && !message.contains('@'),
             "the message carries no credential: {message}"
         );
+    }
+
+    /// The exemption manifest names real migrations, in order and once each,
+    /// with a reason. A typo would silently leave an installation unfixed, and
+    /// the normaliser only ever touches what it can match to an embedded
+    /// migration.
+    #[test]
+    fn rewritten_versions_exist_sorted_and_carry_a_reason() {
+        let migrator = sqlx::migrate!("./migrations");
+        let embedded: Vec<i64> = migrator
+            .migrations
+            .iter()
+            .map(|migration| migration.version)
+            .collect();
+        let entries = super::rewritten_versions();
+        assert!(
+            !entries.is_empty(),
+            "the manifest must name at least the comment-only rewrites"
+        );
+        let mut previous = 0;
+        for (version, reason) in entries {
+            assert!(
+                embedded.contains(&version),
+                "version {version} in the manifest has no migration file"
+            );
+            assert!(
+                version > previous,
+                "the manifest must stay sorted and deduplicated"
+            );
+            assert!(
+                !reason.is_empty(),
+                "version {version} must say why it is exempt"
+            );
+            previous = version;
+        }
     }
 }

@@ -68,6 +68,14 @@ export default function PortalTicketPage() {
   const [detail, setDetail] = useState<PortalTicketDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<PortalAttachmentView[] | null>(null);
+  const [attachmentsUnavailable, setAttachmentsUnavailable] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  // The attachments retry has its own key: a failed file read must not re-run
+  // the ticket effect, which resets the composer and would delete a reply the
+  // person had already typed.
+  const [attachmentsReloadKey, setAttachmentsReloadKey] = useState(0);
+  // Guards a late answer from the id we just navigated away from.
+  const requestId = useRef(0);
   const [reply, setReply] = useState("");
   const [replyError, setReplyError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -76,34 +84,53 @@ export default function PortalTicketPage() {
   // is attributed to her. See the authorship note in the header.
   const lastSent = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
+    const token = requestId.current;
     try {
-      setDetail(await portalApi.getTicket(params.id));
+      const data = await portalApi.getTicket(params.id);
+      if (requestId.current !== token) return false;
+      setDetail(data);
+      setLoadError(null);
+      return true;
     } catch (err) {
+      if (requestId.current !== token) return false;
       setLoadError(
         friendlyMutationText(err, "We couldn't open this ticket. Try again in a moment."),
       );
+      return false;
     }
   }, [params.id]);
 
   useEffect(() => {
+    // Reset first: another ticket's thread must not render under this id.
+    requestId.current += 1;
+    setDetail(null);
+    setLoadError(null);
+    setReplyError(null);
+    setReply("");
     void load();
-  }, [load]);
+  }, [load, reloadKey]);
 
   useEffect(() => {
     let cancelled = false;
+    setAttachments(null);
+    setAttachmentsUnavailable(false);
     portalApi
       .listTicketAttachments(params.id)
       .then((list) => {
-        if (!cancelled) setAttachments(list);
+        if (!cancelled) setAttachments(Array.isArray(list) ? list : []);
       })
       .catch(() => {
-        if (!cancelled) setAttachments([]);
+        // A failed read is not "no files"; say so and offer the retry.
+        if (!cancelled) {
+          setAttachments(null);
+          setAttachmentsUnavailable(true);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [params.id]);
+  }, [params.id, reloadKey, attachmentsReloadKey]);
 
   async function submitReply(e: React.FormEvent) {
     e.preventDefault();
@@ -141,6 +168,13 @@ export default function PortalTicketPage() {
             <span>{loadError}</span>
           </p>
           <p>
+            <button
+              type="button"
+              className="portal-link"
+              onClick={() => setReloadKey((key) => key + 1)}
+            >
+              Try again
+            </button>{" "}
             <button
               type="button"
               className="portal-link"
@@ -333,6 +367,19 @@ export default function PortalTicketPage() {
           </p>
         </div>
       </form>
+
+      {attachmentsUnavailable ? (
+        <p className="portal-hint">
+          The files on this ticket did not load.{" "}
+          <button
+            type="button"
+            className="portal-link"
+            onClick={() => setAttachmentsReloadKey((key) => key + 1)}
+          >
+            Try again
+          </button>
+        </p>
+      ) : null}
 
       {attachments !== null && attachments.length > 0 && (
         <PortalCard title="Files" testId="portal-attachments">

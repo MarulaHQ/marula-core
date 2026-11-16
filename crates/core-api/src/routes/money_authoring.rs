@@ -702,11 +702,26 @@ fn contains_amount(haystack: &str, needle: &str) -> bool {
         let end = start + needle.len();
         let before = haystack[..start].chars().next_back();
         let after = haystack[end..].chars().next();
-        let bounded = |c: Option<char>| match c {
-            Some(c) => !c.is_ascii_digit() && c != '.',
-            None => true,
+        // A digit means the needle is part of a larger number. A period does
+        // the same only when it continues a decimal on that side: "$500.99"
+        // is not $500, while "$500." ends a sentence and is.
+        let continues_before = match before {
+            Some(c) if c.is_ascii_digit() => true,
+            Some('.') => haystack[..start - 1]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_ascii_digit()),
+            _ => false,
         };
-        if bounded(before) && bounded(after) {
+        let continues_after = match after {
+            Some(c) if c.is_ascii_digit() => true,
+            Some('.') => haystack[end + 1..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_digit()),
+            _ => false,
+        };
+        if !continues_before && !continues_after {
             return true;
         }
         from = end;
@@ -2537,6 +2552,10 @@ fn apply_quote_operation(
             source: "assumed".into(),
             source_span: None,
             catalog_item_id: None,
+            // The model may not decide taxability for a line nothing priced:
+            // the create route applies its own default unless a catalogue item
+            // established the answer.
+            taxable: None,
             price_assumed: line.price_assumed || line.unit_price_minor == 0,
             ..line
         });

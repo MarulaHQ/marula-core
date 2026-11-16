@@ -21,6 +21,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Skeleton } from "@marula-core/ui";
+import { useRequireAuth } from "../../lib/api";
 import { knowledgeApi, type Hub, type KnowledgeRequestError } from "./knowledge-api";
 import { CompletenessBlock } from "./completeness";
 
@@ -31,15 +32,19 @@ export function ClientKnowledgeCard({
   clientId: string;
   className?: string;
 }): React.JSX.Element {
+  const auth = useRequireAuth();
   const [hub, setHub] = useState<Hub | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Wait for the token: a read that fires first 401s and would cache the
+    // refusal for the life of the card.
+    if (auth.status !== "authed") return;
     let cancelled = false;
     setHub(null);
     setError(null);
     knowledgeApi
-      .get<Hub>(`/api/v1/knowledge/clients/${clientId}/hub`)
+      .get<Hub>(`/api/v1/knowledge/clients/${encodeURIComponent(clientId)}/hub`)
       .then((data) => {
         if (!cancelled) setHub(data);
       })
@@ -49,7 +54,7 @@ export function ClientKnowledgeCard({
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [auth.status, clientId]);
 
   return (
     <section
@@ -65,7 +70,7 @@ export function ClientKnowledgeCard({
         <h2 className="text-[15px] font-semibold">Documentation</h2>
         <span className="flex-1" />
         <Link
-          href={`/kb/clients/${clientId}`}
+          href={`/kb/clients/${encodeURIComponent(clientId)}`}
           className="text-[13px] font-semibold underline underline-offset-2"
           style={{ color: "var(--m-text)" }}
         >

@@ -30,6 +30,7 @@ function parsed(text: string, scale: number): number | null {
 }
 
 export function DecimalField({
+  id,
   label,
   value,
   scale,
@@ -37,6 +38,8 @@ export function DecimalField({
   decimals,
   onCommit,
 }: {
+  /** The input's id, so a caller's `<label htmlFor>` reaches this field. */
+  id?: string;
   /** The field's accessible name, which says which row it belongs to. */
   label: string;
   /** The committed number, in the same unit as `scale`. */
@@ -61,6 +64,7 @@ export function DecimalField({
 
   return (
     <input
+      id={id}
       className="m-input m-dsc-num"
       style={{ width }}
       inputMode="decimal"
@@ -73,6 +77,41 @@ export function DecimalField({
         if (committed !== null) onCommit(committed);
       }}
       onBlur={() => setText(formatted(value, scale, decimals))}
+    />
+  );
+}
+
+/**
+ * The same field for a surface that lays its own table: the caller supplies
+ * the accessible label and, optionally, a width. `id` is accepted so an
+ * existing form can pass one; the field is labelled by `label`.
+ */
+export function DecimalInput({
+  value,
+  scale,
+  onCommit,
+  decimals,
+  label,
+  id,
+  width = 110,
+}: {
+  value: number;
+  scale: number;
+  onCommit: (value: number) => void;
+  decimals?: number;
+  label?: string;
+  id?: string;
+  width?: number;
+}): React.JSX.Element {
+  return (
+    <DecimalField
+      id={id}
+      label={label ?? "Amount"}
+      value={value}
+      scale={scale}
+      decimals={decimals}
+      width={width}
+      onCommit={onCommit}
     />
   );
 }

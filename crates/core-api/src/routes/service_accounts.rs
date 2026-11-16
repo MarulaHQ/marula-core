@@ -97,6 +97,10 @@ pub fn permission_from_key(key: &str) -> Option<Permission> {
         // reaches role CRUD, which stays behind `special:manage_roles`.
         "directory_groups:read" => return Some(Permission::ViewDirectoryGroups),
         "directory_groups:write" => return Some(Permission::ManageDirectoryGroups),
+        // The stock movement grant. Module-namespaced like `financial:read`,
+        // because moving parts is field work a custom role or a service
+        // account may hold; it is not a `special:` admin power.
+        "stock:move" => return Some(Permission::MoveStock),
         // Wave 45 lane 1 (ADR 0020): RAG capability aliases resolve onto the
         // Kb matrix (`kb:view` / `kb:edit`), matching `PluginCapability::RagRead`
         // and `PluginCapability::RagWrite`.
@@ -727,6 +731,12 @@ mod tests {
         assert_eq!(
             permission_from_key("financial:read"),
             Some(Permission::ViewFinancials)
+        );
+        // The stock movement grant sits outside `special:` and outside the
+        // matrix vocabulary.
+        assert_eq!(
+            permission_from_key("stock:move"),
+            Some(Permission::MoveStock)
         );
         // Unknown keys are refused at write time (typed validation).
         assert!(permission_from_key("not:real").is_none());

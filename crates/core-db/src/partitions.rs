@@ -310,12 +310,19 @@ async fn create_partition(
     .await?;
     // RLS on the child as well as the parent: a direct query against a
     // partition does not consult the parent's policy, and the RLS-coverage gate
-    // reads every relation of kind 'r'. The predicate is the parent's, verbatim.
+    // reads every relation of kind 'r'. The predicates are the parent's,
+    // verbatim — split by command since 0222, so a pre-auth read policy cannot
+    // also grant UPDATE and DELETE on instance-wide rows.
     sqlx::query(&format!("ALTER TABLE {child} ENABLE ROW LEVEL SECURITY"))
         .execute(&mut *tx)
         .await?;
     sqlx::query(&format!(
-        "CREATE POLICY {child}_org ON {child} USING (org_id IS NULL OR org_id = NULLIF(current_setting('app.org_id', true), '')::uuid)"
+        "CREATE POLICY {child}_read ON {child} FOR SELECT USING (org_id IS NULL OR org_id = NULLIF(current_setting('app.org_id', true), '')::uuid)"
+    ))
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(&format!(
+        "CREATE POLICY {child}_insert ON {child} FOR INSERT WITH CHECK (org_id IS NULL OR org_id = NULLIF(current_setting('app.org_id', true), '')::uuid)"
     ))
     .execute(&mut *tx)
     .await?;

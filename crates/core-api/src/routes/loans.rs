@@ -288,6 +288,7 @@ pub async fn issue_loan(
 ) -> ApiResult<Json<ClientLoanMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -439,6 +440,7 @@ pub async fn return_loan(
 ) -> ApiResult<Json<ClientLoanMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);

@@ -34,6 +34,27 @@ fn client_edit_permission() -> Permission {
     }
 }
 
+/// The per-client visibility rule in ONE place: an empty `restricted_to` list
+/// means everyone in the org may see the client, a non-empty list admits only
+/// the named users, and Owner/Admin bypass it. No RLS policy covers this — the
+/// handler is the whole exposure — so every read and write under a client id
+/// passes through here rather than re-typing the predicate.
+pub(crate) async fn require_client_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    client_id: Uuid,
+    principal: &core_domain::entities::Principal,
+) -> ApiResult<core_domain::entities::Client> {
+    let client = core_db::clients::get_client(&mut *conn, org_id, client_id).await?;
+    if !client.restricted_to.is_empty()
+        && !client.restricted_to.contains(&principal.user.id)
+        && !principal.is_owner_or_admin()
+    {
+        return Err(ApiError::NotFound);
+    }
+    Ok(client)
+}
+
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreateClientRequest {
     pub name: String,
@@ -101,7 +122,19 @@ pub async fn list(
     .map_err(ApiError::from)?;
     let clients = core_db::clients::list_clients(&mut *tx, authed.principal.user.org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(clients))
+    // The directory applies the same rule as the record read: a client the
+    // caller cannot open is not a row they can see. Filtering here (rather
+    // than leaving it to the caller) keeps the list from naming a hidden
+    // client.
+    let visible: Vec<core_domain::entities::Client> = clients
+        .into_iter()
+        .filter(|c| {
+            c.restricted_to.is_empty()
+                || c.restricted_to.contains(&authed.principal.user.id)
+                || authed.principal.is_owner_or_admin()
+        })
+        .collect();
+    Ok(Json(visible))
 }
 
 /// GET /api/clients/{id}
@@ -124,15 +157,10 @@ pub async fn get_one(
     )
     .await
     .map_err(ApiError::from)?;
-    let client = core_db::clients::get_client(&mut *tx, authed.principal.user.org_id, id).await?;
+    let client =
+        require_client_visible(&mut tx, authed.principal.user.org_id, id, &authed.principal)
+            .await?;
     tx.commit().await.map_err(ApiError::from)?;
-    // Per-client visibility rule: restricted_to lists allowed users; admins bypass.
-    if !client.restricted_to.is_empty()
-        && !client.restricted_to.contains(&authed.principal.user.id)
-        && !authed.principal.is_owner_or_admin()
-    {
-        return Err(ApiError::NotFound);
-    }
     Ok(Json(client))
 }
 
@@ -253,13 +281,9 @@ pub async fn list_sites(
     )
     .await
     .map_err(ApiError::from)?;
-    let sites = core_db::clients::list_sites(
-        &mut *tx,
-        authed.principal.user.org_id,
-        id,
-        q.include_archived,
-    )
-    .await?;
+    let org_id = authed.principal.user.org_id;
+    require_client_visible(&mut tx, org_id, id, &authed.principal).await?;
+    let sites = core_db::clients::list_sites(&mut *tx, org_id, id, q.include_archived).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(sites))
 }
@@ -279,6 +303,7 @@ pub async fn create_site(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let site = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        require_client_visible(&mut ctx.tx, org_id, id, &authed.principal).await?;
         let site = core_db::clients::create_site(
             &mut *ctx.tx,
             org_id,
@@ -380,8 +405,9 @@ pub async fn list_contacts(
     )
     .await
     .map_err(ApiError::from)?;
-    let contacts =
-        core_db::clients::list_contacts(&mut *tx, authed.principal.user.org_id, id).await?;
+    let org_id = authed.principal.user.org_id;
+    require_client_visible(&mut tx, org_id, id, &authed.principal).await?;
+    let contacts = core_db::clients::list_contacts(&mut *tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(contacts))
 }
@@ -427,16 +453,7 @@ pub async fn contact_activity(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    // Same per-client visibility rule as get_one and completeness: a
-    // restricted client's correspondence is not readable by a user it does
-    // not list, so the answer is the same 404 the record gives.
-    let client = core_db::clients::get_client(&mut *tx, org_id, id).await?;
-    if !client.restricted_to.is_empty()
-        && !client.restricted_to.contains(&authed.principal.user.id)
-        && !authed.principal.is_owner_or_admin()
-    {
-        return Err(ApiError::NotFound);
-    }
+    require_client_visible(&mut tx, org_id, id, &authed.principal).await?;
     let events = core_db::contact_activity::list_for_client(&mut tx, org_id, id, 10).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
@@ -481,6 +498,7 @@ pub async fn create_contact(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let contact = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        require_client_visible(&mut ctx.tx, org_id, id, &authed.principal).await?;
         let contact = core_db::clients::create_contact(
             &mut *ctx.tx,
             org_id,
@@ -532,7 +550,9 @@ pub async fn list_assets(
     )
     .await
     .map_err(ApiError::from)?;
-    let assets = core_db::clients::list_assets(&mut *tx, authed.principal.user.org_id, id).await?;
+    let org_id = authed.principal.user.org_id;
+    require_client_visible(&mut tx, org_id, id, &authed.principal).await?;
+    let assets = core_db::clients::list_assets(&mut *tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(assets))
 }
@@ -555,6 +575,7 @@ pub async fn create_asset(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
+    require_client_visible(&mut tx, org_id, id, &authed.principal).await?;
     let asset = core_db::clients::create_asset(
         &mut *tx,
         org_id,
@@ -626,13 +647,7 @@ pub async fn completeness(
         .await
         .map_err(ApiError::from)?;
     // Same visibility rule as get_one (restricted_to honored).
-    let client = core_db::clients::get_client(&mut *tx, org_id, id).await?;
-    if !client.restricted_to.is_empty()
-        && !client.restricted_to.contains(&authed.principal.user.id)
-        && !authed.principal.is_owner_or_admin()
-    {
-        return Err(ApiError::NotFound);
-    }
+    require_client_visible(&mut tx, org_id, id, &authed.principal).await?;
     let f = core_db::client_completeness::load_facts(&mut *tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
 

@@ -380,6 +380,8 @@ function TalkCard({
   const [paused, setPaused] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  /** Why the recogniser is not running: said out loud, never a silent card. */
+  const [failure, setFailure] = useState<string | null>(null);
   const finalRef = useRef("");
   /** Set when Stop was pressed: the next `onend` finishes instead of idling. */
   const finishRef = useRef(false);
@@ -405,6 +407,37 @@ function TalkCard({
     abort: () => void;
   } | null>(null);
   const speakable = localSpeechRecognitionCtor();
+
+  // The constructor proves the API exists, not that an on-device pack for this
+  // language is installed. Where the browser can answer that question, ask it
+  // before the card pretends to listen; the answer is advisory, so a browser
+  // that cannot answer keeps the card and the error path below still reports a
+  // failed start.
+  useEffect(() => {
+    const probe = (
+      speakable as unknown as {
+        available?: (options: { langs: string[]; processLocally: boolean }) => Promise<string>;
+      } | null
+    )?.available;
+    if (probe === undefined) return;
+    const lang = typeof navigator === "undefined" ? "en-US" : navigator.language;
+    let cancelled = false;
+    void probe
+      .call(speakable, { langs: [lang], processLocally: true })
+      .then((state) => {
+        if (!cancelled && state === "unavailable") {
+          setFailure(
+            "This browser has no on-device speech pack for your language yet. Type the quote instead.",
+          );
+        }
+      })
+      .catch(() => {
+        // No answer: the start path still reports its own failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [speakable]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((value) => value + 1), 1000);
@@ -436,6 +469,17 @@ function TalkCard({
     // `stop()` asks the recogniser for a result from the audio it has already
     // collected; `abort()` throws that audio away. Finishing therefore waits
     // for `onend` after a stop, so the words on screen are not lost.
+    // A recogniser that never starts — a missing pack, a refused microphone —
+    // must say so and hand the person back to typing instead of leaving
+    // "Listening" on a card that will never produce a word.
+    recognition.onerror = (event) => {
+      setInterim("");
+      setFailure(
+        event?.error === "language-not-supported" || event?.error === "language-unavailable"
+          ? "This browser has no on-device speech pack for your language yet. Type the quote instead."
+          : "The microphone stopped. Type the quote instead — nothing you said left this browser.",
+      );
+    };
     recognition.onend = () => {
       setInterim("");
       if (finishRef.current) {
@@ -468,7 +512,7 @@ function TalkCard({
 
   useEffect(() => {
     const recognition = recognitionRef.current;
-    if (recognition === null) return;
+    if (recognition === null || failure !== null) return;
     if (paused) {
       recognition.stop();
     } else {
@@ -478,7 +522,7 @@ function TalkCard({
         // Already running: Radix-free browsers throw on a double start.
       }
     }
-  }, [paused]);
+  }, [paused, failure]);
 
   /** Stop and let the recogniser settle its last words before handing over. */
   const finish = useCallback(() => {
@@ -503,7 +547,7 @@ function TalkCard({
     <div className="m-dsc-talk" data-testid="describe-talk-card">
       <div className="m-dsc-talk-head">
         <span className="m-dsc-chip m-dsc-chip-gold">
-          <Icon name="mic" size={13} /> {paused ? "Paused" : "Listening"}
+          <Icon name="mic" size={13} /> {failure !== null ? "Not listening" : paused ? "Paused" : "Listening"}
         </span>
         <span className="m-dsc-hint">Audio is turned into text, then discarded</span>
         <span className="m-dsc-talk-clock">{clock(seconds)}</span>
@@ -520,10 +564,16 @@ function TalkCard({
           <span className="m-dsc-dim">Say it the way you would tell a colleague.</span>
         ) : null}
       </p>
-      <p className="m-dsc-hint">
-        Say the client, what is included, quantities, prices, dates and terms. You can fix any word
-        before I draft.
-      </p>
+      {failure !== null ? (
+        <p className="m-dsc-hint" role="alert" data-testid="describe-talk-failure">
+          {failure}
+        </p>
+      ) : (
+        <p className="m-dsc-hint">
+          Say the client, what is included, quantities, prices, dates and terms. You can fix any word
+          before I draft.
+        </p>
+      )}
       <div className="flex items-center gap-2">
         <Button size="sm" variant="secondary" onClick={() => setPaused((value) => !value)}>
           <Icon name={paused ? "play" : "pause"} size={15} />

@@ -165,33 +165,25 @@ pub async fn draft(
                 existing.status
             )));
         }
-        let tasks = {
-            // Page until a short page comes back: a limit of 200 would silently
-            // drop a completion in a big project, and a dropped completion is a
-            // movement the client never hears about.
-            let mut all = Vec::new();
-            loop {
-                let page = core_db::projects::list_tasks(
-                    &mut *ctx.tx,
-                    org_id,
-                    id,
-                    core_db::projects::TaskFilter {
-                        phase_id: None,
-                        status: None,
-                        assignee_id: None,
-                        milestone: None,
-                        limit: 200,
-                        offset: all.len() as i64,
-                    },
-                )
-                .await?;
-                let last_page = page.len() < 200;
-                all.extend(page);
-                if last_page {
-                    break all;
-                }
-            }
-        };
+        // ONE statement, so one snapshot. Paging this with OFFSET read each
+        // page in its own statement: a task move committed between pages shifts
+        // a row across the boundary, and the draft then quietly leaves out a
+        // completion the client should have been told about. A dropped
+        // completion is a movement nobody hears about.
+        let tasks = core_db::projects::list_tasks(
+            &mut *ctx.tx,
+            org_id,
+            id,
+            core_db::projects::TaskFilter {
+                phase_id: None,
+                status: None,
+                assignee_id: None,
+                milestone: None,
+                limit: i64::MAX,
+                offset: 0,
+            },
+        )
+        .await?;
         let phases = core_db::projects::list_phases(&mut *ctx.tx, org_id, id).await?;
         let change_orders =
             core_db::project_delivery::list_change_orders(&mut *ctx.tx, org_id, id).await?;

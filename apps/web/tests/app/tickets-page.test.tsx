@@ -163,6 +163,45 @@ describe("/tickets ledger", () => {
     cleanup();
   });
 
+  it("does not treat a failed first load as a visit", async () => {
+    // A failed read must not overwrite the previous visit stamp: retrying
+    // would then count every ticket as already seen.
+    const prior = NOW - 2 * HOUR;
+    window.localStorage.setItem("tickets:last-visit-at", String(prior));
+    let calls = 0;
+    const mock = new MockApi();
+    mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
+    mock.on("GET", "/api/v1/tickets", () => {
+      calls += 1;
+      if (calls === 1) {
+        return { status: 503, json: { error: { message: "the ledger is unavailable" } } };
+      }
+      return { json: TICKETS, headers: { "x-total-count": "12" } };
+    });
+    mock.on("GET", "/api/v1/settings/user", () => ({ json: [] }));
+    mock.on("PUT", "/api/v1/settings/user", () => ({ json: { key: "appearance.data_surfaces", value: "{}" } }));
+    mock.on("GET", "/api/v1/org/users", () => ({ json: { users: [] } }));
+    mock.on("GET", "/api/v1/clients", () => ({ json: [] }));
+    mock.install();
+
+    render(
+      <AuthProvider>
+        <TicketsListPage />
+      </AuthProvider>,
+    );
+
+    await screen.findByText(/Couldn't load tickets/, {}, { timeout: 5000 });
+    expect(window.localStorage.getItem("tickets:last-visit-at")).toBe(String(prior));
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await screen.findByText("Switch uplink flapping", {}, { timeout: 5000 });
+    const shortcut = screen.getByRole("button", { name: /Changed since you looked/ });
+    expect(shortcut.textContent).toContain("3");
+    expect(Number(window.localStorage.getItem("tickets:last-visit-at"))).toBeGreaterThan(prior);
+    cleanup();
+  });
+
   it("shows zero changed tickets on a first visit rather than guessing", async () => {
     setupApi();
     render(

@@ -1335,7 +1335,7 @@ pub struct PortalQuoteLine {
     pub quantity_milli: i64,
     pub unit_amount_minor: i64,
     pub taxable: bool,
-    /// Priced and shown beside the total, never counted inside it.
+    /// A line offered beside the total, not billed in it.
     pub optional: bool,
     pub amount_minor: i64,
     pub position: i32,

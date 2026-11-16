@@ -165,8 +165,8 @@ async fn hold_reason_is_stored_shown_to_the_client_and_cleared_on_resume() {
     let resumed = body_json(resumed).await;
     assert_eq!(resumed["status"], "active");
     assert_eq!(
-        resumed["client_hold_reason"],
-        Value::Null,
+        resumed.get("client_hold_reason"),
+        Some(&Value::Null),
         "leaving hold clears the client-facing reason"
     );
 
@@ -182,8 +182,8 @@ async fn hold_reason_is_stored_shown_to_the_client_and_cleared_on_resume() {
     )
     .await;
     assert_eq!(
-        portal_after["hold_reason"],
-        Value::Null,
+        portal_after.get("hold_reason"),
+        Some(&Value::Null),
         "a resumed project tells the client nothing about a past pause"
     );
 
@@ -201,8 +201,8 @@ async fn hold_reason_is_stored_shown_to_the_client_and_cleared_on_resume() {
     )
     .await;
     assert_eq!(
-        never_paused["hold_reason"],
-        Value::Null,
+        never_paused.get("hold_reason"),
+        Some(&Value::Null),
         "no pause means no reason; the portal must not invent one"
     );
 

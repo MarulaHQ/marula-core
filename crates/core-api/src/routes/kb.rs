@@ -849,6 +849,9 @@ pub async fn delete_article(
         if !deleted {
             return Err(ApiError::NotFound);
         }
+        // The generic edge table does not cascade: an article that leaves the
+        // ledger must not leave a resolvable id behind.
+        crate::routes::knowledge_home::purge_links(&mut ctx.tx, org_id, "kb_article", id).await?;
         ctx.emit(
             types::KB_ARTICLE_DELETED,
             "kb_article",

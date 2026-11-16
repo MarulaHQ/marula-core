@@ -59,6 +59,8 @@ export default function RackPage() {
   // Post-placement reload and a route change both go through `load`, so the
   // answer that counts is the newest request, not the one that landed last.
   const latestRequest = useRef(0);
+  /** The rack the route is showing now, so a continuation can tell it moved. */
+  const currentRackId = useRef(rackId);
 
   const load = useCallback(() => {
     if (rackId === undefined) return;
@@ -78,6 +80,7 @@ export default function RackPage() {
   useEffect(() => {
     // Clear the previous rack before the next one arrives: a placement form
     // over rack A must not post to rack B.
+    currentRackId.current = rackId;
     setRack(null);
     setFormError(null);
     load();
@@ -126,7 +129,10 @@ export default function RackPage() {
         status: "online",
       });
       form.reset();
-      load();
+      // A placement saved for the rack on screen: if the route has moved to a
+      // different rack while the request ran, reloading would fetch the old one
+      // and show it under the new route.
+      if (currentRackId.current === rackId) load();
     } catch (e) {
       setFormError((e as KnowledgeRequestError).message);
     } finally {

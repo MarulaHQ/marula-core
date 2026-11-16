@@ -306,6 +306,7 @@ pub async fn create_run(
 ) -> ApiResult<Json<InvoiceRunResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Create))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     parse_run_window(req.from, req.to)?;
@@ -1141,6 +1142,7 @@ pub async fn void_invoice(
 ) -> ApiResult<Json<InvoiceMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -1243,6 +1245,7 @@ pub async fn record_payment(
 ) -> ApiResult<Json<PaymentMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Create))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     if req.amount_minor <= 0 {
@@ -1466,6 +1469,7 @@ pub async fn transition_dunning(
 ) -> ApiResult<Json<InvoiceMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -1583,6 +1587,7 @@ pub async fn send_statement(
 
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
