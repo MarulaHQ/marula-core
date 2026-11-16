@@ -169,7 +169,10 @@ test("a quote line pulls from stock and shows the availability read", async ({ a
     .selectOption({ label: `${itemName} · 3 ${item.unit} on hand` });
 
   const line = authedPage.getByTestId("quote-line-0");
-  await expect(line).toContainText(itemName);
+  await expect(line).toBeVisible();
+  // The description is an input's value, not the row's text: `toContainText`
+  // reads textContent, which an `<input>` does not contribute.
+  await expect(authedPage.getByLabel("Description for line 1")).toHaveValue(itemName);
   await authedPage.getByLabel("Unit price for line 1").fill("25");
   await authedPage.getByTestId("quote-save").click();
   await expect(authedPage.getByTestId("quote-save")).toBeHidden({ timeout: 20_000 });
