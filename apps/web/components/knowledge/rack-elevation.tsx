@@ -135,15 +135,19 @@ export function RackElevation({
                 : device.status === "passive"
                   ? "Passive"
                   : "Online";
-          // A placement that runs past the top of the rack would draw at a
-          // negative offset; keep the box inside the frame instead.
+          // Draw the intersection of the device's unit range with the rack's,
+          // not the declared height: a 4U device at U41 of a 42U rack occupies
+          // U41-U42, and drawing four units would also cover U39-U40.
+          const visibleStart = Math.max(1, device.unit_start);
+          const visibleEnd = Math.min(units, device.unit_start + device.unit_height - 1);
+          const visibleUnits = Math.max(1, visibleEnd - visibleStart + 1);
           const top = Math.min(
-            Math.max(0, deviceOffset(units, device.unit_start, device.unit_height) + 2),
+            Math.max(0, deviceOffset(units, visibleStart, visibleUnits) + 2),
             Math.max(0, units * CELL - CELL),
           );
           const height = Math.max(
             CELL - 3,
-            Math.min(device.unit_height * CELL - 3, units * CELL - top),
+            Math.min(visibleUnits * CELL - 3, units * CELL - top),
           );
           return (
             <div

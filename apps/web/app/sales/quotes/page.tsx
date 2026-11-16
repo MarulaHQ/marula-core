@@ -552,6 +552,12 @@ export default function QuotesPage(): ReactNode {
 
   /** Forget the proposal: its draft, its rows and the base it was read from. */
   function resetChange(): void {
+    // A proposal still in flight belongs to the change being dismissed: bump
+    // the generation so its completion cannot restore it, and clear the busy
+    // state it would otherwise have cleared for us.
+    changeRequest.current += 1;
+    setChangeBusy(false);
+    setChangeError(null);
     setChangeInstruction("");
     setChangeOperations([]);
     setChangeSentence(null);

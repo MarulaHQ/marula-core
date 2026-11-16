@@ -36,6 +36,8 @@ export default function PortalProjectPage() {
   // must not paint over project B.
   const currentId = useRef(params.id);
   currentId.current = params.id;
+  /** The newest acknowledgement; an older completion must not clear its state. */
+  const acknowledgement = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +46,11 @@ export default function PortalProjectPage() {
     setProject(null);
     setError(null);
     setNote(null);
+    // A pending acknowledgement belonged to the project that just left the
+    // screen; keeping it would leave that order disabled as "Sending…" when
+    // the route comes back to it.
+    acknowledgement.current += 1;
+    setBusy(null);
     getPortalProject(params.id)
       .then((loaded) => {
         if (!cancelled) setProject(loaded);
@@ -61,19 +68,22 @@ export default function PortalProjectPage() {
     // The acknowledgement is sent with the project id on screen, so it is only
     // offered once that project is the one loaded.
     if (project === null || project.id !== projectId) return;
+    const operation = ++acknowledgement.current;
     setBusy(changeOrderId);
     setError(null);
     setNote(null);
     try {
       await acknowledgeChangeOrder(projectId, changeOrderId);
     } catch (e) {
-      if (currentId.current === projectId) {
+      if (currentId.current === projectId && operation === acknowledgement.current) {
         setBusy(null);
         setError((e as Error).message);
       }
       return;
     }
-    setBusy(null);
+    // Only the newest acknowledgement owns the pending state: a newer one
+    // started after this must keep its own "Sending…".
+    if (operation === acknowledgement.current) setBusy(null);
     if (currentId.current !== projectId) return;
     // The server has the answer; the page must say so even if the refresh
     // below fails, so the acknowledgement and the reload are separate steps.
@@ -183,9 +193,12 @@ export default function PortalProjectPage() {
               </button>
             </div>
           ))}
-          {note !== null ? <p className="portal-hint">{note}</p> : null}
         </PortalCard>
       ) : null}
+
+      {/* The confirmation outlives the card: once the last order is answered,
+          the waiting card disappears and the answer must not go with it. */}
+      {note !== null ? <p className="portal-hint">{note}</p> : null}
 
       {error !== null ? (
         <p className="portal-hint" role="alert">

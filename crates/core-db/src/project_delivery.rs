@@ -1362,8 +1362,11 @@ where
         .collect())
 }
 
-/// Projects outside the window (no dates or entirely outside it) — the tray
-/// S7.8 draws, never on the chart.
+/// Projects the chart cannot place: one without both dates, whatever its
+/// status, or one entirely outside the window and still open — the tray S7.8
+/// draws, never on the chart. A COMPLETED project without both dates belongs
+/// here and not nowhere: the chart excludes it for lacking dates, so excluding
+/// it here too would hide it from both views.
 pub async fn list_unscheduled_projects<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -1376,9 +1379,11 @@ where
     let rows = sqlx::query(
         r#"SELECT id, name, status, start_date, due_date FROM projects
            WHERE org_id = $1
-             AND status NOT IN ('cancelled','completed')
-             AND (start_date IS NULL OR due_date IS NULL
-                  OR due_date < $2 OR start_date > $3)
+             AND status NOT IN ('cancelled')
+             AND (
+                   start_date IS NULL OR due_date IS NULL
+                OR (status <> 'completed' AND (due_date < $2 OR start_date > $3))
+             )
            ORDER BY name"#,
     )
     .bind(org_id)

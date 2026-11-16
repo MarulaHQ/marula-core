@@ -202,9 +202,11 @@ export default function SecretPage() {
       clearCodeTimer();
       setCode(payload);
       setCodeLeft(payload.seconds_remaining);
-      let left = payload.seconds_remaining;
+      // A deadline, not a tick count: a throttled tab fires the callback late,
+      // and the code must disappear when it has expired, not one tick later.
+      const deadline = Date.now() + payload.seconds_remaining * 1000;
       codeTimer.current = window.setInterval(() => {
-        left -= 1;
+        const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
         if (left <= 0) {
           clearCodeTimer();
           setCode(null);
