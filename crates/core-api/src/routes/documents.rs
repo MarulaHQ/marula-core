@@ -230,6 +230,10 @@ pub struct DocumentListQuery {
     pub client_id: Option<String>,
     #[serde(default)]
     pub layout_id: Option<Uuid>,
+    /// Archived documents are hidden by default; the archive view asks for
+    /// them. Every other surface leaves this false.
+    #[serde(default)]
+    pub include_archived: bool,
 }
 
 /// GET /api/documents
@@ -259,6 +263,7 @@ pub async fn list(
             q: q.q,
             client_id: parse_scope(&q.client_id)?,
             layout_id: q.layout_id,
+            include_archived: q.include_archived,
         },
     )
     .await?;
@@ -295,6 +300,43 @@ pub async fn get_one(
         content_updated_at: current.created_at,
         restored_from_version: current.restored_from_version,
     }))
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ArchiveDocumentRequest {
+    /// `true` archives, `false` restores. Archiving keeps the first instant.
+    pub archived: bool,
+}
+
+/// POST /api/documents/{id}/archive — hide the document from lists and search
+/// without deleting its immutable version history. The 200 body is the
+/// updated document row, `archived_at` included.
+#[utoipa::path(operation_id = "documents_archive", post, path = "/api/documents/{id}/archive", tag = "documents", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = ArchiveDocumentRequest,
+    responses((status = 200, body = Document),
+              (status = 404, description = "document not visible in scope (rls_sparse)")))]
+pub async fn archive(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ArchiveDocumentRequest>,
+) -> ApiResult<Json<Document>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, documents(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let doc = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::documents::set_document_archived(&mut ctx.tx, org_id, id, req.archived)
+            .await
+            .map_err(|e| match e {
+                core_db::DbError::NotFound => ApiError::RlsSparse,
+                other => other.into(),
+            })?;
+        let doc = core_db::documents::get_document(&mut *ctx.tx, org_id, id).await?;
+        Ok((ctx, doc))
+    })
+    .await?;
+    Ok(Json(doc))
 }
 
 /// POST /api/documents — instant-first (IF1/IF2); creates the document and

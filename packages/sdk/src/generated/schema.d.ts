@@ -3180,11 +3180,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/clients/{id}/sites */
         get: operations["clients_list_sites"];
         put?: never;
         /** POST /api/clients/{id}/sites */
         post: operations["clients_create_site"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clients/{id}/sites/{site_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/clients/{client_id}/sites/{site_id}/archive — hide the site from
+         *     lists and pickers without deleting it. The 200 body is the updated site,
+         *     `archived_at` included.
+         */
+        post: operations["clients_archive_site"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5180,6 +5200,27 @@ export interface paths {
          *     existing version row is touched.
          */
         patch: operations["documents_update"];
+        trace?: never;
+    };
+    "/api/v1/documents/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/documents/{id}/archive — hide the document from lists and search
+         *     without deleting its immutable version history. The 200 body is the
+         *     updated document row, `archived_at` included.
+         */
+        post: operations["documents_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/documents/{id}/attachments": {
@@ -14188,6 +14229,27 @@ export interface paths {
         patch: operations["tickets_patch"];
         trace?: never;
     };
+    "/api/v1/tickets/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/archive — hide the ticket from lists, boards,
+         *     pickers and search without deleting it. The 200 body is the updated
+         *     ticket, `archived_at` included, so the caller can reconcile in place.
+         */
+        post: operations["tickets_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/attachments": {
         parameters: {
             query?: never;
@@ -16743,8 +16805,21 @@ export interface components {
             review_note?: string | null;
         };
         ArchiveCatalogItemRequest: components["schemas"]["MutationParams"];
+        ArchiveDocumentRequest: {
+            /** @description `true` archives, `false` restores. Archiving keeps the first instant. */
+            archived: boolean;
+        };
+        ArchiveSiteRequest: {
+            /** @description `true` archives, `false` restores. Archiving keeps the first instant. */
+            archived: boolean;
+        };
         ArchiveStockItemRequest: components["schemas"]["MutationParams"];
         ArchiveTemplateRequest: {
+            archived: boolean;
+        };
+        /** @description A bodyless `304 Not Modified` carrying the validator that matched. */
+        ArchiveTicketRequest: {
+            /** @description `true` archives, `false` restores. Archiving keeps the first instant. */
             archived: boolean;
         };
         /**
@@ -22957,6 +23032,12 @@ export interface components {
          */
         Document: {
             /**
+             * Format: date-time
+             * @description Archive marker: hidden from lists and search by default, still
+             *     readable by id so links and version history keep resolving. NULL = live.
+             */
+            archived_at?: string | null;
+            /**
              * Format: uuid
              * @description NULL = org-global document; set = client-scoped (docs-platform v1,
              *     migration 0053).
@@ -23058,6 +23139,11 @@ export interface components {
              *     documents (docs-platform v1). Absent = all scopes.
              */
             client_id?: string | null;
+            /**
+             * @description Archived documents are hidden by default; the archive view asks for
+             *     them. Every other surface leaves this false.
+             */
+            include_archived?: boolean;
             /** Format: uuid */
             layout_id?: string | null;
             /** @description Title substring narrowing; ranked full-text search rides /api/search. */
@@ -34434,6 +34520,12 @@ export interface components {
         };
         Site: {
             address?: string | null;
+            /**
+             * Format: date-time
+             * @description Archive marker: hidden from lists and pickers by default, still
+             *     readable by id so links and history keep resolving. NULL = live.
+             */
+            archived_at?: string | null;
             city?: string | null;
             /** Format: uuid */
             client_id: string;
@@ -34455,6 +34547,11 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
+        };
+        /** @description GET /api/clients/{id}/sites */
+        SiteListQuery: {
+            /** @description Archived sites are hidden by default; the archive view asks for them. */
+            include_archived?: boolean;
         };
         /**
          * @description GET /api/dispatch/skills envelope entry: the org skill catalog with
@@ -35679,6 +35776,13 @@ export interface components {
             tick: components["schemas"]["DayPackTickView"];
         };
         Ticket: {
+            /**
+             * Format: date-time
+             * @description Archive marker: the row stays readable by id and keeps explaining the
+             *     links and history that name it, while lists, boards, pickers and
+             *     search hide it by default. NULL = live.
+             */
+            archived_at?: string | null;
             /** Format: uuid */
             assignee_id?: string | null;
             /** Format: uuid */
@@ -35929,6 +36033,11 @@ export interface components {
              *     cost (docs/perf.md F2). When present, `offset` is ignored.
              */
             cursor?: string | null;
+            /**
+             * @description Archived tickets are hidden by default; the archive view asks for
+             *     them. Every other surface leaves this false.
+             */
+            include_archived?: boolean;
             /** Format: int64 */
             limit?: number;
             /** Format: int64 */
@@ -43856,7 +43965,10 @@ export interface operations {
     };
     clients_list_sites: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Archived sites are hidden by default; the archive view asks for them. */
+                include_archived?: boolean;
+            };
             header?: never;
             path: {
                 id: string;
@@ -43897,6 +44009,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Site"];
                 };
+            };
+        };
+    };
+    clients_archive_site: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                site_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveSiteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            /** @description site not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -47595,6 +47740,11 @@ export interface operations {
                  */
                 client_id?: string | null;
                 layout_id?: string | null;
+                /**
+                 * @description Archived documents are hidden by default; the archive view asks for
+                 *     them. Every other surface leaves this false.
+                 */
+                include_archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -47865,6 +48015,38 @@ export interface operations {
             };
             /** @description title/body rejected by document rules */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Document"];
+                };
+            };
+            /** @description document not visible in scope (rls_sparse) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -65970,6 +66152,11 @@ export interface operations {
                  *     cost (docs/perf.md F2). When present, `offset` is ignored.
                  */
                 cursor?: string | null;
+                /**
+                 * @description Archived tickets are hidden by default; the archive view asks for
+                 *     them. Every other surface leaves this false.
+                 */
+                include_archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -66114,6 +66301,38 @@ export interface operations {
             };
             /** @description invalid custom-field value */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveTicketRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketWithFields"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

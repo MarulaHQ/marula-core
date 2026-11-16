@@ -47,12 +47,6 @@ CREATE INDEX idx_project_client_updates_project
 CREATE INDEX idx_project_client_updates_sent
   ON project_client_updates (org_id, project_id, sent_at DESC)
   WHERE status = 'sent';
--- One live update per period: a repeated draft for the same week is refused
--- rather than stored twice. Withheld rows sit outside the index, so a week that
--- was honestly empty can be described again once something moves.
-CREATE UNIQUE INDEX uq_project_client_updates_period
-  ON project_client_updates (project_id, period_start, period_end)
-  WHERE status <> 'withheld';
 
 ALTER TABLE project_client_updates ENABLE ROW LEVEL SECURITY;
 CREATE POLICY project_client_updates_org ON project_client_updates

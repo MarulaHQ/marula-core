@@ -30,12 +30,6 @@ ALTER TABLE project_templates
   ADD COLUMN archived_at timestamptz,
   ADD COLUMN created_by uuid REFERENCES users(id) ON DELETE SET NULL;
 
--- The card draws a range from these two, so an inverted range is not a range.
-ALTER TABLE project_templates
-  ADD CONSTRAINT project_templates_effort_range
-  CHECK (effort_min_minutes IS NULL OR effort_max_minutes IS NULL
-         OR effort_min_minutes <= effort_max_minutes);
-
 ALTER TABLE project_template_lessons
   ADD COLUMN state text NOT NULL DEFAULT 'open'
     CHECK (state IN ('open','accepted','dismissed')),

@@ -104,6 +104,35 @@ interface DepRow {
   status: string;
 }
 
+/** One role document the picker can open. */
+interface RoleDocument {
+  /** The key `Me.roles` reports for a holder of this role. */
+  key: string;
+  /** The role's display name, as the team surface writes it. */
+  label: string;
+}
+
+/**
+ * The key a role document is stored under.
+ *
+ * `Me.roles` carries a builtin role's preset tag and a custom role's name, so a
+ * document is only matchable when it uses the same: `builtin ?? name`. The key
+ * the pod picker used before (`project_tech` and friends) matched no holder at
+ * all, which is what migration 0227 renames away.
+ */
+export function roleDocumentKey(role: { builtin?: string | null; name: string }): string {
+  return role.builtin ?? role.name;
+}
+
+/**
+ * The key the picker starts on: `technician` when the org carries it, otherwise
+ * the first role in the list. A default that names no role would silently save
+ * a document no one can match.
+ */
+export function defaultRoleDocumentKey(keys: readonly string[]): string | null {
+  return keys.includes("technician") ? "technician" : (keys[0] ?? null);
+}
+
 export function TaskPodsPanel({
   projectId,
   taskId,
@@ -137,7 +166,10 @@ export function TaskPodsPanel({
 
   const [settings, setSettings] = useState<PodSettings[] | null>(null);
   const [prefs, setPrefs] = useState<PodPrefs | null>(null);
-  const [roleKey, setRoleKey] = useState("project_tech");
+  // Role documents are keyed by what `/me` reports for a holder, so the picker
+  // reads the org's roles rather than naming its own three.
+  const [roleOptions, setRoleOptions] = useState<RoleDocument[] | null>(null);
+  const [roleKey, setRoleKey] = useState("technician");
 
   // The route page reuses this panel when the task changes, so the previous
   // task's promotion, blocker form and notice are dropped at the switch.
@@ -204,6 +236,49 @@ export function TaskPodsPanel({
       cancelled = true;
     };
   }, [auth.status, prefsAttempt]);
+
+  // The roles the org actually has. `builtin ?? name` is the key `/me` reports
+  // for a holder, so it is the only key a document can match. Only the role
+  // picker reads them, and it is admin-only: reading them for every technician
+  // would be a refused request on each task page.
+  useEffect(() => {
+    if (auth.status !== "authed" || !canAdmin) return;
+    let cancelled = false;
+    api.api
+      .GET("/api/v1/roles")
+      .then((result) => {
+        if (cancelled) return;
+        // A non-2xx resolves with `error`: an empty list says the picker has
+        // nothing to offer.
+        if (result.error !== undefined || result.data === undefined) {
+          setRoleOptions([]);
+          return;
+        }
+        // Presets come first, so a custom role that happens to share a
+        // preset's tag (both read as the same key on `/me`) never displaces it.
+        const options: RoleDocument[] = [];
+        const seen = new Set<string>();
+        for (const role of result.data.roles) {
+          const key = roleDocumentKey(role);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          options.push({ key, label: role.name });
+        }
+        setRoleOptions(options);
+        const fallback = defaultRoleDocumentKey(options.map((option) => option.key));
+        if (fallback !== null) {
+          setRoleKey((current) =>
+            options.some((option) => option.key === current) ? current : fallback,
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRoleOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, canAdmin]);
 
   const onBlock = useCallback(async () => {
     setBusy(true);
@@ -487,50 +562,60 @@ export function TaskPodsPanel({
         {canAdmin && settings !== null ? (
           <div className="mt-3 border-t border-border pt-2">
             <Label htmlFor="role-key">Role document</Label>
-            <Select value={roleKey} onValueChange={setRoleKey}>
-              <SelectTrigger id="role-key">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["project_manager", "project_coordinator", "project_tech"].map((role) => (
-                  <SelectItem key={role} value={role}>
-                    {role.replaceAll("_", " ")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldHint>
-              The role document is the organisation's; a person can hide pods but never
-              widen what their role sees.
-            </FieldHint>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {Object.keys(POD_LABELS).map((pod) => {
-                const current = settings.find((row) => row.role_key === roleKey);
-                const on = current?.pods.includes(pod) ?? false;
-                return (
-                  <button
-                    key={pod}
-                    type="button"
-                    className={
-                      on
-                        ? "rounded-pill bg-mc-act px-2 py-[2px] text-[12px] font-semibold"
-                        : "rounded-pill border border-border px-2 py-[2px] text-[12px] text-muted-foreground"
-                    }
-                    onClick={() => {
-                      const pods = on
-                        ? (current?.pods ?? []).filter((value) => value !== pod)
-                        : [...(current?.pods ?? []), pod];
-                      putPodSettings({ surface: "project_task", role_key: roleKey, pods })
-                        .then(() => fetchPodSettings())
-                        .then(setSettings)
-                        .catch((e: Error) => setError(e.message));
-                    }}
-                  >
-                    {POD_LABELS[pod]}
-                  </button>
-                );
-              })}
-            </div>
+            {roleOptions === null ? (
+              <p className="mt-1 text-[12px] text-muted-foreground">Reading the roles…</p>
+            ) : roleOptions.length === 0 ? (
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                The org&apos;s roles could not be read, so there is no document to open.
+              </p>
+            ) : (
+              <>
+                <Select value={roleKey} onValueChange={setRoleKey}>
+                  <SelectTrigger id="role-key">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roleOptions.map((option) => (
+                      <SelectItem key={option.key} value={option.key}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldHint>
+                  The role document is the organisation&apos;s; a person can hide pods but
+                  never widen what their role sees.
+                </FieldHint>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {Object.keys(POD_LABELS).map((pod) => {
+                    const current = settings.find((row) => row.role_key === roleKey);
+                    const on = current?.pods.includes(pod) ?? false;
+                    return (
+                      <button
+                        key={pod}
+                        type="button"
+                        className={
+                          on
+                            ? "rounded-pill bg-mc-act px-2 py-[2px] text-[12px] font-semibold"
+                            : "rounded-pill border border-border px-2 py-[2px] text-[12px] text-muted-foreground"
+                        }
+                        onClick={() => {
+                          const pods = on
+                            ? (current?.pods ?? []).filter((value) => value !== pod)
+                            : [...(current?.pods ?? []), pod];
+                          putPodSettings({ surface: "project_task", role_key: roleKey, pods })
+                            .then(() => fetchPodSettings())
+                            .then(setSettings)
+                            .catch((e: Error) => setError(e.message));
+                        }}
+                      >
+                        {POD_LABELS[pod]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         ) : null}
       </section>

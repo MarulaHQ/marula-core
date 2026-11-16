@@ -58,11 +58,13 @@ SELECT
   (SELECT count(*) FROM contacts x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS contacts_n,
   (SELECT count(*) FROM sites x
-     WHERE x.org_id = c.org_id AND x.client_id = c.id) AS sites_n,
+     WHERE x.org_id = c.org_id AND x.client_id = c.id
+       AND x.archived_at IS NULL) AS sites_n,
   (SELECT count(*) FROM device_assets x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS assets_n,
   (SELECT count(*) FROM documents x
-     WHERE x.org_id = c.org_id AND x.client_id = c.id) AS documents_n,
+     WHERE x.org_id = c.org_id AND x.client_id = c.id
+       AND x.archived_at IS NULL) AS documents_n,
   (SELECT count(*) FROM kb_articles x
      WHERE x.org_id = c.org_id AND x.client_visible
        AND x.status = 'published') AS articles_n,
@@ -86,10 +88,12 @@ SELECT
               OR d.ssl_expiry < current_date + 60)) +
     (SELECT count(*) FROM documents d
        WHERE d.org_id = c.org_id AND d.client_id = c.id
+         AND d.archived_at IS NULL
          AND d.expires_at IS NOT NULL AND d.expires_at < now() + interval '60 days')
   ) AS expiring_n,
   (SELECT max(x.updated_at) FROM documents x
-     WHERE x.org_id = c.org_id AND x.client_id = c.id) AS latest_document_at,
+     WHERE x.org_id = c.org_id AND x.client_id = c.id
+       AND x.archived_at IS NULL) AS latest_document_at,
   (SELECT max(x.updated_at) FROM kb_articles x
      WHERE x.org_id = c.org_id AND x.client_visible
        AND x.status = 'published') AS latest_article_at,
@@ -249,6 +253,7 @@ where
                FROM documents d
                LEFT JOIN users u ON u.id = d.updated_by
               WHERE d.org_id = $1 AND d.client_id = $2
+                AND d.archived_at IS NULL
              UNION ALL
              SELECT 'article', a.title, a.id,
                     u.display_name, a.updated_at
@@ -351,6 +356,7 @@ where
                JOIN clients c ON c.id = d.client_id
                LEFT JOIN users u ON u.id = d.updated_by
               WHERE d.org_id = $1 AND d.expires_at IS NOT NULL
+                AND d.archived_at IS NULL
              UNION ALL
              -- A warranty date is typed by a person, so it is parsed here
              -- rather than cast: a shape filter still admits 2026-02-30, and
@@ -1738,6 +1744,52 @@ pub(crate) async fn delete_links_for(
 /// Every edge touching this record, in either direction, as one list. A
 /// relationship is not directional to a reader, so the surface prints both
 /// sides with the direction named in the label rather than in a column.
+/// Links naming a ticket, site or document whose row is archived are hidden
+/// from every panel read (0228). The edge stays in the table — archiving is a
+/// visibility state, not a delete — so restoring the record brings its links
+/// back with it. The endpoint being read is exempt: an archived record's own
+/// panel still lists what it is connected to. Each EXISTS is org-scoped and
+/// short-circuits per kind.
+const LINK_ARCHIVE_FILTER: &str = r#"
+  AND NOT (
+    EXISTS (SELECT 1 FROM tickets t
+             WHERE t.org_id = knowledge_links.org_id
+               AND t.id = knowledge_links.from_id
+               AND knowledge_links.from_kind = 'ticket'
+               AND NOT (knowledge_links.from_kind = $2 AND knowledge_links.from_id = $3)
+               AND t.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM sites s
+                WHERE s.org_id = knowledge_links.org_id
+                  AND s.id = knowledge_links.from_id
+                  AND knowledge_links.from_kind = 'site'
+                  AND NOT (knowledge_links.from_kind = $2 AND knowledge_links.from_id = $3)
+                  AND s.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM documents d
+                WHERE d.org_id = knowledge_links.org_id
+                  AND d.id = knowledge_links.from_id
+                  AND knowledge_links.from_kind = 'document'
+                  AND NOT (knowledge_links.from_kind = $2 AND knowledge_links.from_id = $3)
+                  AND d.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM tickets t
+                WHERE t.org_id = knowledge_links.org_id
+                  AND t.id = knowledge_links.to_id
+                  AND knowledge_links.to_kind = 'ticket'
+                  AND NOT (knowledge_links.to_kind = $2 AND knowledge_links.to_id = $3)
+                  AND t.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM sites s
+                WHERE s.org_id = knowledge_links.org_id
+                  AND s.id = knowledge_links.to_id
+                  AND knowledge_links.to_kind = 'site'
+                  AND NOT (knowledge_links.to_kind = $2 AND knowledge_links.to_id = $3)
+                  AND s.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM documents d
+                WHERE d.org_id = knowledge_links.org_id
+                  AND d.id = knowledge_links.to_id
+                  AND knowledge_links.to_kind = 'document'
+                  AND NOT (knowledge_links.to_kind = $2 AND knowledge_links.to_id = $3)
+                  AND d.archived_at IS NOT NULL)
+  )"#;
+
 pub async fn links_for<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -1751,6 +1803,7 @@ where
         "SELECT {LINK_COLS} FROM knowledge_links
           WHERE org_id = $1
             AND ((from_kind = $2 AND from_id = $3) OR (to_kind = $2 AND to_id = $3))
+          {LINK_ARCHIVE_FILTER}
           ORDER BY created_at DESC"
     ))
     .bind(org_id)
@@ -2214,6 +2267,7 @@ where
                LEFT JOIN document_versions v
                  ON v.document_id = d.id AND v.version = d.current_version
               WHERE d.org_id = $1 AND d.client_id = $2 AND d.client_visible
+                AND d.archived_at IS NULL
              UNION ALL
              SELECT a.id, 'article', a.title,
                     coalesce(substring(a.body from 1 for 180), ''),
@@ -2340,6 +2394,7 @@ where
                FROM documents d
                LEFT JOIN clients c ON c.id = d.client_id
               WHERE d.org_id = $1 AND d.title ILIKE $3
+                AND d.archived_at IS NULL
                 AND ($2::uuid IS NULL OR d.client_id = $2)
            ) hit
           ORDER BY rank ASC, touched DESC
@@ -2392,7 +2447,8 @@ where
                AS published_articles_n,
              (SELECT count(*) FROM kb_articles WHERE org_id = $1 AND status = 'draft')
                AS draft_articles_n,
-             (SELECT count(*) FROM documents WHERE org_id = $1 AND client_id IS NULL)
+             (SELECT count(*) FROM documents
+               WHERE org_id = $1 AND client_id IS NULL AND archived_at IS NULL)
                AS org_documents_n,
              (SELECT count(*) FROM knowledge_templates WHERE org_id = $1) AS templates_n,
              (SELECT count(*) FROM secret_records WHERE org_id = $1 AND client_id IS NULL)
@@ -2536,5 +2592,24 @@ mod tests {
         assert!(!is_link_kind("asset "));
         assert!(!is_link_kind("client"));
         assert!(!is_link_kind(""));
+    }
+}
+
+#[cfg(test)]
+mod archive_link_tests {
+    use super::*;
+
+    #[test]
+    fn link_read_hides_archived_endpoints_on_both_sides() {
+        for kind in ["ticket", "site", "document"] {
+            assert!(
+                LINK_ARCHIVE_FILTER.contains(&format!("from_kind = '{kind}'")),
+                "missing archived {kind} from-side predicate"
+            );
+            assert!(
+                LINK_ARCHIVE_FILTER.contains(&format!("to_kind = '{kind}'")),
+                "missing archived {kind} to-side predicate"
+            );
+        }
     }
 }

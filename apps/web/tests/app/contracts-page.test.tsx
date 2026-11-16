@@ -9,7 +9,7 @@
 //
 // Non-purpose: the record page (`/contracts/[id]`), which has its own suite.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AuthProvider } from "../../lib/api";
@@ -69,6 +69,43 @@ const CLAUSES = [
     standard_value: "12 months",
   },
 ];
+
+/** The draft the author route hands back: a one- or twelve-month contract. */
+function authorDraft(over: Record<string, unknown> = {}) {
+  return {
+    name: "Managed Silver, Fernwood Pharmacy",
+    contract_type: "recurring",
+    billing_frequency: "monthly",
+    value_minor: 62_400,
+    currency: "USD",
+    term_months: 12,
+    effective_from: "2026-11-01",
+    notes: null,
+    clauses: ["Term and renewal"],
+    clause_refs: [CLAUSES[0]],
+    pricing: [],
+    client_id: CLIENT,
+    client_name: "Acme Corporation",
+    assumptions: [],
+    understanding: { statement: "", facts: [], questions: [], assumptions: [] },
+    checks: [],
+    ...over,
+  };
+}
+
+function authorResponse(over: Record<string, unknown> = {}) {
+  return {
+    json: {
+      valid: true,
+      saved: false,
+      draft: authorDraft(over),
+      assumptions: [],
+      issues: [],
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+      model_info: { provider: "test", model: "test" },
+    },
+  };
+}
 
 function setup(options: { granted?: boolean; contracts?: unknown[] } = {}): MockApi {
   const mock = new MockApi();
@@ -263,6 +300,118 @@ describe("/contracts", () => {
     // The value is computed from the quantities, not stated by the model.
     expect(screen.getByTestId("contract-total")).toHaveTextContent("624.00");
     expect(mock.callsTo("POST", "/api/v1/contracts")).toHaveLength(0);
+  });
+
+  it("treats a cleared end date as open-ended, in the summary and in the payload", async () => {
+    const mock = setup();
+    mock.on("POST", "/api/v1/contracts/author", () => authorResponse());
+    mock.on("POST", "/api/v1/contracts/author/change", () => ({
+      json: {
+        valid: true,
+        saved: false,
+        sentence: "Raises the price by 5%.",
+        operations: [
+          { path: "pricing", value: [], summary: "Raise the price by 5%", kind: "price" },
+        ],
+        draft: authorDraft(),
+        resulting_total_minor: 65_520,
+        currency: "USD",
+        issues: [],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+        model_info: { provider: "test", model: "test" },
+      },
+    }));
+    mock.install();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <ContractsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("C-101");
+    await user.click(screen.getByTestId("contracts-describe"));
+    await user.type(
+      await screen.findByTestId("describe-transcript"),
+      "Managed Silver for Acme, 12 months from 1 November",
+    );
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    // The draft applied a term, so the summary reads a year.
+    expect(await screen.findByText(/over 12 months/i)).toBeInTheDocument();
+    const until = screen.getByLabelText("Effective until");
+    expect(until).toHaveValue("2027-11-01");
+
+    // Clearing the date makes the contract open-ended. The term the draft
+    // arrived with is not allowed to survive and turn it back into a year.
+    fireEvent.change(until, { target: { value: "" } });
+    expect(screen.queryByText(/over 12 months/i)).not.toBeInTheDocument();
+
+    // The payload the change call carries says the same: no term.
+    await user.click(screen.getByTestId("draft-tab-describe"));
+    await user.type(screen.getByTestId("change-instruction"), "raise it 5%{Enter}");
+    await waitFor(() => {
+      const body = mock.lastBody<{ draft: { term_months: number | null } }>(
+        "POST",
+        "/api/v1/contracts/author/change",
+      );
+      expect(body.draft.term_months).toBeNull();
+    });
+  });
+
+  it("refuses a proposal read before the end date moved, even inside the same month", async () => {
+    const mock = setup();
+    mock.on("POST", "/api/v1/contracts/author", () =>
+      authorResponse({ term_months: 1 }),
+    );
+    mock.on("POST", "/api/v1/contracts/author/change", () => ({
+      json: {
+        valid: true,
+        saved: false,
+        sentence: "Adds a clause value.",
+        operations: [
+          { path: "clause_refs", value: [], summary: "Set the term to 1 month", kind: "term" },
+        ],
+        draft: authorDraft({ term_months: 1 }),
+        resulting_total_minor: 62_400,
+        currency: "USD",
+        issues: [],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+        model_info: { provider: "test", model: "test" },
+      },
+    }));
+    mock.install();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <ContractsPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("C-101");
+    await user.click(screen.getByTestId("contracts-describe"));
+    await user.type(
+      await screen.findByTestId("describe-transcript"),
+      "Managed Silver for Acme, one month from 1 November",
+    );
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    const until = await screen.findByLabelText("Effective until");
+    expect(until).toHaveValue("2026-12-01");
+
+    await user.click(screen.getByTestId("draft-tab-describe"));
+    await user.type(screen.getByTestId("change-instruction"), "make the term clear{Enter}");
+    const apply = await screen.findByTestId("change-apply");
+    expect(apply).toBeEnabled();
+
+    // One day later is still "1 month" to the term arithmetic, so the term
+    // alone would call this proposal applicable and Apply would put the old
+    // date back.
+    fireEvent.change(until, { target: { value: "2026-12-02" } });
+    await waitFor(() => expect(screen.getByTestId("change-apply")).toBeDisabled());
+    expect(screen.getAllByText(/out of date/i).length).toBeGreaterThan(0);
   });
 
   it("prefills the panel from the contract a renewal starts at", async () => {

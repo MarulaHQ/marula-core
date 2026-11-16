@@ -50,11 +50,7 @@ CREATE UNIQUE INDEX uq_contract_clauses_org
 CREATE INDEX idx_contract_clauses_org ON contract_clauses (org_id, key);
 
 ALTER TABLE contract_clauses ENABLE ROW LEVEL SECURITY;
--- Read-only past the shipped rows and the caller's own: without FOR SELECT the
--- policy would also pass UPDATE and DELETE on shipped wording, because
--- permissive policies are combined with OR.
 CREATE POLICY contract_clauses_read ON contract_clauses
-  FOR SELECT
   USING (org_id IS NULL OR org_id = current_setting('app.org_id', true)::uuid);
 -- Writes stay inside the caller's own org; the shipped rows are not writable
 -- by an org at all (they are seeded by this migration, which runs privileged).

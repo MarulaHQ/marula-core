@@ -119,15 +119,18 @@ export async function sendChatTurn(text: string, context: ScreenContext): Promis
     );
 
     if (result.refusal !== undefined) {
-      actions.failAssistant(
+      const failed = actions.failAssistant(
         assistant.id,
         result.refusalMessage ?? "The assistant is not available for this surface.",
       );
-      announce("The assistant is not available", "assertive");
+      if (failed) announce("The assistant is not available", "assertive");
       return;
     }
 
-    actions.finishAssistant(assistant.id, completedText ?? result.text);
+    // The panel may have been signed out or reset while this turn ran: its
+    // message is gone, so there is nothing to finish and nothing to announce.
+    // A reset removes the message, which is why the return value is the test.
+    if (!actions.finishAssistant(assistant.id, completedText ?? result.text)) return;
     if (stopped !== null) {
       actions.failAssistant(assistant.id, `The assistant stopped early: ${stopped}.`);
       announce("The assistant stopped early", "polite");
@@ -141,10 +144,10 @@ export async function sendChatTurn(text: string, context: ScreenContext): Promis
     const firstLine = (completedText ?? result.text).split("\n")[0] ?? "";
     announce(firstLine, "polite");
   } catch (error) {
-    actions.failAssistant(
+    const failed = actions.failAssistant(
       assistant.id,
       error instanceof Error ? error.message : "The turn did not complete.",
     );
-    announce("The turn did not complete", "assertive");
+    if (failed) announce("The turn did not complete", "assertive");
   }
 }

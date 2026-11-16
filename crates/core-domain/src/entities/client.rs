@@ -40,6 +40,9 @@ pub struct Site {
     pub longitude: Option<f64>,
     pub timezone: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// Archive marker: hidden from lists and pickers by default, still
+    /// readable by id so links and history keep resolving. NULL = live.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

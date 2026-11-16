@@ -220,6 +220,10 @@ pub struct TicketListQuery {
     /// cost (docs/perf.md F2). When present, `offset` is ignored.
     #[serde(default)]
     pub cursor: Option<String>,
+    /// Archived tickets are hidden by default; the archive view asks for
+    /// them. Every other surface leaves this false.
+    #[serde(default)]
+    pub include_archived: bool,
 }
 
 /// Instant-first mutation response (IF2): the enriched ticket fields at the
@@ -420,6 +424,7 @@ pub async fn list(
                 .collect();
             ids.ok()
         }),
+        include_archived: q.include_archived,
         limit,
         // Keyset and offset are different callers' mechanisms: a
         // cursor walk resumes on its own anchor, so offset zeroes.
@@ -793,6 +798,48 @@ pub async fn get_one(
 }
 
 /// A bodyless `304 Not Modified` carrying the validator that matched.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ArchiveTicketRequest {
+    /// `true` archives, `false` restores. Archiving keeps the first instant.
+    pub archived: bool,
+}
+
+/// POST /api/tickets/{id}/archive — hide the ticket from lists, boards,
+/// pickers and search without deleting it. The 200 body is the updated
+/// ticket, `archived_at` included, so the caller can reconcile in place.
+#[utoipa::path(operation_id = "tickets_archive", post, path = "/api/tickets/{id}/archive", tag = "tickets", security(("bearer" = [])),
+    params(("id" = Uuid, Path)), request_body = ArchiveTicketRequest,
+    responses((status = 200, body = TicketWithFields),
+              (status = 404, description = "ticket not visible in scope (rls_sparse)")))]
+pub async fn archive(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path(id): Path<Uuid>,
+    Json(req): Json<ArchiveTicketRequest>,
+) -> ApiResult<Json<TicketWithFields>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        tickets(core_domain::policy::Action::Edit),
+    )?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let ticket = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::tickets::set_ticket_archived(&mut ctx.tx, org_id, id, req.archived)
+            .await
+            .map_err(|e| match e {
+                core_db::DbError::NotFound => ApiError::RlsSparse,
+                other => other.into(),
+            })?;
+        let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, id).await?;
+        let enriched = TicketWithFields::load_many(&mut ctx.tx, org_id, vec![ticket]).await?;
+        Ok((ctx, enriched))
+    })
+    .await?;
+    let updated = ticket.into_iter().next().ok_or(ApiError::RlsSparse)?;
+    Ok(Json(updated))
+}
+
 fn not_modified(etag: &str) -> Response {
     let mut response = StatusCode::NOT_MODIFIED.into_response();
     if let Ok(value) = axum::http::HeaderValue::from_str(etag) {

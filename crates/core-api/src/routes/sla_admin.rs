@@ -530,6 +530,7 @@ pub async fn test_run_rule(
                 category: None,
                 priority: None,
                 tag_ids: None,
+                include_archived: false,
                 limit: TEST_RUN_SAMPLE,
                 offset: 0,
                 cursor: None,

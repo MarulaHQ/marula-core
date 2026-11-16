@@ -196,6 +196,26 @@ export default function TicketWorkbenchPage() {
   ]);
 
   const ticket = model?.ticket ?? null;
+
+  // Archiving is a state flip on the record, not a delete: the ticket stays
+  // readable and Restore brings it back into every active list.
+  async function setArchived(archived: boolean): Promise<void> {
+    if (ticket === null) return;
+    setError(null);
+    const result = await api.api.POST("/api/v1/tickets/{id}/archive", {
+      params: { path: { id: ticket.id } },
+      body: { archived },
+    });
+    if (result.error !== undefined) {
+      setError(
+        (result.error as { error?: { message?: string } }).error?.message ??
+          "The ticket could not be archived.",
+      );
+      return;
+    }
+    void refresh();
+  }
+
   const statuses = model?.statuses ?? [];
   const workflow = model?.workflow ?? { mode: "floor" as const, edges: [] };
 
@@ -1033,6 +1053,30 @@ async function changeStatus(statusId: string): Promise<void> {
                 onClick={() => void openPin()}
               >
                 {iconOnlyActions ? "⊕" : "Pin to day pack"}
+              </button>
+              <button
+                type="button"
+                data-testid="wb-archive"
+                className="flex m-wb-action shrink-0 cursor-pointer items-center whitespace-nowrap rounded-lg border px-2.5 text-[12px] font-semibold"
+                style={{
+                  borderColor: "var(--m-border)",
+                  background: "var(--m-surface)",
+                  color: "var(--m-text-secondary)",
+                }}
+                title={
+                  ticket.archived_at != null
+                    ? "Restore this ticket to the active lists"
+                    : "Archive this ticket; it stays readable and can be restored"
+                }
+                onClick={() => void setArchived(ticket.archived_at == null)}
+              >
+                {ticket.archived_at != null
+                  ? iconOnlyActions
+                    ? "↺"
+                    : "Restore"
+                  : iconOnlyActions
+                    ? "▣"
+                    : "Archive"}
               </button>
               <Link
                 href={`/tickets/classic/${ticket.id}`}

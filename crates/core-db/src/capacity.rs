@@ -126,6 +126,7 @@ pub fn page1_filter() -> TicketFilter {
         category: None,
         priority: None,
         tag_ids: None,
+        include_archived: false,
         limit: PAGE1_LIMIT,
         offset: 0,
         cursor: None,

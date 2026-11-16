@@ -8,7 +8,7 @@ use crate::instant::{self, InstantClaim, MutationOutcome};
 use crate::org_tx;
 use crate::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::Extensions,
     Json,
 };
@@ -226,13 +226,21 @@ pub async fn create(
 }
 
 /// GET /api/clients/{id}/sites
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct SiteListQuery {
+    /// Archived sites are hidden by default; the archive view asks for them.
+    #[serde(default)]
+    pub include_archived: bool,
+}
+
 #[utoipa::path(operation_id = "clients_list_sites", get, path = "/api/clients/{id}/sites", tag = "clients", security(("bearer" = [])),
-    params(("id" = Uuid, Path)),
+    params(("id" = Uuid, Path), SiteListQuery),
     responses((status = 200, body = [core_domain::entities::Site])))]
 pub async fn list_sites(
     State(state): State<AppState>,
     extensions: Extensions,
     Path(id): Path<Uuid>,
+    Query(q): Query<SiteListQuery>,
 ) -> ApiResult<Json<Vec<core_domain::entities::Site>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, client_view_permission())?;
@@ -245,7 +253,13 @@ pub async fn list_sites(
     )
     .await
     .map_err(ApiError::from)?;
-    let sites = core_db::clients::list_sites(&mut *tx, authed.principal.user.org_id, id).await?;
+    let sites = core_db::clients::list_sites(
+        &mut *tx,
+        authed.principal.user.org_id,
+        id,
+        q.include_archived,
+    )
+    .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(sites))
 }
@@ -293,6 +307,44 @@ pub async fn create_site(
             .unwrap_or_else(|_| serde_json::json!({})),
         )
         .await?;
+        Ok((ctx, site))
+    })
+    .await?;
+    Ok(Json(site))
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ArchiveSiteRequest {
+    /// `true` archives, `false` restores. Archiving keeps the first instant.
+    pub archived: bool,
+}
+
+/// POST /api/clients/{client_id}/sites/{site_id}/archive — hide the site from
+/// lists and pickers without deleting it. The 200 body is the updated site,
+/// `archived_at` included.
+#[utoipa::path(operation_id = "clients_archive_site", post, path = "/api/clients/{id}/sites/{site_id}/archive", tag = "clients", security(("bearer" = [])),
+    params(("id" = Uuid, Path), ("site_id" = Uuid, Path)),
+    request_body = ArchiveSiteRequest,
+    responses((status = 200, body = core_domain::entities::Site),
+              (status = 404, description = "site not visible in scope (rls_sparse)")))]
+pub async fn archive_site(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Path((client_id, site_id)): Path<(Uuid, Uuid)>,
+    Json(req): Json<ArchiveSiteRequest>,
+) -> ApiResult<Json<core_domain::entities::Site>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, client_edit_permission())?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let site = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        core_db::clients::set_site_archived(&mut ctx.tx, org_id, client_id, site_id, req.archived)
+            .await
+            .map_err(|e| match e {
+                core_db::DbError::NotFound => ApiError::RlsSparse,
+                other => other.into(),
+            })?;
+        let site = core_db::clients::get_site(&mut *ctx.tx, org_id, site_id).await?;
         Ok((ctx, site))
     })
     .await?;

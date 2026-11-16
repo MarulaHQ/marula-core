@@ -158,23 +158,32 @@ export const actions = {
   addProposal(messageId: string, proposal: ChatProposal): void {
     patchMessage(messageId, (message) => ({ ...message, proposals: [...message.proposals, proposal] }));
   },
-  finishAssistant(messageId: string, text: string | null): void {
+  finishAssistant(messageId: string, text: string | null): boolean {
+    // The message is the session's identity: a reset removes it, and a turn
+    // that outlived its account must not touch the next account's turn. Only a
+    // turn that is still pending may clear `busy`; anything else is history.
+    const finishing = state.messages.find((message) => message.id === messageId);
+    if (finishing === undefined) return false;
     patchMessage(messageId, (message) => ({
       ...message,
       // `turn_completed.text` wins when the runner sends one; deltas otherwise.
       text: text !== null && text !== "" ? text : message.text,
       pending: false,
     }));
-    set({ busy: false });
+    if (finishing.pending) set({ busy: false });
+    return true;
   },
-  failAssistant(messageId: string, error: string): void {
+  failAssistant(messageId: string, error: string): boolean {
+    const failing = state.messages.find((message) => message.id === messageId);
+    if (failing === undefined) return false;
     patchMessage(messageId, (message) => ({
       ...message,
       pending: false,
       error,
       text: message.text,
     }));
-    set({ busy: false });
+    if (failing.pending) set({ busy: false });
+    return true;
   },
   /**
    * Clears the conversation and mints a fresh session id. Called when the
@@ -186,7 +195,9 @@ export const actions = {
     state = EMPTY;
     sessionId = null;
     // `messageSeq` stays monotonic: a turn still streaming for the previous
-    // account must not be able to patch a message the next one creates.
+    // account must not be able to patch a message the next one creates. Its id
+    // is gone from the store, so `finishAssistant` refuses it and the new
+    // session's `busy` flag and screen-reader announcement are left alone.
     emit();
   },
   /** Test seam: clears everything without touching the minted session id. */

@@ -186,6 +186,9 @@ export default function ClientDetailPage() {
   const [tab, setTab] = useState<Tab>("overview");
 
   const [sites, setSites] = useState<Site[] | null>(null);
+  // The living sites are the default; archived ones are one toggle away, and
+  // stay readable so a device can be re-homed before the site is restored.
+  const [showArchivedSites, setShowArchivedSites] = useState(false);
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [contactActivity, setContactActivity] = useState<Record<string, ContactActivity>>({});
   // A failed activity read is "unknown", never "Never": the column must not
@@ -269,7 +272,11 @@ export default function ClientDetailPage() {
 
   const refreshAll = useCallback(async () => {
     setFormError(null);
-    void api.api.GET("/api/v1/clients/{id}/sites", { params: { path: { id: clientId } } }).then(({ data }) => setSites(data ?? []));
+    void api.api
+      .GET("/api/v1/clients/{id}/sites", {
+        params: { path: { id: clientId }, query: { include_archived: true } },
+      })
+      .then(({ data }) => setSites(data ?? []));
     void api.api.GET("/api/v1/clients/{id}/contacts", { params: { path: { id: clientId } } }).then(({ data }) => setContacts(data ?? []));
     void refreshContactActivity();
     void api.api.GET("/api/v1/clients/{id}/assets", { params: { path: { id: clientId } } }).then(({ data }) => setAssets(data ?? []));
@@ -557,7 +564,29 @@ export default function ClientDetailPage() {
   // the pack's "250 endpoints" — not one site's. The Sites tab's table is
   // what a site choice scopes, and it filters to that site.
   const deviceCount = assets?.length ?? 0;
-  const activeSite = sites?.find((s) => s.id === selectedSiteId) ?? sites?.[0] ?? null;
+  const activeSite =
+    sites?.filter((s) => s.archived_at == null).find((s) => s.id === selectedSiteId) ??
+    sites?.find((s) => s.archived_at == null) ??
+    null;
+
+  async function setSiteArchived(siteId: string, archived: boolean): Promise<void> {
+    setFormError(null);
+    const result = await api.api.POST("/api/v1/clients/{id}/sites/{site_id}/archive", {
+      params: { path: { id: clientId, site_id: siteId } },
+      body: { archived },
+    });
+    if (result.error !== undefined) {
+      setFormError(
+        (result.error as { error?: { message?: string } }).error?.message ??
+          "The site could not be archived.",
+      );
+      return;
+    }
+    const { data } = await api.api.GET("/api/v1/clients/{id}/sites", {
+      params: { path: { id: clientId }, query: { include_archived: true } },
+    });
+    setSites(data ?? []);
+  }
   const hasContact = (contacts?.length ?? 0) > 0;
   const hasContract = liveContract !== null;
   const portalOn = (portalUsers?.filter((u) => u.status !== "disabled").length ?? 0) > 0;
@@ -663,13 +692,19 @@ export default function ClientDetailPage() {
             </RecordSection>
 
             <RecordSection label="Sites">
-              {(sites ?? []).length === 0 ? (
+              {(sites ?? []).filter((s) =>
+                showArchivedSites ? s.archived_at != null : s.archived_at == null,
+              ).length === 0 ? (
                 <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  No sites yet.
+                  {showArchivedSites ? "No archived sites." : "No sites yet."}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1">
-                  {(sites ?? []).map((s) => {
+                  {(sites ?? [])
+                    .filter((s) =>
+                      showArchivedSites ? s.archived_at != null : s.archived_at == null,
+                    )
+                    .map((s) => {
                     const atSite = (assets ?? []).filter((a) => a.site_id === s.id);
                     const offline = atSite.filter((a) => a.status !== "active").length;
                     return (
@@ -677,12 +712,29 @@ export default function ClientDetailPage() {
                         <RecordRow label={s.name}>
                           {atSite.length} {atSite.length === 1 ? "device" : "devices"}
                           {offline > 0 ? ` · ${offline} offline` : ""}
+                          {s.archived_at != null ? " · Archived" : ""}
+                          <button
+                            type="button"
+                            data-testid={`site-archive-${s.id}`}
+                            className="ml-2 underline underline-offset-2"
+                            onClick={() => void setSiteArchived(s.id, s.archived_at == null)}
+                          >
+                            {s.archived_at != null ? "Restore" : "Archive"}
+                          </button>
                         </RecordRow>
                       </li>
                     );
                   })}
                 </ul>
               )}
+              <button
+                type="button"
+                className="mt-2 text-[12px] underline underline-offset-2"
+                style={{ color: "var(--m-text-secondary)" }}
+                onClick={() => setShowArchivedSites((v) => !v)}
+              >
+                {showArchivedSites ? "Show living sites" : "Show archived sites"}
+              </button>
             </RecordSection>
 
             <RecordSection label="Account owner">

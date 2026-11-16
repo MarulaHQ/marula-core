@@ -85,6 +85,16 @@ pub async fn list_links(
                   END AS target_ticket_board_id
            FROM document_links l
            WHERE l.org_id = $1 AND l.from_kind = $2 AND l.from_id = $3
+             AND NOT (
+               (l.to_kind = 'document' AND EXISTS (
+                  SELECT 1 FROM documents d
+                   WHERE d.org_id = l.org_id AND d.id = l.to_id
+                     AND d.archived_at IS NOT NULL))
+               OR (l.to_kind = 'ticket' AND EXISTS (
+                  SELECT 1 FROM tickets t
+                   WHERE t.org_id = l.org_id AND t.id = l.to_id
+                     AND t.archived_at IS NOT NULL))
+             )
            ORDER BY l.created_at DESC"#,
     )
     .bind(org_id)

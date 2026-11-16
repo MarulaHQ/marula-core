@@ -783,6 +783,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(clients::list_sites).post(clients::create_site),
         )
         .route(
+            &rp("/clients/{id}/sites/{site_id}/archive"),
+            post(clients::archive_site),
+        )
+        .route(
             &rp("/clients/{id}/contacts"),
             get(clients::list_contacts).post(clients::create_contact),
         )
@@ -902,6 +906,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/tickets/{id}"),
             get(tickets::get_one).patch(tickets::patch),
         )
+        .route(&rp("/tickets/{id}/archive"), post(tickets::archive))
         .route(
             &rp("/tickets/{id}/decision-suggestions"),
             get(decision_suggestions::list),
@@ -1329,6 +1334,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/documents/{id}"),
             get(documents::get_one).patch(documents::update),
         )
+        .route(&rp("/documents/{id}/archive"), post(documents::archive))
         .route(
             &rp("/documents/{id}/versions"),
             get(documents::list_versions),

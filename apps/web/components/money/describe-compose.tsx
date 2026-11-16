@@ -383,12 +383,22 @@ function TalkCard({
   const finalRef = useRef("");
   /** Set when Stop was pressed: the next `onend` finishes instead of idling. */
   const finishRef = useRef(false);
+  /** The words have been handed to the parent; a later path must not repeat them. */
+  const handedOverRef = useRef(false);
+  /** Cancel means discard, so the unmount that follows must not flush. */
+  const cancelledRef = useRef(false);
   // `onend` is bound once, with the closure from the first render; the words it
   // hands over must go to the current handler, not that one.
   const onStopRef = useRef(onStop);
   useEffect(() => {
     onStopRef.current = onStop;
   }, [onStop]);
+
+  const handOver = useCallback((transcript: string) => {
+    if (handedOverRef.current) return;
+    handedOverRef.current = true;
+    onStopRef.current(transcript);
+  }, []);
   const recognitionRef = useRef<{
     start: () => void;
     stop: () => void;
@@ -430,7 +440,7 @@ function TalkCard({
       setInterim("");
       if (finishRef.current) {
         finishRef.current = false;
-        onStopRef.current(finalRef.current);
+        handOver(finalRef.current);
       }
     };
     recognitionRef.current = recognition;
@@ -445,6 +455,12 @@ function TalkCard({
     return () => {
       recognition.abort();
       recognitionRef.current = null;
+      // Closing the panel unmounts this card mid-sentence. Aborting stops the
+      // microphone with the card, and the words it had already settled are
+      // handed to the parent so the box keeps them. Cancel is the one exit
+      // that discards on purpose, so it sets the flag below.
+      const settled = finalRef.current.trim();
+      if (!cancelledRef.current && settled !== "") handOver(finalRef.current);
     };
     // The recogniser is created once; pause is handled by the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -468,7 +484,7 @@ function TalkCard({
   const finish = useCallback(() => {
     const recognition = recognitionRef.current;
     if (recognition === null) {
-      onStop(finalRef.current);
+      handOver(finalRef.current);
       return;
     }
     finishRef.current = true;
@@ -479,9 +495,9 @@ function TalkCard({
       // Already stopped: there is nothing left to collect.
       finishRef.current = false;
       setStopping(false);
-      onStop(finalRef.current);
+      handOver(finalRef.current);
     }
-  }, [onStop]);
+  }, [handOver]);
 
   return (
     <div className="m-dsc-talk" data-testid="describe-talk-card">
@@ -513,7 +529,14 @@ function TalkCard({
           <Icon name={paused ? "play" : "pause"} size={15} />
           {paused ? "Resume" : "Pause"}
         </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            cancelledRef.current = true;
+            onCancel();
+          }}
+        >
           Cancel
         </Button>
         <span className="m-dsc-sp flex-1" />

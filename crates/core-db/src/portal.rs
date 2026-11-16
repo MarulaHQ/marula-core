@@ -388,7 +388,15 @@ pub async fn list_client_tickets<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    portal_tickets_query(executor, "", None, org_id, client_id, f).await
+    portal_tickets_query(
+        executor,
+        "AND t.archived_at IS NULL",
+        None,
+        org_id,
+        client_id,
+        f,
+    )
+    .await
 }
 
 /// One ticket under the same exposure+client contract; `DbError::NotFound`
@@ -849,6 +857,7 @@ where
            WHERE t.org_id = $1 AND t.client_id = $2
              AND ($3::uuid IS NULL OR t.board_id = $3)
              AND ($4::text IS NULL OR t.category = $4)
+             AND t.archived_at IS NULL
            ORDER BY t.updated_at DESC
            LIMIT $5 OFFSET $6"#,
         PORTAL_TICKET_FROM = PORTAL_TICKET_FROM,

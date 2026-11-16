@@ -9,8 +9,8 @@
 // Non-purpose: the server's extraction and provenance rules, which
 // `crates/core-api/src/routes/money_authoring.rs` tests directly.
 import { useState } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
@@ -180,6 +180,71 @@ beforeEach(() => {
   cleanup();
   window.localStorage.clear();
   seedAuthTokens();
+});
+
+type FakeRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: unknown) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  started: boolean;
+  stopped: boolean;
+  aborted: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+/**
+ * The recogniser the card would find on a browser that runs it on device.
+ * `processLocally` lives on the prototype because that is how the product
+ * decides Talk is offered at all.
+ */
+function installSpeechRecognition(): FakeRecognition[] {
+  const instances: FakeRecognition[] = [];
+  class Recognition {
+    lang = "";
+    continuous = false;
+    interimResults = false;
+    onresult: ((event: unknown) => void) | null = null;
+    onend: (() => void) | null = null;
+    onerror: ((event: { error?: string }) => void) | null = null;
+    started = false;
+    stopped = false;
+    aborted = false;
+    constructor() {
+      instances.push(this);
+    }
+    start(): void {
+      this.started = true;
+    }
+    stop(): void {
+      this.stopped = true;
+    }
+    abort(): void {
+      this.aborted = true;
+    }
+  }
+  Object.defineProperty(Recognition.prototype, "processLocally", {
+    value: true,
+    writable: true,
+  });
+  (window as unknown as Record<string, unknown>).SpeechRecognition = Recognition;
+  return instances;
+}
+
+/** One settled phrase, the shape `onresult` hands over. */
+function settle(recognition: FakeRecognition, words: string): void {
+  recognition.onresult?.({
+    resultIndex: 0,
+    results: [Object.assign([{ transcript: words }], { isFinal: true })],
+  });
+}
+
+afterEach(() => {
+  delete (window as unknown as Record<string, unknown>).SpeechRecognition;
 });
 
 describe("Describe it panel", () => {
@@ -355,5 +420,73 @@ describe("Describe it panel", () => {
     expect(screen.getByText(/Pricing from your catalogue/i)).toBeInTheDocument();
     expect(screen.getByTestId("describe-keep-working")).toBeInTheDocument();
     expect(screen.getByText(/I will tell you when it is ready/i)).toBeInTheDocument();
+  });
+
+  it("keeps the settled words when the panel closes mid-sentence, and stops the microphone", async () => {
+    setup();
+    const recognitions = installSpeechRecognition();
+    const user = userEvent.setup();
+
+    function Stateful(): React.JSX.Element {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            reopen the panel
+          </button>
+          <DescribePanel
+            kind="quote"
+            open={open}
+            onClose={() => setOpen(false)}
+            clients={[]}
+            onBuild={() => undefined}
+            onStartBlank={() => undefined}
+            testId="panel"
+          />
+        </>
+      );
+    }
+
+    render(<Stateful />);
+    await user.click(await screen.findByTestId("describe-talk"));
+    await screen.findByTestId("describe-talk-card");
+    const recognition = recognitions[0];
+    expect(recognition).toBeDefined();
+    act(() => settle(recognition!, "Ten laptops for Acme "));
+    expect(screen.getByTestId("describe-running-transcript").textContent).toContain(
+      "Ten laptops for Acme",
+    );
+
+    // Closing the panel unmounts the card while the recogniser is still
+    // listening. The words it had already settled are kept, and the
+    // microphone goes with the card.
+    await user.click(screen.getByLabelText("Close panel"));
+    await waitFor(() => expect(screen.getByTestId("panel")).toHaveAttribute("hidden"));
+    expect(recognition?.aborted).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "reopen the panel" }));
+    expect(await screen.findByTestId("describe-transcript")).toHaveValue("Ten laptops for Acme");
+  });
+
+  it("still finishes on Stop: the button asks the recogniser, then hands the words over", async () => {
+    setup();
+    const recognitions = installSpeechRecognition();
+    const user = userEvent.setup();
+    render(<Harness onBuild={() => undefined} />);
+
+    await user.click(await screen.findByTestId("describe-talk"));
+    const recognition = recognitions[0];
+    expect(recognition).toBeDefined();
+    act(() => settle(recognition!, "Ten laptops for Acme "));
+
+    await user.click(screen.getByTestId("describe-stop"));
+    // Finishing waits for the recogniser to settle, rather than cutting it off.
+    expect(screen.getByTestId("describe-stop")).toHaveTextContent("Finishing the words…");
+    expect(recognition?.stopped).toBe(true);
+
+    act(() => recognition?.onend?.());
+    await waitFor(() =>
+      expect(screen.getByTestId("describe-transcript")).toHaveValue("Ten laptops for Acme"),
+    );
   });
 });

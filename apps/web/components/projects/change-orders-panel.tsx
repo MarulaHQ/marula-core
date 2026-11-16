@@ -308,28 +308,37 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
   const [cancelTarget, setCancelTarget] = useState<ReleaseRow | null>(null);
 
   const loadSeq = useRef(0);
+  // The project the mounted panel is showing. A reload captured for the
+  // previous project — an action's follow-up, or the create dialog's — must not
+  // run after a move: it would advance the sequence and draw the old project's
+  // rows over the new one's.
+  const projectIdRef = useRef(projectId);
 
   const load = useCallback(async () => {
+    const loadingFor = projectId;
+    if (projectIdRef.current !== loadingFor) return;
     const seq = ++loadSeq.current;
     setError(null);
     try {
       const [nextOrders, releaseBody, nextUpdates] = await Promise.all([
-        fetchChangeOrders(projectId),
+        fetchChangeOrders(loadingFor),
         api.api.GET("/api/v1/projects/{id}/billing-releases", {
-          params: { path: { id: projectId } },
+          params: { path: { id: loadingFor } },
         }),
-        fetchClientUpdates(projectId),
+        fetchClientUpdates(loadingFor),
       ]);
       // The typed client reports a refusal in `error` instead of throwing;
       // reading the body anyway would show "Nothing staged for billing".
       if (releaseBody.error !== undefined) {
         throw new Error("The billing releases could not be read.");
       }
+      if (projectIdRef.current !== loadingFor) return;
       if (seq !== loadSeq.current) return;
       setOrders(nextOrders);
       setReleases((releaseBody.data ?? []) as ReleaseRow[]);
       setUpdates(nextUpdates);
     } catch (e) {
+      if (projectIdRef.current !== loadingFor) return;
       if (seq !== loadSeq.current) return;
       setError((e as Error).message);
     }
@@ -339,19 +348,24 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
   // a route change reuses the instance: clear the previous project's rows and
   // let only the newest response commit.
   useEffect(() => {
+    projectIdRef.current = projectId;
     if (auth.status !== "authed") return;
     setOrders(null);
     setReleases([]);
     setUpdates([]);
     void load();
-  }, [auth.status, load]);
+  }, [auth.status, load, projectId]);
 
   async function act(order: ChangeOrder, action: "submit" | "approve" | "apply" | "bill") {
+    const startedFor = projectId;
     setBusyId(order.id);
     setActionError(null);
     setActionNote(null);
     try {
-      const result = await changeOrderAction(projectId, order.id, action);
+      const result = await changeOrderAction(startedFor, order.id, action);
+      // The panel may have moved on. Its note is about this project's order, so
+      // it must not be read against another project's rows.
+      if (projectIdRef.current !== startedFor) return;
       if (action === "apply") {
         const applied = result as ApplyResult;
         setActionNote(
@@ -364,19 +378,21 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
       }
       await load();
     } catch (e) {
+      if (projectIdRef.current !== startedFor) return;
       setActionError((e as Error).message);
       await load();
     } finally {
-      setBusyId(null);
+      if (projectIdRef.current === startedFor) setBusyId(null);
     }
   }
 
   async function cancelRelease() {
     if (cancelTarget === null) return;
+    const startedFor = projectId;
     try {
       const result = await api.api.POST(
         "/api/v1/projects/{id}/billing-releases/{release_id}/cancel",
-        { params: { path: { id: projectId, release_id: cancelTarget.id } } },
+        { params: { path: { id: startedFor, release_id: cancelTarget.id } } },
       );
       // A refusal (already billed, no permission, a 5xx) arrives in `error`,
       // not as a throw: closing the dialog silently would leave a pending
@@ -384,9 +400,11 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
       if (result.error !== undefined) {
         throw new Error("The release could not be cancelled. Reload and try again.");
       }
+      if (projectIdRef.current !== startedFor) return;
       setCancelTarget(null);
       await load();
     } catch (e) {
+      if (projectIdRef.current !== startedFor) return;
       setActionError((e as Error).message);
     }
   }

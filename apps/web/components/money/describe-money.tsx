@@ -474,8 +474,9 @@ export function DescribePanel({
       <div className="m-dsc-body">
         {/* Only while the panel is open: the panel is hidden rather than
             unmounted, and a Talk card inside it would keep the microphone
-            running behind a closed panel. Its words live in the parent, so
-            closing loses nothing that was already settled. */}
+            running behind a closed panel. Its words live in the parent, and the
+            card hands over the words it had already settled as it unmounts, so
+            closing keeps them rather than dropping them. */}
         {mode === "compose" && open ? (
           <>
             {prefilled !== undefined && prefilled !== null && prefilled.using.length > 0 ? (

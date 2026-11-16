@@ -84,7 +84,7 @@ const SURFACE = "tickets.list";
  *  attention shortcut counts what changed since then. A separate key from
  *  Today's, because the two surfaces are not always visited together. */
 const LAST_VISIT_KEY = "tickets:last-visit-at";
-const TICKET_VIEW_IDS = ["mine", "unassigned", "all"] as const;
+const TICKET_VIEW_IDS = ["mine", "unassigned", "all", "archived"] as const;
 type TicketView = (typeof TICKET_VIEW_IDS)[number];
 /** One page. Deep pages go through the keyset cursor, which a bulk-selection
  *  surface cannot act on without walking every id first. */
@@ -110,6 +110,7 @@ const VIEWS: ViewOption[] = [
   { id: "mine", label: "My queue" },
   { id: "unassigned", label: "Unassigned" },
   { id: "all", label: "All tickets" },
+  { id: "archived", label: "Archived" },
 ];
 
 type ColumnDef = ChoosableColumn & { sortable: boolean };
@@ -316,7 +317,10 @@ export default function TicketsListPage() {
     async (offset: number): Promise<{ rows: TicketRow[]; full: boolean; total: number | null } | null> => {
       try {
         const result = await api.api.GET("/api/v1/tickets", {
-          params: { query: { limit: PAGE_LIMIT, offset } },
+          // Archived rows ride the same pages and are split by the view
+          // filters below, so the archived view is a real list rather than a
+          // client-side guess over active rows.
+          params: { query: { limit: PAGE_LIMIT, offset, include_archived: true } },
         });
         if (result.error !== undefined || result.data === undefined) return null;
         const rows = result.data as TicketRow[];
@@ -509,9 +513,10 @@ export default function TicketsListPage() {
   const viewCounts = useMemo(() => {
     const all = rows ?? [];
     return {
-      mine: all.filter((r) => r.assignee_id === myId).length,
-      unassigned: all.filter((r) => !r.assignee_id).length,
-      all: all.length,
+      mine: all.filter((r) => r.assignee_id === myId && r.archived_at == null).length,
+      unassigned: all.filter((r) => !r.assignee_id && r.archived_at == null).length,
+      all: all.filter((r) => r.archived_at == null).length,
+      archived: all.filter((r) => r.archived_at != null).length,
     };
   }, [rows, myId]);
 
@@ -552,7 +557,10 @@ export default function TicketsListPage() {
 
   const filtered = useMemo(() => {
     if (rows === null) return null;
-    let base = rows;
+    let base =
+      view === "archived"
+        ? rows.filter((r) => r.archived_at != null)
+        : rows.filter((r) => r.archived_at == null);
     if (view === "mine") base = base.filter((r) => r.assignee_id === myId);
     else if (view === "unassigned") base = base.filter((r) => !r.assignee_id);
     if (attention !== null) {

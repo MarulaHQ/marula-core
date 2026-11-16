@@ -198,7 +198,6 @@ export default function ContractsPage(): ReactNode {
   const [sources, setSources] = useState<MoneySource[]>([]);
   const [checks, setChecks] = useState<string[]>([]);
   const [understanding, setUnderstanding] = useState<Understanding | null>(null);
-  const [termMonths, setTermMonths] = useState<number | null>(null);
   const [fromNotes, setFromNotes] = useState(false);
   const [builderTab, setBuilderTab] = useState<BuilderTab>("summary");
 
@@ -344,7 +343,6 @@ export default function ContractsPage(): ReactNode {
     setSources([]);
     setChecks([]);
     setUnderstanding(null);
-    setTermMonths(null);
     setFromNotes(false);
     resetChange();
     setBuilderTab("summary");
@@ -428,7 +426,10 @@ export default function ContractsPage(): ReactNode {
       billing_frequency: frequency,
       value_minor: pricingTotal > 0 ? pricingTotal : null,
       currency,
-      term_months: effectiveUntil === "" ? termMonths : monthsBetween(effectiveFrom, effectiveUntil),
+      // No end date means open-ended, whatever term an earlier draft arrived
+      // with: a term that survives a cleared date turns an open contract back
+      // into a year in the summary and in the payload.
+      term_months: effectiveUntil === "" ? null : monthsBetween(effectiveFrom, effectiveUntil),
       effective_from: effectiveFrom,
       notes: null,
       clauses: clauseRefs.map((clause) => clause.title),
@@ -443,9 +444,11 @@ export default function ContractsPage(): ReactNode {
   }
 
   // A proposal is only good for the draft it was described against. The
-  // fingerprint is the draft's own content, so editing a rate, a date or a
-  // clause after reading a proposal makes that proposal stale.
-  const draftKey = JSON.stringify(currentDraft());
+  // fingerprint is the draft's own content plus the exact end date, so editing
+  // a rate, a date or a clause after reading a proposal makes that proposal
+  // stale. The end date has to be in there: two dates one day apart can round
+  // to the same term, and Apply would then restore the date the person moved.
+  const draftKey = draftFingerprint(currentDraft(), effectiveUntil);
   const changeStale = changeDraft !== null && changeBase !== null && changeBase !== draftKey;
   const draftKeyRef = useRef(draftKey);
   useEffect(() => {
@@ -463,7 +466,6 @@ export default function ContractsPage(): ReactNode {
     if (draft.effective_from !== null && draft.effective_from !== undefined) {
       setEffectiveFrom(draft.effective_from);
     }
-    setTermMonths(draft.term_months ?? null);
     if (draft.term_months !== null && draft.term_months !== undefined) {
       setEffectiveUntil(addMonths(draft.effective_from ?? today(), draft.term_months));
     }
@@ -513,8 +515,11 @@ export default function ContractsPage(): ReactNode {
 
   function applyChange(): void {
     // Applying a proposal made against an older draft would undo every edit
-    // since: refuse rather than silently replace them.
-    if (changeDraft === null || changeDraft === undefined || changeStale) return;
+    // since: refuse rather than silently replace them. The fingerprint is
+    // recomputed here, from the draft on screen at the click, because a render
+    // that has not committed yet still carries the proposal as applicable.
+    if (changeDraft === null || changeDraft === undefined) return;
+    if (changeBase === null || changeBase !== draftFingerprint(currentDraft(), effectiveUntil)) return;
     applyContract(changeDraft);
     resetChange();
   }
@@ -1170,4 +1175,17 @@ function monthsBetween(from: string, until: string): number | null {
   const end = new Date(`${until}T00:00:00`).getTime();
   if (Number.isNaN(start) || Number.isNaN(end)) return null;
   return Math.max(1, Math.round((end - start) / (86_400_000 * 30.44)));
+}
+
+/**
+ * What a proposal is validated against: the draft it was read from, plus the
+ * exact end date. The date needs to be its own field because two ends a day
+ * apart can round to the same term, and the term alone would call the proposal
+ * applicable.
+ */
+function draftFingerprint(draft: ContractDraft, effectiveUntil: string): string {
+  return JSON.stringify({
+    ...draft,
+    effective_until: effectiveUntil === "" ? null : effectiveUntil,
+  });
 }

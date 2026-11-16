@@ -829,6 +829,28 @@ impl AiMode {
     }
 }
 
+/// The mode an `ai.features_enabled` write should leave behind.
+///
+/// Two keys answer two questions about one state: `ai.mode` is what the AI
+/// page shows and `ai.features_enabled` is the run gate every AI edge
+/// types. A writer that only moves the boolean would let them disagree — an
+/// org reading Off in the control would still pass the gate — so the generic
+/// settings writer calls this to move the mode in the same transaction.
+///
+/// Disabling stops the org outright. Enabling keeps a mode the org chose
+/// (shadow stays shadow: it was already paying for tokens, and the run gate
+/// does not change what the surfaces do) and lifts only a missing or `off`
+/// mode to `live`, which is the state an org that only had a switch was in.
+pub fn mode_after_enabled_write(current: Option<AiMode>, enabled: bool) -> AiMode {
+    if !enabled {
+        return AiMode::Off;
+    }
+    match current {
+        Some(AiMode::Shadow) => AiMode::Shadow,
+        Some(AiMode::Live) | Some(AiMode::Off) | None => AiMode::Live,
+    }
+}
+
 /// The org AI mode (`ai.mode`, Wave 52). The row is authoritative when it
 /// holds a known word. An org written before the key existed falls back to
 /// `ai.features_enabled`: on reads as `live`, because its surfaces already
@@ -1272,4 +1294,33 @@ fn pick_from(row: sqlx::postgres::PgRow) -> DbResult<AiModelPick> {
         model: row.get("model"),
         updated_at: row.get("updated_at"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tables the mapping so a reader can see the whole contract at once:
+    /// every current mode crossed with both switch positions.
+    #[test]
+    fn the_enabled_write_decides_the_mode() {
+        let cases = [
+            // (current, enabled, expected)
+            (None, false, AiMode::Off),
+            (None, true, AiMode::Live),
+            (Some(AiMode::Off), false, AiMode::Off),
+            (Some(AiMode::Off), true, AiMode::Live),
+            (Some(AiMode::Shadow), false, AiMode::Off),
+            (Some(AiMode::Shadow), true, AiMode::Shadow),
+            (Some(AiMode::Live), false, AiMode::Off),
+            (Some(AiMode::Live), true, AiMode::Live),
+        ];
+        for (current, enabled, expected) in cases {
+            assert_eq!(
+                mode_after_enabled_write(current, enabled),
+                expected,
+                "current={current:?} enabled={enabled}"
+            );
+        }
+    }
 }

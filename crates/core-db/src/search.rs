@@ -218,6 +218,31 @@ pub struct SearchCursor {
 const SCORE_EXPR: &str = "(coalesce(ts_rank(tsv, websearch_to_tsquery('english', $3)), 0) * 8
     + CASE WHEN $4 THEN coalesce(similarity(title || ' ' || body, $3), 0) ELSE 0 END)";
 
+/// Hides archived tickets, sites and documents from every RESULT statement
+/// (0228). Their `search_index` rows are deliberately kept: archiving is a
+/// visibility state, so a restore is searchable immediately and the embedding
+/// maintenance statements still see the row. `alias` is the search table the
+/// statement ranks — `search_index` for the lexical leg, `search_embeddings e`
+/// for the vector leg — and each EXISTS is org-scoped to that row.
+fn archived_entity_filter(alias: &str) -> String {
+    format!(
+        r#"AND NOT (
+          ({alias}.entity_kind = 'ticket' AND EXISTS (
+             SELECT 1 FROM tickets t
+              WHERE t.org_id = {alias}.org_id AND t.id = {alias}.entity_id
+                AND t.archived_at IS NOT NULL))
+          OR ({alias}.entity_kind = 'site' AND EXISTS (
+             SELECT 1 FROM sites st
+              WHERE st.org_id = {alias}.org_id AND st.id = {alias}.entity_id
+                AND st.archived_at IS NOT NULL))
+          OR ({alias}.entity_kind = 'document' AND EXISTS (
+             SELECT 1 FROM documents d
+              WHERE d.org_id = {alias}.org_id AND d.id = {alias}.entity_id
+                AND d.archived_at IS NOT NULL))
+        )"#
+    )
+}
+
 /// Ranked page of hits. `kinds` must be non-empty (callers derive it from
 /// the principal's permissions); `trigram` enables the partial-token ILIKE
 /// leg used for prefix/partial tokens. `client_id` scopes the `document`
@@ -300,6 +325,7 @@ where
     } else {
         ""
     };
+    let archived_filter = archived_entity_filter("search_index");
     let sql = format!(
         r#"SELECT entity_kind, entity_id, parent_id, title, body_excerpt, indexed_at, score
            FROM (
@@ -320,6 +346,7 @@ where
                   OR client_scope IS NULL
                   OR client_scope = $5
                 )
+                {archived_filter}
            ) ranked
            {keyset_clause}
            ORDER BY score DESC, indexed_at DESC, entity_id
@@ -394,7 +421,8 @@ where
 {
     // `cap + 1` is what distinguishes "exactly cap" from "more than cap"
     // without counting the rest of the predicate.
-    let row = sqlx::query!(
+    let archived_filter = archived_entity_filter("search_index");
+    let sql = format!(
         r#"SELECT COUNT(*) AS total
            FROM (
              SELECT 1
@@ -411,18 +439,22 @@ where
                   OR client_scope IS NULL
                   OR client_scope = $5
                 )
+                {archived_filter}
               LIMIT $6
-           ) capped"#,
-        org_id,
-        kinds,
-        q,
-        trigram,
-        client_id,
-        cap.saturating_add(1)
-    )
-    .fetch_one(executor)
-    .await?;
-    Ok(count_from(row.total.unwrap_or(0), cap))
+           ) capped"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(kinds)
+        .bind(q)
+        .bind(trigram)
+        .bind(client_id)
+        .bind(cap.saturating_add(1))
+        .fetch_one(executor)
+        .await?;
+    use sqlx::Row as _;
+    let total: Option<i64> = row.get("total");
+    Ok(count_from(total.unwrap_or(0), cap))
 }
 
 // --- vector leg (migration 0062) ---------------------------------------------
@@ -672,7 +704,8 @@ pub async fn fts_candidates<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query!(
+    let archived_filter = archived_entity_filter("search_index");
+    let sql = format!(
         r#"SELECT entity_kind, entity_id
            FROM search_index
            WHERE org_id = $1
@@ -687,23 +720,26 @@ where
                OR client_scope IS NULL
                OR client_scope = $5
              )
+             {archived_filter}
            ORDER BY ts_rank(tsv, websearch_to_tsquery('english', $3)) * 8
                       + CASE WHEN $4 THEN similarity(title || ' ' || body, $3)
                              ELSE 0 END DESC,
                     indexed_at DESC, entity_id
-           LIMIT $6"#,
-        org_id,
-        kinds,
-        q,
-        trigram,
-        client_id,
-        limit
-    )
-    .fetch_all(executor)
-    .await?;
+           LIMIT $6"#
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(kinds)
+        .bind(q)
+        .bind(trigram)
+        .bind(client_id)
+        .bind(limit)
+        .fetch_all(executor)
+        .await?;
+    use sqlx::Row as _;
     Ok(rows
         .into_iter()
-        .map(|row| SearchKey::new(row.entity_kind, row.entity_id))
+        .map(|row| SearchKey::new(row.get::<String, _>("entity_kind"), row.get("entity_id")))
         .collect())
 }
 
@@ -792,7 +828,8 @@ pub async fn vector_candidates(
     // The mode is applied to THIS statement's session, then unwound, so the
     // same transaction can hydrate its page without a seq scan of search_index.
     apply_retrieval_mode(conn, mode).await?;
-    let rows = sqlx::query!(
+    let archived_filter = archived_entity_filter("e");
+    let sql = format!(
         r#"SELECT e.entity_kind, e.entity_id
            FROM search_embeddings e
            WHERE e.org_id = $1
@@ -809,21 +846,24 @@ pub async fn vector_candidates(
                     AND (s.client_scope IS NULL OR s.client_scope = $5)
                )
              )
+             {archived_filter}
            ORDER BY e.embedding <=> $4::text::vector, e.entity_kind, e.entity_id
-           LIMIT $6"#,
-        org_id,
-        kinds,
-        space,
-        embedding_to_pg(embedding),
-        client_id,
-        limit
-    )
-    .fetch_all(&mut *conn)
-    .await?;
+           LIMIT $6"#
+    );
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(kinds)
+        .bind(space)
+        .bind(embedding_to_pg(embedding))
+        .bind(client_id)
+        .bind(limit)
+        .fetch_all(&mut *conn)
+        .await?;
     restore_retrieval_mode(conn, mode).await?;
+    use sqlx::Row as _;
     Ok(rows
         .into_iter()
-        .map(|row| SearchKey::new(row.entity_kind, row.entity_id))
+        .map(|row| SearchKey::new(row.get::<String, _>("entity_kind"), row.get("entity_id")))
         .collect())
 }
 
@@ -1096,7 +1136,9 @@ where
     // empty `spaces` list contributes nothing, which is the dark vector leg.
     // The cap bounds the union scan the same way `search_count` bounds the
     // lexical one.
-    let row = sqlx::query!(
+    let lexical_filter = archived_entity_filter("search_index");
+    let vector_filter = archived_entity_filter("e");
+    let sql = format!(
         r#"SELECT COUNT(*) AS total FROM (
              SELECT entity_kind, entity_id FROM search_index
               WHERE org_id = $1 AND entity_kind = ANY($2)
@@ -1110,6 +1152,7 @@ where
                   OR client_scope IS NULL
                   OR client_scope = $5
                 )
+                {lexical_filter}
              UNION
              SELECT e.entity_kind, e.entity_id FROM search_embeddings e
               WHERE e.org_id = $1 AND e.entity_kind = ANY($2)
@@ -1125,17 +1168,38 @@ where
                        AND (s.client_scope IS NULL OR s.client_scope = $5)
                   )
                 )
+                {vector_filter}
              LIMIT $6
-           ) u"#,
-        org_id,
-        kinds,
-        q,
-        trigram,
-        client_id,
-        cap.saturating_add(1),
-        spaces
-    )
-    .fetch_one(executor)
-    .await?;
-    Ok(count_from(row.total.unwrap_or(0), cap))
+           ) u"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(kinds)
+        .bind(q)
+        .bind(trigram)
+        .bind(client_id)
+        .bind(cap.saturating_add(1))
+        .bind(spaces)
+        .fetch_one(executor)
+        .await?;
+    use sqlx::Row as _;
+    let total: Option<i64> = row.get("total");
+    Ok(count_from(total.unwrap_or(0), cap))
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+
+    #[test]
+    fn result_filter_names_every_linkable_archived_kind() {
+        let filter = archived_entity_filter("search_index");
+        for kind in ["ticket", "site", "document"] {
+            assert!(
+                filter.contains(&format!("entity_kind = '{kind}'")),
+                "missing archived {kind} predicate"
+            );
+        }
+        assert!(filter.contains("search_index.entity_id"));
+    }
 }

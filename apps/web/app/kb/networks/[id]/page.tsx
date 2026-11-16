@@ -42,23 +42,31 @@ export default function NetworkPage() {
   // A request token, not just a cancel flag: `load()` also runs after a subnet
   // is added, so a slower earlier read must not overwrite the newer answer.
   const latestRequest = useRef(0);
+  // The network the mounted route is showing. A subnet POST started on one
+  // network can land after a move to another; its reload must not run, because
+  // it would bump the shared token and draw the network the person left.
+  const routeRef = useRef(networkId);
 
   const load = useCallback(() => {
-    if (networkId === undefined) return;
+    const loadingFor = networkId;
+    if (loadingFor === undefined || routeRef.current !== loadingFor) return;
     const token = latestRequest.current + 1;
     latestRequest.current = token;
     setError(null);
     knowledgeApi
-      .get<NetworkDetail>(`/api/v1/knowledge/networks/${networkId}`)
+      .get<NetworkDetail>(`/api/v1/knowledge/networks/${loadingFor}`)
       .then((data) => {
+        if (routeRef.current !== loadingFor) return;
         if (latestRequest.current === token) setNetwork(data);
       })
       .catch((e: KnowledgeRequestError) => {
+        if (routeRef.current !== loadingFor) return;
         if (latestRequest.current === token) setError(e.message);
       });
   }, [networkId]);
 
   useEffect(() => {
+    routeRef.current = networkId;
     // A client-side move from network A to B keeps A on screen until B arrives
     // unless its state is cleared here.
     setNetwork(null);
@@ -66,25 +74,31 @@ export default function NetworkPage() {
     return () => {
       latestRequest.current += 1;
     };
-  }, [load]);
+  }, [load, networkId]);
 
   async function addSubnet(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
+    const submittedFor = networkId;
     const data = new FormData(form);
     setFormError(null);
     setSaving(true);
     try {
-      await knowledgeApi.post(`/api/v1/knowledge/networks/${networkId}/subnets`, {
+      await knowledgeApi.post(`/api/v1/knowledge/networks/${submittedFor}/subnets`, {
         cidr: String(data.get("cidr") ?? ""),
         vlan_id: data.get("vlan_id") === "" ? null : Number(data.get("vlan_id")),
         name: String(data.get("name") ?? "") || null,
         gateway: String(data.get("gateway") ?? "") || null,
         used_for: String(data.get("used_for") ?? "") || null,
       });
+      // The form belonged to the network that submitted it. On a different
+      // route, resetting a detached form and reloading would act on nothing the
+      // person can see — and the reload would replace their new network.
+      if (routeRef.current !== submittedFor) return;
       form.reset();
       load();
     } catch (e) {
+      if (routeRef.current !== submittedFor) return;
       setFormError((e as KnowledgeRequestError).message);
     } finally {
       setSaving(false);

@@ -819,7 +819,8 @@ pub async fn status_usage(
     use sqlx::Row;
     let count_rows = sqlx::query(
         "SELECT status_id, count(*)::bigint AS ticket_count \
-         FROM tickets WHERE org_id = $1 AND board_id = $2 GROUP BY status_id",
+         FROM tickets WHERE org_id = $1 AND board_id = $2 AND archived_at IS NULL \
+         GROUP BY status_id",
     )
     .bind(org_id)
     .bind(board_id)
