@@ -706,6 +706,14 @@ jobs:
           }
         env:
           BIND_ADDR: 127.0.0.1:18080
+          # Compile from the committed `.sqlx` metadata, not from the service
+          # container. This step compiles `marula-core-cli` (which pulls in
+          # `core-db`'s query macros) before it migrates anything, so a live
+          # compile would validate every macro against an empty database and
+          # die on the first missing relation. It has been passing on artifacts
+          # left by the steps above, which is luck: a cold cache would have
+          # failed it. The runtime connection still uses `DATABASE_URL`.
+          SQLX_OFFLINE: "true"
           # core-api refuses to boot without explicit values for these four
           # (fail-closed since Wave 19; the machine-seam pair since Wave 55).
           # The first two are the secrets the server signs with; the second two
