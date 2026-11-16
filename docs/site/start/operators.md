@@ -70,6 +70,11 @@ settings that make a resolved client IP mean anything.
   endpoint variable that turns export on.
 - [Watch your self-hosted services](../how-to/admin-self-host-services.md) —
   container health probes, the ClamAV quarantine view, and links to the dashboards.
+- [Recover work that gave up](../how-to/operator-dead-work.md) — abandoned jobs,
+  email, webhook deliveries and stream events, with redrive and cancel.
+- [Check that records and stored files still agree](../how-to/operator-object-integrity.md) —
+  the orphan and missing-bytes pass, which is also how you prove a restore was
+  complete.
 - [Perf program](../../perf.md) — the budgets and the harness, if you want to
   measure your install against a recorded baseline instead of guessing.
 - [Capacity model](../../capacity-model.md) — how many agents one instance serves,
@@ -106,8 +111,10 @@ settings that make a resolved client IP mean anything.
 This is the thinnest area on the site, and the gaps are worth naming plainly.
 
 - Incident runbooks: no page walks an outbox backlog, an undelivered email queue,
-  a dead-letter pile, or Postgres or Valkey being unavailable. The observability
-  page says what is exported; it does not say what to do when a metric is bad.
+  or Postgres or Valkey being unavailable. [Recover work that gave up](../how-to/operator-dead-work.md)
+  covers the dead-letter decisions; it does not replace a runbook for the backlog
+  that produced them. The observability page says what is exported; it does not
+  say what to do when a metric is bad.
 - Alert rules: nothing in the docs ships a recommended threshold or an alert
   definition. A dashboard panel is not an alert.
 - Retention and RPO/RTO: no page states how long data is kept, what the backup

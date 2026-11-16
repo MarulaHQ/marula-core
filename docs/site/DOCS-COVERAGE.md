@@ -210,3 +210,55 @@ carries both modes, Linux and Windows are connected clients, and signing is
 still in flight, so both pages name the OS warning to expect instead of
 promising a date. The maintainer's half of the same story stays in
 `docs/desktop-release.md`; these two pages do not fork it.
+
+## 10. Post-surface-pack doc audit (2026-11-16)
+
+The waves merged between #48 and #82 shipped product surfaces faster than the
+site described them. The audit compared those merges against every page under
+`docs/site/` and found four stale claims and seven surfaces with no user page
+at all. The stale claims were fixed in place:
+
+- The client portal page still listed four tabs. It now describes the seven
+  the portal shell carries (Tickets, Projects, Invoices, Quotes, Schedule,
+  Help, Documentation) and the project acknowledgement flow.
+- The keyboard page still said `Alt+1` through `Alt+7` jumped between
+  sections. Today takes `Alt+0` and the nine sections take `Alt+1` through
+  `Alt+9`.
+- The admin entry page listed the permission model as undocumented after
+  [admin-roles-and-permissions.md](how-to/admin-roles-and-permissions.md)
+  shipped, and described dead-letter work as having no page.
+- The generated [API reference](reference/api.md) was 70 paths behind the
+  committed pin. It is regenerated here, and the site checker now sees it in
+  sync.
+
+Seven how-to pages are new, each tied to the surface that shipped:
+
+| Page | Surface it documents |
+|---|---|
+| [Find a runbook, a credential and a client's records](how-to/staff-knowledge-base.md) | The client-first knowledge home, unified search, client hub, procedures, expiry dates, infrastructure records and the vault reveal |
+| [Write knowledge and keep client records current](how-to/admin-knowledge-base.md) | Article authoring, the three-condition portal gate, categories, secret grants, infrastructure records and the completeness reading |
+| [Ask the assistant about the screen you are on](how-to/ask-the-assistant.md) | The palette's Ask mode, its context chip, sources and proposals, the panel, and what a refusal means |
+| [Connect a tool your team already uses](how-to/admin-connectors.md) | The connector roster, scoped connections, destinations, health and audience |
+| [Recover work that gave up](how-to/operator-dead-work.md) | Dead work across jobs and email, plus webhooks and stream events, including redrive and cancel |
+| [Check that records and stored files still agree](how-to/operator-object-integrity.md) | The object-integrity findings, both directions, and restore verification |
+| [Edit the emails Marula sends](how-to/admin-email-templates.md) | Template provenance, the fixed-slug send path, placeholders, preview and reset |
+
+Four existing pages gained the sections their surface now needs: the project
+page covers the portfolio, templates, the task page, My work and change orders;
+the user and invites page covers the three-step invite and the guided accept
+flow; the portal page covers projects and documentation; and the glossary adds
+fourteen terms from these surfaces.
+
+What is still open, stated so the next audit does not rediscover it:
+
+- A map of the settings surface. The how-to pages name the path they need, but
+  no page lists every settings group and what lives in it.
+- The connector catalogue. The roster and one connection are documented; which
+  RMM, PSA, DNS and accounting connectors exist, and what each syncs, is not.
+- Incident runbooks for an outbox backlog, a backed-up email queue, and
+  Postgres or Valkey being unavailable. Dead work covers the decisions after a
+  ledger gives up, not the backlog that produced it.
+- Audit export for a compliance request.
+- Top-level knowledge records (a rack, a network, a domain, a procedure) are
+  API-created in this build. The reading and nested editing are documented;
+  the create path is not, because no surface offers it yet.

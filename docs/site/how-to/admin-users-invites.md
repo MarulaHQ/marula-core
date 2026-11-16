@@ -16,13 +16,54 @@ Instead of creating temporary passwords and reading them over the phone, you inv
 
 ## 1. Send the team invitation
 
-Open **Settings → Team** and invite the new team member by email. Marula generates a unique **setup link** (`/accept-invite?token=…`). If someone opens `/accept-invite` without a valid token in the URL, the page explains that they need the setup link from their administrator.
+Open **Settings → Team** and press **Invite member**. Inviting is a role
+decision wearing an email form's clothes, so the dialog walks three steps:
 
-## 2. Teammate accepts and verifies their email
+1. **What this person will do.** Pick the intent that matches the work — the
+   dialog recommends the built-in role that fits it.
+2. **Give them the right role.** The recommendation is preselected and you can
+   override it. Beside it, a permission preview reads the role as it will
+   apply, in words. An override says so, so nobody mistakes a custom choice for
+   the recommendation.
+3. **Who are you inviting?** Name and work email. The invite is idempotent per
+   attempt, so a double-click sends one invitation, not two.
 
-When the invitee opens their setup link, they choose their sign-in method (password or magic link) and land directly in the workspace.
+On success, the server sends the invitation email in the same transaction as
+the invite, so a person is never created without being told. The dialog also
+shows the setup link and its token once, for the case where email is slow or
+the person is standing next to you: copy it and hand it over out of band. That
+link cannot be fetched again.
 
-Email verification links are **single-use and valid for 24 hours**, with a one-click resend option if the link expires. Note that email verification (confirming ownership of a mailbox) is separate from password reset (recovering a locked account).
+The wording of the invitation itself is a template. To change it, edit the
+**Workspace invitation** row in
+[Email templates](admin-email-templates.md); the placeholders render the
+inviter, the workspace and the expiry date at send time.
+
+If you are still in the organisation setup wizard, its invite step renders the
+same three-step flow. The words about what a role can do cannot drift between
+the two surfaces, because both use the same component.
+
+## 2. Teammate accepts the invitation
+
+The invitation link opens `/accept-invite?token=…` as a short guided setup:
+
+1. **Identity** — the invited address is named, and the person confirms the
+   name they want to be called. A blank name is "no opinion", not an erasure of
+   the name you recorded.
+2. **Password** — at least the minimum length, typed twice. This is the one API
+   call; every refusal is shown on this step.
+3. **You're in** — confirm the timezone (saved to the account), with an
+   optional card offering the desktop app on a plain browser. Then it lands on
+   **Today**.
+
+An invite that is unknown, already used or expired says so plainly and changes
+nothing. If someone opens `/accept-invite` without a token, the page explains
+that they need the setup link from their administrator.
+
+Email verification links are **single-use and valid for 24 hours**, with a
+one-click resend option if the link expires. Note that email verification
+(confirming ownership of a mailbox) is separate from password reset (recovering
+a locked account).
 
 ## 3. Password recovery for staff vs. portal clients
 
@@ -49,3 +90,14 @@ Each team member controls their own alert schedule under **Settings → Notifica
 - Toggle **In-app** and **Email** delivery per event type.
 - Set **Quiet hours** (start time, end time, and timezone) to hold routine email notifications overnight.
 - **Urgent alerts always break through:** SLA breaches and priority escalations bypass quiet hours so an on-call lead never misses an emergency.
+
+## Where to go next
+
+- [Understand role permissions](admin-roles-and-permissions.md) — the matrix
+  behind the recommendation, and how to fork a preset into a custom role.
+- [Edit the emails Marula sends](admin-email-templates.md) — change the
+  invitation wording without touching the flow.
+- [Set up the portal](admin-portal-setup.md) — the separate account system for
+  client contacts, which never mixes with staff sign-in.
+- [Connect an IdP (SSO)](admin-sso.md) — if people should sign in through your
+  identity provider instead of a Marula password.

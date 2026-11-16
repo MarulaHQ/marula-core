@@ -52,12 +52,14 @@ Three facts combine into the tenant guarantee:
 
 ## What clients experience (and what they should never expect)
 
-The client's experience is four surfaces — Requests, Invoices, Knowledge,
-Schedule (the [client how-to](../how-to/client-portal-tasks.md) walks
-them). A client can and should assume:
+The client's experience is seven surfaces — Tickets, Projects, Invoices,
+Quotes, Schedule, Help and Documentation (the
+[client how-to](../how-to/client-portal-tasks.md) walks them). A client can
+and should assume:
 
-- Their views cover their own tickets and their own invoices, plus
-  the knowledge published for clients. Never another client's.
+- Their views cover their own tickets, their own projects and their own
+  invoices, plus the help and documents published for clients. Never another
+  client's.
 - Cross-border leak claims do not have a "careful with settings" escape
   valve: the protections above are in the seam and the tests, not in
   staff restraint.

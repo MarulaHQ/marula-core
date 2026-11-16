@@ -36,7 +36,7 @@ the job does not. When something is broken rather than unowned,
 [Configure email](../how-to/admin-email.md) covers the whole path: inbound routing
 to boards, the signed webhook, SPF/DKIM/DMARC, transport choice and its test send,
 the delivery ledger, notification email and the digest, the signature policy, reply
-by email, and the optional malware scanner. Read it top to bottom once; after that
+by email, and the optional malware scanner. Read it top to bottom once. After that
 jump to the section that matches the failure.
 
 ## "Clients should be able to help themselves"
@@ -48,6 +48,17 @@ jump to the section that matches the failure.
   worked walkthrough, ending with what the client sees on first sign-in.
 - [The portal isolation model](../explanation/portal-isolation.md) — the fencing
   rule behind the exposure setting.
+
+## "The team cannot find what we know"
+
+- [Write knowledge and keep client records current](../how-to/admin-knowledge-base.md) —
+  publish an article through the portal gate, manage categories and secret
+  grants, and keep each client's infrastructure records current.
+- [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md) —
+  the page to send a new technician. It reads the same shelves from the other
+  side.
+- [Knowledge-base categories and the secret vault](../explanation/kb-class-categories.md) —
+  the one grant model behind both trees.
 
 ## "The queue needs to sort itself"
 
@@ -94,6 +105,10 @@ jump to the section that matches the failure.
   declarative widgets, triggers, read nodes, action steps and field validators.
 - [Manage API keys](../how-to/admin-api-keys.md) — narrow bearer tokens and
   rotation without downtime.
+- [Connect a tool your team already uses](../how-to/admin-connectors.md) —
+  roster, scoped connections, destinations, health and audience.
+- [Edit the emails Marula sends](../how-to/admin-email-templates.md) — outbound
+  outbound mail, placeholders and previews, plus shipped defaults.
 
 ## "Keep it healthy"
 
@@ -103,6 +118,11 @@ jump to the section that matches the failure.
   migrations and verification, plus what to do when you are stuck.
 - [Backup and restore](../reference/backup-restore.md) — the runbook you want to
   have rehearsed before you need it.
+- [Recover work that gave up](../how-to/operator-dead-work.md) — the abandoned
+  jobs and email, plus webhook deliveries and stream events, and the two safe
+  decisions.
+- [Check that records and stored files still agree](../how-to/operator-object-integrity.md) —
+  the orphan and missing-bytes pass, and the check that a restore was complete.
 
 Your instance's operator owns most of this last group. If that is a different
 person, send them [Operator tasks](operators.md).
@@ -110,11 +130,10 @@ person, send them [Operator tasks](operators.md).
 ## Not documented yet
 
 - A map of the settings surface: which left-rail group holds which control. The
-  how-to pages name the paths they need; no page lists them all.
-- The permission model: role names, what each grants, and how a custom role
-  combines with grants elsewhere. Nothing on the site defines the matrix.
+  how-to pages name the paths they need. No page lists them all.
 - The connector catalogue: which RMM, PSA, DNS and accounting sources exist, and
-  what each one syncs. [Your first inventory sync](../tutorials/first-inventory-sync.md)
-  walks one connector; the set is undocumented.
+  what each one syncs. [Connect a tool your team already uses](../how-to/admin-connectors.md)
+  covers the roster and one connection. [Your first inventory sync](../tutorials/first-inventory-sync.md)
+  walks one connector. The full set is undocumented.
 - Audit export: no page states how to take an audit trail out of Marula for a
   compliance request.

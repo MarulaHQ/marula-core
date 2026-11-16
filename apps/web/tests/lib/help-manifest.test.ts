@@ -24,6 +24,7 @@ describe("routeKeyForPath", () => {
     expect(routeKeyForPath("/settings/api-keys")).toBe("settings-api-keys");
     expect(routeKeyForPath("/settings/anything-else")).toBe("settings-general");
     expect(routeKeyForPath("/settings/inventory")).toBe("inventory");
+    expect(routeKeyForPath("/settings/connectors")).toBe("settings-integrations");
   });
 
   it("falls back to the default key for unmapped surfaces", () => {

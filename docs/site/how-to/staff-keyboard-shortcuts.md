@@ -8,7 +8,7 @@ description: "You can navigate boards, create tickets, copy record links, and se
 > technicians, bookkeepers) can drive the app from the keyboard. Shortcut
 > settings apply to your personal account only.
 
-You can navigate boards, create tickets, copy record links, and search across Marula without taking your hands off the keyboard. If you forget a shortcut, hold down `Alt` anywhere outside a text box to see an on-screen guide for the page you are viewing.
+You can navigate boards, create tickets, copy record links, and search across Marula without taking your hands off the keyboard. When the general chat surface is granted, the same palette also answers questions about the screen you are on. If you forget a shortcut, hold down `Alt` anywhere outside a text box to see an on-screen guide for the page you are viewing.
 
 ## Prerequisites
 
@@ -29,8 +29,10 @@ Marula uses `Alt` plus a letter or number (`Alt+N`, `Alt+1`, etc.) for workspace
 | Shortcut | Action | Where it works |
 |---|---|---|
 | `Alt+N` | Create a new record (for example, a new client or a new ticket) | Any screen with a create button |
-| `Alt+1` … `Alt+7` | Jump directly to a left-navigation section | Everywhere |
+| `Alt+0` | Jump to **Today** | Everywhere |
+| `Alt+1` … `Alt+9` | Jump to the rail sections in order: Tickets, Clients, Devices, Stock, Purchasing, Automations, Knowledge, Reports, Settings | Everywhere |
 | `Cmd+K` / `Ctrl+K` | Open the command palette and unified search | Everywhere |
+| `Tab` (in the palette's search field) | Switch to **Ask** when the general chat surface is granted | Command palette |
 | `Alt+J` | Cycle to the next sub-page within the current navigation section | Everywhere |
 | `Alt+C` | Copy a direct link to the open record | Ticket and client detail pages (plus device detail) |
 | `Alt+X` | Close the topmost dialog or overlay | Everywhere |
@@ -51,6 +53,15 @@ If a shortcut conflicts with assistive software or your personal workflow, you c
 
 - **Default:** All `Alt` shortcuts and the hold-`Alt` overlay are active.
 - **All off:** Disables `Alt` shortcuts and the hold-`Alt` overlay for your user account (handy during screen shares or presentations). Pressing `?` still opens the read-only cheat sheet.
+
+## Ask about the current screen
+
+When the general chat surface is granted, the palette's **Ask** tab is part of
+the same chord: `Cmd/Ctrl+K`, then `Tab` from the search field. Ask reads the
+screen named in its context chip, shows the sources behind an answer, and files
+any proposed change for approval rather than sending it. Without the grant the
+switch is absent, not disabled. The full walkthrough is
+[Ask the assistant about the screen you are on](ask-the-assistant.md).
 
 ## Where to go from here
 

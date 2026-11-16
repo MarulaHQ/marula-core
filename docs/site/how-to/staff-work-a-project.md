@@ -35,9 +35,10 @@ to reach the record, which carries four tabs:
 - **Time and budget** — the money side. Separate guide:
   [How to bill project work](project-billing.md).
 
-The header above the tabs is the promise: when the project started and when
-go-live is due, plus the next milestone. When someone asks "are we going to
-make it", that is the row they mean.
+The header above the tabs is the row people mean when they ask "are we going
+to make it": when the project started, when go-live is due, and the next
+milestone. Beside the tabs, **Change orders** opens
+the scope and billing record covered in section 13.
 
 ## 2. State the plan: phases, then tasks
 
@@ -89,8 +90,9 @@ never plans Mondays. The demo project includes Saturdays, so its **Days**
 column is larger than a Monday-to-Friday span of the same range.
 
 The working week and the calendar zones are set through the API today
-(`PUT /api/projects/{id}/calendar` and `POST /api/projects/{id}/zones`). Both
-surfaces read them. A zone is drawn as a band across the chart, labelled by kind: **Change
+(`PUT /api/projects/{id}/calendar` and `POST /api/projects/{id}/zones`). The
+plan and the timeline both read them. A zone is drawn as a band across the
+chart, labelled by kind: **Change
 window** or **Closed**. The project's own label is in the tooltip.
 
 ## 4. Put the work in the order it runs
@@ -107,8 +109,8 @@ task row and a grip appears at the start of its name:
 - **Keyboard:** focus the grip and press the up or down arrow, or use
   **Move up** / **Move down** in the row menu.
 
-The whole order is sent as one request, and the table you see is the server's
-until the server confirms, so a refusal leaves the plan exactly as it was and
+The whole order is sent as one request, and the table does not move until the
+server confirms it, so a refusal leaves the plan exactly as it was and
 tells you why.
 
 ## 5. Read the timeline
@@ -123,7 +125,7 @@ changes what you read and how much of it you see:
 - **Fit** frames the plan as it stands. **Today** frames the next four weeks.
 - **Baseline** overlays the agreed plan behind the current one.
 - **Critical path** names the chain that decides the finish date and draws it
-  in ink with heavier elbows.
+  with a heavier line.
 - **Summary only** collapses every phase to one row.
 - **Not dated** opens the tray of work that has no dates and is therefore not
   on the chart.
@@ -158,7 +160,7 @@ Two refusals you will meet:
 **Scale** changes how long a set of work runs, without retyping dates. Choose
 the scope: a phase, or rows you ticked. Set a factor such as `1.25` and read the
 projection, which gives hours before and after plus the new finish. Apply moves
-the dates. This scale has no undo in the panel, and the panel says so, so scale
+the dates. Scale has no undo in the panel, and the panel says so, so do it
 with the change in front of you.
 
 ## 8. Capture a baseline, then read the change
@@ -169,8 +171,8 @@ the capture date, the timeline can overlay it, and a task that slipped shows
 the gap between promise and reality instead of quietly restating today as if it
 were always the plan.
 
-Capture a second baseline when a change is approved. Two baselines and one
-current plan is how a coordinator answers "we moved it, here is when and by how
+Capture a second baseline when a change is approved. With two baselines beside
+the current plan, a coordinator can answer "we moved it, here is when and by how
 much" without reconstructing history from memory.
 
 ## 9. Read the risk
@@ -186,7 +188,87 @@ and `GET /api/projects/{id}/risk` returns the findings with their severity and
 the sentence that explains each one. Nothing here changes the plan, because risk
 is a read.
 
-## 10. What this build does not do yet
+## 10. See every project on one axis
+
+**Projects → Portfolio** draws the quarter as one chart: every project on the
+same time axis, grouped by client, with a summary line per group. **Quarter**
+and **Four weeks** change the zoom. **At risk only** narrows the chart to the
+projects whose own risk findings fired, and each one names its reasons in words
+rather than only turning a colour.
+
+Work with no dates does not sit on the chart. It collects in the **Not
+scheduled** tray below, because a bar drawn from a guessed date reads as a
+promise the plan never made.
+
+The share button copies a link that reproduces the exact view. The server keeps
+the snapshot it sent, so the same link still shows the same range and grouping
+later; it does not follow the live plan underneath. Anyone who opens it still
+needs to be signed in with `projects:view` and access to the organisation.
+
+## 11. Start from a template
+
+**Projects → Templates** is the gallery of shapes your team already runs well.
+Each card shows the shape at a glance: phases as a proportional strip, the
+task count, the typical duration and the effort range. **Shipped** means Marula
+provided it; **Yours** means someone in the workspace wrote it. Archived
+templates stay hidden until **Show archived** is ticked.
+
+- **Use** starts a project from the template.
+- **Open** reads the template's phases, roles and tasks.
+- **Preview** shows what the template will create without writing anything.
+
+Without `projects:create`, the gallery is a reading room: use and preview, no
+fork or new template. A billable template says what it needs before it can
+start, so the billing method is a decision you make with the shape in front of
+you, not a surprise on the first invoice.
+
+## 12. Work one task on its own page
+
+Open a task from the plan, from **My work**, or from a pod deep link. The task
+page is the plan row taken out of the Gantt so you can pick it up without the
+whole project around it. It carries:
+
+- the status, the due date, the effort left and the original estimate
+- what the task waits on and what waits on it
+- **Task pods**: status and blocker, the time and its timer, plus materials,
+  links and notes
+
+**Open the plan** returns to the project. The right-hand column is where you
+record the work you are doing. The plan's status and completion still
+come from the project record.
+
+**My project work** (also on Today) gathers your assigned tasks across every
+project. Waiting is its own state, and the reason is spelled out: waiting on
+the client, another task, a vendor, access or parts. A blocked task does not
+look like one you have not started.
+
+## 13. Change the scope without rewriting history
+
+The **Change orders** tab on a project records what changed, who agreed, what
+it moved and what it billed. The steps are visible on the record:
+
+**Draft → Awaiting approval → Approved → Applied → Billed**
+
+Two rules are drawn into the layout, and they are the reason the tab exists:
+
+- **Approval never applies.** Approving the document does not move the plan.
+- **Apply never bills.** Applying the change moves the dates and effort; a
+  separate billing release carries the money.
+
+A change that needs the client's agreement sits at **Waiting for the client**
+until they acknowledge it in the portal. The apply action stays unavailable
+until then, so the plan cannot run ahead of the answer.
+
+When the money is ready, **Release the billing line** stages a release. The
+next billing run that reaches its window picks it up; a pending release can be
+cancelled before then. If a release fails, the plan change stays applied and
+the row says **Applied, billing failed**, with the reason. The change is not
+silently reverted, because the work already moved.
+
+Amounts need `financial:read`. Without it the tab still shows the document and
+its progress, but the money fields say that financial access is needed.
+
+## 14. What this build does not do yet
 
 These are not in the build yet, so the surfaces will look unfinished:
 
