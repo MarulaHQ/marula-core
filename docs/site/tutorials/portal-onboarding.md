@@ -1,5 +1,5 @@
 ---
-description: "Your clients shouldn't have to email your helpdesk just to check if a ticket is being worked on, download last month's invoice, or approve a hardware quote."
+description: "Clients check tickets, invoices and quotes in the portal without emailing your helpdesk. Set it up in two steps: expose the boards, then provision each contact."
 ---
 
 # Tutorial: portal onboarding
@@ -7,7 +7,7 @@ description: "Your clients shouldn't have to email your helpdesk just to check i
 > **Audience:** both — steps 1–3 are admin (provisioning and exposure);
 > steps 4–5 are the client's first minutes and can be handed to them.
 
-Your clients shouldn't have to email your helpdesk just to check if a ticket is being worked on, download last month's invoice, or approve a hardware quote. Marula includes a built-in **Client Portal** where your customer's contacts can log requests, read client-facing help articles, pay or review invoices, and book appointment slots.
+The **Client Portal** is built in: your customer's contacts log requests, read client-facing help articles, pay or review invoices, and book appointment slots, without a single email to your helpdesk.
 
 To prevent accidental data leaks, the portal runs in its own isolated sign-in zone. There is no public "sign up" button: you decide which ticket boards are visible and explicitly invite each client contact under **Settings → Portal**.
 

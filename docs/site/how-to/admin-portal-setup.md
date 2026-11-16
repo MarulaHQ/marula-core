@@ -1,5 +1,5 @@
 ---
-description: "The Client Portal lets your customers submit support requests, view their invoices, read client-facing help articles, and book appointment slots without…"
+description: "Set up the client portal in two steps: expose the boards clients submit into, then provision each client's contacts. What portal accounts can never reach."
 ---
 
 # How to set up the portal
@@ -27,8 +27,6 @@ In the **Portal Users Directory** on the same page, you can see every portal log
 
 Click **Provision portal user** to create an account for a client contact. From each row's action menu, your service desk can also **Disable** the account, **reset password**, send a sign-in link, or **Delete** the user.
 
-> "Your service desk provisions accounts and can reset this password."
-
 For security, there is no public self-registration form on the portal, and the internal staff password-reset form never resets client portal accounts.
 
 ## 3. Share the portal URL and sign-in instructions
@@ -41,8 +39,8 @@ The client portal has its own dedicated sign-in screen (`"Marula — client port
 
 ## 4. What portal accounts can never access
 
-- **No access to internal staff tools or other clients:** Portal sessions are blocked at the routing and database layers from internal notes, staff settings, the password vault, unified staff search, and other clients' records.
-- **Scoped help search:** When a client searches in the portal, Marula queries only articles that are **published** and marked **client-facing**, inside a client-facing category. See [Portal isolation](../explanation/portal-isolation.md) for the full security design.
+- **Internal tools and other clients** — portal sessions are blocked at the routing and database layers from internal notes, staff settings, the password vault, unified staff search, and other clients' records.
+- **Help search** — a client search reaches only articles that are **published**, marked **client-facing**, and sitting in a client-facing category. See [Portal isolation](../explanation/portal-isolation.md) for the full security design.
 
 ## What you learned
 

@@ -2,18 +2,17 @@
 description: 'The docs coverage ledger: which Core surfaces have a page, which are planned and where each gap is owned.'
 ---
 
-# Docs coverage audit & IA plan (Wave 27 lane 1)
+# Docs coverage audit & IA plan
 
-Status: audit-only deliverable · Audit basis: Waves 11–26 GA product as of 2026-09-22
+Status: audit-only deliverable · Audit basis: the GA product as of 2026-09-22
 
 This is the coverage matrix and information-architecture (Diátaxis) plan for
-the open-source docs. Lane 2 (`p27-docs-fill`) executes the work order at the
-bottom. This page itself is the audit record, wired into the site so the gap
-stays visible until it is filled.
+the open-source docs. The work order at the bottom was the execution plan, and
+the delivery notes record what landed. This page itself is the audit record,
+wired into the site so the gap stays visible until it is filled.
 
 Method: every scheduled product surface was captured and reviewed in a real
-running stack (76 screenshots, `internal/design/qa-p27-docs-audit-ia/captures/`,
-verdicts in `internal/design/qa-p27-docs-audit-ia/REVIEW.md`), then cross-checked
+running stack (76 screenshots), then cross-checked
 against this site's existing pages and the self-host doc sources
 (`deploy/README.md`, `deploy/docker-compose.yml` comments,
 `deploy/runbooks/README.md` scaffold, `docs/desktop-release.md`,
@@ -50,13 +49,13 @@ product domains is the headline: the docs site today describes the *platform
 mechanics* (API, upgrades, read model, customization-as-data) but none of the
 *product usage* MSP staff and admins live in daily.
 
-## 2. UI/API mismatch notes found during the audit (feed lane 2 / product lanes)
+## 2. UI/API mismatch notes found during the audit
 
 - Settings→SLA escalation rows render `[object Object]m` for P1–P4 offsets — UI bug. Don't document names from that broken render.
-- Settings→Notifications showed raw event slugs (`report_delivery`, `ai_cap_warn`, `secret_rotation`) without friendly labels — **resolved** in Wave 34 lane 8: every kind now renders a friendly label (`lib/use-notifications.ts` `KIND_LABELS`).
-- Settings→Mail was an intentional placeholder ("backend lands with the mail administration wave") — **lifted** in Wave 34 lane 8: `/settings/email` is the mail administration surface, and [how-to/admin-email.md](how-to/admin-email.md) documents it. `/settings/mail` redirects.
+- Settings→Notifications showed raw event slugs (`report_delivery`, `ai_cap_warn`, `secret_rotation`) without friendly labels — **resolved** since the audit: every kind now renders a friendly label (`lib/use-notifications.ts` `KIND_LABELS`).
+- Settings→Mail was an intentional placeholder ("backend lands with the mail administration wave") — **lifted**: `/settings/email` is the mail administration surface, and [how-to/admin-email.md](how-to/admin-email.md) documents it. `/settings/mail` redirects.
 - Board-fields and security pages have plausible transient error states ("Fields could not be loaded…", "Failed to load security state") — distal UI bug indicators, not doc content.
-- `docs/site/index.md` "Where the rest lives" names `docs/runbooks/` which does not exist at that path (runbooks live under `deploy/runbooks/` as a scaffold) — fix the pointer while wiring lane 2.
+- `docs/site/index.md` "Where the rest lives" named `docs/runbooks/` which did not exist at that path (runbooks live under `deploy/runbooks/` as a scaffold) — **resolved** since the audit: the index now names `deploy/runbooks/` and links the authored runbook pages under `reference/`.
 
 ## 3. Diátaxis IA plan (target structure)
 
@@ -65,12 +64,12 @@ Three audiences, stated up front on every page: **site operator / MSP admin**
 **client portal users** (end customers — separate trust zone: portal docs
 never assume settings access, and portal auth is provisioned by the MSP).
 
-Conventions for lane 2:
+Conventions:
 
 - Prerequisites block on every how-to/tutorial (audience + what must already be true).
-- Product-behavior claims in how-to/explanation pages must match the verified UI strings in `REVIEW.md` captures — behavior claims are evidence-backed, not invented.
+- Product-behavior claims in how-to/explanation pages must match verified UI strings from capture review — behavior claims are evidence-backed, not invented.
 - Generated pages (`reference/api.md`, `reference/upgrade-matrix.md`) stay generated. `reference/read-model.md` stays a catalog pointing at `docs/reference/read-model/*.md`.
-- No describing unbuilt surfaces. When a surface ships, its placeholder line here is lifted and a how-to lands with it (mail lifted in Wave 34 lane 8 — see [how-to/admin-email.md](how-to/admin-email.md)).
+- No describing unbuilt surfaces. When a surface ships, its placeholder line here is lifted and a how-to lands with it (the mail placeholder was lifted when [how-to/admin-email.md](how-to/admin-email.md) landed).
 
 ### Tutorials (learning paths — worked end to end)
 
@@ -84,7 +83,7 @@ Conventions for lane 2:
 
 Admin tasks: upgrade ✅ (exists) · customize ✅ (exists, extend with board/category editing) · manage users & invites · configure SLA calendars & escalation ladders · set workflow categories · author automation rules · manage API keys (show once → rotate via replacement → revoke) · connect an IdP (SSO) · set up the portal (users + exposure) · run a dry-run import with saved mappings · record FX rates & read reconciliation (per-kind, never summed) · configure the plugin consent flow · manage dashboards (widget grid) & report schedules.
 
-Staff tasks: work a ticket (notes → approve → bill) · dispatch from the board · use provenance on a record · use the provenance/audit distinction when explaining history · use KB class grant paths · use the keyboard shortcuts (Alt registry, hold-Alt overlay, ? cheat sheet) ✅ Wave 29.
+Staff tasks: work a ticket (notes → approve → bill) · dispatch from the board · use provenance on a record · use the provenance/audit distinction when explaining history · use KB class grant paths · use the keyboard shortcuts (Alt registry, hold-Alt overlay, ? cheat sheet) ✅.
 
 Client tasks: portal sign-in · submit & follow requests · invoices · schedule.
 
@@ -99,13 +98,13 @@ Client tasks: portal sign-in · submit & follow requests · invoices · schedule
 - Exists: `why-marula.md`, `instant-first.md`, `customizations-are-data.md`, `upgrade-policy.md`, `upgrade-compatibility.md` catalog.
 - New: provenance vs audit (both append-only, different granularity) · FX additivity & the append-only rate book · deny-by-default AI & the decision harness · crawly "customizations are data" applied to boards/taxonomy (already ◐) · portal isolation model · KB-class categories & restricted chains (ADR 0006) · secret vault reveal auditing · instant-first conflicts page.
 
-### Self-host/operations lane
+### Self-host and operations
 
 Do not fork `deploy/README.md` or `docs/desktop-release.md` into the site. Instead add **linked** operator pages in the site that embed the canonical commands: local stack (`deploy/docker-compose.yml` — ports/profiles/role-split), observability profile (`OTEL_EXPORTER_OTLP_ENDPOINT` gate, Grafana datasources), backup/restore runbook (the `deploy/runbooks/` scaffold's first real page), desktop packaging pointer. Author `deploy/runbooks/` content under `docs/site/reference/` per its own README.
 
-## 4. Route → doc mapping (for p26 contextual help)
+## 4. Route → doc mapping (for in-app contextual help)
 
-Every in-app surface carries an in-app help entry point (`p26-onboarding-flows`). Mapping rule: each route's help entry links to the canonical page for its task, target structure:
+Every in-app surface carries an in-app help entry point. Mapping rule: each route's help entry links to the canonical page for its task, target structure:
 
 | Route family | Canonical doc |
 |---|---|
@@ -121,26 +120,26 @@ Every in-app surface carries an in-app help entry point (`p26-onboarding-flows`)
 | Integrations | how-to: connectors |
 | Portal routes | tutorial: portal onboarding + client how-tos |
 | Email (Settings→Email) | how-to: configure email (routing, SPF/DKIM/DMARC, transport, runbook) |
-| Unmapped (transients) | UI-bug lane notes |
+| Unmapped (transients) | UI-bug notes |
 
-## 5. Lane 2 (`p27-docs-fill`) work order
+## 5. Work order (executed)
 
 1. Fix `docs/site/index.md` runbooks pointer (`deploy/runbooks/`).
 2. Rewrite `tutorials/first-ticket.md` as the UI edition, keep the API edition cross-linked, and add the N−1 prerequisite mention of the seeded org (`owner@demo.local / demo-password-123`, 16 open tickets).
 3. Tutorials: inventory sync, first invoice, first agent run, portal onboarding.
 4. How-to task catalog per §3 (splitting by audience), starting with the P0 set: upgrade ✅ keep, SLA, users/invites, API keys, automation rules, board workflows.
 5. Explanation set per §3 (start: provenance vs audit, FX additivity, deny-by-default AI).
-6. Self-host pages per §3 operations lane + first runbook.
+6. Self-host pages per §3 self-host and operations + first runbook.
 7. Reference catalog expansion (taxonomy, events, settings map) — hand-written parts only. Generated pages remain generated.
 8. Every behavior claim cites the capturing verdict (screens supply the copy). Keep the "do not document" list from §2.
 
-Exit criteria for lane 2: `node docs/site/scripts/check-docs-site.mjs` green,
+Exit criteria: `node docs/site/scripts/check-docs-site.mjs` green,
 this page's ❌/◐ rows re-scored, coverage re-audited against the same
 captures before landing.
 
-## 6. Lane 2 delivery note (`p27-docs-fill`, 2026-09-22)
+## 6. Delivery note (2026-09-22)
 
-Lane 2 shipped the P0 work order. The lesson on the first ticket is now
+The work order shipped as planned. The lesson on the first ticket is now
 the UI edition, with the API edition cross-linked and the seeded org named
 as a prerequisite. It added five tutorials (inventory sync, invoice, agent
 run, portal onboarding), the audience-split how-to catalog (12 admin
@@ -150,7 +149,7 @@ backup/restore, reverse proxy/TLS). The
 docs-site checker now fails on any how-to/tutorial page missing its
 **Audience:** tag.
 
-## 7. Wave 34 lane 8 lift note (`p34-email-config-closeout`, 2026-09-26)
+## 7. Mail administration lift note (2026-09-26)
 
 The mail do-not-document placeholder is lifted. `/settings/email` ships the
 mail administration surface (inbound routing with collision validation,
@@ -193,9 +192,9 @@ menu:
   It runs inside `check-docs-site.mjs`, so the existing gate covers it.
 
 The measured audit, the gaps it found and what was left open are recorded in
-`internal/design/qa-p52-docs-ia/REVIEW.md` in the repository.
+the review notes that accompanied that pass.
 
-## 9. Wave 65 lift note (`p65-installers-doc`, 2026-11-12)
+## 9. Installers documentation note (2026-11-12)
 
 The desktop client and the installer artifacts are now documented from the
 operator's side. [Which installer do I want?](how-to/choose-your-installer.md)

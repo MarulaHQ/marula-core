@@ -31,7 +31,7 @@ design goals, in order:
    Controls: per board, **Exposed to client / Hidden** — nothing else
    leaks through.
 
-## What structural bar means in practice
+## What the boundary means in practice
 
 Three facts combine into the tenant guarantee:
 
@@ -72,7 +72,7 @@ What clients should **not** expect:
 
 ## Why the isolation model matters to the MSP side
 
-- Legally/contractually, "per-client isolation" is the property that
+- Contractually, "per-client isolation" is the property that
   makes serving multiple clients from one stack defensible — the
   [portal setup how-to](../how-to/admin-portal-setup.md) turns it into
   the provisioning steps.

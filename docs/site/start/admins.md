@@ -107,7 +107,7 @@ jump to the section that matches the failure.
   rotation without downtime.
 - [Connect a tool your team already uses](../how-to/admin-connectors.md) —
   roster, scoped connections, destinations, health and audience.
-- [Edit the emails Marula sends](../how-to/admin-email-templates.md) — outbound
+- [Edit the emails Marula sends](../how-to/admin-email-templates.md) —
   outbound mail, placeholders and previews, plus shipped defaults.
 
 ## "Keep it healthy"

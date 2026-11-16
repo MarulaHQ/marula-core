@@ -8,7 +8,7 @@ description: "You can navigate boards, create tickets, copy record links, and se
 > technicians, bookkeepers) can drive the app from the keyboard. Shortcut
 > settings apply to your personal account only.
 
-You can navigate boards, create tickets, copy record links, and search across Marula without taking your hands off the keyboard. When the general chat surface is granted, the same palette also answers questions about the screen you are on. If you forget a shortcut, hold down `Alt` anywhere outside a text box to see an on-screen guide for the page you are viewing.
+You can navigate boards, create tickets, copy record links, and search across Marula without taking your hands off the keyboard. When the general chat surface is granted, the same palette also answers questions with the screen you are on as its starting context. If you forget a shortcut, hold down `Alt` anywhere outside a text box to see an on-screen guide for the page you are viewing.
 
 ## Prerequisites
 
@@ -57,9 +57,10 @@ If a shortcut conflicts with assistive software or your personal workflow, you c
 ## Ask about the current screen
 
 When the general chat surface is granted, the palette's **Ask** tab is part of
-the same chord: `Cmd/Ctrl+K`, then `Tab` from the search field. Ask reads the
-screen named in its context chip, shows the sources behind an answer, and files
-any proposed change for approval rather than sending it. Without the grant the
+the same chord: `Cmd/Ctrl+K`, then `Tab` from the search field. Ask starts
+from the screen named in its context chip, can read beyond it whatever you
+are allowed to see, and shows the sources behind an answer; any proposed
+change waits for approval rather than sending it. Without the grant the
 switch is absent, not disabled. The full walkthrough is
 [Ask the assistant about the screen you are on](ask-the-assistant.md).
 

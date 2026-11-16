@@ -32,9 +32,9 @@ Last updated 2026-11-16.
   notes, document drafts, email replies), per surface and per role, with your
   own keys in a sealed credential store, append-only usage accounting, and an
   agent that reads your tickets through consented tools and proposes changes
-  for a human to approve. The command palette carries an Ask mode that reads
-  the screen in front of you, names its sources, and files any proposal for
-  approval.
+  for a human to approve. The command palette carries an Ask mode that starts
+  from the screen in front of you, names its sources, and files any proposal
+  for approval.
 - **Secrets.** The password vault with category RBAC, one-time share links,
   rotation hooks, and streaming decryption for secret files.
 - **Delivery work.** Projects with a plan and a timeline, drag ordering that
