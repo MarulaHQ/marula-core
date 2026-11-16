@@ -160,11 +160,13 @@ test("a quote line pulls from stock and shows the availability read", async ({ a
   await authedPage.goto("/sales/quotes");
   await authedPage.getByTestId("quotes-new").click();
   await pickSelect(authedPage, "quote-client", clients[0].name);
-  await pickSelect(authedPage, "quote-line-stock-0", itemName);
-  await expect(authedPage.getByTestId("quote-line-availability-0")).toContainText("3 each on hand");
+  // The stock picker names what is on hand in the option itself ("… · 3 each
+  // on hand"), so the availability read is asserted where the choice is made.
+  await pickSelect(authedPage, "quote-from-stock", `${itemName} · 3 ${item.unit} on hand`);
 
   const line = authedPage.getByTestId("quote-line-0");
-  await authedPage.getByTestId("quote-line-price-0").fill("25");
+  await expect(line).toContainText(itemName);
+  await authedPage.getByLabel("Unit price for line 1").fill("25");
   await authedPage.getByTestId("quote-save").click();
   await expect(authedPage.getByTestId("quote-save")).toBeHidden({ timeout: 20_000 });
   await expect(
