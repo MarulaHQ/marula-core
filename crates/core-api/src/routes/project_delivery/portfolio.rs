@@ -188,7 +188,7 @@ async fn build(
     let mut projects: std::collections::HashMap<Uuid, PortfolioProject> =
         std::collections::HashMap::new();
     for row in rows {
-        if !projects.contains_key(&row.project_id) {
+        let entry = projects.entry(row.project_id).or_insert_with(|| {
             order.push(row.project_id);
             let reasons = risk_reasons(
                 &row.project_status,
@@ -196,24 +196,20 @@ async fn build(
                 false,
                 row.project_status == "active",
             );
-            projects.insert(
-                row.project_id,
-                PortfolioProject {
-                    id: row.project_id,
-                    name: row.project_name.clone(),
-                    status: row.project_status.clone(),
-                    client_id: row.client_id,
-                    client_name: row.client_id.and_then(|id| client_names.get(&id).cloned()),
-                    start_date: row.start_date,
-                    due_date: row.due_date,
-                    at_risk: !reasons.is_empty(),
-                    risk_reasons: reasons,
-                    has_dated_phase: false,
-                    phases: Vec::new(),
-                },
-            );
-        }
-        let entry = projects.get_mut(&row.project_id).expect("inserted above");
+            PortfolioProject {
+                id: row.project_id,
+                name: row.project_name.clone(),
+                status: row.project_status.clone(),
+                client_id: row.client_id,
+                client_name: row.client_id.and_then(|id| client_names.get(&id).cloned()),
+                start_date: row.start_date,
+                due_date: row.due_date,
+                at_risk: !reasons.is_empty(),
+                risk_reasons: reasons,
+                has_dated_phase: false,
+                phases: Vec::new(),
+            }
+        });
         if let (Some(id), Some(name), Some(status), Some(start), Some(end)) = (
             row.phase_id,
             row.phase_name,

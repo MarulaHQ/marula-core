@@ -1636,7 +1636,7 @@ pub async fn create_procedure(
     let id = Uuid::now_v7();
     let detail = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let procedure = kh::insert_procedure(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             id,
             client_id,
@@ -1650,7 +1650,7 @@ pub async fn create_procedure(
             user_id,
         )
         .await?;
-        let steps = kh::replace_procedure_steps(&mut *ctx.tx, org_id, id, &steps).await?;
+        let steps = kh::replace_procedure_steps(&mut ctx.tx, org_id, id, &steps).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -1706,7 +1706,7 @@ pub async fn update_procedure(
             user_id,
         )
         .await?;
-        let steps = kh::replace_procedure_steps(&mut *ctx.tx, org_id, id, &steps).await?;
+        let steps = kh::replace_procedure_steps(&mut ctx.tx, org_id, id, &steps).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -1947,7 +1947,7 @@ pub async fn put_client_settings(
     let user_id = authed.principal.user.id;
     let row = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let row = kh::upsert_client_settings(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             client_id,
             req.owner_user_id,
@@ -2135,7 +2135,7 @@ pub async fn update_template(
     let user_id = authed.principal.user.id;
     let record = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let record = kh::update_template(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             id,
             &name,
@@ -2413,7 +2413,7 @@ pub async fn attach_totp(
 
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let secret_key = state.config.secret_key.clone();
+    let secret_key = state.config.secret_key;
     let digits = req.digits;
     let period = req.period_seconds;
     let algorithm = req.algorithm.clone();
@@ -2488,7 +2488,7 @@ pub async fn read_totp_code(
     require_permission(&authed.principal, secrets(Action::Edit))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let secret_key = state.config.secret_key.clone();
+    let secret_key = state.config.secret_key;
     let payload = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let row = kh::get_secret_totp(&mut *ctx.tx, org_id, record_id)
             .await?

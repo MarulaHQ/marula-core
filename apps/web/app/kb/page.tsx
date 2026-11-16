@@ -327,7 +327,7 @@ export default function KnowledgeHomePage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[14px] font-semibold">{client.name}</p>
                         <p className="text-[12px]" style={{ color: "var(--m-text-secondary)" }}>
-                          {client.assets_n} configurations · {client.sites_n} sites
+                          {client.assets_n} {client.assets_n === 1 ? "configuration" : "configurations"} · {client.sites_n} {client.sites_n === 1 ? "site" : "sites"}
                         </p>
                       </div>
                       {client.expiring_n > 0 ? (
@@ -348,7 +348,7 @@ export default function KnowledgeHomePage() {
                       style={{ color: "var(--m-text-secondary)" }}
                     >
                       <span className="tabular-nums font-semibold">
-                        {client.completeness.complete} of {client.completeness.total} legs
+                        {client.completeness.complete} of {client.completeness.total} sections
                       </span>
                       <span aria-hidden="true">·</span>
                       <span>
@@ -377,7 +377,7 @@ export default function KnowledgeHomePage() {
                     {
                       icon: <BookIcon size={16} />,
                       title: "Knowledge base",
-                      detail: `${home.org.published_articles_n} published · ${home.org.draft_articles_n} drafts`,
+                      detail: `${home.org.published_articles_n} published · ${home.org.draft_articles_n} ${home.org.draft_articles_n === 1 ? "draft" : "drafts"}`,
                       href: "/kb/articles",
                     },
                     {

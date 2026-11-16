@@ -27,7 +27,7 @@ export function CompletenessBlock({
     <div className="flex flex-col gap-2" data-testid="knowledge-completeness">
       <p className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
         <span className="text-[20px] font-semibold tabular-nums">{value.complete}</span>
-        <span style={{ color: "var(--m-text-secondary)" }}>of {value.total} documentation legs</span>
+        <span style={{ color: "var(--m-text-secondary)" }}>of {value.total} documentation sections</span>
         {done ? (
           <span
             className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-semibold"

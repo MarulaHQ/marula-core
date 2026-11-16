@@ -11,7 +11,7 @@
 // branch on the machine reason and render typed not-available states,
 // never a dead spinner.
 
-import { apiBaseUrl, loadTokens } from "./api";
+import { apiBaseUrl, authReady, loadTokens } from "./api";
 
 export type ChatFrameName =
   | "turn_started"
@@ -51,16 +51,17 @@ export async function runChatTurn(
   onFrame?: (frame: ChatFrame) => void,
 ): Promise<ChatTurnResult> {
   const base = apiBaseUrl();
+  await authReady();
   const tokens = loadTokens();
-  if (tokens === null) return { frames: [], text: "", refusal: "auth", refusalMessage: "not signed in" };
   const response = await fetch(
     `${base}/api/v1/ai/chat/sessions/${sessionId}/turns`,
     {
       method: "POST",
+      credentials: "include",
       headers: {
         "content-type": "application/json",
         accept: "text/event-stream",
-        authorization: `Bearer ${tokens.access_token}`,
+        ...(tokens === null ? {} : { authorization: `Bearer ${tokens.access_token}` }),
       },
       body: JSON.stringify(turn),
     },

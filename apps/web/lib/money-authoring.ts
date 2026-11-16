@@ -13,7 +13,7 @@
 // (the server fixes the key to the record kind), and no arithmetic the server
 // did not also compute.
 
-import { api, apiBaseUrl, loadTokens } from "./api";
+import { api, apiBaseUrl, authReady, loadTokens } from "./api";
 
 export type MoneyKind = "quote" | "contract";
 
@@ -190,16 +190,17 @@ async function postJson<T>(
   body: unknown,
   signal?: AbortSignal,
 ): Promise<MoneyAuthorOutcome<T>> {
+  await authReady();
   const tokens = loadTokens();
-  if (tokens === null) return { ok: false, refusal: "auth", message: "Not signed in." };
   let response: Response;
   try {
     response = await fetch(`${apiBaseUrl()}${path}`, {
       method: "POST",
+      credentials: "include",
       headers: {
         "content-type": "application/json",
         accept: "application/json",
-        authorization: `Bearer ${tokens.access_token}`,
+        ...(tokens === null ? {} : { authorization: `Bearer ${tokens.access_token}` }),
       },
       signal,
       body: JSON.stringify(body),
@@ -274,11 +275,15 @@ export function proposeContractChange(
  * call would not compile until the pins move.
  */
 export async function contractClauses(): Promise<ClauseRef[]> {
+  await authReady();
   const tokens = loadTokens();
-  if (tokens === null) return [];
   try {
     const response = await fetch(`${apiBaseUrl()}/api/v1/contracts/clauses`, {
-      headers: { accept: "application/json", authorization: `Bearer ${tokens.access_token}` },
+      credentials: "include",
+      headers: {
+        accept: "application/json",
+        ...(tokens === null ? {} : { authorization: `Bearer ${tokens.access_token}` }),
+      },
     });
     if (!response.ok) return [];
     const rows = (await response.json()) as ClauseRef[] | null;

@@ -11,7 +11,7 @@
  * error states, because a hub and a row action want to say different things.
  */
 
-import { apiBaseUrl, authHeaders } from "../../lib/api";
+import { apiBaseUrl, authHeaders, authReady } from "../../lib/api";
 
 export class KnowledgeRequestError extends Error {
   constructor(
@@ -40,8 +40,14 @@ async function messageFor(response: Response): Promise<string> {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // A full reload restores the access token from the session cookie; a raw
+  // fetch that fires first would carry no bearer. Wait for that restore.
+  await authReady();
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
+    // The refresh secret lives in an httpOnly cookie, so a raw fetch must ask
+    // for it explicitly; a full reload has no in-memory access token yet.
+    credentials: "include",
     headers: {
       ...authHeaders(),
       ...(init?.body === undefined ? {} : { "content-type": "application/json" }),

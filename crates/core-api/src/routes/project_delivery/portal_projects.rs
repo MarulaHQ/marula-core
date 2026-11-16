@@ -174,7 +174,7 @@ pub async fn get_one(
             .map(|phase| PortalStep {
                 label: phase.name.clone(),
                 status: phase.status.as_str().to_string(),
-                status_text: plain_phase(&phase.status.as_str()),
+                status_text: plain_phase(phase.status.as_str()),
                 start_date: phase.start_date,
                 end_date: phase.end_date,
             })

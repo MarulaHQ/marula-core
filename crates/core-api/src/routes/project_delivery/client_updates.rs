@@ -221,8 +221,7 @@ pub async fn draft(
                     period_start: Some(period_start),
                     period_end: Some(period_end),
                     withheld_reason: Some(
-                        "Nothing moved in this period, so there is nothing to tell the client"
-                            .into(),
+                        "Nothing moved in this period, so there is nothing to tell the client",
                     ),
                     created_by: Some(user_id),
                 },

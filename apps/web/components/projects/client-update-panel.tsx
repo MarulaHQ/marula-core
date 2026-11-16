@@ -64,7 +64,7 @@ export function ClientUpdatePanel({
 
   return (
     <section aria-label="Client updates" className="flex flex-col gap-3 border-t border-border pt-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-[14px] font-semibold">Client updates</h3>
           <p className="text-[13px] text-muted-foreground">
@@ -72,15 +72,15 @@ export function ClientUpdatePanel({
           </p>
         </div>
         {canEdit ? (
-          <div className="flex items-end gap-2">
-            <div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[16rem] flex-1">
               <Label htmlFor="closing">What comes next (optional)</Label>
               <Input
                 id="closing"
                 value={closing}
                 onChange={(e) => setClosing(e.target.value)}
                 placeholder="Next milestone date, if you want to promise it"
-                className="w-64"
+                className="w-full"
               />
             </div>
             <Button

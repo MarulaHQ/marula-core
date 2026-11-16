@@ -82,7 +82,7 @@ pub async fn list_for_client(
             JOIN audit_events ae
               ON ae.org_id = $1
              AND ae.action = 'portal.ticket_reply'
-             AND ae.actor_id = pu.id
+             AND ae.actor_id = pu.id::text
              AND ae.actor_kind IN ('portal_contact', 'portal_approver', 'portal_it_manager')
 
             UNION ALL

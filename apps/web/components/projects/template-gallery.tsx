@@ -40,7 +40,7 @@ function minutesLabel(minutes: number | null): string {
 
 function rangeLabel(template: GalleryTemplate): string {
   if (template.effort_min_minutes === null && template.effort_max_minutes === null) {
-    return "Effort not recorded";
+    return "not recorded";
   }
   if (template.effort_min_minutes !== null && template.effort_max_minutes !== null) {
     return `${minutesLabel(template.effort_min_minutes)} – ${minutesLabel(
@@ -342,8 +342,14 @@ export function TemplateGallery() {
 
             <div className="flex items-center gap-4 text-[12px] text-muted-foreground">
               <span>
-                <span className="font-mono tabular-nums">{template.typical_days ?? "—"}</span> days
-                typical
+                {template.typical_days === null ? (
+                  "No typical duration"
+                ) : (
+                  <>
+                    <span className="font-mono tabular-nums">{template.typical_days}</span>{" "}
+                    {template.typical_days === 1 ? "day" : "days"} typical
+                  </>
+                )}
               </span>
               <span>Effort {rangeLabel(template)}</span>
             </div>
@@ -355,12 +361,12 @@ export function TemplateGallery() {
                 </Button>
               ) : null}
               <Button asChild size="sm" variant="secondary">
-                <Link href={`/projects/templates/${template.id}`}>Preview</Link>
+                <Link href={`/projects/templates/${template.id}`}>Open</Link>
               </Button>
               <Dialog>
                 <DialogTrigger asChild>
                   <Button size="sm" variant="ghost">
-                    Quick look
+                    Quick view
                   </Button>
                 </DialogTrigger>
                 <DialogContent title={template.name} description="What this template will create">

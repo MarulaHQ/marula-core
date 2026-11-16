@@ -366,7 +366,7 @@ pub async fn contact_activity(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let events = core_db::contact_activity::list_for_client(&mut *tx, org_id, id, 10).await?;
+    let events = core_db::contact_activity::list_for_client(&mut tx, org_id, id, 10).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
     let mut out: Vec<ContactActivityView> = Vec::new();

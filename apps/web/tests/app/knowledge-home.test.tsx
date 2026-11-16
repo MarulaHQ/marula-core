@@ -120,7 +120,7 @@ describe("/kb knowledge home", () => {
     renderPage();
 
     expect((await screen.findAllByText("Acme Corporation")).length).toBeGreaterThan(0);
-    expect(screen.getByText("6 of 8 legs")).toBeTruthy();
+    expect(screen.getByText("6 of 8 sections")).toBeTruthy();
     const card = screen.getByTestId("knowledge-client-card");
     expect(card.getAttribute("href")).toBe(`/kb/clients/${CLIENT_ID}`);
     // The expiry is named with words, not just a colour.

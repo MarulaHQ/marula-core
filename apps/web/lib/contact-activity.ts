@@ -6,7 +6,7 @@
 // SDK is regenerated in one batch at the end of the lane; the route is stable
 // and the shape is checked here.
 
-import { apiBaseUrl, loadTokens } from "./api";
+import { apiBaseUrl, authReady, loadTokens } from "./api";
 import { relativeTime } from "./ticket-ops";
 
 export type ContactActivityEvent = {
@@ -44,15 +44,16 @@ export function contactActivitySummary(row: ContactActivity | undefined): string
 
 /** Every contact's activity for one client, keyed by contact id. */
 export async function fetchContactActivity(clientId: string): Promise<Record<string, ContactActivity>> {
+  await authReady();
   const tokens = loadTokens();
-  if (tokens === null) return {};
   try {
     const response = await fetch(
       `${apiBaseUrl()}/api/v1/clients/${encodeURIComponent(clientId)}/contacts/activity`,
       {
+        credentials: "include",
         headers: {
           accept: "application/json",
-          authorization: `Bearer ${tokens.access_token}`,
+          ...(tokens === null ? {} : { authorization: `Bearer ${tokens.access_token}` }),
         },
       },
     );

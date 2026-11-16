@@ -244,13 +244,13 @@ where
     Ok(sqlx::query_as::<_, RecentChange>(
         r#"SELECT * FROM (
              SELECT 'document'::text AS kind, d.title, d.id AS entity_id,
-                    u.name AS actor_name, d.updated_at AS changed_at
+                    u.display_name AS actor_name, d.updated_at AS changed_at
                FROM documents d
                LEFT JOIN users u ON u.id = d.updated_by
               WHERE d.org_id = $1 AND d.client_id = $2
              UNION ALL
              SELECT 'article', a.title, a.id,
-                    u.name, a.updated_at
+                    u.display_name, a.updated_at
                FROM kb_articles a
                LEFT JOIN users u ON u.id = a.updated_by
               WHERE a.org_id = $1 AND a.client_visible
@@ -260,25 +260,25 @@ where
               WHERE a.org_id = $1 AND a.client_id = $2
              UNION ALL
              SELECT 'rack', r.name, r.id,
-                    u.name, r.updated_at
+                    u.display_name, r.updated_at
                FROM knowledge_racks r
                LEFT JOIN users u ON u.id = r.updated_by
               WHERE r.org_id = $1 AND r.client_id = $2
              UNION ALL
              SELECT 'network', n.name, n.id,
-                    u.name, n.updated_at
+                    u.display_name, n.updated_at
                FROM knowledge_networks n
                LEFT JOIN users u ON u.id = n.updated_by
               WHERE n.org_id = $1 AND n.client_id = $2
              UNION ALL
              SELECT 'domain', d.domain, d.id,
-                    u.name, d.updated_at
+                    u.display_name, d.updated_at
                FROM knowledge_domains d
                LEFT JOIN users u ON u.id = d.updated_by
               WHERE d.org_id = $1 AND d.client_id = $2
              UNION ALL
              SELECT 'procedure', p.title, p.id,
-                    u.name, p.updated_at
+                    u.display_name, p.updated_at
                FROM knowledge_procedures p
                LEFT JOIN users u ON u.id = p.updated_by
               WHERE p.org_id = $1 AND p.client_id = $2
@@ -343,7 +343,7 @@ where
              UNION ALL
              SELECT 'document_review', d.title, d.client_id, c.name,
                     (d.expires_at AT TIME ZONE 'UTC')::date,
-                    coalesce(u.name, 'No owner'),
+                    coalesce(u.display_name, 'No owner'),
                     d.id, 'document review date'
                FROM documents d
                JOIN clients c ON c.id = d.client_id
@@ -1380,7 +1380,7 @@ pub struct ProcedureRecord {
 }
 
 const PROCEDURE_COLS: &str = "p.id, p.org_id, p.client_id, p.title, p.summary, p.body, \
-     p.owner_user_id, u.name AS owner_name, p.is_checklist, p.client_visible, p.version, \
+     p.owner_user_id, u.display_name AS owner_name, p.is_checklist, p.client_visible, p.version, \
      p.fields, p.created_at, p.updated_at";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -1504,15 +1504,15 @@ pub async fn update_procedure<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let r = sqlx::query_as::<_, ProcedureRecord>(&format!(
+    let r = sqlx::query_as::<_, ProcedureRecord>(
         "UPDATE knowledge_procedures p SET title = $3, summary = $4, body = $5,
             owner_user_id = $6, is_checklist = $7, client_visible = $8, fields = $9,
             version = p.version + 1, updated_by = $10, updated_at = now()
           WHERE p.org_id = $1 AND p.id = $2
           RETURNING p.id, p.org_id, p.client_id, p.title, p.summary, p.body,
-            p.owner_user_id, (SELECT name FROM users WHERE id = p.owner_user_id) AS owner_name,
-            p.is_checklist, p.client_visible, p.version, p.fields, p.created_at, p.updated_at"
-    ))
+            p.owner_user_id, (SELECT display_name FROM users WHERE id = p.owner_user_id) AS owner_name,
+            p.is_checklist, p.client_visible, p.version, p.fields, p.created_at, p.updated_at",
+    )
     .bind(org_id)
     .bind(id)
     .bind(title)
@@ -1698,7 +1698,7 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     Ok(sqlx::query_as::<_, ClientSettingsRecord>(
-        "SELECT s.org_id, s.client_id, s.owner_user_id, u.name AS owner_name,
+        "SELECT s.org_id, s.client_id, s.owner_user_id, u.display_name AS owner_name,
                 s.pinned_document_ids, s.review_note, s.updated_at
            FROM knowledge_client_settings s
            LEFT JOIN users u ON u.id = s.owner_user_id
@@ -1928,6 +1928,7 @@ where
     .await?)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert_secret_totp<'e, E>(
     executor: E,
     org_id: Uuid,

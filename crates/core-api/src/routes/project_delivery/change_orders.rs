@@ -97,6 +97,12 @@ impl From<core_db::project_delivery::ChangeOrder> for ChangeOrderView {
     }
 }
 
+/// An absent optional document body is an empty object, not JSON null: the
+/// validators and the apply path both read it as a map.
+fn empty_object() -> Value {
+    Value::Object(serde_json::Map::new())
+}
+
 // --- validation -------------------------------------------------------------
 
 /// The documented scope-change shape. Unknown keys are kept (the document is
@@ -194,10 +200,10 @@ pub struct CreateProjectChangeOrderRequest {
     pub source: String,
     #[serde(default)]
     pub reason: String,
-    #[serde(default)]
+    #[serde(default = "empty_object")]
     pub scope_changes: Value,
     pub client_summary: Option<String>,
-    #[serde(default)]
+    #[serde(default = "empty_object")]
     pub evidence: Value,
     pub coverage_note: Option<String>,
     pub confidence: Option<String>,
@@ -415,6 +421,7 @@ pub async fn patch(
 
 // --- lifecycle --------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 async fn transition(
     state: AppState,
     extensions: Extensions,

@@ -930,7 +930,7 @@ fn extract_fields(text: &str, client_names: &[String]) -> Vec<ExtractedField> {
         let tail: Vec<&str> = text
             .get(index + 4..)
             .unwrap_or("")
-            .split(|c: char| c == ',' || c == '.' || c == ';' || c == '\n')
+            .split([',', '.', ';', '\n'])
             .next()
             .unwrap_or("")
             .split_whitespace()
@@ -1030,17 +1030,16 @@ fn extract_fields(text: &str, client_names: &[String]) -> Vec<ExtractedField> {
                 );
             }
         }
-        if lowered_word.starts_with("valid") {
-            if let Some(next) = words.get(index + 1) {
-                push_unique(&mut fields, "term", format!("Valid {}", next));
-            }
+        if let Some(next) = words
+            .get(index + 1)
+            .filter(|_| lowered_word.starts_with("valid"))
+        {
+            push_unique(&mut fields, "term", format!("Valid {}", next));
         }
-        if lowered_word == "notice" {
-            if index > 0 {
-                let previous = words[index - 1];
-                if previous.chars().any(|c| c.is_ascii_digit()) {
-                    push_unique(&mut fields, "term", format!("{previous} days notice"));
-                }
+        if lowered_word == "notice" && index > 0 {
+            let previous = words[index - 1];
+            if previous.chars().any(|c| c.is_ascii_digit()) {
+                push_unique(&mut fields, "term", format!("{previous} days notice"));
             }
         }
         if lowered_word.starts_with("renew") {

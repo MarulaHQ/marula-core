@@ -183,7 +183,7 @@ export function PortfolioQuarter() {
         description="Every project on one axis, for the coordinator. Weeks across, projects down, and a reason wherever one needs attention."
         meta={
           <div className="flex items-center gap-3 text-[13px] text-muted-foreground">
-            <span className="font-mono tabular-nums">{totals.projects} projects</span>
+            <span className="font-mono tabular-nums">{totals.projects} {totals.projects === 1 ? "project" : "projects"}</span>
             <span className="font-mono tabular-nums">{totals.risk} at risk</span>
             {shareToken !== null ? <Badge tone="neutral">Shared view</Badge> : null}
           </div>

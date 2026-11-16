@@ -399,7 +399,7 @@ function HubSection({
       </div>
       {items.length === 0 ? (
         <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-          {count === 0 ? empty : `${count} records, none listed here.`}
+          {count === 0 ? empty : `${count} ${count === 1 ? "record" : "records"}, none listed here.`}
         </p>
       ) : (
         <ul className="flex flex-col">

@@ -7,7 +7,7 @@
 // non-2xx answer into an Error carrying the server's message, because every
 // surface here places the refusal beside the control that caused it.
 
-import { api, resolveApiBaseUrl } from "../../lib/api";
+import { api, authReady, resolveApiBaseUrl } from "../../lib/api";
 
 // --- shared shapes ----------------------------------------------------------
 
@@ -245,9 +245,11 @@ interface ErrorEnvelope {
 }
 
 export async function deliveryFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  await authReady();
   const token = api.tokens.accessToken;
   const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "content-type": "application/json",
       ...(token === null ? {} : { authorization: `Bearer ${token}` }),
