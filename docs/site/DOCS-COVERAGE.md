@@ -211,12 +211,12 @@ still in flight, so both pages name the OS warning to expect instead of
 promising a date. The maintainer's half of the same story stays in
 `docs/desktop-release.md`; these two pages do not fork it.
 
-## 10. Post-surface-pack doc audit (2026-11-16)
+## 10. Documentation audit of recent releases (2026-11-16)
 
-The waves merged between #48 and #82 shipped product surfaces faster than the
-site described them. The audit compared those merges against every page under
-`docs/site/` and found four stale claims and seven surfaces with no user page
-at all. The stale claims were fixed in place:
+Recent releases shipped product surfaces faster than the site described them.
+This audit compared the merged work against every page under `docs/site/` and
+found four stale claims and seven surfaces with no user page at all. The stale
+claims were fixed in place:
 
 - The client portal page still listed four tabs. It now describes the seven
   the portal shell carries (Tickets, Projects, Invoices, Quotes, Schedule,

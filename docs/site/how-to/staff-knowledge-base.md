@@ -17,8 +17,10 @@ the name of the thing you need.
 
 - The `kb:view` permission. It is part of every staff role that can open a
   ticket.
-- To reveal a credential, `secrets:edit`, plus access to the credential's
-  category. Without both, the record is not shown to you at all.
+- To reveal a credential's value, `secrets:edit`. Category access decides
+  whether the record appears for you at all: with access but no
+  `secrets:edit`, you can open the record and read its fields, dates and
+  links, and the value stays sealed.
 - A client you are allowed to see. Client access narrows everything here, and
   a client outside your access has no card, no search hit and no hub.
 
@@ -140,7 +142,7 @@ Revealing is a deliberate act:
 The reveal writes an audit entry naming you and the record. The value is not
 kept in page state after the dialog closes, and it is not copied into notes.
 Reveal needs `secrets:edit`. A restricted category also needs an explicit
-grant. If the button is missing, that is the grant, not a broken page.
+grant. If the button is missing, you lack `secrets:edit`, not a working page.
 
 ## What you learned
 

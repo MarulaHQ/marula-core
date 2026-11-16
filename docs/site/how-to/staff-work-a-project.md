@@ -217,8 +217,9 @@ templates stay hidden until **Show archived** is ticked.
 - **Open** reads the template's phases, roles and tasks.
 - **Preview** shows what the template will create without writing anything.
 
-Without `projects:create`, the gallery is a reading room: use and preview, no
-fork or new template. A billable template says what it needs before it can
+Without `projects:create`, the gallery is a reading room: preview only.
+Using a template, forking one and writing a new one all need that permission.
+A billable template says what it needs before it can
 start, so the billing method is a decision you make with the shape in front of
 you, not a surprise on the first invoice.
 

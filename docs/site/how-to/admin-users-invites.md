@@ -28,11 +28,14 @@ decision wearing an email form's clothes, so the dialog walks three steps:
 3. **Who are you inviting?** Name and work email. The invite is idempotent per
    attempt, so a double-click sends one invitation, not two.
 
-On success, the server sends the invitation email in the same transaction as
-the invite, so a person is never created without being told. The dialog also
-shows the setup link and its token once, for the case where email is slow or
-the person is standing next to you: copy it and hand it over out of band. That
-link cannot be fetched again.
+On success, the invite is created and its email is queued in the same
+transaction, so a person is never created without an email being queued for
+them. Queued mail sends afterwards, and sending can still fail — if an
+invitation does not arrive, the delivery ledger in
+[Configure email](admin-email.md) is where to look. The dialog also shows the
+setup link and its token once, for the case where email is slow or the person
+is standing next to you: copy it and hand it over out of band. That link
+cannot be fetched again.
 
 The wording of the invitation itself is a template. To change it, edit the
 **Workspace invitation** row in

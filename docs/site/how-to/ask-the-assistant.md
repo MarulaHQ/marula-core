@@ -1,5 +1,5 @@
 ---
-description: "The palette's second mode answers questions about the screen in front of you, shows its sources, and files any proposed change for your approval."
+description: "The palette's second mode answers questions with the screen as its starting context, shows its sources, and files proposals for your approval."
 ---
 
 # How to ask the assistant about the screen you are on
@@ -8,10 +8,10 @@ description: "The palette's second mode answers questions about the screen in fr
 > surface. If the **Ask** switch is not there, the grant is not there either.
 
 The command palette searches and jumps. When an admin has granted the general
-chat surface, it also answers questions about the page you are looking at. It
-is a working assistant, not a chat window bolted onto the product: it reads the
-screen you are on, says which sources it used, and files any proposed change
-for your approval instead of sending it.
+chat surface, it also answers questions with the page you are looking at as
+its starting context. It is a working assistant, not a chat window bolted onto
+the product: it starts from the screen you are on, says which sources it used,
+and files any proposed change for your approval instead of sending it.
 
 ## Prerequisites
 
@@ -32,10 +32,12 @@ Press `Cmd+K` on macOS or `Ctrl+K` elsewhere. Search mode is the default:
 - `Enter` sends the question in Ask mode.
 
 The first time you switch, the palette shows a context chip naming the screen
-it can see — for example **This screen: Ticket MC-1042 · Acme**. That chip is
-the whole input scope. The assistant cannot see your other tickets, your inbox,
-or another client's records. It sees the screen in front of you and what its
-own tools are permitted to read.
+the conversation starts from — for example **This screen: Ticket MC-1042 ·
+Acme**. The chip is a starting point, not a fence. When a question needs more
+than the screen in front of you, the assistant can read other records you are
+allowed to see, such as another ticket or another client. Every read appears
+in the sources list. What it cannot do is read past your own permissions:
+your access is the ceiling.
 
 ## 2. Ask a question with an answer in the product
 
@@ -47,8 +49,7 @@ Good questions name the thing on screen and the decision you are making:
 - "What should I check before I close this ticket?"
 
 Questions about something else get a short answer and a pointer to the right
-screen, not a guess. The assistant stays local to the
-context chip.
+screen, not a guess.
 
 ## 3. Read the sources
 
@@ -102,7 +103,8 @@ name and what you asked.
 
 - `Cmd/Ctrl+K` opens the palette, and `Tab` switches to Ask when the surface is
   granted.
-- The assistant reads the screen named in the context chip and nothing else.
+- The chip is the starting point, not the limit. The assistant can read what
+  you may read, and the sources list shows every read.
 - Sources are shown, and a proposed change waits for approval elsewhere.
 - The panel keeps the conversation above the work bar. It is not a saved
   transcript.

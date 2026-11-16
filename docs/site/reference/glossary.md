@@ -68,15 +68,15 @@ product and is missing here, that is a gap worth reporting through
 | Term | What it means |
 |---|---|
 | **Client hub** | The knowledge-base page for one client: counts for every record type, completeness with its gaps, expiries, recent changes and a value-free vault glance. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
-| **Completeness** | Eight checks on a client's documentation: contacts, sites, devices, documentation, a credential, a network, a domain and a procedure. The card names the gaps rather than showing a bare score. |
+| **Completeness** | Eight checks on a client's documentation: contacts, sites, devices, documentation, a credential, a network, a domain and a procedure. The card names the gaps rather than showing a bare score. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
 | **Rack layout** | The unit-by-unit map of a rack: which device occupies which start unit and height, on which face. See [Write knowledge and keep client records current](../how-to/admin-knowledge-base.md). |
-| **Subnet / reservation** | A network range with its gateway and VLAN, plus the DHCP settings, and an address inside it reserved for a named host. |
-| **Procedure** | A runbook with ordered steps, an owner and a version. Optional steps are marked; ticking a step is not recorded. |
+| **Subnet / reservation** | A network range with its gateway and VLAN, plus the DHCP settings, and an address inside it reserved for a named host. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
+| **Procedure** | A runbook with ordered steps, an owner and a version. Optional steps are marked; ticking a step is not recorded. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
 | **Expiry rollup** | One list of domain registrations, TLS certificates, document reviews and warranties, plus credential rotation, each with an owner and a source. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
-| **Published to the portal** | An article is visible to clients only when it is published, marked client-facing, and sits in a client-facing category. |
+| **Published to the portal** | An article is visible to clients only when it is published, marked client-facing, and sits in a client-facing category. See [Write knowledge and keep client records current](../how-to/admin-knowledge-base.md). |
 | **Change order** | A documented scope change with its own steps and acknowledgement, plus a billing release. Approval never applies it. Applying never bills it. See [Work a project](../how-to/staff-work-a-project.md). |
-| **Billing release** | The money line a change order stages for the next billing run. It can be cancelled while pending, and a failed release leaves the plan change applied. |
-| **Portfolio** | Every project on one time axis, grouped by client, with at-risk reasons and undated work kept in a separate tray. |
+| **Billing release** | The money line a change order stages for the next billing run. It can be cancelled while pending, and a failed release leaves the plan change applied. See [Work a project](../how-to/staff-work-a-project.md). |
+| **Portfolio** | Every project on one time axis, grouped by client, with at-risk reasons and undated work kept in a separate tray. See [Work a project](../how-to/staff-work-a-project.md). |
 | **Dead work** | Work a ledger abandoned after its last attempt: jobs, email, webhook deliveries and stream events. See [Recover work that gave up](../how-to/operator-dead-work.md). |
 | **Object integrity** | The pass that compares database rows with object-store bytes, reporting orphans and missing bytes. See [Check that records and stored files still agree](../how-to/operator-object-integrity.md). |
 | **Connector destination** | One named target inside a connected vendor (a channel, conversation, route or workflow), identified by the vendor's own id. See [Connect a tool your team already uses](../how-to/admin-connectors.md). |

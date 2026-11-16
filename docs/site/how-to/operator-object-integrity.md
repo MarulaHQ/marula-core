@@ -83,7 +83,13 @@ Object integrity is the check that tells you whether a restore was complete.
 Run it after a restore, not only on a schedule:
 
 1. Restore the database and the object store from the same point in time.
-2. Let the pass run, or open the page after it has.
+   Restore the database first. The pass reclaims bytes nothing references, so
+   an object store that comes back before its rows can have its restored files
+   deleted as orphans once the grace window passes. If you cannot order the
+   restores, put the pass in report-only (`MARULA_OBJECT_GC=dry_run`) or off
+   (`MARULA_OBJECT_GC=off`) until both are finished.
+2. Wait for a pass that starts after the restore finishes and completes.
+   Counts from a pass that ran earlier say nothing about this restore.
 3. Read the missing-bytes count. A non-zero count means the two halves of the
    restore do not match. Find the rows named and re-upload from the backup.
 4. Read the orphans. A burst of orphans after a restore usually means the

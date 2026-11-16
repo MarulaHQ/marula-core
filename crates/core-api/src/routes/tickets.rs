@@ -797,10 +797,11 @@ pub async fn get_one(
     Ok(response)
 }
 
-/// A bodyless `304 Not Modified` carrying the validator that matched.
+/// The archive request body.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct ArchiveTicketRequest {
-    /// `true` archives, `false` restores. Archiving keeps the first instant.
+    /// `true` archives the ticket, `false` restores it. Archiving keeps the
+    /// first instant.
     pub archived: bool,
 }
 
