@@ -57,7 +57,9 @@ export interface CommandPaletteProps {
 
 export function CommandPalette({ grant, context }: CommandPaletteProps) {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const search = usePaletteSearch(state.query);
+  const askAvailable = grant === "granted";
+  const mode = state.mode === "ask" && askAvailable ? "ask" : "search";
+  const search = usePaletteSearch(state.query, mode === "search");
   const groups = useMemo(
     () => groupResults(search.response?.results ?? []),
     [search.response],
@@ -65,9 +67,6 @@ export function CommandPalette({ grant, context }: CommandPaletteProps) {
   const flat = useMemo(() => flatOpenable(groups, ACTIONS), [groups]);
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const askAvailable = grant === "granted";
-  const mode = state.mode === "ask" && askAvailable ? "ask" : "search";
 
   // The cursor is clamped, never lost: a shorter answer keeps the person on
   // the nearest row instead of jumping to the top.
@@ -92,6 +91,15 @@ export function CommandPalette({ grant, context }: CommandPaletteProps) {
   const active = flat[cursor];
   const activeId = active === undefined ? undefined : `palette-row-${rowKey(active)}`;
   const router = useRouter();
+
+  // Arrow keys move the cursor while focus stays in the field, so the row
+  // they land on has to be scrolled into view or Enter opens something the
+  // person never saw.
+  useEffect(() => {
+    if (activeId === undefined) return;
+    const row = document.getElementById(activeId);
+    if (typeof row?.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
 
   function openRow(href: string): void {
     actions.close();

@@ -34,6 +34,9 @@ pub struct Document {
     pub updated_by: Option<UserId>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Archive marker: hidden from lists and search by default, still
+    /// readable by id so links and version history keep resolving. NULL = live.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 /// One immutable snapshot in a document's append-only history. Every

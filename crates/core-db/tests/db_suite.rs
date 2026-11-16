@@ -164,6 +164,7 @@ fn filter_all() -> tickets::TicketFilter {
         category: None,
         priority: None,
         tag_ids: None,
+        include_archived: false,
         limit: 100,
         offset: 0,
         cursor: None,

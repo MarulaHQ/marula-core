@@ -27,7 +27,7 @@ import {
   SelectValue,
   Spinner,
 } from "@marula-core/ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, useAuth } from "../../lib/api";
 import { money } from "../../lib/format";
 import {
@@ -44,8 +44,9 @@ import { ClientUpdatePanel } from "./client-update-panel";
 interface ReleaseRow {
   id: string;
   label: string;
-  amount_minor: number;
-  currency: string;
+  /** Null when the server redacts it for a caller without financial access. */
+  amount_minor: number | null;
+  currency: string | null;
   released_on: string;
   status: "pending" | "billed" | "cancelled";
 }
@@ -112,6 +113,24 @@ function CreateChangeOrderDialog({
   const [error, setError] = useState<string | null>(null);
 
   async function onCreate() {
+    // Parse once, before the request: "1,200" or "$500" is NaN, and JSON
+    // would store that as `null` — a change order saved as "no money" with
+    // no error shown. An empty field is the only way to say no money.
+    const rawAmount = amount.trim();
+    const currencyCode = currency.trim().toUpperCase();
+    let amountMinor: number | null = null;
+    if (rawAmount !== "") {
+      const value = Number(rawAmount);
+      if (!Number.isFinite(value)) {
+        setError("The amount must be a number. Leave it empty for no money.");
+        return;
+      }
+      if (!/^[A-Z]{3}$/.test(currencyCode)) {
+        setError("The currency must be a three-letter code, such as USD.");
+        return;
+      }
+      amountMinor = Math.round(value * 100);
+    }
     setBusy(true);
     setError(null);
     try {
@@ -125,8 +144,8 @@ function CreateChangeOrderDialog({
         coverage_note: null,
         confidence: null,
         contract_clause: null,
-        amount_minor: amount.trim() === "" ? null : Math.round(Number(amount) * 100),
-        currency: amount.trim() === "" ? null : currency,
+        amount_minor: amountMinor,
+        currency: amountMinor === null ? null : currencyCode,
         client_ack_required: ackRequired,
       });
       setOpen(false);
@@ -288,34 +307,65 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ReleaseRow | null>(null);
 
+  const loadSeq = useRef(0);
+  // The project the mounted panel is showing. A reload captured for the
+  // previous project — an action's follow-up, or the create dialog's — must not
+  // run after a move: it would advance the sequence and draw the old project's
+  // rows over the new one's.
+  const projectIdRef = useRef(projectId);
+
   const load = useCallback(async () => {
+    const loadingFor = projectId;
+    if (projectIdRef.current !== loadingFor) return;
+    const seq = ++loadSeq.current;
     setError(null);
     try {
       const [nextOrders, releaseBody, nextUpdates] = await Promise.all([
-        fetchChangeOrders(projectId),
+        fetchChangeOrders(loadingFor),
         api.api.GET("/api/v1/projects/{id}/billing-releases", {
-          params: { path: { id: projectId } },
+          params: { path: { id: loadingFor } },
         }),
-        fetchClientUpdates(projectId),
+        fetchClientUpdates(loadingFor),
       ]);
+      // The typed client reports a refusal in `error` instead of throwing;
+      // reading the body anyway would show "Nothing staged for billing".
+      if (releaseBody.error !== undefined) {
+        throw new Error("The billing releases could not be read.");
+      }
+      if (projectIdRef.current !== loadingFor) return;
+      if (seq !== loadSeq.current) return;
       setOrders(nextOrders);
       setReleases((releaseBody.data ?? []) as ReleaseRow[]);
       setUpdates(nextUpdates);
     } catch (e) {
+      if (projectIdRef.current !== loadingFor) return;
+      if (seq !== loadSeq.current) return;
       setError((e as Error).message);
     }
   }, [projectId]);
 
+  // A full page load mounts this before AuthProvider restored the token, and
+  // a route change reuses the instance: clear the previous project's rows and
+  // let only the newest response commit.
   useEffect(() => {
+    projectIdRef.current = projectId;
+    if (auth.status !== "authed") return;
+    setOrders(null);
+    setReleases([]);
+    setUpdates([]);
     void load();
-  }, [load]);
+  }, [auth.status, load, projectId]);
 
   async function act(order: ChangeOrder, action: "submit" | "approve" | "apply" | "bill") {
+    const startedFor = projectId;
     setBusyId(order.id);
     setActionError(null);
     setActionNote(null);
     try {
-      const result = await changeOrderAction(projectId, order.id, action);
+      const result = await changeOrderAction(startedFor, order.id, action);
+      // The panel may have moved on. Its note is about this project's order, so
+      // it must not be read against another project's rows.
+      if (projectIdRef.current !== startedFor) return;
       if (action === "apply") {
         const applied = result as ApplyResult;
         setActionNote(
@@ -328,22 +378,33 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
       }
       await load();
     } catch (e) {
+      if (projectIdRef.current !== startedFor) return;
       setActionError((e as Error).message);
       await load();
     } finally {
-      setBusyId(null);
+      if (projectIdRef.current === startedFor) setBusyId(null);
     }
   }
 
   async function cancelRelease() {
     if (cancelTarget === null) return;
+    const startedFor = projectId;
     try {
-      await api.api.POST("/api/v1/projects/{id}/billing-releases/{release_id}/cancel", {
-        params: { path: { id: projectId, release_id: cancelTarget.id } },
-      });
+      const result = await api.api.POST(
+        "/api/v1/projects/{id}/billing-releases/{release_id}/cancel",
+        { params: { path: { id: startedFor, release_id: cancelTarget.id } } },
+      );
+      // A refusal (already billed, no permission, a 5xx) arrives in `error`,
+      // not as a throw: closing the dialog silently would leave a pending
+      // release that the next billing run can still pick up.
+      if (result.error !== undefined) {
+        throw new Error("The release could not be cancelled. Reload and try again.");
+      }
+      if (projectIdRef.current !== startedFor) return;
       setCancelTarget(null);
       await load();
     } catch (e) {
+      if (projectIdRef.current !== startedFor) return;
       setActionError((e as Error).message);
     }
   }
@@ -406,18 +467,19 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
                   <p className="mt-1 text-[13px] text-muted-foreground">{order.reason}</p>
                 </div>
                 <div className="text-right">
-                  {order.amount_minor !== null ? (
-                    canReadMoney ? (
-                      <div className="font-mono text-[14px] tabular-nums">
-                        {money(order.amount_minor, order.currency ?? "USD")}
-                      </div>
-                    ) : (
-                      <div className="text-[12px] text-muted-foreground" title="Needs financial access">
-                        Amount hidden
-                      </div>
-                    )
-                  ) : (
+                  {/* A caller without financial access gets nulls from the
+                      server, so permission is checked first: null only means
+                      "no money was agreed" when the figure was readable. */}
+                  {!canReadMoney ? (
+                    <div className="text-[12px] text-muted-foreground" title="Needs financial access">
+                      Amount hidden
+                    </div>
+                  ) : order.amount_minor === null ? (
                     <div className="text-[12px] text-muted-foreground">No money</div>
+                  ) : (
+                    <div className="font-mono text-[14px] tabular-nums">
+                      {money(order.amount_minor, order.currency ?? "USD")}
+                    </div>
                   )}
                 </div>
               </div>
@@ -492,7 +554,15 @@ export function ChangeOrdersPanel({ projectId }: { projectId: string }) {
               >
                 <span className="flex-1">{release.label}</span>
                 <span className="font-mono tabular-nums">
-                  {canReadMoney ? money(release.amount_minor, release.currency) : "Hidden"}
+                  {!canReadMoney ? (
+                    <span title="Needs financial access" className="text-muted-foreground">
+                      Amount hidden
+                    </span>
+                  ) : release.amount_minor === null ? (
+                    <span className="text-muted-foreground">No money</span>
+                  ) : (
+                    money(release.amount_minor, release.currency ?? "USD")
+                  )}
                 </span>
                 <Badge tone={release.status === "pending" ? "due" : release.status === "billed" ? "success" : "offline"}>
                   {release.status}

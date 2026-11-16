@@ -10,6 +10,12 @@
 
 import type { ContractDraft, ContractPriceLine, DraftLine, QuoteDraft } from "../../lib/money-authoring";
 
+/**
+ * A draft line as the builder holds it. The draft contract carries `taxable`
+ * (`null` when nothing established it), so the preview reads it directly.
+ */
+export type TaxableLine = DraftLine;
+
 /** Quantity (milli) × price (minor), half-to-even, positive operands. */
 export function lineAmountMinor(quantityMilli: number, unitPriceMinor: number): number {
   const quantity = Math.max(0, Math.round(quantityMilli));
@@ -37,7 +43,14 @@ export function quoteOptionalTotal(lines: DraftLine[]): number {
 
 export function taxOf(taxableMinor: number, taxRateBps: number): number {
   const rate = Math.max(0, Math.round(taxRateBps));
-  return Math.round((Math.max(0, taxableMinor) * rate) / 10000);
+  // Half-to-even, the rule `quote::rollup` applies on the server, so a preview
+  // and the stored `tax_minor` agree on an exact half.
+  const numerator = Math.max(0, Math.round(taxableMinor)) * rate;
+  const quotient = Math.floor(numerator / 10000);
+  const remainder = numerator - quotient * 10000;
+  if (remainder * 2 > 10000) return quotient + 1;
+  if (remainder * 2 === 10000 && quotient % 2 !== 0) return quotient + 1;
+  return quotient;
 }
 
 export type QuoteTotals = {
@@ -47,11 +60,15 @@ export type QuoteTotals = {
   optionalMinor: number;
 };
 
-export function quoteTotals(lines: DraftLine[], taxRateBps: number): QuoteTotals {
-  // Taxable is per line on the create route; a describing draft has no
-  // taxability flag, so every line is taxable and the rate is the builder's.
+export function quoteTotals(lines: TaxableLine[], taxRateBps: number): QuoteTotals {
+  // Tax is per line on the create route, so the taxable base is the required,
+  // taxable lines only. An absent flag stays taxable, matching the create
+  // payload's `?? true` and the server's default.
   const subtotalMinor = quoteSubtotal(lines);
-  const taxMinor = taxOf(subtotalMinor, taxRateBps);
+  const taxableMinor = lines
+    .filter((line) => line.optional !== true && line.taxable !== false)
+    .reduce((sum, line) => sum + lineAmountMinor(line.quantity_milli, line.unit_price_minor), 0);
+  const taxMinor = taxOf(taxableMinor, taxRateBps);
   return {
     subtotalMinor,
     taxMinor,

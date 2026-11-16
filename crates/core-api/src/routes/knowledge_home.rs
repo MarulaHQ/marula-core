@@ -341,12 +341,14 @@ pub async fn expirations(
 pub struct SearchQuery {
     pub q: String,
     pub limit: Option<i64>,
+    /// Narrow the answer to one client, before the limit rather than after it.
+    pub client_id: Option<Uuid>,
 }
 
 /// GET /api/knowledge/search — every documentation store, one ranked list.
 /// A secret appears as its record only; no value and no sealed field is read.
 #[utoipa::path(operation_id = "knowledge_search", get, path = "/api/knowledge/search", tag = "knowledge", security(("bearer" = [])), 
-    params(("q" = String, Query), ("limit" = Option<i64>, Query)),
+    params(("q" = String, Query), ("limit" = Option<i64>, Query), ("client_id" = Option<Uuid>, Query)),
     responses((status = 200, body = [kh::KnowledgeSearchHit])))]
 pub async fn search(
     State(state): State<AppState>,
@@ -372,7 +374,7 @@ pub async fn search(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let rows = kh::search(&mut *tx, org_id, &pattern, limit).await?;
+    let rows = kh::search(&mut *tx, org_id, q.client_id, &pattern, limit).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rows))
 }
@@ -435,7 +437,7 @@ pub struct RackDetailResponse {
 }
 
 /// GET /api/knowledge/racks?client_id=
-#[utoipa::path(operation_id = "knowledge_list_racks", get, path = "/api/knowledge/racks?client_id=", tag = "knowledge", security(("bearer" = [])), 
+#[utoipa::path(operation_id = "knowledge_list_racks", get, path = "/api/knowledge/racks", tag = "knowledge", security(("bearer" = [])), 
     params(("client_id" = Uuid, Query)),
     responses((status = 200, body = [kh::RackRecord])))]
 pub async fn list_racks(
@@ -569,6 +571,24 @@ pub async fn update_rack(
         .fields
         .unwrap_or_else(|| Value::Object(Default::default()));
     let rack = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        let current = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
+        if req.units < current.units {
+            // A device mounted above the new top would be drawn outside the
+            // elevation it is in, so the rack cannot shrink under it.
+            let devices = kh::list_rack_devices(&mut *ctx.tx, org_id, id).await?;
+            if let Some(over) = devices
+                .iter()
+                .find(|d| d.unit_start + d.unit_height - 1 > req.units)
+            {
+                return Err(ApiError::Validation(format!(
+                    "{} occupies U{} to U{}, so the rack cannot shrink to {}U",
+                    over.name,
+                    over.unit_start,
+                    over.unit_start + over.unit_height - 1,
+                    req.units
+                )));
+            }
+        }
         let rack = kh::update_rack(
             &mut *ctx.tx,
             org_id,
@@ -618,7 +638,7 @@ pub async fn delete_rack(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        kh::delete_rack(&mut *ctx.tx, org_id, id).await?;
+        kh::delete_rack(&mut ctx.tx, org_id, id).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -694,7 +714,7 @@ pub async fn add_rack_device(
     }
     let new_id = Uuid::now_v7();
     let device = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let rack = kh::get_rack(&mut *ctx.tx, org_id, id).await?;
+        let rack = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
         let top = req.unit_start + req.unit_height - 1;
         if top > rack.units {
             return Err(ApiError::Validation(format!(
@@ -778,7 +798,10 @@ pub async fn update_rack_device(
         &["online", "attention", "offline", "passive"],
     )?;
     let device = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let rack = kh::get_rack(&mut *ctx.tx, org_id, id).await?;
+        if !kh::rack_device_on(&mut *ctx.tx, org_id, id, device_id).await? {
+            return Err(ApiError::NotFound);
+        }
+        let rack = kh::lock_rack(&mut *ctx.tx, org_id, id).await?;
         let top = req.unit_start + req.unit_height - 1;
         if top > rack.units {
             return Err(ApiError::Validation(format!(
@@ -847,7 +870,10 @@ pub async fn delete_rack_device(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        kh::delete_rack_device(&mut *ctx.tx, org_id, device_id).await?;
+        if !kh::rack_device_on(&mut *ctx.tx, org_id, id, device_id).await? {
+            return Err(ApiError::NotFound);
+        }
+        kh::delete_rack_device(&mut ctx.tx, org_id, device_id).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -896,7 +922,7 @@ pub struct NetworkDetailResponse {
 }
 
 /// GET /api/knowledge/networks?client_id=
-#[utoipa::path(operation_id = "knowledge_list_networks", get, path = "/api/knowledge/networks?client_id=", tag = "knowledge", security(("bearer" = [])), 
+#[utoipa::path(operation_id = "knowledge_list_networks", get, path = "/api/knowledge/networks", tag = "knowledge", security(("bearer" = [])), 
     params(("client_id" = Uuid, Query)),
     responses((status = 200, body = [kh::NetworkRecord])))]
 pub async fn list_networks(
@@ -1077,7 +1103,7 @@ pub async fn delete_network(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        kh::delete_network(&mut *ctx.tx, org_id, id).await?;
+        kh::delete_network(&mut ctx.tx, org_id, id).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -1185,7 +1211,7 @@ pub async fn delete_subnet(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        kh::delete_subnet(&mut *ctx.tx, org_id, id).await?;
+        kh::delete_subnet(&mut ctx.tx, org_id, id).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -1239,8 +1265,8 @@ pub async fn add_reservation(
     )?;
     let new_id = Uuid::now_v7();
     let reservation = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let client_id: Uuid = sqlx::query_scalar(
-            "SELECT client_id FROM knowledge_subnets WHERE org_id = $1 AND id = $2",
+        let (client_id, cidr): (Uuid, String) = sqlx::query_as(
+            "SELECT client_id, cidr::text FROM knowledge_subnets WHERE org_id = $1 AND id = $2",
         )
         .bind(org_id)
         .bind(id)
@@ -1248,6 +1274,22 @@ pub async fn add_reservation(
         .await
         .map_err(ApiError::from)?
         .ok_or(ApiError::NotFound)?;
+        // Valid `inet` syntax does not make an address part of this subnet, so
+        // containment is asked of the database rather than assumed.
+        let inside: bool = sqlx::query_scalar("SELECT $1::inet <<= $2::inet")
+            .bind(&address)
+            .bind(&cidr)
+            .fetch_one(&mut *ctx.tx)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::Database(db) if db.code().as_deref() == Some("22P02") => {
+                    ApiError::Validation(format!("{address} is not a valid address"))
+                }
+                other => other.into(),
+            })?;
+        if !inside {
+            return Err(ApiError::Validation(format!("{address} is outside {cidr}")));
+        }
         let reservation = kh::insert_reservation(
             &mut *ctx.tx,
             org_id,
@@ -1349,7 +1391,7 @@ pub struct DomainListQuery {
 }
 
 /// GET /api/knowledge/domains?client_id= — org-wide when no client is named.
-#[utoipa::path(operation_id = "knowledge_list_domains", get, path = "/api/knowledge/domains?client_id=", tag = "knowledge", security(("bearer" = [])), 
+#[utoipa::path(operation_id = "knowledge_list_domains", get, path = "/api/knowledge/domains", tag = "knowledge", security(("bearer" = [])), 
     params(("client_id" = Option<Uuid>, Query)),
     responses((status = 200, body = [kh::DomainRecord])))]
 pub async fn list_domains(
@@ -1503,7 +1545,7 @@ pub async fn delete_domain(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        kh::delete_domain(&mut *ctx.tx, org_id, id).await?;
+        kh::delete_domain(&mut ctx.tx, org_id, id).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -1558,7 +1600,7 @@ pub struct ProcedureDetailResponse {
 }
 
 /// GET /api/knowledge/procedures?client_id=
-#[utoipa::path(operation_id = "knowledge_list_procedures", get, path = "/api/knowledge/procedures?client_id=", tag = "knowledge", security(("bearer" = [])), 
+#[utoipa::path(operation_id = "knowledge_list_procedures", get, path = "/api/knowledge/procedures", tag = "knowledge", security(("bearer" = [])), 
     params(("client_id" = Uuid, Query)),
     responses((status = 200, body = [kh::ProcedureRecord])))]
 pub async fn list_procedures(
@@ -1741,7 +1783,7 @@ pub async fn delete_procedure(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        kh::delete_procedure(&mut *ctx.tx, org_id, id).await?;
+        kh::delete_procedure(&mut ctx.tx, org_id, id).await?;
         audit(
             &mut ctx.tx,
             org_id,
@@ -1778,23 +1820,10 @@ pub struct CreateKnowledgeLinkRequest {
     pub label: Option<String>,
 }
 
-const LINK_KINDS: &[&str] = &[
-    "rack",
-    "rack_device",
-    "network",
-    "subnet",
-    "domain",
-    "procedure",
-    "document",
-    "kb_article",
-    "asset",
-    "secret",
-    "ticket",
-    "site",
-];
+const LINK_KINDS: &[&str] = kh::LINK_KINDS;
 
 /// GET /api/knowledge/links?kind=&id=
-#[utoipa::path(operation_id = "knowledge_list_links", get, path = "/api/knowledge/links?kind=&id=", tag = "knowledge", security(("bearer" = [])), 
+#[utoipa::path(operation_id = "knowledge_list_links", get, path = "/api/knowledge/links", tag = "knowledge", security(("bearer" = [])), 
     params(("kind" = String, Query), ("id" = Uuid, Query)),
     responses((status = 200, body = [kh::LinkRecord])))]
 pub async fn list_links(
@@ -2046,7 +2075,7 @@ pub struct TemplateListQuery {
 }
 
 /// GET /api/knowledge/templates?kind=
-#[utoipa::path(operation_id = "knowledge_list_templates", get, path = "/api/knowledge/templates?kind=", tag = "knowledge", security(("bearer" = [])), 
+#[utoipa::path(operation_id = "knowledge_list_templates", get, path = "/api/knowledge/templates", tag = "knowledge", security(("bearer" = [])), 
     params(("kind" = Option<String>, Query)),
     responses((status = 200, body = [kh::TemplateRecord])))]
 pub async fn list_templates(
@@ -2173,7 +2202,7 @@ pub struct PortalDocsQuery {
 /// GET /api/knowledge/portal/documents?client_id= — exactly what the client
 /// portal may show, so staff can preview the client's view without signing in
 /// as them.
-#[utoipa::path(operation_id = "knowledge_portal_documents", get, path = "/api/knowledge/portal/documents?client_id=", tag = "portal", 
+#[utoipa::path(operation_id = "knowledge_portal_documents", get, path = "/api/knowledge/portal/documents", tag = "portal", 
     params(("client_id" = Uuid, Query)),
     responses((status = 200, body = [kh::PortalDocRow])))]
 pub async fn portal_documents(
@@ -2670,9 +2699,14 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
             get(get_totp_state).post(attach_totp).delete(delete_totp),
         )
         .route(&k("/secrets/{record_id}/totp/code"), post(read_totp_code))
-        // The portal's own document list (portal session, not staff auth).
-        .route(
-            &format!("{base}/portal/knowledge/documents"),
-            get(portal_knowledge_documents),
-        )
+}
+
+/// The portal half. Registered separately because portal tokens never pass the
+/// staff auth middleware; `routes::mod` merges this into `portal_protected`.
+pub fn portal_routes(gen: ApiGeneration) -> Router<AppState> {
+    let base = gen.base();
+    Router::new().route(
+        &format!("{base}/portal/knowledge/documents"),
+        get(portal_knowledge_documents),
+    )
 }

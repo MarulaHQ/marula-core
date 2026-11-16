@@ -311,6 +311,70 @@ async fn catalog_quotes_lifecycle_and_conversion() {
     let _ = contract_id;
 }
 
+/// An optional line is stored, returned and priced beside the total — never
+/// inside it. The create route used to have nowhere to carry the flag, so the
+/// builder dropped those rows before sending.
+#[tokio::test]
+async fn optional_lines_persist_and_stay_out_of_the_total() {
+    let (_state, app) = test_state().await;
+    let tokens = register_org(&app, format!("qopt-{}", Uuid::now_v7().simple())).await;
+    let bearer = tokens["access_token"].as_str().unwrap().to_string();
+    let client_id = create_client(&app, &bearer, "Optional Co").await;
+
+    let quote: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/quotes",
+            Some(&bearer),
+            Some(json!({
+                "client_id": client_id,
+                "currency": "USD",
+                "valid_until": (chrono::Utc::now() + chrono::Duration::days(30)).format("%Y-%m-%d").to_string(),
+                "tax_rate_bps": 1000,
+                "lines": [
+                    {
+                        "description": "Install day",
+                        "quantity_milli": 1000,
+                        "unit_amount_minor": 100_000,
+                    },
+                    {
+                        "description": "3 yr support plan",
+                        "quantity_milli": 1000,
+                        "unit_amount_minor": 60_000,
+                        "optional": true,
+                    }
+                ],
+                "idempotency_key": Uuid::now_v7().to_string(),
+            })),
+        )
+        .await,
+    )
+    .await;
+    // Required 1000.00 is taxed at 10%; the optional 600.00 is shown only.
+    assert_eq!(quote["subtotal_minor"], 100_000);
+    assert_eq!(quote["tax_minor"], 10_000);
+    assert_eq!(quote["total_minor"], 110_000);
+    let quote_id = quote["id"].as_str().unwrap().to_string();
+
+    let detail: Value = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/quotes/{quote_id}"),
+            Some(&bearer),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let lines = detail["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 2, "the optional line is stored and returned");
+    assert_eq!(lines[0]["optional"], false);
+    assert_eq!(lines[1]["optional"], true);
+    assert_eq!(lines[1]["amount_minor"], 60_000);
+}
+
 #[tokio::test]
 async fn pipeline_stages_deals_and_audited_transitions() {
     let (_state, app) = test_state().await;

@@ -606,7 +606,7 @@ pub async fn remove(
         core_db::assets::get_asset(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
-        core_db::assets::delete_asset(&mut *ctx.tx, org_id, id).await?;
+        core_db::assets::delete_asset(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             types::ASSET_DELETED,
             "asset",

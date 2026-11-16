@@ -13,6 +13,7 @@
 // and the hub is a reading surface (§ brief, Phase 1).
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Spinner, SurfaceHeader } from "@marula-core/ui";
 import { useRequireAuth } from "../../lib/api";
@@ -34,6 +35,7 @@ import {
   type SearchHit,
 } from "../../components/knowledge/knowledge-api";
 import { dueWords } from "../../components/knowledge/expiry-table";
+import { ClientScopeSelect } from "../../components/knowledge/client-scope-select";
 
 const SCOPES = ["All", "Clients", "Documents", "Configurations", "Secrets"] as const;
 type Scope = (typeof SCOPES)[number];
@@ -60,6 +62,11 @@ const KIND_LABEL: Record<string, string> = {
 
 export default function KnowledgeHomePage() {
   useRequireAuth();
+  // The client scope is the query string, the same state the client-scoped KB
+  // lists keep (`/kb/domains?client_id=…`), so a link into one client's
+  // knowledge carries its search scope with it.
+  const params = useSearchParams();
+  const clientId = params.get("client_id");
   const [home, setHome] = useState<KnowledgeHome | null>(null);
   const [expiries, setExpiries] = useState<ExpiryRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +74,7 @@ export default function KnowledgeHomePage() {
   const [scope, setScope] = useState<Scope>("All");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -112,23 +120,33 @@ export default function KnowledgeHomePage() {
     if (needle.length < 2) {
       setHits(null);
       setSearching(false);
+      setSearchError(null);
       return;
     }
     let cancelled = false;
     setSearching(true);
+    // A new search clears the previous failure; the answer below is either a
+    // result, a true empty result, or this error — never an empty result
+    // standing in for a failure.
+    setSearchError(null);
+    // The client scope rides the request, not a filter over the reply: the
+    // server spends its limit on rows this client can see.
+    const searchParams = new URLSearchParams({ q: needle, limit: "24" });
+    if (clientId !== null) searchParams.set("client_id", clientId);
     const timer = window.setTimeout(() => {
       knowledgeApi
-        .get<SearchHit[]>(`/api/v1/knowledge/search?q=${encodeURIComponent(needle)}&limit=24`)
+        .get<SearchHit[]>(`/api/v1/knowledge/search?${searchParams.toString()}`)
         .then((rows) => {
           if (!cancelled) {
             setHits(rows);
             setSearching(false);
           }
         })
-        .catch(() => {
+        .catch((e: KnowledgeRequestError) => {
           if (!cancelled) {
             setHits([]);
             setSearching(false);
+            setSearchError(e.message);
           }
         });
     }, 200);
@@ -136,7 +154,7 @@ export default function KnowledgeHomePage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, clientId]);
 
   const filtered = useMemo(() => {
     const allowed = SCOPE_KINDS[scope];
@@ -215,6 +233,7 @@ export default function KnowledgeHomePage() {
               style={{ color: "var(--m-text)" }}
             />
             {searching ? <Spinner label="Searching" /> : null}
+            <ClientScopeSelect clientId={clientId} label="Scope" allowAll />
             <kbd
               className="rounded-[5px] border px-1.5 text-[12px] font-semibold"
               style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
@@ -249,7 +268,9 @@ export default function KnowledgeHomePage() {
 
         {query.trim().length >= 2 ? (
           <section aria-label="Search results" className="flex flex-col gap-2">
-            {filtered.length === 0 && !searching ? (
+            {searchError !== null ? (
+              <ErrorNote title="Search did not run.">{searchError}</ErrorNote>
+            ) : filtered.length === 0 && !searching ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                 Nothing matches “{query.trim()}” in this scope. Secrets are found by their record
                 only, never by their value.

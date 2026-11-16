@@ -3,12 +3,14 @@
 // component against the real fetch path, so a wrong path or a missing state
 // fails here rather than in the browser.
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider } from "../../lib/api";
 import { TemplateGallery } from "../../components/projects/template-gallery";
 import { ChangeOrdersPanel } from "../../components/projects/change-orders-panel";
 import { PortfolioQuarter } from "../../components/projects/portfolio-quarter";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
+import { currentFetchRouter, setFetchRouter } from "../helpers/fetch-router";
 
 const search = vi.hoisted(() => ({ params: new URLSearchParams() }));
 
@@ -20,7 +22,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const ORG = ME_FIXTURE.org_id;
-const PROJECT = "00000000-0000-4000-8000-0000000000p1";
+const PROJECT = "00000000-0000-4000-8000-0000000000a1";
 
 function template(over: Record<string, unknown> = {}) {
   return {
@@ -152,8 +154,7 @@ describe("change orders", () => {
     expect(screen.queryByRole("button", { name: "Release the billing line" })).not.toBeInTheDocument();
   });
 
-  it("shows a failed release with its reason and a retry", async () => {
-    const mock = new MockApi();
+  it("shows a failed release with its reason and a retry", async () => {    const mock = new MockApi();
     installBase(mock, ["projects:edit", "financial:read"]);
     const base = {
       id: "co2",
@@ -200,6 +201,113 @@ describe("change orders", () => {
 
     expect(await screen.findByText(/no active contract/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry billing" })).toBeInTheDocument();
+  });
+
+  it("keeps a finished create from the previous project from redrawing it", async () => {
+    const OTHER = "00000000-0000-4000-8000-0000000000b2";
+    const order = (project: string, title: string) => ({
+      id: `co-${project}`,
+      project_id: project,
+      reference: "CO-ABC123",
+      title,
+      status: "draft",
+      source: "manual",
+      reason: "",
+      scope_changes: {},
+      client_summary: null,
+      evidence: [],
+      coverage_note: null,
+      confidence: null,
+      contract_clause: null,
+      amount_minor: null,
+      currency: null,
+      submitted_at: null,
+      submitted_by: null,
+      decided_at: null,
+      decided_by: null,
+      decision_note: null,
+      applied_at: null,
+      applied_by: null,
+      applied_baseline_id: null,
+      billed_at: null,
+      billing_release_id: null,
+      billing_error: null,
+      client_ack_required: false,
+      client_ack_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+
+    const mock = new MockApi();
+    installBase(mock, ["projects:edit", "financial:read"]);
+    mock.on("GET", `/api/v1/projects/${PROJECT}/change-orders`, () => ({
+      json: [order(PROJECT, "A only")],
+    }));
+    mock.on("GET", `/api/v1/projects/${OTHER}/change-orders`, () => ({
+      json: [order(OTHER, "B only")],
+    }));
+    for (const id of [PROJECT, OTHER]) {
+      mock.on("GET", `/api/v1/projects/${id}/billing-releases`, () => ({ json: [] }));
+      mock.on("GET", `/api/v1/projects/${id}/client-updates`, () => ({ json: [] }));
+    }
+    // The create answers only when the test says so, so the move to the other
+    // project happens while it is still in flight.
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mock.on("POST", `/api/v1/projects/${PROJECT}/change-orders`, () => ({
+      json: order(PROJECT, "A only"),
+    }));
+    mock.install();
+    const delegate = currentFetchRouter();
+    setFetchRouter(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const method = (
+        typeof input === "object" && "method" in input && input.method !== undefined
+          ? input.method
+          : (init?.method ?? "GET")
+      ).toUpperCase();
+      if (method === "POST" && url.includes("/change-orders")) await gate;
+      if (delegate === null) throw new Error("no MockApi router installed");
+      return delegate(input, init);
+    });
+
+    function Harness() {
+      const [id, setId] = useState(PROJECT);
+      return (
+        <AuthProvider>
+          <button type="button" onClick={() => setId(OTHER)}>
+            go to the other project
+          </button>
+          <ChangeOrdersPanel projectId={id} />
+        </AuthProvider>
+      );
+    }
+
+    render(<Harness />);
+    expect(await screen.findByText("A only")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New change order" }));
+    fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "Extras" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Saving…" })).toBeTruthy());
+
+    // The dialog is modal, so the page behind it is hidden from the
+    // accessibility tree; the switch control is still in the DOM.
+    fireEvent.click(screen.getByText("go to the other project"));
+    expect(await screen.findByText("B only")).toBeInTheDocument();
+
+    // The create lands after the move. Its follow-up belongs to the project it
+    // was started under, so it must not fetch that project's rows again.
+    await act(async () => {
+      release();
+    });
+    expect(
+      mock.callsTo("GET", `/api/v1/projects/${PROJECT}/change-orders`),
+    ).toHaveLength(1);
+    expect(screen.getByText("B only")).toBeInTheDocument();
+    expect(screen.queryByText("A only")).not.toBeInTheDocument();
   });
 });
 

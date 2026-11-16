@@ -36,7 +36,7 @@ import {
 import { Icon } from "@marula-core/ui/kit";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useAuth, useRequireAuth } from "../../lib/api";
 import {
   createFromTemplate,
@@ -101,8 +101,14 @@ export function TemplateEditor() {
   const [draftNote, setDraftNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [clients, setClients] = useState<ClientRow[]>([]);
+  // The document is the author's working copy once it is on screen: a later
+  // reload (after saving a draft, a publish, or a catalogue-facts save) must
+  // not replace it with the published spec and make a save look lost.
+  const draftSeeded = useRef(false);
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setError(null);
     try {
       const [nextCard, nextPreview, nextValidation, nextLessons] = await Promise.all([
@@ -114,16 +120,22 @@ export function TemplateEditor() {
       const versionBody = await deliveryFetch<{ versions: VersionRow[] }>(
         `/api/v1/project-templates/${params.id}/versions`,
       );
+      if (seq !== loadSeq.current) return;
       setCard(nextCard);
       setPreview(nextPreview);
       setValidation(nextValidation);
       setLessons(nextLessons);
       setVersions(versionBody.versions);
-      const current = versionBody.versions.find((version) => version.current);
-      setDraft(JSON.stringify(current?.spec ?? {}, null, 2));
+      if (!draftSeeded.current) {
+        const current = versionBody.versions.find((version) => version.current);
+        setDraft(JSON.stringify(current?.spec ?? {}, null, 2));
+        draftSeeded.current = true;
+      }
       const clientBody = await api.api.GET("/api/v1/clients");
+      if (seq !== loadSeq.current) return;
       if (clientBody.data) setClients(clientBody.data as ClientRow[]);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setError((e as Error).message);
     }
   }, [params.id]);
@@ -217,16 +229,34 @@ export function TemplateEditor() {
     min: string;
     max: string;
   }) {
+    // A typo used to be serialised as `null` (JSON.stringify(NaN)), which
+    // cleared the stored figure with no error. Parse, check, then send.
+    const typicalText = values.typical.trim();
+    const minText = values.min.trim();
+    const maxText = values.max.trim();
+    const typicalDays = typicalText === "" ? null : Number(typicalText);
+    const minHours = minText === "" ? null : Number(minText);
+    const maxHours = maxText === "" ? null : Number(maxText);
+    const bad = (value: number | null): boolean =>
+      value !== null && (!Number.isFinite(value) || value < 0);
+    if (bad(typicalDays) || bad(minHours) || bad(maxHours)) {
+      setActionError(
+        "Typical days and effort must be numbers of zero or more. Leave a field empty to clear it.",
+      );
+      return;
+    }
+    if (minHours !== null && maxHours !== null && minHours > maxHours) {
+      setActionError("The effort minimum cannot be above the maximum.");
+      return;
+    }
     setBusy(true);
     setActionError(null);
     try {
       await setTemplateMeta(params.id, {
         category: values.category.trim() || null,
-        typical_days: values.typical.trim() === "" ? null : Number(values.typical),
-        effort_min_minutes:
-          values.min.trim() === "" ? null : Math.round(Number(values.min) * 60),
-        effort_max_minutes:
-          values.max.trim() === "" ? null : Math.round(Number(values.max) * 60),
+        typical_days: typicalDays,
+        effort_min_minutes: minHours === null ? null : Math.round(minHours * 60),
+        effort_max_minutes: maxHours === null ? null : Math.round(maxHours * 60),
       });
       await load();
     } catch (e) {

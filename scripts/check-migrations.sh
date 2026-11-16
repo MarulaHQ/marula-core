@@ -73,6 +73,11 @@ for f in "$migrations_dir"/*.sql; do
     # two executor kinds (automation_trigger, read) a connector may contribute.
     # Every existing value stays admitted; no rows touched.
     '0126_plugin_outbound_surface_kinds.sql:DROP CONSTRAINT IF EXISTS plugin_surface_entries_surface_check;'
+
+    # 0224: narrowing contract_clauses_read from an implicit ALL policy to
+    # SELECT. PG has no ALTER POLICY for the command, so the policy is dropped
+    # and recreated in the same file; it discards a rule, never rows.
+    '0224_contract_clauses_read_select.sql:DROP POLICY IF EXISTS contract_clauses_read ON contract_clauses;'
   )
   filtered="$hits"
   for entry in "${migration_backfill_allowlist[@]}"; do

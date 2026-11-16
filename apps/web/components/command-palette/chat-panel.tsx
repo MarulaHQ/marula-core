@@ -231,17 +231,42 @@ function useWorkBarHeight(active: boolean): number {
   const [height, setHeight] = useState(0);
   useEffect(() => {
     if (!active) return;
-    const element = document.querySelector<HTMLElement>('[data-testid="work-bar"]');
-    if (element === null) {
-      setHeight(0);
-      return;
-    }
-    const measure = () => setHeight(element.getBoundingClientRect().height);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
+    let element: HTMLElement | null = null;
+    let sizeObserver: ResizeObserver | null = null;
+
+    const measure = (): void => {
+      setHeight(element === null ? 0 : element.getBoundingClientRect().height);
+    };
+
+    const attach = (next: HTMLElement | null): void => {
+      if (next === element) return;
+      sizeObserver?.disconnect();
+      sizeObserver = null;
+      element = next;
+      measure();
+      if (element !== null && typeof ResizeObserver !== "undefined") {
+        sizeObserver = new ResizeObserver(measure);
+        sizeObserver.observe(element);
+      }
+    };
+
+    attach(document.querySelector<HTMLElement>('[data-testid="work-bar"]'));
+
+    // The bar mounts and unmounts with the timer while the panel stays open,
+    // so its presence is watched as well as its size: without this a timer
+    // started after the panel opened would be covered by it.
+    const presence =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(() => {
+            attach(document.querySelector<HTMLElement>('[data-testid="work-bar"]'));
+          });
+    presence?.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      presence?.disconnect();
+      sizeObserver?.disconnect();
+    };
   }, [active]);
   return height;
 }

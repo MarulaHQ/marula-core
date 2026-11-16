@@ -158,7 +158,12 @@ export function SourceNotes({
   );
 }
 
-function renderSource(source: MoneySource, spans: NoteHighlight[]): React.ReactNode[] {
+/**
+ * The one span renderer: the source text with each span highlighted and
+ * numbered. The quote notes tab and the contract notes both draw through it, so
+ * overlap and cursor handling cannot drift between them.
+ */
+export function renderSource(source: MoneySource, spans: NoteHighlight[]): React.ReactNode[] {
   const ordered = [...spans].sort((a, b) => a.span.start - b.span.start);
   const nodes: React.ReactNode[] = [];
   let cursor = 0;

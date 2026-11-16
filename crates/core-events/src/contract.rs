@@ -444,6 +444,8 @@ fn sample_project() -> Project {
         start_date: Some(sd(1)),
         due_date: None,
         billing_contract_id: None,
+        client_hold_reason: None,
+        pre_hold_status: None,
         created_at: st(1),
         updated_at: st(1),
     }

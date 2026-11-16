@@ -1099,6 +1099,16 @@ pub struct NewOutbound {
 
 pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResult<Uuid> {
     let msg_id = Uuid::now_v7();
+    // Recipients land lowercase, the same convention the inbound path already
+    // applies to both sides (`from_address` trimmed and folded, recipients
+    // from `recipients_in_priority_order`). The contact-activity recipient leg
+    // is a GIN containment check on this array, so the invariant is what makes
+    // that check an equality.
+    let to_addresses: Vec<String> = o
+        .to_addresses
+        .iter()
+        .map(|address| address.trim().to_ascii_lowercase())
+        .collect();
     sqlx::query!(
         r#"INSERT INTO email_messages (id, org_id, direction, rfc_message_id, in_reply_to,
                                        email_refs, subject, from_address, from_name,
@@ -1114,7 +1124,7 @@ pub async fn enqueue_outbound(conn: &mut PgConnection, o: NewOutbound) -> DbResu
         o.subject,
         o.from_address,
         o.from_name,
-        &o.to_addresses,
+        &to_addresses,
         o.body_text,
         o.body_html,
         o.ticket_id,

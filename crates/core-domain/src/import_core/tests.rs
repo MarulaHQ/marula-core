@@ -1003,6 +1003,7 @@ fn new_family_projections_agree_between_incoming_and_stored() {
         merged_into_ticket_id: None,
         type_id: None,
         category_id: None,
+        archived_at: None,
     };
     assert_eq!(spec.projection(), ticket_projection(&stored));
 

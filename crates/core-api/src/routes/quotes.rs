@@ -94,6 +94,10 @@ pub struct QuoteLineInput {
     /// the line.
     pub unit_amount_minor: Option<i64>,
     pub taxable: Option<bool>,
+    /// Priced and shown, excluded from the subtotal and the tax. An optional
+    /// line is never dropped; `false` keeps the required-line behaviour.
+    #[serde(default)]
+    pub optional: bool,
 }
 
 /// POST /api/quotes body.
@@ -255,6 +259,7 @@ async fn resolve_lines(
             unit: taxable_unit(unit),
             quantity_milli: input.quantity_milli,
             taxable: taxable.unwrap_or(true),
+            optional: input.optional,
             unit_amount_minor,
             amount_minor,
             position: position as i32,
@@ -1153,11 +1158,12 @@ pub async fn convert(
         contract.validate().map_err(ApiError::from)?;
         core_db::contracts::create_contract(&mut *ctx.tx, &contract).await?;
 
-        // 2. The fee schedule: one fee per quote line (+ tax as a fee so
-        //    the invoice's line-sum total matches the quote total).
+        // 2. The fee schedule: one fee per REQUIRED quote line (+ tax as a fee
+        //    so the invoice's line-sum total matches the quote total). Optional
+        //    lines are not part of the quote total, so they are not billed.
         let mut labels_used: HashSet<String> = HashSet::new();
         let mut fees: Vec<ContractFixedFee> = Vec::with_capacity(lines.len() + 1);
-        for line in &lines {
+        for line in lines.iter().filter(|line| !line.optional) {
             let label = unique_label(&mut labels_used, &line.description);
             fees.push(ContractFixedFee {
                 id: Uuid::now_v7(),
@@ -1185,6 +1191,11 @@ pub async fn convert(
                 notes: Some(format!("from quote {}", quote.number)),
                 created_at: chrono::Utc::now(),
             });
+        }
+        if fees.is_empty() {
+            return Err(ApiError::Validation(
+                "the quote has only optional lines, so there is nothing to bill".into(),
+            ));
         }
         core_db::contracts::replace_fees(&mut ctx.tx, org_id, contract_id, &fees).await?;
 

@@ -11,7 +11,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRequireAuth } from "../../../../lib/api";
 import { SurfaceHeader } from "@marula-core/ui";
 import {
@@ -56,30 +56,72 @@ export default function RackPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Post-placement reload and a route change both go through `load`, so the
+  // answer that counts is the newest request, not the one that landed last.
+  const latestRequest = useRef(0);
+
   const load = useCallback(() => {
     if (rackId === undefined) return;
+    const token = latestRequest.current + 1;
+    latestRequest.current = token;
     setError(null);
     knowledgeApi
       .get<RackDetail>(`/api/v1/knowledge/racks/${rackId}`)
-      .then(setRack)
-      .catch((e: KnowledgeRequestError) => setError(e.message));
+      .then((data) => {
+        if (latestRequest.current === token) setRack(data);
+      })
+      .catch((e: KnowledgeRequestError) => {
+        if (latestRequest.current === token) setError(e.message);
+      });
   }, [rackId]);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    // Clear the previous rack before the next one arrives: a placement form
+    // over rack A must not post to rack B.
+    setRack(null);
+    setFormError(null);
+    load();
+    return () => {
+      latestRequest.current += 1;
+    };
+  }, [load]);
 
   async function addDevice(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
     setFormError(null);
+    const startU = Number(data.get("unit_start"));
+    const heightU = Number(data.get("unit_height"));
+    if (
+      !Number.isInteger(startU) ||
+      !Number.isInteger(heightU) ||
+      startU < 1 ||
+      heightU < 1
+    ) {
+      setFormError("Give the start unit and the height as whole numbers of 1 or more.");
+      return;
+    }
+    // The form is rendered from `rack`, so a route change that has not landed
+    // yet would post this placement to the new rack id.
+    if (rack === null || rack.id !== rackId) {
+      setFormError("This rack is still loading. Place the device once it is shown.");
+      return;
+    }
+    if (startU + heightU - 1 > rack.units) {
+      setFormError(
+        `That device runs past the top of the rack: U${startU} plus ${heightU}U does not fit in ${rack.units}U.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
       await knowledgeApi.post(`/api/v1/knowledge/racks/${rackId}/devices`, {
         name: String(data.get("name") ?? ""),
         device_type: String(data.get("device_type") ?? "compute"),
         face,
-        unit_start: Number(data.get("unit_start") ?? 1),
-        unit_height: Number(data.get("unit_height") ?? 1),
+        unit_start: startU,
+        unit_height: heightU,
         model: String(data.get("model") ?? "") || null,
         status: "online",
       });
@@ -325,6 +367,7 @@ export default function RackPage() {
                       type="number"
                       min={1}
                       max={12}
+                      required
                       defaultValue={1}
                       className={FIELD_CLASS}
                     />

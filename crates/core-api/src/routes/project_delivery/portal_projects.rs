@@ -129,7 +129,10 @@ pub struct PortalProjectView {
     pub name: String,
     pub status: String,
     pub status_text: String,
-    /// A client-safe reason, only when the project is on hold.
+    /// A client-safe reason, only when the project is on hold. `null` when the
+    /// project is not paused, and also when it is paused and the PM has not
+    /// written one: the status text still says the work is on hold, and this
+    /// field never invents a reason the PM did not type.
     pub hold_reason: Option<String>,
     pub due_date: Option<NaiveDate>,
     pub steps: Vec<PortalStep>,
@@ -168,46 +171,7 @@ pub async fn get_one(
     tx.commit().await.map_err(ApiError::from)?;
 
     let plan_shared = phases.iter().any(|p| p.start_date.is_some());
-    let steps: Vec<PortalStep> = if phases.len() <= 4 {
-        phases
-            .iter()
-            .map(|phase| PortalStep {
-                label: phase.name.clone(),
-                status: phase.status.as_str().to_string(),
-                status_text: plain_phase(phase.status.as_str()),
-                start_date: phase.start_date,
-                end_date: phase.end_date,
-            })
-            .collect()
-    } else {
-        // Eighteen tasks are not a client's business; four steps are. The
-        // buckets keep order and never hide a phase: the label carries the
-        // count it folded in.
-        let chunk = phases.len().div_ceil(4);
-        phases
-            .chunks(chunk)
-            .map(|group| {
-                let first = &group[0];
-                let completed = group.iter().all(|p| p.status.as_str() == "completed");
-                let status = if completed {
-                    "completed"
-                } else {
-                    first.status.as_str()
-                };
-                PortalStep {
-                    label: if group.len() == 1 {
-                        first.name.clone()
-                    } else {
-                        format!("{} and {} more", first.name, group.len() - 1)
-                    },
-                    status: status.to_string(),
-                    status_text: plain_phase(status),
-                    start_date: group.iter().filter_map(|p| p.start_date).min(),
-                    end_date: group.iter().filter_map(|p| p.end_date).max(),
-                }
-            })
-            .collect()
-    };
+    let steps = portal_steps(&phases);
 
     Ok(Json(PortalProjectView {
         id: project.id,
@@ -215,10 +179,12 @@ pub async fn get_one(
         status: project.status.as_str().to_string(),
         status_text: plain_status(project.status.as_str()).to_string(),
         hold_reason: if project.status.as_str() == "on_hold" {
-            Some(
-                "Work is paused while the remaining access is arranged. Your contact will confirm the new date."
-                    .into(),
-            )
+            // A pause is a fact; the cause belongs to the PM. The reason is
+            // shown only when the PM wrote one FOR the client — the staff hold
+            // note never crosses this boundary, and a pause without a
+            // client-safe reason says only that work is paused, through
+            // `status_text`.
+            project.client_hold_reason
         } else {
             None
         },
@@ -261,11 +227,66 @@ pub async fn get_one(
 fn plain_phase(status: &str) -> String {
     match status {
         "pending" => "Not started".into(),
-        "in_progress" => "Under way".into(),
+        "active" | "in_progress" => "Under way".into(),
         "blocked" => "Waiting on a decision".into(),
         "completed" => "Done".into(),
         "cancelled" => "Not needed".into(),
         other => other.to_string(),
+    }
+}
+
+/// The four steps a client reads instead of every phase. Phases keep their
+/// order and the label carries the count it folded in, so nothing is hidden.
+/// Four steps is the promise (S16.1), so the phases are split into four ranges
+/// rather than a chunk size that can yield three.
+fn portal_steps(phases: &[core_domain::entities::ProjectPhase]) -> Vec<PortalStep> {
+    if phases.len() <= 4 {
+        return phases.iter().map(one_step).collect();
+    }
+    let base = phases.len() / 4;
+    let extra = phases.len() % 4;
+    let mut steps = Vec::with_capacity(4);
+    let mut cursor = 0;
+    for index in 0..4 {
+        let size = base + if index < extra { 1 } else { 0 };
+        let group = &phases[cursor..cursor + size];
+        cursor += size;
+        let first = &group[0];
+        let completed = group.iter().all(|p| p.status.as_str() == "completed");
+        // "Done" belongs to the whole group only. A group with unfinished work
+        // takes the status of the first phase that is unfinished, so a
+        // completed first phase can never make the step read as Done.
+        let status = if completed {
+            "completed"
+        } else {
+            group
+                .iter()
+                .find(|p| p.status.as_str() != "completed")
+                .map(|p| p.status.as_str())
+                .unwrap_or(first.status.as_str())
+        };
+        steps.push(PortalStep {
+            label: if group.len() == 1 {
+                first.name.clone()
+            } else {
+                format!("{} and {} more", first.name, group.len() - 1)
+            },
+            status: status.to_string(),
+            status_text: plain_phase(status),
+            start_date: group.iter().filter_map(|p| p.start_date).min(),
+            end_date: group.iter().filter_map(|p| p.end_date).max(),
+        });
+    }
+    steps
+}
+
+fn one_step(phase: &core_domain::entities::ProjectPhase) -> PortalStep {
+    PortalStep {
+        label: phase.name.clone(),
+        status: phase.status.as_str().to_string(),
+        status_text: plain_phase(phase.status.as_str()),
+        start_date: phase.start_date,
+        end_date: phase.end_date,
     }
 }
 
@@ -300,4 +321,59 @@ pub async fn acknowledge(
         })?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "acknowledged": true })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_domain::entities::{PhaseStatus, ProjectPhase};
+
+    fn phase(name: &str, status: PhaseStatus) -> ProjectPhase {
+        ProjectPhase {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            project_id: Uuid::now_v7(),
+            name: name.into(),
+            description: None,
+            sort_order: 0,
+            status,
+            is_milestone: false,
+            milestone_amount_minor: None,
+            milestone_currency: None,
+            start_date: None,
+            end_date: None,
+            completed_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn five_phases_still_read_as_four_steps() {
+        let phases: Vec<ProjectPhase> = (0..5)
+            .map(|index| phase(&format!("Phase {index}"), PhaseStatus::Pending))
+            .collect();
+        let steps = portal_steps(&phases);
+        assert_eq!(steps.len(), 4);
+        // The first range folds the extra phase and says so.
+        assert_eq!(steps[0].label, "Phase 0 and 1 more");
+        assert_eq!(steps[1].label, "Phase 2");
+    }
+
+    #[test]
+    fn an_unfinished_group_is_not_done() {
+        let phases = vec![
+            phase("Kickoff", PhaseStatus::Completed),
+            phase("Install", PhaseStatus::Active),
+            phase("Handover", PhaseStatus::Pending),
+            phase("Extras one", PhaseStatus::Pending),
+            phase("Extras two", PhaseStatus::Pending),
+        ];
+        let steps = portal_steps(&phases);
+        assert_eq!(steps.len(), 4);
+        // The first phase of this range is Done, but the range is not.
+        assert_ne!(steps[0].status, "completed");
+        assert_eq!(steps[0].status, "active");
+        assert_eq!(steps[0].status_text, "Under way");
+    }
 }

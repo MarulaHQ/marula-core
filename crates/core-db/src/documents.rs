@@ -18,7 +18,8 @@ use serde_json::Value;
 use sqlx::Postgres;
 use uuid::Uuid;
 
-/// Shared documents-row shape (0053 added client scope + layout fields).
+/// Shared documents-row shape (0053 added client scope + layout fields,
+/// 0228 adds the archive marker).
 struct DocRow {
     id: Uuid,
     org_id: Uuid,
@@ -31,6 +32,30 @@ struct DocRow {
     updated_by: Option<Uuid>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The projection every document read and write returns, so one decoder turns
+/// all of them into a `Document`.
+const DOC_COLUMNS: &str = "id, org_id, client_id, layout_id, fields, title, current_version, \
+     created_by, updated_by, created_at, updated_at, archived_at";
+
+fn row_to_doc_row(row: sqlx::postgres::PgRow) -> DocRow {
+    use sqlx::Row;
+    DocRow {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        client_id: row.get("client_id"),
+        layout_id: row.get("layout_id"),
+        fields: row.get("fields"),
+        title: row.get("title"),
+        current_version: row.get("current_version"),
+        created_by: row.get("created_by"),
+        updated_by: row.get("updated_by"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+        archived_at: row.get("archived_at"),
+    }
 }
 
 impl DocRow {
@@ -47,6 +72,7 @@ impl DocRow {
             updated_by: self.updated_by,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            archived_at: self.archived_at,
         }
     }
 }
@@ -94,20 +120,21 @@ pub async fn create_document(
     change_summary: &str,
     author_id: Uuid,
 ) -> DbResult<(Document, DocumentVersion)> {
-    let doc = sqlx::query!(
+    let sql = format!(
         r#"INSERT INTO documents (id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by)
            VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $7)
-           RETURNING id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by, created_at, updated_at"#,
-        id,
-        org_id,
-        client_id,
-        layout_id,
-        fields,
-        title,
-        author_id
-    )
-    .fetch_one(&mut *executor)
-    .await?;
+           RETURNING {DOC_COLUMNS}"#
+    );
+    let doc = sqlx::query(&sql)
+        .bind(id)
+        .bind(org_id)
+        .bind(client_id)
+        .bind(layout_id)
+        .bind(fields)
+        .bind(title)
+        .bind(author_id)
+        .fetch_one(&mut *executor)
+        .await?;
     let version = insert_version(
         executor,
         org_id,
@@ -120,23 +147,7 @@ pub async fn create_document(
         None,
     )
     .await?;
-    Ok((
-        DocRow {
-            id: doc.id,
-            org_id: doc.org_id,
-            client_id: doc.client_id,
-            layout_id: doc.layout_id,
-            fields: doc.fields,
-            title: doc.title,
-            current_version: doc.current_version,
-            created_by: doc.created_by,
-            updated_by: doc.updated_by,
-            created_at: doc.created_at,
-            updated_at: doc.updated_at,
-        }
-        .into_document(),
-        version,
-    ))
+    Ok((row_to_doc_row(doc).into_document(), version))
 }
 
 /// Appends one immutable version and bumps the document's current_version,
@@ -225,29 +236,39 @@ pub async fn get_document<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResul
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
-        r#"SELECT id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by, created_at, updated_at
-           FROM documents WHERE org_id = $1 AND id = $2"#,
-        org_id,
-        id
+    let sql = format!("SELECT {DOC_COLUMNS} FROM documents WHERE org_id = $1 AND id = $2");
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    Ok(row_to_doc_row(row).into_document())
+}
+
+/// Archives or restores a document. Archived documents stay readable by id so
+/// links and version history resolve; lists and search hide them by default.
+pub async fn set_document_archived(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    archived: bool,
+) -> DbResult<()> {
+    let res = sqlx::query(
+        r#"UPDATE documents
+              SET archived_at = CASE WHEN $3 THEN COALESCE(archived_at, now()) ELSE NULL END,
+                  updated_at = now()
+            WHERE org_id = $1 AND id = $2"#,
     )
-    .fetch_optional(executor)
-    .await?
-    .ok_or(DbError::NotFound)?;
-    Ok(DocRow {
-        id: row.id,
-        org_id: row.org_id,
-        client_id: row.client_id,
-        layout_id: row.layout_id,
-        fields: row.fields,
-        title: row.title,
-        current_version: row.current_version,
-        created_by: row.created_by,
-        updated_by: row.updated_by,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+    .bind(org_id)
+    .bind(id)
+    .bind(archived)
+    .execute(&mut *conn)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(DbError::NotFound);
     }
-    .into_document())
+    Ok(())
 }
 
 #[derive(Debug, Default, Clone)]
@@ -258,6 +279,30 @@ pub struct DocumentFilter {
     /// None = all scopes (docs-platform v1, 0053).
     pub client_id: Option<Option<Uuid>>,
     pub layout_id: Option<Uuid>,
+    /// Archived documents are hidden by default; a staff list may ask for
+    /// them (the archive view). Every other surface leaves this false.
+    pub include_archived: bool,
+}
+
+/// The list statement for a filter, so the archive predicate is testable
+/// without a database.
+fn list_documents_sql(filter: &DocumentFilter) -> String {
+    let archived_clause = if filter.include_archived {
+        ""
+    } else {
+        "AND archived_at IS NULL"
+    };
+    format!(
+        r#"SELECT {DOC_COLUMNS}
+           FROM documents
+           WHERE org_id = $1
+             AND ($2::text IS NULL OR title ILIKE '%' || $2 || '%')
+             AND ($3::uuid IS NULL OR client_id = $3)
+             AND (NOT $4::bool OR client_id IS NULL)
+             AND ($5::uuid IS NULL OR layout_id = $5)
+             {archived_clause}
+           ORDER BY updated_at DESC, id"#
+    )
 }
 
 pub async fn list_documents<'e, E>(
@@ -271,41 +316,18 @@ where
     let q = filter.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let client_id = filter.client_id.flatten();
     let layout_id = filter.layout_id;
-    let rows = sqlx::query!(
-        r#"SELECT id, org_id, client_id, layout_id, fields, title, current_version, created_by, updated_by, created_at, updated_at
-           FROM documents
-           WHERE org_id = $1
-             AND ($2::text IS NULL OR title ILIKE '%' || $2 || '%')
-             AND ($3::uuid IS NULL OR client_id = $3)
-             AND (NOT $4::bool OR client_id IS NULL)
-             AND ($5::uuid IS NULL OR layout_id = $5)
-           ORDER BY updated_at DESC, id"#,
-        org_id,
-        q,
-        client_id,
-        matches!(filter.client_id, Some(None)),
-        layout_id,
-    )
-    .fetch_all(executor)
-    .await?;
+    let sql = list_documents_sql(filter);
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(q)
+        .bind(client_id)
+        .bind(matches!(filter.client_id, Some(None)))
+        .bind(layout_id)
+        .fetch_all(executor)
+        .await?;
     Ok(rows
         .into_iter()
-        .map(|r| {
-            DocRow {
-                id: r.id,
-                org_id: r.org_id,
-                client_id: r.client_id,
-                layout_id: r.layout_id,
-                fields: r.fields,
-                title: r.title,
-                current_version: r.current_version,
-                created_by: r.created_by,
-                updated_by: r.updated_by,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-            }
-            .into_document()
-        })
+        .map(|row| row_to_doc_row(row).into_document())
         .collect())
 }
 
@@ -400,34 +422,37 @@ pub async fn update_document_meta<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
+    let sql = format!(
         r#"UPDATE documents SET
              title = $3, client_id = $4, layout_id = $5, fields = $6, updated_at = now()
            WHERE org_id = $1 AND id = $2
-           RETURNING id, org_id, client_id, layout_id, fields, title, current_version,
-                     created_by, updated_by, created_at, updated_at"#,
-        org_id,
-        id,
-        title,
-        client_id,
-        layout_id,
-        fields
-    )
-    .fetch_optional(executor)
-    .await?
-    .ok_or(DbError::NotFound)?;
-    Ok(DocRow {
-        id: row.id,
-        org_id: row.org_id,
-        client_id: row.client_id,
-        layout_id: row.layout_id,
-        fields: row.fields,
-        title: row.title,
-        current_version: row.current_version,
-        created_by: row.created_by,
-        updated_by: row.updated_by,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+           RETURNING {DOC_COLUMNS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .bind(title)
+        .bind(client_id)
+        .bind(layout_id)
+        .bind(fields)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    Ok(row_to_doc_row(row).into_document())
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+
+    #[test]
+    fn document_list_hides_archived_unless_asked() {
+        let live = list_documents_sql(&DocumentFilter::default());
+        assert!(live.contains("AND archived_at IS NULL"));
+        let all = list_documents_sql(&DocumentFilter {
+            include_archived: true,
+            ..Default::default()
+        });
+        assert!(!all.contains("archived_at IS NULL"));
     }
-    .into_document())
 }

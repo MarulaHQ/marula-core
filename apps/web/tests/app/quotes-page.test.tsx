@@ -226,6 +226,39 @@ describe("/sales/quotes integration", () => {
     cleanup();
   });
 
+  it("lets a quantity and a price be typed by hand, digit by digit", async () => {
+    setupApi();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <QuotesPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Q-0001");
+    await user.click(screen.getByTestId("quotes-new"));
+    await user.click(await screen.findByTestId("quote-client"));
+    const clientOptions = await screen.findAllByRole("option", { name: "Acme Corp" });
+    await user.click(clientOptions[0] as HTMLElement);
+    await user.selectOptions(await screen.findByTestId("quote-from-catalogue"), ITEM);
+
+    // "2.5" needs the dot to survive the keystroke; a value rebuilt from the
+    // parsed number would collapse it back to "2" and the decimal is lost.
+    const quantity = screen.getByLabelText("Quantity for line 1");
+    await user.clear(quantity);
+    await user.type(quantity, "2.5");
+    expect(quantity).toHaveValue("2.5");
+
+    // "15.00" needs the trailing zeros to survive too, not re-render as "1.00".
+    const price = screen.getByLabelText("Unit price for line 1");
+    await user.clear(price);
+    await user.type(price, "15.00");
+    expect(price).toHaveValue("15.00");
+
+    // 2.5 × 15.00, priced from what was typed.
+    expect(screen.getAllByText("$37.50").length).toBeGreaterThan(0);
+    cleanup();
+  });
+
   it("offers Describe it in the split New menu, and only with the grant", async () => {
     setupApi();
     const user = userEvent.setup();
@@ -270,6 +303,159 @@ describe("/sales/quotes integration", () => {
     expect(screen.getAllByLabelText("Assumed, please check").length).toBeGreaterThan(0);
     // Nothing was saved by building it.
     expect(mock.callsTo("POST", "/api/v1/quotes")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("posts an optional line as optional, priced outside the total", async () => {
+    const mock = setupApi();
+    seedDraftFromNotes(mock);
+    // A draft with a priced extra the customer has not agreed to yet.
+    mock.on("POST", "/api/v1/quotes/author", () => ({
+      json: {
+        valid: true,
+        saved: false,
+        draft: {
+          title: "Wi-Fi refresh",
+          currency: "USD",
+          valid_for_days: 30,
+          notes: null,
+          client_id: CLIENT,
+          client_name: "Acme Corp",
+          budget_minor: null,
+          lines: [
+            {
+              description: "Access point",
+              quantity_milli: 1000,
+              unit_price_minor: 10_000,
+              unit: "each",
+              section: null,
+              optional: false,
+              source: "notes",
+              source_span: null,
+              quantity_assumed: false,
+              price_assumed: false,
+            },
+            {
+              description: "Support plan",
+              quantity_milli: 1000,
+              unit_price_minor: 20_000,
+              unit: "each",
+              section: null,
+              optional: true,
+              source: "notes",
+              source_span: null,
+              quantity_assumed: false,
+              price_assumed: false,
+            },
+          ],
+          assumptions: [],
+          understanding: null,
+          checks: [],
+        },
+        assumptions: [],
+        issues: [],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+        model_info: { provider: "test", model: "test" },
+      },
+    }));
+    mock.install();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <QuotesPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Q-0001");
+    await user.click(screen.getByTestId("quotes-describe"));
+    await user.type(
+      await screen.findByTestId("describe-transcript"),
+      "One access point, with an optional support plan",
+    );
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    // The builder shows the optional line and keeps it out of the total. The
+    // total preview is the required line only: $100.00, with the $200.00
+    // support plan shown beside it as an optional extra.
+    expect(await screen.findByDisplayValue("Support plan")).toBeInTheDocument();
+    expect(screen.getByTestId("draft-total")).toHaveTextContent("$100.00");
+
+    await user.click(screen.getByTestId("quote-save"));
+    await waitFor(() => expect(mock.callsTo("POST", "/api/v1/quotes").length).toBe(1));
+    // Both lines are posted; the optional flag is what keeps the extra out of
+    // the quote's total, not a client-side drop.
+    const body = mock.lastBody<{ lines: { description: string; optional: boolean }[] }>(
+      "POST",
+      "/api/v1/quotes",
+    );
+    expect(body.lines.map((line) => line.description)).toEqual(["Access point", "Support plan"]);
+    expect(body.lines.map((line) => line.optional)).toEqual([false, true]);
+    cleanup();
+  });
+
+  it("keeps a draft's taxability over the catalogue's answer", async () => {
+    const mock = setupApi();
+    seedDraftFromNotes(mock);
+    // The catalogue item is taxable; the draft says this line is not, and the
+    // builder must keep the draft's answer rather than re-reading the item.
+    mock.on("POST", "/api/v1/quotes/author", () => ({
+      json: {
+        valid: true,
+        saved: false,
+        draft: {
+          title: "Non-taxable block",
+          currency: "USD",
+          valid_for_days: 30,
+          notes: null,
+          client_id: CLIENT,
+          client_name: "Acme Corp",
+          budget_minor: null,
+          lines: [
+            {
+              description: "Block hours",
+              quantity_milli: 1000,
+              unit_price_minor: 15_000,
+              unit: "hour",
+              section: null,
+              optional: false,
+              taxable: false,
+              catalog_item_id: ITEM,
+              source: "catalogue",
+              source_span: null,
+              quantity_assumed: false,
+              price_assumed: false,
+            },
+          ],
+          assumptions: [],
+          understanding: null,
+          checks: [],
+        },
+        assumptions: [],
+        issues: [],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+        model_info: { provider: "test", model: "test" },
+      },
+    }));
+    mock.install();
+    const user = userEvent.setup();
+    render(
+      <AuthProvider>
+        <QuotesPage />
+      </AuthProvider>,
+    );
+    await screen.findByText("Q-0001");
+    await user.click(screen.getByTestId("quotes-describe"));
+    await user.type(await screen.findByTestId("describe-transcript"), "Tax-free block hours for Acme");
+    await user.click(screen.getByTestId("describe-draft"));
+    await screen.findByTestId("describe-understanding");
+    await user.click(screen.getByTestId("describe-build"));
+
+    await screen.findByDisplayValue("Block hours");
+    await user.click(screen.getByTestId("quote-save"));
+    await waitFor(() => expect(mock.callsTo("POST", "/api/v1/quotes").length).toBe(1));
+    const body = mock.lastBody<{ lines: { taxable: boolean }[] }>("POST", "/api/v1/quotes");
+    expect(body.lines[0]?.taxable).toBe(false);
     cleanup();
   });
 

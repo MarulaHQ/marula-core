@@ -25,6 +25,14 @@ export function CommandPaletteHost() {
   const grant = useGeneralChatGrant();
   const context = useScreenContext();
 
+  // The store outlives a sign-out, so a different account in the same tab
+  // would otherwise open someone else's transcript. Clear it when the
+  // signed-in user changes, and when the session ends.
+  const userId = auth.me?.user_id ?? null;
+  useEffect(() => {
+    actions.resetSession();
+  }, [userId]);
+
   useEffect(() => {
     if (auth.status !== "authed") return;
     const onKeyDown = (event: KeyboardEvent) => {

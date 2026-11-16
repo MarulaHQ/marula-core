@@ -515,10 +515,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/portal/quotes/{id}/decline"),
             post(portal_v2::decline_quote),
         )
-        // Surface-pack portal project view (change-order acknowledgement,
-        // plain-language status and the client-visible update list). Same
-        // portal auth stack, same client scoping.
+        // Surface-pack portal views: project status and the document list.
+        // The document endpoint reads `PortalAuthed`, which only this
+        // middleware inserts, so it must not sit on the staff router.
         .merge(project_delivery::portal_routes(gen))
+        .merge(knowledge_home::portal_routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // portal auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))
@@ -782,6 +783,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             get(clients::list_sites).post(clients::create_site),
         )
         .route(
+            &rp("/clients/{id}/sites/{site_id}/archive"),
+            post(clients::archive_site),
+        )
+        .route(
             &rp("/clients/{id}/contacts"),
             get(clients::list_contacts).post(clients::create_contact),
         )
@@ -901,6 +906,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/tickets/{id}"),
             get(tickets::get_one).patch(tickets::patch),
         )
+        .route(&rp("/tickets/{id}/archive"), post(tickets::archive))
         .route(
             &rp("/tickets/{id}/decision-suggestions"),
             get(decision_suggestions::list),
@@ -1328,6 +1334,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/documents/{id}"),
             get(documents::get_one).patch(documents::update),
         )
+        .route(&rp("/documents/{id}/archive"), post(documents::archive))
         .route(
             &rp("/documents/{id}/versions"),
             get(documents::list_versions),

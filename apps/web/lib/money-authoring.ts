@@ -39,6 +39,8 @@ export type DraftLine = {
   unit?: string | null;
   section?: string | null;
   optional?: boolean;
+  /** `null` when nothing established it; the create route then taxes the line. */
+  taxable?: boolean | null;
   catalog_item_id?: string | null;
   source?: LineProvenance;
   source_span?: SourceSpan | null;
@@ -301,6 +303,9 @@ export type SourceUploadOutcome =
   | { accepted: true; source: MoneySource; length: number }
   | { accepted: false; reason: string; message: string };
 
+/** One per upload in the session: two files can share a name and a length. */
+let uploadSequence = 0;
+
 /**
  * Upload a file as a source. The server reads text only, so a PDF or a Word
  * file comes back with a typed reason rather than a silent empty source.
@@ -330,7 +335,9 @@ export async function uploadSource(file: File): Promise<SourceUploadOutcome> {
   }
   return {
     accepted: true,
-    source: { ...outcome.result.source, id: `upload-${file.name}-${file.size}` },
+    // A name plus a byte length is not an identity: two files can match it, and
+    // the notes tab selects highlights by this id.
+    source: { ...outcome.result.source, id: `upload-${++uploadSequence}` },
     length: outcome.result.length ?? outcome.result.source.text.length,
   };
 }
@@ -356,14 +363,22 @@ export async function moneyAuthoringAvailable(surfaceKey: string): Promise<boole
 
 /**
  * Talk is the browser's own speech recognition: the words become text in the
- * composer and no audio is stored anywhere. When the browser has no
- * recogniser there is no Talk control at all — a disabled microphone would be
- * a promise the product cannot keep.
+ * composer and no audio is stored anywhere.
+ *
+ * The card says audio never leaves the browser, so the recogniser must run on
+ * the device: a browser that would send the audio to a remote recogniser is not
+ * offered Talk at all. `processLocally` is the switch the Web Speech API added
+ * for exactly this, and its presence on the prototype is the support test —
+ * having the constructor says nothing about where it processes.
  */
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
 type SpeechRecognitionLike = {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
+  /** On-device recognition only; a recogniser without it is not offered. */
+  processLocally: boolean;
   start: () => void;
   stop: () => void;
   abort: () => void;
@@ -380,14 +395,21 @@ type SpeechResultEventLike = {
 };
 
 type SpeechWindow = Window & {
-  SpeechRecognition?: new () => SpeechRecognitionLike;
-  webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  SpeechRecognition?: SpeechRecognitionCtor;
+  webkitSpeechRecognition?: SpeechRecognitionCtor;
 };
 
-export function speechRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
+function speechRecognitionCtor(): SpeechRecognitionCtor | null {
   if (typeof window === "undefined") return null;
   const scope = window as SpeechWindow;
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
+}
+
+/** The recogniser only where it runs on the device. */
+export function localSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+  const ctor = speechRecognitionCtor();
+  if (ctor === null) return null;
+  return "processLocally" in ctor.prototype ? ctor : null;
 }
 
 /** Money is always in minor units; this only formats, it never computes a total. */

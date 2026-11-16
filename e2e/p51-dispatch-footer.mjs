@@ -70,7 +70,10 @@ const states = [
 /* The AI grants are org settings, not user settings (`p47-conformance.mjs`). */
 async function setAiFeatures(ctx, tokens, enabled) {
   await ctx.request.put(`${API}/api/v1/settings/ai/decision/features`, {
-    data: { enabled, idempotency_key: `features:p51:${String(Date.now())}:${String(enabled)}` },
+    data: {
+      mode: enabled ? "live" : "off",
+      idempotency_key: `features:p51:${String(Date.now())}:${String(enabled)}`,
+    },
     headers: { authorization: `Bearer ${tokens.access_token}` },
   });
 }

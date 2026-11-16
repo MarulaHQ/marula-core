@@ -845,7 +845,7 @@ pub async fn delete_article(
     let user_id = authed.principal.user.id;
 
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        let deleted = core_db::kb::delete_article(&mut *ctx.tx, org_id, id).await?;
+        let deleted = core_db::kb::delete_article(&mut ctx.tx, org_id, id).await?;
         if !deleted {
             return Err(ApiError::NotFound);
         }

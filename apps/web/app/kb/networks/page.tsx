@@ -46,7 +46,7 @@ export default function NetworksPage() {
     setRows(null);
     setError(null);
     knowledgeApi
-      .get<Network[]>(`/api/v1/knowledge/networks?client_id=${clientId}`)
+      .get<Network[]>(`/api/v1/knowledge/networks?client_id=${encodeURIComponent(clientId)}`)
       .then((data) => {
         if (!cancelled) setRows(data);
       })
@@ -74,8 +74,9 @@ export default function NetworksPage() {
           }
         />
 
-        {error !== null ? <ErrorNote title="Networks did not load.">{error}</ErrorNote> : null}
-        {rows === null ? (
+        {error !== null ? (
+          <ErrorNote title="Networks did not load.">{error}</ErrorNote>
+        ) : rows === null ? (
           <SkeletonRows rows={6} sentence="Loading networks" columns={4} />
         ) : clientId === null ? (
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

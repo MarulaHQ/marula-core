@@ -7,9 +7,9 @@
 // (turn_started / assistant_delta / tool_invocation / assist_proposed /
 // assist_held / turn_completed) is parsed exactly.
 //
-// Posture: typed refusals answer BEFORE any stream (403 codes) — clients
-// branch on the machine reason and render typed not-available states,
-// never a dead spinner.
+// Posture: typed refusals answer BEFORE any stream (401 unauthenticated, 403
+// codes) — clients branch on the machine reason and render typed
+// not-available states, never a dead spinner.
 
 import { apiBaseUrl, authReady, loadTokens } from "./api";
 
@@ -35,6 +35,10 @@ export interface ChatTurnResult {
   refusal?: string;
   refusalMessage?: string;
 }
+
+/** A stream that sends nothing for this long is treated as finished, so a
+ *  stalled connection cannot hold the surface's busy state forever. */
+const STREAM_IDLE_MS = 30_000;
 
 /** One bounded model turn; resolves when the SSE stream closes. `onFrame`
  *  receives each parsed frame as it arrives, which is what lets a chat surface
@@ -68,6 +72,18 @@ export async function runChatTurn(
       body: JSON.stringify(turn),
     },
   );
+  // The turns route reads the bearer header only, so a request sent while the
+  // token is missing comes back 401 with no stream at all. Left unhandled it
+  // reads as an empty answer ("No answer came back") instead of a session that
+  // needs signing in again.
+  if (response.status === 401) {
+    return {
+      frames: [],
+      text: "",
+      refusal: "unauthenticated",
+      refusalMessage: "Your session has expired. Sign in again to use the assistant.",
+    };
+  }
   if (response.status === 403 || response.status === 400 || response.status === 429) {
     const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     return {
@@ -89,33 +105,48 @@ export async function runChatTurn(
   const decoder = new TextDecoder();
   let buffer = "";
   let currentEvent = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let sep: number = buffer.indexOf("\n\n");
-    while (sep !== -1) {
-      const chunk = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      sep = buffer.indexOf("\n\n");
-      let data = "";
-      for (const line of chunk.split("\n")) {
-        if (line.startsWith("event:")) currentEvent = line.slice(6).trim();
-        else if (line.startsWith("data:")) data += line.slice(5).trim();
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const armIdleTimer = (): void => {
+    if (idleTimer !== undefined) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      // Cancelling resolves the pending read with `done`, which takes the
+      // normal completion path instead of leaving the turn open.
+      void reader.cancel();
+    }, STREAM_IDLE_MS);
+  };
+  try {
+    armIdleTimer();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      armIdleTimer();
+      buffer += decoder.decode(value, { stream: true });
+      let sep: number = buffer.indexOf("\n\n");
+      while (sep !== -1) {
+        const chunk = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        sep = buffer.indexOf("\n\n");
+        let data = "";
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("event:")) currentEvent = line.slice(6).trim();
+          else if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (currentEvent === "" || data === "") continue;
+        const parsed = safeJson(data);
+        if (parsed === null) continue;
+        const frame: ChatFrame = { event: currentEvent as ChatFrameName, data: parsed };
+        frames.push(frame);
+        onFrame?.(frame);
+        if (currentEvent === "assistant_delta" && typeof parsed.delta === "string") {
+          text += parsed.delta;
+        } else if (currentEvent === "turn_completed" && typeof parsed.text === "string") {
+          text = parsed.text;
+        }
+        currentEvent = "";
       }
-      if (currentEvent === "" || data === "") continue;
-      const parsed = safeJson(data);
-      if (parsed === null) continue;
-      const frame: ChatFrame = { event: currentEvent as ChatFrameName, data: parsed };
-      frames.push(frame);
-      onFrame?.(frame);
-      if (currentEvent === "assistant_delta" && typeof parsed.delta === "string") {
-        text += parsed.delta;
-      } else if (currentEvent === "turn_completed" && typeof parsed.text === "string") {
-        text = parsed.text;
-      }
-      currentEvent = "";
     }
+  } finally {
+    if (idleTimer !== undefined) clearTimeout(idleTimer);
   }
   return { frames, text };
 }

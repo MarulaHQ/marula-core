@@ -366,6 +366,31 @@ export default function DocumentDetailPage() {
   const left = version(diffLeft);
   const right = version(diffRight);
 
+  // Documents are history and are never deleted; archiving takes one out of
+  // the living library and leaves it readable here.
+  async function setArchived(archived: boolean): Promise<void> {
+    setError(null);
+    const result = await api.api.POST("/api/v1/documents/{id}/archive", {
+      params: { path: { id } },
+      body: { archived },
+    });
+    if (result.error !== undefined) {
+      setError(
+        (result.error as { error?: { message?: string } }).error?.message ??
+          "The document could not be archived.",
+      );
+      return;
+    }
+    // Reconcile the one field this act changed. A full refresh would replace
+    // the body draft and the metadata form with the persisted values, losing
+    // edits the person has not saved yet.
+    setDoc((current) =>
+      current === null
+        ? current
+        : { ...current, archived_at: archived ? new Date().toISOString() : null },
+    );
+  }
+
   return (
     <PageFrame>
       <Link
@@ -399,12 +424,22 @@ export default function DocumentDetailPage() {
             {doc.restored_from_version != null ? (
               <Badge tone="warning">restored from v{doc.restored_from_version}</Badge>
             ) : null}
+            {doc.archived_at != null ? <Badge tone="neutral">Archived</Badge> : null}
           </span>
         }
         actions={
-          <Button variant="secondary" onClick={() => setEditMeta((v) => !v)}>
-            {editMeta ? "Close details" : "Edit details"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              data-testid="document-archive"
+              onClick={() => void setArchived(doc.archived_at == null)}
+            >
+              {doc.archived_at != null ? "Restore" : "Archive"}
+            </Button>
+            <Button variant="secondary" onClick={() => setEditMeta((v) => !v)}>
+              {editMeta ? "Close details" : "Edit details"}
+            </Button>
+          </div>
         }
       />
 

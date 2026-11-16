@@ -16,8 +16,8 @@ mod common;
 
 use common::{fixed_uuid, org_tx, test_db};
 use core_db::{
-    boards, document_layouts, document_links, documents, orgs, passwords, secret_vault, tickets,
-    users, DbError,
+    boards, clients, document_layouts, document_links, documents, knowledge_home, orgs, passwords,
+    secret_vault, tickets, users, DbError,
 };
 use core_domain::entities::{LinkKind, ResolvedLink, SecretFolderKind, SecretRecordKind};
 use core_domain::policy::{BoardRole, LinkViewScope};
@@ -828,4 +828,260 @@ async fn rls_blocks_cross_org_docs_platform_reads() {
         "layouts are org-scoped"
     );
     tx2.commit().await.expect("commit");
+}
+
+/// Archive state (0228) for the three linkable records. An archived ticket,
+/// site or document stays readable by id with `archived_at` exposed, leaves
+/// its list and the knowledge link read by default, and comes back on
+/// restore. Slots 210–219 are this test's range.
+#[tokio::test]
+async fn archived_records_leave_lists_and_links_until_restored() {
+    let db = test_db().await;
+    let app = db.app.clone();
+    let s = seed_org(&app, 210).await;
+    let mut tx = org_tx(&app, s.org).await;
+    let author = seed_user(&app, &s, 211).await;
+
+    let site = clients::create_site(
+        &mut *tx,
+        s.org,
+        fixed_uuid(212),
+        s.client,
+        "Depot",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("site");
+
+    let board = boards::list_boards(&mut *tx, s.org)
+        .await
+        .expect("boards")
+        .into_iter()
+        .next()
+        .expect("default board seeded");
+    let status = boards::default_status_for_board(&mut *tx, board.id)
+        .await
+        .expect("entry status");
+    let ticket = tickets::insert_ticket(
+        &mut tx,
+        tickets::NewTicket {
+            id: fixed_uuid(213),
+            org_id: s.org,
+            number: "MAR-2210",
+            board_id: board.id,
+            status_id: status.id,
+            title: "Archived printer",
+            body: None,
+            priority: Priority::P3,
+            client_id: Some(s.client),
+            site_id: Some(site.id),
+            contact_id: None,
+            assignee_id: None,
+            requester_id: None,
+            due_at: None,
+        },
+    )
+    .await
+    .expect("ticket");
+
+    let (doc, _) = documents::create_document(
+        &mut tx,
+        s.org,
+        fixed_uuid(214),
+        Some(s.client),
+        None,
+        &serde_json::json!({}),
+        "Archived runbook",
+        "",
+        "",
+        author,
+    )
+    .await
+    .expect("document");
+
+    knowledge_home::insert_link(
+        &mut *tx,
+        s.org,
+        fixed_uuid(215),
+        Some(s.client),
+        "document",
+        doc.id,
+        "ticket",
+        ticket.id,
+        None,
+        author,
+    )
+    .await
+    .expect("link");
+
+    let all_tickets = || tickets::TicketFilter {
+        board_id: None,
+        assignee_id: None,
+        client_id: None,
+        category: None,
+        priority: None,
+        tag_ids: None,
+        include_archived: false,
+        limit: 50,
+        offset: 0,
+        cursor: None,
+    };
+
+    // Live rows list everywhere and the link resolves.
+    assert_eq!(
+        tickets::list_tickets(&mut *tx, s.org, all_tickets())
+            .await
+            .expect("live tickets")
+            .len(),
+        1
+    );
+    assert_eq!(
+        clients::list_sites(&mut *tx, s.org, s.client, false)
+            .await
+            .expect("live sites")
+            .len(),
+        1
+    );
+    assert_eq!(
+        documents::list_documents(
+            &mut *tx,
+            s.org,
+            &documents::DocumentFilter {
+                client_id: Some(Some(s.client)),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("live documents")
+        .len(),
+        1
+    );
+    assert_eq!(
+        knowledge_home::links_for(&mut *tx, s.org, "document", doc.id)
+            .await
+            .expect("links")
+            .len(),
+        1
+    );
+
+    tickets::set_ticket_archived(&mut tx, s.org, ticket.id, true)
+        .await
+        .expect("archive ticket");
+    clients::set_site_archived(&mut tx, s.org, s.client, site.id, true)
+        .await
+        .expect("archive site");
+    documents::set_document_archived(&mut tx, s.org, doc.id, true)
+        .await
+        .expect("archive document");
+
+    // By id they still read, with the marker exposed.
+    assert!(tickets::get_ticket(&mut *tx, s.org, ticket.id)
+        .await
+        .expect("archived ticket by id")
+        .archived_at
+        .is_some());
+    assert!(clients::get_site(&mut *tx, s.org, site.id)
+        .await
+        .expect("archived site by id")
+        .archived_at
+        .is_some());
+    assert!(documents::get_document(&mut *tx, s.org, doc.id)
+        .await
+        .expect("archived document by id")
+        .archived_at
+        .is_some());
+
+    // Default lists hide them; the archive view asks for them back.
+    assert!(tickets::list_tickets(&mut *tx, s.org, all_tickets())
+        .await
+        .expect("hidden tickets")
+        .is_empty());
+    let with_archived = tickets::TicketFilter {
+        include_archived: true,
+        ..all_tickets()
+    };
+    assert_eq!(
+        tickets::list_tickets(&mut *tx, s.org, with_archived)
+            .await
+            .expect("archived tickets")
+            .len(),
+        1
+    );
+    assert!(clients::list_sites(&mut *tx, s.org, s.client, false)
+        .await
+        .expect("hidden sites")
+        .is_empty());
+    assert_eq!(
+        clients::list_sites(&mut *tx, s.org, s.client, true)
+            .await
+            .expect("archived sites")
+            .len(),
+        1
+    );
+    assert!(documents::list_documents(
+        &mut *tx,
+        s.org,
+        &documents::DocumentFilter {
+            client_id: Some(Some(s.client)),
+            include_archived: false,
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("hidden documents")
+    .is_empty());
+
+    // The link read hides the edge while the target is archived.
+    assert!(
+        knowledge_home::links_for(&mut *tx, s.org, "document", doc.id)
+            .await
+            .expect("hidden link")
+            .is_empty()
+    );
+
+    // Restore: the lists and the link come back, and clearing is idempotent.
+    tickets::set_ticket_archived(&mut tx, s.org, ticket.id, false)
+        .await
+        .expect("restore ticket");
+    clients::set_site_archived(&mut tx, s.org, s.client, site.id, false)
+        .await
+        .expect("restore site");
+    documents::set_document_archived(&mut tx, s.org, doc.id, false)
+        .await
+        .expect("restore document");
+    assert!(tickets::get_ticket(&mut *tx, s.org, ticket.id)
+        .await
+        .expect("restored ticket")
+        .archived_at
+        .is_none());
+    assert_eq!(
+        tickets::list_tickets(&mut *tx, s.org, all_tickets())
+            .await
+            .expect("restored tickets")
+            .len(),
+        1
+    );
+    assert_eq!(
+        clients::list_sites(&mut *tx, s.org, s.client, false)
+            .await
+            .expect("restored sites")
+            .len(),
+        1
+    );
+    assert_eq!(
+        knowledge_home::links_for(&mut *tx, s.org, "document", doc.id)
+            .await
+            .expect("restored link")
+            .len(),
+        1
+    );
+
+    tx.commit().await.expect("commit");
 }

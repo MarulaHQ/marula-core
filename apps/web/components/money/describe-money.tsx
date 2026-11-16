@@ -88,7 +88,10 @@ export function DescribeMoney({
   testId?: string;
   available?: boolean;
 }): React.JSX.Element | null {
-  const show = available ?? useMoneyAuthoring(surfaceOf(kind), available === undefined);
+  // The hook runs on every render, in the same order, whoever supplies the
+  // answer; a caller may hand `available` down or leave it to this component.
+  const own = useMoneyAuthoring(surfaceOf(kind), available === undefined);
+  const show = available ?? own;
   if (!show) return null;
   return (
     <Button
@@ -276,7 +279,7 @@ export type DescribePanelProps = {
   clients: { id: string; name: string }[];
   /** The draft and the words it came from, for the builder and its notes tab. */
   onBuild: (draft: AnyDraft, sources: MoneySource[], kind: MoneyKind) => void;
-  /** "Start a blank quote" from the failure card: same words, no draft. */
+  /** "Start a blank quote/contract" from the failure card: same words, no draft. */
   onStartBlank: (sources: MoneySource[]) => void;
   initialText?: string;
   initialClientId?: string;
@@ -319,6 +322,11 @@ export function DescribePanel({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [seenOpen, setSeenOpen] = useState(false);
   const abort = useRef<AbortController | null>(null);
+  // The request outlives the render that started it, and the person may close
+  // the panel while it runs. Read the latest `open` when it lands, not the one
+  // captured at click time.
+  const openRef = useRef(open);
+  openRef.current = open;
 
   // The panel keeps the kind it was opened with; a renewal always opens as a
   // contract even if the list's own kind is a quote.
@@ -411,7 +419,7 @@ export function DescribePanel({
     setMode("understood");
     // The panel may have been closed to keep working: the draft arrives, and
     // the route brings the check step back rather than leaving it hidden.
-    if (!open) onReady?.();
+    if (!openRef.current) onReady?.();
     setAnswers(
       Object.fromEntries(
         (outcome.result.draft.understanding?.questions ?? []).map((question) => [
@@ -420,7 +428,7 @@ export function DescribePanel({
         ]),
       ),
     );
-  }, [canDraft, clientId, instruction, open, onReady, panelKind, sources, text]);
+  }, [canDraft, clientId, instruction, onReady, panelKind, sources, text]);
 
   useEffect(() => () => abort.current?.abort(), []);
 
@@ -464,7 +472,12 @@ export function DescribePanel({
       </div>
 
       <div className="m-dsc-body">
-        {mode === "compose" ? (
+        {/* Only while the panel is open: the panel is hidden rather than
+            unmounted, and a Talk card inside it would keep the microphone
+            running behind a closed panel. Its words live in the parent, and the
+            card hands over the words it had already settled as it unmounts, so
+            closing keeps them rather than dropping them. */}
+        {mode === "compose" && open ? (
           <>
             {prefilled !== undefined && prefilled !== null && prefilled.using.length > 0 ? (
               <div className="flex flex-col gap-1.5">
@@ -540,7 +553,7 @@ export function DescribePanel({
                 size="sm"
                 onClick={() => {
                   if (draft === null) return;
-                  onBuild(draft, sourceList(text, sources), panelKind);
+                  onBuild(withAnswers(draft, answers), sourceList(text, sources), panelKind);
                   onClose();
                 }}
                 data-testid="describe-build"
@@ -553,6 +566,7 @@ export function DescribePanel({
 
         {mode === "failed" && failure !== null ? (
           <DescribeFailure
+            kind={panelKind}
             message={failure.message}
             reference={failure.reference}
             sourceCount={sourceList(text, sources).length}
@@ -593,6 +607,26 @@ function sourceList(text: string, sources: MoneySource[]): MoneySource[] {
   const typed = text.trim();
   if (typed === "") return sources;
   return [{ id: "typed-1", kind: "typed", name: "Your words", text: typed }, ...sources];
+}
+
+/**
+ * The check step's answers are part of the draft the builder receives.
+ * Otherwise the person picks a signer or an approver and the draft still
+ * carries the server's first guess.
+ */
+function withAnswers(draft: AnyDraft, answers: Record<string, string>): AnyDraft {
+  const understanding = draft.understanding;
+  if (understanding === null || understanding === undefined) return draft;
+  return {
+    ...draft,
+    understanding: {
+      ...understanding,
+      questions: understanding.questions.map((question) => ({
+        ...question,
+        chosen: answers[question.id] ?? question.chosen,
+      })),
+    },
+  };
 }
 
 /**

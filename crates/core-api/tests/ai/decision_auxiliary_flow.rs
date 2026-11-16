@@ -266,6 +266,63 @@ async fn upsert_live_surface(
     .unwrap();
 }
 
+/// The org-wide AI control (`ai.mode`), written through the route the UI
+/// uses. One PUT moves `ai.mode` and the legacy `ai.features_enabled`
+/// together, so a mode write can never leave the two keys disagreeing.
+async fn set_ai_mode(app: &Router, bearer: &str, mode: &str) {
+    let response = send(
+        app,
+        axum::http::Method::PUT,
+        "/api/settings/ai/decision/features",
+        Some(bearer),
+        Some(json!({ "mode": mode })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "org AI mode must move to '{mode}': {:?}",
+        body_json(response).await
+    );
+}
+
+/// The surface row's OWN mode — the value the org layer overrides.
+async fn surface_mode(pool: &PgPool, org_id: Uuid, surface: &str) -> String {
+    sqlx::query_scalar(
+        "SELECT mode FROM ai_decision_surface_configs \
+         WHERE org_id = $1 AND surface_key = $2",
+    )
+    .bind(org_id)
+    .bind(surface)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// The mode on the newest recorded run for the rerank surface.
+async fn newest_run_mode(pool: &PgPool, org_id: Uuid) -> String {
+    sqlx::query_scalar(
+        "SELECT mode FROM decision_answers \
+         WHERE org_id = $1 AND surface = 'decision_search_rerank' \
+         ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// How many runs recorded under a mode — zero live rows is the proof
+/// nothing acted.
+async fn run_rows_in_mode(pool: &PgPool, org_id: Uuid, mode: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM decision_answers WHERE org_id = $1 AND mode = $2")
+        .bind(org_id)
+        .bind(mode)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
 async fn counts(pool: &PgPool, org_id: Uuid) -> (i64, i64) {
     let ledger: i64 = sqlx::query_scalar("SELECT count(*) FROM ai_usage_ledger WHERE org_id = $1")
         .bind(org_id)
@@ -483,6 +540,122 @@ async fn similar_tickets_live_reranks_and_records_answers() {
         candidates[0]["state"], "pending",
         "0.55 ≥ review 0.5, < act 0.7"
     );
+}
+
+/// An org-wide shadow keeps a surface configured `live` from acting: the
+/// run still happens and is recorded, but it records as `shadow` and the
+/// consumer applies nothing. The contrast half flips only `ai.mode`: the
+/// same surface then records `live` and labels the answer `act`.
+#[tokio::test(flavor = "multi_thread")]
+async fn org_shadow_holds_a_live_surface_from_acting() {
+    let (state, pool) = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("org-shadow-{}", Uuid::now_v7().simple());
+    let hex = Uuid::now_v7().simple().to_string();
+    let owner = register_org(&app, &slug).await;
+    let (user_id, org_id) = me_ids(&app, &owner).await;
+
+    // Full admission, then the rerank surface configured LIVE (mode live,
+    // pinned model, starter thresholds). Only `ai.mode` differs below.
+    enable_ai(&app, &pool, &owner, org_id, user_id, &hex, &[]).await;
+    {
+        let mut tx = pool.begin().await.unwrap();
+        upsert_live_surface(&mut tx, org_id, "decision_search_rerank", user_id).await;
+        tx.commit().await.unwrap();
+    }
+    core_api::routes::decision_edge::seed_provider_for_org(
+        org_id,
+        Arc::new(ScriptedProvider {
+            answers: vec![noul("relates", 0.9)],
+        }),
+    );
+
+    let board = default_board(&app, &owner).await;
+    let anchor = create_ticket(&app, &owner, board, "Printer on fire", "sparks and smoke").await;
+    let related = create_ticket(
+        &app,
+        &owner,
+        board,
+        "Printer sparks and smoke",
+        "the fire came back",
+    )
+    .await;
+    seed_ticket_index_row(&pool, org_id, anchor, "Printer on fire", "sparks and smoke").await;
+    seed_ticket_index_row(
+        &pool,
+        org_id,
+        related,
+        "Printer sparks and smoke",
+        "the fire came back",
+    )
+    .await;
+
+    // The single control says shadow; the surface row still says live.
+    set_ai_mode(&app, &owner, "shadow").await;
+    assert_eq!(
+        surface_mode(&pool, org_id, "decision_search_rerank").await,
+        "live",
+        "the surface was left configured live — the org layer is what changed"
+    );
+
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/tickets/{anchor}/similar-tickets"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let view = body_json(response).await;
+    let candidate = &view["candidates"][0];
+    assert_eq!(candidate["ticket_id"], json!(related));
+    assert_eq!(
+        candidate["relates"], 0.9,
+        "shadow still spends tokens and records the answer"
+    );
+    assert_eq!(
+        candidate["mode"], "shadow",
+        "the org mode outranks the live surface on the recorded run"
+    );
+    assert_eq!(
+        candidate["state"],
+        Value::Null,
+        "shadow rows drive nothing: no act label is produced"
+    );
+    assert_eq!(newest_run_mode(&pool, org_id).await, "shadow");
+    assert_eq!(
+        run_rows_in_mode(&pool, org_id, "live").await,
+        0,
+        "no live run exists to act on (the worker's auto-ack reads this mode)"
+    );
+    assert_eq!(counts(&pool, org_id).await, (1, 1));
+
+    // Contrast: org live, surface still live — the same call now records
+    // live and the threshold gate labels the answer act (0.9 ≥ 0.7).
+    set_ai_mode(&app, &owner, "live").await;
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/tickets/{anchor}/similar-tickets"),
+        Some(&owner),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), 200);
+    let view = body_json(response).await;
+    let candidate = &view["candidates"][0];
+    assert_eq!(candidate["mode"], "live");
+    assert_eq!(candidate["state"], "act", "0.9 ≥ act 0.7");
+    assert_eq!(newest_run_mode(&pool, org_id).await, "live");
+    assert_eq!(
+        run_rows_in_mode(&pool, org_id, "live").await,
+        1,
+        "the live half records exactly one live run"
+    );
+    // The identical request id is deduped in the ledger, while the
+    // append-only answer store keeps both runs.
+    assert_eq!(counts(&pool, org_id).await, (1, 2));
 }
 
 #[tokio::test(flavor = "multi_thread")]

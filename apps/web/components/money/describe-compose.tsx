@@ -14,7 +14,15 @@
 import { Button } from "@marula-core/ui";
 import { Segmented, SegmentedItem } from "@marula-core/ui/kit";
 import { Icon } from "@marula-core/ui/kit";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import type {
   ExtractedField,
@@ -22,7 +30,7 @@ import type {
   MoneySource,
   SourceKind,
 } from "../../lib/money-authoring";
-import { speechRecognitionCtor, uploadSource } from "../../lib/money-authoring";
+import { localSpeechRecognitionCtor, uploadSource } from "../../lib/money-authoring";
 
 const EXAMPLES: Record<MoneyKind, string[]> = {
   quote: [
@@ -84,7 +92,7 @@ export function DescribeCompose({
   text: string;
   onText: (text: string) => void;
   sources: MoneySource[];
-  onSources: (sources: MoneySource[]) => void;
+  onSources: Dispatch<SetStateAction<MoneySource[]>>;
   instruction: string;
   onInstruction: (instruction: string) => void;
   fields: ExtractedField[];
@@ -100,25 +108,27 @@ export function DescribeCompose({
   const fileInput = useRef<HTMLInputElement | null>(null);
   const copy = KIND_SUB[kind];
 
-  const speakable = useMemo(() => speechRecognitionCtor() !== null, []);
+  const speakable = useMemo(() => localSpeechRecognitionCtor() !== null, []);
 
   const addFiles = useCallback(
     async (files: FileList | File[]) => {
       setUploadError(null);
       setReading(true);
-      const next = [...sources];
+      const added: MoneySource[] = [];
       for (const file of Array.from(files)) {
         const outcome = await uploadSource(file);
         if (outcome.accepted) {
-          next.push(outcome.source);
+          added.push(outcome.source);
         } else {
           setUploadError(outcome.message);
         }
       }
+      // Up to the current list, never a copy captured before the upload: the
+      // person may have removed or added a source while this ran.
+      if (added.length > 0) onSources((current) => [...current, ...added]);
       setReading(false);
-      onSources(next);
     },
-    [onSources, sources],
+    [onSources],
   );
 
   const stopAndReview = useCallback(
@@ -252,7 +262,7 @@ export function DescribeCompose({
                 type="button"
                 className="m-dsc-option"
                 aria-label={`Remove ${source.name ?? label(source.kind)}`}
-                onClick={() => onSources(sources.filter((_, i) => i !== index))}
+                onClick={() => onSources((current) => current.filter((_, i) => i !== index))}
               >
                 <Icon name="x" size={14} />
               </button>
@@ -353,8 +363,10 @@ function label(kind: SourceKind): string {
  * the card opens, stops while paused, and is aborted when the card goes away,
  * so no microphone stays open behind a closed panel.
  *
- * Audio never leaves the browser: the recogniser returns text and the audio is
- * discarded by the browser itself, which is the promise the card states.
+ * Audio never leaves the browser: the recogniser runs on the device
+ * (`processLocally`) and returns text, so the browser discards the audio
+ * itself — the promise the card states. A browser without on-device
+ * recognition never gets here, because Talk is not offered there.
  */
 function TalkCard({
   onStop,
@@ -366,14 +378,33 @@ function TalkCard({
   const [finalText, setFinalText] = useState("");
   const [interim, setInterim] = useState("");
   const [paused, setPaused] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const finalRef = useRef("");
+  /** Set when Stop was pressed: the next `onend` finishes instead of idling. */
+  const finishRef = useRef(false);
+  /** The words have been handed to the parent; a later path must not repeat them. */
+  const handedOverRef = useRef(false);
+  /** Cancel means discard, so the unmount that follows must not flush. */
+  const cancelledRef = useRef(false);
+  // `onend` is bound once, with the closure from the first render; the words it
+  // hands over must go to the current handler, not that one.
+  const onStopRef = useRef(onStop);
+  useEffect(() => {
+    onStopRef.current = onStop;
+  }, [onStop]);
+
+  const handOver = useCallback((transcript: string) => {
+    if (handedOverRef.current) return;
+    handedOverRef.current = true;
+    onStopRef.current(transcript);
+  }, []);
   const recognitionRef = useRef<{
     start: () => void;
     stop: () => void;
     abort: () => void;
   } | null>(null);
-  const speakable = speechRecognitionCtor();
+  const speakable = localSpeechRecognitionCtor();
 
   useEffect(() => {
     const timer = window.setInterval(() => setSeconds((value) => value + 1), 1000);
@@ -386,6 +417,7 @@ function TalkCard({
     recognition.lang = typeof navigator === "undefined" ? "en-US" : navigator.language;
     recognition.continuous = true;
     recognition.interimResults = true;
+    recognition.processLocally = true;
     recognition.onresult = (event) => {
       let final = finalRef.current;
       let pending = "";
@@ -401,6 +433,16 @@ function TalkCard({
       // The newest words are lighter until the recogniser settles them.
       setInterim(pending);
     };
+    // `stop()` asks the recogniser for a result from the audio it has already
+    // collected; `abort()` throws that audio away. Finishing therefore waits
+    // for `onend` after a stop, so the words on screen are not lost.
+    recognition.onend = () => {
+      setInterim("");
+      if (finishRef.current) {
+        finishRef.current = false;
+        handOver(finalRef.current);
+      }
+    };
     recognitionRef.current = recognition;
     if (!paused) {
       try {
@@ -413,6 +455,12 @@ function TalkCard({
     return () => {
       recognition.abort();
       recognitionRef.current = null;
+      // Closing the panel unmounts this card mid-sentence. Aborting stops the
+      // microphone with the card, and the words it had already settled are
+      // handed to the parent so the box keeps them. Cancel is the one exit
+      // that discards on purpose, so it sets the flag below.
+      const settled = finalRef.current.trim();
+      if (!cancelledRef.current && settled !== "") handOver(finalRef.current);
     };
     // The recogniser is created once; pause is handled by the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -431,6 +479,25 @@ function TalkCard({
       }
     }
   }, [paused]);
+
+  /** Stop and let the recogniser settle its last words before handing over. */
+  const finish = useCallback(() => {
+    const recognition = recognitionRef.current;
+    if (recognition === null) {
+      handOver(finalRef.current);
+      return;
+    }
+    finishRef.current = true;
+    setStopping(true);
+    try {
+      recognition.stop();
+    } catch {
+      // Already stopped: there is nothing left to collect.
+      finishRef.current = false;
+      setStopping(false);
+      handOver(finalRef.current);
+    }
+  }, [handOver]);
 
   return (
     <div className="m-dsc-talk" data-testid="describe-talk-card">
@@ -462,17 +529,25 @@ function TalkCard({
           <Icon name={paused ? "play" : "pause"} size={15} />
           {paused ? "Resume" : "Pause"}
         </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            cancelledRef.current = true;
+            onCancel();
+          }}
+        >
           Cancel
         </Button>
         <span className="m-dsc-sp flex-1" />
         <Button
           size="sm"
           variant="primary"
-          onClick={() => onStop(finalRef.current)}
+          onClick={finish}
+          disabled={stopping}
           data-testid="describe-stop"
         >
-          <Icon name="stop" size={15} /> Stop and review
+          <Icon name="stop" size={15} /> {stopping ? "Finishing the words…" : "Stop and review"}
         </Button>
       </div>
     </div>

@@ -5,25 +5,33 @@
 // reaches every documentation store. It also proves the completeness copy is a
 // count with reasons rather than a bare percentage.
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AuthProvider } from "../../lib/api";
 import KnowledgeHomePage from "../../app/kb/page";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 
+// The page reads the client scope from the query string, so the mock keeps one
+// instance the tests can point at a client before rendering.
+const nav = vi.hoisted(() => ({ params: new URLSearchParams(), push: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push: nav.push }),
   usePathname: () => "/kb",
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => nav.params,
   useParams: () => ({}),
 }));
 
 const CLIENT_ID = "50000000-0000-4000-8000-000000000001";
 
+// Local calendar days: `daysUntil` compares local dates, so a `toISOString()`
+// fixture would shift a day whenever the runner's clock is past 16:00 local.
 function isoDaysFromNow(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 const HOME = {
@@ -109,6 +117,8 @@ describe("/kb knowledge home", () => {
   beforeEach(() => {
     cleanup();
     seedAuthTokens();
+    nav.params = new URLSearchParams();
+    nav.push.mockClear();
   });
 
   it("leads with clients and their counted completeness", async () => {
@@ -151,5 +161,50 @@ describe("/kb knowledge home", () => {
       expect(screen.queryByText("Firewall admin")).toBeNull();
     });
     expect(screen.getByText("ACME-FW01")).toBeTruthy();
+  });
+
+  it("sends the selected client scope with the search", async () => {
+    // A scoped page (?client_id=…) must ask the server for that client, not
+    // filter a global answer afterwards — the limit would already be spent.
+    nav.params = new URLSearchParams({ client_id: CLIENT_ID });
+    const mock = new MockApi()
+      .on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }))
+      .on("GET", "/api/v1/knowledge/home", () => ({ json: HOME }))
+      .on("GET", "/api/v1/knowledge/expirations", () => ({ json: EXPIRIES }))
+      .on("GET", "/api/v1/knowledge/search", () => ({ json: SEARCH_HITS }))
+      .install();
+    renderPage();
+
+    await screen.findAllByText("Acme Corporation");
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Search knowledge"), "acme fw");
+
+    await waitFor(() => {
+      expect(mock.callsTo("GET", "/api/v1/knowledge/search")).toHaveLength(1);
+    });
+    const sent = mock.callsTo("GET", "/api/v1/knowledge/search")[0];
+    expect(sent?.query.q).toBe("acme fw");
+    expect(sent?.query.client_id).toBe(CLIENT_ID);
+  });
+
+  it("offers a client scope picker and puts the choice in the URL", async () => {
+    const mock = new MockApi()
+      .on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }))
+      .on("GET", "/api/v1/knowledge/home", () => ({ json: HOME }))
+      .on("GET", "/api/v1/knowledge/expirations", () => ({ json: EXPIRIES }))
+      .on("GET", "/api/v1/clients", () => ({
+        json: [{ id: CLIENT_ID, name: "Acme Corporation" }],
+      }))
+      .install();
+    renderPage();
+
+    const picker = await screen.findByLabelText("Scope");
+    expect(within(picker).getByRole("option", { name: "All clients" })).toBeTruthy();
+    const user = userEvent.setup();
+    await user.selectOptions(picker, CLIENT_ID);
+
+    expect(nav.push).toHaveBeenCalledTimes(1);
+    expect(nav.push.mock.calls[0]?.[0]).toContain(`client_id=${CLIENT_ID}`);
+    expect(mock.callsTo("GET", "/api/v1/clients")).toHaveLength(1);
   });
 });

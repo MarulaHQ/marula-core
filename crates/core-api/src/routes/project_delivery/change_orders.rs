@@ -59,6 +59,20 @@ pub struct ChangeOrderView {
     pub updated_at: chrono::DateTime<Utc>,
 }
 
+impl ChangeOrderView {
+    /// The document is readable by anyone with project view; its money is
+    /// financial data and serializes `null` without `financial:read` (RB2,
+    /// ADR 0004), so the plan stays readable while the figure stays hidden.
+    fn visible(co: core_db::project_delivery::ChangeOrder, financial: bool) -> Self {
+        let mut view = Self::from(co);
+        if !financial {
+            view.amount_minor = None;
+            view.currency = None;
+        }
+        view
+    }
+}
+
 impl From<core_db::project_delivery::ChangeOrder> for ChangeOrderView {
     fn from(co: core_db::project_delivery::ChangeOrder) -> Self {
         Self {
@@ -186,9 +200,31 @@ fn validate_source(value: &str) -> ApiResult<()> {
     Ok(())
 }
 
+fn financial_read(authed: &crate::auth::AuthedUser) -> bool {
+    core_domain::policy::check(&authed.principal.permissions, Permission::ViewFinancials)
+        .is_allowed()
+}
+
+/// Every response that carries a change-order document goes through here: the
+/// plan is readable on project view, the money only with `financial:read`.
+fn view_for(
+    authed: &crate::auth::AuthedUser,
+    co: core_db::project_delivery::ChangeOrder,
+) -> ChangeOrderView {
+    ChangeOrderView::visible(co, financial_read(authed))
+}
+
 fn reference_for(id: Uuid) -> String {
-    let hex: String = id.simple().to_string().chars().take(6).collect();
-    format!("CO-{}", hex.to_uppercase())
+    // UUIDv7 spends its leading 48 bits on a millisecond timestamp, so the
+    // first six hex characters repeat for hours. The reference is drawn from
+    // the random tail instead, which is the part that differs per order.
+    let simple = id.simple().to_string();
+    let tail: String = simple
+        .chars()
+        .skip(simple.len() - 6)
+        .collect::<String>()
+        .to_uppercase();
+    format!("CO-{tail}")
 }
 
 // --- read / create / edit ---------------------------------------------------
@@ -242,7 +278,9 @@ pub async fn list(
         })?;
     let rows = core_db::project_delivery::list_change_orders(&mut *tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(rows.into_iter().map(ChangeOrderView::from).collect()))
+    Ok(Json(
+        rows.into_iter().map(|row| view_for(&authed, row)).collect(),
+    ))
 }
 
 /// POST /api/projects/{id}/change-orders — an empty draft with three ways in.
@@ -311,7 +349,7 @@ pub async fn create(
         Ok((ctx, row))
     })
     .await?;
-    Ok(Json(ChangeOrderView::from(row)))
+    Ok(Json(view_for(&authed, row)))
 }
 
 /// GET /api/projects/{id}/change-orders/{change_order_id}
@@ -338,7 +376,7 @@ pub async fn get_one(
             other => other.into(),
         })?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(ChangeOrderView::from(row)))
+    Ok(Json(view_for(&authed, row)))
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -416,7 +454,7 @@ pub async fn patch(
         Ok((ctx, row))
     })
     .await?;
-    Ok(Json(ChangeOrderView::from(row)))
+    Ok(Json(view_for(&authed, row)))
 }
 
 // --- lifecycle --------------------------------------------------------------
@@ -448,7 +486,9 @@ async fn transition(
             to,
             Some(user_id),
             note.as_deref(),
-            "",
+            None,
+            None,
+            None,
         )
         .await?;
         ctx.emit(
@@ -461,7 +501,7 @@ async fn transition(
         Ok((ctx, row))
     })
     .await?;
-    Ok(Json(ChangeOrderView::from(row)))
+    Ok(Json(view_for(&authed, row)))
 }
 
 /// POST .../submit — the author's last editable moment.
@@ -525,7 +565,9 @@ pub async fn approve(
             next,
             Some(user_id),
             req.note.as_deref(),
-            "",
+            None,
+            None,
+            None,
         )
         .await?;
         ctx.emit(
@@ -538,7 +580,7 @@ pub async fn approve(
         Ok((ctx, row))
     })
     .await?;
-    Ok(Json(ChangeOrderView::from(row)))
+    Ok(Json(view_for(&authed, row)))
 }
 
 /// POST .../reject — the reason is required and stays on the record.
@@ -724,7 +766,6 @@ pub async fn apply(
             )
             .await?;
 
-            let extra = format!(", applied_baseline_id = '{}'", baseline.id);
             let row = core_db::project_delivery::transition_change_order(
                 &mut ctx.tx,
                 org_id,
@@ -734,7 +775,9 @@ pub async fn apply(
                 "applied",
                 Some(user_id),
                 None,
-                &extra,
+                None,
+                None,
+                Some(baseline.id),
             )
             .await?;
             ctx.emit(
@@ -754,7 +797,7 @@ pub async fn apply(
         .await?;
 
     Ok(Json(ApplyResponse {
-        change_order: ChangeOrderView::from(row),
+        change_order: view_for(&authed, row),
         tasks_added,
         tasks_shifted,
         baseline_id,
@@ -774,6 +817,9 @@ pub async fn bill(
 ) -> ApiResult<Json<ChangeOrderView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, projects(Action::Edit))?;
+    // Releasing money is a financial act: editing the plan does not grant the
+    // right to raise an invoice line. Same gate as the billing surfaces (RB2).
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -793,6 +839,13 @@ pub async fn bill(
             ));
         };
 
+        // The release insert runs in its own savepoint: a database refusal then
+        // aborts only that statement, so the failure can still be recorded on
+        // the order inside the same transaction.
+        sqlx::query("SAVEPOINT change_order_release")
+            .execute(&mut *ctx.tx)
+            .await
+            .map_err(ApiError::from)?;
         let release = core_db::projects::insert_release(
             &mut *ctx.tx,
             &core_db::projects::NewRelease {
@@ -811,10 +864,10 @@ pub async fn bill(
 
         let row = match release {
             Ok(release) => {
-                let extra = format!(
-                    ", billing_release_id = '{}', billing_error = NULL",
-                    release.id
-                );
+                sqlx::query("RELEASE SAVEPOINT change_order_release")
+                    .execute(&mut *ctx.tx)
+                    .await
+                    .map_err(ApiError::from)?;
                 core_db::project_delivery::transition_change_order(
                     &mut ctx.tx,
                     org_id,
@@ -824,16 +877,18 @@ pub async fn bill(
                     "billed",
                     Some(user_id),
                     None,
-                    &extra,
+                    Some(release.id),
+                    None,
+                    None,
                 )
                 .await?
             }
             Err(error) => {
-                let message = error.to_string().replace('\'', "''");
-                let extra = format!(
-                    ", billing_error = '{}'",
-                    message.chars().take(400).collect::<String>()
-                );
+                sqlx::query("ROLLBACK TO SAVEPOINT change_order_release")
+                    .execute(&mut *ctx.tx)
+                    .await
+                    .map_err(ApiError::from)?;
+                let message: String = error.to_string().chars().take(400).collect();
                 core_db::project_delivery::transition_change_order(
                     &mut ctx.tx,
                     org_id,
@@ -843,7 +898,9 @@ pub async fn bill(
                     "billing_failed",
                     Some(user_id),
                     None,
-                    &extra,
+                    None,
+                    Some(message.as_str()),
+                    None,
                 )
                 .await?
             }
@@ -858,5 +915,30 @@ pub async fn bill(
         Ok((ctx, row))
     })
     .await?;
-    Ok(Json(ChangeOrderView::from(row)))
+    Ok(Json(view_for(&authed, row)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// UUIDv7 spends its leading 48 bits on a millisecond timestamp, so ids
+    /// created hours apart share their first six hex characters. The reference
+    /// has to come from the part that differs.
+    #[test]
+    fn a_reference_comes_from_the_part_that_differs() {
+        let mut first = [0u8; 16];
+        first[..6].copy_from_slice(&[0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e]);
+        first[6] = 0x70;
+        first[7] = 0x00;
+        first[8] = 0x80;
+        let mut second = first;
+        second[15] = 0xff;
+        let a = Uuid::from_bytes(first);
+        let b = Uuid::from_bytes(second);
+        assert_eq!(a.simple().to_string()[..6], b.simple().to_string()[..6]);
+        assert_ne!(reference_for(a), reference_for(b));
+        assert!(reference_for(a).starts_with("CO-"));
+        assert_eq!(reference_for(a).len(), 9);
+    }
 }

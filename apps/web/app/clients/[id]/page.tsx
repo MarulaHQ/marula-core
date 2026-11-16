@@ -186,8 +186,14 @@ export default function ClientDetailPage() {
   const [tab, setTab] = useState<Tab>("overview");
 
   const [sites, setSites] = useState<Site[] | null>(null);
+  // The living sites are the default; archived ones are one toggle away, and
+  // stay readable so a device can be re-homed before the site is restored.
+  const [showArchivedSites, setShowArchivedSites] = useState(false);
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [contactActivity, setContactActivity] = useState<Record<string, ContactActivity>>({});
+  // A failed activity read is "unknown", never "Never": the column must not
+  // tell staff nobody has ever contacted someone because a request failed.
+  const [contactActivityFailed, setContactActivityFailed] = useState(false);
   const [portalUsers, setPortalUsers] = useState<PortalUser[] | null>(null);
   const [portalDenied, setPortalDenied] = useState(false);
   const [assets, setAssets] = useState<DeviceAsset[] | null>(null);
@@ -254,11 +260,25 @@ export default function ClientDetailPage() {
     setLoadError(null);
   }, [clientId]);
 
+  const refreshContactActivity = useCallback(async () => {
+    const rows = await fetchContactActivity(clientId);
+    if (rows === null) {
+      setContactActivityFailed(true);
+      return;
+    }
+    setContactActivityFailed(false);
+    setContactActivity(rows);
+  }, [clientId]);
+
   const refreshAll = useCallback(async () => {
     setFormError(null);
-    void api.api.GET("/api/v1/clients/{id}/sites", { params: { path: { id: clientId } } }).then(({ data }) => setSites(data ?? []));
+    void api.api
+      .GET("/api/v1/clients/{id}/sites", {
+        params: { path: { id: clientId }, query: { include_archived: true } },
+      })
+      .then(({ data }) => setSites(data ?? []));
     void api.api.GET("/api/v1/clients/{id}/contacts", { params: { path: { id: clientId } } }).then(({ data }) => setContacts(data ?? []));
-    void fetchContactActivity(clientId).then(setContactActivity);
+    void refreshContactActivity();
     void api.api.GET("/api/v1/clients/{id}/assets", { params: { path: { id: clientId } } }).then(({ data }) => setAssets(data ?? []));
     void api.api.GET("/api/v1/documents", { params: { query: { client_id: clientId } } }).then(({ data }) => setDocuments(data ?? []));
     void api.api.GET("/api/v1/documents/layouts").then(({ data }) => setLayouts(data ?? []));
@@ -278,7 +298,7 @@ export default function ClientDetailPage() {
       setPortalDenied(false);
       setPortalUsers(pu.data ?? []);
     }
-  }, [clientId]);
+  }, [clientId, refreshContactActivity]);
 
   const loadCompleteness = useCallback(async () => {
     const res = await api.api.GET("/api/v1/clients/{id}/completeness", {
@@ -544,7 +564,29 @@ export default function ClientDetailPage() {
   // the pack's "250 endpoints" — not one site's. The Sites tab's table is
   // what a site choice scopes, and it filters to that site.
   const deviceCount = assets?.length ?? 0;
-  const activeSite = sites?.find((s) => s.id === selectedSiteId) ?? sites?.[0] ?? null;
+  const activeSite =
+    sites?.filter((s) => s.archived_at == null).find((s) => s.id === selectedSiteId) ??
+    sites?.find((s) => s.archived_at == null) ??
+    null;
+
+  async function setSiteArchived(siteId: string, archived: boolean): Promise<void> {
+    setFormError(null);
+    const result = await api.api.POST("/api/v1/clients/{id}/sites/{site_id}/archive", {
+      params: { path: { id: clientId, site_id: siteId } },
+      body: { archived },
+    });
+    if (result.error !== undefined) {
+      setFormError(
+        (result.error as { error?: { message?: string } }).error?.message ??
+          "The site could not be archived.",
+      );
+      return;
+    }
+    const { data } = await api.api.GET("/api/v1/clients/{id}/sites", {
+      params: { path: { id: clientId }, query: { include_archived: true } },
+    });
+    setSites(data ?? []);
+  }
   const hasContact = (contacts?.length ?? 0) > 0;
   const hasContract = liveContract !== null;
   const portalOn = (portalUsers?.filter((u) => u.status !== "disabled").length ?? 0) > 0;
@@ -650,13 +692,19 @@ export default function ClientDetailPage() {
             </RecordSection>
 
             <RecordSection label="Sites">
-              {(sites ?? []).length === 0 ? (
+              {(sites ?? []).filter((s) =>
+                showArchivedSites ? s.archived_at != null : s.archived_at == null,
+              ).length === 0 ? (
                 <p className="text-[13px]" style={{ color: "var(--m-text-muted)" }}>
-                  No sites yet.
+                  {showArchivedSites ? "No archived sites." : "No sites yet."}
                 </p>
               ) : (
                 <ul className="flex flex-col gap-1">
-                  {(sites ?? []).map((s) => {
+                  {(sites ?? [])
+                    .filter((s) =>
+                      showArchivedSites ? s.archived_at != null : s.archived_at == null,
+                    )
+                    .map((s) => {
                     const atSite = (assets ?? []).filter((a) => a.site_id === s.id);
                     const offline = atSite.filter((a) => a.status !== "active").length;
                     return (
@@ -664,12 +712,29 @@ export default function ClientDetailPage() {
                         <RecordRow label={s.name}>
                           {atSite.length} {atSite.length === 1 ? "device" : "devices"}
                           {offline > 0 ? ` · ${offline} offline` : ""}
+                          {s.archived_at != null ? " · Archived" : ""}
+                          <button
+                            type="button"
+                            data-testid={`site-archive-${s.id}`}
+                            className="ml-2 underline underline-offset-2"
+                            onClick={() => void setSiteArchived(s.id, s.archived_at == null)}
+                          >
+                            {s.archived_at != null ? "Restore" : "Archive"}
+                          </button>
                         </RecordRow>
                       </li>
                     );
                   })}
                 </ul>
               )}
+              <button
+                type="button"
+                className="mt-2 text-[12px] underline underline-offset-2"
+                style={{ color: "var(--m-text-secondary)" }}
+                onClick={() => setShowArchivedSites((v) => !v)}
+              >
+                {showArchivedSites ? "Show living sites" : "Show archived sites"}
+              </button>
             </RecordSection>
 
             <RecordSection label="Account owner">
@@ -799,8 +864,10 @@ export default function ClientDetailPage() {
                 <ContactsCard
                   contacts={contacts}
                   activity={contactActivity}
+                  activityFailed={contactActivityFailed}
                   portalUsers={portalUsers}
                   portalDenied={portalDenied}
+                  onRetryActivity={() => void refreshContactActivity()}
                   onTogglePortal={(user, disabled) => void setPortalStatus(user, disabled)}
                   onAddContact={() => openCreate("contact")}
                   onAddPortalUserFor={(contact) => {
@@ -1398,16 +1465,20 @@ function isPastDue(ticket: Ticket): boolean {
 function ContactsCard({
   contacts,
   activity,
+  activityFailed,
   portalUsers,
   portalDenied,
+  onRetryActivity,
   onTogglePortal,
   onAddContact,
   onAddPortalUserFor,
 }: {
   contacts: Contact[] | null;
   activity: Record<string, ContactActivity>;
+  activityFailed: boolean;
   portalUsers: PortalUser[] | null;
   portalDenied: boolean;
+  onRetryActivity: () => void;
   onTogglePortal: (user: PortalUser, disabled: boolean) => void;
   onAddContact: () => void;
   onAddPortalUserFor: (contact: Contact) => void;
@@ -1435,6 +1506,18 @@ function ContactsCard({
           Add contact
         </Button>
       </div>
+      {activityFailed ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 border-b px-[18px] py-2.5 text-[13px]"
+          style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+        >
+          <span>Last contact could not be read just now — that is unknown, not never.</span>
+          <Button size="sm" variant="secondary" onClick={onRetryActivity}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
       {contacts.length === 0 ? (
         <div className="p-4">
           <EmptyState message="No contacts yet. Contacts are the people at this client your team works with." />
@@ -1558,8 +1641,17 @@ function ContactsCard({
                   <Td>
                     {/* Derived from email on this client's tickets, portal
                         replies and calls. A person with none of those reads
-                        Never, which is the true answer rather than a guess. */}
-                    {activity[c.id]?.last_at ? (
+                        Never; a failed read reads Unavailable, because the two
+                        are different facts. */}
+                    {activityFailed ? (
+                      <span
+                        className="text-[13px]"
+                        title="Contact activity could not be read just now."
+                        style={{ color: "var(--m-text-muted)" }}
+                      >
+                        Unavailable
+                      </span>
+                    ) : activity[c.id]?.last_at ? (
                       <button
                         type="button"
                         onClick={() => setActivityContact(c)}
@@ -1596,15 +1688,19 @@ function ContactsCard({
           title={activityContact === null ? "Contact activity" : `Contact with ${activityContact.name}`}
           description="Email on this client's tickets, portal replies and calls. Derived, never edited."
         >
-          {openActivity === undefined || openActivity.recent.length === 0 ? (
+          {activityFailed ? (
+            <p className="p-4 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+              Contact activity could not be read just now. This is unknown, not never.
+            </p>
+          ) : openActivity === undefined || openActivity.recent.length === 0 ? (
             <p className="p-4 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
               Nothing recorded for this person yet.
             </p>
           ) : (
             <ul className="m-0 flex list-none flex-col gap-0 p-0">
-              {openActivity.recent.map((event) => (
+              {openActivity.recent.map((event, index) => (
                 <li
-                  key={`${event.at}-${event.kind}`}
+                  key={`${event.at}-${event.kind}-${index}`}
                   className="flex flex-col gap-0.5 border-b px-4 py-3 last:border-b-0"
                   style={{ borderColor: "var(--m-border)" }}
                 >

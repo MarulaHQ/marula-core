@@ -235,9 +235,9 @@ export function DecisionSurfaces({
                   {internal ? null : !featuresEnabled ? (
                     <span
                       style={{ fontSize: 12, color: "var(--m-text-secondary)" }}
-                      title="Turn the master switch on to grant a surface"
+                      title="Choose Shadow or Live above to grant a surface"
                     >
-                      Master off
+                      AI is off
                     </span>
                   ) : granted ? (
                     <Button
@@ -288,7 +288,8 @@ export function DecisionSurfaces({
       >
         <InfoIcon />
         <span>
-          <b>Shadow</b> means the surface runs and scores but proposes nothing, so nobody sees it.
+          <b>Shadow</b> means the surface runs and scores but proposes nothing, so nobody sees it. The
+          organisation control can hold every surface in shadow at once.
           Watch it on{" "}
           <a href="/settings/ai/shadow" style={{ fontWeight: 600 }}>
             Shadow runs

@@ -618,6 +618,7 @@ where
              AND due_at < $3
              AND ($4::uuid IS NULL OR assignee_id = $4)
              AND category <> 'closed'
+             AND archived_at IS NULL
            ORDER BY due_at, id
            LIMIT 500"#,
     )

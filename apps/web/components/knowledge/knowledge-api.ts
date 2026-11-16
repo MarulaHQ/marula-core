@@ -60,7 +60,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new KnowledgeRequestError(response.status, await messageFor(response));
   }
   if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  // A delete or an action endpoint may answer 200/201 with no body at all;
+  // `response.json()` throws a SyntaxError there, which is not a
+  // KnowledgeRequestError and leaves callers reading a bare `.message`.
+  const text = await response.text();
+  if (text.trim() === "") return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new KnowledgeRequestError(
+      response.status,
+      "That response could not be read. Try again.",
+    );
+  }
 }
 
 export const knowledgeApi = {

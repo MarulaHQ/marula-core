@@ -234,6 +234,28 @@ pub async fn org_value_put(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     crate::org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // One org state, two keys. `ai.features_enabled` is the run gate every
+        // AI edge types; `ai.mode` is what the AI page shows. A generic write
+        // that moved only the boolean would let the page read Off while the
+        // gate passed, so the mode follows the switch in this transaction.
+        // `ai.mode` has no registry declaration (`resolve_update` rejects it as
+        // an unknown key), so this route can never be handed it directly: the
+        // dedicated decision-features route
+        // (`routes::decision_config::put_decision_features`) is its only writer.
+        if decl.key == registry::AI_FEATURES_ENABLED {
+            if let SettingValue::Boolean(enabled) = value {
+                let current = core_db::ai_policy::ai_mode(&mut ctx.tx, org_id).await?;
+                let mode = core_db::ai_policy::mode_after_enabled_write(Some(current), enabled);
+                core_db::settings::upsert_org_setting(
+                    &mut ctx.tx,
+                    org_id,
+                    registry::AI_MODE,
+                    &serde_json::json!(mode.as_str()),
+                    user_id,
+                )
+                .await?;
+            }
+        }
         core_db::settings::upsert_org_setting(
             &mut ctx.tx,
             org_id,

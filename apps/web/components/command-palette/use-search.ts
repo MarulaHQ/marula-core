@@ -6,6 +6,8 @@
 // page's query shape without touching that page.
 //
 // Non-purpose: no pins, recents, paging or re-ranking. Those stay on /search.
+// In Ask mode the hook is disabled (see `enabled`): the field's text is a
+// question, not a query, and the answer nobody reads is a wasted search.
 
 "use client";
 
@@ -33,8 +35,10 @@ export function useDebounced(value: string, ms: number): string {
   return debounced;
 }
 
-export function usePaletteSearch(rawQuery: string): PaletteSearchState {
-  const query = useDebounced(rawQuery.trim(), 150);
+export function usePaletteSearch(rawQuery: string, enabled = true): PaletteSearchState {
+  // Ask mode types a question into the same field; a search for that text
+  // would be a server round trip nobody reads, so the hook is switched off.
+  const query = useDebounced(enabled ? rawQuery.trim() : "", 150);
   const [response, setResponse] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -46,7 +46,7 @@ await ctx.request.post(`${API}/api/v1/auth/login`, { data: { email: "owner@demo.
 const auth = { authorization: `Bearer ${tokens.access_token}` };
 await ctx.request.put(`${API}/api/v1/settings/user`, { data: { key: "tours.disabled", value: true }, headers: auth });
 await ctx.request.put(`${API}/api/v1/settings/ai/decision/features`, {
-  data: { enabled: true, idempotency_key: `features:probe:${String(Date.now())}` },
+  data: { mode: "live", idempotency_key: `features:probe:${String(Date.now())}` },
   headers: auth,
 });
 const roles = await ctx.request.get(`${API}/api/v1/roles`, { headers: auth });

@@ -50,6 +50,10 @@ pub struct Ticket {
     pub type_id: Option<uuid::Uuid>,
     #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
     pub category_id: Option<uuid::Uuid>,
+    /// Archive marker: the row stays readable by id and keeps explaining the
+    /// links and history that name it, while lists, boards, pickers and
+    /// search hide it by default. NULL = live.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 impl Ticket {
@@ -172,6 +176,7 @@ mod tests {
             merged_into_ticket_id: None,
             type_id: None,
             category_id: None,
+            archived_at: None,
         };
         assert!(!t.can_transition_to(&open));
         assert!(t.can_transition_to(&waiting)); // reopen via intermediate is allowed

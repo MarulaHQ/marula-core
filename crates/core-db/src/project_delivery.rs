@@ -104,7 +104,7 @@ where
         sql.push_str(" AND t.archived_at IS NULL");
     }
     if category.is_some() {
-        sql.push_str(" AND t.category = $3");
+        sql.push_str(" AND t.category = $2");
     }
     sql.push_str(" ORDER BY t.is_shipped DESC, t.archived_at NULLS FIRST, t.name");
 
@@ -599,7 +599,9 @@ pub async fn transition_change_order(
     to: &str,
     actor: Option<Uuid>,
     note: Option<&str>,
-    extra_sql: &str,
+    billing_release_id: Option<Uuid>,
+    billing_error: Option<&str>,
+    applied_baseline_id: Option<Uuid>,
 ) -> DbResult<ChangeOrder> {
     let mut q = sqlx::QueryBuilder::new("UPDATE project_change_orders SET updated_at = now()");
     q.push(", status = ").push_bind(to.to_string());
@@ -626,8 +628,14 @@ pub async fn transition_change_order(
             q.push(", decision_note = ").push_bind(note.to_string());
         }
     }
-    if !extra_sql.is_empty() {
-        q.push(extra_sql);
+    if let Some(release_id) = billing_release_id {
+        q.push(", billing_release_id = ").push_bind(release_id);
+    }
+    if let Some(error) = billing_error {
+        q.push(", billing_error = ").push_bind(error);
+    }
+    if let Some(baseline_id) = applied_baseline_id {
+        q.push(", applied_baseline_id = ").push_bind(baseline_id);
     }
 
     q.push(" WHERE org_id = ")
@@ -780,6 +788,37 @@ where
         .fetch_all(executor)
         .await?;
     Ok(rows.into_iter().map(row_to_client_update).collect())
+}
+
+/// The update that already describes this exact period, if any. Withheld rows
+/// are excluded: a week that was honestly empty can be described again once
+/// something moves. A live draft, approved or sent update cannot.
+pub async fn client_update_for_period<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    project_id: Uuid,
+    period_start: chrono::NaiveDate,
+    period_end: chrono::NaiveDate,
+) -> DbResult<Option<ClientUpdate>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql = format!(
+        "SELECT {CLIENT_UPDATE_COLS} FROM project_client_updates
+          WHERE org_id = $1 AND project_id = $2
+            AND period_start = $3 AND period_end = $4
+            AND status <> 'withheld'
+          ORDER BY created_at DESC
+          LIMIT 1"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(project_id)
+        .bind(period_start)
+        .bind(period_end)
+        .fetch_optional(executor)
+        .await?;
+    Ok(row.map(row_to_client_update))
 }
 
 /// Edits the text of a draft. An approved update is frozen: the client sees
@@ -1125,6 +1164,45 @@ pub async fn upsert_pod_prefs(
 // Project-to-ticket link
 // ---------------------------------------------------------------------------
 
+/// Takes the project row for the rest of the transaction, so two requests that
+/// must not both write a project-scoped record queue behind each other.
+pub async fn lock_project_row(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> DbResult<()> {
+    let row = sqlx::query(
+        r#"SELECT id FROM projects
+            WHERE org_id = $1 AND id = $2
+            FOR UPDATE"#,
+    )
+    .bind(org_id)
+    .bind(project_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    row.map(|_| ()).ok_or(DbError::NotFound)
+}
+
+/// Takes the task row for the rest of the transaction, so two promotions of one
+/// task queue behind each other instead of both creating a ticket. The second
+/// one then sees the first one's link.
+pub async fn lock_task_row(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    task_id: Uuid,
+) -> DbResult<()> {
+    let row = sqlx::query(
+        r#"SELECT id FROM project_tasks
+            WHERE org_id = $1 AND id = $2
+            FOR UPDATE"#,
+    )
+    .bind(org_id)
+    .bind(task_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    row.map(|_| ()).ok_or(DbError::NotFound)
+}
+
 #[derive(Debug, Clone)]
 pub struct TicketLink {
     pub id: Uuid,
@@ -1255,8 +1333,10 @@ where
             AND ph.end_date >= $2 AND ph.start_date <= $3
            WHERE p.org_id = $1
              AND p.status NOT IN ('cancelled')
-             AND (p.start_date IS NULL OR p.start_date <= $3)
-             AND (p.due_date IS NULL OR p.due_date >= $2)
+             -- Dated projects only: the tray owns everything without both
+             -- dates, so the chart and the tray never draw the same row.
+             AND p.start_date IS NOT NULL AND p.due_date IS NOT NULL
+             AND p.start_date <= $3 AND p.due_date >= $2
            ORDER BY p.name, ph.sort_order, ph.id"#,
     )
     .bind(org_id)

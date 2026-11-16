@@ -42,8 +42,16 @@ export function contactActivitySummary(row: ContactActivity | undefined): string
   return `${contactKindLabel(row.last_kind)} · ${relativeTime(row.last_at, zone)}`;
 }
 
-/** Every contact's activity for one client, keyed by contact id. */
-export async function fetchContactActivity(clientId: string): Promise<Record<string, ContactActivity>> {
+/**
+ * Every contact's activity for one client, keyed by contact id.
+ *
+ * `null` means the read failed — not that nobody has been contacted. The
+ * caller must say "unavailable", because "Never" is a claim about the client's
+ * history and a 500, a 403 or a dropped connection proves nothing about it.
+ */
+export async function fetchContactActivity(
+  clientId: string,
+): Promise<Record<string, ContactActivity> | null> {
   // A full page load restores the token from the session cookie. Wait for
   // that only when there is no token yet; a seeded test session proceeds.
   if (loadTokens() === null) await authReady();
@@ -59,11 +67,11 @@ export async function fetchContactActivity(clientId: string): Promise<Record<str
         },
       },
     );
-    if (!response.ok) return {};
+    if (!response.ok) return null;
     const rows = (await response.json().catch(() => null)) as ContactActivity[] | null;
-    if (rows === null) return {};
+    if (rows === null || !Array.isArray(rows)) return null;
     return Object.fromEntries(rows.map((row) => [row.contact_id, row]));
   } catch {
-    return {};
+    return null;
   }
 }

@@ -56,12 +56,16 @@ where
                  AND coalesce(email, '') <> '') AS contacts_with_email_n,
              (SELECT count(*) FROM contacts
                WHERE org_id = $1 AND client_id = $2 AND is_primary) AS primary_contacts_n,
-             (SELECT count(*) FROM sites WHERE org_id = $1 AND client_id = $2) AS sites_n,
+             (SELECT count(*) FROM sites
+               WHERE org_id = $1 AND client_id = $2 AND archived_at IS NULL) AS sites_n,
              (SELECT count(*) FROM device_assets WHERE org_id = $1 AND client_id = $2) AS assets_n,
-             (SELECT count(*) FROM documents WHERE org_id = $1 AND client_id = $2) AS documents_n,
              (SELECT count(*) FROM documents
-               WHERE org_id = $1 AND client_id = $2 AND layout_id IS NOT NULL) AS typed_documents_n,
-             (SELECT max(updated_at) FROM documents WHERE org_id = $1 AND client_id = $2)
+               WHERE org_id = $1 AND client_id = $2 AND archived_at IS NULL) AS documents_n,
+             (SELECT count(*) FROM documents
+               WHERE org_id = $1 AND client_id = $2 AND layout_id IS NOT NULL
+                 AND archived_at IS NULL) AS typed_documents_n,
+             (SELECT max(updated_at) FROM documents
+               WHERE org_id = $1 AND client_id = $2 AND archived_at IS NULL)
                AS latest_document_at,
              (SELECT count(*) FROM portal_users WHERE org_id = $1 AND client_id = $2)
                AS portal_users_n"#,

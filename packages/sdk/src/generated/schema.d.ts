@@ -3180,11 +3180,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** GET /api/clients/{id}/sites */
         get: operations["clients_list_sites"];
         put?: never;
         /** POST /api/clients/{id}/sites */
         post: operations["clients_create_site"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/clients/{id}/sites/{site_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/clients/{client_id}/sites/{site_id}/archive — hide the site from
+         *     lists and pickers without deleting it. The 200 body is the updated site,
+         *     `archived_at` included.
+         */
+        post: operations["clients_archive_site"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5182,6 +5202,27 @@ export interface paths {
         patch: operations["documents_update"];
         trace?: never;
     };
+    "/api/v1/documents/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/documents/{id}/archive — hide the document from lists and search
+         *     without deleting its immutable version history. The 200 body is the
+         *     updated document row, `archived_at` included.
+         */
+        post: operations["documents_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{id}/attachments": {
         parameters: {
             query?: never;
@@ -6533,7 +6574,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/domains?client_id= — org-wide when no client is named. */
+        get: operations["knowledge_list_domains"];
         put?: never;
         /** POST /api/knowledge/domains */
         post: operations["knowledge_create_domain"];
@@ -6559,23 +6601,6 @@ export interface paths {
         head?: never;
         /** PATCH /api/knowledge/domains/{id} */
         patch: operations["knowledge_update_domain"];
-        trace?: never;
-    };
-    "/api/v1/knowledge/domains?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/domains?client_id= — org-wide when no client is named. */
-        get: operations["knowledge_list_domains"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/knowledge/expirations": {
@@ -6625,7 +6650,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/links?kind=&id= */
+        get: operations["knowledge_list_links"];
         put?: never;
         /** POST /api/knowledge/links */
         post: operations["knowledge_create_link"];
@@ -6652,23 +6678,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/knowledge/links?kind=&id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/links?kind=&id= */
-        get: operations["knowledge_list_links"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/knowledge/networks": {
         parameters: {
             query?: never;
@@ -6676,7 +6685,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/networks?client_id= */
+        get: operations["knowledge_list_networks"];
         put?: never;
         /** POST /api/knowledge/networks */
         post: operations["knowledge_create_network"];
@@ -6722,24 +6732,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/knowledge/networks?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/networks?client_id= */
-        get: operations["knowledge_list_networks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/knowledge/portal/documents?client_id=": {
+    "/api/v1/knowledge/portal/documents": {
         parameters: {
             query?: never;
             header?: never;
@@ -6767,7 +6760,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/procedures?client_id= */
+        get: operations["knowledge_list_procedures"];
         put?: never;
         /** POST /api/knowledge/procedures */
         post: operations["knowledge_create_procedure"];
@@ -6796,23 +6790,6 @@ export interface paths {
         patch: operations["knowledge_update_procedure"];
         trace?: never;
     };
-    "/api/v1/knowledge/procedures?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/procedures?client_id= */
-        get: operations["knowledge_list_procedures"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/knowledge/racks": {
         parameters: {
             query?: never;
@@ -6820,7 +6797,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/racks?client_id= */
+        get: operations["knowledge_list_racks"];
         put?: never;
         /** POST /api/knowledge/racks */
         post: operations["knowledge_create_rack"];
@@ -6882,23 +6860,6 @@ export interface paths {
         head?: never;
         /** PATCH /api/knowledge/racks/{id}/devices/{device_id} */
         patch: operations["knowledge_update_rack_device"];
-        trace?: never;
-    };
-    "/api/v1/knowledge/racks?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/racks?client_id= */
-        get: operations["knowledge_list_racks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/knowledge/reservations/{id}": {
@@ -7025,7 +6986,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/templates?kind= */
+        get: operations["knowledge_list_templates"];
         put?: never;
         /** POST /api/knowledge/templates */
         post: operations["knowledge_create_template"];
@@ -7050,23 +7012,6 @@ export interface paths {
         head?: never;
         /** PATCH /api/knowledge/templates/{id} — snapshots the previous version. */
         patch: operations["knowledge_update_template"];
-        trace?: never;
-    };
-    "/api/v1/knowledge/templates?kind=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/templates?kind= */
-        get: operations["knowledge_list_templates"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/label-templates": {
@@ -10171,8 +10116,8 @@ export interface paths {
         /**
          * POST /api/project-templates/{id}/create — instantiation with the one check
          *     the gallery promises first: a billable template cannot start without a
-         *     contract that bills the chosen client (S11.11). The checked refusal happens
-         *     before any row is written.
+         *     contract that bills the chosen client (S11.11). The refusal is decided in
+         *     the same transaction that writes the project, with the contract rows locked.
          */
         post: operations["project_template_create"];
         delete?: never;
@@ -10233,6 +10178,8 @@ export interface paths {
          *     into a REAL project: phases, tasks, dependencies, and every lifecycle
          *     event, all in ONE transaction (claim → expand → insert → events →
          *     record). Rollback on any failure leaves zero partial rows.
+         * @description The generic endpoint does not enforce a billing guard; the gallery's
+         *     `/create` route calls [`instantiate_project`] with one.
          */
         post: operations["project_templates_instantiate"];
         delete?: never;
@@ -10955,7 +10902,8 @@ export interface paths {
          * GET /api/projects/{id}/phase-burn — the burn read model (report P3):
          *     consumed approved billable minutes and card-priced value per phase
          *     against the phase's budget, with the typed `none | warn | over`
-         *     alert state (`warn` at ≥80%, `over` at ≥100%).
+         *     alert state (`warn` at ≥80%, `over` at ≥100%). Without
+         *     `financial:read` the amounts and the alert are redacted (RB2).
          */
         get: operations["projects_phase_burn"];
         put?: never;
@@ -14281,6 +14229,27 @@ export interface paths {
         patch: operations["tickets_patch"];
         trace?: never;
     };
+    "/api/v1/tickets/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/tickets/{id}/archive — hide the ticket from lists, boards,
+         *     pickers and search without deleting it. The 200 body is the updated
+         *     ticket, `archived_at` included, so the caller can reconcile in place.
+         */
+        post: operations["tickets_archive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{id}/attachments": {
         parameters: {
             query?: never;
@@ -16836,8 +16805,21 @@ export interface components {
             review_note?: string | null;
         };
         ArchiveCatalogItemRequest: components["schemas"]["MutationParams"];
+        ArchiveDocumentRequest: {
+            /** @description `true` archives, `false` restores. Archiving keeps the first instant. */
+            archived: boolean;
+        };
+        ArchiveSiteRequest: {
+            /** @description `true` archives, `false` restores. Archiving keeps the first instant. */
+            archived: boolean;
+        };
         ArchiveStockItemRequest: components["schemas"]["MutationParams"];
         ArchiveTemplateRequest: {
+            archived: boolean;
+        };
+        /** @description A bodyless `304 Not Modified` carrying the validator that matched. */
+        ArchiveTicketRequest: {
+            /** @description `true` archives, `false` restores. Archiving keeps the first instant. */
             archived: boolean;
         };
         /**
@@ -17641,6 +17623,41 @@ export interface components {
          * @enum {string}
          */
         BillingMethod: "milestone" | "time_and_materials" | "fixed_fee" | "non_billable";
+        /**
+         * @description The release ledger row as the CALLER may see it. The amount and its currency
+         *     are financial data: both serialize `null` without `financial:read` (RB2,
+         *     ADR 0004), while the release itself stays visible so the plan reads.
+         */
+        BillingReleaseView: {
+            /**
+             * Format: int64
+             * @description `null` without `financial:read` (RB2).
+             */
+            amount_minor?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            currency?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id?: string | null;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            label: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            phase_id?: string | null;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: date */
+            released_on: string;
+            status: components["schemas"]["ReleaseStatus"];
+            /** Format: uuid */
+            task_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
         BindingListResponse: {
             bindings: components["schemas"]["BindingView"][];
         };
@@ -22212,10 +22229,17 @@ export interface components {
         };
         DecisionFeatureMutationResponse: {
             features_enabled: boolean;
+            mode: string;
             mutation: components["schemas"]["MutationMeta"];
         };
         DecisionOverviewResponse: {
+            /**
+             * @description True for both shadow and live, because every AI edge types this
+             *     gate. It means "a leg may run", not "a surface may act".
+             */
             features_enabled: boolean;
+            /** @description `off`, `shadow` or `live` — the one control's answer. */
+            mode: string;
             surfaces: components["schemas"]["DecisionSurfaceOverview"][];
         };
         DecisionPreviewRequest: {
@@ -23008,6 +23032,12 @@ export interface components {
          */
         Document: {
             /**
+             * Format: date-time
+             * @description Archive marker: hidden from lists and search by default, still
+             *     readable by id so links and version history keep resolving. NULL = live.
+             */
+            archived_at?: string | null;
+            /**
              * Format: uuid
              * @description NULL = org-global document; set = client-scoped (docs-platform v1,
              *     migration 0053).
@@ -23109,6 +23139,11 @@ export interface components {
              *     documents (docs-platform v1). Absent = all scopes.
              */
             client_id?: string | null;
+            /**
+             * @description Archived documents are hidden by default; the archive view asks for
+             *     them. Every other surface leaves this false.
+             */
+            include_archived?: boolean;
             /** Format: uuid */
             layout_id?: string | null;
             /** @description Title substring narrowing; ranked full-text search rides /api/search. */
@@ -27186,6 +27221,13 @@ export interface components {
             /** Format: uuid */
             org_id: string;
             permissions: string[];
+            /**
+             * @description The caller's role keys, which the web panel needs to apply its pod
+             *     role ceiling. A builtin role contributes its preset key (`owner`,
+             *     `technician`, `senior_tech`, …); a custom role contributes its name,
+             *     because the Role entity carries no separate key column.
+             */
+            roles: string[];
             /** @description `user` for a human session, `agent` for a service-account key. */
             subject: string;
             timezone: string;
@@ -28498,6 +28540,15 @@ export interface components {
             billing_method?: components["schemas"]["BillingMethod"] | null;
             /** Format: int64 */
             budget_minor?: number | null;
+            /**
+             * @description The reason the CLIENT is given while the project is on hold, in the
+             *     PM's own words (never composed by the server). Stored only when the
+             *     effective status after this patch is `on_hold`; cleared when the patch
+             *     takes the project out of hold. An empty or whitespace-only value
+             *     removes a reason already stored, so a PM can clear one without
+             *     resuming the project.
+             */
+            client_hold_reason?: string | null;
             /** Format: uuid */
             client_id?: string | null;
             currency?: string | null;
@@ -28722,6 +28773,40 @@ export interface components {
          * @enum {string}
          */
         PhaseBurnAlert: "none" | "warn" | "over";
+        /**
+         * @description The phase-burn row as the CALLER may see it. The amounts are financial
+         *     data: `consumed_minor`, `budget_minor` and `currency` serialize `null`
+         *     without `financial:read` (RB2, ADR 0004), and `alert` collapses to `none`
+         *     because "over budget" is itself a money fact — an over-budget badge would
+         *     disclose by itself what the amounts were redacted to hide. The consumed
+         *     minutes and the phase identity stay visible, so the plan still reads.
+         */
+        PhaseBurnView: {
+            /** @description `none` without `financial:read` (RB2). */
+            alert: components["schemas"]["PhaseBurnAlert"];
+            /**
+             * Format: int64
+             * @description `null` without `financial:read`, and also `null` for a phase that has
+             *     no contracted budget — the two read the same because the caller may
+             *     never learn either.
+             */
+            budget_minor?: number | null;
+            /**
+             * Format: int64
+             * @description `null` without `financial:read` (RB2).
+             */
+            consumed_minor?: number | null;
+            /**
+             * Format: int64
+             * @description Consumed approved billable minutes — not money, so always visible.
+             */
+            consumed_minutes: number;
+            currency?: string | null;
+            /** Format: uuid */
+            phase_id: string;
+            phase_name: string;
+            phase_status: components["schemas"]["PhaseStatus"];
+        };
         /** @description One phase as the Gantt draws it, with its budget burn attached. */
         PhaseGanttView: {
             /** Format: int64 */
@@ -29544,7 +29629,12 @@ export interface components {
             change_orders: components["schemas"]["PortalChangeOrder"][];
             /** Format: date */
             due_date?: string | null;
-            /** @description A client-safe reason, only when the project is on hold. */
+            /**
+             * @description A client-safe reason, only when the project is on hold. `null` when the
+             *     project is not paused, and also when it is paused and the PM has not
+             *     written one: the status text still says the work is on hold, and this
+             *     field never invents a reason the PM did not type.
+             */
             hold_reason?: string | null;
             /** Format: uuid */
             id: string;
@@ -29614,6 +29704,8 @@ export interface components {
             /** Format: int64 */
             amount_minor: number;
             description: string;
+            /** @description Priced and shown beside the total, never counted inside it. */
+            optional: boolean;
             /** Format: int32 */
             position: number;
             /**
@@ -30031,6 +30123,14 @@ export interface components {
              * @description Project budget in minor units; `None` = unbudgeted.
              */
             budget_minor?: number | null;
+            /**
+             * @description The reason the client is given while the project is on hold, in the
+             *     PM's own words. It is the only reason text that crosses the portal
+             *     boundary; the staff hold note stays staff-side. `None` = the PM has not
+             *     written one (the portal then says only that work is paused), and it is
+             *     cleared when the project leaves hold.
+             */
+            client_hold_reason?: string | null;
             /** Format: uuid */
             client_id?: string | null;
             /** Format: date-time */
@@ -30045,6 +30145,7 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
+            pre_hold_status?: components["schemas"]["ProjectStatus"] | null;
             /** Format: date */
             start_date?: string | null;
             status: components["schemas"]["ProjectStatus"];
@@ -31091,8 +31192,15 @@ export interface components {
             reset_to_starter?: boolean | null;
         };
         PutDecisionFeaturesRequest: {
-            enabled: boolean;
+            /**
+             * @description Legacy boolean form. `false` means off; `true` means live, which is
+             *     what an org that only had a switch was doing. Kept so older clients
+             *     and the conformance probes keep working.
+             */
+            enabled?: boolean | null;
             instant?: components["schemas"]["MutationParams"];
+            /** @description The three-state control: `off`, `shadow` or `live`. */
+            mode?: string | null;
         };
         PutExposureRequest: {
             /** Format: uuid */
@@ -31468,6 +31576,8 @@ export interface components {
             description: string;
             /** Format: uuid */
             id: string;
+            /** @description Priced and shown, excluded from the subtotal and the tax. */
+            optional: boolean;
             /** Format: uuid */
             org_id: string;
             /** Format: int32 */
@@ -31505,6 +31615,12 @@ export interface components {
             /** @description `notes` | `assumed` | `catalogue`. `notes` always carries a span. */
             source?: string;
             source_span?: components["schemas"]["SourceSpan"] | null;
+            /**
+             * @description Whether the line is taxed. Set from the catalogue item when one matched,
+             *     so the builder keeps the catalogue's answer; `None` when nothing
+             *     established it (the create route then treats the line as taxable).
+             */
+            taxable?: boolean | null;
             unit?: string | null;
             /**
              * Format: int64
@@ -31522,6 +31638,11 @@ export interface components {
             catalog_item_id?: string | null;
             /** @description Required when no catalog item backs the line. */
             description?: string | null;
+            /**
+             * @description Priced and shown, excluded from the subtotal and the tax. An optional
+             *     line is never dropped; `false` keeps the required-line behaviour.
+             */
+            optional?: boolean;
             /**
              * Format: int64
              * @description Quantity in thousandths of a unit (1.5 = 1500).
@@ -34399,6 +34520,12 @@ export interface components {
         };
         Site: {
             address?: string | null;
+            /**
+             * Format: date-time
+             * @description Archive marker: hidden from lists and pickers by default, still
+             *     readable by id so links and history keep resolving. NULL = live.
+             */
+            archived_at?: string | null;
             city?: string | null;
             /** Format: uuid */
             client_id: string;
@@ -34420,6 +34547,11 @@ export interface components {
             postal_code?: string | null;
             region?: string | null;
             timezone?: string | null;
+        };
+        /** @description GET /api/clients/{id}/sites */
+        SiteListQuery: {
+            /** @description Archived sites are hidden by default; the archive view asks for them. */
+            include_archived?: boolean;
         };
         /**
          * @description GET /api/dispatch/skills envelope entry: the org skill catalog with
@@ -35644,6 +35776,13 @@ export interface components {
             tick: components["schemas"]["DayPackTickView"];
         };
         Ticket: {
+            /**
+             * Format: date-time
+             * @description Archive marker: the row stays readable by id and keeps explaining the
+             *     links and history that name it, while lists, boards, pickers and
+             *     search hide it by default. NULL = live.
+             */
+            archived_at?: string | null;
             /** Format: uuid */
             assignee_id?: string | null;
             /** Format: uuid */
@@ -35894,6 +36033,11 @@ export interface components {
              *     cost (docs/perf.md F2). When present, `offset` is ignored.
              */
             cursor?: string | null;
+            /**
+             * @description Archived tickets are hidden by default; the archive view asks for
+             *     them. Every other surface leaves this false.
+             */
+            include_archived?: boolean;
             /** Format: int64 */
             limit?: number;
             /** Format: int64 */
@@ -43821,7 +43965,10 @@ export interface operations {
     };
     clients_list_sites: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Archived sites are hidden by default; the archive view asks for them. */
+                include_archived?: boolean;
+            };
             header?: never;
             path: {
                 id: string;
@@ -43862,6 +44009,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Site"];
                 };
+            };
+        };
+    };
+    clients_archive_site: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                site_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveSiteRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
+                };
+            };
+            /** @description site not visible in scope (rls_sparse) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -47560,6 +47740,11 @@ export interface operations {
                  */
                 client_id?: string | null;
                 layout_id?: string | null;
+                /**
+                 * @description Archived documents are hidden by default; the archive view asks for
+                 *     them. Every other surface leaves this false.
+                 */
+                include_archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -47830,6 +48015,38 @@ export interface operations {
             };
             /** @description title/body rejected by document rules */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    documents_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveDocumentRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Document"];
+                };
+            };
+            /** @description document not visible in scope (rls_sparse) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -50395,6 +50612,27 @@ export interface operations {
             };
         };
     };
+    knowledge_list_domains: {
+        parameters: {
+            query?: {
+                client_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainRecord"][];
+                };
+            };
+        };
+    };
     knowledge_create_domain: {
         parameters: {
             query?: never;
@@ -50464,27 +50702,6 @@ export interface operations {
             };
         };
     };
-    knowledge_list_domains: {
-        parameters: {
-            query?: {
-                client_id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DomainRecord"][];
-                };
-            };
-        };
-    };
     knowledge_expirations: {
         parameters: {
             query?: {
@@ -50522,6 +50739,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    knowledge_list_links: {
+        parameters: {
+            query: {
+                kind: string;
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkRecord"][];
                 };
             };
         };
@@ -50570,11 +50809,10 @@ export interface operations {
             };
         };
     };
-    knowledge_list_links: {
+    knowledge_list_networks: {
         parameters: {
             query: {
-                kind: string;
-                id: string;
+                client_id: string;
             };
             header?: never;
             path?: never;
@@ -50587,7 +50825,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LinkRecord"][];
+                    "application/json": components["schemas"]["NetworkRecord"][];
                 };
             };
         };
@@ -50707,27 +50945,6 @@ export interface operations {
             };
         };
     };
-    knowledge_list_networks: {
-        parameters: {
-            query: {
-                client_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NetworkRecord"][];
-                };
-            };
-        };
-    };
     knowledge_portal_documents: {
         parameters: {
             query: {
@@ -50745,6 +50962,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalDocRow"][];
+                };
+            };
+        };
+    };
+    knowledge_list_procedures: {
+        parameters: {
+            query: {
+                client_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcedureRecord"][];
                 };
             };
         };
@@ -50839,7 +51077,7 @@ export interface operations {
             };
         };
     };
-    knowledge_list_procedures: {
+    knowledge_list_racks: {
         parameters: {
             query: {
                 client_id: string;
@@ -50855,7 +51093,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProcedureRecord"][];
+                    "application/json": components["schemas"]["RackRecord"][];
                 };
             };
         };
@@ -51023,27 +51261,6 @@ export interface operations {
             };
         };
     };
-    knowledge_list_racks: {
-        parameters: {
-            query: {
-                client_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RackRecord"][];
-                };
-            };
-        };
-    };
     knowledge_delete_reservation: {
         parameters: {
             query?: never;
@@ -51070,6 +51287,7 @@ export interface operations {
             query: {
                 q: string;
                 limit?: number;
+                client_id?: string;
             };
             header?: never;
             path?: never;
@@ -51235,6 +51453,27 @@ export interface operations {
             };
         };
     };
+    knowledge_list_templates: {
+        parameters: {
+            query?: {
+                kind?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateRecord"][];
+                };
+            };
+        };
+    };
     knowledge_create_template: {
         parameters: {
             query?: never;
@@ -51279,27 +51518,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TemplateRecord"];
-                };
-            };
-        };
-    };
-    knowledge_list_templates: {
-        parameters: {
-            query?: {
-                kind?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TemplateRecord"][];
                 };
             };
         };
@@ -57669,7 +57887,13 @@ export interface operations {
     };
     project_portfolio_share: {
         parameters: {
-            query?: never;
+            query?: {
+                from?: string;
+                to?: string;
+                group_by?: string;
+                at_risk_only?: boolean;
+                zoom?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -57886,7 +58110,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectBillingRelease"][];
+                    "application/json": components["schemas"]["BillingReleaseView"][];
                 };
             };
         };
@@ -58543,7 +58767,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PhaseBurn"][];
+                    "application/json": components["schemas"]["PhaseBurnView"][];
                 };
             };
             /** @description project not visible in scope (rls_sparse) */
@@ -65928,6 +66152,11 @@ export interface operations {
                  *     cost (docs/perf.md F2). When present, `offset` is ignored.
                  */
                 cursor?: string | null;
+                /**
+                 * @description Archived tickets are hidden by default; the archive view asks for
+                 *     them. Every other surface leaves this false.
+                 */
+                include_archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -66072,6 +66301,38 @@ export interface operations {
             };
             /** @description invalid custom-field value */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    tickets_archive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArchiveTicketRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketWithFields"];
+                };
+            };
+            /** @description ticket not visible in scope (rls_sparse) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

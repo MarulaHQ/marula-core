@@ -130,7 +130,7 @@ export function listPortalProjects(): Promise<{ projects: PortalProjectSummary[]
 }
 
 export function getPortalProject(id: string): Promise<PortalProjectDetail> {
-  return portalProjectFetch(`/api/v1/portal/projects/${id}`);
+  return portalProjectFetch(`/api/v1/portal/projects/${encodeURIComponent(id)}`);
 }
 
 export function acknowledgeChangeOrder(
@@ -138,7 +138,7 @@ export function acknowledgeChangeOrder(
   changeOrderId: string,
 ): Promise<{ acknowledged: boolean }> {
   return portalProjectFetch(
-    `/api/v1/portal/projects/${projectId}/change-orders/${changeOrderId}/acknowledge`,
+    `/api/v1/portal/projects/${encodeURIComponent(projectId)}/change-orders/${encodeURIComponent(changeOrderId)}/acknowledge`,
     { method: "POST", body: "{}" },
   );
 }

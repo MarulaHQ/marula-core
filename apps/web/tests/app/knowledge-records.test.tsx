@@ -48,7 +48,12 @@ const DEVICES = [
 function isoDaysFromNow(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  // Local fields, not `toISOString()`: `daysUntil` counts local calendar days,
+  // and a UTC slice shifts the fixture by one when the runner is past 16:00
+  // local time (or behind UTC).
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 describe("RackElevation", () => {

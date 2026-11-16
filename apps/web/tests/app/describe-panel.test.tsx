@@ -9,8 +9,8 @@
 // Non-purpose: the server's extraction and provenance rules, which
 // `crates/core-api/src/routes/money_authoring.rs` tests directly.
 import { useState } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import {
@@ -20,6 +20,7 @@ import {
   type AnyDraft,
 } from "../../components/money/describe-money";
 import type { MoneySource } from "../../lib/money-authoring";
+import { currentFetchRouter, setFetchRouter } from "../helpers/fetch-router";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 
 const DRAFT = {
@@ -132,6 +133,27 @@ function setup(overrides: { granted?: boolean; draftFailure?: boolean } = {}): M
   return mock;
 }
 
+/**
+ * Holds `/api/v1/quotes/author` open until the returned function is called, so
+ * a test can close the panel while the read is still running. Every other
+ * route goes straight through to the installed MockApi table.
+ */
+function holdAuthorRead(): () => void {
+  const inner = currentFetchRouter();
+  let release = (): void => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  setFetchRouter(async (input, init) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/api/v1/quotes/author")) await gate;
+    if (inner === null) throw new Error("no MockApi router installed");
+    return inner(input, init);
+  });
+  return () => release();
+}
+
 function Harness({
   onBuild,
   onStartBlank,
@@ -158,6 +180,71 @@ beforeEach(() => {
   cleanup();
   window.localStorage.clear();
   seedAuthTokens();
+});
+
+type FakeRecognition = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: unknown) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  started: boolean;
+  stopped: boolean;
+  aborted: boolean;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+};
+
+/**
+ * The recogniser the card would find on a browser that runs it on device.
+ * `processLocally` lives on the prototype because that is how the product
+ * decides Talk is offered at all.
+ */
+function installSpeechRecognition(): FakeRecognition[] {
+  const instances: FakeRecognition[] = [];
+  class Recognition {
+    lang = "";
+    continuous = false;
+    interimResults = false;
+    onresult: ((event: unknown) => void) | null = null;
+    onend: (() => void) | null = null;
+    onerror: ((event: { error?: string }) => void) | null = null;
+    started = false;
+    stopped = false;
+    aborted = false;
+    constructor() {
+      instances.push(this);
+    }
+    start(): void {
+      this.started = true;
+    }
+    stop(): void {
+      this.stopped = true;
+    }
+    abort(): void {
+      this.aborted = true;
+    }
+  }
+  Object.defineProperty(Recognition.prototype, "processLocally", {
+    value: true,
+    writable: true,
+  });
+  (window as unknown as Record<string, unknown>).SpeechRecognition = Recognition;
+  return instances;
+}
+
+/** One settled phrase, the shape `onresult` hands over. */
+function settle(recognition: FakeRecognition, words: string): void {
+  recognition.onresult?.({
+    resultIndex: 0,
+    results: [Object.assign([{ transcript: words }], { isFinal: true })],
+  });
+}
+
+afterEach(() => {
+  delete (window as unknown as Record<string, unknown>).SpeechRecognition;
 });
 
 describe("Describe it panel", () => {
@@ -206,8 +293,17 @@ describe("Describe it panel", () => {
     // Nothing is saved until Build, and Build is the only path out.
     expect(screen.getByText(/Nothing is saved until you build it/i)).toBeInTheDocument();
     expect(built).toHaveLength(0);
+
+    // A different answer is the one the draft is built with: the check step is
+    // not decoration.
+    await user.click(screen.getByTestId("describe-answer-approver-John Smith"));
+    expect(screen.getByTestId("describe-answer-approver-John Smith")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await user.click(screen.getByTestId("describe-build"));
     expect(built).toHaveLength(1);
+    expect(built[0]?.understanding?.questions[0]?.chosen).toBe("John Smith");
   });
 
   it("keeps the words as a source the builder can show", async () => {
@@ -271,6 +367,7 @@ describe("Describe it panel", () => {
 
   it("closes without cancelling the read, and comes back with the check step", async () => {
     setup();
+    const release = holdAuthorRead();
     const user = userEvent.setup();
 
     function Stateful(): React.JSX.Element {
@@ -292,8 +389,13 @@ describe("Describe it panel", () => {
     render(<Stateful />);
     await user.type(await screen.findByTestId("describe-transcript"), "Six APs for Acme");
     await user.click(screen.getByTestId("describe-draft"));
-    // The draft lands after the panel was closed to keep working: the route is
-    // told, and the check step is on screen again rather than hidden.
+    // The read is still running. Keep working closes the panel; it does not
+    // cancel the request.
+    await user.click(await screen.findByTestId("describe-keep-working"));
+    await waitFor(() => expect(screen.getByTestId("panel")).toHaveAttribute("hidden"));
+    // The draft lands while the panel is closed: the route is told, and the
+    // check step is on screen again rather than hidden with the draft inside.
+    release();
     await waitFor(() =>
       expect(screen.getByTestId("describe-understanding")).toBeInTheDocument(),
     );
@@ -318,5 +420,73 @@ describe("Describe it panel", () => {
     expect(screen.getByText(/Pricing from your catalogue/i)).toBeInTheDocument();
     expect(screen.getByTestId("describe-keep-working")).toBeInTheDocument();
     expect(screen.getByText(/I will tell you when it is ready/i)).toBeInTheDocument();
+  });
+
+  it("keeps the settled words when the panel closes mid-sentence, and stops the microphone", async () => {
+    setup();
+    const recognitions = installSpeechRecognition();
+    const user = userEvent.setup();
+
+    function Stateful(): React.JSX.Element {
+      const [open, setOpen] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            reopen the panel
+          </button>
+          <DescribePanel
+            kind="quote"
+            open={open}
+            onClose={() => setOpen(false)}
+            clients={[]}
+            onBuild={() => undefined}
+            onStartBlank={() => undefined}
+            testId="panel"
+          />
+        </>
+      );
+    }
+
+    render(<Stateful />);
+    await user.click(await screen.findByTestId("describe-talk"));
+    await screen.findByTestId("describe-talk-card");
+    const recognition = recognitions[0];
+    expect(recognition).toBeDefined();
+    act(() => settle(recognition!, "Ten laptops for Acme "));
+    expect(screen.getByTestId("describe-running-transcript").textContent).toContain(
+      "Ten laptops for Acme",
+    );
+
+    // Closing the panel unmounts the card while the recogniser is still
+    // listening. The words it had already settled are kept, and the
+    // microphone goes with the card.
+    await user.click(screen.getByLabelText("Close panel"));
+    await waitFor(() => expect(screen.getByTestId("panel")).toHaveAttribute("hidden"));
+    expect(recognition?.aborted).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "reopen the panel" }));
+    expect(await screen.findByTestId("describe-transcript")).toHaveValue("Ten laptops for Acme");
+  });
+
+  it("still finishes on Stop: the button asks the recogniser, then hands the words over", async () => {
+    setup();
+    const recognitions = installSpeechRecognition();
+    const user = userEvent.setup();
+    render(<Harness onBuild={() => undefined} />);
+
+    await user.click(await screen.findByTestId("describe-talk"));
+    const recognition = recognitions[0];
+    expect(recognition).toBeDefined();
+    act(() => settle(recognition!, "Ten laptops for Acme "));
+
+    await user.click(screen.getByTestId("describe-stop"));
+    // Finishing waits for the recogniser to settle, rather than cutting it off.
+    expect(screen.getByTestId("describe-stop")).toHaveTextContent("Finishing the words…");
+    expect(recognition?.stopped).toBe(true);
+
+    act(() => recognition?.onend?.());
+    await waitFor(() =>
+      expect(screen.getByTestId("describe-transcript")).toHaveValue("Ten laptops for Acme"),
+    );
   });
 });

@@ -1335,6 +1335,8 @@ pub struct PortalQuoteLine {
     pub quantity_milli: i64,
     pub unit_amount_minor: i64,
     pub taxable: bool,
+    /// Priced and shown beside the total, never counted inside it.
+    pub optional: bool,
     pub amount_minor: i64,
     pub position: i32,
 }
@@ -1347,6 +1349,7 @@ impl From<core_domain::entities::QuoteLine> for PortalQuoteLine {
             quantity_milli: l.quantity_milli,
             unit_amount_minor: l.unit_amount_minor,
             taxable: l.taxable,
+            optional: l.optional,
             amount_minor: l.amount_minor,
             position: l.position,
         }

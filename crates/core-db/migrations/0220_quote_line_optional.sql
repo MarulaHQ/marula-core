@@ -1,0 +1,15 @@
+-- Optional quote lines (money-authoring lane, migration 0220).
+--
+-- Purpose: the quote builder has long let a person price an optional extra —
+-- a support plan, a spare switch — and show it beside the required work
+-- without counting it in the subtotal or the tax. Until now the create route
+-- had nowhere to carry that flag, so the builder dropped those rows before
+-- sending. This column is the place they persist.
+--
+-- `optional = true` means priced and shown, excluded from the quote subtotal
+-- and therefore from the tax. The quote's stored subtotal/tax/total still
+-- agree with the line list, and a line is never dropped for being optional.
+--
+-- Default false keeps every existing line exactly as it was: required and
+-- counted, which is what the old rows meant.
+ALTER TABLE quote_lines ADD COLUMN optional boolean NOT NULL DEFAULT false;

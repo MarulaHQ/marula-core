@@ -85,26 +85,28 @@ const TASKS = [
   task({ id: TASK_CALM, title: "Archive project channel", phase_id: PHASE_DONE }),
 ];
 
+const PROJECT = {
+  id: PROJECT_ID,
+  org_id: ORG,
+  name: "Exchange migration",
+  status: "active",
+  billing_method: "milestone",
+  client_id: CLIENT_ID,
+  budget_minor: 500_000,
+  currency: "USD",
+  description: "Move Acme to Exchange Online.",
+  start_date: null,
+  due_date: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
+  created_at: "",
+  updated_at: "",
+  client_hold_reason: null as string | null,
+  pre_hold_status: null as string | null,
+};
+
 function setupApi(): MockApi {
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
-  mock.on("GET", `/api/v1/projects/${PROJECT_ID}`, () => ({
-    json: {
-      id: PROJECT_ID,
-      org_id: ORG,
-      name: "Exchange migration",
-      status: "active",
-      billing_method: "milestone",
-      client_id: CLIENT_ID,
-      budget_minor: 500_000,
-      currency: "USD",
-      description: "Move Acme to Exchange Online.",
-      start_date: null,
-      due_date: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
-      created_at: "",
-      updated_at: "",
-    },
-  }));
+  mock.on("GET", `/api/v1/projects/${PROJECT_ID}`, () => ({ json: PROJECT }));
   mock.on("GET", `/api/v1/clients/${CLIENT_ID}`, () => ({
     json: { id: CLIENT_ID, org_id: ORG, name: "Acme Corp", created_at: "", updated_at: "" },
   }));
@@ -234,6 +236,127 @@ describe("ProjectDetailPage", () => {
       `/api/v1/projects/${PROJECT_ID}/tasks/${TASK_BLOCKING}/complete`,
     );
     expect(body.idempotency_key).toBeTruthy();
+    cleanup();
+  });
+
+  it("keeps minutes but hides a redacted phase-burn amount", async () => {
+    const mock = setupApi();
+    mock.on("GET", `/api/v1/projects/${PROJECT_ID}/phase-burn`, () => ({
+      json: [
+        {
+          phase_id: PHASE_ACTIVE,
+          phase_name: "Migration",
+          phase_status: "active",
+          consumed_minutes: 90,
+          consumed_minor: null,
+          budget_minor: null,
+          currency: null,
+          alert: "none",
+        },
+        {
+          phase_id: PHASE_DONE,
+          phase_name: "Discovery",
+          phase_status: "completed",
+          consumed_minutes: 30,
+          consumed_minor: 12_000,
+          budget_minor: 20_000,
+          currency: "USD",
+          alert: "warn",
+        },
+      ],
+    }));
+    mount();
+    await loaded();
+    fireEvent.click(screen.getByTestId("record-tab-money"));
+
+    // Without financial:read the route nulls the money and the alert. The
+    // minutes are not money, so they stay; "$0.00", "no budget" and an alert
+    // badge would all be claims the caller is not allowed to read.
+    const redacted = await screen.findByTestId(`phase-burn-${PHASE_ACTIVE}`);
+    expect(redacted).toHaveTextContent("Amount hidden");
+    expect(redacted).toHaveTextContent("90 min");
+    expect(redacted).not.toHaveTextContent("$0.00");
+    expect(redacted).not.toHaveTextContent("no budget");
+    expect(within(redacted).queryByText("warn")).toBeNull();
+    expect(within(redacted).queryByText("over")).toBeNull();
+
+    // A reader with the money sees the amount, the budget it is measured
+    // against, and the warning badge, unchanged.
+    const visible = screen.getByTestId(`phase-burn-${PHASE_DONE}`);
+    expect(visible).toHaveTextContent("$120.00 of $200.00");
+    expect(visible).toHaveTextContent("warn");
+    cleanup();
+  });
+
+  it("puts a project on hold with the reason the client may read", async () => {
+    const mock = setupApi();
+    let hold: string | null = null;
+    mock.on("GET", `/api/v1/projects/${PROJECT_ID}`, () => ({
+      json: { ...PROJECT, status: hold === null ? "active" : "on_hold", client_hold_reason: hold },
+    }));
+    mock.on("PATCH", `/api/v1/projects/${PROJECT_ID}`, ({ body }) => {
+      const patch = body as { client_hold_reason?: string | null };
+      hold = patch.client_hold_reason ?? null;
+      return {
+        json: {
+          id: PROJECT_ID,
+          mutation: { idempotency_key: "k", seq: 1, version: 2, prior: null, applied_at: "" },
+        },
+      };
+    });
+    mock.install();
+    mount();
+    await loaded();
+
+    fireEvent.click(screen.getByTestId("project-hold"));
+    fireEvent.change(await screen.findByTestId("hold-reason"), {
+      target: { value: "Waiting on the new switchgear delivery" },
+    });
+    fireEvent.click(screen.getByTestId("hold-confirm"));
+
+    await waitFor(() =>
+      expect(mock.callsTo("PATCH", `/api/v1/projects/${PROJECT_ID}`)).toHaveLength(1),
+    );
+    const body = mock.lastBody<{ status: string; client_hold_reason: string | null }>(
+      "PATCH",
+      `/api/v1/projects/${PROJECT_ID}`,
+    );
+    expect(body.status).toBe("on_hold");
+    expect(body.client_hold_reason).toBe("Waiting on the new switchgear delivery");
+
+    // The refreshed read shows the stored reason on the staff record, and the
+    // action flips from "Put on hold" to "Resume work".
+    expect(await screen.findByTestId("project-hold-note")).toHaveTextContent(
+      "Client reason: Waiting on the new switchgear delivery",
+    );
+    expect(screen.getByTestId("project-resume")).toBeInTheDocument();
+    expect(screen.queryByTestId("project-hold")).toBeNull();
+    cleanup();
+  });
+
+  it("resumes to the status the pause interrupted", async () => {
+    // A project paused while still in planning must come back to planning,
+    // not to active. The stored pre_hold_status is what makes that possible.
+    const mock = setupApi();
+    mock.on("GET", `/api/v1/projects/${PROJECT_ID}`, () => ({
+      json: { ...PROJECT, status: "on_hold", pre_hold_status: "planning" },
+    }));
+    mock.on("PATCH", `/api/v1/projects/${PROJECT_ID}`, () => ({
+      json: {
+        id: PROJECT_ID,
+        mutation: { idempotency_key: "k", seq: 1, version: 2, prior: null, applied_at: "" },
+      },
+    }));
+    mock.install();
+    mount();
+
+    fireEvent.click(await screen.findByTestId("project-resume"));
+    await waitFor(() =>
+      expect(mock.callsTo("PATCH", `/api/v1/projects/${PROJECT_ID}`)).toHaveLength(1),
+    );
+    expect(
+      mock.lastBody<{ status: string }>("PATCH", `/api/v1/projects/${PROJECT_ID}`).status,
+    ).toBe("planning");
     cleanup();
   });
 });

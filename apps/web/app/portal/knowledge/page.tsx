@@ -12,34 +12,31 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Spinner } from "@marula-core/ui";
-import { useRequirePortalAuth } from "../../../lib/portal-api";
+import { portalApi, useRequirePortalAuth, type PortalKnowledgeDoc } from "../../../lib/portal-api";
 import { PortalCard, PortalRow } from "../../../components/portal/portal-ui";
-
-interface PortalDoc {
-  id: string;
-  kind: "document" | "article";
-  title: string;
-  summary: string;
-  href: string;
-  updated_at: string;
-}
 
 export default function PortalKnowledgePage() {
   useRequirePortalAuth();
-  const [docs, setDocs] = useState<PortalDoc[] | null>(null);
+  const [docs, setDocs] = useState<PortalKnowledgeDoc[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? ""}/api/v1/portal/knowledge/documents`, {
-      credentials: "include",
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`request failed (${response.status})`);
-        return (await response.json()) as PortalDoc[];
-      })
+    setDocs(null);
+    setError(null);
+    // Through `portalApi`, not a bare fetch: the portal session is read from
+    // the Authorization header only, and the client owns the rotation.
+    portalApi
+      .knowledgeDocuments()
       .then((data) => {
-        if (!cancelled) setDocs(data);
+        if (cancelled) return;
+        // A 200 with a body that is not a list would throw during render.
+        if (!Array.isArray(data)) {
+          setError("We could not read your documents just now. Try again in a moment.");
+          return;
+        }
+        setDocs(data);
       })
       .catch(() => {
         if (!cancelled) {
@@ -49,7 +46,7 @@ export default function PortalKnowledgePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -61,9 +58,18 @@ export default function PortalKnowledgePage() {
       </header>
 
       {error !== null ? (
-        <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
-          {error}
-        </p>
+        <div className="flex flex-col items-start gap-2">
+          <p role="alert" className="m-0 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+            {error}
+          </p>
+          <button
+            type="button"
+            className="portal-btn"
+            onClick={() => setAttempt((count) => count + 1)}
+          >
+            Try again
+          </button>
+        </div>
       ) : docs === null ? (
         <div className="flex items-center gap-2 text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
           <Spinner label="Loading documents" />
@@ -97,6 +103,9 @@ export default function PortalKnowledgePage() {
               }
             />
           ))}
+          <p className="portal-hint">
+            Documents are listed for reference — ask your service desk for a copy.
+          </p>
         </PortalCard>
       )}
 

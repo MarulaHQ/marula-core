@@ -47,7 +47,7 @@ import { SettingsHeader } from "../../../components/settings/settings-shell";
 import { rejectionText, resultErrorText } from "../../../lib/error-copy";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { DecisionSurfaces } from "./decision-surfaces";
-import { ToggleRow, ToggleSwitch } from "../../../components/settings/settings-forms";
+import { SegmentedChoice, ToggleRow } from "../../../components/settings/settings-forms";
 import { CatalogCard, CapsCard } from "../../../components/settings/ai-catalog-caps";
 import { ByokLegacyCard } from "../../../components/settings/byok-legacy-card";
 import { MyUsageCard, OrgUsageCard } from "../../../components/settings/ai-usage-cards";
@@ -122,16 +122,18 @@ export default function AiSettingsPage() {
         description="Availability, grants, caps, credentials and the decision harness — deny-by-default across the org."
       />
 
-      <MasterSwitchCard
-        featuresEnabled={decision?.features_enabled ?? false}
-        onChanged={(v) =>
-          setDecision((d) => (d === null ? d : { ...d, features_enabled: v }))
+      <AiModeCard
+        mode={decision?.mode ?? "off"}
+        onChanged={(mode) =>
+          setDecision((d) =>
+            d === null ? d : { ...d, mode, features_enabled: mode !== "off" },
+          )
         }
       />
 
       <DecisionSurfaces
         surfaces={decision?.surfaces ?? []}
-        featuresEnabled={decision?.features_enabled ?? false}
+        featuresEnabled={(decision?.mode ?? "off") !== "off"}
         onChanged={(key, next) =>
           setDecision((prev) =>
             prev === null
@@ -172,15 +174,41 @@ export default function AiSettingsPage() {
 
 // ---------------------------------------------------------------------------
 
-function MasterSwitchCard({
-  featuresEnabled,
+const AI_MODES = ["Off", "Shadow", "Live"] as const;
+type AiModeWord = (typeof AI_MODES)[number];
+
+const MODE_COPY: Record<AiModeWord, { title: string; description: string; tone: "neutral" | "warning" | "success" }> = {
+  Off: {
+    title: "Off",
+    description:
+      "Nothing runs. No model is called, no decision is recorded, and AI leaves no trace anywhere in the product.",
+    tone: "neutral",
+  },
+  Shadow: {
+    title: "Shadow",
+    description:
+      "Every leg runs and the org pays for the tokens. Decision runs are recorded as shadow, so what the model would have said is visible on Shadow runs and nowhere a person works. Nothing is proposed and nothing acts.",
+    tone: "warning",
+  },
+  Live: {
+    title: "Live",
+    description:
+      "Each surface acts on its own mode: a live surface proposes on the product surface and may take its permitted side effect above the thresholds, while a shadow surface stays a recorded suggestion.",
+    tone: "success",
+  },
+};
+
+export function AiModeCard({
+  mode,
   onChanged,
 }: {
-  featuresEnabled: boolean | undefined;
-  onChanged: (v: boolean) => void;
+  mode: string;
+  onChanged: (mode: "off" | "shadow" | "live") => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const on = featuresEnabled === true;
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const word: AiModeWord = mode === "shadow" ? "Shadow" : mode === "live" ? "Live" : "Off";
+  const copy = MODE_COPY[word];
   return (
     <section
       data-testid="ai-master-card"
@@ -193,35 +221,43 @@ function MasterSwitchCard({
     >
       <ToggleRow
         first
-        title="Allow AI in this organisation"
-        description="Off by default. While it is off, no surface can call a model and nothing about AI appears anywhere in the product."
+        title="AI in this organisation"
+        description={copy.description}
         badge={
-          on ? (
-            <Badge tone="success" data-testid="ai-master-pill">
-              On
-            </Badge>
-          ) : (
-            <Badge tone="neutral" data-testid="ai-master-pill">
-              Off
-            </Badge>
-          )
+          <Badge tone={copy.tone} data-testid="ai-master-pill">
+            {copy.title}
+          </Badge>
         }
       >
-        <ToggleSwitch
-          on={on}
-          disabled={busy || featuresEnabled === undefined}
-          label="Allow AI in this organisation"
-          testId="ai-features-switch"
-          onChange={async (next) => {
-            setBusy(true);
-            const { error } = await api.api.PUT("/api/v1/settings/ai/decision/features", {
-              body: { enabled: next, idempotency_key: `features:${Date.now()}` } as never,
-            });
-            setBusy(false);
-            if (error !== undefined) return;
-            onChanged(next);
-          }}
-        />
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+          <SegmentedChoice
+            value={word}
+            options={AI_MODES}
+            label="AI mode"
+            testId="ai-mode-choice"
+            onChange={async (next) => {
+              if (next === word || busy) return;
+              setBusy(true);
+              setSaveError(null);
+              const value = next.toLowerCase() as "off" | "shadow" | "live";
+              const { error } = await api.api.PUT("/api/v1/settings/ai/decision/features", {
+                body: { mode: value, idempotency_key: `mode:${Date.now()}` } as never,
+              });
+              setBusy(false);
+              if (error !== undefined) {
+                setSaveError("The mode could not be saved. Try again.");
+                return;
+              }
+              onChanged(value);
+            }}
+          />
+          {busy ? <span style={{ fontSize: 12, color: "var(--m-text-secondary)" }}>Saving…</span> : null}
+          {saveError !== null ? (
+            <span role="alert" style={{ fontSize: 12, color: "var(--m-status-danger-fg)" }}>
+              {saveError}
+            </span>
+          ) : null}
+        </div>
       </ToggleRow>
     </section>
   );

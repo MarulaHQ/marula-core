@@ -53,12 +53,14 @@ pub(crate) fn row_to_ticket(row: sqlx::postgres::PgRow) -> Result<Ticket, sqlx::
         // they simply report unclassified.
         type_id: row.try_get("type_id").unwrap_or(None),
         category_id: row.try_get("category_id").unwrap_or(None),
+        archived_at: row.try_get("archived_at").unwrap_or(None),
     })
 }
 
 const TICKET_COLS: &str = "id, org_id, number, board_id, status_id, title, body, priority, \
      client_id, site_id, contact_id, assignee_id, requester_id, category, due_at, \
-     resolved_at, created_at, updated_at, merged_into_ticket_id, type_id, category_id";
+     resolved_at, created_at, updated_at, merged_into_ticket_id, type_id, category_id, \
+     archived_at";
 
 pub struct NewTicket<'a> {
     pub id: Uuid,
@@ -139,6 +141,32 @@ where
     Ok(row_to_ticket(row)?)
 }
 
+/// Archives or restores a ticket. Archived tickets stay readable by id so
+/// links, history and invoices keep resolving; lists and boards hide them
+/// until the archive view asks. `COALESCE` keeps the first archive instant.
+pub async fn set_ticket_archived(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    archived: bool,
+) -> DbResult<()> {
+    let res = sqlx::query(
+        r#"UPDATE tickets
+              SET archived_at = CASE WHEN $3 THEN COALESCE(archived_at, now()) ELSE NULL END,
+                  updated_at = now()
+            WHERE org_id = $1 AND id = $2"#,
+    )
+    .bind(org_id)
+    .bind(id)
+    .bind(archived)
+    .execute(&mut *conn)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
 /// Keyset anchor (Wave 15 lane 3): the sort-key values of the last row of
 /// the previous page. The list order is
 /// `(priority_rank, due_at NULLS LAST, created_at, id)`; the cursor is the
@@ -173,6 +201,9 @@ pub struct TicketFilter {
     /// Tag filter (Wave 11 lane 9): tickets carrying EVERY tag in the
     /// set (AND semantics across ids); None/empty disables the clause.
     pub tag_ids: Option<Vec<Uuid>>,
+    /// Archived tickets are hidden by default; a staff list may ask for
+    /// them (the archive view). Every other surface leaves this false.
+    pub include_archived: bool,
     pub limit: i64,
     pub offset: i64,
     /// Keyset anchor; when set, `offset` is ignored (the two mechanisms
@@ -231,6 +262,14 @@ pub(crate) fn page_sql(f: &TicketFilter) -> String {
     } else {
         String::new()
     };
+    // Archive visibility (0228): a link may name an archived ticket, a staff
+    // list hides it until the archive view asks for it. Literal, not a bind,
+    // because `capacity` hands this same text to EXPLAIN with literals.
+    let archived_clause = if f.include_archived {
+        ""
+    } else {
+        "AND archived_at IS NULL"
+    };
     // Keyset resume (Wave 15 lane 3): strictly-after predicate over the
     // full sort tuple. `due_at` sorts NULLS LAST, which row-value
     // comparison cannot express, so the same-rank case is written
@@ -265,6 +304,7 @@ pub(crate) fn page_sql(f: &TicketFilter) -> String {
              AND ($5::text IS NULL OR category = $5)
              AND ($6::text IS NULL OR priority = $6)
              {tag_clause}
+             {archived_clause}
              {keyset_clause}
            ORDER BY
              {PRIORITY_RANK},
@@ -287,6 +327,11 @@ where
     } else {
         String::new()
     };
+    let archived_clause = if f.include_archived {
+        ""
+    } else {
+        "AND archived_at IS NULL"
+    };
     let sql = format!(
         r#"SELECT count(*) FROM tickets
            WHERE org_id = $1
@@ -295,7 +340,8 @@ where
              AND ($4::uuid IS NULL OR client_id = $4)
              AND ($5::text IS NULL OR category = $5)
              AND ($6::text IS NULL OR priority = $6)
-             {tag_clause}"#
+             {tag_clause}
+             {archived_clause}"#
     );
     let sql = sql.as_str();
     let row: (i64,) = sqlx::query_as(sql)
@@ -325,6 +371,7 @@ where
     let sql = format!(
         r#"SELECT {TICKET_COLS} FROM tickets
            WHERE org_id = $1 AND assignee_id = $2 AND category <> 'closed'
+             AND archived_at IS NULL
            ORDER BY
              CASE priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
               due_at NULLS LAST, created_at
@@ -411,6 +458,7 @@ where
            LEFT JOIN board_statuses st ON st.id = t.status_id
            LEFT JOIN ticket_sla_state s ON s.ticket_id = t.id
            WHERE t.org_id = $1 AND t.assignee_id = $2 AND t.category <> 'closed'
+             AND t.archived_at IS NULL
            ORDER BY
              CASE t.priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
              COALESCE(s.resolution_due, t.due_at) NULLS LAST,
@@ -452,6 +500,7 @@ where
            LEFT JOIN board_statuses st ON st.id = t.status_id
            LEFT JOIN ticket_sla_state s ON s.ticket_id = t.id
            WHERE t.org_id = $1 AND t.assignee_id IS NULL AND t.category <> 'closed'
+             AND t.archived_at IS NULL
            ORDER BY
              CASE t.priority WHEN 'p1' THEN 0 WHEN 'p2' THEN 1 WHEN 'p3' THEN 2 ELSE 3 END,
              COALESCE(s.resolution_due, t.due_at) NULLS LAST,
@@ -905,4 +954,30 @@ where
 
 pub async fn parse_priority_or_err(s: &str) -> DbResult<Priority> {
     parse_priority(s)
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+
+    fn filter(include_archived: bool) -> TicketFilter {
+        TicketFilter {
+            board_id: None,
+            assignee_id: None,
+            client_id: None,
+            category: None,
+            priority: None,
+            tag_ids: None,
+            include_archived,
+            limit: 50,
+            offset: 0,
+            cursor: None,
+        }
+    }
+
+    #[test]
+    fn ticket_page_hides_archived_unless_asked() {
+        assert!(page_sql(&filter(false)).contains("AND archived_at IS NULL"));
+        assert!(!page_sql(&filter(true)).contains("archived_at IS NULL"));
+    }
 }

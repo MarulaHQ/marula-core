@@ -382,6 +382,14 @@ export const portalApi = {
     return portalFetch<PortalKbArticle>(`/api/v1/portal/kb/articles/${id}`, {});
   },
 
+  /** The documents and published articles this client may read. It rides the
+   *  portal auth stack (bearer + the shared 401 rotation), so the page must
+   *  call this rather than a bare `fetch`: the portal session is only ever
+   *  read from the Authorization header. */
+  knowledgeDocuments(): Promise<PortalKnowledgeDoc[]> {
+    return portalFetch<PortalKnowledgeDoc[]>("/api/v1/portal/knowledge/documents", {});
+  },
+
   kbSearch(q: string): Promise<PortalKbSearchHit[]> {
     return portalFetch<PortalKbSearchHit[]>(
       `/api/v1/portal/kb/search?q=${encodeURIComponent(q)}`,
@@ -538,6 +546,17 @@ export interface PortalKbArticle {
   category_id: string | null;
   title: string;
   body: string;
+  updated_at: string;
+}
+
+/** One row on /portal/knowledge: a document the staff marked client-visible,
+ *  or a published article. */
+export interface PortalKnowledgeDoc {
+  id: string;
+  kind: "document" | "article";
+  title: string;
+  summary: string;
+  href: string;
   updated_at: string;
 }
 

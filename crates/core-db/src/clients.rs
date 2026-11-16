@@ -92,6 +92,31 @@ where
     })
 }
 
+/// The shared site projection (0228 adds `archived_at`). Kept as a const so
+/// every read and write returns a row the same decoder can turn into a `Site`.
+const SITE_COLUMNS: &str = "id, org_id, client_id, name, address, city, region, postal_code, \
+     country, latitude, longitude, timezone, created_at, archived_at";
+
+fn row_to_site(row: sqlx::postgres::PgRow) -> Site {
+    use sqlx::Row;
+    Site {
+        id: row.get("id"),
+        org_id: row.get("org_id"),
+        client_id: row.get("client_id"),
+        name: row.get("name"),
+        address: row.get("address"),
+        city: row.get("city"),
+        region: row.get("region"),
+        postal_code: row.get("postal_code"),
+        country: row.get("country"),
+        latitude: row.get("latitude"),
+        longitude: row.get("longitude"),
+        timezone: row.get("timezone"),
+        created_at: row.get("created_at"),
+        archived_at: row.get("archived_at"),
+    }
+}
+
 /// Creates a site. The optional geography fields existed on the entity since
 /// 0002; the import framework (the private build tracker D2) needed them first-class, so the
 /// single canonical insert path now persists them for API callers too.
@@ -114,106 +139,103 @@ pub async fn create_site<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
+    let sql = format!(
         r#"INSERT INTO sites (id, org_id, client_id, name, address, city, region,
                               postal_code, country, latitude, longitude, timezone)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           RETURNING id, org_id, client_id, name, address, city, region, postal_code,
-                      country, latitude, longitude, timezone, created_at"#,
-        id,
-        org_id,
-        client_id,
-        name,
-        address,
-        city,
-        region,
-        postal_code,
-        country,
-        latitude,
-        longitude,
-        timezone
-    )
-    .fetch_one(executor)
-    .await?;
-    Ok(Site {
-        id: row.id,
-        org_id: row.org_id,
-        client_id: row.client_id,
-        name: row.name,
-        address: row.address,
-        city: row.city,
-        region: row.region,
-        postal_code: row.postal_code,
-        country: row.country,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        timezone: row.timezone,
-        created_at: row.created_at,
-    })
+           RETURNING {SITE_COLUMNS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(id)
+        .bind(org_id)
+        .bind(client_id)
+        .bind(name)
+        .bind(address)
+        .bind(city)
+        .bind(region)
+        .bind(postal_code)
+        .bind(country)
+        .bind(latitude)
+        .bind(longitude)
+        .bind(timezone)
+        .fetch_one(executor)
+        .await?;
+    Ok(row_to_site(row))
 }
 
 pub async fn get_site<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Site>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
-        r#"SELECT id, org_id, client_id, name, address, city, region, postal_code,
-                  country, latitude, longitude, timezone, created_at
-           FROM sites WHERE org_id = $1 AND id = $2"#,
-        org_id,
-        id
-    )
-    .fetch_optional(executor)
-    .await?
-    .ok_or(DbError::NotFound)?;
-    Ok(Site {
-        id: row.id,
-        org_id: row.org_id,
-        client_id: row.client_id,
-        name: row.name,
-        address: row.address,
-        city: row.city,
-        region: row.region,
-        postal_code: row.postal_code,
-        country: row.country,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        timezone: row.timezone,
-        created_at: row.created_at,
-    })
+    let sql = format!("SELECT {SITE_COLUMNS} FROM sites WHERE org_id = $1 AND id = $2");
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    Ok(row_to_site(row))
 }
 
-pub async fn list_sites<'e, E>(executor: E, org_id: Uuid, client_id: Uuid) -> DbResult<Vec<Site>>
+/// The list statement for one client, so the archive predicate is testable
+/// without a database.
+fn list_sites_sql(include_archived: bool) -> String {
+    let archived_clause = if include_archived {
+        ""
+    } else {
+        "AND archived_at IS NULL"
+    };
+    format!(
+        r#"SELECT {SITE_COLUMNS}
+           FROM sites WHERE org_id = $1 AND client_id = $2 {archived_clause}
+           ORDER BY name"#
+    )
+}
+
+/// A client's sites, live ones only unless `include_archived` asks. Archived
+/// sites stay readable by id (`get_site`) so links and ticket history resolve.
+pub async fn list_sites<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    include_archived: bool,
+) -> DbResult<Vec<Site>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let rows = sqlx::query!(
-        r#"SELECT id, org_id, client_id, name, address, city, region, postal_code,
-                  country, latitude, longitude, timezone, created_at
-           FROM sites WHERE org_id = $1 AND client_id = $2 ORDER BY name"#,
-        org_id,
-        client_id
+    let sql = list_sites_sql(include_archived);
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(client_id)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.into_iter().map(row_to_site).collect())
+}
+
+/// Archives or restores a site. Archived sites stay readable by id so links
+/// and ticket history resolve; pickers and lists hide them by default.
+pub async fn set_site_archived(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    client_id: Uuid,
+    id: Uuid,
+    archived: bool,
+) -> DbResult<()> {
+    let res = sqlx::query(
+        r#"UPDATE sites
+              SET archived_at = CASE WHEN $4 THEN COALESCE(archived_at, now()) ELSE NULL END
+            WHERE org_id = $1 AND client_id = $2 AND id = $3"#,
     )
-    .fetch_all(executor)
+    .bind(org_id)
+    .bind(client_id)
+    .bind(id)
+    .bind(archived)
+    .execute(&mut *conn)
     .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| Site {
-            id: row.id,
-            org_id: row.org_id,
-            client_id: row.client_id,
-            name: row.name,
-            address: row.address,
-            city: row.city,
-            region: row.region,
-            postal_code: row.postal_code,
-            country: row.country,
-            latitude: row.latitude,
-            longitude: row.longitude,
-            timezone: row.timezone,
-            created_at: row.created_at,
-        })
-        .collect())
+    if res.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
 }
 
 /// Creates a contact. `site_id`, `title`, and `is_primary` round out the
@@ -435,43 +457,29 @@ pub async fn update_site<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query!(
+    let sql = format!(
         r#"UPDATE sites SET name = $3, address = $4, city = $5, region = $6,
                             postal_code = $7, country = $8, latitude = $9,
                             longitude = $10, timezone = $11
            WHERE org_id = $1 AND id = $2
-           RETURNING id, org_id, client_id, name, address, city, region, postal_code,
-                      country, latitude, longitude, timezone, created_at"#,
-        org_id,
-        id,
-        name,
-        address,
-        city,
-        region,
-        postal_code,
-        country,
-        latitude,
-        longitude,
-        timezone
-    )
-    .fetch_optional(executor)
-    .await?
-    .ok_or(DbError::NotFound)?;
-    Ok(Site {
-        id: row.id,
-        org_id: row.org_id,
-        client_id: row.client_id,
-        name: row.name,
-        address: row.address,
-        city: row.city,
-        region: row.region,
-        postal_code: row.postal_code,
-        country: row.country,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        timezone: row.timezone,
-        created_at: row.created_at,
-    })
+           RETURNING {SITE_COLUMNS}"#
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .bind(name)
+        .bind(address)
+        .bind(city)
+        .bind(region)
+        .bind(postal_code)
+        .bind(country)
+        .bind(latitude)
+        .bind(longitude)
+        .bind(timezone)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    Ok(row_to_site(row))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -581,33 +589,13 @@ where
     let Some(bind) = split_uuids(ids) else {
         return Ok(Vec::new());
     };
-    let rows = sqlx::query!(
-        r#"SELECT id, org_id, client_id, name, address, city, region, postal_code,
-                    country, latitude, longitude, timezone, created_at
-           FROM sites WHERE org_id = $1 AND id = ANY($2)"#,
-        org_id,
-        &bind
-    )
-    .fetch_all(executor)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| Site {
-            id: row.id,
-            org_id: row.org_id,
-            client_id: row.client_id,
-            name: row.name,
-            address: row.address,
-            city: row.city,
-            region: row.region,
-            postal_code: row.postal_code,
-            country: row.country,
-            latitude: row.latitude,
-            longitude: row.longitude,
-            timezone: row.timezone,
-            created_at: row.created_at,
-        })
-        .collect())
+    let sql = format!("SELECT {SITE_COLUMNS} FROM sites WHERE org_id = $1 AND id = ANY($2)");
+    let rows = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(&bind)
+        .fetch_all(executor)
+        .await?;
+    Ok(rows.into_iter().map(row_to_site).collect())
 }
 
 pub async fn get_contacts_by_ids<'e, E>(
@@ -629,4 +617,15 @@ where
     .fetch_all(executor)
     .await?;
     Ok(rows.iter().map(row_to_contact).collect())
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use super::*;
+
+    #[test]
+    fn site_list_hides_archived_unless_asked() {
+        assert!(list_sites_sql(false).contains("AND archived_at IS NULL"));
+        assert!(!list_sites_sql(true).contains("archived_at IS NULL"));
+    }
 }

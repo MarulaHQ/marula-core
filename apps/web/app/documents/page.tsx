@@ -101,6 +101,9 @@ export default function DocumentsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [scope, setScope] = useState<Scope>({ kind: "all" });
+  // The archived view is a view, not a filter: the default list is the living
+  // library, and archived documents are one click away.
+  const [archivedView, setArchivedView] = useState(false);
   const [q, setQ] = useState("");
   const [layoutFilter, setLayoutFilter] = useState<string>("all");
 
@@ -124,7 +127,7 @@ export default function DocumentsPage() {
 
   const refresh = useCallback(async () => {
     const [d, l, c] = await Promise.all([
-      api.api.GET("/api/v1/documents"),
+      api.api.GET("/api/v1/documents", { params: { query: { include_archived: true } } }),
       api.api.GET("/api/v1/documents/layouts"),
       api.api.GET("/api/v1/clients"),
     ]);
@@ -146,6 +149,7 @@ export default function DocumentsPage() {
     if (docs === null) return null;
     const needle = q.trim().toLowerCase();
     return docs.filter((d) => {
+      if (archivedView ? d.archived_at == null : d.archived_at != null) return false;
       if (scope.kind === "global" && d.client_id !== null) return false;
       if (scope.kind === "client-any" && d.client_id === null) return false;
       // "typed"/"untyped" are views, not a type id, so they are matched here
@@ -170,7 +174,7 @@ export default function DocumentsPage() {
       }
       return true;
     });
-  }, [docs, scope, q, layoutFilter, clauses, layoutById, clientById]);
+  }, [docs, scope, q, layoutFilter, clauses, layoutById, clientById, archivedView]);
 
   const shownColumns = columns.filter((c) => c.visible);
 
@@ -241,9 +245,12 @@ export default function DocumentsPage() {
                 { id: "client-scoped", label: "Client-scoped" },
                 { id: "typed", label: "Typed" },
                 { id: "untyped", label: "Untyped" },
+                { id: "archived", label: "Archived" },
               ]}
               activeId={
-                layoutFilter === "all"
+                archivedView
+                  ? "archived"
+                  : layoutFilter === "all"
                   ? scope.kind === "global"
                     ? "global"
                     : scope.kind === "client-any"
@@ -254,6 +261,11 @@ export default function DocumentsPage() {
                     : ""
               }
               onChange={(id) => {
+                if (id === "archived") {
+                  setArchivedView(true);
+                  return;
+                }
+                setArchivedView(false);
                 if (id === "all") {
                   setLayoutFilter("all");
                   setScope({ kind: "all" });

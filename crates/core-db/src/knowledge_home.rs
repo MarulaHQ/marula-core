@@ -58,13 +58,16 @@ SELECT
   (SELECT count(*) FROM contacts x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS contacts_n,
   (SELECT count(*) FROM sites x
-     WHERE x.org_id = c.org_id AND x.client_id = c.id) AS sites_n,
+     WHERE x.org_id = c.org_id AND x.client_id = c.id
+       AND x.archived_at IS NULL) AS sites_n,
   (SELECT count(*) FROM device_assets x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS assets_n,
   (SELECT count(*) FROM documents x
-     WHERE x.org_id = c.org_id AND x.client_id = c.id) AS documents_n,
+     WHERE x.org_id = c.org_id AND x.client_id = c.id
+       AND x.archived_at IS NULL) AS documents_n,
   (SELECT count(*) FROM kb_articles x
-     WHERE x.org_id = c.org_id AND x.client_visible) AS articles_n,
+     WHERE x.org_id = c.org_id AND x.client_visible
+       AND x.status = 'published') AS articles_n,
   (SELECT count(*) FROM secret_records x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS secrets_n,
   (SELECT count(*) FROM knowledge_racks x
@@ -85,12 +88,15 @@ SELECT
               OR d.ssl_expiry < current_date + 60)) +
     (SELECT count(*) FROM documents d
        WHERE d.org_id = c.org_id AND d.client_id = c.id
+         AND d.archived_at IS NULL
          AND d.expires_at IS NOT NULL AND d.expires_at < now() + interval '60 days')
   ) AS expiring_n,
   (SELECT max(x.updated_at) FROM documents x
-     WHERE x.org_id = c.org_id AND x.client_id = c.id) AS latest_document_at,
+     WHERE x.org_id = c.org_id AND x.client_id = c.id
+       AND x.archived_at IS NULL) AS latest_document_at,
   (SELECT max(x.updated_at) FROM kb_articles x
-     WHERE x.org_id = c.org_id AND x.client_visible) AS latest_article_at,
+     WHERE x.org_id = c.org_id AND x.client_visible
+       AND x.status = 'published') AS latest_article_at,
   (SELECT max(x.updated_at) FROM knowledge_racks x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS latest_rack_at,
   (SELECT max(x.updated_at) FROM knowledge_procedures x
@@ -228,10 +234,9 @@ pub struct RecentChange {
 }
 
 /// Recent documentation movement for one client: the newest write per record,
-/// from the record tables themselves plus the audit trail for the new types.
-/// A write that has no record row left (a delete) still appears from the
-/// audit trail, which is why both sources are unioned rather than replacing
-/// one with the other.
+/// read from the record tables themselves. A delete removes the row from this
+/// feed; the deletion act survives in the audit trail, which the record
+/// surface does not read.
 pub async fn recent_changes<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -248,12 +253,14 @@ where
                FROM documents d
                LEFT JOIN users u ON u.id = d.updated_by
               WHERE d.org_id = $1 AND d.client_id = $2
+                AND d.archived_at IS NULL
              UNION ALL
              SELECT 'article', a.title, a.id,
                     u.display_name, a.updated_at
                FROM kb_articles a
                LEFT JOIN users u ON u.id = a.updated_by
               WHERE a.org_id = $1 AND a.client_visible
+                AND a.status = 'published'
              UNION ALL
              SELECT 'asset', a.name, a.id, NULL, a.updated_at
                FROM device_assets a
@@ -349,14 +356,36 @@ where
                JOIN clients c ON c.id = d.client_id
                LEFT JOIN users u ON u.id = d.updated_by
               WHERE d.org_id = $1 AND d.expires_at IS NOT NULL
+                AND d.archived_at IS NULL
              UNION ALL
-             SELECT 'asset_warranty', a.name, a.client_id, c.name,
-                    (a.fields->>'warranty_end')::date,
-                    a.tag, a.id, 'asset field'
-               FROM device_assets a
-               JOIN clients c ON c.id = a.client_id
-              WHERE a.org_id = $1
-                AND a.fields->>'warranty_end' ~ '^\d{4}-\d{2}-\d{2}$'
+             -- A warranty date is typed by a person, so it is parsed here
+             -- rather than cast: a shape filter still admits 2026-02-30, and
+             -- `::date` on that raises and fails the whole rollup for the
+             -- org. A value that is not a real calendar date yields no
+             -- due_on and drops out of the horizon filter instead.
+             SELECT 'asset_warranty', w.name, w.client_id, w.client_name,
+                    CASE WHEN to_char(w.candidate, 'YYYY-MM-DD') = w.raw
+                         THEN w.candidate END,
+                    w.tag, w.id, 'asset field'
+               FROM (
+                 SELECT a.name, a.client_id, c.name AS client_name, a.tag, a.id,
+                        v.raw,
+                        CASE WHEN substr(v.raw, 1, 4)::int BETWEEN 1 AND 9999
+                              AND substr(v.raw, 6, 2)::int BETWEEN 1 AND 12
+                              AND substr(v.raw, 9, 2)::int BETWEEN 1 AND 31
+                             THEN make_date(substr(v.raw, 1, 4)::int,
+                                            substr(v.raw, 6, 2)::int, 1)
+                                  + (substr(v.raw, 9, 2)::int - 1)
+                        END AS candidate
+                   FROM device_assets a
+                   JOIN clients c ON c.id = a.client_id
+                   CROSS JOIN LATERAL (
+                     SELECT CASE WHEN a.fields->>'warranty_end'
+                                       ~ '^\d{4}-\d{2}-\d{2}$'
+                                 THEN a.fields->>'warranty_end' END AS raw
+                   ) v
+                  WHERE a.org_id = $1
+               ) w
              UNION ALL
              SELECT 'secret_rotation', r.title, r.client_id, c.name,
                     (coalesce(r.last_rotated_at, r.created_at) + interval '180 days')::date,
@@ -484,6 +513,24 @@ where
     .ok_or(DbError::NotFound)
 }
 
+/// The rack row, held for the rest of the caller's transaction. A placement
+/// write reads the rack and then asks whether the units it wants are free;
+/// without the lock two requests can both see the same units free on
+/// overlapping ranges and both commit.
+pub async fn lock_rack<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<RackRecord>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query_as::<_, RackRecord>(&format!(
+        "SELECT {RACK_COLS} FROM knowledge_racks WHERE org_id = $1 AND id = $2 FOR UPDATE"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RackDeviceRecord {
@@ -525,6 +572,31 @@ where
     .bind(rack_id)
     .fetch_all(executor)
     .await?)
+}
+
+/// True when this placement really is on that rack. A path names both, and a
+/// device from another rack must not be movable or deletable through it.
+pub async fn rack_device_on<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    rack_id: Uuid,
+    device_id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let found: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+             SELECT 1 FROM knowledge_rack_devices
+              WHERE org_id = $1 AND rack_id = $2 AND id = $3
+           )"#,
+    )
+    .bind(org_id)
+    .bind(rack_id)
+    .bind(device_id)
+    .fetch_one(executor)
+    .await?;
+    Ok(found)
 }
 
 /// True when the proposed placement overlaps an existing one on the same face.
@@ -663,19 +735,30 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_rack<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_rack(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
+    // The placements leave with the rack (their foreign key cascades), so the
+    // edges that name them are dropped while they can still be matched.
+    sqlx::query(
+        "DELETE FROM knowledge_links l
+           USING knowledge_rack_devices d
+          WHERE d.org_id = $1 AND d.rack_id = $2
+            AND l.org_id = $1
+            AND ((l.from_kind = 'rack_device' AND l.from_id = d.id)
+              OR (l.to_kind = 'rack_device' AND l.to_id = d.id))",
+    )
+    .bind(org_id)
+    .bind(id)
+    .execute(&mut *conn)
+    .await?;
     let r = sqlx::query("DELETE FROM knowledge_racks WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "rack", id).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -769,19 +852,20 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_rack_device<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_rack_device(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_rack_devices WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "rack_device", id).await
 }
 
 /* ------------------------------------------------------------------------- */
@@ -924,19 +1008,30 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_network<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_network(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
+    // Subnets leave with the network (their foreign key cascades), so the
+    // edges that name them are dropped while they can still be matched.
+    sqlx::query(
+        "DELETE FROM knowledge_links l
+           USING knowledge_subnets s
+          WHERE s.org_id = $1 AND s.network_id = $2
+            AND l.org_id = $1
+            AND ((l.from_kind = 'subnet' AND l.from_id = s.id)
+              OR (l.to_kind = 'subnet' AND l.to_id = s.id))",
+    )
+    .bind(org_id)
+    .bind(id)
+    .execute(&mut *conn)
+    .await?;
     let r = sqlx::query("DELETE FROM knowledge_networks WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "network", id).await
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -970,7 +1065,7 @@ where
 {
     Ok(sqlx::query_as::<_, SubnetRecord>(&format!(
         "SELECT {SUBNET_COLS} FROM knowledge_subnets
-          WHERE org_id = $1 AND network_id = $2 ORDER BY cidr"
+          WHERE org_id = $1 AND network_id = $2 ORDER BY knowledge_subnets.cidr"
     ))
     .bind(org_id)
     .bind(network_id)
@@ -988,7 +1083,7 @@ where
 {
     Ok(sqlx::query_as::<_, SubnetRecord>(&format!(
         "SELECT {SUBNET_COLS} FROM knowledge_subnets
-          WHERE org_id = $1 AND client_id = $2 ORDER BY cidr"
+          WHERE org_id = $1 AND client_id = $2 ORDER BY knowledge_subnets.cidr"
     ))
     .bind(org_id)
     .bind(client_id)
@@ -1071,19 +1166,16 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_subnet<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_subnet(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_subnets WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "subnet", id).await
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -1115,7 +1207,7 @@ where
 {
     Ok(sqlx::query_as::<_, IpReservationRecord>(&format!(
         "SELECT {IP_COLS} FROM knowledge_ip_reservations
-          WHERE org_id = $1 AND subnet_id = $2 ORDER BY address"
+          WHERE org_id = $1 AND subnet_id = $2 ORDER BY knowledge_ip_reservations.address"
     ))
     .bind(org_id)
     .bind(subnet_id)
@@ -1123,6 +1215,8 @@ where
     .await?)
 }
 
+/// The address is stored as the host itself: `10.0.0.7` and `10.0.0.7/24` are
+/// one reservation, not two that read back the same.
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_reservation<'e, E>(
     executor: E,
@@ -1142,7 +1236,7 @@ where
     Ok(sqlx::query_as::<_, IpReservationRecord>(&format!(
         "INSERT INTO knowledge_ip_reservations
            (id, org_id, client_id, subnet_id, address, hostname, asset_id, status, notes)
-         VALUES ($1,$2,$3,$4,$5::inet,$6,$7,$8,$9)
+         VALUES ($1,$2,$3,$4,host($5::inet)::inet,$6,$7,$8,$9)
          RETURNING {IP_COLS}"
     ))
     .bind(id)
@@ -1341,19 +1435,16 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_domain<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_domain(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_domains WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "domain", id).await
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1528,19 +1619,20 @@ where
     r.ok_or(DbError::NotFound)
 }
 
-pub async fn delete_procedure<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_procedure(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_procedures WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "procedure", id).await
 }
 
 /// Replaces the step list wholesale. A procedure's steps are one authored
@@ -1596,9 +1688,108 @@ pub struct LinkRecord {
 const LINK_COLS: &str =
     "id, org_id, client_id, from_kind, from_id, to_kind, to_id, label, created_at";
 
+/// Every `from_kind` / `to_kind` the table accepts (migration 0217's CHECK
+/// list). One list serves the API's request validation and the cleanup
+/// helper's guard, so a new kind is added in one place.
+pub const LINK_KINDS: &[&str] = &[
+    "rack",
+    "rack_device",
+    "network",
+    "subnet",
+    "domain",
+    "procedure",
+    "document",
+    "kb_article",
+    "asset",
+    "secret",
+    "ticket",
+    "site",
+];
+
+/// Whether `kind` is a link endpoint kind. Pure, so the guard below has a
+/// test that needs no database.
+pub fn is_link_kind(kind: &str) -> bool {
+    LINK_KINDS.contains(&kind)
+}
+
+/// Drops the edges one record owned. Neither endpoint can be a foreign key —
+/// a link names a record by kind and id — so deleting the record has to delete
+/// them; a leftover edge reads as a relationship to something that is gone.
+pub(crate) async fn delete_links_for(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    kind: &str,
+    id: Uuid,
+) -> DbResult<()> {
+    // A misspelt kind matches no row and would clean up nothing while looking
+    // like it worked. The kinds are the migration's list, so a failure here is
+    // a caller bug, not data.
+    debug_assert!(
+        is_link_kind(kind),
+        "delete_links_for called with unknown kind: {kind}"
+    );
+    sqlx::query(
+        "DELETE FROM knowledge_links
+          WHERE org_id = $1
+            AND ((from_kind = $2 AND from_id = $3) OR (to_kind = $2 AND to_id = $3))",
+    )
+    .bind(org_id)
+    .bind(kind)
+    .bind(id)
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
 /// Every edge touching this record, in either direction, as one list. A
 /// relationship is not directional to a reader, so the surface prints both
 /// sides with the direction named in the label rather than in a column.
+/// Links naming a ticket, site or document whose row is archived are hidden
+/// from every panel read (0228). The edge stays in the table — archiving is a
+/// visibility state, not a delete — so restoring the record brings its links
+/// back with it. The endpoint being read is exempt: an archived record's own
+/// panel still lists what it is connected to. Each EXISTS is org-scoped and
+/// short-circuits per kind.
+const LINK_ARCHIVE_FILTER: &str = r#"
+  AND NOT (
+    EXISTS (SELECT 1 FROM tickets t
+             WHERE t.org_id = knowledge_links.org_id
+               AND t.id = knowledge_links.from_id
+               AND knowledge_links.from_kind = 'ticket'
+               AND NOT (knowledge_links.from_kind = $2 AND knowledge_links.from_id = $3)
+               AND t.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM sites s
+                WHERE s.org_id = knowledge_links.org_id
+                  AND s.id = knowledge_links.from_id
+                  AND knowledge_links.from_kind = 'site'
+                  AND NOT (knowledge_links.from_kind = $2 AND knowledge_links.from_id = $3)
+                  AND s.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM documents d
+                WHERE d.org_id = knowledge_links.org_id
+                  AND d.id = knowledge_links.from_id
+                  AND knowledge_links.from_kind = 'document'
+                  AND NOT (knowledge_links.from_kind = $2 AND knowledge_links.from_id = $3)
+                  AND d.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM tickets t
+                WHERE t.org_id = knowledge_links.org_id
+                  AND t.id = knowledge_links.to_id
+                  AND knowledge_links.to_kind = 'ticket'
+                  AND NOT (knowledge_links.to_kind = $2 AND knowledge_links.to_id = $3)
+                  AND t.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM sites s
+                WHERE s.org_id = knowledge_links.org_id
+                  AND s.id = knowledge_links.to_id
+                  AND knowledge_links.to_kind = 'site'
+                  AND NOT (knowledge_links.to_kind = $2 AND knowledge_links.to_id = $3)
+                  AND s.archived_at IS NOT NULL)
+    OR EXISTS (SELECT 1 FROM documents d
+                WHERE d.org_id = knowledge_links.org_id
+                  AND d.id = knowledge_links.to_id
+                  AND knowledge_links.to_kind = 'document'
+                  AND NOT (knowledge_links.to_kind = $2 AND knowledge_links.to_id = $3)
+                  AND d.archived_at IS NOT NULL)
+  )"#;
+
 pub async fn links_for<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -1612,6 +1803,7 @@ where
         "SELECT {LINK_COLS} FROM knowledge_links
           WHERE org_id = $1
             AND ((from_kind = $2 AND from_id = $3) OR (to_kind = $2 AND to_id = $3))
+          {LINK_ARCHIVE_FILTER}
           ORDER BY created_at DESC"
     ))
     .bind(org_id)
@@ -1853,7 +2045,19 @@ pub async fn update_template(
     fields: &serde_json::Value,
     user_id: Uuid,
 ) -> DbResult<TemplateRecord> {
-    let current = get_template(&mut *conn, org_id, id).await?;
+    // The row is locked for the rest of the caller's transaction: two editors
+    // that both read the version they are replacing would snapshot the same
+    // number, and the later update would overwrite the earlier one's content
+    // without ever recording it.
+    let current = sqlx::query_as::<_, TemplateRecord>(&format!(
+        "SELECT {TEMPLATE_COLS} FROM knowledge_templates
+          WHERE org_id = $1 AND id = $2 FOR UPDATE"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
     // Snapshot the version being replaced before it is overwritten, so a
     // document written from an older template can still be read against the
     // words it actually used.
@@ -2063,6 +2267,7 @@ where
                LEFT JOIN document_versions v
                  ON v.document_id = d.id AND v.version = d.current_version
               WHERE d.org_id = $1 AND d.client_id = $2 AND d.client_visible
+                AND d.archived_at IS NULL
              UNION ALL
              SELECT a.id, 'article', a.title,
                     coalesce(substring(a.body from 1 for 180), ''),
@@ -2104,9 +2309,18 @@ pub struct KnowledgeSearchHit {
 /// first (a client and a secret outrank a document) and recency second, which
 /// is the order an MSP technician searches in: "the client, the password for
 /// it, then the runbook".
+///
+/// `client_id` narrows the answer to one client. The filter rides EVERY store
+/// leg, before the ranking and the limit, rather than trimming the finished
+/// list: a post-limit filter spends the `limit` on rows the caller cannot see
+/// and answers a scoped search with fewer hits than it asked for. Stores that
+/// belong to no client (the org knowledge base, org documents, the org vault)
+/// drop out when a client is named — "scoped to Acme" is Acme's records, not
+/// everything Acme might read.
 pub async fn search<'e, E>(
     executor: E,
     org_id: Uuid,
+    client_id: Option<Uuid>,
     pattern: &str,
     limit: i64,
 ) -> DbResult<Vec<KnowledgeSearchHit>>
@@ -2121,60 +2335,73 @@ where
                     '/kb/clients/' || c.id::text AS href, 0 AS rank,
                     c.updated_at AS touched
                FROM clients c
-              WHERE c.org_id = $1 AND c.name ILIKE $2
+              WHERE c.org_id = $1 AND c.name ILIKE $3
+                AND ($2::uuid IS NULL OR c.id = $2)
              UNION ALL
              SELECT 'secret', r.id, r.title, 'Credential · value hidden',
                     r.client_id, c.name,
                     '/kb/secrets?record=' || r.id::text, 1, r.updated_at
                FROM secret_records r
                LEFT JOIN clients c ON c.id = r.client_id
-              WHERE r.org_id = $1 AND r.title ILIKE $2
+              WHERE r.org_id = $1 AND r.title ILIKE $3
+                AND ($2::uuid IS NULL OR r.client_id = $2)
              UNION ALL
              SELECT 'asset', a.id, a.name, coalesce(nullif(a.kind, ''), 'Configuration'),
                     a.client_id, c.name, '/assets/' || a.id::text, 2, a.updated_at
                FROM device_assets a
                LEFT JOIN clients c ON c.id = a.client_id
-              WHERE a.org_id = $1 AND a.name ILIKE $2
+              WHERE a.org_id = $1 AND a.name ILIKE $3
+                AND ($2::uuid IS NULL OR a.client_id = $2)
              UNION ALL
              SELECT 'rack', r.id, r.name, 'Rack',
                     r.client_id, c.name, '/kb/racks/' || r.id::text, 2, r.updated_at
                FROM knowledge_racks r
                JOIN clients c ON c.id = r.client_id
-              WHERE r.org_id = $1 AND r.name ILIKE $2
+              WHERE r.org_id = $1 AND r.name ILIKE $3
+                AND ($2::uuid IS NULL OR r.client_id = $2)
              UNION ALL
              SELECT 'network', n.id, n.name, 'Network',
                     n.client_id, c.name, '/kb/networks/' || n.id::text, 2, n.updated_at
                FROM knowledge_networks n
                JOIN clients c ON c.id = n.client_id
-              WHERE n.org_id = $1 AND n.name ILIKE $2
+              WHERE n.org_id = $1 AND n.name ILIKE $3
+                AND ($2::uuid IS NULL OR n.client_id = $2)
              UNION ALL
              SELECT 'domain', d.id, d.domain, 'Domain or certificate',
                     d.client_id, c.name, '/kb/domains?domain=' || d.id::text, 2, d.updated_at
                FROM knowledge_domains d
                JOIN clients c ON c.id = d.client_id
-              WHERE d.org_id = $1 AND d.domain ILIKE $2
+              WHERE d.org_id = $1 AND d.domain ILIKE $3
+                AND ($2::uuid IS NULL OR d.client_id = $2)
              UNION ALL
              SELECT 'procedure', p.id, p.title, 'Procedure',
                     p.client_id, c.name, '/kb/procedures/' || p.id::text, 3, p.updated_at
                FROM knowledge_procedures p
                JOIN clients c ON c.id = p.client_id
-              WHERE p.org_id = $1 AND p.title ILIKE $2
+              WHERE p.org_id = $1 AND p.title ILIKE $3
+                AND ($2::uuid IS NULL OR p.client_id = $2)
              UNION ALL
+             -- The knowledge base is org-wide (kb_articles has no client), so
+             -- a client scope excludes it rather than pretending it belongs.
              SELECT 'article', a.id, a.title, 'Knowledge article',
                     NULL::uuid, NULL::text, '/kb/articles?article=' || a.id::text, 3, a.updated_at
                FROM kb_articles a
-              WHERE a.org_id = $1 AND a.title ILIKE $2
+              WHERE a.org_id = $1 AND a.title ILIKE $3
+                AND $2::uuid IS NULL
              UNION ALL
              SELECT 'document', d.id, d.title, 'Document',
                     d.client_id, c.name, '/documents/' || d.id::text, 3, d.updated_at
                FROM documents d
                LEFT JOIN clients c ON c.id = d.client_id
-              WHERE d.org_id = $1 AND d.title ILIKE $2
+              WHERE d.org_id = $1 AND d.title ILIKE $3
+                AND d.archived_at IS NULL
+                AND ($2::uuid IS NULL OR d.client_id = $2)
            ) hit
           ORDER BY rank ASC, touched DESC
-          LIMIT $3"#,
+          LIMIT $4"#,
     )
     .bind(org_id)
+    .bind(client_id)
     .bind(pattern)
     .bind(limit)
     .fetch_all(executor)
@@ -2220,7 +2447,8 @@ where
                AS published_articles_n,
              (SELECT count(*) FROM kb_articles WHERE org_id = $1 AND status = 'draft')
                AS draft_articles_n,
-             (SELECT count(*) FROM documents WHERE org_id = $1 AND client_id IS NULL)
+             (SELECT count(*) FROM documents
+               WHERE org_id = $1 AND client_id IS NULL AND archived_at IS NULL)
                AS org_documents_n,
              (SELECT count(*) FROM knowledge_templates WHERE org_id = $1) AS templates_n,
              (SELECT count(*) FROM secret_records WHERE org_id = $1 AND client_id IS NULL)
@@ -2314,5 +2542,74 @@ mod tests {
         f.latest_procedure_at = Some(newer);
         assert_eq!(f.last_activity(), Some(newer));
         assert_eq!(facts((0, 0)).last_activity(), None);
+    }
+
+    /// The endpoint list here is the one `delete_links_for` guards on, so it
+    /// has to be the list the table enforces. Read the migration rather than
+    /// restating it: a new kind added to the CHECK and not here (or the
+    /// reverse) fails this test instead of silently leaving a dangling edge.
+    #[test]
+    fn link_kinds_match_the_table_check_list() {
+        const MIGRATION: &str = include_str!("../migrations/0217_knowledge_links_and_settings.sql");
+        fn checked_kinds(column: &str) -> Vec<String> {
+            let needle = format!("CHECK ({column} IN (");
+            let start = MIGRATION.find(&needle).expect("the CHECK list is present") + needle.len();
+            let rest = &MIGRATION[start..];
+            let end = rest.find(')').expect("the CHECK list is closed");
+            rest[..end]
+                .split(',')
+                .map(|item| item.trim().trim_matches('\'').to_string())
+                .filter(|item| !item.is_empty())
+                .collect()
+        }
+        let expected: Vec<String> = LINK_KINDS.iter().map(|kind| kind.to_string()).collect();
+        assert_eq!(checked_kinds("from_kind"), expected);
+        assert_eq!(checked_kinds("to_kind"), expected);
+    }
+
+    /// The four record kinds whose delete path now calls the cleanup have to
+    /// pass its guard; a kind outside the list deletes nothing.
+    #[test]
+    fn cleanup_guard_accepts_every_record_that_hard_deletes() {
+        for kind in ["asset", "document", "kb_article", "secret"] {
+            assert!(is_link_kind(kind), "{kind} must be a cleaned-up kind");
+        }
+        for kind in [
+            "rack",
+            "rack_device",
+            "network",
+            "subnet",
+            "domain",
+            "procedure",
+        ] {
+            assert!(is_link_kind(kind), "{kind} owns edges already");
+        }
+    }
+
+    /// A misspelt kind is the failure this guard exists for.
+    #[test]
+    fn cleanup_guard_rejects_a_kind_the_table_does_not_accept() {
+        assert!(!is_link_kind("asset "));
+        assert!(!is_link_kind("client"));
+        assert!(!is_link_kind(""));
+    }
+}
+
+#[cfg(test)]
+mod archive_link_tests {
+    use super::*;
+
+    #[test]
+    fn link_read_hides_archived_endpoints_on_both_sides() {
+        for kind in ["ticket", "site", "document"] {
+            assert!(
+                LINK_ARCHIVE_FILTER.contains(&format!("from_kind = '{kind}'")),
+                "missing archived {kind} from-side predicate"
+            );
+            assert!(
+                LINK_ARCHIVE_FILTER.contains(&format!("to_kind = '{kind}'")),
+                "missing archived {kind} to-side predicate"
+            );
+        }
     }
 }

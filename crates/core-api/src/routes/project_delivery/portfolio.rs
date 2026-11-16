@@ -344,6 +344,9 @@ pub struct ShareView {
 
 /// POST /api/projects/portfolio/share — a link reproduces this exact view.
 #[utoipa::path(operation_id = "project_portfolio_share", post, path = "/api/projects/portfolio/share", tag = "projects", security(("bearer" = [])),
+    params(("from" = Option<NaiveDate>, Query), ("to" = Option<NaiveDate>, Query),
+           ("group_by" = Option<String>, Query), ("at_risk_only" = Option<bool>, Query),
+           ("zoom" = Option<String>, Query)),
     responses((status = 200, body = ShareView)))]
 pub async fn share(
     State(state): State<AppState>,

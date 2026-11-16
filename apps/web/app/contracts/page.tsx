@@ -146,10 +146,20 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Add months to a calendar date. Both ends stay in UTC — a local midnight
+ * converts to the previous day west of UTC, which is a day early once
+ * `toISOString` prints it — and the day is clamped, so 31 January plus one
+ * month is 28 February rather than 3 March.
+ */
 function addMonths(iso: string, months: number): string {
-  const date = new Date(`${iso}T00:00:00`);
+  const date = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return iso;
-  date.setMonth(date.getMonth() + months);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDay));
   return date.toISOString().slice(0, 10);
 }
 
@@ -188,7 +198,6 @@ export default function ContractsPage(): ReactNode {
   const [sources, setSources] = useState<MoneySource[]>([]);
   const [checks, setChecks] = useState<string[]>([]);
   const [understanding, setUnderstanding] = useState<Understanding | null>(null);
-  const [termMonths, setTermMonths] = useState<number | null>(null);
   const [fromNotes, setFromNotes] = useState(false);
   const [builderTab, setBuilderTab] = useState<BuilderTab>("summary");
 
@@ -200,6 +209,9 @@ export default function ContractsPage(): ReactNode {
   const [changeOperations, setChangeOperations] = useState<ChangeOperation[]>([]);
   const [changeDraft, setChangeDraft] = useState<ContractDraft | null>(null);
   const [changeTotal, setChangeTotal] = useState<number | null>(null);
+  /** The draft the proposal was described against; a newer draft makes it stale. */
+  const [changeBase, setChangeBase] = useState<string | null>(null);
+  const changeRequest = useRef(0);
   const [proposed, setProposed] = useState<Set<number>>(new Set());
 
   // ---- describe ----------------------------------------------------------
@@ -314,21 +326,26 @@ export default function ContractsPage(): ReactNode {
 
   const pricingTotal = contractTotal(pricing, amount.trim() === "" ? null : Math.round(Number(amount) * 100));
 
+  /** Forget the proposal: its draft, its rows and the base it was read from. */
+  function resetChange(): void {
+    setChangeInstruction("");
+    setChangeOperations([]);
+    setChangeSentence(null);
+    setChangeDraft(null);
+    setChangeTotal(null);
+    setChangeBase(null);
+    setProposed(new Set());
+  }
+
   function resetDraft(): void {
     setPricing([]);
     setClauseRefs([]);
     setSources([]);
     setChecks([]);
     setUnderstanding(null);
-    setTermMonths(null);
     setFromNotes(false);
-    setProposed(new Set());
+    resetChange();
     setBuilderTab("summary");
-    setChangeInstruction("");
-    setChangeOperations([]);
-    setChangeSentence(null);
-    setChangeDraft(null);
-    setChangeTotal(null);
   }
 
   /** The renewal path (C05): prefill the panel from the contract it starts at. */
@@ -397,17 +414,22 @@ export default function ContractsPage(): ReactNode {
     void refresh();
   };
 
+  /**
+   * The one draft both the change call and the summary read. The dates are the
+   * authority for the term: a date the person edited after a draft applied must
+   * not be replaced by the term the draft arrived with.
+   */
   function currentDraft(): ContractDraft {
-    const months =
-      termMonths ??
-      (effectiveUntil === "" ? null : monthsBetween(effectiveFrom, effectiveUntil));
     return {
       name,
       contract_type: type,
       billing_frequency: frequency,
       value_minor: pricingTotal > 0 ? pricingTotal : null,
       currency,
-      term_months: months,
+      // No end date means open-ended, whatever term an earlier draft arrived
+      // with: a term that survives a cleared date turns an open contract back
+      // into a year in the summary and in the payload.
+      term_months: effectiveUntil === "" ? null : monthsBetween(effectiveFrom, effectiveUntil),
       effective_from: effectiveFrom,
       notes: null,
       clauses: clauseRefs.map((clause) => clause.title),
@@ -421,6 +443,18 @@ export default function ContractsPage(): ReactNode {
     };
   }
 
+  // A proposal is only good for the draft it was described against. The
+  // fingerprint is the draft's own content plus the exact end date, so editing
+  // a rate, a date or a clause after reading a proposal makes that proposal
+  // stale. The end date has to be in there: two dates one day apart can round
+  // to the same term, and Apply would then restore the date the person moved.
+  const draftKey = draftFingerprint(currentDraft(), effectiveUntil);
+  const changeStale = changeDraft !== null && changeBase !== null && changeBase !== draftKey;
+  const draftKeyRef = useRef(draftKey);
+  useEffect(() => {
+    draftKeyRef.current = draftKey;
+  }, [draftKey]);
+
   function applyContract(draft: ContractDraft): void {
     setName(draft.name);
     if (TYPES.includes(draft.contract_type as ContractType)) setType(draft.contract_type as ContractType);
@@ -432,9 +466,22 @@ export default function ContractsPage(): ReactNode {
     if (draft.effective_from !== null && draft.effective_from !== undefined) {
       setEffectiveFrom(draft.effective_from);
     }
-    setTermMonths(draft.term_months ?? null);
-    if (draft.term_months !== null && draft.term_months !== undefined) {
-      setEffectiveUntil(addMonths(draft.effective_from ?? today(), draft.term_months));
+    // Apply the term only when the proposal leaves BOTH the start date and
+    // the term alone. A price-only proposal must not rewrite a non-month-
+    // aligned end date (31 Jan + 1 month would land on 28 Feb), but a new
+    // start date must move the end: a one-month contract starting on the 15th
+    // ends on the 15th, not on the old month boundary.
+    const start = draft.effective_from ?? effectiveFrom;
+    const startUnchanged = start === effectiveFrom;
+    const termUnchanged =
+      effectiveUntil !== "" &&
+      draft.term_months === monthsBetween(start, effectiveUntil);
+    if (
+      draft.term_months !== null &&
+      draft.term_months !== undefined &&
+      !(startUnchanged && termUnchanged)
+    ) {
+      setEffectiveUntil(addMonths(start, draft.term_months));
     }
     setPricing(draft.pricing ?? []);
     setClauseRefs(draft.clause_refs ?? []);
@@ -449,9 +496,14 @@ export default function ContractsPage(): ReactNode {
   }
 
   async function proposeChange(): Promise<void> {
+    // The draft this sentence is read against. A later request, or an edit
+    // while this one runs, makes the answer unusable.
+    const requestId = ++changeRequest.current;
+    const base = draftKey;
     setChangeBusy(true);
     setChangeError(null);
     const outcome = await proposeContractChange(currentDraft(), changeInstruction.trim());
+    if (changeRequest.current !== requestId) return;
     setChangeBusy(false);
     if (!outcome.ok) {
       setChangeError(outcome.message);
@@ -463,49 +515,46 @@ export default function ContractsPage(): ReactNode {
       );
       return;
     }
+    if (draftKeyRef.current !== base) {
+      setChangeError("The draft changed while I read that. Describe the change again.");
+      return;
+    }
     setChangeSentence(outcome.result.sentence);
     setChangeOperations(outcome.result.operations);
     setChangeDraft(outcome.result.draft);
     setChangeTotal(outcome.result.resulting_total_minor);
+    setChangeBase(base);
     setProposed(proposedPricingIndexes(outcome.result.operations.map((o) => o.path)));
   }
 
   function applyChange(): void {
+    // Applying a proposal made against an older draft would undo every edit
+    // since: refuse rather than silently replace them. The fingerprint is
+    // recomputed here, from the draft on screen at the click, because a render
+    // that has not committed yet still carries the proposal as applicable.
     if (changeDraft === null || changeDraft === undefined) return;
+    if (changeBase === null || changeBase !== draftFingerprint(currentDraft(), effectiveUntil)) return;
     applyContract(changeDraft);
-    setChangeInstruction("");
-    setChangeOperations([]);
-    setChangeSentence(null);
-    setChangeDraft(null);
-    setChangeTotal(null);
+    resetChange();
   }
 
   function openBlank(): void {
     resetDraft();
+    // A blank contract starts from the initial values, not from whatever a
+    // cancelled draft left behind: an old amount would survive as an
+    // unexplained manual price in a brand-new contract.
+    setNumber("");
+    setName("");
+    setClientId("");
+    setType("recurring");
+    setCurrency("USD");
+    setEffectiveFrom(today());
+    setEffectiveUntil("");
+    setAmount("");
+    setFrequency("monthly");
     setCreateError(null);
     setCreateOpen(true);
   }
-  function currentClauseDraft(): ContractDraft {
-    return {
-      name,
-      contract_type: type,
-      billing_frequency: frequency,
-      value_minor: pricingTotal > 0 ? pricingTotal : null,
-      currency,
-      term_months: termMonths,
-      effective_from: effectiveFrom,
-      notes: null,
-      clauses: clauseRefs.map((clause) => clause.title),
-      clause_refs: clauseRefs,
-      pricing,
-      client_id: clientId === "" ? null : clientId,
-      client_name: clientId === "" ? null : clientName(clientId),
-      assumptions: [],
-      understanding,
-      checks,
-    };
-  }
-
 
   // ---- keyboard ----------------------------------------------------------
   useEffect(() => {
@@ -945,7 +994,7 @@ export default function ContractsPage(): ReactNode {
                       <span className="m-dsc-hint">From your approved library</span>
                     </div>
                     <div className="p-3">
-                      <ClauseList draft={currentClauseDraft()} library={library} />
+                      <ClauseList draft={currentDraft()} library={library} />
                     </div>
                   </div>
                 ) : null}
@@ -982,7 +1031,7 @@ export default function ContractsPage(): ReactNode {
                 showTabs={fromNotes}
                 summary={
                   <ContractSummary
-                    draft={currentClauseDraft()}
+                    draft={currentDraft()}
                     currency={currency}
                     library={library}
                     checks={checks}
@@ -1000,17 +1049,12 @@ export default function ContractsPage(): ReactNode {
                     resultingTotalMinor={changeTotal}
                     currency={currency}
                     busy={changeBusy}
+                    stale={changeStale}
                     error={changeError}
                     onInstruction={setChangeInstruction}
                     onSubmit={() => void proposeChange()}
                     onApply={applyChange}
-                    onDismiss={() => {
-                      setChangeOperations([]);
-                      setChangeDraft(null);
-                      setChangeSentence(null);
-                      setChangeTotal(null);
-                      setProposed(new Set());
-                    }}
+                    onDismiss={resetChange}
                   />
                 }
               />
@@ -1145,4 +1189,17 @@ function monthsBetween(from: string, until: string): number | null {
   const end = new Date(`${until}T00:00:00`).getTime();
   if (Number.isNaN(start) || Number.isNaN(end)) return null;
   return Math.max(1, Math.round((end - start) / (86_400_000 * 30.44)));
+}
+
+/**
+ * What a proposal is validated against: the draft it was read from, plus the
+ * exact end date. The date needs to be its own field because two ends a day
+ * apart can round to the same term, and the term alone would call the proposal
+ * applicable.
+ */
+function draftFingerprint(draft: ContractDraft, effectiveUntil: string): string {
+  return JSON.stringify({
+    ...draft,
+    effective_until: effectiveUntil === "" ? null : effectiveUntil,
+  });
 }

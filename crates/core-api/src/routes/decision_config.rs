@@ -122,13 +122,18 @@ pub struct DecisionSurfaceOverview {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DecisionOverviewResponse {
+    /// True for both shadow and live, because every AI edge types this
+    /// gate. It means "a leg may run", not "a surface may act".
     pub features_enabled: bool,
+    /// `off`, `shadow` or `live` — the one control's answer.
+    pub mode: String,
     pub surfaces: Vec<DecisionSurfaceOverview>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct DecisionFeatureMutationResponse {
     pub features_enabled: bool,
+    pub mode: String,
     pub mutation: instant::MutationMeta,
 }
 
@@ -160,9 +165,10 @@ pub async fn get_decision_overview(
 
     let mut read_tx =
         super::ai_policy::org_bound_tx(&state, org_id, authed.principal.user.id).await?;
-    let features_enabled = core_db::ai_policy::features_enabled(&mut *read_tx, org_id)
+    let mode = core_db::ai_policy::ai_mode(&mut read_tx, org_id)
         .await
         .map_err(ApiError::from)?;
+    let features_enabled = mode.is_enabled();
     let surfaces = core_db::ai_policy::list_surfaces(&mut *read_tx, org_id)
         .await
         .map_err(ApiError::from)?;
@@ -208,6 +214,7 @@ pub async fn get_decision_overview(
     read_tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(DecisionOverviewResponse {
         features_enabled,
+        mode: mode.as_str().to_string(),
         surfaces: out,
     }))
 }
@@ -220,7 +227,14 @@ pub async fn get_decision_overview(
 pub struct PutDecisionFeaturesRequest {
     #[serde(default)]
     pub instant: MutationParams,
-    pub enabled: bool,
+    /// The three-state control: `off`, `shadow` or `live`.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// Legacy boolean form. `false` means off; `true` means live, which is
+    /// what an org that only had a switch was doing. Kept so older clients
+    /// and the conformance probes keep working.
+    #[serde(default)]
+    pub enabled: Option<bool>,
 }
 
 #[utoipa::path(
@@ -241,6 +255,18 @@ pub async fn put_decision_features(
     require_ai_admin(&authed.principal, Action::Edit)?;
     let org_id = authed.principal.user.org_id;
     let actor_id = authed.principal.user.id;
+    let mode = match (req.mode.as_deref(), req.enabled) {
+        (Some(raw), _) => core_db::ai_policy::AiMode::parse(raw).ok_or_else(|| {
+            ApiError::Validation("mode must be one of off, shadow or live".into())
+        })?,
+        (None, Some(false)) => core_db::ai_policy::AiMode::Off,
+        (None, Some(true)) => core_db::ai_policy::AiMode::Live,
+        (None, None) => {
+            return Err(ApiError::Validation(
+                "mode must be one of off, shadow or live".into(),
+            ))
+        }
+    };
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let idem = req.instant.idempotency_key.clone();
 
@@ -262,12 +288,27 @@ pub async fn put_decision_features(
             &mut ctx.tx,
             ctx.org_id,
             core_domain::settings::AI_FEATURES_ENABLED,
-            &json!(req.enabled),
+            &json!(mode.is_enabled()),
             ctx.user_id,
         )
         .await
         .map_err(ApiError::from)?;
-        let snapshot = json!({ "org_id": ctx.org_id, "features_enabled": req.enabled });
+        // The run gate and the mode move together: an org that reads the
+        // legacy key must see the same state the control shows.
+        core_db::settings::upsert_org_setting(
+            &mut ctx.tx,
+            ctx.org_id,
+            core_domain::settings::AI_MODE,
+            &json!(mode.as_str()),
+            ctx.user_id,
+        )
+        .await
+        .map_err(ApiError::from)?;
+        let snapshot = json!({
+            "org_id": ctx.org_id,
+            "features_enabled": mode.is_enabled(),
+            "mode": mode.as_str(),
+        });
         ctx.emit(
             types::AI_DECISION_STATE_CHANGED,
             FEATURE_ENTITY,
@@ -288,7 +329,8 @@ pub async fn put_decision_features(
         Ok((
             ctx,
             MutationOutcome::Applied(DecisionFeatureMutationResponse {
-                features_enabled: req.enabled,
+                features_enabled: mode.is_enabled(),
+                mode: mode.as_str().to_string(),
                 mutation: instant::MutationMeta {
                     seq: 0,
                     version: 0,

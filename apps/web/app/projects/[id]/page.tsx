@@ -102,8 +102,8 @@ type PhaseMutationResponse = components["schemas"]["PhaseMutationResponse"];
 type TaskMutationResponse = components["schemas"]["TaskMutationResponse"];
 type DependencyListResponse = components["schemas"]["DependencyListResponse"];
 type Contract = components["schemas"]["Contract"];
-type PhaseBurn = components["schemas"]["PhaseBurn"];
-type BillingRelease = components["schemas"]["ProjectBillingRelease"];
+type PhaseBurn = components["schemas"]["PhaseBurnView"];
+type BillingRelease = components["schemas"]["BillingReleaseView"];
 
 const STATUS_LABEL: Record<string, string> = {
   planning: "Planning",
@@ -166,6 +166,11 @@ export default function ProjectDetailPage() {
 
   const [depTaskId, setDepTaskId] = useState<ProjectTask | null>(null);
   const [depSelection, setDepSelection] = useState<Set<string>>(new Set());
+
+  // A hold is a status change plus the note the client will read. The reason
+  // is optional, and it is the only hold text that crosses the portal boundary.
+  const [holdOpen, setHoldOpen] = useState(false);
+  const [holdReason, setHoldReason] = useState("");
 
   const refresh = useCallback(async () => {
     const p = await api.api.GET("/api/v1/projects/{id}", {
@@ -548,6 +553,66 @@ export default function ProjectDetailPage() {
     void refresh();
   };
 
+  // Putting a project on hold carries the one reason the client may read.
+  // Leaving hold takes it out of the status and the server clears the stored
+  // reason with it, so the client never resends a stale one.
+  const putOnHold = async () => {
+    setBusy(true);
+    setActionError(null);
+    const reason = holdReason.trim();
+    const result = await runEnvelopeMutation<
+      components["schemas"]["PatchProjectRequest"],
+      ProjectMutationResponse
+    >({
+      describe: "Put project on hold",
+      entityId: projectId,
+      optimistic: () => undefined,
+      revert: () => undefined,
+      buildBody: (base) => ({
+        ...base,
+        status: "on_hold",
+        client_hold_reason: reason === "" ? null : reason,
+      }),
+      request: (c, body) =>
+        c.PATCH("/api/v1/projects/{id}", { params: { path: { id: projectId } }, body }),
+      versions: (response) => [[response.id, response.mutation.version]],
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setActionError(rejectionText(result, "The hold was rejected. The project is unchanged."));
+      return;
+    }
+    setHoldOpen(false);
+    setHoldReason("");
+    void refresh();
+  };
+
+  const resumeWork = async () => {
+    setBusy(true);
+    setActionError(null);
+    const result = await runEnvelopeMutation<
+      components["schemas"]["PatchProjectRequest"],
+      ProjectMutationResponse
+    >({
+      describe: "Resume project",
+      entityId: projectId,
+      optimistic: () => undefined,
+      revert: () => undefined,
+      // Restore where the pause interrupted; a project created on hold has no
+      // record, so the old fallback stands.
+      buildBody: (base) => ({ ...base, status: project?.pre_hold_status ?? "active" }),
+      request: (c, body) =>
+        c.PATCH("/api/v1/projects/{id}", { params: { path: { id: projectId } }, body }),
+      versions: (response) => [[response.id, response.mutation.version]],
+    });
+    setBusy(false);
+    if (!result.ok) {
+      setActionError(rejectionText(result, "The resume was rejected. The project is still on hold."));
+      return;
+    }
+    void refresh();
+  };
+
   const cancelRelease = async (release: BillingRelease) => {
     setBusy(true);
     setActionError(null);
@@ -675,6 +740,29 @@ export default function ProjectDetailPage() {
             <Badge tone={projectStatusTone(project.status)}>
               {STATUS_LABEL[project.status] ?? project.status.replaceAll("_", " ")}
             </Badge>
+            {project.status === "on_hold" ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => void resumeWork()}
+                data-testid="project-resume"
+              >
+                Resume work
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setHoldReason("");
+                  setHoldOpen(true);
+                }}
+                data-testid="project-hold"
+              >
+                Put on hold
+              </Button>
+            )}
             {risk !== null ? (
               <Badge tone={risk.tone === "danger" ? "danger" : "warning"}>{risk.label}</Badge>
             ) : null}
@@ -844,6 +932,22 @@ export default function ProjectDetailPage() {
       </nav>
 
       <div className="px-6 pt-4">
+        {project.status === "on_hold" ? (
+          <div
+            data-testid="project-hold-note"
+            className="mb-3 flex flex-wrap items-baseline gap-2 rounded-ctl border px-3 py-2 text-[12px]"
+            style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+          >
+            <b className="font-semibold" style={{ color: "var(--m-text)" }}>
+              Work is on hold.
+            </b>
+            {project.client_hold_reason ? (
+              <span>Client reason: {project.client_hold_reason}</span>
+            ) : (
+              <span>The client sees only that work is paused.</span>
+            )}
+          </div>
+        ) : null}
         {actionError !== null ? (
           <p role="alert" className="mb-3 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
             {actionError}
@@ -961,23 +1065,45 @@ export default function ProjectDetailPage() {
                   </span>
                 </div>
                 <ul className="mt-2 grid gap-1">
-                  {burn.map((row) => (
-                    <li key={row.phase_id} className="flex flex-wrap items-center justify-between gap-2 text-[12px]">
-                      <span className="flex items-center gap-2">
-                        {row.alert !== "none" ? (
-                          <Badge tone={row.alert === "over" ? "danger" : "warning"}>{row.alert}</Badge>
-                        ) : null}
-                        {row.phase_name}
-                      </span>
-                      <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                        {money(row.consumed_minor, row.currency ?? "USD")}
-                        {row.budget_minor !== null && row.budget_minor !== undefined
-                          ? ` of ${money(row.budget_minor, row.currency ?? "USD")}`
-                          : " · no budget"}
-                        <span style={{ color: "var(--m-text-muted)" }}> · {row.consumed_minutes} min</span>
-                      </span>
-                    </li>
-                  ))}
+                  {burn.map((row) => {
+                    // Money is financial data: without `financial:read` the
+                    // route nulls the amount and the currency, and a null
+                    // budget means either "redacted" or "none", so the strip
+                    // says only that the amount is hidden. Minutes are not
+                    // money and stay visible.
+                    const moneyVisible =
+                      row.consumed_minor !== null &&
+                      row.consumed_minor !== undefined &&
+                      row.currency !== null &&
+                      row.currency !== undefined;
+                    return (
+                      <li
+                        key={row.phase_id}
+                        data-testid={`phase-burn-${row.phase_id}`}
+                        className="flex flex-wrap items-center justify-between gap-2 text-[12px]"
+                      >
+                        <span className="flex items-center gap-2">
+                          {row.alert === "over" ? (
+                            <Badge tone="danger">over</Badge>
+                          ) : row.alert === "warn" ? (
+                            <Badge tone="warning">warn</Badge>
+                          ) : null}
+                          {row.phase_name}
+                        </span>
+                        <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
+                          {moneyVisible
+                            ? money(row.consumed_minor ?? 0, row.currency ?? "USD")
+                            : "Amount hidden"}
+                          {moneyVisible
+                            ? row.budget_minor !== null && row.budget_minor !== undefined
+                              ? ` of ${money(row.budget_minor, row.currency ?? "USD")}`
+                              : " · no budget"
+                            : null}
+                          <span style={{ color: "var(--m-text-muted)" }}> · {row.consumed_minutes} min</span>
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : (
@@ -1016,7 +1142,7 @@ export default function ProjectDetailPage() {
                       </span>
                       <span className="flex items-center gap-2">
                         <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                          {money(release.amount_minor, release.currency)}
+                          {release.amount_minor === null || release.amount_minor === undefined || release.currency === null || release.currency === undefined ? "Amount hidden" : money(release.amount_minor, release.currency)}
                         </span>
                         {release.invoice_id === null || release.invoice_id === undefined ? (
                           release.status === "pending" ? (
@@ -1220,6 +1346,14 @@ export default function ProjectDetailPage() {
         busy={busy}
         onSave={() => void saveDependencies()}
       />
+      <HoldDialog
+        open={holdOpen}
+        onOpenChange={setHoldOpen}
+        reason={holdReason}
+        setReason={setHoldReason}
+        busy={busy}
+        onHold={() => void putOnHold()}
+      />
       </div>
   );
 }
@@ -1308,6 +1442,50 @@ function releaseTone(status: string): "success" | "warning" | "danger" | "neutra
   if (status === "billed") return "success";
   if (status === "pending") return "warning";
   return "neutral";
+}
+
+function HoldDialog(props: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  reason: string;
+  setReason: (v: string) => void;
+  busy: boolean;
+  onHold: () => void;
+}) {
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent
+        title="Put this project on hold"
+        description="Work pauses. The client sees the status and, only if you write one, the reason below."
+      >
+        <div className="grid gap-3 p-4">
+          <div>
+            <Label htmlFor="hold-reason">Reason the client can see (optional)</Label>
+            <Input
+              id="hold-reason"
+              value={props.reason}
+              maxLength={500}
+              onChange={(e) => props.setReason(e.target.value)}
+              placeholder="Waiting on the new switchgear delivery"
+              data-testid="hold-reason"
+            />
+            <FieldHint>
+              Shown in the client portal while the project is held. Leave it empty and the portal
+              says only that work is paused. Your own note stays staff-side.
+            </FieldHint>
+          </div>
+          <DialogActions>
+            <Button variant="ghost" onClick={() => props.onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button disabled={props.busy} onClick={props.onHold} data-testid="hold-confirm">
+              {props.busy ? <Spinner /> : null} Put on hold
+            </Button>
+          </DialogActions>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function AddPhaseDialog(props: {

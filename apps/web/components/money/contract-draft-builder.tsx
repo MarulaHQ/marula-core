@@ -22,8 +22,30 @@ import type {
   LineProvenance,
   Understanding,
 } from "../../lib/money-authoring";
+import { DecimalField } from "./decimal-field";
 import { formatMoneyMinor, lineAmountMinor } from "./draft-math";
 import { FieldValue, ProvenanceDot } from "./draft-provenance";
+
+/** Months in one billing period, for a price that is quoted per period. */
+const MONTHS_PER_PERIOD: Record<string, number> = {
+  weekly: 12 / 52,
+  monthly: 1,
+  quarterly: 3,
+  semiannual: 6,
+  annual: 12,
+};
+
+/** The period's own noun: a price is "per month", never "per monthly". */
+const PERIOD_NOUN: Record<string, string> = {
+  weekly: "week",
+  monthly: "month",
+  quarterly: "quarter",
+  semiannual: "half-year",
+  annual: "year",
+};
+
+/** The types a billing frequency applies to, matching the create call. */
+const RECURRING_TYPES = new Set(["recurring", "retainer"]);
 
 export function ContractParties({
   draft,
@@ -96,6 +118,7 @@ export function ContractPricing({
     (sum, line) => sum + lineAmountMinor(line.quantity_milli, line.unit_price_minor),
     0,
   );
+  const periodNoun = PERIOD_NOUN[frequency ?? ""] ?? "period";
   return (
     <div data-testid="contract-pricing">
       <table className="m-dsc-items">
@@ -104,7 +127,7 @@ export function ContractPricing({
             <th>Item</th>
             <th className="m-dsc-num">Qty</th>
             <th className="m-dsc-num">Rate</th>
-            <th className="m-dsc-num">Per {frequency ?? "period"}</th>
+            <th className="m-dsc-num">Per {periodNoun}</th>
           </tr>
         </thead>
         <tbody>
@@ -126,18 +149,14 @@ export function ContractPricing({
               </td>
               <td className="m-dsc-num">
                 {onChange !== undefined ? (
-                  <input
-                    className="m-input m-dsc-num"
-                    style={{ width: 74 }}
-                    aria-label={`Quantity for ${line.label}`}
-                    value={String(line.quantity_milli / 1000)}
-                    onChange={(event) => {
-                      const value = Number(event.target.value);
-                      onChange(index, {
-                        quantity_milli: Number.isNaN(value) ? 0 : Math.round(value * 1000),
-                        quantity_assumed: false,
-                      });
-                    }}
+                  <DecimalField
+                    label={`Quantity for ${line.label}`}
+                    value={line.quantity_milli}
+                    scale={1000}
+                    width={74}
+                    onCommit={(quantity_milli) =>
+                      onChange(index, { quantity_milli, quantity_assumed: false })
+                    }
                   />
                 ) : (
                   <FieldValue assumed={line.quantity_assumed}>{line.quantity_milli / 1000}</FieldValue>
@@ -145,18 +164,15 @@ export function ContractPricing({
               </td>
               <td className="m-dsc-num">
                 {onChange !== undefined ? (
-                  <input
-                    className="m-input m-dsc-num"
-                    style={{ width: 96 }}
-                    aria-label={`Rate for ${line.label}`}
-                    value={(line.unit_price_minor / 100).toFixed(2)}
-                    onChange={(event) => {
-                      const value = Number(event.target.value);
-                      onChange(index, {
-                        unit_price_minor: Number.isNaN(value) ? 0 : Math.round(value * 100),
-                        price_assumed: false,
-                      });
-                    }}
+                  <DecimalField
+                    label={`Rate for ${line.label}`}
+                    value={line.unit_price_minor}
+                    scale={100}
+                    width={96}
+                    decimals={2}
+                    onCommit={(unit_price_minor) =>
+                      onChange(index, { unit_price_minor, price_assumed: false })
+                    }
                   />
                 ) : (
                   <FieldValue assumed={line.price_assumed}>
@@ -170,7 +186,7 @@ export function ContractPricing({
             </tr>
           ))}
           <tr className="m-dsc-section-row">
-            <td colSpan={3}>Monthly total</td>
+            <td colSpan={3}>Total per {periodNoun}</td>
             <td className="m-dsc-num">
               <b>{formatMoneyMinor(total, currency)}</b>
             </td>
@@ -333,17 +349,26 @@ export function ContractSummary({
       (sum, line) => sum + lineAmountMinor(line.quantity_milli, line.unit_price_minor),
       0,
     );
+  // The value is per billing period, not per month: a quarterly 3,000 over 12
+  // months is 12,000, not 36,000. A one-off, or a type the create call saves
+  // with no frequency, has no period to multiply by at all.
+  const termMonths = draft.term_months ?? null;
+  const periodNoun = PERIOD_NOUN[draft.billing_frequency ?? ""] ?? "period";
+  const periodMonths = MONTHS_PER_PERIOD[draft.billing_frequency ?? ""];
+  const termTotal =
+    termMonths !== null && periodMonths !== undefined && RECURRING_TYPES.has(draft.contract_type)
+      ? Math.round((value * termMonths) / periodMonths)
+      : null;
   return (
     <>
       <div>
         <p className="m-dsc-lab">Value</p>
         <div className="m-dsc-total" data-testid="contract-total">
-          {formatMoneyMinor(value, currency)}{" "}
-          <small>a {draft.billing_frequency ?? "period"}</small>
+          {formatMoneyMinor(value, currency)} <small>a {periodNoun}</small>
         </div>
-        {draft.term_months !== null && draft.term_months !== undefined ? (
+        {termTotal !== null && termMonths !== null ? (
           <p className="m-dsc-hint" style={{ marginTop: 4 }}>
-            {formatMoneyMinor(value * draft.term_months, currency)} over {draft.term_months} months
+            {formatMoneyMinor(termTotal, currency)} over {termMonths} months
           </p>
         ) : null}
       </div>
