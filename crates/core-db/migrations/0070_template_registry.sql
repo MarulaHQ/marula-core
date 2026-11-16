@@ -101,8 +101,13 @@ BEGIN
          E'## Escalate {{ticket.number}}\n\nTrigger: SLA at risk for {{client.name}}.\n\n1. Notify {{assignee.name}}\n2. Engage {{contact.name}}\n3. Escalate internally if unresolved in 2h\n')
       ) AS t(k, s, n, d, subj, b)
       WHERE NOT EXISTS (
+        -- The candidate row is `t`, not the loop record: `missing` is only
+        -- assigned once the FOR picks a row, so referring to it here raised
+        -- "record \"missing\" is not assigned yet" on the first installation
+        -- that had an org when this migration ran. Fresh installs never
+        -- noticed, because a fresh database has no orgs at migrate time.
         SELECT 1 FROM templates tpl
-        WHERE tpl.org_id = org.id AND tpl.kind = missing.k AND tpl.slug = missing.s
+        WHERE tpl.org_id = org.id AND tpl.kind = t.k AND tpl.slug = t.s
       )
     LOOP
       INSERT INTO templates (id, org_id, kind, slug, name, description, subject, body, variables, builtin, is_system)

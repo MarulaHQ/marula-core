@@ -315,27 +315,38 @@ pub async fn connect(url: &str) -> DbResult<PgPool> {
     connect_with(url, PoolConfig::default()).await
 }
 
-/// Migrations whose COMMENTS were rewritten after they shipped.
+/// Shipped migrations whose SQL is not the SQL a released installation
+/// recorded. The list lives in `migrations/APPLIED_REWRITES` because
+/// `scripts/check-migrations.sh` reads the same file — one authority, not two.
 ///
-/// On 2026-10-21 a repository-wide prose sweep (`b0153db3`) edited 53 files
-/// under `migrations/`, every changed line a `--` comment. sqlx digests the
-/// whole file, comments included, so an installation created before that sweep
-/// records the old digest and `migrate` refuses to start with "migration N was
-/// previously applied but has been modified" — the upgrade matrix caught this
-/// at version 11, which is the first rewritten file.
+/// sqlx digests a migration file whole, comments included, and refuses to run
+/// when an already-applied version differs from the file on disk. A prose sweep
+/// on 2026-10-21 rewrote 53 files' comments, which made every installation
+/// created before it fail with "migration N was previously applied but has been
+/// modified" — the upgrade matrix caught it at version 11, the first rewritten
+/// file. Version 70 is the other entry: its backfill referenced the loop record
+/// it was filling, so the statement could only ever fail, and it did so on the
+/// first installation that had an org at migrate time.
 ///
-/// For THESE versions only, a recorded digest is normalised to the file on
-/// disk before validation. The SQL in them is byte-identical apart from comment
-/// text, so nothing about the schema is being waved through. A real edit to any
-/// other migration still fails the check, and `scripts/check-migrations.sh`
-/// now refuses any edit to a shipped migration at all (it compares the tree
-/// against the newest upgrade fixture's recorded digests), so this list is the
-/// whole exemption and it must not grow.
-const COMMENT_ONLY_REWRITES: &[i64] = &[
-    11, 13, 14, 15, 16, 17, 19, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
-    38, 39, 40, 41, 42, 43, 44, 45, 56, 57, 58, 59, 60, 63, 69, 70, 74, 106, 112, 113, 124, 125,
-    126, 128, 129, 131, 134, 135, 136,
-];
+/// For these versions only, a recorded digest is normalised to the file on
+/// disk before validation. An edit to any other migration still fails the
+/// check, and the two guards — `rewritten_versions_*` below and the fixture
+/// comparison in `scripts/check-migrations.sh` — keep this list honest.
+const APPLIED_REWRITES: &str = include_str!("../migrations/APPLIED_REWRITES");
+
+/// The manifest as `(version, reason)` pairs. Parsing is total: a malformed
+/// line is a bug in a file this crate ships, and the test below refuses it.
+fn rewritten_versions() -> Vec<(i64, String)> {
+    APPLIED_REWRITES
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| {
+            let (version, reason) = line.split_once(char::is_whitespace)?;
+            Some((version.parse::<i64>().ok()?, reason.trim().to_string()))
+        })
+        .collect()
+}
 
 /// Rewrites the recorded digest of a [`COMMENT_ONLY_REWRITES`] version to the
 /// digest of the file in this binary. A fresh installation has no
@@ -350,9 +361,13 @@ async fn normalise_comment_only_checksums(pool: &PgPool) -> DbResult<()> {
         return Ok(());
     }
     let migrator = sqlx::migrate!("./migrations");
+    let rewritten: Vec<i64> = rewritten_versions()
+        .into_iter()
+        .map(|(version, _reason)| version)
+        .collect();
     let mut repaired: Vec<i64> = Vec::new();
     for migration in migrator.migrations.iter() {
-        if !COMMENT_ONLY_REWRITES.contains(&migration.version) {
+        if !rewritten.contains(&migration.version) {
             continue;
         }
         let changed = sqlx::query(
@@ -585,28 +600,38 @@ mod pool_config_tests {
         );
     }
 
-    /// The exemption list names real migrations, in order and once each. A typo
-    /// here would silently leave an installation unfixed, and the normaliser
-    /// only ever touches what it can match to an embedded migration.
+    /// The exemption manifest names real migrations, in order and once each,
+    /// with a reason. A typo would silently leave an installation unfixed, and
+    /// the normaliser only ever touches what it can match to an embedded
+    /// migration.
     #[test]
-    fn comment_only_rewrite_versions_exist_and_are_sorted() {
+    fn rewritten_versions_exist_sorted_and_carry_a_reason() {
         let migrator = sqlx::migrate!("./migrations");
         let embedded: Vec<i64> = migrator
             .migrations
             .iter()
             .map(|migration| migration.version)
             .collect();
+        let entries = super::rewritten_versions();
+        assert!(
+            !entries.is_empty(),
+            "the manifest must name at least the comment-only rewrites"
+        );
         let mut previous = 0;
-        for version in super::COMMENT_ONLY_REWRITES {
+        for (version, reason) in entries {
             assert!(
-                embedded.contains(version),
-                "version {version} in the exemption list has no migration file"
+                embedded.contains(&version),
+                "version {version} in the manifest has no migration file"
             );
             assert!(
-                *version > previous,
-                "the exemption list must stay sorted and deduplicated"
+                version > previous,
+                "the manifest must stay sorted and deduplicated"
             );
-            previous = *version;
+            assert!(
+                !reason.is_empty(),
+                "version {version} must say why it is exempt"
+            );
+            previous = version;
         }
     }
 }

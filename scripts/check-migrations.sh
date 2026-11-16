@@ -111,11 +111,29 @@ done
 # reference for every version it holds.
 fixture="$(dirname "$0")/../fixtures/upgrades/v0.3.0.seed.sql.gz"
 if [[ -f "$fixture" ]]; then
-  drift="$(
-    python3 - "$fixture" "$migrations_dir" <<'PYEOF'
+  # A heredoc inside `$( )` is parsed differently by bash 3.2 (the macOS
+  # /bin/bash): the body's quotes are not literal there and the substitution
+  # never closes. The script goes in a temp file instead, which every bash
+  # parses the same way.
+  certify_py="$(mktemp "${TMPDIR:-/tmp}/check-migrations.XXXXXX")"
+  trap 'rm -f "$certify_py"' EXIT
+  cat > "$certify_py" <<'PYEOF'
 import gzip, hashlib, os, re, sys
 
 fixture, migrations_dir = sys.argv[1], sys.argv[2]
+
+# The crates' own exemption manifest: the same file `run_migrations` reads, so
+# an allowed rewrite is named in one place and argued for there.
+allowed = set()
+manifest = os.path.join(migrations_dir, "APPLIED_REWRITES")
+if os.path.exists(manifest):
+    with open(manifest) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            allowed.add(int(line.split()[0]))
+
 recorded = {}
 started = False
 with gzip.open(fixture, "rt") as handle:
@@ -138,6 +156,8 @@ for name in os.listdir(migrations_dir):
         files[int(match.group(1))] = os.path.join(migrations_dir, name)
 
 for version, want in sorted(recorded.items()):
+    if version in allowed:
+        continue
     path = files.get(version)
     if path is None:
         print(f"{version}: recorded in the fixture, missing from this tree")
@@ -147,7 +167,9 @@ for version, want in sorted(recorded.items()):
     if got != want:
         print(f"{version}: {os.path.basename(path)}")
 PYEOF
-  )"
+  drift="$(python3 "$certify_py" "$fixture" "$migrations_dir")"
+  rm -f "$certify_py"
+  trap - EXIT
   if [[ -n "$drift" ]]; then
     echo "::error::shipped migration(s) changed since the v0.3.0 capture — sqlx refuses to migrate an existing install:" >&2
     printf '%s\n' "$drift" >&2
@@ -156,7 +178,7 @@ PYEOF
 fi
 
 if [[ "$rc" -eq 0 ]]; then
-  echo "Migration safety: clean ($(ls "$migrations_dir" | wc -l | tr -d ' ') migrations scanned)."
+  echo "Migration safety: clean ($(ls "$migrations_dir"/*.sql | wc -l | tr -d ' ') migrations scanned)."
 else
   echo "Migration safety: FAILED — read the lines above: an unflagged destructive statement, a filename that does not match NNN_name.sql, or a shipped migration edited after its release." >&2
 fi
