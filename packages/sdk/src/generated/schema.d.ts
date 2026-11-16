@@ -51173,6 +51173,20 @@ export interface operations {
                     "application/json": components["schemas"]["TotpCodeResponse"];
                 };
             };
+            /** @description the credential's category is locked to another role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no code is configured, or the record is not visible here */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     knowledge_delete_subnet: {

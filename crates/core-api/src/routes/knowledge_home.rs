@@ -2478,7 +2478,9 @@ pub async fn attach_totp(
 /// Sealed seed in, six or eight digits out; nothing else ever leaves.
 #[utoipa::path(operation_id = "knowledge_read_totp_code", post, path = "/api/knowledge/secrets/{record_id}/totp/code", tag = "knowledge", security(("bearer" = [])), 
     params(("record_id" = Uuid, Path)),
-    responses((status = 200, body = TotpCodeResponse)))]
+    responses((status = 200, body = TotpCodeResponse),
+              (status = 403, description = "the credential's category is locked to another role"),
+              (status = 404, description = "no code is configured, or the record is not visible here")))]
 pub async fn read_totp_code(
     State(state): State<AppState>,
     extensions: Extensions,
