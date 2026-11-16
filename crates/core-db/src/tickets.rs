@@ -5,7 +5,7 @@ use crate::{DbError, DbResult};
 use core_domain::entities::{ChecklistItem, Ticket, TicketComment};
 use core_domain::ids::TicketNumber;
 use core_domain::status::{NoteKind, Priority, TicketStatusCategory};
-use sqlx::{PgConnection, Postgres};
+use sqlx::{AssertSqlSafe, PgConnection, Postgres};
 use uuid::Uuid;
 
 fn parse_priority(s: &str) -> DbResult<Priority> {
@@ -112,7 +112,8 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let sql = format!("SELECT {TICKET_COLS} FROM tickets WHERE org_id = $1 AND id = $2");
-    let row = sqlx::query(&sql)
+    // SQL interpolates only the fixed TICKET_COLS projection; values are bound below.
+    let row = sqlx::query(AssertSqlSafe(sql))
         .bind(org_id)
         .bind(id)
         .fetch_optional(executor)
@@ -130,7 +131,8 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let sql = format!("SELECT {TICKET_COLS} FROM tickets WHERE org_id = $1 AND number = $2");
-    let row = sqlx::query(&sql)
+    // SQL interpolates only the fixed TICKET_COLS projection; values are bound below.
+    let row = sqlx::query(AssertSqlSafe(sql))
         .bind(org_id)
         .bind(number)
         .fetch_optional(executor)
@@ -193,7 +195,8 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let sql = page_sql(&f);
-    let rows = sqlx::query(&sql)
+    // page_sql selects fixed SQL fragments; all filter and cursor values are bound.
+    let rows = sqlx::query(AssertSqlSafe(sql))
         .bind(org_id)
         .bind(f.board_id)
         .bind(f.assignee_id)
@@ -297,8 +300,8 @@ where
              AND ($6::text IS NULL OR priority = $6)
              {tag_clause}"#
     );
-    let sql = sql.as_str();
-    let row: (i64,) = sqlx::query_as(sql)
+    // The only dynamic fragment is tag_filter_sql(9), with a fixed bind index.
+    let row: (i64,) = sqlx::query_as(AssertSqlSafe(sql))
         .bind(org_id)
         .bind(f.board_id)
         .bind(f.assignee_id)
@@ -330,7 +333,8 @@ where
               due_at NULLS LAST, created_at
             LIMIT $3"#
     );
-    let rows = sqlx::query(&sql)
+    // SQL interpolates only the fixed ticket projection; values are bound below.
+    let rows = sqlx::query(AssertSqlSafe(sql))
         .bind(org_id)
         .bind(user_id)
         .bind(limit)
@@ -417,7 +421,8 @@ where
              t.created_at
            LIMIT $3"#
     );
-    let rows = sqlx::query(&sql)
+    // SQL interpolates only the fixed ticket projection; values are bound below.
+    let rows = sqlx::query(AssertSqlSafe(sql))
         .bind(org_id)
         .bind(user_id)
         .bind(limit)
@@ -458,7 +463,8 @@ where
              t.created_at
            LIMIT $2"#
     );
-    let rows = sqlx::query(&sql)
+    // cols is derived only from the fixed TICKET_COLS projection.
+    let rows = sqlx::query(AssertSqlSafe(sql))
         .bind(org_id)
         .bind(limit)
         .fetch_all(executor)
