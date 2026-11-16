@@ -736,6 +736,7 @@ pub async fn delete_rack(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) 
         "DELETE FROM knowledge_links l
            USING knowledge_rack_devices d
           WHERE d.org_id = $1 AND d.rack_id = $2
+            AND l.org_id = $1
             AND ((l.from_kind = 'rack_device' AND l.from_id = d.id)
               OR (l.to_kind = 'rack_device' AND l.to_id = d.id))",
     )
@@ -1008,6 +1009,7 @@ pub async fn delete_network(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uui
         "DELETE FROM knowledge_links l
            USING knowledge_subnets s
           WHERE s.org_id = $1 AND s.network_id = $2
+            AND l.org_id = $1
             AND ((l.from_kind = 'subnet' AND l.from_id = s.id)
               OR (l.to_kind = 'subnet' AND l.to_id = s.id))",
     )
@@ -1680,15 +1682,46 @@ pub struct LinkRecord {
 const LINK_COLS: &str =
     "id, org_id, client_id, from_kind, from_id, to_kind, to_id, label, created_at";
 
+/// Every `from_kind` / `to_kind` the table accepts (migration 0217's CHECK
+/// list). One list serves the API's request validation and the cleanup
+/// helper's guard, so a new kind is added in one place.
+pub const LINK_KINDS: &[&str] = &[
+    "rack",
+    "rack_device",
+    "network",
+    "subnet",
+    "domain",
+    "procedure",
+    "document",
+    "kb_article",
+    "asset",
+    "secret",
+    "ticket",
+    "site",
+];
+
+/// Whether `kind` is a link endpoint kind. Pure, so the guard below has a
+/// test that needs no database.
+pub fn is_link_kind(kind: &str) -> bool {
+    LINK_KINDS.contains(&kind)
+}
+
 /// Drops the edges one record owned. Neither endpoint can be a foreign key —
 /// a link names a record by kind and id — so deleting the record has to delete
 /// them; a leftover edge reads as a relationship to something that is gone.
-async fn delete_links_for(
+pub(crate) async fn delete_links_for(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     kind: &str,
     id: Uuid,
 ) -> DbResult<()> {
+    // A misspelt kind matches no row and would clean up nothing while looking
+    // like it worked. The kinds are the migration's list, so a failure here is
+    // a caller bug, not data.
+    debug_assert!(
+        is_link_kind(kind),
+        "delete_links_for called with unknown kind: {kind}"
+    );
     sqlx::query(
         "DELETE FROM knowledge_links
           WHERE org_id = $1
@@ -2453,5 +2486,55 @@ mod tests {
         f.latest_procedure_at = Some(newer);
         assert_eq!(f.last_activity(), Some(newer));
         assert_eq!(facts((0, 0)).last_activity(), None);
+    }
+
+    /// The endpoint list here is the one `delete_links_for` guards on, so it
+    /// has to be the list the table enforces. Read the migration rather than
+    /// restating it: a new kind added to the CHECK and not here (or the
+    /// reverse) fails this test instead of silently leaving a dangling edge.
+    #[test]
+    fn link_kinds_match_the_table_check_list() {
+        const MIGRATION: &str = include_str!("../migrations/0217_knowledge_links_and_settings.sql");
+        fn checked_kinds(column: &str) -> Vec<String> {
+            let needle = format!("CHECK ({column} IN (");
+            let start = MIGRATION.find(&needle).expect("the CHECK list is present") + needle.len();
+            let rest = &MIGRATION[start..];
+            let end = rest.find(')').expect("the CHECK list is closed");
+            rest[..end]
+                .split(',')
+                .map(|item| item.trim().trim_matches('\'').to_string())
+                .filter(|item| !item.is_empty())
+                .collect()
+        }
+        let expected: Vec<String> = LINK_KINDS.iter().map(|kind| kind.to_string()).collect();
+        assert_eq!(checked_kinds("from_kind"), expected);
+        assert_eq!(checked_kinds("to_kind"), expected);
+    }
+
+    /// The four record kinds whose delete path now calls the cleanup have to
+    /// pass its guard; a kind outside the list deletes nothing.
+    #[test]
+    fn cleanup_guard_accepts_every_record_that_hard_deletes() {
+        for kind in ["asset", "document", "kb_article", "secret"] {
+            assert!(is_link_kind(kind), "{kind} must be a cleaned-up kind");
+        }
+        for kind in [
+            "rack",
+            "rack_device",
+            "network",
+            "subnet",
+            "domain",
+            "procedure",
+        ] {
+            assert!(is_link_kind(kind), "{kind} owns edges already");
+        }
+    }
+
+    /// A misspelt kind is the failure this guard exists for.
+    #[test]
+    fn cleanup_guard_rejects_a_kind_the_table_does_not_accept() {
+        assert!(!is_link_kind("asset "));
+        assert!(!is_link_kind("client"));
+        assert!(!is_link_kind(""));
     }
 }

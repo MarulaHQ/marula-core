@@ -210,19 +210,17 @@ where
     Ok(row_to_asset(row))
 }
 
-pub async fn delete_asset<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_asset(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM device_assets WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    // The edge names the asset by kind and id, so nothing cascades it.
+    crate::knowledge_home::delete_links_for(conn, org_id, "asset", id).await
 }
 
 // ---- inventory lifecycle (migration 0061) ----------------------------------

@@ -230,10 +230,34 @@ pub struct ProjectInstantiateResponse {
     pub mutation: instant::MutationMeta,
 }
 
+/// What a billing-guarded instantiation enforces, inside the transaction that
+/// writes the project: the chosen client must have an active contract that
+/// covers the day the work starts. `client_id` is `None` when the request
+/// named no client, which a billable template refuses.
+#[derive(Debug, Clone, Copy)]
+pub struct BillingGuard {
+    /// The client the request asked to bill, if it named one.
+    pub client_id: Option<Uuid>,
+    /// The day the work starts; contracts are matched against this date.
+    pub start_date: Option<chrono::NaiveDate>,
+}
+
+/// Whether a template's billing method means its project will bill, and so
+/// needs a contract over the work it creates.
+pub(crate) fn bills(method: BillingMethod) -> bool {
+    matches!(
+        method,
+        BillingMethod::Milestone | BillingMethod::TimeAndMaterials | BillingMethod::FixedFee
+    )
+}
+
 /// POST /api/project-templates/{id}/instantiate — expands the template
 /// into a REAL project: phases, tasks, dependencies, and every lifecycle
 /// event, all in ONE transaction (claim → expand → insert → events →
 /// record). Rollback on any failure leaves zero partial rows.
+///
+/// The generic endpoint does not enforce a billing guard; the gallery's
+/// `/create` route calls [`instantiate_project`] with one.
 #[utoipa::path(operation_id = "project_templates_instantiate", post, path = "/api/project-templates/{id}/instantiate", tag = "projects", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = InstantiateTemplateRequest,
     responses((status = 200, body = ProjectInstantiateResponse),
@@ -247,6 +271,22 @@ pub async fn instantiate(
     Json(req): Json<InstantiateTemplateRequest>,
 ) -> ApiResult<Json<ProjectInstantiateResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    instantiate_project(state, &authed, id, req, None).await
+}
+
+/// The body of [`instantiate`], shared with the billing-guarded create route.
+///
+/// `guard` is checked inside the same org transaction that reads the template
+/// and inserts the project: the client's active contracts are locked while
+/// they are read, so a concurrent contract update cannot expire or re-date them
+/// in the gap between the check and the insert.
+pub async fn instantiate_project(
+    state: AppState,
+    authed: &crate::auth::AuthedUser,
+    id: Uuid,
+    req: InstantiateTemplateRequest,
+    guard: Option<BillingGuard>,
+) -> ApiResult<Json<ProjectInstantiateResponse>> {
     require_permission(&authed.principal, projects(Action::Create))?;
     if req.name.trim().is_empty() {
         return Err(ApiError::Validation("name is required".into()));
@@ -289,6 +329,37 @@ pub async fn instantiate(
                 return Err(ApiError::Validation(format!(
                     "template currency is not a valid ISO 4217 code: {code}"
                 )));
+            }
+        }
+        if let Some(guard) = guard {
+            if bills(billing_method) {
+                let client_id = guard.client_id.ok_or_else(|| {
+                    ApiError::Validation(
+                        "billing_mismatch: this template bills, so a client is required before it can start"
+                            .into(),
+                    )
+                })?;
+                debug_assert_eq!(
+                    req.client_id,
+                    Some(client_id),
+                    "a billing guard must name the client the project is created for"
+                );
+                // Read under a row lock, in this transaction: a concurrent
+                // status or date change to these contracts waits until commit,
+                // so the check cannot pass against rows the insert outlives.
+                let contracts = core_db::contracts::lock_active_contract_ids(
+                    &mut *ctx.tx,
+                    org_id,
+                    client_id,
+                    guard.start_date,
+                )
+                .await?;
+                if contracts.is_empty() {
+                    return Err(ApiError::Validation(
+                        "billing_mismatch: the client has no active contract, so nothing would bill this work"
+                            .into(),
+                    ));
+                }
             }
         }
         if core_db::projects::project_name_taken(&mut *ctx.tx, org_id, req.name.trim()).await? {
@@ -728,4 +799,20 @@ pub async fn fork_template(
     .await?;
 
     Ok(Json(template))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The three billing methods need a contract before work starts; a
+    /// non-billable blueprint never does. This is the decision the create
+    /// route's guard turns on, so it is tested away from the database.
+    #[test]
+    fn bills_only_the_billing_methods() {
+        assert!(bills(BillingMethod::Milestone));
+        assert!(bills(BillingMethod::TimeAndMaterials));
+        assert!(bills(BillingMethod::FixedFee));
+        assert!(!bills(BillingMethod::NonBillable));
+    }
 }

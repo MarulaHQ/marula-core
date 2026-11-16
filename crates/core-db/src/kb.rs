@@ -636,16 +636,22 @@ where
 /// Removes an article; returns whether a row was actually deleted. The
 /// unified-search entry is dropped by the indexer off the domain event —
 /// never here (2.16 pattern: the index is indexer-owned).
-pub async fn delete_article<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<bool>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_article(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<bool> {
     let result = sqlx::query!(
         "DELETE FROM kb_articles WHERE org_id = $1 AND id = $2",
         org_id,
         id
     )
-    .execute(executor)
+    .execute(&mut *conn)
     .await?;
-    Ok(result.rows_affected() > 0)
+    if result.rows_affected() == 0 {
+        return Ok(false);
+    }
+    // The edge names the article by kind and id, so nothing cascades it.
+    crate::knowledge_home::delete_links_for(conn, org_id, "kb_article", id).await?;
+    Ok(true)
 }

@@ -35,6 +35,7 @@ import {
   type SearchHit,
 } from "../../components/knowledge/knowledge-api";
 import { dueWords } from "../../components/knowledge/expiry-table";
+import { ClientScopeSelect } from "../../components/knowledge/client-scope-select";
 
 const SCOPES = ["All", "Clients", "Documents", "Configurations", "Secrets"] as const;
 type Scope = (typeof SCOPES)[number];
@@ -232,6 +233,7 @@ export default function KnowledgeHomePage() {
               style={{ color: "var(--m-text)" }}
             />
             {searching ? <Spinner label="Searching" /> : null}
+            <ClientScopeSelect clientId={clientId} label="Scope" allowAll />
             <kbd
               className="rounded-[5px] border px-1.5 text-[12px] font-semibold"
               style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}

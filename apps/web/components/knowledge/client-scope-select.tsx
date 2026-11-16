@@ -19,9 +19,14 @@ import { useRequireAuth, api } from "../../lib/api";
 export function ClientScopeSelect({
   clientId,
   label = "Client",
+  allowAll = false,
 }: {
   clientId: string | null;
   label?: string;
+  /** Lists that read across every client (the knowledge home) offer "All
+   * clients"; the client-first lists leave the empty option as the prompt
+   * they show when no client is chosen. */
+  allowAll?: boolean;
 }): React.JSX.Element | null {
   // The list is fetched once, so it must wait for the token restore a full page
   // load performs after mount; a request fired before that carries no bearer.
@@ -96,7 +101,7 @@ export function ClientScopeSelect({
           color: "var(--m-text)",
         }}
       >
-        <option value="">Choose a client…</option>
+        <option value="">{allowAll ? "All clients" : "Choose a client…"}</option>
         {clients.map((client) => (
           <option key={client.id} value={client.id}>
             {client.name}

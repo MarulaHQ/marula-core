@@ -1820,20 +1820,7 @@ pub struct CreateKnowledgeLinkRequest {
     pub label: Option<String>,
 }
 
-const LINK_KINDS: &[&str] = &[
-    "rack",
-    "rack_device",
-    "network",
-    "subnet",
-    "domain",
-    "procedure",
-    "document",
-    "kb_article",
-    "asset",
-    "secret",
-    "ticket",
-    "site",
-];
+const LINK_KINDS: &[&str] = kh::LINK_KINDS;
 
 /// GET /api/knowledge/links?kind=&id=
 #[utoipa::path(operation_id = "knowledge_list_links", get, path = "/api/knowledge/links", tag = "knowledge", security(("bearer" = [])), 

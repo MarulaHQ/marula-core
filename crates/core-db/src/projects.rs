@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 const PROJECT_COLS: &str = "id, org_id, client_id, name, description, status, billing_method, \
      budget_minor, currency, start_date, due_date, billing_contract_id, client_hold_reason, \
-     created_at, updated_at";
+     pre_hold_status, created_at, updated_at";
 const PHASE_COLS: &str = "id, org_id, project_id, name, description, sort_order, status, \
      is_milestone, milestone_amount_minor, milestone_currency, start_date, end_date, \
      completed_at, created_at, updated_at";
@@ -58,6 +58,11 @@ fn row_to_project(row: sqlx::postgres::PgRow) -> Result<Project, sqlx::Error> {
         due_date: row.get("due_date"),
         billing_contract_id: row.get("billing_contract_id"),
         client_hold_reason: row.get("client_hold_reason"),
+        pre_hold_status: row
+            .get::<Option<String>, _>("pre_hold_status")
+            .map(|raw| raw.parse())
+            .transpose()
+            .map_err(|e| decode_err("pre_hold_status", e))?,
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -283,6 +288,9 @@ pub struct ProjectPatch<'a> {
     /// it; `None` = no change. The route decides when a change is legal (set
     /// while on hold, cleared on the way out of hold).
     pub client_hold_reason: Option<Option<&'a str>>,
+    /// `Some(Some(v))` records the status a pause interrupted; `Some(None)`
+    /// clears it on resume; `None` = no change.
+    pub pre_hold_status: Option<Option<&'a str>>,
 }
 
 /// Tri-state patch (QueryBuilder pattern from `tickets::update_ticket`):
@@ -331,6 +339,9 @@ where
     }
     if let Some(v) = p.client_hold_reason {
         q.push(", client_hold_reason = ").push_bind(v);
+    }
+    if let Some(v) = p.pre_hold_status {
+        q.push(", pre_hold_status = ").push_bind(v);
     }
     q.push(" WHERE org_id = ")
         .push_bind(org_id)

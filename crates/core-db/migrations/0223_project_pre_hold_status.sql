@@ -1,0 +1,17 @@
+-- The status a pause interrupted (migration 0223).
+--
+-- Purpose: "Resume work" used to send `active` because the project read carried
+-- nothing about where the project was before the pause. A project paused while
+-- still in `planning` therefore came back as `active`, and a completed project
+-- put on hold came back active too. This column remembers the status the pause
+-- interrupted, so resume can restore it instead of guessing.
+--
+-- Written only on the transition INTO `on_hold` from another status (a second
+-- pause request while already on hold leaves it alone). Cleared on the
+-- transition OUT of hold, together with the client-facing reason, so a later
+-- pause starts from the status it actually interrupts.
+--
+-- Null means "no pause to restore": a project created on hold, or one written
+-- before this column existed. Resume then falls back to `active`, which is what
+-- the product did until now.
+ALTER TABLE projects ADD COLUMN pre_hold_status text;

@@ -405,7 +405,7 @@ async fn kb_article_events_index_content_and_deleted_drops_it() {
     // deleted → resolver NotFound leg ⇒ flush turns it into Delete.
     {
         let mut tx = org_tx(&pool, s.org).await;
-        assert!(core_db::kb::delete_article(&mut *tx, s.org, article.id)
+        assert!(core_db::kb::delete_article(&mut tx, s.org, article.id)
             .await
             .expect("delete"));
         tx.commit().await.expect("commit");

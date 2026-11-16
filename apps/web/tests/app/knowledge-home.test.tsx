@@ -5,7 +5,7 @@
 // reaches every documentation store. It also proves the completeness copy is a
 // count with reasons rather than a bare percentage.
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AuthProvider } from "../../lib/api";
 import KnowledgeHomePage from "../../app/kb/page";
@@ -13,10 +13,10 @@ import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 
 // The page reads the client scope from the query string, so the mock keeps one
 // instance the tests can point at a client before rendering.
-const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+const nav = vi.hoisted(() => ({ params: new URLSearchParams(), push: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push: nav.push }),
   usePathname: () => "/kb",
   useSearchParams: () => nav.params,
   useParams: () => ({}),
@@ -118,6 +118,7 @@ describe("/kb knowledge home", () => {
     cleanup();
     seedAuthTokens();
     nav.params = new URLSearchParams();
+    nav.push.mockClear();
   });
 
   it("leads with clients and their counted completeness", async () => {
@@ -184,5 +185,26 @@ describe("/kb knowledge home", () => {
     const sent = mock.callsTo("GET", "/api/v1/knowledge/search")[0];
     expect(sent?.query.q).toBe("acme fw");
     expect(sent?.query.client_id).toBe(CLIENT_ID);
+  });
+
+  it("offers a client scope picker and puts the choice in the URL", async () => {
+    const mock = new MockApi()
+      .on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }))
+      .on("GET", "/api/v1/knowledge/home", () => ({ json: HOME }))
+      .on("GET", "/api/v1/knowledge/expirations", () => ({ json: EXPIRIES }))
+      .on("GET", "/api/v1/clients", () => ({
+        json: [{ id: CLIENT_ID, name: "Acme Corporation" }],
+      }))
+      .install();
+    renderPage();
+
+    const picker = await screen.findByLabelText("Scope");
+    expect(within(picker).getByRole("option", { name: "All clients" })).toBeTruthy();
+    const user = userEvent.setup();
+    await user.selectOptions(picker, CLIENT_ID);
+
+    expect(nav.push).toHaveBeenCalledTimes(1);
+    expect(nav.push.mock.calls[0]?.[0]).toContain(`client_id=${CLIENT_ID}`);
+    expect(mock.callsTo("GET", "/api/v1/clients")).toHaveLength(1);
   });
 });

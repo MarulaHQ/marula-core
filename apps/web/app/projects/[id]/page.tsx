@@ -598,7 +598,9 @@ export default function ProjectDetailPage() {
       entityId: projectId,
       optimistic: () => undefined,
       revert: () => undefined,
-      buildBody: (base) => ({ ...base, status: "active" }),
+      // Restore where the pause interrupted; a project created on hold has no
+      // record, so the old fallback stands.
+      buildBody: (base) => ({ ...base, status: project?.pre_hold_status ?? "active" }),
       request: (c, body) =>
         c.PATCH("/api/v1/projects/{id}", { params: { path: { id: projectId } }, body }),
       versions: (response) => [[response.id, response.mutation.version]],

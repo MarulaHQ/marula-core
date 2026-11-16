@@ -100,6 +100,7 @@ const PROJECT = {
   created_at: "",
   updated_at: "",
   client_hold_reason: null as string | null,
+  pre_hold_status: null as string | null,
 };
 
 function setupApi(): MockApi {
@@ -330,6 +331,32 @@ describe("ProjectDetailPage", () => {
     );
     expect(screen.getByTestId("project-resume")).toBeInTheDocument();
     expect(screen.queryByTestId("project-hold")).toBeNull();
+    cleanup();
+  });
+
+  it("resumes to the status the pause interrupted", async () => {
+    // A project paused while still in planning must come back to planning,
+    // not to active. The stored pre_hold_status is what makes that possible.
+    const mock = setupApi();
+    mock.on("GET", `/api/v1/projects/${PROJECT_ID}`, () => ({
+      json: { ...PROJECT, status: "on_hold", pre_hold_status: "planning" },
+    }));
+    mock.on("PATCH", `/api/v1/projects/${PROJECT_ID}`, () => ({
+      json: {
+        id: PROJECT_ID,
+        mutation: { idempotency_key: "k", seq: 1, version: 2, prior: null, applied_at: "" },
+      },
+    }));
+    mock.install();
+    mount();
+
+    fireEvent.click(await screen.findByTestId("project-resume"));
+    await waitFor(() =>
+      expect(mock.callsTo("PATCH", `/api/v1/projects/${PROJECT_ID}`)).toHaveLength(1),
+    );
+    expect(
+      mock.lastBody<{ status: string }>("PATCH", `/api/v1/projects/${PROJECT_ID}`).status,
+    ).toBe("planning");
     cleanup();
   });
 });

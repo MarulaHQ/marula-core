@@ -911,7 +911,8 @@ pub async fn delete_record(conn: &mut PgConnection, org_id: Uuid, id: Uuid) -> D
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    // The edge names the record by kind and id, so nothing cascades it.
+    crate::knowledge_home::delete_links_for(conn, org_id, "secret", id).await
 }
 
 /// The ONLY ciphertext read path in this module (the API's audited

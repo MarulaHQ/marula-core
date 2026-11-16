@@ -14,7 +14,6 @@ use axum::{
     http::Extensions,
     Json,
 };
-use core_domain::entities::BillingMethod;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -774,8 +773,8 @@ pub struct CreateFromTemplateRequest {
 
 /// POST /api/project-templates/{id}/create — instantiation with the one check
 /// the gallery promises first: a billable template cannot start without a
-/// contract that bills the chosen client (S11.11). The checked refusal happens
-/// before any row is written.
+/// contract that bills the chosen client (S11.11). The refusal is decided in
+/// the same transaction that writes the project, with the contract rows locked.
 #[utoipa::path(operation_id = "project_template_create", post, path = "/api/project-templates/{id}/create", tag = "projects", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = CreateFromTemplateRequest,
     responses((status = 200, body = crate::routes::projects::templates::ProjectInstantiateResponse),
@@ -787,80 +786,23 @@ pub async fn create_from_template(
     Json(req): Json<CreateFromTemplateRequest>,
 ) -> ApiResult<Json<crate::routes::projects::templates::ProjectInstantiateResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, projects(Action::Create))?;
-    let org_id = authed.principal.user.org_id;
-    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
-        .await
-        .map_err(ApiError::from)?;
-    let template = core_db::projects::get_template(&mut *tx, org_id, id)
-        .await
-        .map_err(|e| match e {
-            core_db::DbError::NotFound => ApiError::RlsSparse,
-            other => other.into(),
-        })?;
-    let billing_method = core_projects::template::parse_spec(&template.spec)
-        .map_err(|e| ApiError::Validation(e.to_string()))?
-        .billing_method;
-    tx.commit().await.map_err(ApiError::from)?;
-
-    let billable = matches!(
-        billing_method.as_deref().map(str::parse::<BillingMethod>),
-        Some(Ok(BillingMethod::Milestone))
-            | Some(Ok(BillingMethod::TimeAndMaterials))
-            | Some(Ok(BillingMethod::FixedFee))
-    );
-    if billable {
-        match req.client_id {
-            None => {
-                return Err(ApiError::Validation(
-                    "billing_mismatch: this template bills, so a client is required before it can start"
-                        .into(),
-                ));
-            }
-            Some(client_id) => {
-                let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-                core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
-                    .await
-                    .map_err(ApiError::from)?;
-                let contracts = core_db::contracts::list_contracts(
-                    &mut *tx,
-                    org_id,
-                    &core_db::contracts::ContractFilters {
-                        client_id: Some(client_id),
-                        status: Some("active".into()),
-                        // The contract must cover the day the work starts, not
-                        // merely exist: one that starts later, or ended before,
-                        // would bill nothing on this project.
-                        effective_on: req.start_date,
-                    },
-                )
-                .await?;
-                tx.commit().await.map_err(ApiError::from)?;
-                if contracts.is_empty() {
-                    return Err(ApiError::Validation(
-                        "billing_mismatch: the client has no active contract, so nothing would bill this work"
-                            .into(),
-                    ));
-                }
-            }
-        }
-    }
-
-    crate::routes::projects::templates::instantiate(
-        State(state),
-        extensions,
-        Path(id),
-        Json(
-            crate::routes::projects::templates::InstantiateTemplateRequest {
-                name: req.name,
-                client_id: req.client_id,
-                start_date: req.start_date,
-                due_date: req.due_date,
-                assignee_map: req.assignee_map,
-                instant: req.instant,
-            },
-        ),
+    let guard = crate::routes::projects::templates::BillingGuard {
+        client_id: req.client_id,
+        start_date: req.start_date,
+    };
+    crate::routes::projects::templates::instantiate_project(
+        state,
+        &authed,
+        id,
+        crate::routes::projects::templates::InstantiateTemplateRequest {
+            name: req.name,
+            client_id: req.client_id,
+            start_date: req.start_date,
+            due_date: req.due_date,
+            assignee_map: req.assignee_map,
+            instant: req.instant,
+        },
+        Some(guard),
     )
     .await
 }

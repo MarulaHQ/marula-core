@@ -10075,8 +10075,8 @@ export interface paths {
         /**
          * POST /api/project-templates/{id}/create — instantiation with the one check
          *     the gallery promises first: a billable template cannot start without a
-         *     contract that bills the chosen client (S11.11). The checked refusal happens
-         *     before any row is written.
+         *     contract that bills the chosen client (S11.11). The refusal is decided in
+         *     the same transaction that writes the project, with the contract rows locked.
          */
         post: operations["project_template_create"];
         delete?: never;
@@ -10137,6 +10137,8 @@ export interface paths {
          *     into a REAL project: phases, tasks, dependencies, and every lifecycle
          *     event, all in ONE transaction (claim → expand → insert → events →
          *     record). Rollback on any failure leaves zero partial rows.
+         * @description The generic endpoint does not enforce a billing guard; the gallery's
+         *     `/create` route calls [`instantiate_project`] with one.
          */
         post: operations["project_templates_instantiate"];
         delete?: never;
@@ -30057,6 +30059,7 @@ export interface components {
             name: string;
             /** Format: uuid */
             org_id: string;
+            pre_hold_status?: components["schemas"]["ProjectStatus"] | null;
             /** Format: date */
             start_date?: string | null;
             status: components["schemas"]["ProjectStatus"];

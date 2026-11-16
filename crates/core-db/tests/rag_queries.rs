@@ -493,7 +493,7 @@ async fn deletion_propagation_and_append_only_receipts() {
 
     // Delete the underlying KB article -> AFTER DELETE trigger cascades to
     // `rag_embeddings` and mints a `rag_deletion_receipts` row automatically.
-    let deleted = kb::delete_article(&mut *tx, org, article.id)
+    let deleted = kb::delete_article(&mut tx, org, article.id)
         .await
         .expect("delete kb article");
     assert!(deleted);

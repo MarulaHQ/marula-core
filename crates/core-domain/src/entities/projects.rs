@@ -234,6 +234,12 @@ pub struct Project {
     /// cleared when the project leaves hold.
     #[serde(default)]
     pub client_hold_reason: Option<String>,
+    /// The status the pause interrupted. Written when a project moves onto
+    /// `on_hold` from another status and cleared when it leaves hold, so
+    /// "Resume work" restores where it was instead of assuming `active`.
+    /// `None` for a project created on hold or written before the column.
+    #[serde(default)]
+    pub pre_hold_status: Option<ProjectStatus>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

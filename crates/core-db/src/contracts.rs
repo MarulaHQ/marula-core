@@ -129,6 +129,43 @@ where
     Ok(rows.into_iter().map(contract_row).collect())
 }
 
+/// Locks and returns the ids of the contracts that would bill this client's
+/// work on `effective_on`: status `active`, with an effective window that
+/// covers the date. The rows are held `FOR UPDATE` until the transaction ends,
+/// so a concurrent `UPDATE contracts` cannot change status or dates between the
+/// check and the insert it guards.
+///
+/// An empty result locks nothing, which is the honest reading: no contract
+/// existed to expire, and one created afterwards was never in scope of the
+/// check. Callers that need the rows themselves use [`list_contracts`]; this
+/// query exists for the lock, not the payload.
+pub async fn lock_active_contract_ids<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    client_id: Uuid,
+    effective_on: Option<chrono::NaiveDate>,
+) -> DbResult<Vec<Uuid>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let ids = sqlx::query_scalar::<_, Uuid>(
+        r#"SELECT id FROM contracts
+           WHERE org_id = $1
+             AND client_id = $2
+             AND status = 'active'
+             AND ($3::date IS NULL OR (effective_from <= $3
+                  AND (effective_until IS NULL OR effective_until >= $3)))
+           ORDER BY number
+           FOR UPDATE"#,
+    )
+    .bind(org_id)
+    .bind(client_id)
+    .bind(effective_on)
+    .fetch_all(executor)
+    .await?;
+    Ok(ids)
+}
+
 /// Contracts whose effective window intersects the evaluation window and
 /// which are not cancelled — the population an invoice run (Wave 9) or a
 /// preview would evaluate.
