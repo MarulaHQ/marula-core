@@ -30,17 +30,19 @@
 //
 //   extends: {file: base.yml, service: base}  inherits from another file
 //   extends: base                             inherits from this file
-//   include: [other.yml] / include: [dir/]    adds whole files to the project
+//   include: [other.yml]                      adds whole files to the project
+//   include: [{path: [a.yml, b.yml]}]         adds an ordered merge model
 //
 // Resolution is recursive (a base can extend a base), memoised, and guarded
 // against cycles. Each finding is reported in the file where the setting is
 // written, not in the file that pulled it in, because that is where a reader
 // has to change it, and the message names the file that reached it.
 //
-// The merge follows Compose: a local setting wins over an inherited one, except
-// `volumes`, which is appended. Each mount keeps its own origin, so an
-// exemption written above a local `volumes:` speaks only for the mounts in that
-// list, never for one inherited from a base.
+// The merge follows Compose: a local setting wins over an inherited one, and
+// `volumes` is keyed by container target, so a local mount replaces an inherited
+// one that lands on the same target. Each effective mount keeps its own origin,
+// so an exemption written above a local `volumes:` speaks only for the mounts in
+// that list, never for one inherited from a base.
 //
 // A reference that cannot be resolved, or a cycle in either `extends` or
 // `include`, is a finding: a config this check cannot read is not a config
@@ -189,10 +191,17 @@ function includesOf(doc, path) {
   const raw = doc.toJS()?.include;
   if (raw === undefined) return [];
   const entries = Array.isArray(raw) ? raw : [raw];
-  const paths = [];
+  const specs = [];
   for (const entry of entries) {
+    // `include:` takes a path, a list of paths (one merged application model),
+    // or a map whose `path` is either of those.
     const spec = typeof entry === 'string' ? entry : entry?.path;
-    if (typeof spec !== 'string') throw new Refusal('has an `include:` entry with no path');
+    if (typeof spec === 'string') specs.push(spec);
+    else if (Array.isArray(spec) && spec.every((item) => typeof item === 'string')) specs.push(...spec);
+    else throw new Refusal('has an `include:` entry with no path');
+  }
+  const paths = [];
+  for (const spec of specs) {
     for (const hit of expandGlob(path, spec)) paths.push(hit);
   }
   return paths;
@@ -245,6 +254,47 @@ function asArray(value) {
 }
 
 /**
+ * The container target of a volume, which is what Compose keys mounts by.
+ *
+ * Short syntax is `[source:]target[:mode]`, so one segment is a target, two
+ * make the second the target, and three or more keep the second. Long syntax
+ * names it.
+ */
+function volumeTarget(mount) {
+  if (typeof mount === 'string') {
+    const parts = mount.split(':');
+    return parts.length === 1 ? parts[0] : parts[1];
+  }
+  if (mount && typeof mount === 'object' && typeof mount.target === 'string') return mount.target;
+  return undefined;
+}
+
+/**
+ * Merge volumes the way Compose does: a local mount replaces an inherited one
+ * with the same container target, and the origin follows the effective mount.
+ * Concatenating instead would report a socket the local file deliberately
+ * replaced.
+ */
+function mergeVolumes(inherited, inheritedOrigins, local, localOrigin) {
+  const volumes = [...inherited];
+  const volumeOrigins = [...inheritedOrigins];
+  for (const mount of local) {
+    const target = volumeTarget(mount);
+    const at = target === undefined
+      ? -1
+      : volumes.findIndex((candidate) => volumeTarget(candidate) === target);
+    if (at >= 0) {
+      volumes[at] = mount;
+      volumeOrigins[at] = localOrigin;
+    } else {
+      volumes.push(mount);
+      volumeOrigins.push(localOrigin);
+    }
+  }
+  return { volumes, volumeOrigins };
+}
+
+/**
  * A service's effective settings, plus where each protected key was written.
  *
  * `extends` inherits first and the local file wins, except `volumes`, which
@@ -293,14 +343,15 @@ function resolveService(path, name, cache, stack = []) {
     }
   }
 
-  const volumes = [...inheritedVolumes, ...localVolumes];
-  const volumeOrigins = [
-    ...inheritedVolumeOrigins,
-    ...localVolumes.map(() => localVolumeOrigin),
-  ];
-  if (volumes.length > 0) config[SOCKET_KEY] = volumes;
+  const volumes = mergeVolumes(inheritedVolumes, inheritedVolumeOrigins, localVolumes, localVolumeOrigin);
+  if (volumes.volumes.length > 0) config[SOCKET_KEY] = volumes.volumes;
 
-  return { config, origin, volumes, volumeOrigins };
+  return {
+    config,
+    origin,
+    volumes: volumes.volumes,
+    volumeOrigins: volumes.volumeOrigins,
+  };
 }
 
 /** Every compose file reachable from `path` through `include:`, recursively. */
@@ -723,6 +774,73 @@ services:
     image: alpine:3.20
 `,
   },
+  // include supplied through a YAML merge key at the document root.
+  mergedIncludeYamlMerge: {
+    'docker-compose.yml': `x-comp: &comp
+  include:
+    - extra.yml
+<<: *comp
+services:
+  web:
+    image: alpine:3.20
+`,
+    'extra.yml': `services:
+  extra:
+    image: alpine:3.20
+    privileged: true
+`,
+  },
+  // `include:` with an ordered path list, which is one merged model.
+  includePathList: {
+    'docker-compose.yml': `include:
+  - path: [one.yml, two.yml]
+services:
+  web:
+    image: alpine:3.20
+`,
+    'one.yml': `services:
+  one:
+    image: alpine:3.20
+`,
+    'two.yml': `services:
+  two:
+    image: alpine:3.20
+    pid: host
+`,
+  },
+  // An exempted base plus a local socket mount at a different target: the
+  // base's exemption speaks for the base's mount, not this one.
+  baseExemptLocalSocket: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    # EXEMPTION (compose): base reviewed, /cache is a tmpfs.
+    volumes:
+      - /tmp/cache:/cache
+`,
+  },
+  // A local mount with the same container target replaces the inherited one,
+  // so the socket in the base never reaches a container.
+  volumeTargetOverride: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    volumes:
+      - /tmp/empty:/socket
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    volumes:
+      - /var/run/docker.sock:/socket
+`,
+  },
 };
 
 const EXPECTED = {
@@ -734,6 +852,8 @@ const EXPECTED = {
   extendsLocalWins: 0, missingExtendsFile: 1, extendsCycle: 1,
   inheritedSocketExemptLocal: 1, inheritedSocketExemptBase: 0,
   includeOnly: 1, mergedInclude: 1, nestedInclude: 1, includeCycle: 1,
+  mergedIncludeYamlMerge: 1, includePathList: 1,
+  baseExemptLocalSocket: 1, volumeTargetOverride: 0,
 };
 
 function selfTest() {
