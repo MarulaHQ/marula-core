@@ -15,13 +15,18 @@ import { Badge, Button, Card, Spinner, SurfaceHeader } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { TaskPodsPanel } from "../../../../../components/projects/task-pods";
 import { api, useRequireAuth } from "../../../../../lib/api";
 
 type Project = components["schemas"]["Project"];
 type ProjectTask = components["schemas"]["ProjectTask"];
 type ProjectPhase = components["schemas"]["ProjectPhase"];
+
+/** The task list clamps `limit` to 200 server-side, whatever it is asked for. */
+const TASK_PAGE = 200;
+/** Ten thousand rows is a plan nobody scrolls; past it, stop asking. */
+const TASK_PAGE_LIMIT = TASK_PAGE * 50;
 
 const STATUS_WORDS: Record<string, string> = {
   todo: "Not started",
@@ -52,27 +57,57 @@ export default function ProjectTaskPage() {
   const [task, setTask] = useState<ProjectTask | null>(null);
   const [phases, setPhases] = useState<ProjectPhase[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setError(null);
-    const [p, t, ph] = await Promise.all([
-      api.api.GET("/api/v1/projects/{id}", { params: { path: { id: projectId } } }),
-      api.api.GET("/api/v1/projects/{id}/tasks", { params: { path: { id: projectId }, query: { limit: 500 } } }),
-      api.api.GET("/api/v1/projects/{id}/phases", { params: { path: { id: projectId } } }),
-    ]);
-    if (p.error !== undefined) {
-      setError("This project could not be read. It may not exist, or you may not have access.");
-      return;
+    try {
+      const [p, ph] = await Promise.all([
+        api.api.GET("/api/v1/projects/{id}", { params: { path: { id: projectId } } }),
+        api.api.GET("/api/v1/projects/{id}/phases", { params: { path: { id: projectId } } }),
+      ]);
+      if (seq !== loadSeq.current) return;
+      if (p.error !== undefined) {
+        setError("This project could not be read. It may not exist, or you may not have access.");
+        return;
+      }
+      // The list is capped at 200 rows per request, so a task that sorts past
+      // the first page is found by paging, not by asking for a bigger limit.
+      // One request used to read 500 and report anything past 200 as removed.
+      let found: ProjectTask | null = null;
+      for (let offset = 0; offset < TASK_PAGE_LIMIT; offset += TASK_PAGE) {
+        const page = await api.api.GET("/api/v1/projects/{id}/tasks", {
+          params: { path: { id: projectId }, query: { limit: TASK_PAGE, offset } },
+        });
+        if (seq !== loadSeq.current) return;
+        if (page.error !== undefined) {
+          setError("The project plan could not be read. Try again.");
+          return;
+        }
+        const rows = page.data ?? [];
+        found = rows.find((row) => row.id === taskId) ?? null;
+        if (found !== null || rows.length < TASK_PAGE) break;
+      }
+      setProject(p.data ?? null);
+      setPhases(ph.data ?? []);
+      setTask(found);
+      if (found === null) setError("This task is not on the project plan any more.");
+    } catch {
+      // A network failure used to leave the spinner running forever.
+      if (seq !== loadSeq.current) return;
+      setError("The task could not be read. Check the connection and try again.");
     }
-    setProject(p.data ?? null);
-    setPhases(ph.data ?? []);
-    const found = (t.data ?? []).find((row) => row.id === taskId) ?? null;
-    setTask(found);
-    if (found === null) setError("This task is not on the project plan any more.");
   }, [projectId, taskId]);
 
+  // The instance is reused when the route parameters change: drop the previous
+  // task's data first, and let only the newest load commit.
   useEffect(() => {
     if (auth.status !== "authed") return;
+    setProject(null);
+    setTask(null);
+    setPhases([]);
+    setError(null);
     void load();
   }, [auth.status, load]);
 
@@ -159,7 +194,13 @@ export default function ProjectTaskPage() {
         </Card>
 
         <aside aria-label="Task pods" className="flex flex-col gap-3">
-          <TaskPodsPanel projectId={projectId} taskId={taskId} taskTitle={task.title} initialPod={pod} />
+          <TaskPodsPanel
+            projectId={projectId}
+            taskId={taskId}
+            taskTitle={task.title}
+            initialPod={pod}
+            readOnly={project?.status === "on_hold"}
+          />
         </aside>
       </div>
     </div>

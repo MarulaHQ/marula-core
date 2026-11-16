@@ -148,20 +148,50 @@ pub async fn draft(
                 core_db::DbError::NotFound => ApiError::RlsSparse,
                 other => other.into(),
             })?;
-        let tasks = core_db::projects::list_tasks(
+        // One period, one live update: the lock makes two concurrent requests
+        // queue here, so the second one sees the first one's row.
+        core_db::project_delivery::lock_project_row(&mut ctx.tx, org_id, id).await?;
+        if let Some(existing) = core_db::project_delivery::client_update_for_period(
             &mut *ctx.tx,
             org_id,
             id,
-            core_db::projects::TaskFilter {
-                phase_id: None,
-                status: None,
-                assignee_id: None,
-                milestone: None,
-                limit: 200,
-                offset: 0,
-            },
+            period_start,
+            period_end,
         )
-        .await?;
+        .await?
+        {
+            return Err(ApiError::Conflict(format!(
+                "an update for this period already exists and is {}",
+                existing.status
+            )));
+        }
+        let tasks = {
+            // Page until a short page comes back: a limit of 200 would silently
+            // drop a completion in a big project, and a dropped completion is a
+            // movement the client never hears about.
+            let mut all = Vec::new();
+            loop {
+                let page = core_db::projects::list_tasks(
+                    &mut *ctx.tx,
+                    org_id,
+                    id,
+                    core_db::projects::TaskFilter {
+                        phase_id: None,
+                        status: None,
+                        assignee_id: None,
+                        milestone: None,
+                        limit: 200,
+                        offset: all.len() as i64,
+                    },
+                )
+                .await?;
+                let last_page = page.len() < 200;
+                all.extend(page);
+                if last_page {
+                    break all;
+                }
+            }
+        };
         let phases = core_db::projects::list_phases(&mut *ctx.tx, org_id, id).await?;
         let change_orders =
             core_db::project_delivery::list_change_orders(&mut *ctx.tx, org_id, id).await?;
@@ -170,12 +200,18 @@ pub async fn draft(
             .and_hms_opt(0, 0, 0)
             .map(|t| t.and_utc())
             .unwrap_or_else(Utc::now);
+        // The period ends at the end of its last day, not at its midnight.
+        let until = period_end
+            .checked_add_signed(chrono::Duration::days(1))
+            .and_then(|day| day.and_hms_opt(0, 0, 0))
+            .map(|t| t.and_utc())
+            .unwrap_or(chrono::DateTime::<Utc>::MAX_UTC);
 
         let mut movements: Vec<(String, String)> = Vec::new();
         let mut facts: Vec<Value> = Vec::new();
         for phase in &phases {
             if let Some(done) = phase.completed_at {
-                if done >= since {
+                if done >= since && done < until {
                     movements.push(("Phase complete".into(), phase.name.clone()));
                     facts.push(serde_json::json!({
                         "kind": "phase", "id": phase.id, "name": phase.name,
@@ -185,7 +221,7 @@ pub async fn draft(
         }
         for task in &tasks {
             if let Some(done) = task.completed_at {
-                if done >= since {
+                if done >= since && done < until {
                     movements.push(("Work complete".into(), task.title.clone()));
                     facts.push(serde_json::json!({
                         "kind": "task", "id": task.id, "name": task.title,
@@ -194,7 +230,10 @@ pub async fn draft(
             }
         }
         for co in &change_orders {
-            if matches!(co.status.as_str(), "applied" | "billed") && co.updated_at >= since {
+            if matches!(co.status.as_str(), "applied" | "billed")
+                && co.updated_at >= since
+                && co.updated_at < until
+            {
                 movements.push(("Change agreed".into(), co.title.clone()));
                 facts.push(serde_json::json!({
                     "kind": "change_order", "id": co.id, "reference": co.reference,

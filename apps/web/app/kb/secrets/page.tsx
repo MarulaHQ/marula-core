@@ -916,28 +916,32 @@ function RecordDialog({
                 {revealError}
               </p>
             ) : null}
-            {canReveal ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => setConfirmingReveal(true)}
-                  disabled={revealing}
-                  data-testid="kb-secret-reveal-open"
-                >
-                  <LockIcon size={16} /> Reveal (audited)
-                </Button>
-                <Button variant="ghost" onClick={() => setEditing(true)}>
-                  Edit / rotate fields
-                </Button>
-                <Link
-                  href={`/kb/secrets/${current.id}`}
-                  className="inline-flex h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold underline underline-offset-2"
-                  style={{ color: "var(--m-text)" }}
-                >
-                  Open full record
-                </Link>
-              </div>
-            ) : null}
+            {/* The full record is a read surface: it needs read access, not the
+                reveal permission, so the link is offered to everyone. */}
+            <div className="flex flex-wrap items-center gap-2">
+              {canReveal ? (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setConfirmingReveal(true)}
+                    disabled={revealing}
+                    data-testid="kb-secret-reveal-open"
+                  >
+                    <LockIcon size={16} /> Reveal (audited)
+                  </Button>
+                  <Button variant="ghost" onClick={() => setEditing(true)}>
+                    Edit / rotate fields
+                  </Button>
+                </>
+              ) : null}
+              <Link
+                href={`/kb/secrets/${current.id}`}
+                className="inline-flex h-11 items-center rounded-[10px] px-3 text-[13px] font-semibold underline underline-offset-2"
+                style={{ color: "var(--m-text)" }}
+              >
+                Open full record
+              </Link>
+            </div>
 
             {reveal !== null ? <RevealPanel reveal={reveal} /> : null}
 

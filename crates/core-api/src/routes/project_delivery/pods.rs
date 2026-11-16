@@ -175,6 +175,11 @@ pub async fn promote_task(
             return Err(ApiError::RlsSparse);
         }
 
+        // Two promotions of one task must not both create a ticket. The row
+        // lock makes the second request wait, and it then sees the first one's
+        // link in the check below.
+        core_db::project_delivery::lock_task_row(&mut ctx.tx, org_id, task_id).await?;
+
         // One task, one ticket: a second promotion returns the first.
         if let Some(link) =
             core_db::project_delivery::link_exists_for_task(&mut *ctx.tx, org_id, task_id).await?
@@ -240,7 +245,7 @@ pub async fn promote_task(
             },
         )
         .await?;
-        core_db::project_delivery::insert_ticket_link(
+        let link = core_db::project_delivery::insert_ticket_link(
             &mut ctx.tx,
             org_id,
             id,
@@ -249,6 +254,14 @@ pub async fn promote_task(
             Some(user_id),
         )
         .await?;
+        if link.ticket_id != ticket.id {
+            // The conflict backstop fired, which means another request linked
+            // this task first. Roll back rather than commit a ticket nobody
+            // can reach from the task.
+            return Err(ApiError::Conflict(
+                "another promotion created a ticket for this task".into(),
+            ));
+        }
         ctx.emit(
             "project.task_promoted",
             "project_task",

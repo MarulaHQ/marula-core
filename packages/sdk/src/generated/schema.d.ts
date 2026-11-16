@@ -6533,7 +6533,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/domains?client_id= — org-wide when no client is named. */
+        get: operations["knowledge_list_domains"];
         put?: never;
         /** POST /api/knowledge/domains */
         post: operations["knowledge_create_domain"];
@@ -6559,23 +6560,6 @@ export interface paths {
         head?: never;
         /** PATCH /api/knowledge/domains/{id} */
         patch: operations["knowledge_update_domain"];
-        trace?: never;
-    };
-    "/api/v1/knowledge/domains?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/domains?client_id= — org-wide when no client is named. */
-        get: operations["knowledge_list_domains"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/knowledge/expirations": {
@@ -6625,7 +6609,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/links?kind=&id= */
+        get: operations["knowledge_list_links"];
         put?: never;
         /** POST /api/knowledge/links */
         post: operations["knowledge_create_link"];
@@ -6652,23 +6637,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/knowledge/links?kind=&id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/links?kind=&id= */
-        get: operations["knowledge_list_links"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/knowledge/networks": {
         parameters: {
             query?: never;
@@ -6676,7 +6644,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/networks?client_id= */
+        get: operations["knowledge_list_networks"];
         put?: never;
         /** POST /api/knowledge/networks */
         post: operations["knowledge_create_network"];
@@ -6722,24 +6691,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/knowledge/networks?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/networks?client_id= */
-        get: operations["knowledge_list_networks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/knowledge/portal/documents?client_id=": {
+    "/api/v1/knowledge/portal/documents": {
         parameters: {
             query?: never;
             header?: never;
@@ -6767,7 +6719,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/procedures?client_id= */
+        get: operations["knowledge_list_procedures"];
         put?: never;
         /** POST /api/knowledge/procedures */
         post: operations["knowledge_create_procedure"];
@@ -6796,23 +6749,6 @@ export interface paths {
         patch: operations["knowledge_update_procedure"];
         trace?: never;
     };
-    "/api/v1/knowledge/procedures?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/procedures?client_id= */
-        get: operations["knowledge_list_procedures"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/knowledge/racks": {
         parameters: {
             query?: never;
@@ -6820,7 +6756,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/racks?client_id= */
+        get: operations["knowledge_list_racks"];
         put?: never;
         /** POST /api/knowledge/racks */
         post: operations["knowledge_create_rack"];
@@ -6882,23 +6819,6 @@ export interface paths {
         head?: never;
         /** PATCH /api/knowledge/racks/{id}/devices/{device_id} */
         patch: operations["knowledge_update_rack_device"];
-        trace?: never;
-    };
-    "/api/v1/knowledge/racks?client_id=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/racks?client_id= */
-        get: operations["knowledge_list_racks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/knowledge/reservations/{id}": {
@@ -7025,7 +6945,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** GET /api/knowledge/templates?kind= */
+        get: operations["knowledge_list_templates"];
         put?: never;
         /** POST /api/knowledge/templates */
         post: operations["knowledge_create_template"];
@@ -7050,23 +6971,6 @@ export interface paths {
         head?: never;
         /** PATCH /api/knowledge/templates/{id} — snapshots the previous version. */
         patch: operations["knowledge_update_template"];
-        trace?: never;
-    };
-    "/api/v1/knowledge/templates?kind=": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GET /api/knowledge/templates?kind= */
-        get: operations["knowledge_list_templates"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/api/v1/label-templates": {
@@ -17641,6 +17545,41 @@ export interface components {
          * @enum {string}
          */
         BillingMethod: "milestone" | "time_and_materials" | "fixed_fee" | "non_billable";
+        /**
+         * @description The release ledger row as the CALLER may see it. The amount and its currency
+         *     are financial data: both serialize `null` without `financial:read` (RB2,
+         *     ADR 0004), while the release itself stays visible so the plan reads.
+         */
+        BillingReleaseView: {
+            /**
+             * Format: int64
+             * @description `null` without `financial:read` (RB2).
+             */
+            amount_minor?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            currency?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id?: string | null;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            label: string;
+            /** Format: uuid */
+            org_id: string;
+            /** Format: uuid */
+            phase_id?: string | null;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: date */
+            released_on: string;
+            status: components["schemas"]["ReleaseStatus"];
+            /** Format: uuid */
+            task_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
         BindingListResponse: {
             bindings: components["schemas"]["BindingView"][];
         };
@@ -50395,6 +50334,27 @@ export interface operations {
             };
         };
     };
+    knowledge_list_domains: {
+        parameters: {
+            query?: {
+                client_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DomainRecord"][];
+                };
+            };
+        };
+    };
     knowledge_create_domain: {
         parameters: {
             query?: never;
@@ -50464,27 +50424,6 @@ export interface operations {
             };
         };
     };
-    knowledge_list_domains: {
-        parameters: {
-            query?: {
-                client_id?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DomainRecord"][];
-                };
-            };
-        };
-    };
     knowledge_expirations: {
         parameters: {
             query?: {
@@ -50522,6 +50461,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    knowledge_list_links: {
+        parameters: {
+            query: {
+                kind: string;
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkRecord"][];
                 };
             };
         };
@@ -50570,11 +50531,10 @@ export interface operations {
             };
         };
     };
-    knowledge_list_links: {
+    knowledge_list_networks: {
         parameters: {
             query: {
-                kind: string;
-                id: string;
+                client_id: string;
             };
             header?: never;
             path?: never;
@@ -50587,7 +50547,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LinkRecord"][];
+                    "application/json": components["schemas"]["NetworkRecord"][];
                 };
             };
         };
@@ -50707,27 +50667,6 @@ export interface operations {
             };
         };
     };
-    knowledge_list_networks: {
-        parameters: {
-            query: {
-                client_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NetworkRecord"][];
-                };
-            };
-        };
-    };
     knowledge_portal_documents: {
         parameters: {
             query: {
@@ -50745,6 +50684,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalDocRow"][];
+                };
+            };
+        };
+    };
+    knowledge_list_procedures: {
+        parameters: {
+            query: {
+                client_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcedureRecord"][];
                 };
             };
         };
@@ -50839,7 +50799,7 @@ export interface operations {
             };
         };
     };
-    knowledge_list_procedures: {
+    knowledge_list_racks: {
         parameters: {
             query: {
                 client_id: string;
@@ -50855,7 +50815,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProcedureRecord"][];
+                    "application/json": components["schemas"]["RackRecord"][];
                 };
             };
         };
@@ -51019,27 +50979,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RackDeviceRecord"];
-                };
-            };
-        };
-    };
-    knowledge_list_racks: {
-        parameters: {
-            query: {
-                client_id: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RackRecord"][];
                 };
             };
         };
@@ -51235,6 +51174,27 @@ export interface operations {
             };
         };
     };
+    knowledge_list_templates: {
+        parameters: {
+            query?: {
+                kind?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateRecord"][];
+                };
+            };
+        };
+    };
     knowledge_create_template: {
         parameters: {
             query?: never;
@@ -51279,27 +51239,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TemplateRecord"];
-                };
-            };
-        };
-    };
-    knowledge_list_templates: {
-        parameters: {
-            query?: {
-                kind?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TemplateRecord"][];
                 };
             };
         };
@@ -57886,7 +57825,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectBillingRelease"][];
+                    "application/json": components["schemas"]["BillingReleaseView"][];
                 };
             };
         };

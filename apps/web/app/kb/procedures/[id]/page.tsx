@@ -40,6 +40,8 @@ export default function ProcedurePage() {
   useEffect(() => {
     if (procedureId === undefined) return;
     let cancelled = false;
+    setProcedure(null);
+    setError(null);
     knowledgeApi
       .get<ProcedureDetail>(`/api/v1/knowledge/procedures/${procedureId}`)
       .then((data) => {

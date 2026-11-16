@@ -59,14 +59,19 @@ export default function ClientKnowledgeHubPage() {
   useEffect(() => {
     if (clientId === undefined) return;
     let cancelled = false;
+    // Clear the previous client's records before the next ones arrive, so a
+    // slow load cannot show client A's header and records under client B's URL.
+    setHub(null);
+    setSections(null);
     setError(null);
+    const id = encodeURIComponent(clientId);
     const base = `/api/v1/knowledge`;
     Promise.all([
-      knowledgeApi.get<Hub>(`${base}/clients/${clientId}/hub`),
-      knowledgeApi.get<Rack[]>(`${base}/racks?client_id=${clientId}`),
-      knowledgeApi.get<Network[]>(`${base}/networks?client_id=${clientId}`),
-      knowledgeApi.get<Procedure[]>(`${base}/procedures?client_id=${clientId}`),
-      knowledgeApi.get<Domain[]>(`${base}/domains?client_id=${clientId}`),
+      knowledgeApi.get<Hub>(`${base}/clients/${id}/hub`),
+      knowledgeApi.get<Rack[]>(`${base}/racks?client_id=${id}`),
+      knowledgeApi.get<Network[]>(`${base}/networks?client_id=${id}`),
+      knowledgeApi.get<Procedure[]>(`${base}/procedures?client_id=${id}`),
+      knowledgeApi.get<Domain[]>(`${base}/domains?client_id=${id}`),
     ])
       .then(([loadedHub, racks, networks, procedures, domains]) => {
         if (cancelled) return;
@@ -305,7 +310,7 @@ export default function ClientKnowledgeHubPage() {
               <SummaryCard title="Needs attention" trailing={<span className="tabular-nums text-[13px]">{attention.length}</span>}>
                 {attention.length === 0 ? (
                   <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
-                    Nothing is expiring in the next 90 days.
+                    Nothing is expiring in the next 30 days.
                   </p>
                 ) : (
                   attention.slice(0, 5).map((row) => {

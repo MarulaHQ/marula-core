@@ -93,22 +93,38 @@ export default function SecretPage() {
   const [codeLeft, setCodeLeft] = useState(0);
   const [totpError, setTotpError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const hideTimer = useRef<number | null>(null);
+  const codeTimer = useRef<number | null>(null);
+  // The record these responses belong to: a reveal or a code read that lands
+  // after a route change must not paint onto the next secret.
+  const activeRecord = useRef(recordId);
+  activeRecord.current = recordId;
+
+  const clearCodeTimer = useCallback(() => {
+    if (codeTimer.current !== null) {
+      window.clearInterval(codeTimer.current);
+      codeTimer.current = null;
+    }
+  }, []);
 
   const hide = useCallback(() => {
     setRevealed(null);
     setSecondsLeft(0);
     setCode(null);
     setCodeLeft(0);
-    if (hideTimer.current !== null) {
-      window.clearInterval(hideTimer.current);
-      hideTimer.current = null;
-    }
-  }, []);
+    clearCodeTimer();
+  }, [clearCodeTimer]);
 
   useEffect(() => {
     if (recordId === undefined) return;
     let cancelled = false;
+    // A different id is a different secret: the previous record, revealed
+    // value, code, errors and setup form must not stand under the new title.
+    hide();
+    setRecord(null);
+    setTotp(null);
+    setRevealError(null);
+    setTotpError(null);
+    setAdding(false);
     setError(null);
     api.api.GET("/api/v1/secrets/records/{id}", { params: { path: { id: recordId } } }).then(({ data, error: apiError }) => {
       if (cancelled) return;
@@ -130,58 +146,75 @@ export default function SecretPage() {
     return () => {
       cancelled = true;
     };
-  }, [recordId]);
+  }, [recordId, hide]);
 
-  useEffect(() => hide, [hide]);
+  // One timer owns the reveal: it starts when a reveal lands and hides the
+  // value at zero. Its cleanup runs when `revealed` clears — Hide now, a
+  // record change, or unmount — so nothing keeps counting in the background.
+  useEffect(() => {
+    if (revealed === null) return;
+    let left = 30;
+    setSecondsLeft(left);
+    const timer = window.setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        window.clearInterval(timer);
+        hide();
+        return;
+      }
+      setSecondsLeft(left);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [revealed, hide]);
+
+  // No code timer outlives the page.
+  useEffect(() => () => clearCodeTimer(), [clearCodeTimer]);
 
   async function reveal() {
     if (recordId === undefined) return;
+    const requestedId = recordId;
     setRevealError(null);
     const { data, error: apiError } = await api.api.POST("/api/v1/secrets/records/{id}/reveal", {
-      params: { path: { id: recordId } },
+      params: { path: { id: requestedId } },
     });
+    if (activeRecord.current !== requestedId) return;
     if (apiError !== undefined || data === undefined) {
       setRevealError("The reveal was refused. It needs vault edit permission, and a grant on this category.");
       return;
     }
     const payload = data as unknown as Reveal;
+    // The countdown effect above starts from this change.
     setRevealed(payload);
     setSecondsLeft(30);
-    if (hideTimer.current !== null) window.clearInterval(hideTimer.current);
-    hideTimer.current = window.setInterval(() => {
-      setSecondsLeft((current) => {
-        if (current <= 1) {
-          hide();
-          return 0;
-        }
-        return current - 1;
-      });
-    }, 1000);
   }
 
   async function readCode() {
     if (recordId === undefined) return;
+    const requestedId = recordId;
     setTotpError(null);
     try {
       const payload = await knowledgeApi.post<TotpCode>(
-        `/api/v1/knowledge/secrets/${recordId}/totp/code`,
+        `/api/v1/knowledge/secrets/${requestedId}/totp/code`,
       );
+      if (activeRecord.current !== requestedId) return;
+      // One timer for the current code: a second click replaces the first
+      // countdown instead of racing it.
+      clearCodeTimer();
       setCode(payload);
       setCodeLeft(payload.seconds_remaining);
-      window.setTimeout(() => {
-        setCodeLeft((current) => Math.max(0, current - 1));
-      }, 1000);
-      const interval = window.setInterval(() => {
-        setCodeLeft((current) => {
-          if (current <= 1) {
-            window.clearInterval(interval);
-            setCode(null);
-            return 0;
-          }
-          return current - 1;
-        });
+      let left = payload.seconds_remaining;
+      codeTimer.current = window.setInterval(() => {
+        left -= 1;
+        if (left <= 0) {
+          clearCodeTimer();
+          setCode(null);
+          setCodeLeft(0);
+          return;
+        }
+        setCodeLeft(left);
       }, 1000);
     } catch (e) {
+      if (activeRecord.current !== requestedId) return;
       setTotpError((e as KnowledgeRequestError).message);
     }
   }
@@ -189,13 +222,13 @@ export default function SecretPage() {
   async function attachCode(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (recordId === undefined) return;
+    const requestedId = recordId;
     const form = event.currentTarget;
     const data = new FormData(form);
     setTotpError(null);
-    setAdding(false);
     try {
       const state = await knowledgeApi.post<TotpState>(
-        `/api/v1/knowledge/secrets/${recordId}/totp`,
+        `/api/v1/knowledge/secrets/${requestedId}/totp`,
         {
           seed_base32: String(data.get("seed") ?? ""),
           digits: Number(data.get("digits") ?? 6),
@@ -203,9 +236,14 @@ export default function SecretPage() {
           issuer: "Marula",
         },
       );
+      if (activeRecord.current !== requestedId) return;
       setTotp(state);
+      // The form closes only once the seed is accepted: a wrong verification
+      // code must not lose the seed and the digit choice.
+      setAdding(false);
       form.reset();
     } catch (e) {
+      if (activeRecord.current !== requestedId) return;
       setTotpError((e as KnowledgeRequestError).message);
     }
   }

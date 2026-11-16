@@ -146,10 +146,20 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Add months to a calendar date. Both ends stay in UTC — a local midnight
+ * converts to the previous day west of UTC, which is a day early once
+ * `toISOString` prints it — and the day is clamped, so 31 January plus one
+ * month is 28 February rather than 3 March.
+ */
 function addMonths(iso: string, months: number): string {
-  const date = new Date(`${iso}T00:00:00`);
+  const date = new Date(`${iso}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return iso;
-  date.setMonth(date.getMonth() + months);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDay));
   return date.toISOString().slice(0, 10);
 }
 
@@ -200,6 +210,9 @@ export default function ContractsPage(): ReactNode {
   const [changeOperations, setChangeOperations] = useState<ChangeOperation[]>([]);
   const [changeDraft, setChangeDraft] = useState<ContractDraft | null>(null);
   const [changeTotal, setChangeTotal] = useState<number | null>(null);
+  /** The draft the proposal was described against; a newer draft makes it stale. */
+  const [changeBase, setChangeBase] = useState<string | null>(null);
+  const changeRequest = useRef(0);
   const [proposed, setProposed] = useState<Set<number>>(new Set());
 
   // ---- describe ----------------------------------------------------------
@@ -314,6 +327,17 @@ export default function ContractsPage(): ReactNode {
 
   const pricingTotal = contractTotal(pricing, amount.trim() === "" ? null : Math.round(Number(amount) * 100));
 
+  /** Forget the proposal: its draft, its rows and the base it was read from. */
+  function resetChange(): void {
+    setChangeInstruction("");
+    setChangeOperations([]);
+    setChangeSentence(null);
+    setChangeDraft(null);
+    setChangeTotal(null);
+    setChangeBase(null);
+    setProposed(new Set());
+  }
+
   function resetDraft(): void {
     setPricing([]);
     setClauseRefs([]);
@@ -322,13 +346,8 @@ export default function ContractsPage(): ReactNode {
     setUnderstanding(null);
     setTermMonths(null);
     setFromNotes(false);
-    setProposed(new Set());
+    resetChange();
     setBuilderTab("summary");
-    setChangeInstruction("");
-    setChangeOperations([]);
-    setChangeSentence(null);
-    setChangeDraft(null);
-    setChangeTotal(null);
   }
 
   /** The renewal path (C05): prefill the panel from the contract it starts at. */
@@ -397,17 +416,19 @@ export default function ContractsPage(): ReactNode {
     void refresh();
   };
 
+  /**
+   * The one draft both the change call and the summary read. The dates are the
+   * authority for the term: a date the person edited after a draft applied must
+   * not be replaced by the term the draft arrived with.
+   */
   function currentDraft(): ContractDraft {
-    const months =
-      termMonths ??
-      (effectiveUntil === "" ? null : monthsBetween(effectiveFrom, effectiveUntil));
     return {
       name,
       contract_type: type,
       billing_frequency: frequency,
       value_minor: pricingTotal > 0 ? pricingTotal : null,
       currency,
-      term_months: months,
+      term_months: effectiveUntil === "" ? termMonths : monthsBetween(effectiveFrom, effectiveUntil),
       effective_from: effectiveFrom,
       notes: null,
       clauses: clauseRefs.map((clause) => clause.title),
@@ -420,6 +441,16 @@ export default function ContractsPage(): ReactNode {
       checks,
     };
   }
+
+  // A proposal is only good for the draft it was described against. The
+  // fingerprint is the draft's own content, so editing a rate, a date or a
+  // clause after reading a proposal makes that proposal stale.
+  const draftKey = JSON.stringify(currentDraft());
+  const changeStale = changeDraft !== null && changeBase !== null && changeBase !== draftKey;
+  const draftKeyRef = useRef(draftKey);
+  useEffect(() => {
+    draftKeyRef.current = draftKey;
+  }, [draftKey]);
 
   function applyContract(draft: ContractDraft): void {
     setName(draft.name);
@@ -449,9 +480,14 @@ export default function ContractsPage(): ReactNode {
   }
 
   async function proposeChange(): Promise<void> {
+    // The draft this sentence is read against. A later request, or an edit
+    // while this one runs, makes the answer unusable.
+    const requestId = ++changeRequest.current;
+    const base = draftKey;
     setChangeBusy(true);
     setChangeError(null);
     const outcome = await proposeContractChange(currentDraft(), changeInstruction.trim());
+    if (changeRequest.current !== requestId) return;
     setChangeBusy(false);
     if (!outcome.ok) {
       setChangeError(outcome.message);
@@ -463,49 +499,43 @@ export default function ContractsPage(): ReactNode {
       );
       return;
     }
+    if (draftKeyRef.current !== base) {
+      setChangeError("The draft changed while I read that. Describe the change again.");
+      return;
+    }
     setChangeSentence(outcome.result.sentence);
     setChangeOperations(outcome.result.operations);
     setChangeDraft(outcome.result.draft);
     setChangeTotal(outcome.result.resulting_total_minor);
+    setChangeBase(base);
     setProposed(proposedPricingIndexes(outcome.result.operations.map((o) => o.path)));
   }
 
   function applyChange(): void {
-    if (changeDraft === null || changeDraft === undefined) return;
+    // Applying a proposal made against an older draft would undo every edit
+    // since: refuse rather than silently replace them.
+    if (changeDraft === null || changeDraft === undefined || changeStale) return;
     applyContract(changeDraft);
-    setChangeInstruction("");
-    setChangeOperations([]);
-    setChangeSentence(null);
-    setChangeDraft(null);
-    setChangeTotal(null);
+    resetChange();
   }
 
   function openBlank(): void {
     resetDraft();
+    // A blank contract starts from the initial values, not from whatever a
+    // cancelled draft left behind: an old amount would survive as an
+    // unexplained manual price in a brand-new contract.
+    setNumber("");
+    setName("");
+    setClientId("");
+    setType("recurring");
+    setCurrency("USD");
+    setEffectiveFrom(today());
+    setEffectiveUntil("");
+    setAmount("");
+    setFrequency("monthly");
     setCreateError(null);
     setCreateOpen(true);
   }
-  function currentClauseDraft(): ContractDraft {
-    return {
-      name,
-      contract_type: type,
-      billing_frequency: frequency,
-      value_minor: pricingTotal > 0 ? pricingTotal : null,
-      currency,
-      term_months: termMonths,
-      effective_from: effectiveFrom,
-      notes: null,
-      clauses: clauseRefs.map((clause) => clause.title),
-      clause_refs: clauseRefs,
-      pricing,
-      client_id: clientId === "" ? null : clientId,
-      client_name: clientId === "" ? null : clientName(clientId),
-      assumptions: [],
-      understanding,
-      checks,
-    };
-  }
-
 
   // ---- keyboard ----------------------------------------------------------
   useEffect(() => {
@@ -945,7 +975,7 @@ export default function ContractsPage(): ReactNode {
                       <span className="m-dsc-hint">From your approved library</span>
                     </div>
                     <div className="p-3">
-                      <ClauseList draft={currentClauseDraft()} library={library} />
+                      <ClauseList draft={currentDraft()} library={library} />
                     </div>
                   </div>
                 ) : null}
@@ -982,7 +1012,7 @@ export default function ContractsPage(): ReactNode {
                 showTabs={fromNotes}
                 summary={
                   <ContractSummary
-                    draft={currentClauseDraft()}
+                    draft={currentDraft()}
                     currency={currency}
                     library={library}
                     checks={checks}
@@ -1000,17 +1030,12 @@ export default function ContractsPage(): ReactNode {
                     resultingTotalMinor={changeTotal}
                     currency={currency}
                     busy={changeBusy}
+                    stale={changeStale}
                     error={changeError}
                     onInstruction={setChangeInstruction}
                     onSubmit={() => void proposeChange()}
                     onApply={applyChange}
-                    onDismiss={() => {
-                      setChangeOperations([]);
-                      setChangeDraft(null);
-                      setChangeSentence(null);
-                      setChangeTotal(null);
-                      setProposed(new Set());
-                    }}
+                    onDismiss={resetChange}
                   />
                 }
               />

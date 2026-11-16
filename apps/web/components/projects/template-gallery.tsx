@@ -20,7 +20,7 @@ import {
   SurfaceHeader,
 } from "@marula-core/ui";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth, useRequireAuth } from "../../lib/api";
 import {
   archiveTemplate,
@@ -31,6 +31,7 @@ import {
 } from "./delivery-api";
 
 const AUTHORING = "projects:create";
+const EDITING = "projects:edit";
 
 function minutesLabel(minutes: number | null): string {
   if (minutes === null) return "—";
@@ -184,7 +185,11 @@ function PreviewBody({ id }: { id: string }) {
 export function TemplateGallery() {
   const auth = useRequireAuth();
   const { me } = useAuth();
-  const canAuthor = (me?.permissions ?? []).includes(AUTHORING);
+  const permissions = me?.permissions ?? [];
+  const canAuthor = permissions.includes(AUTHORING);
+  // Archiving writes through the template record, which the server gates on
+  // `projects:edit`; create-only users were shown a control it refuses.
+  const canArchive = permissions.includes(EDITING);
 
   const [templates, setTemplates] = useState<GalleryTemplate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -192,12 +197,19 @@ export function TemplateGallery() {
   const [category, setCategory] = useState<string>("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setError(null);
     try {
-      setTemplates(await fetchTemplateGallery(includeArchived));
+      const next = await fetchTemplateGallery(includeArchived);
+      // Toggling "Show archived" while another load is in flight can finish
+      // in the wrong order; only the newest answer may replace the list.
+      if (seq !== loadSeq.current) return;
+      setTemplates(next);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setError((e as Error).message);
     }
   }, [includeArchived]);
@@ -220,6 +232,22 @@ export function TemplateGallery() {
       (template) => category === "all" || template.category === category,
     );
   }, [templates, category]);
+
+  // A category button disappears when its last template is archived; the
+  // filter must go back to All instead of leaving an empty gallery with no
+  // selected category.
+  useEffect(() => {
+    setCategory((current) => (categories.includes(current) ? current : "all"));
+  }, [categories]);
+
+  const emptyMessage = useMemo(() => {
+    if ((templates ?? []).length === 0) {
+      return includeArchived
+        ? "No templates yet. Ship one with the product, or write your own from a plan you already run well."
+        : "No templates yet. Ship one with the product, or write your own from a plan you already run well. Archived templates are hidden — tick “Show archived” to include them.";
+    }
+    return "No templates in this category. Choose All to see every template.";
+  }, [templates, includeArchived]);
 
   async function onArchive(template: GalleryTemplate) {
     setBusyId(template.id);
@@ -306,13 +334,7 @@ export function TemplateGallery() {
       ) : null}
 
       {templates !== null && visible.length === 0 ? (
-        <EmptyState
-          message={
-            includeArchived
-              ? "No templates in this category. Clear the category filter, or start a project from a shipped template."
-              : "No templates yet. Ship one with the product, or write your own from a plan you already run well."
-          }
-        />
+        <EmptyState message={emptyMessage} />
       ) : null}
 
       <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -373,7 +395,7 @@ export function TemplateGallery() {
                   <PreviewBody id={template.id} />
                 </DialogContent>
               </Dialog>
-              {canAuthor && !template.is_shipped ? (
+              {canArchive && !template.is_shipped ? (
                 <Button
                   size="sm"
                   variant="ghost"

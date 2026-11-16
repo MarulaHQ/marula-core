@@ -176,6 +176,19 @@ export const actions = {
     }));
     set({ busy: false });
   },
+  /**
+   * Clears the conversation and mints a fresh session id. Called when the
+   * signed-in account changes: the store lives at module scope, so without
+   * this a second person in the same tab would see the first person's
+   * transcript and continue their session.
+   */
+  resetSession(): void {
+    state = EMPTY;
+    sessionId = null;
+    // `messageSeq` stays monotonic: a turn still streaming for the previous
+    // account must not be able to patch a message the next one creates.
+    emit();
+  },
   /** Test seam: clears everything without touching the minted session id. */
   resetForTests(): void {
     state = EMPTY;

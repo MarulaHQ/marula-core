@@ -11,10 +11,11 @@ import {
   quoteTotals,
   sectionsOf,
   sliceChars,
+  taxOf,
+  type TaxableLine,
 } from "../../components/money/draft-math";
-import type { DraftLine } from "../../lib/money-authoring";
 
-const line = (patch: Partial<DraftLine> = {}): DraftLine => ({
+const line = (patch: Partial<TaxableLine> = {}): TaxableLine => ({
   description: "Switch",
   quantity_milli: 1000,
   unit_price_minor: 1000,
@@ -39,6 +40,31 @@ describe("draft arithmetic", () => {
       totalMinor: 1080,
       optionalMinor: 20_000,
     });
+  });
+
+  it("taxes only the lines the create route will tax", () => {
+    // The builder's own lines carry `taxable`; the preview has to read it, or a
+    // non-taxable catalogue line shows tax the saved quote will not carry.
+    const lines = [
+      line({ unit_price_minor: 10_000 }),
+      line({ unit_price_minor: 10_000, taxable: false }),
+      line({ unit_price_minor: 20_000, optional: true }),
+    ];
+    expect(quoteTotals(lines, 1000)).toEqual({
+      subtotalMinor: 20_000,
+      taxMinor: 1000,
+      totalMinor: 21_000,
+      optionalMinor: 20_000,
+    });
+  });
+
+  it("rounds tax half to even, the rule the server stores with", () => {
+    // 5 minor at 1000 bps is 0.5, and the stored answer is 0 (see
+    // `quote::rollup` in core-domain); 15 is 1.5 and rounds to 2.
+    expect(taxOf(5, 1000)).toBe(0);
+    expect(taxOf(1, 5000)).toBe(0);
+    expect(taxOf(15, 1000)).toBe(2);
+    expect(taxOf(0, 800)).toBe(0);
   });
 
   it("builds a contract total from quantities and rates, never a stated total", () => {

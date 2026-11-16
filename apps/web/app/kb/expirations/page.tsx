@@ -113,8 +113,9 @@ export default function ExpirationsPage() {
           ))}
         </div>
 
-        {error !== null ? <ErrorNote title="Expirations did not load.">{error}</ErrorNote> : null}
-        {rows === null ? (
+        {error !== null ? (
+          <ErrorNote title="Expirations did not load.">{error}</ErrorNote>
+        ) : rows === null ? (
           <SkeletonRows rows={8} sentence="Collecting expiries" columns={5} />
         ) : (
           <>

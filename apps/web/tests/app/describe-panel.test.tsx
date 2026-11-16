@@ -20,6 +20,7 @@ import {
   type AnyDraft,
 } from "../../components/money/describe-money";
 import type { MoneySource } from "../../lib/money-authoring";
+import { currentFetchRouter, setFetchRouter } from "../helpers/fetch-router";
 import { ME_FIXTURE, MockApi, seedAuthTokens } from "../helpers/mock-api";
 
 const DRAFT = {
@@ -132,6 +133,27 @@ function setup(overrides: { granted?: boolean; draftFailure?: boolean } = {}): M
   return mock;
 }
 
+/**
+ * Holds `/api/v1/quotes/author` open until the returned function is called, so
+ * a test can close the panel while the read is still running. Every other
+ * route goes straight through to the installed MockApi table.
+ */
+function holdAuthorRead(): () => void {
+  const inner = currentFetchRouter();
+  let release = (): void => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  setFetchRouter(async (input, init) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/api/v1/quotes/author")) await gate;
+    if (inner === null) throw new Error("no MockApi router installed");
+    return inner(input, init);
+  });
+  return () => release();
+}
+
 function Harness({
   onBuild,
   onStartBlank,
@@ -206,8 +228,17 @@ describe("Describe it panel", () => {
     // Nothing is saved until Build, and Build is the only path out.
     expect(screen.getByText(/Nothing is saved until you build it/i)).toBeInTheDocument();
     expect(built).toHaveLength(0);
+
+    // A different answer is the one the draft is built with: the check step is
+    // not decoration.
+    await user.click(screen.getByTestId("describe-answer-approver-John Smith"));
+    expect(screen.getByTestId("describe-answer-approver-John Smith")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     await user.click(screen.getByTestId("describe-build"));
     expect(built).toHaveLength(1);
+    expect(built[0]?.understanding?.questions[0]?.chosen).toBe("John Smith");
   });
 
   it("keeps the words as a source the builder can show", async () => {
@@ -271,6 +302,7 @@ describe("Describe it panel", () => {
 
   it("closes without cancelling the read, and comes back with the check step", async () => {
     setup();
+    const release = holdAuthorRead();
     const user = userEvent.setup();
 
     function Stateful(): React.JSX.Element {
@@ -292,8 +324,13 @@ describe("Describe it panel", () => {
     render(<Stateful />);
     await user.type(await screen.findByTestId("describe-transcript"), "Six APs for Acme");
     await user.click(screen.getByTestId("describe-draft"));
-    // The draft lands after the panel was closed to keep working: the route is
-    // told, and the check step is on screen again rather than hidden.
+    // The read is still running. Keep working closes the panel; it does not
+    // cancel the request.
+    await user.click(await screen.findByTestId("describe-keep-working"));
+    await waitFor(() => expect(screen.getByTestId("panel")).toHaveAttribute("hidden"));
+    // The draft lands while the panel is closed: the route is told, and the
+    // check step is on screen again rather than hidden with the draft inside.
+    release();
     await waitFor(() =>
       expect(screen.getByTestId("describe-understanding")).toBeInTheDocument(),
     );

@@ -504,8 +504,6 @@ struct ModelContract {
     #[serde(default)]
     billing_frequency: Option<String>,
     #[serde(default)]
-    value_minor: Option<i64>,
-    #[serde(default)]
     currency: String,
     #[serde(default)]
     term_months: Option<i64>,
@@ -665,14 +663,76 @@ fn quote_total(draft: &QuoteDraft) -> i64 {
 }
 
 fn contract_total(draft: &ContractDraft) -> i64 {
-    if draft.pricing.is_empty() {
-        return draft.value_minor.unwrap_or(0).max(0);
-    }
     draft
         .pricing
         .iter()
         .map(|line| line_amount_minor(line.quantity_milli, line.unit_price_minor))
         .sum()
+}
+
+/// Drop thousands separators that sit between digits, so "$5,000" and "5000"
+/// read as the same number.
+fn without_grouping(text: &str) -> String {
+    let chars: Vec<char> = text.to_lowercase().chars().collect();
+    let mut out = String::with_capacity(chars.len());
+    for (index, c) in chars.iter().enumerate() {
+        if *c == ',' {
+            let before = index.checked_sub(1).and_then(|i| chars.get(i));
+            let after = chars.get(index + 1);
+            if before.is_some_and(char::is_ascii_digit) && after.is_some_and(char::is_ascii_digit) {
+                continue;
+            }
+        }
+        out.push(*c);
+    }
+    out
+}
+
+/// A number written on its own, not the tail of a longer one: "500" is not in
+/// "1500" and not in "500.99".
+fn contains_amount(haystack: &str, needle: &str) -> bool {
+    let mut from = 0;
+    while let Some(found) = haystack[from..].find(needle) {
+        let start = from + found;
+        let end = start + needle.len();
+        let before = haystack[..start].chars().next_back();
+        let after = haystack[end..].chars().next();
+        let bounded = |c: Option<char>| match c {
+            Some(c) => !c.is_ascii_digit() && c != '.',
+            None => true,
+        };
+        if bounded(before) && bounded(after) {
+            return true;
+        }
+        from = end;
+        if from >= haystack.len() {
+            break;
+        }
+    }
+    false
+}
+
+/// Whether the words actually state this amount. A copied span proves the
+/// description exists, never its price, so a price the notes do not contain is
+/// not kept and the draft asks for it instead.
+fn source_states_amount(text: &str, amount_minor: i64) -> bool {
+    if amount_minor <= 0 {
+        return false;
+    }
+    let whole = amount_minor / 100;
+    let cents = amount_minor % 100;
+    let mut forms: Vec<String> = Vec::new();
+    if cents == 0 {
+        forms.push(whole.to_string());
+    }
+    forms.push(format!("{whole}.{cents:02}"));
+    if whole >= 1000 && whole % 1000 == 0 {
+        forms.push(format!("{}k", whole / 1000));
+    }
+    let haystack = without_grouping(text);
+    forms
+        .iter()
+        .any(|form| contains_amount(&haystack, form.as_str()))
 }
 
 // --- catalogue matching ---------------------------------------------------
@@ -700,8 +760,31 @@ fn normalise(text: &str) -> String {
         .join(" ")
 }
 
+/// The digits a name states, so "24 port" and "48 port" can never be the same
+/// specification. Word overlap alone would drop both numbers as short words.
+fn numeric_tokens(text: &str) -> Vec<&str> {
+    text.split(' ')
+        .filter(|token| !token.is_empty() && token.chars().all(|c| c.is_ascii_digit()))
+        .collect()
+}
+
+/// Two names that both state numbers only describe the same thing when they
+/// state the same numbers.
+fn numbers_disagree(wanted: &[&str], name: &[&str]) -> bool {
+    if wanted.is_empty() || name.is_empty() {
+        return false;
+    }
+    let mut a = wanted.to_vec();
+    let mut b = name.to_vec();
+    a.sort_unstable();
+    b.sort_unstable();
+    a != b
+}
+
 /// Exact name first, then word overlap in either direction, longest match wins
 /// so "PoE switch" prefers the catalogue's "24 port PoE switch" to "switch".
+/// A candidate whose numbers contradict the line's is never a match: an
+/// ambiguous catalogue price would be a price nobody set.
 fn match_catalog<'a>(description: &str, items: &'a [CatalogRow]) -> Option<&'a CatalogRow> {
     let wanted = normalise(description);
     if wanted.is_empty() {
@@ -711,6 +794,7 @@ fn match_catalog<'a>(description: &str, items: &'a [CatalogRow]) -> Option<&'a C
         return Some(exact);
     }
     let wanted_tokens: Vec<&str> = wanted.split(' ').filter(|t| t.len() > 2).collect();
+    let wanted_numbers = numeric_tokens(&wanted);
     if wanted_tokens.is_empty() {
         return None;
     }
@@ -719,6 +803,9 @@ fn match_catalog<'a>(description: &str, items: &'a [CatalogRow]) -> Option<&'a C
         let name = normalise(&item.name);
         let name_tokens: Vec<&str> = name.split(' ').filter(|t| t.len() > 2).collect();
         if name_tokens.is_empty() {
+            continue;
+        }
+        if numbers_disagree(&wanted_numbers, &numeric_tokens(&name)) {
             continue;
         }
         let hits = name_tokens
@@ -812,10 +899,14 @@ fn pick_library(rows: Vec<ClauseRow>) -> Vec<ClauseRow> {
 }
 
 fn clause_ref(row: &ClauseRow, parameter_value: Option<String>) -> ClauseRef {
+    // Only a clause that carries a parameter can take a value. A clause with
+    // nothing to fill keeps the library wording whatever the model supplied.
+    let takes_a_value = row.parameter_label.is_some() || row.standard_value.is_some();
+    let parameter_value = parameter_value
+        .filter(|value| !value.trim().is_empty())
+        .filter(|_| takes_a_value);
     let variant = match (&row.standard_value, &parameter_value) {
-        (Some(standard), Some(value)) => {
-            normalise(standard) != normalise(value) && !value.trim().is_empty()
-        }
+        (Some(standard), Some(value)) => normalise(standard) != normalise(value),
         _ => false,
     };
     ClauseRef {
@@ -831,7 +922,7 @@ fn clause_ref(row: &ClauseRow, parameter_value: Option<String>) -> ClauseRef {
         },
         review_required: variant || row.review_required,
         parameter_label: row.parameter_label.clone(),
-        parameter_value: parameter_value.filter(|value| !value.trim().is_empty()),
+        parameter_value,
         standard_value: row.standard_value.clone(),
     }
 }
@@ -1145,6 +1236,7 @@ fn validate_quote(
     }
 
     let mut extra_assumptions: Vec<String> = Vec::new();
+    let text = combined_text(sources);
     for (index, line) in draft.lines.iter_mut().enumerate() {
         line.description = line.description.trim().to_string();
         if line.unit_price_minor < 0 {
@@ -1173,6 +1265,15 @@ fn validate_quote(
             }
             line.price_assumed = item.unit_price_minor == 0;
             line.source = "catalogue".into();
+        } else if line.unit_price_minor > 0 && !source_states_amount(&text, line.unit_price_minor) {
+            // The span proves the words, never the amount. A price the notes do
+            // not state is not kept, so the check list asks for it.
+            line.unit_price_minor = 0;
+            line.price_assumed = true;
+            extra_assumptions.push(format!(
+                "Line {} had a price the notes do not state, so it is zero until you set it.",
+                index + 1
+            ));
         } else if line.unit_price_minor == 0 {
             line.price_assumed = true;
             line.source = "assumed".into();
@@ -1252,13 +1353,8 @@ fn validate_contract(
         draft.currency = "USD".into();
     }
     draft.currency = draft.currency.to_uppercase();
-    if draft.value_minor.is_some_and(|v| v < 0) {
-        draft.value_minor = None;
-        draft
-            .assumptions
-            .push("The notes gave a negative value, so it needs setting.".into());
-    }
 
+    let text = combined_text(sources);
     for line in draft.pricing.iter_mut() {
         line.label = line.label.trim().to_string();
         line.source_span = line.source_span.clone().filter(|span| {
@@ -1266,6 +1362,21 @@ fn validate_contract(
                 .iter()
                 .any(|s| s.id.as_deref() == Some(span.source_id.as_str()))
         });
+        if line.unit_price_minor < 0 {
+            line.unit_price_minor = 0;
+            draft.assumptions.push(format!(
+                "The rate for {} was negative, so it needs setting.",
+                line.label
+            ));
+        } else if line.unit_price_minor > 0 && !source_states_amount(&text, line.unit_price_minor) {
+            // A span proves the words, never the rate. A rate the words do not
+            // state is not kept, so the check list asks for it.
+            line.unit_price_minor = 0;
+            draft.assumptions.push(format!(
+                "The rate for {} was not in your words, so it needs setting.",
+                line.label
+            ));
+        }
         if line.unit_price_minor == 0 {
             line.price_assumed = true;
         }
@@ -1273,9 +1384,14 @@ fn validate_contract(
     draft
         .pricing
         .retain(|line| !line.label.is_empty() && line.quantity_milli > 0);
-    if !draft.pricing.is_empty() {
-        draft.value_minor = Some(contract_total(draft));
-    }
+    // The value is the arithmetic over the rates. A total the model wrote is
+    // never kept: with no rates there is no value to stand behind.
+    let value = if draft.pricing.is_empty() {
+        None
+    } else {
+        Some(contract_total(draft))
+    };
+    draft.value_minor = value;
 
     if draft.client_id.is_none() {
         if let Some(name) = draft.client_name.clone() {
@@ -1380,6 +1496,9 @@ fn contract_checks(draft: &ContractDraft) -> Vec<String> {
     }
     for line in draft.pricing.iter().filter(|line| line.quantity_assumed) {
         checks.push(format!("The quantity for {} was assumed.", line.label));
+    }
+    if draft.pricing.is_empty() {
+        checks.push("The agreement has no rate. Add a price before sending.".into());
     }
     if draft.client_id.is_none() {
         checks.push("The client was not matched. Choose it before sending.".into());
@@ -1863,7 +1982,11 @@ pub async fn author_quote(
                     0,
                     MatchedFact {
                         label: "Client".into(),
-                        value: format!("{name}, matched"),
+                        value: if draft.client_id.is_some() {
+                            format!("{name}, matched")
+                        } else {
+                            format!("{name}, needs choosing")
+                        },
                     },
                 );
             }
@@ -1976,7 +2099,7 @@ pub async fn author_contract(
                 name: model_draft.name,
                 contract_type: model_draft.contract_type,
                 billing_frequency: model_draft.billing_frequency,
-                value_minor: model_draft.value_minor,
+                value_minor: None,
                 currency: model_draft.currency,
                 term_months: model_draft.term_months,
                 effective_from: model_draft.effective_from,
@@ -2025,7 +2148,11 @@ pub async fn author_contract(
                     0,
                     MatchedFact {
                         label: "Client".into(),
-                        value: format!("{name}, matched"),
+                        value: if draft.client_id.is_some() {
+                            format!("{name}, matched")
+                        } else {
+                            format!("{name}, needs choosing")
+                        },
                     },
                 );
             }
@@ -2364,6 +2491,9 @@ fn apply_quote_operations(
             }),
         }
     }
+    // The checks are facts about the draft as it now stands, so they are
+    // rebuilt from it: a price that was set stops asking to be set.
+    draft.checks = quote_checks(draft);
     (applied, issues)
 }
 
@@ -2388,10 +2518,14 @@ fn apply_quote_operation(
         if line.description.trim().is_empty() || line.quantity_milli <= 0 {
             return Err("a new line needs a description and a quantity".into());
         }
+        if line.unit_price_minor < 0 {
+            return Err("a price cannot be negative".into());
+        }
         draft.lines.push(QuoteLineDraft {
             source: "assumed".into(),
             source_span: None,
             catalog_item_id: None,
+            price_assumed: line.price_assumed || line.unit_price_minor == 0,
             ..line
         });
         return Ok(());
@@ -2482,6 +2616,9 @@ fn apply_contract_operations(
             }),
         }
     }
+    // Rebuilt from the draft as it now stands, so a cleared rate or a new
+    // clause variant carries the check it earns.
+    draft.checks = contract_checks(draft);
     (applied, issues)
 }
 
@@ -2496,6 +2633,9 @@ fn apply_contract_operation(
             .iter()
             .find(|row| row.key == key)
             .ok_or_else(|| format!("{key} is not a clause in your library"))?;
+        if row.parameter_label.is_none() && row.standard_value.is_none() {
+            return Err(format!("{key} has no value to fill"));
+        }
         let value = as_text(&operation.value).ok_or("a clause value must be text")?;
         let mut updated = clause_ref(row, Some(value));
         updated.review_required = updated.status == "variant" || row.review_required;
@@ -2762,6 +2902,27 @@ mod tests {
         }
     }
 
+    fn contract_draft() -> ContractDraft {
+        ContractDraft {
+            name: "Managed Silver".into(),
+            contract_type: "recurring".into(),
+            billing_frequency: Some("monthly".into()),
+            value_minor: None,
+            currency: "USD".into(),
+            term_months: Some(12),
+            effective_from: None,
+            notes: None,
+            clauses: Vec::new(),
+            clause_refs: Vec::new(),
+            pricing: Vec::new(),
+            client_id: None,
+            client_name: None,
+            assumptions: Vec::new(),
+            understanding: None,
+            checks: Vec::new(),
+        }
+    }
+
     #[test]
     fn a_fenced_answer_still_parses() {
         let value = extract_json("```json\n{\"title\":\"x\"}\n```").expect("parse");
@@ -3000,6 +3161,208 @@ mod tests {
     }
 
     #[test]
+    fn a_price_the_notes_do_not_state_is_not_kept() {
+        let sources = vec![source("typed-1", "Install the switch over the weekend.")];
+        let mut draft = empty_draft();
+        let mut row = line("Install the switch", 1000, 50_000);
+        row.source_span = Some(SourceSpan {
+            source_id: "typed-1".into(),
+            start: 0,
+            end: 18,
+        });
+        draft.lines.push(row);
+        validate_quote(&mut draft, &sources, &[], &[]);
+        assert_eq!(draft.lines[0].unit_price_minor, 0);
+        assert!(draft.lines[0].price_assumed);
+        assert!(draft
+            .assumptions
+            .iter()
+            .any(|line| line.contains("do not state")));
+    }
+
+    #[test]
+    fn a_price_the_notes_state_is_kept() {
+        let sources = vec![source(
+            "typed-1",
+            "Replace the switch, $500 each. Budget around 5k.",
+        )];
+        let mut draft = empty_draft();
+        draft.lines.push(line("Replace the switch", 1000, 50_000));
+        validate_quote(&mut draft, &sources, &[], &[]);
+        assert_eq!(draft.lines[0].unit_price_minor, 50_000);
+        assert!(!draft.lines[0].price_assumed);
+    }
+
+    #[test]
+    fn an_amount_is_read_as_a_number_not_as_a_fragment() {
+        assert!(source_states_amount("$5,000 for the work", 500_000));
+        assert!(source_states_amount("5k for the work", 500_000));
+        assert!(source_states_amount("2 x $250", 25_000));
+        // The tail of a longer number is not that number.
+        assert!(!source_states_amount("1,500 units", 50_000));
+        assert!(!source_states_amount("$500.99", 50_000));
+    }
+
+    #[test]
+    fn a_catalogue_number_that_conflicts_is_not_a_match() {
+        let catalog = vec![CatalogRow {
+            id: Uuid::now_v7(),
+            name: "48 port PoE switch".into(),
+            unit: "each".into(),
+            unit_price_minor: 88_000,
+        }];
+        assert!(match_catalog("24 port PoE switch", &catalog).is_none());
+        assert!(match_catalog("48 port PoE switch", &catalog).is_some());
+        let mut draft = empty_draft();
+        draft.lines.push(line("24 port PoE switch", 1000, 0));
+        validate_quote(&mut draft, &[], &catalog, &[]);
+        // No authoritative price is assigned to an ambiguous line.
+        assert_eq!(draft.lines[0].catalog_item_id, None);
+        assert!(draft.lines[0].price_assumed);
+    }
+
+    #[test]
+    fn a_clause_without_a_parameter_takes_no_value() {
+        let row = ClauseRow {
+            id: Uuid::now_v7(),
+            org_id: None,
+            key: "scope".into(),
+            title: "Services and scope".into(),
+            body: "The supplier provides the services.".into(),
+            version: 1,
+            status: "standard".into(),
+            review_required: false,
+            parameter_label: None,
+            standard_value: None,
+        };
+        let rendered = clause_ref(&row, Some("anything at all".into()));
+        assert_eq!(rendered.parameter_value, None);
+        assert_eq!(rendered.status, "standard");
+        assert!(!rendered.review_required);
+    }
+
+    #[test]
+    fn a_contract_total_the_model_wrote_is_discarded() {
+        let sources = vec![source("typed-1", "12 users at $38 each, billed monthly.")];
+        let mut draft = contract_draft();
+        draft.value_minor = Some(500_000);
+        draft.pricing.push(ContractPriceLine {
+            label: "Users".into(),
+            quantity_milli: 12_000,
+            unit_price_minor: 3_800,
+            quantity_assumed: false,
+            price_assumed: false,
+            source_span: Some(SourceSpan {
+                source_id: "typed-1".into(),
+                start: 0,
+                end: 29,
+            }),
+        });
+        validate_contract(
+            &mut draft,
+            &sources,
+            &[],
+            &[],
+            &[],
+            &std::collections::BTreeMap::new(),
+        );
+        assert_eq!(draft.value_minor, Some(45_600));
+
+        // No rates means no value to stand behind, whatever the model said.
+        draft.pricing.clear();
+        draft.value_minor = Some(500_000);
+        validate_contract(
+            &mut draft,
+            &sources,
+            &[],
+            &[],
+            &[],
+            &std::collections::BTreeMap::new(),
+        );
+        assert_eq!(draft.value_minor, None);
+        assert!(draft.checks.iter().any(|check| check.contains("no rate")));
+    }
+
+    #[test]
+    fn a_contract_rate_the_words_do_not_state_is_assumed() {
+        let mut draft = contract_draft();
+        draft.pricing.push(ContractPriceLine {
+            label: "Users".into(),
+            quantity_milli: 12_000,
+            unit_price_minor: 3_800,
+            quantity_assumed: false,
+            price_assumed: false,
+            source_span: None,
+        });
+        // No source states $38, so the rate is not kept as a stated amount.
+        validate_contract(
+            &mut draft,
+            &[source("typed-1", "Managed service for the office.")],
+            &[],
+            &[],
+            &[],
+            &std::collections::BTreeMap::new(),
+        );
+        assert_eq!(draft.pricing[0].unit_price_minor, 0);
+        assert!(draft.pricing[0].price_assumed);
+        assert!(draft
+            .checks
+            .iter()
+            .any(|check| check.contains("needs setting")));
+    }
+
+    #[test]
+    fn a_negative_price_on_an_added_line_is_refused() {
+        let mut draft = empty_draft();
+        let (applied, issues) = apply_quote_operations(
+            &mut draft,
+            vec![ChangeOperation {
+                path: "lines[+]".into(),
+                value: json!({
+                    "description": "Cabling",
+                    "quantity_milli": 1000,
+                    "unit_price_minor": -100
+                }),
+                summary: "Add cabling".into(),
+                kind: "add".into(),
+            }],
+        );
+        assert!(applied.is_empty());
+        assert_eq!(issues.len(), 1);
+        assert!(draft.lines.is_empty());
+    }
+
+    #[test]
+    fn a_price_change_rebuilds_the_check_list() {
+        let mut draft = empty_draft();
+        let mut assumed = line("Switch", 1000, 0);
+        assumed.price_assumed = true;
+        draft.lines.push(assumed);
+        draft.checks = quote_checks(&draft);
+        assert!(draft
+            .checks
+            .iter()
+            .any(|check| check.contains("was not in your notes")));
+
+        let (applied, issues) = apply_quote_operations(
+            &mut draft,
+            vec![ChangeOperation {
+                path: "lines[0].unit_price_minor".into(),
+                value: json!(50_000),
+                summary: "Set the switch price".into(),
+                kind: "edit".into(),
+            }],
+        );
+        assert!(issues.is_empty());
+        assert_eq!(applied.len(), 1);
+        assert!(!draft.lines[0].price_assumed);
+        assert!(draft
+            .checks
+            .iter()
+            .all(|check| !check.contains("was not in your notes")));
+    }
+
+    #[test]
     fn an_unknown_contract_type_falls_back_and_says_nothing_it_does_not_know() {
         let mut draft = ContractDraft {
             name: "Managed".into(),
@@ -3080,6 +3443,12 @@ mod tests {
 
     #[test]
     fn a_contract_total_is_built_from_quantities_and_rates() {
+        // The rates are the notes' own, so they survive verification and the
+        // total is the arithmetic over them.
+        let sources = vec![source(
+            "typed-1",
+            "12 users at $38 each, 14 devices at $12 each.",
+        )];
         let mut draft = ContractDraft {
             name: "Managed Silver".into(),
             contract_type: "recurring".into(),
@@ -3117,7 +3486,7 @@ mod tests {
         };
         validate_contract(
             &mut draft,
-            &[],
+            &sources,
             &[],
             &[],
             &[],

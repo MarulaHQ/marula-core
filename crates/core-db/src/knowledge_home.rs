@@ -64,7 +64,8 @@ SELECT
   (SELECT count(*) FROM documents x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS documents_n,
   (SELECT count(*) FROM kb_articles x
-     WHERE x.org_id = c.org_id AND x.client_visible) AS articles_n,
+     WHERE x.org_id = c.org_id AND x.client_visible
+       AND x.status = 'published') AS articles_n,
   (SELECT count(*) FROM secret_records x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS secrets_n,
   (SELECT count(*) FROM knowledge_racks x
@@ -90,7 +91,8 @@ SELECT
   (SELECT max(x.updated_at) FROM documents x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS latest_document_at,
   (SELECT max(x.updated_at) FROM kb_articles x
-     WHERE x.org_id = c.org_id AND x.client_visible) AS latest_article_at,
+     WHERE x.org_id = c.org_id AND x.client_visible
+       AND x.status = 'published') AS latest_article_at,
   (SELECT max(x.updated_at) FROM knowledge_racks x
      WHERE x.org_id = c.org_id AND x.client_id = c.id) AS latest_rack_at,
   (SELECT max(x.updated_at) FROM knowledge_procedures x
@@ -228,10 +230,9 @@ pub struct RecentChange {
 }
 
 /// Recent documentation movement for one client: the newest write per record,
-/// from the record tables themselves plus the audit trail for the new types.
-/// A write that has no record row left (a delete) still appears from the
-/// audit trail, which is why both sources are unioned rather than replacing
-/// one with the other.
+/// read from the record tables themselves. A delete removes the row from this
+/// feed; the deletion act survives in the audit trail, which the record
+/// surface does not read.
 pub async fn recent_changes<'e, E>(
     executor: E,
     org_id: Uuid,
@@ -254,6 +255,7 @@ where
                FROM kb_articles a
                LEFT JOIN users u ON u.id = a.updated_by
               WHERE a.org_id = $1 AND a.client_visible
+                AND a.status = 'published'
              UNION ALL
              SELECT 'asset', a.name, a.id, NULL, a.updated_at
                FROM device_assets a
@@ -350,13 +352,34 @@ where
                LEFT JOIN users u ON u.id = d.updated_by
               WHERE d.org_id = $1 AND d.expires_at IS NOT NULL
              UNION ALL
-             SELECT 'asset_warranty', a.name, a.client_id, c.name,
-                    (a.fields->>'warranty_end')::date,
-                    a.tag, a.id, 'asset field'
-               FROM device_assets a
-               JOIN clients c ON c.id = a.client_id
-              WHERE a.org_id = $1
-                AND a.fields->>'warranty_end' ~ '^\d{4}-\d{2}-\d{2}$'
+             -- A warranty date is typed by a person, so it is parsed here
+             -- rather than cast: a shape filter still admits 2026-02-30, and
+             -- `::date` on that raises and fails the whole rollup for the
+             -- org. A value that is not a real calendar date yields no
+             -- due_on and drops out of the horizon filter instead.
+             SELECT 'asset_warranty', w.name, w.client_id, w.client_name,
+                    CASE WHEN to_char(w.candidate, 'YYYY-MM-DD') = w.raw
+                         THEN w.candidate END,
+                    w.tag, w.id, 'asset field'
+               FROM (
+                 SELECT a.name, a.client_id, c.name AS client_name, a.tag, a.id,
+                        v.raw,
+                        CASE WHEN substr(v.raw, 1, 4)::int BETWEEN 1 AND 9999
+                              AND substr(v.raw, 6, 2)::int BETWEEN 1 AND 12
+                              AND substr(v.raw, 9, 2)::int BETWEEN 1 AND 31
+                             THEN make_date(substr(v.raw, 1, 4)::int,
+                                            substr(v.raw, 6, 2)::int, 1)
+                                  + (substr(v.raw, 9, 2)::int - 1)
+                        END AS candidate
+                   FROM device_assets a
+                   JOIN clients c ON c.id = a.client_id
+                   CROSS JOIN LATERAL (
+                     SELECT CASE WHEN a.fields->>'warranty_end'
+                                       ~ '^\d{4}-\d{2}-\d{2}$'
+                                 THEN a.fields->>'warranty_end' END AS raw
+                   ) v
+                  WHERE a.org_id = $1
+               ) w
              UNION ALL
              SELECT 'secret_rotation', r.title, r.client_id, c.name,
                     (coalesce(r.last_rotated_at, r.created_at) + interval '180 days')::date,
@@ -484,6 +507,24 @@ where
     .ok_or(DbError::NotFound)
 }
 
+/// The rack row, held for the rest of the caller's transaction. A placement
+/// write reads the rack and then asks whether the units it wants are free;
+/// without the lock two requests can both see the same units free on
+/// overlapping ranges and both commit.
+pub async fn lock_rack<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<RackRecord>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query_as::<_, RackRecord>(&format!(
+        "SELECT {RACK_COLS} FROM knowledge_racks WHERE org_id = $1 AND id = $2 FOR UPDATE"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct RackDeviceRecord {
@@ -525,6 +566,31 @@ where
     .bind(rack_id)
     .fetch_all(executor)
     .await?)
+}
+
+/// True when this placement really is on that rack. A path names both, and a
+/// device from another rack must not be movable or deletable through it.
+pub async fn rack_device_on<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    rack_id: Uuid,
+    device_id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let found: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+             SELECT 1 FROM knowledge_rack_devices
+              WHERE org_id = $1 AND rack_id = $2 AND id = $3
+           )"#,
+    )
+    .bind(org_id)
+    .bind(rack_id)
+    .bind(device_id)
+    .fetch_one(executor)
+    .await?;
+    Ok(found)
 }
 
 /// True when the proposed placement overlaps an existing one on the same face.
@@ -663,19 +729,29 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_rack<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_rack(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
+    // The placements leave with the rack (their foreign key cascades), so the
+    // edges that name them are dropped while they can still be matched.
+    sqlx::query(
+        "DELETE FROM knowledge_links l
+           USING knowledge_rack_devices d
+          WHERE d.org_id = $1 AND d.rack_id = $2
+            AND ((l.from_kind = 'rack_device' AND l.from_id = d.id)
+              OR (l.to_kind = 'rack_device' AND l.to_id = d.id))",
+    )
+    .bind(org_id)
+    .bind(id)
+    .execute(&mut *conn)
+    .await?;
     let r = sqlx::query("DELETE FROM knowledge_racks WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "rack", id).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -769,19 +845,20 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_rack_device<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_rack_device(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_rack_devices WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "rack_device", id).await
 }
 
 /* ------------------------------------------------------------------------- */
@@ -924,19 +1001,29 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_network<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_network(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
+    // Subnets leave with the network (their foreign key cascades), so the
+    // edges that name them are dropped while they can still be matched.
+    sqlx::query(
+        "DELETE FROM knowledge_links l
+           USING knowledge_subnets s
+          WHERE s.org_id = $1 AND s.network_id = $2
+            AND ((l.from_kind = 'subnet' AND l.from_id = s.id)
+              OR (l.to_kind = 'subnet' AND l.to_id = s.id))",
+    )
+    .bind(org_id)
+    .bind(id)
+    .execute(&mut *conn)
+    .await?;
     let r = sqlx::query("DELETE FROM knowledge_networks WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "network", id).await
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -970,7 +1057,7 @@ where
 {
     Ok(sqlx::query_as::<_, SubnetRecord>(&format!(
         "SELECT {SUBNET_COLS} FROM knowledge_subnets
-          WHERE org_id = $1 AND network_id = $2 ORDER BY cidr"
+          WHERE org_id = $1 AND network_id = $2 ORDER BY knowledge_subnets.cidr"
     ))
     .bind(org_id)
     .bind(network_id)
@@ -988,7 +1075,7 @@ where
 {
     Ok(sqlx::query_as::<_, SubnetRecord>(&format!(
         "SELECT {SUBNET_COLS} FROM knowledge_subnets
-          WHERE org_id = $1 AND client_id = $2 ORDER BY cidr"
+          WHERE org_id = $1 AND client_id = $2 ORDER BY knowledge_subnets.cidr"
     ))
     .bind(org_id)
     .bind(client_id)
@@ -1071,19 +1158,16 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_subnet<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_subnet(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_subnets WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "subnet", id).await
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
@@ -1115,7 +1199,7 @@ where
 {
     Ok(sqlx::query_as::<_, IpReservationRecord>(&format!(
         "SELECT {IP_COLS} FROM knowledge_ip_reservations
-          WHERE org_id = $1 AND subnet_id = $2 ORDER BY address"
+          WHERE org_id = $1 AND subnet_id = $2 ORDER BY knowledge_ip_reservations.address"
     ))
     .bind(org_id)
     .bind(subnet_id)
@@ -1123,6 +1207,8 @@ where
     .await?)
 }
 
+/// The address is stored as the host itself: `10.0.0.7` and `10.0.0.7/24` are
+/// one reservation, not two that read back the same.
 #[allow(clippy::too_many_arguments)]
 pub async fn insert_reservation<'e, E>(
     executor: E,
@@ -1142,7 +1228,7 @@ where
     Ok(sqlx::query_as::<_, IpReservationRecord>(&format!(
         "INSERT INTO knowledge_ip_reservations
            (id, org_id, client_id, subnet_id, address, hostname, asset_id, status, notes)
-         VALUES ($1,$2,$3,$4,$5::inet,$6,$7,$8,$9)
+         VALUES ($1,$2,$3,$4,host($5::inet)::inet,$6,$7,$8,$9)
          RETURNING {IP_COLS}"
     ))
     .bind(id)
@@ -1341,19 +1427,16 @@ where
     .ok_or(DbError::NotFound)
 }
 
-pub async fn delete_domain<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_domain(conn: &mut sqlx::PgConnection, org_id: Uuid, id: Uuid) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_domains WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "domain", id).await
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1528,19 +1611,20 @@ where
     r.ok_or(DbError::NotFound)
 }
 
-pub async fn delete_procedure<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<()>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+pub async fn delete_procedure(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<()> {
     let r = sqlx::query("DELETE FROM knowledge_procedures WHERE org_id = $1 AND id = $2")
         .bind(org_id)
         .bind(id)
-        .execute(executor)
+        .execute(&mut *conn)
         .await?;
     if r.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
-    Ok(())
+    delete_links_for(conn, org_id, "procedure", id).await
 }
 
 /// Replaces the step list wholesale. A procedure's steps are one authored
@@ -1595,6 +1679,28 @@ pub struct LinkRecord {
 
 const LINK_COLS: &str =
     "id, org_id, client_id, from_kind, from_id, to_kind, to_id, label, created_at";
+
+/// Drops the edges one record owned. Neither endpoint can be a foreign key —
+/// a link names a record by kind and id — so deleting the record has to delete
+/// them; a leftover edge reads as a relationship to something that is gone.
+async fn delete_links_for(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    kind: &str,
+    id: Uuid,
+) -> DbResult<()> {
+    sqlx::query(
+        "DELETE FROM knowledge_links
+          WHERE org_id = $1
+            AND ((from_kind = $2 AND from_id = $3) OR (to_kind = $2 AND to_id = $3))",
+    )
+    .bind(org_id)
+    .bind(kind)
+    .bind(id)
+    .execute(conn)
+    .await?;
+    Ok(())
+}
 
 /// Every edge touching this record, in either direction, as one list. A
 /// relationship is not directional to a reader, so the surface prints both
@@ -1853,7 +1959,19 @@ pub async fn update_template(
     fields: &serde_json::Value,
     user_id: Uuid,
 ) -> DbResult<TemplateRecord> {
-    let current = get_template(&mut *conn, org_id, id).await?;
+    // The row is locked for the rest of the caller's transaction: two editors
+    // that both read the version they are replacing would snapshot the same
+    // number, and the later update would overwrite the earlier one's content
+    // without ever recording it.
+    let current = sqlx::query_as::<_, TemplateRecord>(&format!(
+        "SELECT {TEMPLATE_COLS} FROM knowledge_templates
+          WHERE org_id = $1 AND id = $2 FOR UPDATE"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
     // Snapshot the version being replaced before it is overwritten, so a
     // document written from an older template can still be read against the
     // words it actually used.

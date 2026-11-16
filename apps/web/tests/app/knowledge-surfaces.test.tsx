@@ -70,6 +70,19 @@ const ARTICLE_GATED = {
   created_at: "2026-09-01T10:00:00Z",
   updated_at: "2026-09-02T10:00:00Z",
 };
+const ARTICLE_UNPUBLISHED_VISIBLE = {
+  id: "a-3",
+  org_id: "o",
+  title: "Draft for the client",
+  slug: "draft-for-the-client",
+  body: "",
+  status: "draft",
+  category_id: "cat-a",
+  client_visible: true,
+  content_jsonb: null,
+  created_at: "2026-09-01T10:00:00Z",
+  updated_at: "2026-09-02T10:00:00Z",
+};
 
 const LAYOUT = {
   id: "l-1",
@@ -80,7 +93,7 @@ const LAYOUT = {
   is_system: false,
 };
 
-function setupKb(): MockApi {
+function setupKb(articles = [ARTICLE_PUBLISHED, ARTICLE_GATED]): MockApi {
   const mock = new MockApi();
   mock.on("GET", "/api/v1/me", () => ({ json: ME_FIXTURE }));
   mock.on("GET", "/api/v1/boards/nav", () => ({ json: [] }));
@@ -88,7 +101,7 @@ function setupKb(): MockApi {
   mock.on("GET", "/api/v1/notifications/unread-count", () => ({ json: { count: 0 } }));
   mock.on("GET", "/api/v1/notifications", () => ({ json: { items: [], next_cursor: null } }));
   mock.on("GET", "/api/v1/kb/categories", () => ({ json: [CAT_CLIENT_FACING, CAT_STAFF_ONLY] }));
-  mock.on("GET", "/api/v1/kb/articles", () => ({ json: [ARTICLE_PUBLISHED, ARTICLE_GATED] }));
+  mock.on("GET", "/api/v1/kb/articles", () => ({ json: articles }));
   mock.install();
   return mock;
 }
@@ -186,6 +199,25 @@ describe("/kb/articles — publish state", () => {
     expect(
       blocked.getAttribute("title") ?? blocked.parentElement?.getAttribute("title") ?? "",
     ).toContain("staff-only");
+  });
+
+  it("does not call a client-facing draft portal content", async () => {
+    setupKb([ARTICLE_PUBLISHED, ARTICLE_GATED, ARTICLE_UNPUBLISHED_VISIBLE]);
+    render(
+      <AuthProvider>
+        <KbPage />
+      </AuthProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("kb-article-table")).toBeTruthy();
+    });
+    // The article and its category are both client-facing, but an unpublished
+    // article is still not in the portal: the row says so in its own words.
+    const draft = await screen.findByText("Not published");
+    expect(
+      draft.getAttribute("title") ?? draft.parentElement?.getAttribute("title") ?? "",
+    ).toContain("not published");
+    expect(screen.getAllByText("In portal")).toHaveLength(1);
   });
 
   it("shows the publish row inside the article editor, and states the gate in words", async () => {

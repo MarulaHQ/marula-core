@@ -23,20 +23,57 @@ export function ClientScopeSelect({
   clientId: string | null;
   label?: string;
 }): React.JSX.Element | null {
-  useRequireAuth();
+  // The list is fetched once, so it must wait for the token restore a full page
+  // load performs after mount; a request fired before that carries no bearer.
+  const { status } = useRequireAuth();
   const router = useRouter();
   const [clients, setClients] = useState<{ id: string; name: string }[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (status !== "authed") return;
     let cancelled = false;
-    api.api.GET("/api/v1/clients").then(({ data }) => {
-      if (cancelled) return;
-      setClients((data ?? []).map((client) => ({ id: client.id as string, name: client.name })));
-    });
+    setFailed(false);
+    api.api
+      .GET("/api/v1/clients")
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error !== undefined || data === undefined) {
+          // An error is not an empty client list: saying "none" would leave the
+          // selector empty with no way to retry.
+          setClients([]);
+          setFailed(true);
+          return;
+        }
+        setClients(data.map((client) => ({ id: client.id as string, name: client.name })));
+      })
+      .catch(() => {
+        // A thrown request is the same fact as an error status.
+        if (cancelled) return;
+        setClients([]);
+        setFailed(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [status, attempt]);
+
+  if (failed) {
+    return (
+      <span className="flex items-center gap-2 text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
+        Clients did not load.
+        <button
+          type="button"
+          onClick={() => setAttempt((count) => count + 1)}
+          className="h-8 rounded-[8px] border px-2.5 text-[12px] font-semibold"
+          style={{ borderColor: "var(--m-border)", color: "var(--m-text)" }}
+        >
+          Try again
+        </button>
+      </span>
+    );
+  }
 
   if (clients === null) return null;
 

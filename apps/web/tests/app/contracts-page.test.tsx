@@ -9,7 +9,7 @@
 //
 // Non-purpose: the record page (`/contracts/[id]`), which has its own suite.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { AuthProvider } from "../../lib/api";
@@ -101,7 +101,15 @@ beforeEach(() => {
 
 describe("/contracts", () => {
   it("renders the ledger with the renewal signal as a blush pill", async () => {
-    setup();
+    // A term inside the renewal window, counted from the clock the ledger uses,
+    // so the assertion does not depend on the day the suite runs.
+    const endsIn = (days: number): string => {
+      const d = new Date();
+      d.setUTCHours(0, 0, 0, 0);
+      d.setUTCDate(d.getUTCDate() + days);
+      return d.toISOString().slice(0, 10);
+    };
+    setup({ contracts: [contract("101", { effective_until: endsIn(20) })] });
     render(
       <AuthProvider>
         <ContractsPage />
@@ -110,9 +118,14 @@ describe("/contracts", () => {
     expect(await screen.findByText("C-101")).toBeInTheDocument();
     const row = await screen.findByTestId("contract-row-101");
     expect(row).toBeInTheDocument();
-    // A renewal inside its window is the due pair, never the danger pair.
-    const badge = row.querySelector(".m-badge, [data-tone]");
-    expect(badge === null || badge.getAttribute("data-tone") !== "danger").toBe(true);
+    // The signal is required and it is in words, not colour alone.
+    const label = await within(row).findByText(/\d+ days left/);
+    const pill = label.closest('[data-slot="pill"]');
+    expect(pill).not.toBeNull();
+    // A renewal inside its window is the due pair (blush), never the danger
+    // pair: red is a breach, a destructive action or a P1.
+    expect(pill?.className).toContain("bg-mc-attn");
+    expect(pill?.className).not.toContain("bg-mc-st-breach");
   });
 
   it("offers Describe it as a third way to start when the grant exists", async () => {

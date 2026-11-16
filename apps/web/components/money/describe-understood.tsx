@@ -101,6 +101,7 @@ export function DescribeUnderstood({
  * the one thing support needs and the one thing the person cannot reconstruct.
  */
 export function DescribeFailure({
+  kind,
   message,
   reference,
   sourceCount,
@@ -108,6 +109,8 @@ export function DescribeFailure({
   onEditNotes,
   onStartBlank,
 }: {
+  /** Which record the blank action starts: a quote or a contract. */
+  kind: "quote" | "contract";
   message: string;
   reference: string | null;
   sourceCount: number;
@@ -129,8 +132,8 @@ export function DescribeFailure({
           something half right.
         </p>
         <p className="m-dsc-hint">
-          Try again, or edit your notes and I will read them again. You can also start a blank
-          quote with these notes attached.
+          Try again, or edit your notes and I will read them again. You can also start a blank{" "}
+          {kind} with these notes attached.
         </p>
         {reference !== null ? (
           <p className="m-dsc-ref">
@@ -151,7 +154,7 @@ export function DescribeFailure({
           Edit my notes
         </button>
         <button type="button" className="m-dsc-option" onClick={onStartBlank}>
-          Start a blank quote
+          Start a blank {kind}
         </button>
         <button
           type="button"

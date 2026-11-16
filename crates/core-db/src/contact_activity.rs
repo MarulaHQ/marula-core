@@ -56,9 +56,14 @@ pub async fn list_for_client(
             FROM address_book a
             JOIN email_messages em
               ON em.org_id = $1
+             AND a.email <> ''
              AND (
-                  (a.email <> '' AND lower(em.from_address) = a.email)
-                  OR (a.email <> '' AND EXISTS (
+                  -- Inbound mail is from the contact; outbound mail is to them.
+                  -- Pairing the address with the direction is what stops a
+                  -- colleague copied on a customer's email from reading as a
+                  -- contact that never happened.
+                  (em.direction = 'inbound' AND lower(em.from_address) = a.email)
+                  OR (em.direction = 'outbound' AND EXISTS (
                         SELECT 1 FROM unnest(em.to_addresses) AS addr
                         WHERE lower(addr) = a.email
                       ))
@@ -91,7 +96,7 @@ pub async fn list_for_client(
             SELECT
                 a.contact_id,
                 v.occurred_at AS at,
-                CASE WHEN v.direction = 'inbound' THEN 'call_in' ELSE 'call_out' END AS kind,
+                CASE WHEN v.direction = 'in' THEN 'call_in' ELSE 'call_out' END AS kind,
                 NULLIF(v.summary, '') AS detail
             FROM address_book a
             JOIN voip_call_logs v

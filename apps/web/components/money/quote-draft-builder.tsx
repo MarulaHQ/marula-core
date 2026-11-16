@@ -22,8 +22,16 @@ import type {
   SourceSpan,
   Understanding,
 } from "../../lib/money-authoring";
-import { formatMoneyMinor, lineAmountMinor, sectionsOf, sliceChars } from "./draft-math";
-import { FieldValue, LineMark, ProvenanceDot, ThingsToCheck } from "./draft-provenance";
+import { DecimalField } from "./decimal-field";
+import { formatMoneyMinor, lineAmountMinor, sectionsOf } from "./draft-math";
+import {
+  FieldValue,
+  LineMark,
+  ProvenanceDot,
+  ThingsToCheck,
+  highlightsOf,
+  renderSource,
+} from "./draft-provenance";
 
 export type EditableLine = {
   description: string;
@@ -82,10 +90,13 @@ export function QuoteItemsTable({
       </thead>
       <tbody>
         {sections.map((section) => {
-          const subtotal = section.lines.reduce(
-            (sum, { line }) => sum + lineAmountMinor(line.quantity_milli, line.unit_price_minor),
-            0,
-          );
+          const optionalOnly = section.lines.every(({ line }) => line.optional === true);
+          const subtotal = section.lines
+            .filter(({ line }) => optionalOnly || line.optional !== true)
+            .reduce(
+              (sum, { line }) => sum + lineAmountMinor(line.quantity_milli, line.unit_price_minor),
+              0,
+            );
           return (
             <SectionRows
               key={section.title}
@@ -93,13 +104,13 @@ export function QuoteItemsTable({
               count={section.lines.length}
               subtotal={subtotal}
               currency={currency}
-              optionalOnly={section.lines.every(({ line }) => line.optional === true)}
+              optionalOnly={optionalOnly}
             >
               {section.lines.map(({ line, index }) => {
                 const note = noteNumbers[index] ?? null;
                 return (
                   <tr
-                    key={`${index}-${line.description}`}
+                    key={index}
                     data-optional={line.optional === true ? "true" : "false"}
                     data-proposed={proposed.has(index) ? "true" : "false"}
                     data-testid={`${testIdPrefix}-line-${index}`}
@@ -140,19 +151,14 @@ export function QuoteItemsTable({
                     </td>
                     <td className="m-dsc-num">
                       {editable ? (
-                        <input
-                          className="m-input m-dsc-num"
-                          style={{ width: 74 }}
-                          inputMode="decimal"
-                          aria-label={`Quantity for line ${index + 1}`}
-                          value={String(line.quantity_milli / 1000)}
-                          onChange={(event) => {
-                            const value = Number(event.target.value);
-                            onChange(index, {
-                              quantity_milli: Number.isNaN(value) ? 0 : Math.round(value * 1000),
-                              quantity_assumed: false,
-                            });
-                          }}
+                        <DecimalField
+                          label={`Quantity for line ${index + 1}`}
+                          value={line.quantity_milli}
+                          scale={1000}
+                          width={74}
+                          onCommit={(quantity_milli) =>
+                            onChange(index, { quantity_milli, quantity_assumed: false })
+                          }
                         />
                       ) : (
                         <FieldValue assumed={line.quantity_assumed}>
@@ -162,19 +168,15 @@ export function QuoteItemsTable({
                     </td>
                     <td className="m-dsc-num">
                       {editable ? (
-                        <input
-                          className="m-input m-dsc-num"
-                          style={{ width: 96 }}
-                          inputMode="decimal"
-                          aria-label={`Unit price for line ${index + 1}`}
-                          value={(line.unit_price_minor / 100).toFixed(2)}
-                          onChange={(event) => {
-                            const value = Number(event.target.value);
-                            onChange(index, {
-                              unit_price_minor: Number.isNaN(value) ? 0 : Math.round(value * 100),
-                              price_assumed: false,
-                            });
-                          }}
+                        <DecimalField
+                          label={`Unit price for line ${index + 1}`}
+                          value={line.unit_price_minor}
+                          scale={100}
+                          width={96}
+                          decimals={2}
+                          onCommit={(unit_price_minor) =>
+                            onChange(index, { unit_price_minor, price_assumed: false })
+                          }
                         />
                       ) : (
                         <FieldValue assumed={line.price_assumed}>
@@ -385,21 +387,17 @@ export function QuoteSummary({
 export function QuoteNotesTab({
   sources,
   lines,
-  noteNumbers,
   emptyHint,
 }: {
   sources: MoneySource[];
   lines: EditableLine[];
-  noteNumbers: (number | null)[];
   emptyHint: string;
 }): React.JSX.Element {
-  const highlights = lines
-    .map((line, index) => ({ line, index, number: noteNumbers[index] }))
-    .filter((row) => row.number !== null && row.line.source_span != null)
-    .map((row) => ({ number: row.number as number, span: row.line.source_span as SourceSpan }));
+  const highlights = highlightsOf(lines);
 
-  // A constraint that became no line of its own lives in the words, not in the
-  // item table; the notes tab quotes it so nothing silently disappeared.
+  // A constraint that became no line of its own lives in the words. This is a
+  // hint to read the rows against the notes, not a coverage claim: nothing here
+  // can know which sentences became lines and which became terms.
   const constraint = sources
     .flatMap((source) => source.text.split(/[.\n]/))
     .map((sentence) => sentence.trim())
@@ -424,7 +422,7 @@ export function QuoteNotesTab({
             {source.name ?? source.kind}
           </p>
           <p className="m-dsc-notes">
-            {renderHighlights(
+            {renderSource(
               source,
               highlights.filter((highlight) => highlight.span.source_id === source.id),
             )}
@@ -437,36 +435,12 @@ export function QuoteNotesTab({
         </p>
         <p className="m-dsc-hint">
           {constraint === undefined
-            ? "Nothing was left out. Every sentence either became a line or was kept as a term."
-            : `A constraint with no line of its own was kept as a term: “${constraint}”.`}
+            ? "Not every sentence has to become a line. Read the words above against the rows before you save."
+            : `These words read as a constraint rather than a line: “${constraint}”.`}
         </p>
       </div>
     </div>
   );
-}
-
-function renderHighlights(source: MoneySource, spans: { number: number; span: SourceSpan }[]): React.ReactNode[] {
-  const ordered = [...spans].sort((a, b) => a.span.start - b.span.start);
-  const nodes: React.ReactNode[] = [];
-  let cursor = 0;
-  for (const highlight of ordered) {
-    if (highlight.span.start < cursor) continue;
-    if (highlight.span.start > cursor) nodes.push(sliceChars(source.text, cursor, highlight.span.start));
-    nodes.push(
-      <span key={`${highlight.number}-${highlight.span.start}`}>
-        <span className="m-dsc-highlight">
-          {sliceChars(source.text, highlight.span.start, highlight.span.end)}
-        </span>
-        <span className="m-dsc-mark-num" aria-label={`Note ${highlight.number}`}>
-          {highlight.number}
-        </span>
-      </span>,
-    );
-    cursor = highlight.span.end;
-  }
-  const length = Array.from(source.text).length;
-  if (cursor < length) nodes.push(sliceChars(source.text, cursor, length));
-  return nodes;
 }
 
 /**
@@ -481,6 +455,7 @@ export function ChangeProposalCard({
   resultingTotalMinor,
   currency,
   busy,
+  stale,
   error,
   onInstruction,
   onSubmit,
@@ -493,12 +468,15 @@ export function ChangeProposalCard({
   resultingTotalMinor: number | null;
   currency: string;
   busy: boolean;
+  /** The draft moved on since this was read, so applying it would undo edits. */
+  stale: boolean;
   error: string | null;
   onInstruction: (value: string) => void;
   onSubmit: () => void;
   onApply: () => void;
   onDismiss: () => void;
 }): React.JSX.Element {
+  const canSubmit = !busy && instruction.trim() !== "";
   return (
     <div className="flex flex-col gap-3" data-testid="change-proposal">
       {instruction.trim() !== "" ? (
@@ -512,10 +490,15 @@ export function ChangeProposalCard({
 
       {operations.length > 0 ? (
         <AssistantCard
-          eyebrow="Proposed change"
+          eyebrow={stale ? "Out of date" : "Proposed change"}
           heading={sentence ?? "Here is what I would change"}
           action={
-            <Button variant="assistant" onClick={onApply} data-testid="change-apply">
+            <Button
+              variant="assistant"
+              onClick={onApply}
+              disabled={stale}
+              data-testid="change-apply"
+            >
               <Icon name="check" size={15} /> Apply {operations.length} change
               {operations.length === 1 ? "" : "s"}
             </Button>
@@ -529,8 +512,10 @@ export function ChangeProposalCard({
           }
           footer={
             <p className="m-dsc-hint" style={{ color: "inherit", opacity: 0.85 }}>
-              The rows it touches are marked on the left. Nothing changes until you apply.
-              {resultingTotalMinor !== null
+              {stale
+                ? "The draft changed after I read this, so it is out of date. Describe the change again."
+                : "The rows it touches are marked on the left. Nothing changes until you apply."}
+              {!stale && resultingTotalMinor !== null
                 ? ` The new total would be ${formatMoneyMinor(resultingTotalMinor, currency)}.`
                 : ""}
             </p>
@@ -566,9 +551,13 @@ export function ChangeProposalCard({
           placeholder="Describe a change"
           onChange={(event) => onInstruction(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            // The same guard as the button: a second request while one is
+            // running lets the later answer overwrite the earlier one, and a
+            // blank box has nothing to propose. Enter during IME composition
+            // is confirming a candidate, not submitting.
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              onSubmit();
+              if (canSubmit) onSubmit();
             }
           }}
           data-testid="change-instruction"
@@ -579,7 +568,7 @@ export function ChangeProposalCard({
         variant="secondary"
         size="sm"
         onClick={onSubmit}
-        disabled={busy || instruction.trim() === ""}
+        disabled={!canSubmit}
         data-testid="change-submit"
       >
         {busy ? "Reading the change…" : "Propose the change"}

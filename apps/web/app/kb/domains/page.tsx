@@ -22,17 +22,20 @@ import {
 } from "../../../components/knowledge/knowledge-api";
 
 export default function DomainsPage() {
-  useRequireAuth();
+  // A full page load restores the session after mount; a request fired before
+  // that carries no bearer, so it waits for the authenticated status.
+  const { status } = useRequireAuth();
   const search = useSearchParams();
   const clientId = search.get("client_id");
   const [rows, setRows] = useState<Domain[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (status !== "authed") return;
     let cancelled = false;
     setRows(null);
     setError(null);
-    const query = clientId === null ? "" : `?client_id=${clientId}`;
+    const query = clientId === null ? "" : `?client_id=${encodeURIComponent(clientId)}`;
     knowledgeApi
       .get<Domain[]>(`/api/v1/knowledge/domains${query}`)
       .then((data) => {
@@ -44,7 +47,7 @@ export default function DomainsPage() {
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [clientId, status]);
 
   return (
     <PageFrame>
@@ -62,8 +65,9 @@ export default function DomainsPage() {
           }
         />
 
-        {error !== null ? <ErrorNote title="Domains did not load.">{error}</ErrorNote> : null}
-        {rows === null ? (
+        {error !== null ? (
+          <ErrorNote title="Domains did not load.">{error}</ErrorNote>
+        ) : rows === null ? (
           <SkeletonRows rows={6} sentence="Loading domains" columns={5} />
         ) : rows.length === 0 ? (
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

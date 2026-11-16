@@ -240,6 +240,9 @@ export default function QuotesPage(): ReactNode {
   const [changeOperations, setChangeOperations] = useState<ChangeOperation[]>([]);
   const [changeDraft, setChangeDraft] = useState<QuoteDraft | null>(null);
   const [changeTotal, setChangeTotal] = useState<number | null>(null);
+  /** The draft the proposal was described against; a newer draft makes it stale. */
+  const [changeBase, setChangeBase] = useState<string | null>(null);
+  const changeRequest = useRef(0);
   const [proposed, setProposed] = useState<Set<number>>(new Set());
 
   // ---- describe panel ----------------------------------------------------
@@ -442,12 +445,9 @@ export default function QuotesPage(): ReactNode {
     return {
       title: "Quote",
       currency: newCurrency,
-      valid_for_days: Math.max(
-        1,
-        Math.round(
-          (new Date(`${newValidUntil}T00:00:00`).getTime() - Date.now()) / 86_400_000,
-        ),
-      ),
+      // Calendar days, the same count `isoDay` applies, so a change round trip
+      // cannot walk the selected date back a day.
+      valid_for_days: Math.max(1, daysUntil(newValidUntil) ?? 30),
       notes: newNotes.trim() === "" ? null : newNotes,
       client_id: newClientId === "" ? null : newClientId,
       client_name: newClientId === "" ? null : clientName(newClientId),
@@ -471,11 +471,18 @@ export default function QuotesPage(): ReactNode {
     };
   }
 
+  /** A catalogue item's taxability, or the create payload's default. */
+  function taxableOf(catalogItemId: string | null | undefined): boolean {
+    if (catalogItemId === null || catalogItemId === undefined) return true;
+    return (catalog ?? []).find((item) => item.id === catalogItemId)?.taxable ?? true;
+  }
+
   function applyDraft(next: QuoteDraft): void {
     setNewCurrency(next.currency || "USD");
     setNewValidUntil(isoDay(next.valid_for_days ?? 30));
     setNewNotes(next.notes ?? "");
-    if (next.client_id !== null && next.client_id !== undefined) setNewClientId(next.client_id);
+    // An unnamed client is a choice to make, not the last one still selected.
+    setNewClientId(next.client_id ?? "");
     setBudgetMinor(next.budget_minor ?? null);
     setLines(
       next.lines.length === 0
@@ -486,7 +493,10 @@ export default function QuotesPage(): ReactNode {
             unit_price_minor: line.unit_price_minor,
             unit: line.unit ?? "each",
             catalog_item_id: line.catalog_item_id ?? null,
-            taxable: true,
+            // The draft contract has no taxability field, so a catalogue line
+            // takes its flag from the catalogue it came from; anything else
+            // stays taxable, as the create payload defaults.
+            taxable: taxableOf(line.catalog_item_id),
             optional: line.optional === true,
             section: line.section ?? null,
             source: line.source ?? "assumed",
@@ -498,10 +508,24 @@ export default function QuotesPage(): ReactNode {
     setProposed(new Set());
   }
 
+  // A proposal is only good for the draft it was described against: the
+  // fingerprint is that draft's content, so editing a price, a quantity or a
+  // note after a proposal arrives makes the proposal stale instead of letting
+  // Apply undo the edit.
+  const draftKey = JSON.stringify(currentDraft());
+  const changeStale = changeDraft !== null && changeBase !== null && changeBase !== draftKey;
+  const draftKeyRef = useRef(draftKey);
+  useEffect(() => {
+    draftKeyRef.current = draftKey;
+  }, [draftKey]);
+
   async function proposeChange(): Promise<void> {
+    const requestId = ++changeRequest.current;
+    const base = draftKey;
     setChangeBusy(true);
     setChangeError(null);
     const outcome = await proposeQuoteChange(currentDraft(), changeInstruction.trim());
+    if (changeRequest.current !== requestId) return;
     setChangeBusy(false);
     if (!outcome.ok) {
       setChangeError(outcome.message);
@@ -513,23 +537,37 @@ export default function QuotesPage(): ReactNode {
       );
       return;
     }
+    if (draftKeyRef.current !== base) {
+      setChangeError("The draft changed while I read that. Describe the change again.");
+      return;
+    }
     setChangeSentence(outcome.result.sentence);
     setChangeOperations(outcome.result.operations);
     setChangeDraft(outcome.result.draft);
     setChangeTotal(outcome.result.resulting_total_minor);
+    setChangeBase(base);
     setProposed(proposedLineIndexes(outcome.result.operations.map((o) => o.path)));
+  }
+
+  /** Forget the proposal: its draft, its rows and the base it was read from. */
+  function resetChange(): void {
+    setChangeInstruction("");
+    setChangeOperations([]);
+    setChangeSentence(null);
+    setChangeDraft(null);
+    setChangeTotal(null);
+    setChangeBase(null);
+    setProposed(new Set());
   }
 
   function applyChange(): void {
     // The server returns the resulting draft, which is the authority for every
     // field a change may touch; the client never re-applies operations itself.
-    if (changeDraft === null || changeDraft === undefined) return;
+    // A proposal read against an older draft would replace newer edits, so it
+    // is refused rather than applied.
+    if (changeDraft === null || changeDraft === undefined || changeStale) return;
     applyDraft(changeDraft);
-    setChangeInstruction("");
-    setChangeSentence(null);
-    setChangeOperations([]);
-    setChangeDraft(null);
-    setChangeTotal(null);
+    resetChange();
   }
 
   // ---- create ------------------------------------------------------------
@@ -544,8 +582,13 @@ export default function QuotesPage(): ReactNode {
       setCreateError("Choose a client for the quote.");
       return;
     }
+    // Optional lines are priced and shown, but they are not part of the total
+    // the person reviewed; the create route has no optional flag to carry, so
+    // they do not become billable lines.
     const validLines: QuoteLineInput[] = lines
-      .filter((l) => l.description.trim() !== "" && l.quantity_milli > 0)
+      .filter(
+        (l) => l.description.trim() !== "" && l.quantity_milli > 0 && l.optional !== true,
+      )
       .map((line) => ({
         description: line.description.trim(),
         catalog_item_id: line.catalog_item_id ?? null,
@@ -620,7 +663,7 @@ export default function QuotesPage(): ReactNode {
     setChecks([]);
     setUnderstanding(null);
     setSources([]);
-    setProposed(new Set());
+    resetChange();
     await refreshQuotes();
   }
 
@@ -633,6 +676,7 @@ export default function QuotesPage(): ReactNode {
     setFromNotes(false);
     setSources([]);
     setCreateError(null);
+    resetChange();
     setBuilderTab("summary");
     setCreateOpen(true);
   }
@@ -1057,7 +1101,7 @@ export default function QuotesPage(): ReactNode {
                     totalMinor={totals.totalMinor}
                     optionalMinor={totals.optionalMinor}
                     currency={newCurrency}
-                    validForDays={validDays(newValidUntil)}
+                    validForDays={daysUntil(newValidUntil)}
                     checks={checks}
                     budgetMinor={budgetMinor}
                     understanding={understanding}
@@ -1067,7 +1111,6 @@ export default function QuotesPage(): ReactNode {
                   <QuoteNotesTab
                     sources={sources}
                     lines={lines}
-                    noteNumbers={noteNumbers}
                     emptyHint="This quote was built by hand. There are no words behind its lines."
                   />
                 }
@@ -1079,17 +1122,12 @@ export default function QuotesPage(): ReactNode {
                     resultingTotalMinor={changeTotal}
                     currency={newCurrency}
                     busy={changeBusy}
+                    stale={changeStale}
                     error={changeError}
                     onInstruction={setChangeInstruction}
                     onSubmit={() => void proposeChange()}
                     onApply={applyChange}
-                    onDismiss={() => {
-                      setChangeOperations([]);
-                      setChangeDraft(null);
-                      setChangeSentence(null);
-                      setChangeTotal(null);
-                      setProposed(new Set());
-                    }}
+                    onDismiss={resetChange}
                   />
                 }
               />
@@ -1143,10 +1181,4 @@ function ChangeBar({ onOpen }: { onOpen: () => void }): ReactNode {
       </button>
     </div>
   );
-}
-
-function validDays(iso: string): number | null {
-  const target = new Date(`${iso}T00:00:00`).getTime();
-  if (Number.isNaN(target)) return null;
-  return Math.max(0, Math.round((target - Date.now()) / 86_400_000));
 }

@@ -20,7 +20,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const ORG = ME_FIXTURE.org_id;
-const PROJECT = "00000000-0000-4000-8000-0000000000p1";
+const PROJECT = "00000000-0000-4000-8000-0000000000a1";
 
 function template(over: Record<string, unknown> = {}) {
   return {

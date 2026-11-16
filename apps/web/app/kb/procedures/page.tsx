@@ -36,7 +36,7 @@ export default function ProceduresPage() {
     setRows(null);
     setError(null);
     knowledgeApi
-      .get<Procedure[]>(`/api/v1/knowledge/procedures?client_id=${clientId}`)
+      .get<Procedure[]>(`/api/v1/knowledge/procedures?client_id=${encodeURIComponent(clientId)}`)
       .then((data) => {
         if (!cancelled) setRows(data);
       })
@@ -64,8 +64,9 @@ export default function ProceduresPage() {
           }
         />
 
-        {error !== null ? <ErrorNote title="Procedures did not load.">{error}</ErrorNote> : null}
-        {rows === null ? (
+        {error !== null ? (
+          <ErrorNote title="Procedures did not load.">{error}</ErrorNote>
+        ) : rows === null ? (
           <SkeletonRows rows={6} sentence="Loading procedures" columns={4} />
         ) : clientId === null ? (
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

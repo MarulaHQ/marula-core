@@ -36,7 +36,7 @@ export default function RacksPage() {
     setRows(null);
     setError(null);
     knowledgeApi
-      .get<Rack[]>(`/api/v1/knowledge/racks?client_id=${clientId}`)
+      .get<Rack[]>(`/api/v1/knowledge/racks?client_id=${encodeURIComponent(clientId)}`)
       .then((data) => {
         if (!cancelled) setRows(data);
       })
@@ -64,8 +64,9 @@ export default function RacksPage() {
           }
         />
 
-        {error !== null ? <ErrorNote title="Racks did not load.">{error}</ErrorNote> : null}
-        {rows === null ? (
+        {error !== null ? (
+          <ErrorNote title="Racks did not load.">{error}</ErrorNote>
+        ) : rows === null ? (
           <SkeletonRows rows={6} sentence="Loading racks" columns={4} />
         ) : clientId === null ? (
           <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>

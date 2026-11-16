@@ -829,7 +829,10 @@ pub async fn create_from_template(
                     &core_db::contracts::ContractFilters {
                         client_id: Some(client_id),
                         status: Some("active".into()),
-                        effective_on: None,
+                        // The contract must cover the day the work starts, not
+                        // merely exist: one that starts later, or ended before,
+                        // would bill nothing on this project.
+                        effective_on: req.start_date,
                     },
                 )
                 .await?;

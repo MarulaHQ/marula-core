@@ -1,11 +1,11 @@
-// Typed transport for the project-delivery endpoints the generated SDK does
-// not carry yet. They move to `@marula-core/sdk` when the OpenAPI pins are
-// regenerated; until then this module is the narrow local declaration of
-// exactly the shapes these surfaces read and write.
+// Typed transport for the project-delivery endpoints these surfaces call.
 //
-// One rule: a refusal is shown in the API's own words. The fetch helper turns a
-// non-2xx answer into an Error carrying the server's message, because every
-// surface here places the refusal beside the control that caused it.
+// The paths are in the generated schema (packages/sdk); this module still owns
+// their transport because every surface here needs one thing the typed client
+// does not do — a refusal shown in the API's own words — and the fetch helper
+// below does that in one place. The interfaces are this module's reading of
+// the responses, narrower than the schema's, and go away with the helper when
+// these surfaces move onto `api.api`.
 
 import { api, authReady, loadTokens, resolveApiBaseUrl } from "../../lib/api";
 
@@ -468,12 +468,14 @@ export function sharePortfolio(params: {
   from?: string;
   to?: string;
   group_by?: string;
+  at_risk_only?: boolean;
   zoom?: string;
 }): Promise<{ token: string; path: string }> {
   const query = new URLSearchParams();
   if (params.from) query.set("from", params.from);
   if (params.to) query.set("to", params.to);
   if (params.group_by) query.set("group_by", params.group_by);
+  if (params.at_risk_only) query.set("at_risk_only", "true");
   if (params.zoom) query.set("zoom", params.zoom);
   return deliveryFetch(`/api/v1/projects/portfolio/share?${query.toString()}`, {
     method: "POST",
@@ -482,7 +484,11 @@ export function sharePortfolio(params: {
 }
 
 export function fetchSharedPortfolio(token: string): Promise<PortfolioView> {
-  return deliveryFetch<PortfolioView>(`/api/v1/projects/portfolio/shared/${token}`);
+  // The token arrives from a link, so it is attacker-controllable: encode it
+  // before it becomes a path segment, or `..%2F..` would decode into one.
+  return deliveryFetch<PortfolioView>(
+    `/api/v1/projects/portfolio/shared/${encodeURIComponent(token)}`,
+  );
 }
 
 // --- pods, work and promotion ----------------------------------------------

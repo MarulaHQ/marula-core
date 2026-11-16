@@ -64,6 +64,7 @@ import {
   AlertIcon,
   BookIcon,
   CheckIcon,
+  ErrorNote,
   FileIcon,
   HEAD_CELL_CLASS,
   NoMatches,
@@ -132,11 +133,14 @@ function loadColumns(): typeof DEFAULT_COLUMNS {
     for (const column of DEFAULT_COLUMNS) {
       if (!next.some((c) => c.key === column.key)) next.push(column);
     }
-    // A column the user's saved order hides stays hidden; anything absent from
-    // the saved set falls back to the default's own visibility.
+    // A column the user saved keeps exactly the visibility they chose — a
+    // hidden default column must not reappear on reload. A column absent from
+    // the saved order (one added since) falls back to its own default.
+    const savedOrder = new Set<string>(order);
     return next.map((c) => {
       const fallback = DEFAULT_COLUMNS.find((d) => d.key === c.key);
-      return { ...c, visible: visible.has(`vis:${c.key}`) || (fallback?.visible ?? false) };
+      if (!savedOrder.has(c.key)) return { ...c, visible: fallback?.visible ?? false };
+      return { ...c, visible: c.required === true || visible.has(`vis:${c.key}`) };
     });
   } catch {
     return DEFAULT_COLUMNS;
@@ -169,7 +173,7 @@ function headingsOf(html: string | null | undefined): { level: number; text: str
   return out;
 }
 
-type Visibility = "gated" | "ungated" | "staff";
+type Visibility = "gated" | "ungated" | "unpublished" | "staff";
 
 function visibilityOf(
   article: KbArticle,
@@ -178,7 +182,12 @@ function visibilityOf(
   if (!article.client_visible) return "staff";
   const category =
     article.category_id != null ? categoryById.get(article.category_id) : undefined;
-  return category?.client_visible === true ? "gated" : "ungated";
+  // Both gates must pass: the article AND its category are client-facing.
+  if (category?.client_visible !== true) return "ungated";
+  // A client-facing draft still has not been published, and the portal's
+  // gated search only returns published articles.
+  if (article.status !== "published") return "unpublished";
+  return "gated";
 }
 
 export default function KbPage() {
@@ -203,13 +212,22 @@ export default function KbPage() {
 
   const [editing, setEditing] = useState<KbArticle | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  // The editor's own rejection strip: the dialog covers the page-level one, so
+  // a refused save inside it has to be stated inside it.
+  const [editorNote, setEditorNote] = useState<{ tone: "good" | "attention"; text: string } | null>(
+    null,
+  );
   const [viewOpen, setViewOpen] = useState(false);
   const [viewing, setViewing] = useState<KbArticle | null>(null);
   const [viewContent, setViewContent] = useState<ArticleDetail | null>(null);
   const [viewLoading, setViewLoading] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<KbCategory | null>(null);
   const firstLoad = useRef(true);
+  // Which article detail request owns the viewer: A's late answer must not
+  // replace B's content under B's title.
+  const viewRequest = useRef(0);
 
   const refresh = useCallback(async () => {
     const [c, a] = await Promise.all([
@@ -361,6 +379,51 @@ export default function KbPage() {
     [refresh],
   );
 
+  const openEditor = useCallback((article: KbArticle | null) => {
+    setEditing(article);
+    setEditorNote(null);
+    setEditorOpen(true);
+  }, []);
+
+  const loadArticleDetail = useCallback((id: string) => {
+    const token = viewRequest.current + 1;
+    viewRequest.current = token;
+    setViewLoading(true);
+    setViewError(null);
+    const isCurrent = () => viewRequest.current === token;
+    api.api
+      .GET("/api/v1/kb/articles/{id}", { params: { path: { id } } })
+      .then(({ data, error: apiError }) => {
+        if (!isCurrent()) return;
+        if (apiError !== undefined || data === undefined) {
+          setViewContent(null);
+          setViewError("The article's content did not load.");
+        } else {
+          setViewContent(data);
+        }
+        setViewLoading(false);
+      })
+      .catch(() => {
+        if (!isCurrent()) return;
+        setViewContent(null);
+        setViewError("The article's content did not load.");
+        setViewLoading(false);
+      });
+  }, []);
+
+  const openArticle = useCallback(
+    (article: KbArticle) => {
+      setViewing(article);
+      setViewContent(null);
+      setViewError(null);
+      setViewOpen(true);
+      // The request is keyed to this open, so a slower answer for a previously
+      // opened article is dropped by `loadArticleDetail`'s own token.
+      loadArticleDetail(article.id);
+    },
+    [loadArticleDetail],
+  );
+
   if (auth.status !== "authed") return null;
 
   return (
@@ -387,7 +450,7 @@ export default function KbPage() {
             <Button variant="secondary" onClick={() => { setEditingCategory(null); setCategoryOpen(true); }}>
               <PlusIcon size={16} /> New category
             </Button>
-            <Button onClick={() => { setEditing(null); setEditorOpen(true); }} data-testid="kb-new-article">
+            <Button onClick={() => openEditor(null)} data-testid="kb-new-article">
               <PlusIcon size={16} /> New article
             </Button>
           </>
@@ -548,7 +611,13 @@ export default function KbPage() {
                             ? (categoryById.get(a.category_id)?.name ?? "")
                             : "";
                         if (c.key === "status") return a.status;
-                        if (c.key === "visibility") return visibilityOf(a, categoryById);
+                        if (c.key === "visibility") {
+                          const state = visibilityOf(a, categoryById);
+                          if (state === "gated") return "In portal";
+                          if (state === "unpublished") return "Not published";
+                          if (state === "ungated") return "Not in portal";
+                          return "Staff only";
+                        }
                         if (c.key === "updated") return a.updated_at;
                         return a.created_at;
                       }),
@@ -558,6 +627,14 @@ export default function KbPage() {
               />
             }
           />
+
+          {bulkNote !== null ? (
+            <FeedbackStrip
+              note={bulkNote}
+              onDismiss={() => setBulkNote(null)}
+              testId="kb-bulk-note"
+            />
+          ) : null}
 
           <TableCard label="Knowledge base articles">
             {articles === null ? (
@@ -637,53 +714,14 @@ export default function KbPage() {
                             aria-label={`Select ${a.title}`}
                             checked={selected.has(a.id)}
                             onCheckedChange={(on) => toggleSelected(a.id, on === true)}
-/>
-
-          {bulkNote !== null ? (
-            <div
-              role="status"
-              data-testid="kb-bulk-note"
-              className="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] px-3 py-2 text-[13px]"
-              style={{
-                background:
-                  bulkNote.tone === "good"
-                    ? "var(--m-status-success-bg)"
-                    : "var(--m-status-danger-bg)",
-                color:
-                  bulkNote.tone === "good"
-                    ? "var(--m-status-success-fg)"
-                    : "var(--m-status-danger-fg)",
-              }}
-            >
-              {bulkNote.tone === "good" ? <CheckIcon size={16} /> : <AlertIcon size={16} />}
-              <span>{bulkNote.text}</span>
-              <button
-                type="button"
-                className="ml-auto inline-flex h-8 items-center rounded-[8px] border px-2.5 text-[13px] font-semibold"
-                style={{
-                  borderColor: "var(--m-border)",
-                  background: "var(--m-surface)",
-                  color: "var(--m-text)",
-                }}
-                onClick={() => setBulkNote(null)}
-              >
-                Dismiss
-              </button>
-            </div>
-          ) : null}
-
-
+                          />
                         </Td>
                         {shown.map((c) => (
                           <Td key={c.key}>
                             {c.key === "article" ? (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setViewing(a);
-                                  setViewContent(null);
-                                  setViewOpen(true);
-                                }}
+                                onClick={() => openArticle(a)}
                                 className="flex min-w-0 items-center gap-2 text-left"
                               >
                                 <span style={{ color: "var(--m-text-muted)" }}>
@@ -708,14 +746,18 @@ export default function KbPage() {
                               <span
                                 title={
                                   visibility === "gated"
-                                    ? "The article and its category are both client-facing, so the portal's gated search can return it."
-                                    : visibility === "ungated"
-                                      ? "Marked client-facing, but its category is staff-only, so the portal cannot show it yet."
-                                      : "Staff only. The portal's gated search never sees it."
+                                    ? "Published, and the article and its category are both client-facing, so the portal's gated search can return it."
+                                    : visibility === "unpublished"
+                                      ? "Marked client-facing, but it is not published, so the portal cannot return it yet."
+                                      : visibility === "ungated"
+                                        ? "Marked client-facing, but its category is staff-only, so the portal cannot show it yet."
+                                        : "Staff only. The portal's gated search never sees it."
                                 }
                               >
                                 {visibility === "gated" ? (
                                   <StatusPill tone="success">In portal</StatusPill>
+                                ) : visibility === "unpublished" ? (
+                                  <StatusPill tone="warning">Not published</StatusPill>
                                 ) : visibility === "ungated" ? (
                                   <StatusPill tone="warning">Not in portal</StatusPill>
                                 ) : (
@@ -745,7 +787,7 @@ export default function KbPage() {
                           <EmptyState
                             message="No articles yet. Write the runbook you keep explaining on the phone."
                             action={
-                              <Button onClick={() => { setEditing(null); setEditorOpen(true); }}>
+                              <Button onClick={() => openEditor(null)}>
                                 New article
                               </Button>
                             }
@@ -775,7 +817,18 @@ export default function KbPage() {
         </div>
       </div>
 
-      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+      <Dialog
+        open={viewOpen}
+        onOpenChange={(open) => {
+          setViewOpen(open);
+          if (!open) {
+            // A detail request still in flight must not land on a closed (or a
+            // later) article.
+            viewRequest.current += 1;
+            setViewLoading(false);
+          }
+        }}
+      >
         <DialogContent
           title={viewing?.title ?? "Article"}
           description="Read-only, server-rendered from the canonical Tiptap JSON."
@@ -784,23 +837,29 @@ export default function KbPage() {
             article={viewing}
             detail={viewContent}
             loading={viewLoading}
+            error={viewError}
             category={viewing?.category_id ? categoryById.get(viewing.category_id) : undefined}
-            onClose={() => setViewOpen(false)}
-            onOpen={() => {
-              if (viewing === null) return;
-              setViewLoading(true);
-              api.api
-                .GET("/api/v1/kb/articles/{id}", { params: { path: { id: viewing.id } } })
-                .then(({ data }) => {
-                  setViewContent(data ?? null);
-                  setViewLoading(false);
-                });
+            onRetry={() => {
+              if (viewing !== null) loadArticleDetail(viewing.id);
             }}
+            onEdit={() => {
+              if (viewing === null) return;
+              setViewOpen(false);
+              viewRequest.current += 1;
+              openEditor(viewing);
+            }}
+            onClose={() => setViewOpen(false)}
           />
         </DialogContent>
       </Dialog>
 
-      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+      <Dialog
+        open={editorOpen}
+        onOpenChange={(open) => {
+          setEditorOpen(open);
+          if (!open) setEditorNote(null);
+        }}
+      >
         <DialogContent
           title={editing === null ? "New article" : "Edit article"}
           description="Content saves as you type. Publishing is the row below, and it is the only thing the portal sees."
@@ -810,25 +869,35 @@ export default function KbPage() {
               categories={categories ?? []}
               onCreated={(created) => {
                 setEditing(created);
+                setEditorNote(null);
                 void refresh();
               }}
             />
           ) : (
             <div className="grid gap-2">
+              {editorNote !== null ? (
+                <FeedbackStrip
+                  note={editorNote}
+                  onDismiss={() => setEditorNote(null)}
+                  testId="kb-editor-note"
+                />
+              ) : null}
               <KbArticleEditor
+                key={`editor:${editing.id}`}
                 article={editing}
                 onSaved={() => void refresh()}
                 onRejection={(message, reason) => {
                   if (message === null && reason === null) return;
-                  // A rejected autosave is a strip, not a toast: the content
-                  // is still open and the user has to see why it did not land.
-                  setBulkNote({
+                  // Inside the dialog, not the page strip: the dialog covers the
+                  // page, and the user has to see why the save did not land.
+                  setEditorNote({
                     tone: "attention",
                     text: rejectionText({ reason: reason ?? undefined, message: message ?? undefined }),
                   });
                 }}
               />
               <PublishRow
+                key={`publish:${editing.id}`}
                 article={editing}
                 categories={categories ?? []}
                 onSaved={() => void refresh()}
@@ -853,6 +922,48 @@ export default function KbPage() {
         </DialogContent>
       </Dialog>
     </PageFrame>
+  );
+}
+
+/** One outcome strip, used above the table and inside the editor dialog. The
+ *  bulk result has to stay readable after a toast would have gone, and inside
+ *  the dialog it has to be visible while the table's copy is covered. */
+function FeedbackStrip({
+  note,
+  onDismiss,
+  testId,
+}: {
+  note: { tone: "good" | "attention"; text: string };
+  onDismiss: () => void;
+  testId?: string;
+}): React.ReactNode {
+  return (
+    <div
+      role="status"
+      data-testid={testId}
+      className="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] px-3 py-2 text-[13px]"
+      style={{
+        background:
+          note.tone === "good" ? "var(--m-status-success-bg)" : "var(--m-status-danger-bg)",
+        color:
+          note.tone === "good" ? "var(--m-status-success-fg)" : "var(--m-status-danger-fg)",
+      }}
+    >
+      {note.tone === "good" ? <CheckIcon size={16} /> : <AlertIcon size={16} />}
+      <span>{note.text}</span>
+      <button
+        type="button"
+        className="ml-auto inline-flex h-8 items-center rounded-[8px] border px-2.5 text-[13px] font-semibold"
+        style={{
+          borderColor: "var(--m-border)",
+          background: "var(--m-surface)",
+          color: "var(--m-text)",
+        }}
+        onClick={onDismiss}
+      >
+        Dismiss
+      </button>
+    </div>
   );
 }
 
@@ -882,11 +993,19 @@ function PublishRow({
   const [status, setStatus] = useState<KbArticleStatus>(article.status);
   const [categoryId, setCategoryId] = useState<string>(article.category_id ?? "");
   const [clientVisible, setClientVisible] = useState<boolean>(article.client_visible);
+  // The last values the server accepted. The controls update before the save
+  // lands, so a rejection has to restore these rather than leave the row
+  // claiming a state that was refused.
+  const [accepted, setAccepted] = useState({
+    status: article.status,
+    categoryId: article.category_id ?? "",
+    clientVisible: article.client_visible,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const category = categories.find((c) => c.id === categoryId);
-  const gated = clientVisible && category?.client_visible === true;
+  const gated = status === "published" && clientVisible && category?.client_visible === true;
 
   const save = useCallback(
     async (next: {
@@ -894,6 +1013,12 @@ function PublishRow({
       category_id?: string | null;
       client_visible?: boolean;
     }) => {
+      const acceptedNext = {
+        status: next.status ?? accepted.status,
+        categoryId:
+          next.category_id !== undefined ? (next.category_id ?? "") : accepted.categoryId,
+        clientVisible: next.client_visible ?? accepted.clientVisible,
+      };
       setBusy(true);
       setError(null);
       const result = await runEnvelopeMutation<
@@ -921,12 +1046,16 @@ function PublishRow({
       });
       setBusy(false);
       if (!result.ok) {
+        setStatus(accepted.status);
+        setCategoryId(accepted.categoryId);
+        setClientVisible(accepted.clientVisible);
         setError(result.friendly ?? result.message ?? "The change was rejected.");
         return;
       }
+      setAccepted(acceptedNext);
       onSaved();
     },
-    [article.id, onSaved],
+    [article.id, onSaved, accepted],
   );
 
   return (
@@ -1006,9 +1135,11 @@ function PublishRow({
         {busy
           ? "Saving…"
           : gated
-            ? "In the client portal: the article and its category are both client-facing."
+            ? "In the client portal: the article is published, and it and its category are both client-facing."
             : clientVisible
-              ? "Marked client-facing, but the category is staff-only, so the portal cannot show it yet."
+              ? status === "published"
+                ? "Marked client-facing, but the category is staff-only, so the portal cannot show it yet."
+                : "Marked client-facing, but it is not published, so the portal cannot show it yet."
               : "Staff only. The portal's own gated search never sees a draft."}
       </p>
       {error !== null ? (
@@ -1217,22 +1348,21 @@ function ArticleViewer({
   article,
   detail,
   loading,
+  error,
   category,
-  onOpen,
+  onRetry,
+  onEdit,
   onClose,
 }: {
   article: KbArticle | null;
   detail: ArticleDetail | null;
   loading: boolean;
+  error: string | null;
   category: KbCategory | undefined;
-  onOpen: () => void;
+  onRetry: () => void;
+  onEdit: () => void;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    if (article !== null && detail === null) onOpen();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article?.id]);
-
   const headings = useMemo(() => headingsOf(detail?.content_html), [detail?.content_html]);
   const proseRef = useRef<HTMLDivElement>(null);
 
@@ -1264,9 +1394,16 @@ function ArticleViewer({
           </span>
         </div>
       ) : null}
-      {loading || (article !== null && detail === null) ? (
+      {loading || (article !== null && detail === null && error === null) ? (
         <div className="flex items-center gap-2 text-[13px]">
           <Spinner /> Rendering…
+        </div>
+      ) : error !== null ? (
+        <div className="grid justify-items-start gap-2">
+          <ErrorNote title="The article did not render.">{error}</ErrorNote>
+          <Button variant="secondary" onClick={onRetry}>
+            Try again
+          </Button>
         </div>
       ) : (
         <>
@@ -1314,6 +1451,9 @@ function ArticleViewer({
         </>
       )}
       <DialogActions>
+        <Button variant="secondary" onClick={onEdit} disabled={article === null}>
+          Edit article
+        </Button>
         <Button variant="ghost" onClick={onClose}>
           Close
         </Button>

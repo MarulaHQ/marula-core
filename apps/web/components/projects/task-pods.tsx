@@ -96,28 +96,80 @@ export function TaskPodsPanel({
   const [error, setError] = useState<string | null>(null);
   const [promoted, setPromoted] = useState<PromoteResult | null>(null);
   const [deps, setDeps] = useState<DepRow[] | null>(null);
+  const [depsError, setDepsError] = useState<string | null>(null);
+  const [depsAttempt, setDepsAttempt] = useState(0);
+  const [prefsError, setPrefsError] = useState<string | null>(null);
+  const [prefsAttempt, setPrefsAttempt] = useState(0);
 
   const [settings, setSettings] = useState<PodSettings[] | null>(null);
   const [prefs, setPrefs] = useState<PodPrefs | null>(null);
   const [roleKey, setRoleKey] = useState("project_tech");
 
+  // The route page reuses this panel when the task changes, so the previous
+  // task's promotion, blocker form and notice are dropped at the switch.
+  useEffect(() => {
+    setPromoted(null);
+    setBlockerOpen(false);
+    setNote("");
+    setError(null);
+  }, [taskId]);
+
+  // Dependencies belong to the task, so an obsolete response can never
+  // commit: the effect is cancelled when the task changes.
   useEffect(() => {
     if (auth.status !== "authed") return;
+    let cancelled = false;
+    setDeps(null);
+    setDepsError(null);
     api.api
       .GET("/api/v1/projects/{id}/tasks/{task_id}/dependencies", {
         params: { path: { id: projectId, task_id: taskId } },
       })
       .then((result) => {
-        if (result.data) setDeps(result.data.depends_on as DepRow[]);
+        if (cancelled) return;
+        // A non-2xx resolves with `error` rather than throwing: leaving `deps`
+        // null here would spin forever.
+        if (result.error !== undefined || result.data === undefined) {
+          setDepsError("The dependencies could not be read, so nothing is claimed about what blocks it.");
+          return;
+        }
+        setDeps(result.data.depends_on as DepRow[]);
       })
-      .catch(() => setDeps([]));
+      .catch(() => {
+        // A failed read is not an empty list: "Nothing blocks the start"
+        // would be a false statement in a blocker workflow.
+        if (!cancelled) {
+          setDepsError("The dependencies could not be read, so nothing is claimed about what blocks it.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, projectId, taskId, depsAttempt]);
+
+  useEffect(() => {
+    if (auth.status !== "authed") return;
+    let cancelled = false;
+    setPrefs(null);
+    setPrefsError(null);
     fetchPodSettings()
-      .then(setSettings)
-      .catch(() => setSettings([]));
+      .then((rows) => {
+        if (!cancelled) setSettings(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setSettings([]);
+      });
     fetchPodPrefs()
-      .then(setPrefs)
-      .catch(() => null);
-  }, [auth.status, projectId, taskId]);
+      .then((value) => {
+        if (!cancelled) setPrefs(value);
+      })
+      .catch(() => {
+        if (!cancelled) setPrefsError("Your pod settings could not be read.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.status, prefsAttempt]);
 
   const onBlock = useCallback(async () => {
     setBusy(true);
@@ -166,137 +218,206 @@ export function TaskPodsPanel({
     void onSavePrefs({ ...prefs, hidden });
   }
 
+  // The pods this panel draws, in the person's own order. `order` is a flex
+  // property on the aside, so the note and the settings block keep their
+  // places around them.
+  const SECTIONS: readonly string[] = ["status", "chain", "links"];
+  const podShown = (pod: string): boolean => prefs === null || !prefs.hidden.includes(pod);
+  const podOrder = (pod: string): number => {
+    if (prefs === null) return SECTIONS.indexOf(pod);
+    const preferred = prefs.pod_order.indexOf(pod);
+    return preferred === -1 ? prefs.pod_order.length + SECTIONS.indexOf(pod) : preferred;
+  };
+  const everyPodHidden = prefs !== null && SECTIONS.every((pod) => !podShown(pod));
+
   return (
     <aside aria-label="Task pods" className="flex flex-col gap-3">
       {readOnly ? (
-        <p className="rounded-ctl bg-muted px-3 py-2 text-[12px] text-muted-foreground">
+        <p
+          style={{ order: -2 }}
+          className="rounded-ctl bg-muted px-3 py-2 text-[12px] text-muted-foreground"
+        >
           This project is on hold. The workbench stays readable; clear the hold to
           change the task.
         </p>
       ) : null}
 
       {error !== null ? (
-        <p role="alert" className="rounded-ctl border border-destructive px-3 py-2 text-[12px] text-destructive">
+        <p
+          role="alert"
+          style={{ order: -1 }}
+          className="rounded-ctl border border-destructive px-3 py-2 text-[12px] text-destructive"
+        >
           {error}
         </p>
       ) : null}
 
-      <section
-        aria-label="Status and blocker"
-        className={
-          initialPod === "status"
-            ? "rounded-card border border-border p-3 outline outline-2 outline-mc-act"
-            : "rounded-card border border-border p-3"
-        }
-      >
-        <div className="flex items-center justify-between">
-          <h2 className="text-[13px] font-semibold">Status</h2>
-          <Badge tone="neutral">{taskTitle}</Badge>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {!readOnly && canEdit ? (
-            <Button size="sm" variant="secondary" onClick={() => setBlockerOpen((open) => !open)}>
-              Blocked…
-            </Button>
-          ) : null}
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              clearTaskBlocker(projectId, taskId)
-                .then(() => setBlockerOpen(false))
-                .catch((e: Error) => setError(e.message));
-            }}
-          >
-            Clear the blocker
-          </Button>
-        </div>
-        {blockerOpen ? (
-          <div className="mt-2 flex flex-col gap-2 rounded-ctl bg-muted p-2">
-            <Label htmlFor="blocker-kind">What is it waiting on?</Label>
-            <Select value={kind} onValueChange={setKind}>
-              <SelectTrigger id="blocker-kind">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {BLOCKER_KINDS.map(([value, label]) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Label htmlFor="blocker-note">Who or what, exactly</Label>
-            <Input
-              id="blocker-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Named so the plan can say what it waits on"
-            />
-            <Button size="sm" disabled={busy} onClick={() => void onBlock()}>
-              Set the blocker
-            </Button>
-          </div>
-        ) : null}
-      </section>
-
-      <section
-        aria-label="Waiting on"
-        className={
-          initialPod === "chain"
-            ? "rounded-card border border-border p-3 outline outline-2 outline-mc-act"
-            : "rounded-card border border-border p-3"
-        }
-      >
-        <h2 className="text-[13px] font-semibold">Waiting on</h2>
-        {deps === null ? (
-          <div className="mt-1 flex items-center gap-2 text-[12px] text-muted-foreground">
-            <Spinner /> Reading dependencies…
-          </div>
-        ) : deps.length === 0 ? (
-          <p className="mt-1 text-[12px] text-muted-foreground">Nothing blocks the start.</p>
-        ) : (
-          <ul className="mt-1 flex flex-col gap-1 text-[12px]">
-            {deps.map((dep) => (
-              <li key={dep.id} className="flex items-center justify-between gap-2">
-                <span className="truncate">{dep.title}</span>
-                <Badge tone={dep.status === "completed" ? "success" : "due"}>{dep.status}</Badge>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section
-        aria-label="Links"
-        className={
-          initialPod === "links"
-            ? "rounded-card border border-border p-3 outline outline-2 outline-mc-act"
-            : "rounded-card border border-border p-3"
-        }
-      >
-        <h2 className="text-[13px] font-semibold">Links</h2>
-        <p className="mt-1 text-[12px] text-muted-foreground">
-          Promotion gives this task a ticket on the service desk. Notes, files, time
-          and watchers stay shared, and each side links to the other.
+      {everyPodHidden ? (
+        <p
+          style={{ order: -1 }}
+          className="rounded-ctl bg-muted px-3 py-2 text-[12px] text-muted-foreground"
+        >
+          Every pod is hidden. Turn one back on in Pods below to see it here.
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {!readOnly && canEdit ? (
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void onPromote()}>
-              {promoted?.created === false ? "Open its ticket" : "Promote to a ticket"}
-            </Button>
-          ) : null}
-          {promoted !== null ? (
-            <Link href={`/tickets/${promoted.ticket_id}`} className="text-[13px] underline">
-              {promoted.ticket_number}
-            </Link>
-          ) : null}
-        </div>
-      </section>
+      ) : null}
 
-      <section aria-label="Pod settings" className="rounded-card border border-border p-3">
+      {podShown("status") ? (
+        <section
+          aria-label="Status and blocker"
+          style={{ order: podOrder("status") }}
+          className={
+            initialPod === "status"
+              ? "rounded-card border border-border p-3 outline outline-2 outline-mc-act"
+              : "rounded-card border border-border p-3"
+          }
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-[13px] font-semibold">Status</h2>
+            <Badge tone="neutral">{taskTitle}</Badge>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {!readOnly && canEdit ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setBlockerOpen((open) => !open)}
+              >
+                Blocked…
+              </Button>
+            ) : null}
+            {!readOnly && canEdit ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  setError(null);
+                  clearTaskBlocker(projectId, taskId)
+                    .then(() => setBlockerOpen(false))
+                    .catch((e: Error) => setError(e.message))
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Clear the blocker
+              </Button>
+            ) : null}
+          </div>
+          {blockerOpen ? (
+            <div className="mt-2 flex flex-col gap-2 rounded-ctl bg-muted p-2">
+              <Label htmlFor="blocker-kind">What is it waiting on?</Label>
+              <Select value={kind} onValueChange={setKind}>
+                <SelectTrigger id="blocker-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {BLOCKER_KINDS.map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Label htmlFor="blocker-note">Who or what, exactly</Label>
+              <Input
+                id="blocker-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Named so the plan can say what it waits on"
+              />
+              <Button size="sm" disabled={busy} onClick={() => void onBlock()}>
+                Set the blocker
+              </Button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {podShown("chain") ? (
+        <section
+          aria-label="Waiting on"
+          style={{ order: podOrder("chain") }}
+          className={
+            initialPod === "chain"
+              ? "rounded-card border border-border p-3 outline outline-2 outline-mc-act"
+              : "rounded-card border border-border p-3"
+          }
+        >
+          <h2 className="text-[13px] font-semibold">Waiting on</h2>
+          {depsError !== null ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px]">
+              <span role="alert" className="text-destructive">
+                {depsError}
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => setDepsAttempt((count) => count + 1)}>
+                Try again
+              </Button>
+            </div>
+          ) : deps === null ? (
+            <div className="mt-1 flex items-center gap-2 text-[12px] text-muted-foreground">
+              <Spinner /> Reading dependencies…
+            </div>
+          ) : deps.length === 0 ? (
+            <p className="mt-1 text-[12px] text-muted-foreground">Nothing blocks the start.</p>
+          ) : (
+            <ul className="mt-1 flex flex-col gap-1 text-[12px]">
+              {deps.map((dep) => (
+                <li key={dep.id} className="flex items-center justify-between gap-2">
+                  <span className="truncate">{dep.title}</span>
+                  <Badge tone={dep.status === "completed" ? "success" : "due"}>{dep.status}</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
+      {podShown("links") ? (
+        <section
+          aria-label="Links"
+          style={{ order: podOrder("links") }}
+          className={
+            initialPod === "links"
+              ? "rounded-card border border-border p-3 outline outline-2 outline-mc-act"
+              : "rounded-card border border-border p-3"
+          }
+        >
+          <h2 className="text-[13px] font-semibold">Links</h2>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            Promotion gives this task a ticket on the service desk. Notes, files, time
+            and watchers stay shared, and each side links to the other.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {!readOnly && canEdit ? (
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => void onPromote()}>
+                {promoted?.created === false ? "Open its ticket" : "Promote to a ticket"}
+              </Button>
+            ) : null}
+            {promoted !== null ? (
+              <Link href={`/tickets/${promoted.ticket_id}`} className="text-[13px] underline">
+                {promoted.ticket_number}
+              </Link>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      <section
+        aria-label="Pod settings"
+        style={{ order: 99 }}
+        className="rounded-card border border-border p-3"
+      >
         <h2 className="text-[13px] font-semibold">Pods</h2>
-        {prefs === null ? (
+        {prefsError !== null ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px]">
+            <span role="alert" className="text-destructive">
+              {prefsError}
+            </span>
+            <Button size="sm" variant="ghost" onClick={() => setPrefsAttempt((count) => count + 1)}>
+              Try again
+            </Button>
+          </div>
+        ) : prefs === null ? (
           <p className="mt-1 text-[12px] text-muted-foreground">Reading your settings…</p>
         ) : (
           <ul className="mt-1 flex flex-col gap-1">

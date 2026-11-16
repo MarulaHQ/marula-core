@@ -67,6 +67,7 @@ export default function KnowledgeHomePage() {
   const [scope, setScope] = useState<Scope>("All");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -112,10 +113,15 @@ export default function KnowledgeHomePage() {
     if (needle.length < 2) {
       setHits(null);
       setSearching(false);
+      setSearchError(null);
       return;
     }
     let cancelled = false;
     setSearching(true);
+    // A new search clears the previous failure; the answer below is either a
+    // result, a true empty result, or this error — never an empty result
+    // standing in for a failure.
+    setSearchError(null);
     const timer = window.setTimeout(() => {
       knowledgeApi
         .get<SearchHit[]>(`/api/v1/knowledge/search?q=${encodeURIComponent(needle)}&limit=24`)
@@ -125,10 +131,11 @@ export default function KnowledgeHomePage() {
             setSearching(false);
           }
         })
-        .catch(() => {
+        .catch((e: KnowledgeRequestError) => {
           if (!cancelled) {
             setHits([]);
             setSearching(false);
+            setSearchError(e.message);
           }
         });
     }, 200);
@@ -249,7 +256,9 @@ export default function KnowledgeHomePage() {
 
         {query.trim().length >= 2 ? (
           <section aria-label="Search results" className="flex flex-col gap-2">
-            {filtered.length === 0 && !searching ? (
+            {searchError !== null ? (
+              <ErrorNote title="Search did not run.">{searchError}</ErrorNote>
+            ) : filtered.length === 0 && !searching ? (
               <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                 Nothing matches “{query.trim()}” in this scope. Secrets are found by their record
                 only, never by their value.

@@ -18,12 +18,23 @@ export default function PortalProjectsPage() {
   const { timeZone } = useTimeFormat();
   const [projects, setProjects] = useState<PortalProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setProjects(null);
+    setError(null);
     listPortalProjects()
-      .then((body) => setProjects(body.projects))
-      .catch((e: Error) => setError(e.message));
-  }, []);
+      .then((body) => {
+        if (!cancelled) setProjects(body.projects);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
 
   return (
     <div>
@@ -42,6 +53,13 @@ export default function PortalProjectsPage() {
           <p className="portal-hint" role="alert">
             {error}
           </p>
+          <button
+            type="button"
+            className="portal-btn"
+            onClick={() => setAttempt((count) => count + 1)}
+          >
+            Try again
+          </button>
         </PortalCard>
       ) : null}
 

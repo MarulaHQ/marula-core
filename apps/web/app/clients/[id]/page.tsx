@@ -188,6 +188,9 @@ export default function ClientDetailPage() {
   const [sites, setSites] = useState<Site[] | null>(null);
   const [contacts, setContacts] = useState<Contact[] | null>(null);
   const [contactActivity, setContactActivity] = useState<Record<string, ContactActivity>>({});
+  // A failed activity read is "unknown", never "Never": the column must not
+  // tell staff nobody has ever contacted someone because a request failed.
+  const [contactActivityFailed, setContactActivityFailed] = useState(false);
   const [portalUsers, setPortalUsers] = useState<PortalUser[] | null>(null);
   const [portalDenied, setPortalDenied] = useState(false);
   const [assets, setAssets] = useState<DeviceAsset[] | null>(null);
@@ -254,11 +257,21 @@ export default function ClientDetailPage() {
     setLoadError(null);
   }, [clientId]);
 
+  const refreshContactActivity = useCallback(async () => {
+    const rows = await fetchContactActivity(clientId);
+    if (rows === null) {
+      setContactActivityFailed(true);
+      return;
+    }
+    setContactActivityFailed(false);
+    setContactActivity(rows);
+  }, [clientId]);
+
   const refreshAll = useCallback(async () => {
     setFormError(null);
     void api.api.GET("/api/v1/clients/{id}/sites", { params: { path: { id: clientId } } }).then(({ data }) => setSites(data ?? []));
     void api.api.GET("/api/v1/clients/{id}/contacts", { params: { path: { id: clientId } } }).then(({ data }) => setContacts(data ?? []));
-    void fetchContactActivity(clientId).then(setContactActivity);
+    void refreshContactActivity();
     void api.api.GET("/api/v1/clients/{id}/assets", { params: { path: { id: clientId } } }).then(({ data }) => setAssets(data ?? []));
     void api.api.GET("/api/v1/documents", { params: { query: { client_id: clientId } } }).then(({ data }) => setDocuments(data ?? []));
     void api.api.GET("/api/v1/documents/layouts").then(({ data }) => setLayouts(data ?? []));
@@ -278,7 +291,7 @@ export default function ClientDetailPage() {
       setPortalDenied(false);
       setPortalUsers(pu.data ?? []);
     }
-  }, [clientId]);
+  }, [clientId, refreshContactActivity]);
 
   const loadCompleteness = useCallback(async () => {
     const res = await api.api.GET("/api/v1/clients/{id}/completeness", {
@@ -799,8 +812,10 @@ export default function ClientDetailPage() {
                 <ContactsCard
                   contacts={contacts}
                   activity={contactActivity}
+                  activityFailed={contactActivityFailed}
                   portalUsers={portalUsers}
                   portalDenied={portalDenied}
+                  onRetryActivity={() => void refreshContactActivity()}
                   onTogglePortal={(user, disabled) => void setPortalStatus(user, disabled)}
                   onAddContact={() => openCreate("contact")}
                   onAddPortalUserFor={(contact) => {
@@ -1398,16 +1413,20 @@ function isPastDue(ticket: Ticket): boolean {
 function ContactsCard({
   contacts,
   activity,
+  activityFailed,
   portalUsers,
   portalDenied,
+  onRetryActivity,
   onTogglePortal,
   onAddContact,
   onAddPortalUserFor,
 }: {
   contacts: Contact[] | null;
   activity: Record<string, ContactActivity>;
+  activityFailed: boolean;
   portalUsers: PortalUser[] | null;
   portalDenied: boolean;
+  onRetryActivity: () => void;
   onTogglePortal: (user: PortalUser, disabled: boolean) => void;
   onAddContact: () => void;
   onAddPortalUserFor: (contact: Contact) => void;
@@ -1435,6 +1454,18 @@ function ContactsCard({
           Add contact
         </Button>
       </div>
+      {activityFailed ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 border-b px-[18px] py-2.5 text-[13px]"
+          style={{ borderColor: "var(--m-border)", color: "var(--m-text-secondary)" }}
+        >
+          <span>Last contact could not be read just now — that is unknown, not never.</span>
+          <Button size="sm" variant="secondary" onClick={onRetryActivity}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
       {contacts.length === 0 ? (
         <div className="p-4">
           <EmptyState message="No contacts yet. Contacts are the people at this client your team works with." />
@@ -1558,8 +1589,17 @@ function ContactsCard({
                   <Td>
                     {/* Derived from email on this client's tickets, portal
                         replies and calls. A person with none of those reads
-                        Never, which is the true answer rather than a guess. */}
-                    {activity[c.id]?.last_at ? (
+                        Never; a failed read reads Unavailable, because the two
+                        are different facts. */}
+                    {activityFailed ? (
+                      <span
+                        className="text-[13px]"
+                        title="Contact activity could not be read just now."
+                        style={{ color: "var(--m-text-muted)" }}
+                      >
+                        Unavailable
+                      </span>
+                    ) : activity[c.id]?.last_at ? (
                       <button
                         type="button"
                         onClick={() => setActivityContact(c)}
@@ -1596,15 +1636,19 @@ function ContactsCard({
           title={activityContact === null ? "Contact activity" : `Contact with ${activityContact.name}`}
           description="Email on this client's tickets, portal replies and calls. Derived, never edited."
         >
-          {openActivity === undefined || openActivity.recent.length === 0 ? (
+          {activityFailed ? (
+            <p className="p-4 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
+              Contact activity could not be read just now. This is unknown, not never.
+            </p>
+          ) : openActivity === undefined || openActivity.recent.length === 0 ? (
             <p className="p-4 text-[13px]" style={{ color: "var(--m-text-muted)" }}>
               Nothing recorded for this person yet.
             </p>
           ) : (
             <ul className="m-0 flex list-none flex-col gap-0 p-0">
-              {openActivity.recent.map((event) => (
+              {openActivity.recent.map((event, index) => (
                 <li
-                  key={`${event.at}-${event.kind}`}
+                  key={`${event.at}-${event.kind}-${index}`}
                   className="flex flex-col gap-0.5 border-b px-4 py-3 last:border-b-0"
                   style={{ borderColor: "var(--m-border)" }}
                 >

@@ -20,10 +20,14 @@ vi.mock("next/navigation", () => ({
 
 const CLIENT_ID = "50000000-0000-4000-8000-000000000001";
 
+// Local calendar days: `daysUntil` compares local dates, so a `toISOString()`
+// fixture would shift a day whenever the runner's clock is past 16:00 local.
 function isoDaysFromNow(days: number): string {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 const HOME = {

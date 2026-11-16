@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRequireAuth } from "../../../../lib/api";
 import { SurfaceHeader } from "@marula-core/ui";
 import {
@@ -39,16 +39,34 @@ export default function NetworkPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // A request token, not just a cancel flag: `load()` also runs after a subnet
+  // is added, so a slower earlier read must not overwrite the newer answer.
+  const latestRequest = useRef(0);
+
   const load = useCallback(() => {
     if (networkId === undefined) return;
+    const token = latestRequest.current + 1;
+    latestRequest.current = token;
     setError(null);
     knowledgeApi
       .get<NetworkDetail>(`/api/v1/knowledge/networks/${networkId}`)
-      .then(setNetwork)
-      .catch((e: KnowledgeRequestError) => setError(e.message));
+      .then((data) => {
+        if (latestRequest.current === token) setNetwork(data);
+      })
+      .catch((e: KnowledgeRequestError) => {
+        if (latestRequest.current === token) setError(e.message);
+      });
   }, [networkId]);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    // A client-side move from network A to B keeps A on screen until B arrives
+    // unless its state is cleared here.
+    setNetwork(null);
+    load();
+    return () => {
+      latestRequest.current += 1;
+    };
+  }, [load]);
 
   async function addSubnet(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

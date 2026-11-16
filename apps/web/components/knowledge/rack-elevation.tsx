@@ -83,7 +83,15 @@ export function RackElevation({
   label: string;
 }): React.JSX.Element {
   const onFace = devices.filter((d) => d.face === face);
-  const used = onFace.reduce((sum, d) => sum + d.unit_height, 0);
+  // Occupied units as a union, not a sum: two devices that overlap (a race the
+  // writes do not prevent) must not claim more units than the rack has.
+  const occupied = new Set<number>();
+  for (const device of onFace) {
+    for (let unit = device.unit_start; unit < device.unit_start + device.unit_height; unit += 1) {
+      if (unit >= 1 && unit <= units) occupied.add(unit);
+    }
+  }
+  const used = occupied.size;
 
   return (
     <div className="flex flex-col gap-3">
@@ -127,6 +135,16 @@ export function RackElevation({
                 : device.status === "passive"
                   ? "Passive"
                   : "Online";
+          // A placement that runs past the top of the rack would draw at a
+          // negative offset; keep the box inside the frame instead.
+          const top = Math.min(
+            Math.max(0, deviceOffset(units, device.unit_start, device.unit_height) + 2),
+            Math.max(0, units * CELL - CELL),
+          );
+          const height = Math.max(
+            CELL - 3,
+            Math.min(device.unit_height * CELL - 3, units * CELL - top),
+          );
           return (
             <div
               key={device.id}
@@ -134,8 +152,8 @@ export function RackElevation({
               style={{
                 left: 30,
                 right: 6,
-                top: deviceOffset(units, device.unit_start, device.unit_height) + 2,
-                height: device.unit_height * CELL - 3,
+                top,
+                height,
                 background: style.background,
                 border: style.border,
                 color: style.color,

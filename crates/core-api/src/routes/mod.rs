@@ -515,10 +515,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/portal/quotes/{id}/decline"),
             post(portal_v2::decline_quote),
         )
-        // Surface-pack portal project view (change-order acknowledgement,
-        // plain-language status and the client-visible update list). Same
-        // portal auth stack, same client scoping.
+        // Surface-pack portal views: project status and the document list.
+        // The document endpoint reads `PortalAuthed`, which only this
+        // middleware inserts, so it must not sit on the staff router.
         .merge(project_delivery::portal_routes(gen))
+        .merge(knowledge_home::portal_routes(gen))
         // Stamps org_id onto the current request span (telemetry) once the
         // portal auth middleware below has resolved it.
         .layer(middleware::from_fn(crate::otel_http::record_org))

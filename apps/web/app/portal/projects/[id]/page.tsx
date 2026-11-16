@@ -9,7 +9,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRequirePortalAuth } from "../../../../lib/portal-api";
 import { longDate } from "../../../../lib/portal-copy";
 import { useTimeFormat } from "../../../../lib/use-time-format";
@@ -32,24 +32,71 @@ export default function PortalProjectPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // The route id the in-flight work belongs to. A slower answer for project A
+  // must not paint over project B.
+  const currentId = useRef(params.id);
+  currentId.current = params.id;
 
   useEffect(() => {
+    let cancelled = false;
+    // Clear the previous project, its error and its note before the next load:
+    // otherwise A's page stands under B's URL.
+    setProject(null);
+    setError(null);
+    setNote(null);
     getPortalProject(params.id)
-      .then(setProject)
-      .catch((e: Error) => setError(e.message));
+      .then((loaded) => {
+        if (!cancelled) setProject(loaded);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [params.id]);
 
   async function onAcknowledge(changeOrderId: string) {
+    const projectId = params.id;
+    // The acknowledgement is sent with the project id on screen, so it is only
+    // offered once that project is the one loaded.
+    if (project === null || project.id !== projectId) return;
     setBusy(changeOrderId);
     setError(null);
+    setNote(null);
     try {
-      await acknowledgeChangeOrder(params.id, changeOrderId);
-      setProject(await getPortalProject(params.id));
-      setNote("Thank you. Your project manager has been told.");
+      await acknowledgeChangeOrder(projectId, changeOrderId);
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
+      if (currentId.current === projectId) {
+        setBusy(null);
+        setError((e as Error).message);
+      }
+      return;
+    }
+    setBusy(null);
+    if (currentId.current !== projectId) return;
+    // The server has the answer; the page must say so even if the refresh
+    // below fails, so the acknowledgement and the reload are separate steps.
+    setNote("Thank you. Your project manager has been told.");
+    // Reflect the answer locally too: a failed refresh must not leave the order
+    // waiting for a second "I agree".
+    setProject((loaded) =>
+      loaded === null
+        ? loaded
+        : {
+            ...loaded,
+            change_orders: loaded.change_orders.map((order) =>
+              order.id === changeOrderId
+                ? { ...order, acknowledged_at: new Date().toISOString() }
+                : order,
+            ),
+          },
+    );
+    try {
+      const refreshed = await getPortalProject(projectId);
+      if (currentId.current === projectId) setProject(refreshed);
+    } catch {
+      // The acknowledgement stands; the list catches up on the next load.
     }
   }
 
@@ -129,7 +176,7 @@ export default function PortalProjectPage() {
               <button
                 type="button"
                 className="portal-btn"
-                disabled={busy === order.id}
+                disabled={busy === order.id || project.id !== params.id}
                 onClick={() => void onAcknowledge(order.id)}
               >
                 {busy === order.id ? "Sending…" : "I agree"}

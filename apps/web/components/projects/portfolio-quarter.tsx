@@ -20,7 +20,7 @@ import {
   SurfaceHeader,
 } from "@marula-core/ui";
 import { Segmented, SegmentedItem } from "@marula-core/ui/kit";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useRequireAuth } from "../../lib/api";
 import {
@@ -123,16 +123,22 @@ export function PortfolioQuarter() {
   const [atRiskOnly, setAtRiskOnly] = useState(false);
   const [shareNote, setShareNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setError(null);
     try {
-      if (shareToken !== null) {
-        setView(await fetchSharedPortfolio(shareToken));
-      } else {
-        setView(await fetchPortfolio({ group_by: groupBy, zoom, at_risk_only: atRiskOnly }));
-      }
+      // The controls can change while a request is pending, so only the newest
+      // answer may replace the view the controls describe.
+      const next =
+        shareToken !== null
+          ? await fetchSharedPortfolio(shareToken)
+          : await fetchPortfolio({ group_by: groupBy, zoom, at_risk_only: atRiskOnly });
+      if (seq !== loadSeq.current) return;
+      setView(next);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
       setError((e as Error).message);
     }
   }, [shareToken, groupBy, zoom, atRiskOnly]);
@@ -153,7 +159,12 @@ export function PortfolioQuarter() {
     setBusy(true);
     setError(null);
     try {
-      const share = await sharePortfolio({ group_by: groupBy, zoom });
+      const share = await sharePortfolio({
+        group_by: groupBy,
+        zoom,
+        // The link has to reproduce what is on screen, filter included.
+        at_risk_only: atRiskOnly,
+      });
       const url = `${window.location.origin}${share.path}`;
       try {
         await navigator.clipboard.writeText(url);

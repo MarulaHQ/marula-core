@@ -103,7 +103,7 @@ type TaskMutationResponse = components["schemas"]["TaskMutationResponse"];
 type DependencyListResponse = components["schemas"]["DependencyListResponse"];
 type Contract = components["schemas"]["Contract"];
 type PhaseBurn = components["schemas"]["PhaseBurn"];
-type BillingRelease = components["schemas"]["ProjectBillingRelease"];
+type BillingRelease = components["schemas"]["BillingReleaseView"];
 
 const STATUS_LABEL: Record<string, string> = {
   planning: "Planning",
@@ -1016,7 +1016,7 @@ export default function ProjectDetailPage() {
                       </span>
                       <span className="flex items-center gap-2">
                         <span className="tabular-nums" style={{ color: "var(--m-text-secondary)" }}>
-                          {money(release.amount_minor, release.currency)}
+                          {release.amount_minor === null || release.amount_minor === undefined || release.currency === null || release.currency === undefined ? "Amount hidden" : money(release.amount_minor, release.currency)}
                         </span>
                         {release.invoice_id === null || release.invoice_id === undefined ? (
                           release.status === "pending" ? (

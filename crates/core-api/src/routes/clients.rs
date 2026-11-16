@@ -366,6 +366,16 @@ pub async fn contact_activity(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
+    // Same per-client visibility rule as get_one and completeness: a
+    // restricted client's correspondence is not readable by a user it does
+    // not list, so the answer is the same 404 the record gives.
+    let client = core_db::clients::get_client(&mut *tx, org_id, id).await?;
+    if !client.restricted_to.is_empty()
+        && !client.restricted_to.contains(&authed.principal.user.id)
+        && !authed.principal.is_owner_or_admin()
+    {
+        return Err(ApiError::NotFound);
+    }
     let events = core_db::contact_activity::list_for_client(&mut tx, org_id, id, 10).await?;
     tx.commit().await.map_err(ApiError::from)?;
 

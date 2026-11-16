@@ -535,9 +535,11 @@ export default function TicketsListPage() {
   }, [rows, sla, lastVisit]);
 
   // Stamp the visit once the first page is on screen, so the count is against
-  // the previous visit rather than the render that is happening now.
+  // the previous visit rather than the render that is happening now. A failed
+  // load leaves the stamp alone: otherwise tomorrow's "changed since you
+  // looked" would hide everything that changed after a broken visit.
   useEffect(() => {
-    if (rows === null || visitKnown) return;
+    if (rows === null || visitKnown || error !== null) return;
     try {
       const prior = Number(window.localStorage.getItem(LAST_VISIT_KEY) ?? "0");
       setLastVisit(Number.isFinite(prior) && prior > 0 ? prior : null);
@@ -546,7 +548,7 @@ export default function TicketsListPage() {
       setLastVisit(null);
     }
     setVisitKnown(true);
-  }, [rows, visitKnown]);
+  }, [rows, visitKnown, error]);
 
   const filtered = useMemo(() => {
     if (rows === null) return null;
@@ -605,7 +607,7 @@ export default function TicketsListPage() {
       });
     }
     return ordered;
-  }, [rows, clauses, match, sort, view, myId, attention, sla, clients]);
+  }, [rows, clauses, match, sort, view, myId, attention, sla, clients, lastVisit]);
 
   // A stable identity matters: an effect keyed on `shown` (the bulk status
   // read below) would otherwise see a fresh `[]` on every render while the
