@@ -106,6 +106,28 @@ Pinning the distro is cheaper than discovering which image build a run landed
 on. When the 26.04 fleet stops disagreeing with itself, move them back and
 delete this section.
 
+## Renaming a job can block every pull request
+
+The `Main` ruleset requires status checks **by their exact display name**. A job
+renamed in `ci.yml` does not move the requirement with it: the required context
+stops reporting and every pull request waits on it forever, with no red check to
+point at the cause.
+
+That is what happened on 2026-11-16, when `rust-contract` gained `· live server`
+at the end of its name. The pull request was blocked on a check that could never
+run, while everything that did run was green.
+
+Before renaming a job, read the required list:
+
+```sh
+gh api repos/MarulaHQ/marula-core/rulesets/26448788 \
+  --jq '.rules[] | select(.type=="required_status_checks")
+        | .parameters.required_status_checks[].context'
+```
+
+Either keep the name, or update the ruleset in the same change. The names in
+that list are the contract; the job ids in `ci.yml` are not.
+
 ## A green workflow is not the same as a working one
 These files were written and validated on a laptop. A workflow's behaviour is
 proven by a run, and a run needs a push. Nothing in this repository's history

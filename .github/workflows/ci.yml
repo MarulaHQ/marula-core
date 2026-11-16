@@ -617,7 +617,12 @@ jobs:
           SQLX_OFFLINE: "true"
 
   rust-contract:
-    name: Rust contract — deprecation clock · API conformance · golden OpenAPI · live server
+    # This display name is a required status check in the "Main" ruleset, which
+    # matches contexts by exact string. Renaming it does not rename the
+    # requirement: the required check simply never reports, and the pull request
+    # waits on it forever. The live leg lives in the steps below, not in the
+    # name.
+    name: Rust contract — deprecation clock · API conformance · golden OpenAPI
     runs-on: ubuntu-latest
     services:
       postgres:
