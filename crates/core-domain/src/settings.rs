@@ -357,6 +357,23 @@ pub const AI_PERSONAL_CREDENTIALS_ENABLED: &str = "ai.personal_credentials_enabl
 /// calls, no suggestion cards, no AI entry points. One switch for all
 /// AI edges.
 pub const AI_FEATURES_ENABLED: &str = "ai.features_enabled";
+/// The org AI mode: `off`, `shadow` or `live` (Wave 52, user directive).
+/// One switch answers three states, and each means something different:
+///
+/// - `off` — nothing runs. No model call, no decision record, no
+///   suggestion. The org sees the pre-AI product.
+/// - `shadow` — every leg runs and pays for tokens, and decision runs are
+///   recorded as shadow, so what the model would have said is visible on
+///   the shadow page and nowhere a person works.
+/// - `live` — surfaces act on their own configured mode, so a surface set
+///   to live proposes on the product surface and above its thresholds may
+///   take the one side effect this subsystem allows.
+///
+/// `ai.features_enabled` remains the run gate (true for shadow and live),
+/// because every existing AI edge already types it. Orgs written before
+/// this key existed have no row here and read as `live` when their
+/// features switch is on, which is exactly what their surfaces did.
+pub const AI_MODE: &str = "ai.mode";
 /// Email greeting/sign-off (Wave 12 lane 6): per-user declarations for the
 /// client-email composers (close-flow summary email, reply composer).
 /// Editable defaults live in the settings registry, so they persist as

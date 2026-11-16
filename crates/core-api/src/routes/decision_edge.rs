@@ -317,12 +317,14 @@ pub async fn decide(
     // --- Phase 1: admission under RLS (no HTTP in this tx) -----------
     let mut tx = crate::routes::ai_policy::org_bound_tx(state, org_id, user_id).await?;
 
-    // 1. Org master switch (also enforced inside the shared pipeline —
-    //    this early exit keeps unconfigured orgs entirely silent).
-    if !core_db::ai_policy::features_enabled(&mut *tx, org_id)
+    // 1. The org mode, read once. `off` keeps unconfigured orgs entirely
+    //    silent; `shadow` runs every leg and records the run as shadow even
+    //    where a surface is configured live, which is what the single
+    //    control promises. The shared pipeline still enforces the run gate.
+    let org_mode = core_db::ai_policy::ai_mode(&mut tx, org_id)
         .await
-        .map_err(ApiError::from)?
-    {
+        .map_err(ApiError::from)?;
+    if !org_mode.is_enabled() {
         return Ok(Err(DecisionQuiet::FeaturesDisabled));
     }
 
@@ -341,7 +343,7 @@ pub async fn decide(
     else {
         return Ok(Err(DecisionQuiet::Unconfigured));
     };
-    let mode = cfg_row.mode.clone();
+    let mode = effective_mode(org_mode, &cfg_row.mode);
 
     let config = match effective_config(&mut tx, surface_key, &cfg_row).await {
         Ok(config) => config,
@@ -522,9 +524,30 @@ pub async fn decide(
     }))
 }
 
+/// The mode one run records under. Shadow at the org level outranks the
+/// surface's own mode: the admin asked to see what would have been said,
+/// not to have it acted on. Live defers to the surface, so a surface kept
+/// in shadow stays a recorded suggestion.
+fn effective_mode(org_mode: core_db::ai_policy::AiMode, surface_mode: &str) -> String {
+    if org_mode == core_db::ai_policy::AiMode::Shadow {
+        "shadow".to_string()
+    } else {
+        surface_mode.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_org_mode_holds_every_surface_in_shadow() {
+        use core_db::ai_policy::AiMode;
+        assert_eq!(effective_mode(AiMode::Shadow, "live"), "shadow");
+        assert_eq!(effective_mode(AiMode::Shadow, "shadow"), "shadow");
+        assert_eq!(effective_mode(AiMode::Live, "live"), "live");
+        assert_eq!(effective_mode(AiMode::Live, "shadow"), "shadow");
+    }
 
     #[test]
     fn provider_kind_maps_typesafe_only() {

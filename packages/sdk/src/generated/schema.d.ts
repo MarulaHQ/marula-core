@@ -22151,10 +22151,17 @@ export interface components {
         };
         DecisionFeatureMutationResponse: {
             features_enabled: boolean;
+            mode: string;
             mutation: components["schemas"]["MutationMeta"];
         };
         DecisionOverviewResponse: {
+            /**
+             * @description True for both shadow and live, because every AI edge types this
+             *     gate. It means "a leg may run", not "a surface may act".
+             */
             features_enabled: boolean;
+            /** @description `off`, `shadow` or `live` — the one control's answer. */
+            mode: string;
             surfaces: components["schemas"]["DecisionSurfaceOverview"][];
         };
         DecisionPreviewRequest: {
@@ -31030,8 +31037,15 @@ export interface components {
             reset_to_starter?: boolean | null;
         };
         PutDecisionFeaturesRequest: {
-            enabled: boolean;
+            /**
+             * @description Legacy boolean form. `false` means off; `true` means live, which is
+             *     what an org that only had a switch was doing. Kept so older clients
+             *     and the conformance probes keep working.
+             */
+            enabled?: boolean | null;
             instant?: components["schemas"]["MutationParams"];
+            /** @description The three-state control: `off`, `shadow` or `live`. */
+            mode?: string | null;
         };
         PutExposureRequest: {
             /** Format: uuid */

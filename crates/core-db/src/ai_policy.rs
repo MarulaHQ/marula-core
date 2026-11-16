@@ -796,6 +796,64 @@ pub async fn features_enabled(
     Ok(row.and_then(|(v,)| v.as_bool()).unwrap_or(false))
 }
 
+/// The three org states, in the words the control uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiMode {
+    Off,
+    Shadow,
+    Live,
+}
+
+impl AiMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AiMode::Off => "off",
+            AiMode::Shadow => "shadow",
+            AiMode::Live => "live",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "off" => Some(AiMode::Off),
+            "shadow" => Some(AiMode::Shadow),
+            "live" => Some(AiMode::Live),
+            _ => None,
+        }
+    }
+
+    /// Whether any leg may run. Shadow counts: it pays for tokens on
+    /// purpose, and every existing AI edge gates on this answer.
+    pub fn is_enabled(self) -> bool {
+        !matches!(self, AiMode::Off)
+    }
+}
+
+/// The org AI mode (`ai.mode`, Wave 52). The row is authoritative when it
+/// holds a known word. An org written before the key existed falls back to
+/// `ai.features_enabled`: on reads as `live`, because its surfaces already
+/// carry their own shadow/live choice and shadow is what they were doing.
+pub async fn ai_mode(conn: &mut PgConnection, org_id: Uuid) -> DbResult<AiMode> {
+    let row: Option<(Value,)> = sqlx::query_as(
+        r#"SELECT value FROM settings
+           WHERE org_id = $1 AND scope = 'org' AND key = $2"#,
+    )
+    .bind(org_id)
+    .bind(core_domain::settings::AI_MODE)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if let Some((value,)) = row {
+        if let Some(mode) = value.as_str().and_then(AiMode::parse) {
+            return Ok(mode);
+        }
+    }
+    Ok(if features_enabled(&mut *conn, org_id).await? {
+        AiMode::Live
+    } else {
+        AiMode::Off
+    })
+}
+
 /// Append one usage row. Idempotent at the edge (Wave 18 lane 2b): a
 /// repeated write carrying the SAME (org, surface, request_id) hits the
 /// `uq_ai_usage_ledger_edge_request` partial unique index and is silently
