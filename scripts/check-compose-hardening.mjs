@@ -50,7 +50,7 @@
 //
 // WHAT IT DOES NOT EVALUATE
 // -------------------------
-// A `${VAR}` or `${VAR:-default}` in a protected setting is reported, not
+// A `$VAR`, `${VAR}` or `${VAR:-default}` in a protected setting is reported, not
 // substituted. Compose resolves it before the container exists, so
 // `network_mode: "${NET_MODE:-host}"` is host networking wherever NET_MODE is
 // unset, and reads as an ordinary string here. A value this file cannot know is
@@ -286,7 +286,7 @@ function splitVolume(mount) {
  * names it. Splitting on every colon would cut `${MOUNT:-/socket}` in half and
  * make two different targets look equal.
  *
- * `resolved` is false when the target still contains a substitution: this check
+ * `resolved` is false when the target still contains any `$`: this check
  * cannot know which target it lands on, so nothing may be discarded on the
  * strength of a match.
  */
@@ -294,10 +294,10 @@ function volumeTarget(mount) {
   if (typeof mount === 'string') {
     const parts = splitVolume(mount);
     const target = parts.length === 1 ? parts[0] : parts[1];
-    return { value: target, resolved: !target.includes('${') };
+    return { value: target, resolved: !target.includes('$') };
   }
   if (mount && typeof mount === 'object' && typeof mount.target === 'string') {
-    return { value: mount.target, resolved: !mount.target.includes('${') };
+    return { value: mount.target, resolved: !mount.target.includes('$') };
   }
   return { value: undefined, resolved: false };
 }
@@ -448,7 +448,7 @@ function scanFile(path, cache, findings, reported) {
     for (const setting of SETTINGS) {
       const value = config[setting.key];
       if (value === undefined || value === null) continue;
-      const substitution = typeof value === 'string' && value.includes('${');
+      const substitution = typeof value === 'string' && value.includes('$');
       if (!substitution && !setting.hit(value)) continue;
       const where = origin.get(setting.key) ?? { path, pair: undefined, lineCounter: file.lineCounter };
       if (exempted(where.pair)) continue;
@@ -913,6 +913,28 @@ services:
       - /var/run/docker.sock:\${MOUNT:-/socket}
 `,
   },
+  // The unbraced form is the same bypass: `$MOUNT` reads as a literal and two
+  // of them compare equal. Any `$` is unresolved.
+  unbracedSubstitutionBypass: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    volumes:
+      - /tmp/empty:$MOUNT
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    volumes:
+      - /var/run/docker.sock:$MOUNT
+`,
+  },
+  // And the same hole in a scalar setting.
+  unbracedScalarSubstitution: { 'docker-compose.yml': `services:
+  web:
+    image: alpine:3.20
+    network_mode: "$MODE"
+` },
 };
 
 const EXPECTED = {
@@ -930,6 +952,8 @@ const EXPECTED = {
   interpolationTargetBypass: 1,
   // Fail closed: the target cannot be resolved, so the socket is still kept.
   interpolationTargetUnresolved: 1,
+  unbracedSubstitutionBypass: 1,
+  unbracedScalarSubstitution: 1,
 };
 
 function selfTest() {
