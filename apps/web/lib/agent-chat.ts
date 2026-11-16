@@ -51,7 +51,9 @@ export async function runChatTurn(
   onFrame?: (frame: ChatFrame) => void,
 ): Promise<ChatTurnResult> {
   const base = apiBaseUrl();
-  await authReady();
+  // A full page load restores the token from the session cookie. Wait for
+  // that only when there is no token yet; a seeded test session proceeds.
+  if (loadTokens() === null) await authReady();
   const tokens = loadTokens();
   const response = await fetch(
     `${base}/api/v1/ai/chat/sessions/${sessionId}/turns`,

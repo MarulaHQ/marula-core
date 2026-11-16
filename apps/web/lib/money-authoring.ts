@@ -190,7 +190,9 @@ async function postJson<T>(
   body: unknown,
   signal?: AbortSignal,
 ): Promise<MoneyAuthorOutcome<T>> {
-  await authReady();
+  // A full page load restores the token from the session cookie. Wait for
+  // that only when there is no token yet; a seeded test session proceeds.
+  if (loadTokens() === null) await authReady();
   const tokens = loadTokens();
   let response: Response;
   try {
@@ -275,7 +277,9 @@ export function proposeContractChange(
  * call would not compile until the pins move.
  */
 export async function contractClauses(): Promise<ClauseRef[]> {
-  await authReady();
+  // A full page load restores the token from the session cookie. Wait for
+  // that only when there is no token yet; a seeded test session proceeds.
+  if (loadTokens() === null) await authReady();
   const tokens = loadTokens();
   try {
     const response = await fetch(`${apiBaseUrl()}/api/v1/contracts/clauses`, {

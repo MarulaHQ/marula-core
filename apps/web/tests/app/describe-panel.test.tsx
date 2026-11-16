@@ -176,10 +176,16 @@ describe("Describe it panel", () => {
     const user = userEvent.setup();
     render(<Harness onBuild={() => undefined} />);
     await user.type(await screen.findByTestId("describe-transcript"), "Acme, 6 access points, survey");
-    expect(await screen.findByTestId("describe-seen")).toBeInTheDocument();
-    expect(await screen.findByText("6 access points")).toBeInTheDocument();
-    expect(await screen.findByText("A site survey")).toBeInTheDocument();
-    await waitFor(() => expect(mock.callsTo("POST", "/api/v1/quotes/extract").length).toBeGreaterThan(0));
+    // The chips arrive after the debounced extract round trip, so wait for the
+    // call first. On a loaded CI runner the render can land past the default
+    // one-second find timeout even though nothing is wrong.
+    await waitFor(
+      () => expect(mock.callsTo("POST", "/api/v1/quotes/extract").length).toBeGreaterThan(0),
+      { timeout: 5_000 },
+    );
+    expect(await screen.findByTestId("describe-seen", {}, { timeout: 5_000 })).toBeInTheDocument();
+    expect(await screen.findByText("6 access points", {}, { timeout: 5_000 })).toBeInTheDocument();
+    expect(await screen.findByText("A site survey", {}, { timeout: 5_000 })).toBeInTheDocument();
     // The chips are a read; nothing has been authored yet.
     expect(mock.callsTo("POST", "/api/v1/quotes/author")).toHaveLength(0);
   });

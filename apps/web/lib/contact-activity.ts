@@ -44,7 +44,9 @@ export function contactActivitySummary(row: ContactActivity | undefined): string
 
 /** Every contact's activity for one client, keyed by contact id. */
 export async function fetchContactActivity(clientId: string): Promise<Record<string, ContactActivity>> {
-  await authReady();
+  // A full page load restores the token from the session cookie. Wait for
+  // that only when there is no token yet; a seeded test session proceeds.
+  if (loadTokens() === null) await authReady();
   const tokens = loadTokens();
   try {
     const response = await fetch(
