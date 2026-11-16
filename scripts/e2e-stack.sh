@@ -670,6 +670,64 @@ selftest_target_dir() {
   return 1
 }
 
+# ---------- self-test: which mode a boot takes ---------------------------
+# The rule this check exists for: `CI=true` must not select hosted mode. GitHub
+# sets it on every runner, and hosted mode expects a database the workflow does
+# not start, so the label boot died compiling the sqlx macros against a refused
+# connection. It is decidable from one env var and starts nothing.
+selftest_mode() {
+  local failures=0 checks=0
+
+  check() { # check <label> <got> <want>
+    checks=$((checks + 1))
+    if [ "$2" = "$3" ]; then
+      echo "  PASS  $1"
+    else
+      echo "  FAIL  $1: got '$2', want '$3'"
+      failures=$((failures + 1))
+    fi
+  }
+
+  # Resolve inside a subshell with both inputs cleared, so no case can leak an
+  # env var into the next one or into the real boot after this returns.
+  mode_as() { # mode_as [VAR=value ...]
+    env -u CI -u E2E_PG_CONTAINER "$@" bash -c '
+      eval "$1"
+      resolve_mode' _ "$(declare -f resolve_mode)"
+  }
+
+  echo "e2e-stack self-test: boot mode (no docker, no stack)"
+  check "CI alone does not select hosted mode" "$(mode_as CI=true)" "isolated"
+  check "an unset environment selects the isolated stack" "$(mode_as)" "isolated"
+  check "E2E_PG_CONTAINER selects hosted mode by name" \
+    "$(mode_as E2E_PG_CONTAINER=marula-pg)" "hosted"
+  check "E2E_PG_CONTAINER wins while CI is also set" \
+    "$(mode_as CI=true E2E_PG_CONTAINER=marula-pg)" "hosted"
+
+  if [ "$failures" -eq 0 ]; then
+    echo "e2e-stack self-test: $checks mode checks pass"
+    return 0
+  fi
+  echo "e2e-stack self-test: $failures of $checks mode checks failed"
+  return 1
+}
+
+# ---------- boot mode ----------
+# Hosted mode is opt-in by name, never inferred from `CI`. GitHub sets
+# `CI=true` on every runner, and keying hosted mode on it made the `run-e2e`
+# label take a mode that expects a database nothing had started: the sqlx
+# macros compiled against a refused connection and the boot died at "migrate
+# schema". A host that really runs against a database it already owns names
+# that container in `E2E_PG_CONTAINER`; everything else gets the isolated
+# stack, which starts its own Postgres and Valkey on free ports.
+resolve_mode() {
+  if [ -n "${E2E_PG_CONTAINER:-}" ]; then
+    printf 'hosted'
+  else
+    printf 'isolated'
+  fi
+}
+
 # ########## dispatch ##########
 case "${1:-up}" in
   down)
@@ -694,6 +752,7 @@ case "${1:-up}" in
     selftest_teardown || rc=1
     selftest_owner || rc=1
     selftest_target_dir || rc=1
+    selftest_mode || rc=1
     exit "$rc"
     ;;
   help|-h|--help)
@@ -708,8 +767,9 @@ case "${1:-up}" in
 esac
 
 # ########## mode selection ##########
-if [ -n "${E2E_PG_CONTAINER:-}" ] || [ -n "${CI:-}" ]; then
-  # Legacy hosted-DB mode (CI): env is fixed, no per-run namespacing.
+if [ "$(resolve_mode)" = "hosted" ]; then
+  # Legacy hosted-DB mode: a database this run does not own, named in
+  # `E2E_PG_CONTAINER`. Env is fixed, with no per-run namespacing.
   case "${E2E_DB_PROFILE:-direct}${E2E_DB_IMAGE:-stock}" in
     *pooler*|*extensions*)
       die "E2E_DB_PROFILE=pooler and E2E_DB_IMAGE=extensions belong to the isolated stack: they start containers this mode does not own (hosted mode uses E2E_PG_CONTAINER)" ;;
@@ -802,7 +862,15 @@ if [ "${MODE:-}" = "isolated" ]; then
   echo "[e2e-stack] database topology: image ${DB_IMAGE} (${PG_IMAGE}), profile ${DB_PROFILE}"
 fi
 
-pg_ready() { pg_isready -q -d "$1" 2>/dev/null; }
+pg_ready() { # pg_ready <server-url>
+  if command -v pg_isready >/dev/null 2>&1; then
+    pg_isready -q -d "$1" 2>/dev/null
+  else
+    # A runner without the postgres client: the container this run started
+    # carries one, and it answers for the server the URL names.
+    "$DOCKER" exec "marula-e2e-pg-$RUN_ID" pg_isready -U postgres -q 2>/dev/null
+  fi
+}
 
 if [ "${MODE:-}" = "isolated" ]; then
   ########## scratch Postgres: per-run container + per-run DB ##########
