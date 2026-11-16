@@ -253,36 +253,75 @@ function asArray(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+/** Split a short-syntax mount on colons that are not inside `${...}`. */
+function splitVolume(mount) {
+  const parts = [];
+  let current = '';
+  let depth = 0;
+  for (let index = 0; index < mount.length; index += 1) {
+    const char = mount[index];
+    if (char === '$' && mount[index + 1] === '{') {
+      depth += 1;
+      current += '${';
+      index += 1;
+    } else if (char === '}' && depth > 0) {
+      depth -= 1;
+      current += char;
+    } else if (char === ':' && depth === 0) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  parts.push(current);
+  return parts;
+}
+
 /**
  * The container target of a volume, which is what Compose keys mounts by.
  *
  * Short syntax is `[source:]target[:mode]`, so one segment is a target, two
  * make the second the target, and three or more keep the second. Long syntax
- * names it.
+ * names it. Splitting on every colon would cut `${MOUNT:-/socket}` in half and
+ * make two different targets look equal.
+ *
+ * `resolved` is false when the target still contains a substitution: this check
+ * cannot know which target it lands on, so nothing may be discarded on the
+ * strength of a match.
  */
 function volumeTarget(mount) {
   if (typeof mount === 'string') {
-    const parts = mount.split(':');
-    return parts.length === 1 ? parts[0] : parts[1];
+    const parts = splitVolume(mount);
+    const target = parts.length === 1 ? parts[0] : parts[1];
+    return { value: target, resolved: !target.includes('${') };
   }
-  if (mount && typeof mount === 'object' && typeof mount.target === 'string') return mount.target;
-  return undefined;
+  if (mount && typeof mount === 'object' && typeof mount.target === 'string') {
+    return { value: mount.target, resolved: !mount.target.includes('${') };
+  }
+  return { value: undefined, resolved: false };
 }
 
 /**
  * Merge volumes the way Compose does: a local mount replaces an inherited one
  * with the same container target, and the origin follows the effective mount.
- * Concatenating instead would report a socket the local file deliberately
- * replaced.
+ *
+ * A target that cannot be resolved replaces nothing. Compose interpolates
+ * before it merges, so `${MOUNT:-/socket-b}` and `${MOUNT:-/socket-a}` may be
+ * the same target or two different ones depending on the deployment; keeping
+ * the inherited mount is the answer that cannot silently drop a socket.
  */
 function mergeVolumes(inherited, inheritedOrigins, local, localOrigin) {
   const volumes = [...inherited];
   const volumeOrigins = [...inheritedOrigins];
   for (const mount of local) {
     const target = volumeTarget(mount);
-    const at = target === undefined
-      ? -1
-      : volumes.findIndex((candidate) => volumeTarget(candidate) === target);
+    const at = target.resolved
+      ? volumes.findIndex((candidate) => {
+        const other = volumeTarget(candidate);
+        return other.resolved && other.value === target.value;
+      })
+      : -1;
     if (at >= 0) {
       volumes[at] = mount;
       volumeOrigins[at] = localOrigin;
@@ -841,6 +880,39 @@ services:
       - /var/run/docker.sock:/socket
 `,
   },
+  // A colon inside a substitution must not be read as the target separator.
+  // Compose interpolates first, so these are two different targets and both
+  // mounts are effective: the socket must still be reported.
+  interpolationTargetBypass: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    volumes:
+      - /tmp/empty:\${MOUNT:-/socket-b}
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    volumes:
+      - /var/run/docker.sock:\${MOUNT:-/socket-a}
+`,
+  },
+  // Both substitutions have the same default, so Compose would replace the
+  // mount. The target is still unresolved here, so nothing is discarded.
+  interpolationTargetUnresolved: {
+    'docker-compose.yml': `services:
+  web:
+    extends: {file: base.yml, service: base}
+    volumes:
+      - /tmp/empty:\${MOUNT:-/socket}
+`,
+    'base.yml': `services:
+  base:
+    image: alpine:3.20
+    volumes:
+      - /var/run/docker.sock:\${MOUNT:-/socket}
+`,
+  },
 };
 
 const EXPECTED = {
@@ -854,6 +926,10 @@ const EXPECTED = {
   includeOnly: 1, mergedInclude: 1, nestedInclude: 1, includeCycle: 1,
   mergedIncludeYamlMerge: 1, includePathList: 1,
   baseExemptLocalSocket: 1, volumeTargetOverride: 0,
+  // Different defaults: two effective mounts, and the socket is one of them.
+  interpolationTargetBypass: 1,
+  // Fail closed: the target cannot be resolved, so the socket is still kept.
+  interpolationTargetUnresolved: 1,
 };
 
 function selfTest() {
