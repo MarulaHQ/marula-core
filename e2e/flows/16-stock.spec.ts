@@ -160,9 +160,13 @@ test("a quote line pulls from stock and shows the availability read", async ({ a
   await authedPage.goto("/sales/quotes");
   await authedPage.getByTestId("quotes-new").click();
   await pickSelect(authedPage, "quote-client", clients[0].name);
-  // The stock picker names what is on hand in the option itself ("… · 3 each
-  // on hand"), so the availability read is asserted where the choice is made.
-  await pickSelect(authedPage, "quote-from-stock", `${itemName} · 3 ${item.unit} on hand`);
+  // The stock picker is a native select, so the choice is made with
+  // `selectOption`, not the Radix open-and-click the client picker needs. Its
+  // options name the item and what is on hand, so the availability read is
+  // asserted where the choice is made.
+  await authedPage
+    .getByTestId("quote-from-stock")
+    .selectOption({ label: `${itemName} · 3 ${item.unit} on hand` });
 
   const line = authedPage.getByTestId("quote-line-0");
   await expect(line).toContainText(itemName);
