@@ -32,7 +32,7 @@ WITH legacy_keys(old_key, new_key) AS (
     ('project_coordinator', 'senior_tech'),
     ('project_tech', 'technician')
 )
-UPDATE project_pod_settings AS legacy
+UPDATE project_pod_settings AS target
 SET pods = (
       SELECT ARRAY(
         SELECT pod
@@ -43,11 +43,11 @@ SET pods = (
       )
     ),
     updated_at = now()
-FROM legacy_keys, project_pod_settings AS target
-WHERE legacy.role_key = legacy_keys.old_key
-  AND target.org_id = legacy.org_id
-  AND target.surface = legacy.surface
-  AND target.role_key = legacy_keys.new_key;
+FROM legacy_keys, project_pod_settings AS legacy
+WHERE target.role_key = legacy_keys.new_key
+  AND legacy.org_id = target.org_id
+  AND legacy.surface = target.surface
+  AND legacy.role_key = legacy_keys.old_key;
 
 -- 2. Drop the merged legacy rows; their pods now live on the target row.
 WITH legacy_keys(old_key, new_key) AS (

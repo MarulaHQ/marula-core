@@ -297,7 +297,7 @@ pub async fn patch(
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        let before = core_db::projects::get_project(&mut *ctx.tx, org_id, id)
+        let before = core_db::projects::get_project_for_update(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
         // Effective budget/currency pairing after this patch lands.

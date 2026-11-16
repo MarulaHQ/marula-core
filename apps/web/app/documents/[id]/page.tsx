@@ -381,7 +381,14 @@ export default function DocumentDetailPage() {
       );
       return;
     }
-    await refresh();
+    // Reconcile the one field this act changed. A full refresh would replace
+    // the body draft and the metadata form with the persisted values, losing
+    // edits the person has not saved yet.
+    setDoc((current) =>
+      current === null
+        ? current
+        : { ...current, archived_at: archived ? new Date().toISOString() : null },
+    );
   }
 
   return (

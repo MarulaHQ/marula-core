@@ -206,6 +206,25 @@ where
     Ok(row_to_project(row)?)
 }
 
+/// The project row under a write lock, for a patch that decides from the
+/// current status (the hold and resume transition). The lock is held until
+/// the transaction ends, so the value the decision used is the value the
+/// update writes over.
+pub async fn get_project_for_update<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Project>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let sql =
+        format!("SELECT {PROJECT_COLS} FROM projects WHERE org_id = $1 AND id = $2 FOR UPDATE");
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .fetch_optional(executor)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    Ok(row_to_project(row)?)
+}
+
 pub async fn get_project<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<Project>
 where
     E: sqlx::Executor<'e, Database = Postgres>,

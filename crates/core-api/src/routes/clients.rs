@@ -337,7 +337,16 @@ pub async fn archive_site(
     require_permission(&authed.principal, client_edit_permission())?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let is_admin = authed.principal.is_owner_or_admin();
     let site = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        // Same per-client visibility rule as the client record and its
+        // contact activity: a restricted client's sites are not writable by a
+        // user the client does not list.
+        let client = core_db::clients::get_client(&mut *ctx.tx, org_id, client_id).await?;
+        if !client.restricted_to.is_empty() && !client.restricted_to.contains(&user_id) && !is_admin
+        {
+            return Err(ApiError::NotFound);
+        }
         core_db::clients::set_site_archived(&mut ctx.tx, org_id, client_id, site_id, req.archived)
             .await
             .map_err(|e| match e {
