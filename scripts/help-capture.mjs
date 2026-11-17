@@ -12,11 +12,22 @@
  */
 import { chromium } from 'playwright';
 import { mkdir, rm } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const OUT = resolve('design/qa-p26-contextual-help/captures');
 const BASE = process.argv[2] ?? 'http://localhost:3000';
+
+// Tour ids, read straight from the registry so the seed below can never
+// go stale when the tour set grows (Wave 71: eleven surfaces plus the
+// workbar). Only Tour entries carry a 4-space-indented quoted id; steps
+// have targets, not ids.
+const TOUR_IDS = [
+  ...readFileSync(resolve('apps/web/lib/tours/tours.ts'), 'utf8').matchAll(
+    /^\s{4}id:\s*"([^"]+)",\s*$/gm,
+  ),
+].map((m) => m[1]);
+if (TOUR_IDS.length === 0) throw new Error('no tour ids parsed from apps/web/lib/tours/tours.ts — fix the regex before capturing');
 
 if (existsSync(OUT)) await rm(OUT, { recursive: true });
 await mkdir(OUT, { recursive: true });
@@ -80,7 +91,7 @@ async function shot(browser, viewport, theme, name, path, interactions, seedTour
     if (opts.seedTours) {
       window.localStorage.setItem(
         'marula-tours-completed',
-        JSON.stringify(['workbar', 'inventory-workbench', 'help-entry']),
+        JSON.stringify(TOUR_IDS),
       );
     }
     const style = document.createElement('style');
@@ -170,8 +181,8 @@ for (const theme of ['light', 'dark']) {
     await page.waitForTimeout(700);
   });
 
-  // 5. Spotlight tour overlay on /boards (help-entry tour: fresh session,
-  // targets the ? affordance). /today is avoided because the onboarding
+  // 5. Spotlight tour overlay on /boards (boards tour: fresh session,
+  // targets the board itself). /today is avoided because the onboarding
   // resume banner (lane 1) crashes under minimal fixtures, not under the
   // real backend (e2e flow 13 covers the real-stack path).
   await shot(browser, VP, theme, `tour-overlay-${t}.png`, '/boards', async (page) => {
