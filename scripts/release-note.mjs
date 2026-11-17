@@ -26,7 +26,15 @@
 // dropped at `apply` time.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+} from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,6 +55,10 @@ const VERSION_FILES = [
   "packages/sdk/package.json",
   "packages/plugin-kit/package.json",
   "native/package.json",
+  // The shells read their own version from these, and a release that moved
+  // nine of eleven files ships a desktop "About" that disagrees with the API.
+  "native/app.json",
+  "desktop/tauri.conf.json",
 ];
 
 const SECTIONS = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"];
@@ -99,7 +111,11 @@ function parseArgs(argv) {
     if (!arg.startsWith("--")) fail(`unexpected argument ${arg}`);
     const key = arg.slice(2);
     if (key === "note") {
-      flags.notes.push(rest[++i]);
+      const value = rest[++i];
+      if (value === undefined || value.startsWith("--")) {
+        fail("--note needs a value (an empty flag would be dropped silently)");
+      }
+      flags.notes.push(value);
       continue;
     }
     if (key === "self-test") {
@@ -142,6 +158,15 @@ export function highestBump(bumps) {
   return "none";
 }
 
+/** A real calendar date, not just the shape: `2026-02-31` matches YYYY-MM-DD
+ * and does not exist, and the value is published in a changelog heading the
+ * website builds its feed from. */
+export function isCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function currentVersion() {
   const cargo = readFileSync(CARGO, "utf8");
   const match = /\[workspace\.package\][\s\S]*?^version\s*=\s*"([^"]+)"/m.exec(cargo);
@@ -161,9 +186,20 @@ export function parseFragment(raw, file = "<fragment>") {
   if (!BUMPS.includes(bump)) throw new Error(`${file}: bump must be one of ${BUMPS.join(", ")}`);
   const trimmed = body.trim();
   if (trimmed === "") throw new Error(`${file}: the body is empty`);
-  const heading = /^### (Added|Changed|Deprecated|Removed|Fixed|Security|Internal)$/m.exec(trimmed);
+  // Anchored at the start, no `m` flag: `assembleChangelog` reads everything
+  // after the FIRST heading as that section's bullets, so a heading found in
+  // the middle would silently publish the text above it under the wrong one.
+  const heading = /^### (Added|Changed|Deprecated|Removed|Fixed|Security|Internal)$/.exec(
+    trimmed.split("\n", 1)[0],
+  );
   if (heading === null) {
-    throw new Error(`${file}: body needs a ### ${SECTIONS.join("|")}|Internal heading`);
+    throw new Error(`${file}: the body must START with a ### heading`);
+  }
+  const headings = trimmed.match(/^### /gm) ?? [];
+  if (headings.length > 1) {
+    throw new Error(
+      `${file}: one fragment carries one ### heading, found ${headings.length}`,
+    );
   }
   if (!/^- \S/m.test(trimmed)) throw new Error(`${file}: body needs at least one "- " bullet`);
   if (bump === "none" && heading[1] !== "Internal") {
@@ -210,7 +246,10 @@ function assembleChangelog(version, date, list) {
   return `${parts.join("\n")}\n`;
 }
 
-function insertIntoChangelog(section, version, release) {
+/** The changelog text a release would produce. Pure: no write, so `apply` can
+ * prepare every file and only then touch the tree. */
+function prepareChangelog(version, date, release, list) {
+  const section = assembleChangelog(version, date, list);
   let text = readFileSync(CHANGELOG, "utf8");
   const unreleased = /^## \[Unreleased\][\s\S]*?(?=^## \[)/m.exec(text);
   if (unreleased === null) fail("CHANGELOG.md has no [Unreleased] section to sit under");
@@ -222,17 +261,25 @@ function insertIntoChangelog(section, version, release) {
     `[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v${version}...HEAD`,
   );
   if (!text.includes(`[${version}]: `)) {
-    const anchor = `[Unreleased]: `;
     const line = `[${version}]: https://github.com/MarulaHQ/marula-core/compare/v${release}...v${version}\n`;
-    text = text.replace(anchor, `${line}${anchor}`);
+    text = text.replace("[Unreleased]: ", `${line}[Unreleased]: `);
   }
-  writeFileSync(CHANGELOG, text);
+  return { path: CHANGELOG, content: text };
 }
 
-function bumpVersionFiles(version) {
-  for (const relative of VERSION_FILES) {
+/** Every version file at `version`, validated before any of them is written. */
+function prepareVersionFiles(version) {
+  return VERSION_FILES.map((relative) => {
     const path = join(ROOT, relative);
-    const before = readFileSync(path, "utf8");
+    let before;
+    try {
+      before = readFileSync(path, "utf8");
+    } catch (error) {
+      fail(
+        `${relative} is listed as a version file but cannot be read ` +
+          `(${error.code ?? error.message}); update VERSION_FILES with it`,
+      );
+    }
     const after =
       relative === "Cargo.toml"
         ? before.replace(
@@ -241,8 +288,15 @@ function bumpVersionFiles(version) {
           )
         : before.replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`);
     if (after === before) fail(`${relative} did not carry the version`);
-    writeFileSync(path, after);
-  }
+    return { path, content: after };
+  });
+}
+
+/** Write through a sibling temp file, so a reader never sees half a file. */
+function writeAtomically(path, content) {
+  const staging = `${path}.release-note.tmp`;
+  writeFileSync(staging, content);
+  renameSync(staging, path);
 }
 
 // --- git --------------------------------------------------------------------
@@ -266,7 +320,10 @@ function addedFragments(base) {
   return git(["diff", "--name-status", `${base}...HEAD`, "--", "release-notes/unreleased"])
     .split("\n")
     .filter((line) => line.startsWith("A\t"))
-    .map((line) => line.slice(2));
+    .map((line) => line.slice(2))
+    // The directory holds a README and nothing else that is not a fragment;
+    // parsing it as one would fail a pull request that only edited the docs.
+    .filter((path) => path.endsWith(".md") && !path.endsWith("/README.md"));
 }
 
 // --- commands ---------------------------------------------------------------
@@ -337,10 +394,16 @@ function cmdApply(flags) {
   // A release says what shipped on the day it shipped; a caller that wants a
   // backdated entry (a split of work that already merged) passes --date.
   const date = flags.date ?? new Date().toISOString().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) fail("--date must be YYYY-MM-DD");
-  const section = assembleChangelog(result.version, date, list);
-  insertIntoChangelog(section, result.version, result.current);
-  bumpVersionFiles(result.version);
+  if (!isCalendarDate(date)) fail(`--date ${date} is not a calendar date (YYYY-MM-DD)`);
+  // Prepare every write first. A validation failure above leaves the tree
+  // untouched; without this, a bad manifest would exit after the changelog was
+  // already rewritten and before any fragment was consumed, and the next run
+  // would read the bumped version and plan a release that never happened.
+  const writes = [
+    prepareChangelog(result.version, date, result.current, list),
+    ...prepareVersionFiles(result.version),
+  ];
+  for (const write of writes) writeAtomically(write.path, write.content);
   for (const fragment of list) rmSync(fragment.path);
   console.log(`released ${result.version} (${result.bump}) with ${list.length} fragment(s)`);
   console.log("still to do, in order:");
@@ -434,6 +497,13 @@ function selfTest() {
   assert(highestBump(["patch", "none", "patch"]) === "patch", "patch wins over none");
   assert(highestBump(["patch", "minor"]) === "minor", "minor wins over patch");
   assert(highestBump(["none"]) === "none", "nothing declared");
+  assert(isCalendarDate("2026-11-17"), "a real date is accepted");
+  assert(!isCalendarDate("2026-02-31"), "a date that does not exist is refused");
+  assert(!isCalendarDate("2026-13-01"), "a month past December is refused");
+  assert(!isCalendarDate("2026-1-7"), "the shape is strict");
+  for (const relative of VERSION_FILES) {
+    assert(existsSync(join(ROOT, relative)), `${relative} carries a version`);
+  }
 
   const good = parseFragment(
     "---\nbump: patch\n---\n\n### Fixed\n\n- The thing stops doing the wrong thing.\n",
@@ -447,6 +517,8 @@ function selfTest() {
     ["---\nbump: patch\n---\n\n### Fixed\n\nno bullet\n", "missing bullet"],
     ["---\nbump: none\n---\n\n### Fixed\n\n- x\n", "none cannot ship a Fixed section"],
     ["---\nbump: patch\n---\n\n### Internal\n\n- x\n", "Internal cannot ship a bump"],
+    ["---\nbump: patch\n---\n\nIntro first.\n\n### Fixed\n\n- x\n", "heading must be first"],
+    ["---\nbump: patch\n---\n\n### Fixed\n\n- x\n\n### Added\n\n- y\n", "one heading only"],
     ["\n### Fixed\n\n- x\n", "missing frontmatter"],
   ];
   for (const [raw, why] of rejects) {

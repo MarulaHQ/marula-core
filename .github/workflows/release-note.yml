@@ -19,7 +19,9 @@ permissions:
 
 jobs:
   note:
-    name: Every product change declares its bump
+    # The job name IS the required-check context branch protection matches on,
+    # and it is what AGENTS.md tells an author to look for. Keep the two equal.
+    name: Release note
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

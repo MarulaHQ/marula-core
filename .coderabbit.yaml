@@ -140,8 +140,10 @@ reviews:
         - These are public pages the website builds from. Keep the register
           user-facing: no lane or wave numbers, no internal planning
           references, no unreleased commercial plans.
-        - `CHANGELOG.md` follows Keep a Changelog; bullets go under
-          `[Unreleased]` and answer "what changed for me?".
+        - `CHANGELOG.md` follows Keep a Changelog and is written by
+          `scripts/release-note.mjs apply` at release time; a pull request adds a
+          fragment under `release-notes/unreleased/` instead of editing it, and
+          the bullet answers "what changed for me?".
         - `ROADMAP.md` columns are Shipped / In flight / Later; never put a
           date on an item nobody owns.
         - Flag copy that reads generic or machine-written: plain words, active
