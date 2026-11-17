@@ -385,7 +385,8 @@ reconstruction at tag time.
   `release-notes/unreleased/`, written with
   `node scripts/release-note.mjs add --bump <patch|minor|none> --section <…> --note "…"`.
   The `Release note` check fails a product diff with no fragment; tests, docs,
-  `e2e/`, `scripts/` and `.github/` are exempt by path.
+  `e2e/`, `scripts/`, `.github/`, the version manifests and the generated
+  OpenAPI/SDK files are exempt by path.
 - **Pick the bump by what a user gets, not by how much code moved.**
   `minor` is a capability someone can use (a module, a surface, a connection, a
   field that saves). `patch` is a fix to something that already works.

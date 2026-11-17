@@ -223,7 +223,7 @@ function fragments() {
     });
 }
 
-function assembleChangelog(version, date, list) {
+export function assembleChangelog(version, date, list) {
   const bySection = new Map();
   for (const fragment of list) {
     if (fragment.bump === "none") continue;
@@ -305,6 +305,16 @@ function git(args) {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" }).trim();
 }
 
+/** A revision for `git diff`, not an option. `git diff --name-only <base>...HEAD`
+ * parses `--foo` as a flag, so a base that starts with a dash is refused before
+ * git sees it. */
+function safeBase(base) {
+  if (!/^[A-Za-z0-9._/~^-]+$/.test(base) || base.startsWith("-")) {
+    fail(`--base ${base} is not a git revision`);
+  }
+  return base;
+}
+
 export function isProductPath(path) {
   if (!PRODUCT_ROOTS.test(path) && !VERSION_FILES.includes(path)) return false;
   // A version manifest is not behaviour, whichever directory it sits in. The
@@ -340,7 +350,12 @@ function cmdAdd(flags) {
   if (!allowed.includes(section)) {
     fail(`--section must be one of ${allowed.join(", ")} for a ${bump} bump`);
   }
-  if (!flags.slug) fail("--slug is required (a short kebab-case name)");
+  // The slug becomes a filename, so it is the one input that must not be able
+  // to leave the directory: `--slug ../../.github/workflows/x` would otherwise
+  // write wherever the caller pointed it.
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(flags.slug ?? "")) {
+    fail("--slug must be lowercase letters, digits and dashes (it becomes a filename)");
+  }
   const notes = flags.notes.filter((note) => typeof note === "string" && note.trim() !== "");
   if (notes.length === 0) fail("at least one --note is required; it becomes the bullet");
   const date = new Date().toISOString().slice(0, 10);
@@ -417,7 +432,7 @@ function cmdApply(flags) {
 }
 
 function cmdCheck(flags) {
-  const base = flags.base ?? "origin/main";
+  const base = safeBase(flags.base ?? "origin/main");
   let paths;
   try {
     paths = changedPaths(base);
@@ -470,7 +485,7 @@ export function advisePaths(paths) {
 }
 
 function cmdAdvise(flags) {
-  const base = flags.base ?? "origin/main";
+  const base = safeBase(flags.base ?? "origin/main");
   const result = advisePaths(changedPaths(base));
   console.log(`suggested bump: ${result.bump}`);
   for (const reason of result.reasons) console.log(`  ${reason}`);
@@ -501,6 +516,15 @@ function selfTest() {
   assert(highestBump(["patch", "none", "patch"]) === "patch", "patch wins over none");
   assert(highestBump(["patch", "minor"]) === "minor", "minor wins over patch");
   assert(highestBump(["none"]) === "none", "nothing declared");
+  const assembled = assembleChangelog("0.5.0", "2026-11-18", [
+    { bump: "minor", body: "### Added\n\n- A capability.\n- Another one.\n" },
+    { bump: "none", body: "### Internal\n\n- A refactor nobody sees.\n" },
+  ]);
+  assert(assembled.startsWith("## [0.5.0] - 2026-11-18"), "the heading is written");
+  assert(assembled.includes("### Added\n\n- A capability.\n- Another one."), "bullets land under their section");
+  assert(!assembled.includes("A refactor nobody sees"), "a none fragment never reaches the changelog");
+  assert(assembled.endsWith("\n\n"), "a blank line separates it from the next release");
+
   assert(isCalendarDate("2026-11-17"), "a real date is accepted");
   assert(!isCalendarDate("2026-02-31"), "a date that does not exist is refused");
   assert(!isCalendarDate("2026-13-01"), "a month past December is refused");
