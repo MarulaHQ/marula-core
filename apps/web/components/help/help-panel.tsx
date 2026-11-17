@@ -37,7 +37,8 @@ import {
 } from "../../lib/help/manifest";
 import { recordDocFeedback } from "../../lib/help/help-settings";
 import { requestTourStart } from "../../lib/tours/tour-bus";
-import { tourForRouteKey, tourTargetsReady } from "../../lib/tours/tours";
+import { tourSurfaceForPath } from "../../lib/tours/surfaces";
+import { tourForSurface, tourTargetsReady } from "../../lib/tours/tours";
 
 const AUDIENCE_TONES: Record<string, "neutral" | "warning"> = {
   admin: "warning",
@@ -142,6 +143,9 @@ export function HelpPanel() {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const routeKey = routeKeyForPath(pathname);
+  // Tours are keyed by surface, which is finer than the docs route key
+  // (a record page has its own tour but still reads its list's docs).
+  const surface = tourSurfaceForPath(pathname);
   const isAdmin = isAdminViewer(me?.permissions ?? []);
 
   const surfaceDocs = useMemo(() => {
@@ -166,23 +170,23 @@ export function HelpPanel() {
 
   // Replay offer for the current surface: a plain action, so no seen or
   // not-seen state, and no regard for the auto-start switches — replay
-  // is explicit intent. Shown only when a tour exists for this routeKey
+  // is explicit intent. Shown only when a tour exists for this surface
   // (empty completed list: a tour you finished may still be replayed)
   // AND its targets are on screen, so the panel never promises a tour
   // that cannot run. Re-checked when the panel opens.
   const surfaceTour = useMemo(() => {
     if (!open) return null;
-    const tour = tourForRouteKey(routeKey, [], isAdmin);
+    const tour = tourForSurface(surface, [], isAdmin);
     return tour !== null && tourTargetsReady(tour) ? tour : null;
-  }, [open, routeKey, isAdmin]);
+  }, [open, surface, isAdmin]);
 
   const takeTour = useCallback(() => {
     // Close first so the overlay never competes with the open panel,
     // then ask the scheduler. The request bypasses the auto-start
     // switches and the session cap by design.
     setOpen(false);
-    requestTourStart(routeKey);
-  }, [routeKey]);
+    requestTourStart(surface);
+  }, [surface]);
 
   useEffect(() => {
     if (!open) return;

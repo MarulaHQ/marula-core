@@ -8,7 +8,10 @@
 //  - a tour runs once per account (tours.completed, server-persisted with
 //    an offline localStorage fallback);
 //  - capped per session (SESSION_TOUR_CAP) so surface-hopping never nags;
-//  - every step target must exist on screen or the tour silently skips;
+//  - every step target must exist on screen or the tour silently skips —
+//    READINESS is polled for a short window, because record pages mount
+//    their targets after their first read and a single 900ms check used to
+//    miss them on a cold load;
 //  - explicit replay ("Take the tour" in the help panel, via the tour
 //    request bus) bypasses the switches and the session cap — both
 //    govern AUTO-starts only, never a deliberate ask;
@@ -18,13 +21,15 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../lib/api";
-import { isAdminViewer, routeKeyForPath } from "../../lib/help/manifest";
+import { isAdminViewer } from "../../lib/help/manifest";
+import { tourSurfaceForPath } from "../../lib/tours/surfaces";
 import {
+  SESSION_TOUR_CAP,
   bumpSessionTourCount,
   sessionTourCount,
-  tourForRouteKey,
+  tourForSurface,
   tourTargetsReady,
   type Tour,
 } from "../../lib/tours/tours";
@@ -32,7 +37,12 @@ import { subscribeTourRequests } from "../../lib/tours/tour-bus";
 import { useToursState } from "../../lib/help/help-settings";
 import { TourOverlay } from "./tour-overlay";
 
+/** Wait this long before the first readiness check, so a surface settles. */
 const START_DELAY_MS = 900;
+/** Re-check this often while the surface is still mounting its targets. */
+const READY_RETRY_MS = 400;
+/** Give up after this long; the tour waits for the next visit instead. */
+const READY_DEADLINE_MS = 6_000;
 
 export function TourScheduler() {
   const pathname = usePathname();
@@ -40,25 +50,39 @@ export function TourScheduler() {
   const tours = useToursState(status === "authed");
   const [active, setActive] = useState<Tour | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAdmin = isAdminViewer(me?.permissions ?? []);
 
   useEffect(() => {
-    if (timer.current !== null) clearTimeout(timer.current);
     if (!tours.loaded || tours.disabled || tours.orgDisabled || active) return;
-    const routeKey = routeKeyForPath(pathname);
-    const tour = tourForRouteKey(routeKey, tours.completed, isAdmin);
+    const surface = tourSurfaceForPath(pathname);
+    const tour = tourForSurface(surface, tours.completed, isAdmin);
     if (!tour) return;
-    if (sessionTourCount() >= 1) return;
-    timer.current = setTimeout(() => {
-      if (!tourTargetsReady(tour)) return;
-      bumpSessionTourCount();
-      setActive(tour);
-      setStepIndex(0);
-    }, START_DELAY_MS);
+    if (sessionTourCount() >= SESSION_TOUR_CAP) return;
+
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const deadline = Date.now() + READY_DEADLINE_MS;
+
+    const attempt = () => {
+      if (cancelled) return;
+      if (tourTargetsReady(tour)) {
+        bumpSessionTourCount();
+        setActive(tour);
+        setStepIndex(0);
+        return;
+      }
+      // A record page fills its header after the first read, so one check
+      // is not enough. Bounded: no infinite timer on a surface that never
+      // renders the targets.
+      if (Date.now() < deadline) retry = setTimeout(attempt, READY_RETRY_MS);
+    };
+
+    const first = setTimeout(attempt, START_DELAY_MS);
     return () => {
-      if (timer.current !== null) clearTimeout(timer.current);
+      cancelled = true;
+      clearTimeout(first);
+      if (retry !== null) clearTimeout(retry);
     };
   }, [pathname, tours.loaded, tours.disabled, tours.orgDisabled, tours.completed, isAdmin, active]);
 
@@ -69,9 +93,9 @@ export function TourScheduler() {
   // session cap.
   useEffect(
     () =>
-      subscribeTourRequests((routeKey) => {
+      subscribeTourRequests((surface) => {
         if (active) return;
-        const tour = tourForRouteKey(routeKey, [], isAdmin);
+        const tour = tourForSurface(surface, [], isAdmin);
         if (!tour || !tourTargetsReady(tour)) return;
         setActive(tour);
         setStepIndex(0);
