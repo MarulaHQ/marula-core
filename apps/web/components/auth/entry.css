@@ -738,6 +738,12 @@
   animation: entry-mstep-in 120ms ease backwards;
 }
 
+/* The AI setup switch's thumb travels by transform (motion law: transform
+   only, at or under 120ms); the track recolours instantly. */
+.entry-aiswitch-thumb {
+  transition: transform 120ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
 /* ---- The desktop-app card on the accept flow's last step ------------------ */
 
 .entry-appcard {
@@ -1068,5 +1074,9 @@
   /* The AI setup step's staggered cards too. */
   .entry-aicard {
     animation: none;
+  }
+
+  .entry-aiswitch-thumb {
+    transition: none;
   }
 }

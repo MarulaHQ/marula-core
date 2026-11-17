@@ -92,6 +92,51 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+function seedCatalog(mock: MockApi, configured: string[]): void {
+  seedEmptyOrg(mock);
+  mock.on("GET", "/api/v1/settings/ai/status", () => ({
+    json: { active_provider: "none", active_model: "none", configured_providers: configured },
+  }));
+  mock.on("GET", "/api/v1/settings/ai/matrix", () => ({
+    json: {
+      caps: [],
+      catalog: [
+        {
+          id: "c1",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          label: "gpt-4o-mini",
+          cost_weight: 1,
+          enabled: true,
+          capabilities: ["completion"],
+        },
+        {
+          id: "c2",
+          provider: "typesafe",
+          model: "jev-1.13.0",
+          label: "jev-1.13.0",
+          cost_weight: 1,
+          enabled: true,
+          capabilities: ["decision"],
+        },
+        {
+          id: "c3",
+          provider: "ollama",
+          model: "llama3",
+          label: "llama3",
+          cost_weight: 1,
+          enabled: true,
+          capabilities: ["completion"],
+        },
+      ],
+      credentials: [],
+      grants: [],
+      personal_credentials_enabled: false,
+      surfaces: [],
+    },
+  }));
+}
+
 describe("AiSetupStep gate", () => {
   it("shows the owner/admin sentence and no cards to a non-admin", async () => {
     seedAuthTokens();
@@ -203,50 +248,6 @@ describe("AiSetupStep providers", () => {
 });
 
 describe("AiSetupStep defaults", () => {
-  function seedCatalog(mock: MockApi, configured: string[]): void {
-    seedEmptyOrg(mock);
-    mock.on("GET", "/api/v1/settings/ai/status", () => ({
-      json: { active_provider: "none", active_model: "none", configured_providers: configured },
-    }));
-    mock.on("GET", "/api/v1/settings/ai/matrix", () => ({
-      json: {
-        caps: [],
-        catalog: [
-          {
-            id: "c1",
-            provider: "openai",
-            model: "gpt-4o-mini",
-            label: "gpt-4o-mini",
-            cost_weight: 1,
-            enabled: true,
-            capabilities: ["completion"],
-          },
-          {
-            id: "c2",
-            provider: "typesafe",
-            model: "jev-1.13.0",
-            label: "jev-1.13.0",
-            cost_weight: 1,
-            enabled: true,
-            capabilities: ["decision"],
-          },
-          {
-            id: "c3",
-            provider: "ollama",
-            model: "llama3",
-            label: "llama3",
-            cost_weight: 1,
-            enabled: true,
-            capabilities: ["completion"],
-          },
-        ],
-        credentials: [],
-        grants: [],
-        personal_credentials_enabled: false,
-        surfaces: [],
-      },
-    }));
-  }
 
   it("keeps a default pointing at an unconfigured provider unselectable", async () => {
     renderStep((m) => seedCatalog(m, []));
@@ -473,6 +474,71 @@ describe("AiSetupStep exits", () => {
     expect(onSkip).toHaveBeenCalledOnce();
     expect(mock.calls.filter((c) => c.method === "PUT" || c.method === "POST")).toHaveLength(0);
     expect(document.body.textContent).not.toContain("sk-never-saved");
+  });
+
+  it("gives each radio group one keyboard entry point, selection following focus", async () => {
+    renderStep((m) => seedCatalog(m, []));
+    await screen.findByTestId("ai-setup");
+
+    // Nothing selected yet: the first backed decision provider carries the
+    // group's single tab stop (the bug had every button at -1).
+    const jev = screen.getByTestId("ai-setup-decision-typesafe") as HTMLButtonElement;
+    expect(jev.tabIndex).toBe(0);
+
+    // Arrow keys move within a group; selection follows focus through the
+    // same click path a pointer takes.
+    const group = screen.getByTestId("ai-setup-chat-defaults");
+    const radios = Array.from(
+      group.querySelectorAll<HTMLButtonElement>('[role="radio"]:not([disabled])'),
+    );
+    expect(radios.length).toBeGreaterThan(0);
+    radios[0]?.focus();
+    fireEvent.keyDown(group, { key: "ArrowDown" });
+    expect(radios.length === 1 || document.activeElement === radios[1]).toBe(true);
+  });
+
+  it("drops a rendered report as soon as a pending value changes", async () => {
+    renderStep((m) => seedCatalog(m, []));
+    await screen.findByTestId("ai-setup");
+    fireEvent.click(screen.getByTestId("ai-setup-save"));
+    await screen.findByTestId("ai-setup-report");
+
+    // Editing the switch after the report must return the primary to Save:
+    // Done would otherwise skip the unsaved change.
+    fireEvent.click(screen.getByTestId("ai-setup-master-switch"));
+    await waitFor(() => expect(screen.queryByTestId("ai-setup-report")).toBeNull());
+    expect(screen.getByTestId("ai-setup-save")).toBeInTheDocument();
+  });
+
+  it("treats an inline-sealed provider as sealed, not as a missing key", async () => {
+    renderStep((m) => {
+      seedEmptyOrg(m);
+      m.on("GET", "/api/v1/settings/ai/status", () => ({
+        json: { active_provider: "openai", active_model: "none", configured_providers: ["openai"] },
+      }));
+    });
+    await screen.findByTestId("ai-setup");
+    // Pick the provider whose key is already sealed and leave the draft empty.
+    fireEvent.click(screen.getByTestId("ai-setup-provider-openai"));
+    fireEvent.click(screen.getByTestId("ai-setup-save"));
+    const report = await screen.findByTestId("ai-setup-report");
+    expect(report.textContent).toContain("already sealed");
+    expect(report.textContent).not.toContain("no key was pasted");
+  });
+
+  it("offers a retry when the report carries a failed outcome", async () => {
+    renderStep((m) => {
+      seedCatalog(m, []);
+      m.on("PUT", "/api/v1/settings/ai/model-picks/general_chat", () => {
+        throw new Error("org pick refused");
+      });
+    });
+    await screen.findByTestId("ai-setup");
+    fireEvent.click(screen.getByTestId("ai-setup-chat-default-ollama-llama3"));
+    fireEvent.click(screen.getByTestId("ai-setup-save"));
+    const report = await screen.findByTestId("ai-setup-report");
+    expect(report.textContent).toContain("was refused");
+    expect(screen.getByTestId("ai-setup-done").textContent).toContain("Try again");
   });
 
   it("reports nothing-picked honestly and, with AI off, records the skip", async () => {

@@ -94,17 +94,32 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
   const [chatPicked, setChatPicked] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // The persisted value of the org switch, as the server last confirmed it.
+  // Kept apart from the pending `aiOn` so a failed switch save cannot make
+  // the exit believe AI is on.
+  const [persistedAiOn, setPersistedAiOn] = useState<boolean | null>(null);
+
   const load = useCallback(async () => {
     setLoadError(null);
-    const [status, mat, dec, mine] = await Promise.all([
+    // A rejected GET (network, CORS) rejects the whole read; catch it here
+    // or the screen shows a spinner with no retry and no exit.
+    const reads = await Promise.all([
       api.api.GET("/api/v1/settings/ai/status"),
       api.api.GET("/api/v1/settings/ai/matrix"),
       api.api.GET("/api/v1/settings/ai/decision"),
       api.api.GET("/api/v1/ai/me/surfaces"),
-    ]);
+    ]).catch(() => null);
+    if (reads === null) {
+      setLoadError("The AI settings could not load. Check your connection and try again.");
+      return;
+    }
+    const [status, mat, dec, mine] = reads;
     if (status.data !== undefined && status.error === undefined) setOverview(status.data);
     if (mat.data !== undefined && mat.error === undefined) setMatrix(mat.data);
-    if (dec.data !== undefined && dec.error === undefined) setDecision(dec.data);
+    if (dec.data !== undefined && dec.error === undefined) {
+      setDecision(dec.data);
+      setPersistedAiOn(dec.data.features_enabled);
+    }
     // The current chat default is preselected so the row reads as a fact,
     // not a blank.
     const chatRow = mine.data?.surfaces.find((s) => s.surface_key === CHAT_SURFACE_KEY);
@@ -165,6 +180,18 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
   const [saving, setSaving] = useState(false);
   const [reported, setReported] = useState(false);
   const [outcomes, setOutcomes] = useState<SaveOutcome[] | null>(null);
+
+  // A rendered report is a promise that Done will not lose work. Any edit
+  // to a pending value breaks it: drop the report so the primary returns to
+  // Save (and a failed batch can be retried with the fix in place).
+  useEffect(() => {
+    if (!reported) return;
+    setReported(false);
+    setOutcomes(null);
+    // The pending values are the invalidation set; `reported` is read but
+    // deliberately not a dependency (it would clear the fresh report).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiOn, pickedChat, keyDraft, pickedDecision, decisionKeyDraft, chatDefaultKey, decisionDefaultKey]);
 
   const pairKey = (provider: string, model: string) => `${provider}/${model}`;
 
@@ -312,30 +339,40 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     };
   };
 
-  /** The save body: every pending write, one honest report. */
-  const saveAllInner = async () => {
-    const lines: SaveOutcome[] = [];
+  /** The save body: every pending write, one honest report. Takes the
+   *  outcome list so a throw part-way still reports what stored. */
+  const saveAllInner = async (lines: SaveOutcome[]) => {
 
-    // 1. The master switch, only when it actually changed.
+    // 1. The master switch, only when it actually changed. A refused save
+    //    must not count as on: completion keys off the persisted value.
+    let switchPersisted = persistedAiOn ?? decisionFeaturesEnabled;
     if (aiOn !== null && aiOn !== decisionFeaturesEnabled) {
       const { error } = await api.api.PUT("/api/v1/settings/org", {
         body: { key: "ai.features_enabled", value: aiOn },
       });
-      lines.push(
-        error === undefined
-          ? { ok: true, line: `AI turned ${aiOn ? "on" : "off"} for the organization.` }
-          : { ok: false, line: "The AI switch did not save. Flip it later in Settings → AI." },
-      );
+      if (error === undefined) {
+        switchPersisted = aiOn;
+        setPersistedAiOn(aiOn);
+        lines.push({ ok: true, line: `AI turned ${aiOn ? "on" : "off"} for the organization.` });
+      } else {
+        lines.push({ ok: false, line: "The AI switch did not save. Flip it later in Settings → AI." });
+      }
     }
 
     // 2. The chat key.
     const chatMeta = CHAT_PROVIDER_META.find((p) => p.id === pickedChat);
     if (chatMeta !== undefined && chatMeta.need !== "none") {
       if (keyDraft.trim() === "") {
-        lines.push({
-          ok: false,
-          line: `${chatMeta.name} was picked but no key was pasted, so nothing was saved for it.`,
-        });
+        // An inline save may have sealed this provider already; an empty
+        // draft is then a fact, not a failure.
+        lines.push(
+          configuredByok.has(chatMeta.id)
+            ? { ok: true, line: `${chatMeta.name} key is already sealed.` }
+            : {
+                ok: false,
+                line: `${chatMeta.name} was picked but no key was pasted, so nothing was saved for it.`,
+              },
+        );
       } else {
         const outcome = await saveChatKey();
         if (outcome !== null) lines.push(outcome);
@@ -345,10 +382,14 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     // 3. The decision credential.
     if (pickedDecision === DECISION_CREDENTIAL_PROVIDER) {
       if (decisionKeyDraft.trim() === "") {
-        lines.push({
-          ok: false,
-          line: "Jev was picked but no credential was pasted, so nothing was saved for it.",
-        });
+        lines.push(
+          orgCredentialProviders.has(DECISION_CREDENTIAL_PROVIDER)
+            ? { ok: true, line: "Jev credential is already sealed." }
+            : {
+                ok: false,
+                line: "Jev was picked but no credential was pasted, so nothing was saved for it.",
+              },
+        );
       } else {
         const outcome = await saveDecisionCredential();
         if (outcome !== null) lines.push(outcome);
@@ -423,8 +464,7 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     if (lines.length === 0) {
       lines.push({ ok: true, line: "Nothing was picked, so nothing was saved." });
     }
-    const effectiveAiOn = aiOn ?? decisionFeaturesEnabled;
-    if (!effectiveAiOn) {
+    if (!switchPersisted) {
       lines.push({
         ok: true,
         line: "AI stays off, so this step stays on your setup list — turn AI on here or in Settings → AI when you are ready.",
@@ -440,15 +480,15 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
    *  state, so the primary action never sticks disabled. */
   const saveAll = async () => {
     setSaving(true);
+    const lines: SaveOutcome[] = [];
     try {
-      await saveAllInner();
+      await saveAllInner(lines);
     } catch {
-      setOutcomes([
-        {
-          ok: false,
-          line: "The save stopped part-way. Anything reported above is stored; run it again for the rest.",
-        },
-      ]);
+      lines.push({
+        ok: false,
+        line: "The save stopped part-way. Anything reported above is stored; run it again for the rest.",
+      });
+      setOutcomes([...lines]);
       setReported(true);
     } finally {
       setSaving(false);
@@ -458,9 +498,11 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
   /** The org's de facto decision default: one pair agreed on by every
    *  non-forked decision surface, else null. */
   function pairKeyOf(d: DecisionOverviewResponse): string | null {
-    const pinned = d.surfaces.filter(
-      (s) => !s.customized && s.model_provider != null && s.model_id != null,
-    );
+    const nonForked = d.surfaces.filter((s) => !s.customized);
+    // A non-forked surface with no pin is a disagreement: reporting a pair
+    // here would skip the pin loop and leave that surface unpinned.
+    if (nonForked.some((s) => s.model_provider == null || s.model_id == null)) return null;
+    const pinned = nonForked;
     if (pinned.length === 0) return null;
     const first = pinned[0];
     if (first === undefined) return null;
@@ -470,6 +512,8 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     return same ? pairKey(first.model_provider as string, first.model_id as string) : null;
   }
 
+  const hasFailedOutcome = outcomes?.some((o) => !o.ok) ?? false;
+
   const finish = () => {
     setOutcomes(null);
     setReported(false);
@@ -477,7 +521,7 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     // is off (onboarding readiness mirrors that setting), so a 409 is the
     // predictable result of Done-with-AI-off. The save above still stands;
     // record the honest outcome instead: skip keeps the step listed.
-    const effectiveAiOn = aiOn ?? decisionFeaturesEnabled;
+    const effectiveAiOn = persistedAiOn ?? decisionFeaturesEnabled;
     if (effectiveAiOn) onDone();
     else onSkip();
   };
@@ -550,9 +594,45 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
   const decisionPin = pairKeyOf(decision);
   const chatCatalogPairs = matrix.catalog.filter((e) => capabilitiesOf(e).includes("completion"));
   const decisionCatalogPairs = matrix.catalog.filter((e) => capabilitiesOf(e).includes("decision"));
+  const firstBackedDecisionId = DECISION_PROVIDER_META.find((p) => p.backed)?.id;
+  const firstEligibleChatDefaultId = chatCatalogPairs.find((e) =>
+    chatPairs.some((p) => p.id === e.id),
+  )?.id;
+  const firstEligibleDecisionDefaultId = decisionCatalogPairs.find((e) =>
+    decisionPairs.some((p) => p.id === e.id),
+  )?.id;
 
   const chatRadioTabIndex = (id: string) =>
     pickedChat === id || (pickedChat === null && id === CHAT_PROVIDER_META[0]?.id) ? 0 : -1;
+
+  /** Arrow/Home/End inside a radiogroup; selection follows focus through
+   *  the same click path a pointer takes. Used by the groups without their
+   *  own handler, so each has exactly one tab stop and full arrow reach. */
+  const radioGroupKeyDown = (e: KeyboardEvent) => {
+    const nav = ["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End"];
+    if (!nav.includes(e.key)) return;
+    const items = Array.from(
+      (e.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>(
+        '[role="radio"]:not([disabled])',
+      ),
+    );
+    if (items.length === 0) return;
+    e.preventDefault();
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const from = at === -1 ? 0 : at;
+    const nextIdx =
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? items.length - 1
+          : e.key === "ArrowDown" || e.key === "ArrowRight"
+            ? (from + 1) % items.length
+            : (from - 1 + items.length) % items.length;
+    const next = items[nextIdx];
+    if (next === undefined) return;
+    next.focus();
+    if (next.getAttribute("aria-checked") !== "true") next.click();
+  };
 
   const chatRadiogroupKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -614,19 +694,19 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
             background: (aiOn ?? decisionFeaturesEnabled) ? "var(--m-primary)" : "var(--m-surface-2)",
             position: "relative",
             cursor: "pointer",
-            transition: "background 120ms ease",
           }}
         >
           <span
+            className="entry-aiswitch-thumb"
             style={{
               position: "absolute",
               top: 3,
-              left: (aiOn ?? decisionFeaturesEnabled) ? 19 : 3,
+              left: 3,
               width: 20,
               height: 20,
               borderRadius: 999,
               background: (aiOn ?? decisionFeaturesEnabled) ? "var(--m-on-primary)" : "var(--m-text-secondary)",
-              transition: "left 120ms ease",
+              transform: (aiOn ?? decisionFeaturesEnabled) ? "translateX(16px)" : "none",
             }}
           />
         </button>
@@ -872,6 +952,7 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
         <div
           role="radiogroup"
           aria-label="Decision provider"
+          onKeyDown={radioGroupKeyDown}
           data-testid="ai-setup-decision-cards"
           style={{
             display: "grid",
@@ -889,7 +970,13 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
                 disabled={!meta.backed}
                 aria-checked={meta.backed ? selected : undefined}
                 role={meta.backed ? "radio" : undefined}
-                tabIndex={meta.backed ? (selected ? 0 : -1) : undefined}
+                tabIndex={
+                  meta.backed
+                    ? selected || (pickedDecision === null && meta.id === firstBackedDecisionId)
+                      ? 0
+                      : -1
+                    : undefined
+                }
                 style={{
                   display: "flex",
                   alignItems: "flex-start",
@@ -1057,6 +1144,7 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
         <div
           role="radiogroup"
           aria-label="Chat default model"
+          onKeyDown={radioGroupKeyDown}
           data-testid="ai-setup-chat-defaults"
           style={{ display: "flex", flexDirection: "column", gap: 4 }}
         >
@@ -1082,7 +1170,11 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  tabIndex={selected ? 0 : -1}
+                  tabIndex={
+                    selected || (chatDefaultKey === null && e.id === firstEligibleChatDefaultId)
+                      ? 0
+                      : -1
+                  }
                   disabled={!eligible}
                   onClick={() => setChatDefaultKey(selected ? null : key)}
                   data-testid={`ai-setup-chat-default-${e.provider}-${e.model}`}
@@ -1135,6 +1227,7 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
         <div
           role="radiogroup"
           aria-label="Decision default model"
+          onKeyDown={radioGroupKeyDown}
           data-testid="ai-setup-decision-defaults"
           style={{ display: "flex", flexDirection: "column", gap: 4 }}
         >
@@ -1160,7 +1253,12 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  tabIndex={selected ? 0 : -1}
+                  tabIndex={
+                    selected ||
+                    (decisionDefaultKey === null && e.id === firstEligibleDecisionDefaultId)
+                      ? 0
+                      : -1
+                  }
                   disabled={!eligible}
                   onClick={() => setDecisionDefaultKey(selected ? null : key)}
                   data-testid={`ai-setup-decision-default-${e.provider}-${e.model}`}
@@ -1253,7 +1351,9 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
         <button
           type="button"
           className="entry-btn"
-          onClick={() => void (reported ? finish() : saveAll())}
+          onClick={() =>
+            void (reported ? (hasFailedOutcome ? saveAll() : finish()) : saveAll())
+          }
           disabled={saving}
           data-testid={reported ? "ai-setup-done" : "ai-setup-save"}
         >
@@ -1262,7 +1362,9 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
               <Spinner /> Saving…
             </>
           ) : reported ? (
-            (aiOn ?? decisionFeaturesEnabled) ? (
+            hasFailedOutcome ? (
+              "Try again"
+            ) : (persistedAiOn ?? decisionFeaturesEnabled) ? (
               "Done"
             ) : (
               "Continue without AI"
