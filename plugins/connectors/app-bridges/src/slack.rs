@@ -59,7 +59,8 @@ pub fn validate_webhook_url(
             "the webhook URL is required".into(),
         ));
     }
-    if !trimmed.starts_with("https://") && !(allow_loopback && is_loopback_url(trimmed)) {
+    let allowed = trimmed.starts_with("https://") || (allow_loopback && is_loopback_url(trimmed));
+    if !allowed {
         return Err(BridgeError::BadConfig(
             kind,
             "the webhook URL must be an https URL".into(),

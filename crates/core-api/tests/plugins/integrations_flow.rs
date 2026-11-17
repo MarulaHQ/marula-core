@@ -461,7 +461,7 @@ async fn a_loopback_or_metadata_connector_url_is_refused_at_write_time() {
             axum::http::Method::POST,
             "/api/connectors/slack",
             &[auth(&token)],
-            Some(json!({ "webhook_url": url })),
+            Some(json!({ "config": { "webhook_url": url } })),
         )
         .await;
         assert_eq!(
@@ -478,7 +478,7 @@ async fn a_loopback_or_metadata_connector_url_is_refused_at_write_time() {
         axum::http::Method::POST,
         "/api/connectors/slack",
         &[auth(&token)],
-        Some(json!({ "webhook_url": "https://93.184.216.34/services/marula" })),
+        Some(json!({ "config": { "webhook_url": "https://93.184.216.34/services/marula" } })),
     )
     .await;
     assert_eq!(

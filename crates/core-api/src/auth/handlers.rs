@@ -54,14 +54,16 @@ pub struct RefreshRequest {
     pub session_id: Option<Uuid>,
 }
 
+// `mfa_token` in the bridge arm is for clients with NO cookie jar (CLI,
+// scripts). A browser gets the same token in the httpOnly cookie the response
+// sets, and stores neither copy: a script that could read it could present it
+// at the verify endpoint without the password. Kept out of the `///` doc on
+// purpose — the derived OpenAPI description is pinned, and a comment does not
+// move the pin.
+//
 /// Login outcome: tokens directly, or a short-lived MFA bridge token when
 /// any second factor is enrolled. Untagged so legacy clients that ignore
 /// `mfa_required` keep parsing the plain token pair they always got.
-///
-/// `mfa_token` in the bridge arm is for clients with NO cookie jar (CLI,
-/// scripts). A browser gets the same token in the httpOnly cookie the response
-/// sets, and stores neither copy: a script that could read it could present it
-/// at the verify endpoint without the password.
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum LoginResponse {

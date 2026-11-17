@@ -1057,14 +1057,14 @@ pub async fn step_up(
 // Login-side completion of the mfa_pending bridge
 // ---------------------------------------------------------------------------
 
+// A browser does not need to send `mfa_token`: the login response set it in an
+// httpOnly cookie scoped to this endpoint, and the cookie wins when both are
+// present. The body field stays for clients with no cookie jar, which is why an
+// empty value is accepted and means "read the cookie". Kept out of the `///`
+// doc because the derived OpenAPI description is pinned.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MfaVerifyRequest {
     /// The `mfa_token` from POST /api/auth/login when mfa_required was set.
-    ///
-    /// A browser does not need to send it: the same login response set it in
-    /// an httpOnly cookie scoped to this endpoint, and the cookie wins when
-    /// both are present. The body field stays for clients with no cookie jar,
-    /// which is why an empty value is accepted and means "read the cookie".
     pub mfa_token: String,
     /// TOTP code or recovery code.
     pub code: String,
