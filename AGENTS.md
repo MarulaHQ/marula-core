@@ -375,6 +375,37 @@ This holds for merge-group lanes as well: the light-check allowance below says
 which **gates** a lane may skip, not whether it reviews the diff it commits. A
 lane that commits still reviews every commit it makes.
 
+## Before a pull request: run the pre-review pass (BINDING, added 2026-11-17)
+
+Added by user directive. CodeRabbit reviews every PR against this repository's
+path instructions, so most of its findings are a rule this repo already wrote
+down. The lane runs `skill: pre-review` on its own diff before it opens a pull
+request, and again before a push that changes code on an open PR.
+
+- **Load the contract first.** The skill reads `reviews.path_instructions` in
+  `.coderabbit.yaml` for the paths the diff touches, and `CONTRIBUTING.md` for
+  the ground rules. Every matching bullet is satisfied or deliberately
+  overridden before the diff leaves the machine.
+- **Run the mechanical half.** `tools/prereview-sweep.sh <base>` ships beside
+  the skill's `SKILL.md` and reports added-line candidates plus three
+  whole-diff checks: a migration edited after it was in the base, a unique
+  constraint without a `map_unique_constraint` arm, and a checked macro
+  without its `.sqlx/` changes.
+- **Fix the class, not the instance.** A finding in one page or handler is
+  checked in its siblings and in the file's other branches. One unencoded id
+  across five pages is one habit, not five decisions.
+- **Record a decline.** A finding the lane will not fix names its reason and
+  where that reason lives: a module header, a narrowed path instruction, or a
+  follow-up issue. A repeat of the same decline means the rule is wrong, so the
+  path instruction changes in that PR instead of the argument.
+- **Carry the report into the PR.** Fixed, swept, open and declined, in the
+  skill's output format, belong in the PR description or the lane's landing
+  record, so the reviewer and the maintainer read one account of the diff.
+
+The pass is cheap: git and the shell, reading the diff rather than the
+workspace. It does not replace the four-axis commit review above, nor the gate
+run a lane still needs approval to start.
+
 ## Parallel lanes: merge groups (BINDING, default for parallel work)
 
 Parallel lanes are planned in **merge groups**, not as independent lanes that
