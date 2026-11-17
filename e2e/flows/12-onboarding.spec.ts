@@ -8,6 +8,13 @@
 // unresolved, goes quiet after recorded dismissal; (d) the per-user
 // first-run walk at /onboarding completes orientation. Runs light + dark.
 //
+// One deliberate order-independence guard: the key-save test skips with a
+// reason when both unkeyed chat providers already carry a sealed key. That
+// is not a disabled test. Overwriting a sealed key is unrecoverable through
+// the presence-only API, so choosing an unkeyed provider, or standing down
+// with the reason on the record, is the only safe shape. The pre-review
+// sweep flags the pattern; this note is the recorded decline.
+//
 // THE TESTID VOCABULARY IS THE SHIPPED ONE (Wave 47 lane A16). The wizard was
 // rewritten against the Marula surface pack in `63c4836a`, and this spec was
 // left driving the pre-pack ids. The shipped controls live in
