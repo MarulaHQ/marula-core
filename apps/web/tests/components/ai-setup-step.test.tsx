@@ -117,7 +117,7 @@ describe("AiSetupStep providers", () => {
     const { } = renderStep(seedEmptyOrg);
     await screen.findByTestId("ai-setup");
     for (const id of ["openai", "anthropic", "ollama", "custom"]) {
-      expect(screen.getByTestId(`ai-setup-provider-${id}`)).toBeTruthy();
+      expect(screen.getByTestId(`ai-setup-provider-${id}`)).toBeInTheDocument();
     }
     // The gap providers are visible but disabled, with the honest line.
     for (const id of ["gemini", "openrouter"]) {
@@ -127,7 +127,7 @@ describe("AiSetupStep providers", () => {
     }
     // The decision engine names Jev; the rest of the brief's list is visible
     // but disabled for the same honest reason.
-    expect(screen.getByTestId("ai-setup-decision-typesafe")).toBeTruthy();
+    expect(screen.getByTestId("ai-setup-decision-typesafe")).toBeInTheDocument();
     for (const id of ["openrouter", "openai_decisions", "gemini_decisions", "custom_decisions"]) {
       const card = screen.getByTestId(`ai-setup-decision-${id}`) as HTMLButtonElement;
       expect(card.disabled).toBe(true);

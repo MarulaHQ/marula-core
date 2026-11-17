@@ -36,6 +36,10 @@
 //
 // Hooks all run on every render — the gate, error and loading branches sit
 // AFTER them, so the hook order never changes shape.
+//
+// Client boundary: the step owns key drafts, save state and inline
+// test-connection results, and every interaction below is a browser one —
+// nothing here is server-rendered content.
 
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Spinner } from "@marula-core/ui";
