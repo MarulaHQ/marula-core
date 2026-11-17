@@ -115,17 +115,20 @@ test.afterEach(async ({ page }, testInfo) => {
   });
 });
 
-/** Log the demo owner in through the context's cookie jar (the Set-Cookie
+/** Log an account in through the context's cookie jar (the Set-Cookie
  * session cookie from the login response lands in the browser's cookie
- * store, which the app's cookie-driven refresh rotation reads). Retries
+ * store, which the app's cookie-driven refresh rotation reads). Defaults to
+ * the demo owner; pass an email for any other seeded account. Retries
  * through the durable 30s wrong-password gate the auth flow seeds, same
  * policy as apiLogin. */
-export async function loginContext(ctx: BrowserContext): Promise<TokenPair> {
-  let lastStatus = 0;
+export async function loginContext(
+  ctx: BrowserContext,
+  email: string = DEMO_OWNER_EMAIL,
+): Promise<TokenPair> {
   let lastError = "";
   for (let attempt = 0; attempt < 20; attempt++) {
     const res = await ctx.request.post(`${API_URL}/api/v1/auth/login`, {
-      data: { email: DEMO_OWNER_EMAIL, password: DEMO_PASSWORD },
+      data: { email, password: DEMO_PASSWORD },
     });
     if (res.ok()) return (await res.json()) as TokenPair;
     lastError = await res.text();

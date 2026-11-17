@@ -14,6 +14,7 @@ import {
 import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useState } from "react";
 import { api, useRequireAuth } from "../../lib/api";
+import { BYOK_AI_PROVIDER_IDS } from "../../lib/ai-providers";
 import { SettingsHeader } from "./settings-shell";
 import { ErrorNote } from "../knowledge/ledger";
 import { rejectionText } from "../../lib/error-copy";
@@ -23,7 +24,9 @@ type ByokOverviewResponse = components["schemas"]["ByokOverviewResponse"];
 type ByokSecretMutationResponse = components["schemas"]["ByokSecretMutationResponse"];
 type TestConnectionResponse = components["schemas"]["TestConnectionResponse"];
 
-const AI_PROVIDERS = ["openai", "anthropic", "ollama", "custom"] as const;
+// The AI provider rows ride the shared metadata module (lib/ai-providers.ts),
+// so the ids here and the onboarding AI setup step can never drift.
+const AI_PROVIDERS = BYOK_AI_PROVIDER_IDS;
 const CONNECTORS = ["qbo", "xero"] as const;
 
 export function ByokLegacyCard() {

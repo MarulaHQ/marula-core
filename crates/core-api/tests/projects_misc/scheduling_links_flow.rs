@@ -75,6 +75,16 @@ fn next_weekday_at(target: chrono::Weekday, hour: u32) -> String {
     format!("{}T{hour:02}:00:00Z", day.format("%Y-%m-%d"))
 }
 
+/// `days` from now at `hour`:00 UTC. Always beyond any template booking
+/// window, and computed rather than pinned: a hardcoded far date decays
+/// into an in-window one as the clock advances (the 2026-12-01 literal
+/// this replaces crossed a 14-day window on 2026-11-17 and turned the
+/// typed-422 assertion into a 200).
+fn days_from_now_at(days: i64, hour: u32) -> String {
+    let day = chrono::Utc::now() + chrono::Duration::days(days);
+    format!("{}T{hour:02}:00:00Z", day.format("%Y-%m-%d"))
+}
+
 #[tokio::test]
 async fn groups_meeting_types_and_link_lifecycle() {
     let (_state, app) = test_state().await;
@@ -620,7 +630,7 @@ async fn revoked_expired_and_unknown_tokens_are_typed() {
         axum::http::Method::POST,
         &format!("/api/public/scheduling-links/{wtoken}/book"),
         None,
-        Some(json!({"starts_at": "2026-12-01T10:00:00Z"})),
+        Some(json!({"starts_at": days_from_now_at(60, 10)})),
     )
     .await;
     assert_eq!(far.status(), 422, "beyond the booking window is 422");

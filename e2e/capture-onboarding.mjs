@@ -7,9 +7,27 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { readFileSync } from "fs";
 
-const API = "http://localhost:8080";
-const WEB = "http://localhost:3000";
+// Per-run ports come from the booted stack (e2e/.e2e-stack.env, written by
+// scripts/e2e-stack.sh); the historical defaults keep this script usable
+// against a manual dev boot on :8080/:3000.
+function stackEnv(key, fallback) {
+  try {
+    const line = readFileSync(
+      new URL("../e2e/.e2e-stack.env", import.meta.url),
+      "utf8",
+    )
+      .split("\n")
+      .find((l) => l.startsWith(`${key}=`));
+    return line ? line.slice(key.length + 1).trim() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const API = stackEnv("E2E_API_URL", "http://localhost:8080").replace(/\/$/, "");
+const WEB = stackEnv("E2E_WEB_URL", "http://localhost:3000");
 const OUT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -128,27 +146,44 @@ async function seedAuth(ctx, page, owner, mode) {
       await page.screenshot({ path: `${OUT}/${mode}-01-today-original.png`, fullPage: false });
     }
 
-    // 2 · wizard first step (clients)
+    // 2 · wizard first screen for this org. The demo org resolves its
+    // first three steps from data, so /welcome opens on the resumed
+    // list — that IS the first screen here, and a bare org would open
+    // the rail instead.
     await page.goto(`${WEB}/welcome`);
     await ensureMode();
-    await page.getByTestId("wizard-step-clients").waitFor({ timeout: 20_000 }).catch(() => {});
+    await page.getByTestId("wizard-resumed").or(page.getByTestId("wizard-step-clients")).first().waitFor({ timeout: 20_000 }).catch(() => {});
     await page.screenshot({ path: `${OUT}/${mode}-02-wizard-first-step.png`, fullPage: false });
 
     // 3 · skip contracts visible in the invite form region
+    await page.getByTestId("wizard-resume-invites").click().catch(() => {});
     await page.getByTestId("onboarding-rail-invites").click().catch(() => {});
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/${mode}-03-wizard-invites.png`, fullPage: false });
 
     // 4 · feeder + AI skip controls
+    await page.getByTestId("wizard-resume-feeder").click().catch(() => {});
     await page.getByTestId("onboarding-rail-feeder").click().catch(() => {});
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/${mode}-04-wizard-feeder.png`, fullPage: false });
 
-    // 5 · user first-run flow
+    // 5 · the AI setup step (W72). The demo org resolves its first three
+    // steps from its own data, so /welcome opens on the resumed list and
+    // the AI row's Start button (wizard-resume-ai) is what focuses the
+    // step; a bare org opens the rail directly (wizard-step-6).
+    await page.getByTestId("wizard-resume-ai").click().catch(() => {});
+    await page.getByTestId("wizard-step-6").click().catch(() => {});
+    // Deliberately not caught: a missing step must fail the capture, not
+    // photograph whatever page happened to be on screen.
+    await page.getByTestId("ai-setup").waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(400); // let the staggered card entrance settle
+    await page.screenshot({ path: `${OUT}/${mode}-05-wizard-ai-setup.png`, fullPage: true });
+
+    // 6 · user first-run flow
     await page.goto(`${WEB}/onboarding`);
     await ensureMode();
     await page.waitForTimeout(800);
-    await page.screenshot({ path: `${OUT}/${mode}-05-user-onboarding.png` });
+    await page.screenshot({ path: `${OUT}/${mode}-06-user-onboarding.png` });
     await ctx.close();
   }
 

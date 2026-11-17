@@ -15,11 +15,11 @@ import {
 describe("tourForRouteKey", () => {
   it("selects the tour authored for the surface", () => {
     const tour = tourForRouteKey("today", [], false);
-    expect(tour?.id).toBe("workbar");
+    expect(tour?.id).toBe("workbar:v2");
   });
 
   it("never repeats a completed tour (first-visit-per-surface)", () => {
-    expect(tourForRouteKey("today", ["workbar"], false)).toBeNull();
+    expect(tourForRouteKey("today", ["workbar:v2"], false)).toBeNull();
   });
 
   it("gates admin-only tours from members", () => {
@@ -36,6 +36,47 @@ describe("tourForRouteKey", () => {
     for (const tour of TOURS) {
       for (const key of tour.routeKeys) {
         expect(manifest).toContain(key);
+      }
+    }
+  });
+
+  it("keeps every tour id unique (tours.completed stores them)", () => {
+    const ids = TOURS.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("keeps first-wave tours inside the 3–6 step budget (research §4.3)", () => {
+    const firstWave = new Set([
+      "workbar:v2",
+      "tickets",
+      "boards",
+      "dispatch",
+      "projects",
+      "dashboards",
+      "automations",
+      "stock",
+      "clients",
+      "billing",
+      "kb",
+    ]);
+    for (const tour of TOURS) {
+      if (!firstWave.has(tour.id)) continue;
+      expect(
+        tour.steps.length,
+        `${tour.id} has ${tour.steps.length} steps`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        tour.steps.length,
+        `${tour.id} has ${tour.steps.length} steps`,
+      ).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it("never targets the nav rail (the nav gets zero steps)", () => {
+    for (const tour of TOURS) {
+      for (const step of tour.steps) {
+        expect(step.target).not.toContain("rail-");
+        expect(step.target).not.toContain("nav-rail");
       }
     }
   });
@@ -57,14 +98,21 @@ describe("tourTargetsReady", () => {
 
   it("requires every step target to exist before starting", () => {
     document.body.innerHTML = '<div data-testid="search-launcher"></div>';
-    const tour = TOURS.find((t) => t.id === "workbar");
+    const tour = TOURS.find((t) => t.id === "workbar:v2");
     if (tour) expect(tourTargetsReady(tour)).toBe(false);
   });
 
   it("returns true once all targets mount", () => {
+    // The workbar tour's own step targets (Wave 71 content): the Today
+    // header actions row, the first attention card's anchor, and the
+    // queue card's All tickets link.
     document.body.innerHTML =
-      '<div data-testid="search-launcher"></div><header data-testid="top-bar"></header>';
-    const tour = TOURS.find((t) => t.id === "workbar");
+      '<div id="m-main-content">' +
+      '<div data-testid="surface-header-actions"><button></button></div>' +
+      '<a href="#overdue"></a>' +
+      '<a href="/tickets"></a>' +
+      "</div>";
+    const tour = TOURS.find((t) => t.id === "workbar:v2");
     if (tour) expect(tourTargetsReady(tour)).toBe(true);
   });
 });

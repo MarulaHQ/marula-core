@@ -17,9 +17,10 @@ interface RecordedCall {
   body: unknown;
 }
 
+type MockResponse = { status?: number; json: unknown; headers?: Record<string, string> };
 type RouteHandler = (
   ctx: Pick<RecordedCall, "query" | "body">,
-) => { status?: number; json: unknown; headers?: Record<string, string> };
+) => MockResponse | Promise<MockResponse>;
 
 export class MockApi {
   private readonly routes = new Map<string, RouteHandler>();
@@ -88,7 +89,9 @@ export class MockApi {
         return makeJsonResponse({ error: { message: `unmatched ${method} ${path}` } }, 500);
       }
       try {
-        const out = handler({ query, body: parsedBody });
+        // Awaited so a test can defer a response (hold it behind a gate and
+        // release it after asserting the loading state).
+        const out = await handler({ query, body: parsedBody });
         return makeJsonResponse(out.json, out.status ?? 200, out.headers);
       } catch (e) {
         return makeJsonResponse(

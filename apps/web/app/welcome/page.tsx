@@ -40,6 +40,7 @@ import { api } from "../../lib/api";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { inviteSetupToken } from "./wizard-links";
 import { InviteMemberFlow, type InviteMemberBody, type InviteSendResult } from "../../components/onboarding/invite-member-flow";
+import { AiSetupStep } from "../../components/onboarding/ai-setup-step";
 import {
   ORG_STEP_LABELS,
   ORG_STEP_ORDER,
@@ -285,28 +286,6 @@ export default function WelcomeWizardPage() {
       return;
     }
     await refresh("feeder");
-  };
-
-  const enableAi = async () => {
-    setError(null);
-    setBusy(true);
-    try {
-      const { error: apiError } = await api.api.PUT("/api/v1/settings/org", {
-        body: { key: "ai.features_enabled", value: true },
-      });
-      if (apiError !== undefined) {
-        setError(friendlyMutationText(apiError ?? null));
-        return;
-      }
-      const res = await completeOrgStep("ai");
-      if (res.error !== undefined) {
-        setError(friendlyMutationText(res.error));
-        return;
-      }
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
   };
 
   if (auth.status !== "authed") {
@@ -714,27 +693,20 @@ export default function WelcomeWizardPage() {
           )}
 
           {focus === "ai" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <p className="entry-sub" style={{ margin: 0 }}>
-                Booking, drafting and merge-assist surfaces stay off until you turn them on.
-                Nothing calls a model until you configure a provider, and there is nothing waiting
-                for an answer here.
-              </p>
-              <div className="entry-actions">
-                <BackButton onClick={() => stepBack(focus)} disabled={stepIndex === 0} />
-                <span className="entry-actions__spacer" />
-                <SkipButton onClick={() => void recordSkip("ai", false)} busy={busy} />
-                <button
-                  type="button"
-                  className="entry-btn"
-                  onClick={() => void enableAi()}
-                  disabled={busy}
-                  data-testid="wizard-ai-enable"
-                >
-                  {busy ? "Turning on…" : meta.cta}
-                </button>
-              </div>
-            </div>
+            /* The AI setup step (Wave 72): providers first, keys inline with
+                their provider, defaults last. The component owns its save
+                flow and the honest report; the wizard owns the step
+                recording — onDone completes the org step, onSkip is the
+                same first-class skip every step gets. The old "Enable AI"
+                switch moved INTO the step as its first row, so the org
+                master switch and the keys it gates are decided on one
+                screen. */
+            <AiSetupStep
+              onBack={() => stepBack(focus)}
+              backDisabled={stepIndex === 0}
+              onSkip={() => void recordSkip("ai", false)}
+              onDone={() => void markComplete("ai")}
+            />
           )}
 
           <SkipExplain />

@@ -12,11 +12,22 @@
  */
 import { chromium } from 'playwright';
 import { mkdir, rm } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const OUT = resolve('design/qa-p26-contextual-help/captures');
 const BASE = process.argv[2] ?? 'http://localhost:3000';
+
+// Tour ids, read straight from the registry so the seed below can never
+// go stale when the tour set grows (Wave 71: eleven surfaces plus the
+// workbar). Only Tour entries carry a 4-space-indented quoted id; steps
+// have targets, not ids.
+const TOUR_IDS = [
+  ...readFileSync(resolve('apps/web/lib/tours/tours.ts'), 'utf8').matchAll(
+    /^\s{4}id:\s*"([^"]+)",\s*$/gm,
+  ),
+].map((m) => m[1]);
+if (TOUR_IDS.length === 0) throw new Error('no tour ids parsed from apps/web/lib/tours/tours.ts — fix the regex before capturing');
 
 if (existsSync(OUT)) await rm(OUT, { recursive: true });
 await mkdir(OUT, { recursive: true });
@@ -80,13 +91,13 @@ async function shot(browser, viewport, theme, name, path, interactions, seedTour
     if (opts.seedTours) {
       window.localStorage.setItem(
         'marula-tours-completed',
-        JSON.stringify(['workbar', 'inventory-workbench', 'help-entry']),
+        JSON.stringify(opts.tourIds),
       );
     }
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
-  }, { theme: themeToken, seedTours });
+  }, { theme: themeToken, seedTours, tourIds: TOUR_IDS });
 
   await page.route('**/api/**', async (r) => {
     const url = new URL(r.request().url());
@@ -111,6 +122,24 @@ async function shot(browser, viewport, theme, name, path, interactions, seedTour
     }
     if (key === '/api/v1/settings/user' && method === 'PUT') {
       await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().postDataJSON()) });
+      return;
+    }
+    // Wave 66 added the signature card on preferences; it reads the token
+    // list off this envelope. An empty token list keeps the card honest.
+    if (key === '/api/v1/settings/user/email-envelope') {
+      await r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          policy: 'user_default',
+          user_greeting: null,
+          user_signature: null,
+          org_signature: null,
+          signature_source: 'unset',
+          greeting_source: 'unset',
+          tokens: [],
+        }),
+      });
       return;
     }
     if (key === '/api/v1/tickets' && method === 'GET') {
@@ -170,11 +199,14 @@ for (const theme of ['light', 'dark']) {
     await page.waitForTimeout(700);
   });
 
-  // 5. Spotlight tour overlay on /boards (help-entry tour: fresh session,
-  // targets the ? affordance). /today is avoided because the onboarding
+  // 5. Spotlight tour overlay on /tickets (tickets tour: fresh session;
+  // its targets — the views trigger, the filter, the attention
+  // shortcuts — render on the fixture queue). /boards is avoided: under
+  // the fixtures it renders its empty state, so the boards tour has no
+  // targets there. /today is avoided because the onboarding
   // resume banner (lane 1) crashes under minimal fixtures, not under the
   // real backend (e2e flow 13 covers the real-stack path).
-  await shot(browser, VP, theme, `tour-overlay-${t}.png`, '/boards', async (page) => {
+  await shot(browser, VP, theme, `tour-overlay-${t}.png`, '/tickets', async (page) => {
     try {
       await page.waitForSelector('[data-testid="tour-overlay"]', { state: 'attached', timeout: 25_000 });
       await page.waitForTimeout(400);
@@ -183,9 +215,14 @@ for (const theme of ['light', 'dark']) {
     }
   }, false);
 
-  // 6. Preferences with the tours toggle.
+  // 6. Preferences with the tours toggle. Wave 66's signature card sits
+  // above it, so the toggle is below the fold on a stock viewport —
+  // bring the card into view before the shot.
   await shot(browser, VP, theme, `preferences-tours-${t}.png`, '/settings/preferences', async (page) => {
-    await page.waitForSelector('[data-testid="pref-tours-card"]', { timeout: 15_000 });
+    const card = page.getByTestId('pref-tours-card');
+    await card.waitFor({ timeout: 15_000 });
+    await card.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
   });
 }
 
