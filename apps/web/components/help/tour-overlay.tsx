@@ -189,6 +189,16 @@ export function TourOverlay({
   // (its listener already cancelled any glide).
   useLayoutEffect(() => {
     if (!rect) return;
+    // A preference flip to reduced motion must stop anything in flight:
+    // entering a static branch without cancelling leaves the running Web
+    // Animation going, which is exactly what the preference asks us not
+    // to do. The layout box is already at its final value.
+    if (reducedMotion === true) {
+      for (const a of animsRef.current) a.cancel();
+      animsRef.current = [];
+      pendingGlideRef.current = null;
+      return;
+    }
     const from = pendingGlideRef.current;
     pendingGlideRef.current = null;
     const spot = spotRef.current;
