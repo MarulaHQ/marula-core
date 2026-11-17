@@ -15,11 +15,11 @@ import {
 describe("tourForRouteKey", () => {
   it("selects the tour authored for the surface", () => {
     const tour = tourForRouteKey("today", [], false);
-    expect(tour?.id).toBe("workbar");
+    expect(tour?.id).toBe("workbar:v2");
   });
 
   it("never repeats a completed tour (first-visit-per-surface)", () => {
-    expect(tourForRouteKey("today", ["workbar"], false)).toBeNull();
+    expect(tourForRouteKey("today", ["workbar:v2"], false)).toBeNull();
   });
 
   it("gates admin-only tours from members", () => {
@@ -47,7 +47,7 @@ describe("tourForRouteKey", () => {
 
   it("keeps first-wave tours inside the 3–6 step budget (research §4.3)", () => {
     const firstWave = new Set([
-      "workbar",
+      "workbar:v2",
       "tickets",
       "boards",
       "dispatch",
@@ -98,7 +98,7 @@ describe("tourTargetsReady", () => {
 
   it("requires every step target to exist before starting", () => {
     document.body.innerHTML = '<div data-testid="search-launcher"></div>';
-    const tour = TOURS.find((t) => t.id === "workbar");
+    const tour = TOURS.find((t) => t.id === "workbar:v2");
     if (tour) expect(tourTargetsReady(tour)).toBe(false);
   });
 
@@ -107,10 +107,12 @@ describe("tourTargetsReady", () => {
     // header actions row, the first attention card's anchor, and the
     // queue card's All tickets link.
     document.body.innerHTML =
+      '<div id="m-main-content">' +
       '<div data-testid="surface-header-actions"><button></button></div>' +
       '<a href="#overdue"></a>' +
-      '<a href="/tickets"></a>';
-    const tour = TOURS.find((t) => t.id === "workbar");
+      '<a href="/tickets"></a>' +
+      "</div>";
+    const tour = TOURS.find((t) => t.id === "workbar:v2");
     if (tour) expect(tourTargetsReady(tour)).toBe(true);
   });
 });

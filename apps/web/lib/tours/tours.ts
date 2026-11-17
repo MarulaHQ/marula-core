@@ -37,7 +37,10 @@ export interface Tour {
 
 export const TOURS: readonly Tour[] = [
   {
-    id: "workbar",
+    // Wave 71 rewrote this tour's content (the Today queue steps are new),
+    // so its id is bumped per the re-arm convention above: accounts that
+    // completed the Wave 26 tour see the rewrite once.
+    id: "workbar:v2",
     routeKeys: ["today"],
     title: "Today, read top to bottom",
     steps: [
@@ -52,7 +55,7 @@ export const TOURS: readonly Tour[] = [
         body: "Five cards sum up the day — what's yours, what changed, what's breaching. Press one to jump to its tickets.",
       },
       {
-        target: 'a[href="/tickets"]',
+        target: '#m-main-content a[href="/tickets"]',
         title: "Work the queue",
         body: "Your queue groups assigned work with Overdue on top; All tickets opens the whole queue when it's time to plan instead of react.",
       },
@@ -204,7 +207,7 @@ export const TOURS: readonly Tour[] = [
         body: "Canvas redraws the same rules as a graph — worth the hop once logic branches.",
       },
       {
-        target: 'a[href="/automations/runs"]',
+        target: '#m-main-content a[href="/automations/runs"]',
         title: "Watch one run",
         body: "After a rule fires, Runs shows every step it took and exactly where it stopped.",
       },
@@ -301,16 +304,17 @@ export const TOURS: readonly Tour[] = [
         body: "Scope the search to clients, documents, configurations or secrets when the whole estate is noise.",
       },
       {
-        target: 'a[href="/kb/articles"]',
+        target: '#m-main-content a[href="/kb/articles"]',
         title: "Then write it down",
         body: "When the fix is worth keeping, All articles is where it gets written — future-you is the reader.",
       },
     ],
   },
   {
-    // Wave 26 tour, retargeted in Wave 71: the page lost its search field,
-    // so the tour now leads with the merge queue it actually has.
-    id: "inventory-workbench",
+    // Wave 26 tour, retargeted and rewritten in Wave 71: the page lost its
+    // search field, so the tour now leads with the merge queue it has. The
+    // content changed, so the id is bumped per the re-arm convention.
+    id: "inventory-workbench:v2",
     routeKeys: ["inventory"],
     title: "One device, one record",
     steps: [
