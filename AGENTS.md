@@ -375,6 +375,37 @@ This holds for merge-group lanes as well: the light-check allowance below says
 which **gates** a lane may skip, not whether it reviews the diff it commits. A
 lane that commits still reviews every commit it makes.
 
+## Version bumps are declared in the pull request (BINDING, added 2026-11-17)
+
+Added by user directive after a month of user-facing work shipped with no
+release notes and no bump. The release note is now part of the change, not a
+reconstruction at tag time.
+
+- **Every pull request that changes product code carries one fragment** in
+  `release-notes/unreleased/`, written with
+  `node scripts/release-note.mjs add --bump <patch|minor|none> --section <…> --note "…"`.
+  The `Release note` check fails a product diff with no fragment; tests, docs,
+  `e2e/`, `scripts/` and `.github/` are exempt by path.
+- **Pick the bump by what a user gets, not by how much code moved.**
+  `minor` is a capability someone can use (a module, a surface, a connection, a
+  field that saves). `patch` is a fix to something that already works.
+  `none` is product code with no user-visible change (a refactor, groundwork
+  nothing reads yet) — its fragment uses `### Internal` and never reaches the
+  changelog. In the 0.x series `minor` moves the middle number: 0.3.7 → 0.4.0.
+- **Write the bullet in the user's voice**, under the changelog section it
+  belongs to (`Added`, `Changed`, `Fixed`, `Security`). No wave, lane, PR or
+  file numbers; the changelog is published on getmarula.com.
+- **Ask for a suggestion when unsure**:
+  `node scripts/release-note.mjs advise --base origin/main` classifies the diff
+  by path and prints which file made it think so. The suggestion is a starting
+  point; the fragment is the decision, and it is reviewable.
+- **The release itself is a lane**: `plan` (the next version and why), then
+  `apply --date YYYY-MM-DD` (folds fragments into `CHANGELOG.md`, deletes them,
+  bumps `Cargo.toml` and the eight `package.json` files), then
+  `scripts/regen-openapi-pins.sh`, the docs reference regen, and the signed tag.
+  Never hand-edit a version file or a changelog heading; `apply` is the only
+  writer, so the number cannot move in seven files and not the eighth.
+
 ## Before a pull request: run the pre-review pass (BINDING, added 2026-11-17)
 
 Added by user directive. CodeRabbit reviews every PR against this repository's

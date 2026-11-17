@@ -1,0 +1,36 @@
+name: Release note
+
+# One fragment per pull request, and the version it adds up to.
+#
+# A product change with no `release-notes/unreleased/*.md` fails here. That is
+# the whole gate: it does not judge the wording, and it does not decide the
+# version — it asks the author to say which one they mean, at the moment they
+# know, instead of a maintainer reconstructing it from the log at release time.
+#
+# Tests, docs, e2e, scripts and workflows are exempt by path, so the check never
+# fires on a change that cannot reach a user.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  note:
+    name: Every product change declares its bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # The base branch is not in the PR checkout by default, and the diff is
+      # against it rather than against the merge commit.
+      - run: git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+      - run: node scripts/release-note.mjs --self-test
+      - run: node scripts/release-note.mjs check --base "origin/${{ github.base_ref }}"
