@@ -205,7 +205,9 @@ function assembleChangelog(version, date, list) {
     parts.push("", `### ${section}`, "", bySection.get(section).join("\n"));
   }
   parts.push("");
-  return parts.join("\n");
+  // Two newlines, not one: the section is inserted directly before the next
+  // release heading, and Markdown needs a blank line on both sides of it.
+  return `${parts.join("\n")}\n`;
 }
 
 function insertIntoChangelog(section, version, release) {
