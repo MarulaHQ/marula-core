@@ -66,16 +66,19 @@ same offsets, so the fix belongs in the profile, not the linker.
 Three files carry prose aimed at users, and the website builds pages straight
 from two of them, so an edit here is a public edit:
 
-- **`CHANGELOG.md`** (Keep a Changelog format). Add or touch bullets under
-  `[Unreleased]` **at merge time**, for any PR that changes something a user
-  can see or do. A bullet answers "what changed for me?", never "what commits
-  merged": no lane or wave numbers, no internal planning references.
+- **`CHANGELOG.md`** (Keep a Changelog format). Do not edit it in a pull
+  request. Add a fragment under `release-notes/unreleased/` with
+  `node scripts/release-note.mjs add --bump <patch|minor|none> …`, which also
+  declares the version bump the change needs. A bullet answers "what changed
+  for me?", never "what commits merged": no lane or wave numbers, no internal
+  planning references. The file itself is written once, at release time.
 - **`ROADMAP.md`**. Move items between the Shipped / In flight / Later columns
   **at merge time**, when status actually changes. Never put a date on an item
   nobody owns.
-- **Releases** happen **at tag time**: the maintainer moves the
-  `[Unreleased]` bullets into a dated heading, adds the tag's link reference,
-  and pushes the tag. Nothing else rewrites history in the file.
+- **Releases** happen **at tag time**, from those fragments:
+  `node scripts/release-note.mjs plan`, then `apply --date`, then the OpenAPI
+  re-pin, the API reference regen, and the signed tag. Nothing else rewrites
+  history in the file.
 
 `CHANGELOG.md` and `ROADMAP.md` are the only sources for the public changelog
 and roadmap. Any page that mirrors them is generated at build time and never

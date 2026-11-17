@@ -1,0 +1,46 @@
+name: Release note
+
+# One fragment per pull request, and the version it adds up to.
+#
+# A product change with no `release-notes/unreleased/*.md` fails here. That is
+# the whole gate: it does not judge the wording, and it does not decide the
+# version — it asks the author to say which one they mean, at the moment they
+# know, instead of a maintainer reconstructing it from the log at release time.
+#
+# Tests, docs, e2e, scripts and workflows are exempt by path, so the check never
+# fires on a change that cannot reach a user.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  note:
+    # The job name IS the required-check context branch protection matches on,
+    # and it is what AGENTS.md tells an author to look for. Keep the two equal.
+    name: Release note
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # The base branch is not in the PR checkout by default, and the diff is
+      # against it rather than against the merge commit. The ref arrives through
+      # the environment, never interpolated into the shell: a `${{ }}` inside
+      # `run:` is text an attacker with a branch name can complete.
+      - name: Fetch the base branch
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+      - run: node scripts/release-note.mjs --self-test
+      - name: Check for a release note
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/release-note.mjs check --base "origin/$BASE_REF"

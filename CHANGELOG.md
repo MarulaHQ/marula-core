@@ -13,14 +13,16 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-17
+
 ### Added
 
 - One AI control with three states. **Off** runs nothing, **shadow** runs the
   models and records what they would have said on the shadow page, and **live**
   lets each surface act on its own mode.
 - Tickets, sites and documents can be archived and restored. Archived records
-  stay readable, leave the lists, boards, pickers, search and the portal, and
-  link strips stop pointing at them.
+  stay readable, leave the lists, boards and pickers, the search results and the
+  portal, and link strips stop pointing at them.
 - Quote lines can be marked optional: priced and shown, outside the subtotal
   and the tax, and refused as the only line on a convertible quote.
 - The knowledge home has a client scope picker, and search applies that scope
@@ -37,6 +39,93 @@ Every change lands as a reviewed pull request. Contributions follow
 - Template-created projects check the billing contract in the same transaction
   that creates them, so a contract cannot expire between the check and the
   insert.
+
+### Fixed
+
+- The invoice run opens with both ends of its window filled, so Preview and
+  issuing invoices work on first open instead of refusing a missing date.
+
+### Security
+
+- A connector's webhook destination is screened before it is stored and again
+  before it is sent, so an installed consent can never become a request to the
+  host the API runs on.
+- The token that carries a sign-in from the password to the second factor rides
+  an httpOnly cookie instead of browser storage a script on the page can read.
+
+## [0.3.8] - 2026-11-17
+
+### Added
+
+- Guided tours on each surface, with the spotlight moving by transform only and
+  every exit reversing before the page changes.
+- AI setup inside the operator's onboarding.
+
+### Security
+
+- A restricted client now also gates tickets, assets and racks, plus credentials and
+  knowledge search, and a stock movement asks for the `stock:move` grant instead
+  of none. A write that moves money requires financial read access.
+
+## [0.3.7] - 2026-11-16
+
+### Added
+
+- A decision surface says what it decides instead of citing a reference, Today
+  names the gap in yesterday's time, and Tickets offers a changed-since-you-looked
+  shortcut.
+- Last contact with a client is derived from email, portal replies and calls,
+  with the trail it came from.
+
+### Changed
+
+- The command palette opens at the pack's width with grouped results.
+
+### Fixed
+
+- The AI shadow page says AI is off instead of showing an empty picker.
+
+## [0.3.6] - 2026-11-15
+
+### Added
+
+- A project plan: phases, tasks and dates, with the schedule engine that places
+  the work on working days and calendars.
+- Reorder phases and tasks, and move a task into another phase, in one save.
+- Describe a quote or a contract change in plain English and get the draft back.
+
+### Changed
+
+- Today leads the rail, sections open in place, and long-tail pages become tabs
+  on one screen.
+
+## [0.3.5] - 2026-11-13
+
+### Fixed
+
+- A portal address shared across tenants resolves to the tenant that asked
+  instead of to nothing.
+- Small controls keep a 32px pointer target at the dense setting, including
+  chips and segmented controls.
+- A field holding a wrong value draws the same destructive edge on the sign-in
+  and portal screens as everywhere else.
+- The desktop build starts on macOS 27: dependency artifacts are no longer
+  stripped into a form the dynamic loader refuses.
+
+## [0.3.4] - 2026-11-12
+
+### Added
+
+- Install Marula from the download page: the install guide for each platform,
+  the pointer that sends a visitor to the right build, and signed installers
+  produced when the signing material is present.
+- Onboarding by invitation: the invitation email, a guided accept flow, the
+  role chosen while accepting, and mail templates an administrator can edit.
+
+### Changed
+
+- The shell navigation bar is back to the composition the design pack draws, so
+  the same destinations sit in the same place at every width.
 
 ## [0.3.3] - 2026-11-05
 
@@ -117,8 +206,8 @@ Every change lands as a reviewed pull request. Contributions follow
 - A guide to checking a release before installing it: the signed checksum list,
   the archive, the extracted tree, and the image digests.
 - A demo tier the installer can stand up. `marula install --profile demo` and a
-  card in the wizard run the documented demo overlay — seeded, loopback-only, no
-  outbound mail — and `marula demo reset` replaces the demo data between
+  card in the wizard run the documented demo overlay (seeded, loopback-only, no
+  outbound mail), and `marula demo reset` replaces the demo data between
   showings.
 
 ### Changed
@@ -273,7 +362,13 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 - Dispatch with SLA awareness and scheduling.
 - The client portal with tickets, invoices, and the knowledge base.
 
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MarulaHQ/marula-core/compare/v0.3.8...v0.4.0
+[0.3.8]: https://github.com/MarulaHQ/marula-core/compare/v0.3.7...v0.3.8
+[0.3.7]: https://github.com/MarulaHQ/marula-core/compare/v0.3.6...v0.3.7
+[0.3.6]: https://github.com/MarulaHQ/marula-core/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/MarulaHQ/marula-core/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/MarulaHQ/marula-core/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/MarulaHQ/marula-core/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/MarulaHQ/marula-core/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MarulaHQ/marula-core/compare/v0.3.0...v0.3.1
