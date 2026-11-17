@@ -1,6 +1,10 @@
 // Flow 13 — Contextual help (Wave 26 lane 2): the ? help panel opens on
 // representative surfaces with route-keyed content, tours run once per
 // surface, suppression persists across reload, and the session cap holds.
+// Wave 71 adds the new exits and the replay: Skip tour ends one tour and
+// leaves the global switch alone, Escape ends the current tour, and the
+// panel's "Take the tour" row starts a tour on demand even while tours
+// are disabled (the switches govern automatic starts only).
 //
 // ORDER-INDEPENDENCE (p37-env-orchestration, see e2e/README.md): the tour
 // state (tours.disabled / tours.completed) is per-user persisted settings —
@@ -101,4 +105,78 @@ test("tour suppression persists across reload via the user setting", async ({
   // RESTORE: suppression was armed FOR this test — clear it so a later run
   // (dark project, next suite) starts from the seeded default again.
   await resetTourState(ownerTokens.access_token);
+});
+
+test("skip tour ends the tour and leaves the global switch alone", async ({
+  authedPage,
+  ownerTokens,
+}) => {
+  await resetTourState(ownerTokens.access_token);
+  await authedPage.goto("/today");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  const overlay = authedPage.getByTestId("tour-overlay");
+  await expect(overlay).toBeVisible({ timeout: 8_000 });
+  await authedPage.getByTestId("tour-skip").click();
+  await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  // Skip is THIS tour only: the global switch must still be off.
+  await authedPage.goto("/settings/preferences");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  const toggle = authedPage.getByTestId("pref-tours-disabled");
+  await expect(toggle).toBeVisible({ timeout: 20_000 });
+  await expect(toggle).toBeEnabled({ timeout: 20_000 });
+  await expect(toggle).not.toBeChecked();
+  // RESTORE: the skip marked the workbar tour completed.
+  await resetTourState(ownerTokens.access_token);
+});
+
+test("escape ends the current tour", async ({ authedPage, ownerTokens }) => {
+  await resetTourState(ownerTokens.access_token);
+  await authedPage.goto("/today");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  await expect(authedPage.getByTestId("tour-overlay")).toBeVisible({ timeout: 8_000 });
+  await authedPage.keyboard.press("Escape");
+  await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  await resetTourState(ownerTokens.access_token);
+});
+
+test("take the tour replays on demand even while tours are disabled", async ({
+  authedPage,
+  ownerTokens,
+}) => {
+  await resetTourState(ownerTokens.access_token);
+  // Arm the account switch: from here on, no auto-start may fire.
+  await authedFetch(ownerTokens.access_token)("/settings/user", {
+    method: "PUT",
+    body: { key: "tours.disabled", value: true },
+  });
+  await authedPage.goto("/tickets");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  await authedPage.waitForTimeout(2_000);
+  await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  // Explicit replay: the panel row starts the tour anyway (user ruling
+  // 2026-11-17 — the switches govern automatic starts only, never a
+  // deliberate ask).
+  await authedPage.getByTestId("help-button").click();
+  await expect(authedPage.getByTestId("help-take-tour")).toBeVisible();
+  await authedPage.getByTestId("help-take-tour").click();
+  await expect(authedPage.getByTestId("tour-overlay")).toBeVisible({ timeout: 8_000 });
+  await authedPage.getByTestId("tour-skip").click();
+  await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  // RESTORE: disabled was armed FOR this test.
+  await resetTourState(ownerTokens.access_token);
+});
+
+test("the help panel offers the tour only where one can run", async ({
+  authedPage,
+}) => {
+  await authedPage.goto("/tickets");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  await authedPage.getByTestId("help-button").click();
+  await expect(authedPage.getByTestId("help-panel")).toBeVisible();
+  await expect(authedPage.getByTestId("help-take-tour")).toBeVisible();
+  await authedPage.goto("/settings/fx");
+  await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+  await authedPage.getByTestId("help-button").click();
+  await expect(authedPage.getByTestId("help-panel")).toBeVisible();
+  await expect(authedPage.getByTestId("help-take-tour")).toHaveCount(0);
 });
