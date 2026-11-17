@@ -75,7 +75,7 @@ fn sample_payload() -> NotificationPayload {
 #[tokio::test]
 async fn slack_delivers_and_canary_rejects_are_typed() {
     let mock = spawn_mock(axum::http::StatusCode::OK, "ok").await;
-    let slack = SlackConnector::new(mock.base_url.clone());
+    let slack = SlackConnector::new(mock.base_url.clone()).allow_loopback();
     slack.send(&sample_payload()).await.expect("delivers");
     let captured = mock.captured();
     assert!(
@@ -92,7 +92,7 @@ async fn slack_delivers_and_canary_rejects_are_typed() {
     // typed refusal (never silent success). The mock is stateless per
     // request, so one probe carries the whole assertion.
     let rejecting = spawn_mock(axum::http::StatusCode::OK, "invalid_payload").await;
-    let probe = SlackConnector::new(rejecting.base_url.clone());
+    let probe = SlackConnector::new(rejecting.base_url.clone()).allow_loopback();
     assert!(matches!(
         probe.send(&sample_payload()).await,
         Err(BridgeError::Refused("slack", _))
@@ -113,7 +113,7 @@ async fn slack_delivers_and_canary_rejects_are_typed() {
 #[tokio::test]
 async fn teams_delivers_one_adaptive_card_with_the_deep_link() {
     let mock = spawn_mock(axum::http::StatusCode::ACCEPTED, "1").await;
-    let teams = TeamsConnector::new(mock.base_url.clone());
+    let teams = TeamsConnector::new(mock.base_url.clone()).allow_loopback();
     teams.send(&sample_payload()).await.expect("delivers");
     let captured = mock.captured();
     let card: serde_json::Value =
@@ -133,7 +133,7 @@ async fn teams_delivers_one_adaptive_card_with_the_deep_link() {
 async fn rewst_signs_the_trigger_and_the_url_carries_the_secret_headers() {
     use app_bridges::rewst::RewstBridge;
     let mock = spawn_mock(axum::http::StatusCode::OK, "queued").await;
-    let bridge = RewstBridge::new(mock.base_url.clone(), "shared-secret-42");
+    let bridge = RewstBridge::new(mock.base_url.clone(), "shared-secret-42").allow_loopback();
     bridge
         .trigger(&RewstTriggerPayload {
             org: "hearth".into(),

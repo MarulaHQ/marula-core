@@ -15,6 +15,8 @@ pub struct RewstBridge {
     /// The Rewst shared secret, HMAC-SHA256 signed over the body —
     /// never logged or returned.
     secret: String,
+    /// See [`crate::slack::SlackConnector::allow_loopback`].
+    allow_loopback: bool,
     http: reqwest::Client,
 }
 
@@ -41,12 +43,21 @@ impl RewstBridge {
         Self {
             webhook_url: webhook_url.into(),
             secret: secret.into(),
+            allow_loopback: false,
             http: reqwest::Client::new(),
         }
     }
 
+    /// Admit a plain-http loopback destination (mock servers and the
+    /// dev-gated policy only).
+    #[must_use]
+    pub fn allow_loopback(mut self) -> Self {
+        self.allow_loopback = true;
+        self
+    }
+
     pub fn validate(&self) -> Result<(), BridgeError> {
-        crate::slack::validate_webhook_url(&self.webhook_url, "rewst")?;
+        crate::slack::validate_webhook_url(&self.webhook_url, "rewst", self.allow_loopback)?;
         if self.secret.trim().is_empty() {
             return Err(BridgeError::BadConfig(
                 "rewst",
