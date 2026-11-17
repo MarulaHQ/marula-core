@@ -430,3 +430,60 @@ async fn a_loopback_or_metadata_webhook_url_is_refused_at_write_time() {
         "only the public destination was stored"
     );
 }
+
+/// The connector consent store holds the second outbound destination an admin
+/// types, and it asks the same address question `/api/webhooks` asks. Without
+/// that question, "notify my Slack" is a POST at the host this API runs on:
+/// the stored URL is dialled by the API process, from its loopback.
+#[tokio::test]
+async fn a_loopback_or_metadata_connector_url_is_refused_at_write_time() {
+    // A public-only process. The dev loopback allowance is off, so the refusal
+    // measured here is the shipped decision and not an artefact of the test
+    // environment's build posture or marker.
+    let state = state_with(|config| {
+        config.dev_tools = false;
+        config.secret_key = core_api::config::SecretKey([11; 32]);
+    })
+    .await;
+    let app = core_api::routes::build_router(state);
+    let slug = format!("connector-egress-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+
+    for url in [
+        "http://127.0.0.1:9099/marula/hook",
+        "http://localhost:8080/hook",
+        "https://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.7/hook",
+        "ftp://hooks.example.test/marula",
+    ] {
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            "/api/connectors/slack",
+            &[auth(&token)],
+            Some(json!({ "config": { "webhook_url": url } })),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            422,
+            "{url} must be refused at install time, not sealed"
+        );
+    }
+
+    // A public destination is still storable. A literal address keeps the case
+    // off DNS: install judges the address, it never dials.
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/connectors/slack",
+        &[auth(&token)],
+        Some(json!({ "config": { "webhook_url": "https://93.184.216.34/services/marula" } })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "a public https destination is storable"
+    );
+}

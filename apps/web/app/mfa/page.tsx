@@ -23,19 +23,24 @@ import { Spinner } from "@marula-core/ui";
 import { friendlyMutationText } from "../../lib/error-copy";
 import { EntryCard, EntryHeadline, EntryIcon, EntryShell, EntryShield, OtpBoxes } from "../../components/auth/entry";
 
-/** What the pending sign-in left in session storage, if anything. */
+/** What the pending sign-in left in session storage: the factor list only.
+ *
+ * The bridge token the server needs is in an httpOnly cookie the login
+ * response set, scoped to `/api/auth/mfa`. Nothing on this origin can read it,
+ * which is the point: a bridge token is half a credential, and a copy in
+ * session storage is a copy any injected script could take. */
 interface Pending {
-  mfa_token: string;
   methods: string[];
 }
 
 function readPending(): Pending | null {
   if (typeof window === "undefined") return null;
-  const raw = window.sessionStorage.getItem("marula-mfa-pending");
+  const raw = window.sessionStorage.getItem("marula-mfa-methods");
   if (raw === null) return null;
   try {
-    const parsed = JSON.parse(raw) as Pending;
-    return typeof parsed.mfa_token === "string" ? parsed : null;
+    const parsed = JSON.parse(raw) as Partial<Pending>;
+    if (!Array.isArray(parsed.methods)) return null;
+    return { methods: parsed.methods.filter((m): m is string => typeof m === "string") };
   } catch {
     return null;
   }
@@ -68,22 +73,15 @@ export default function MfaChallengePage() {
       try {
         const { api, saveTokens } = await import("../../lib/api");
         const result = await api.mfaVerify({
-          mfa_token: pending.mfa_token,
+          // Empty on purpose: the server reads the httpOnly bridge cookie the
+          // login response set, scoped to this endpoint. This screen never
+          // holds the token, so neither can a script running on the origin.
+          mfa_token: "",
           code: value,
           trust_device: trustDevice,
-          // TEMPORARY, AND THE ONLY CAST IN THIS LANE.
-          //
-          // `trust_device` is live in the API (MfaVerifyRequest gained the
-          // field in this lane) but NOT yet in the generated SDK type, because
-          // the OpenAPI pins are stale — the first `regen-openapi-pins.sh` run
-          // fetched a stray core-api that did not have these routes and
-          // produced a pair byte-identical to HEAD, so the regen has to be
-          // re-run on a clean stack. Delete this cast in the same commit that
-          // regenerates the pins; it exists so the checkbox sends a field the
-          // server honours instead of shipping a control that does nothing.
-        } as Parameters<typeof api.mfaVerify>[0]);
+        });
         saveTokens(result);
-        window.sessionStorage.removeItem("marula-mfa-pending");
+        window.sessionStorage.removeItem("marula-mfa-methods");
         window.location.assign("/today");
       } catch (err) {
         setCode("");

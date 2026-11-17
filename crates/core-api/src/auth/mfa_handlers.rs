@@ -32,7 +32,7 @@ use crate::routes::openapi::TokenPair;
 use crate::state::AppState;
 use axum::{
     extract::{Extension, Path, State},
-    http::Extensions,
+    http::{header, Extensions, HeaderMap, HeaderValue},
     response::IntoResponse,
     Json,
 };
@@ -1057,6 +1057,11 @@ pub async fn step_up(
 // Login-side completion of the mfa_pending bridge
 // ---------------------------------------------------------------------------
 
+// A browser does not need to send `mfa_token`: the login response set it in an
+// httpOnly cookie scoped to this endpoint, and the cookie wins when both are
+// present. The body field stays for clients with no cookie jar, which is why an
+// empty value is accepted and means "read the cookie". Kept out of the `///`
+// doc because the derived OpenAPI description is pinned.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MfaVerifyRequest {
     /// The `mfa_token` from POST /api/auth/login when mfa_required was set.
@@ -1082,9 +1087,17 @@ pub struct MfaVerifyRequest {
 pub async fn mfa_verify(
     State(state): State<AppState>,
     Extension(ClientIp(client_ip)): Extension<ClientIp>,
+    headers: HeaderMap,
     Json(req): Json<MfaVerifyRequest>,
 ) -> ApiResult<axum::response::Response> {
-    let (user_id, org_id) = jwt::verify_mfa_pending_token(&state.config, &req.mfa_token)
+    // The bridge token arrives one of two ways: in the httpOnly cookie the
+    // login response set (browsers — no script on the origin can read it), or
+    // in the body (clients with no cookie jar). The cookie wins when both are
+    // present so a page cannot accidentally present a stale token.
+    let bridge = crate::auth::cookies::mfa_token_from(&headers)
+        .or_else(|| Some(req.mfa_token.trim().to_string()).filter(|t| !t.is_empty()))
+        .ok_or_else(|| ApiError::Unauthorized("mfa session expired".into()))?;
+    let (user_id, org_id) = jwt::verify_mfa_pending_token(&state.config, &bridge)
         .ok_or_else(|| ApiError::Unauthorized("mfa session expired".into()))?;
     // "Trust this computer" only ever LENGTHENS the refresh window. It is
     // resolved once, here, so both success paths below (TOTP and recovery code)
@@ -1237,7 +1250,16 @@ async fn finish_mfa_login(
 /// login (threat model §A2 — one session cookie, one csrf, same flags;
 /// `headers::Mark` for the memory-only access token stays in the client).
 fn mfa_tokens_response(state: &AppState, tokens: TokenPair) -> axum::response::Response {
-    crate::auth::handlers::mfa_cookie_response(state, tokens)
+    let secure = state.config.public_base_url.starts_with("https");
+    let mut response = crate::auth::handlers::mfa_cookie_response(state, tokens);
+    // The bridge is spent the moment the second factor is accepted. Clear the
+    // cookie so a reload cannot present a token that is still inside its
+    // window (the code that satisfied it is consumed, but the token itself is
+    // a stateless JWT).
+    if let Ok(value) = HeaderValue::from_str(&crate::auth::cookies::clear_mfa_cookie(secure)) {
+        response.headers_mut().append(header::SET_COOKIE, value);
+    }
+    response
 }
 
 async fn audit_mfa_failure(state: &AppState, org_id: Uuid, user_id: Uuid, reason: &str) {

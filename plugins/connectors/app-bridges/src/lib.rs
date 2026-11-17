@@ -46,6 +46,34 @@ pub struct NotificationPayload {
     pub link_url: Option<String>,
 }
 
+/// The client every bridge dials with.
+///
+/// No redirects: a `3xx` names a second destination the owner never consented
+/// to, and following it would launder a screened URL into an unscreened one.
+/// A timeout so a hung endpoint cannot hold a worker slot, and an error rather
+/// than a default client when the builder fails: `Client::default()` follows
+/// redirects, so falling back to it would silently undo the guarantee above. A caller that has
+/// already screened and pinned a destination passes its own client through
+/// `with_http_client`, so the address the guard approved is the address dialled.
+pub(crate) fn bridge_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|error| format!("the HTTP transport could not be initialised: {error}"))
+}
+
+/// Refuses a response that only asks to go elsewhere.
+pub(crate) fn refuse_redirect(kind: &'static str, status: reqwest::StatusCode) -> BridgeError {
+    BridgeError::Refused(
+        kind,
+        format!(
+            "the endpoint answered {} instead of the message; a bridge follows no redirects",
+            status.as_u16()
+        ),
+    )
+}
+
 /// Validates one( installation's config un-DB : URL parts and secrets at
 /// the write boundary. Every connector takes its own validation.
 pub trait ConfigValidate {

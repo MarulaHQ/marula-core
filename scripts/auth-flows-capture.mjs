@@ -103,8 +103,9 @@ async function shot(browser, viewport, theme, name, path, opts = {}) {
     ({ t, authed, mfaPending, ssoFreeze }) => {
       window.localStorage.setItem('marula-theme', t);
       if (mfaPending) {
-        window.sessionStorage.setItem('marula-mfa-pending', JSON.stringify({
-          mfa_token: 'bridge-token',
+        // The bridge token lives in an httpOnly cookie the login response
+        // sets; the screen only needs the factor list to pick its alternative.
+        window.sessionStorage.setItem('marula-mfa-methods', JSON.stringify({
           methods: ['totp', 'recovery', 'webauthn'],
         }));
       }

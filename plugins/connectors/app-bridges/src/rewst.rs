@@ -15,6 +15,8 @@ pub struct RewstBridge {
     /// The Rewst shared secret, HMAC-SHA256 signed over the body —
     /// never logged or returned.
     secret: String,
+    /// See [`crate::slack::SlackConnector::allow_loopback`].
+    allow_loopback: bool,
     http: reqwest::Client,
 }
 
@@ -37,16 +39,40 @@ impl RewstTriggerPayload {
 }
 
 impl RewstBridge {
-    pub fn new(webhook_url: impl Into<String>, secret: impl Into<String>) -> Self {
+    pub fn new(
+        webhook_url: impl Into<String>,
+        secret: impl Into<String>,
+    ) -> Result<Self, BridgeError> {
+        let http =
+            crate::bridge_client().map_err(|error| BridgeError::BadConfig("rewst", error))?;
+        Ok(Self::with_http_client(webhook_url, secret, http))
+    }
+
+    /// Dial through a client the caller already built (the route layer passes
+    /// the guard's pinned, redirect-free client).
+    pub fn with_http_client(
+        webhook_url: impl Into<String>,
+        secret: impl Into<String>,
+        http: reqwest::Client,
+    ) -> Self {
         Self {
             webhook_url: webhook_url.into(),
             secret: secret.into(),
-            http: reqwest::Client::new(),
+            allow_loopback: false,
+            http,
         }
     }
 
+    /// Admit a plain-http loopback destination (mock servers and the
+    /// dev-gated policy only).
+    #[must_use]
+    pub fn allow_loopback(mut self) -> Self {
+        self.allow_loopback = true;
+        self
+    }
+
     pub fn validate(&self) -> Result<(), BridgeError> {
-        crate::slack::validate_webhook_url(&self.webhook_url, "rewst")?;
+        crate::slack::validate_webhook_url(&self.webhook_url, "rewst", self.allow_loopback)?;
         if self.secret.trim().is_empty() {
             return Err(BridgeError::BadConfig(
                 "rewst",
@@ -72,6 +98,9 @@ impl RewstBridge {
             .await
             .map_err(|e| BridgeError::Unreachable("rewst", e.to_string()))?;
         let status = response.status();
+        if status.is_redirection() {
+            return Err(crate::refuse_redirect("rewst", status));
+        }
         let text = response.text().await.unwrap_or_default();
         if !status.is_success() {
             return Err(BridgeError::Refused(

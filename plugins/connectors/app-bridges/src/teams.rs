@@ -6,19 +6,38 @@ use crate::{BridgeError, NotificationPayload};
 #[derive(Debug, Clone)]
 pub struct TeamsConnector {
     webhook_url: String,
+    /// See [`crate::slack::SlackConnector::allow_loopback`].
+    allow_loopback: bool,
     http: reqwest::Client,
 }
 
 impl TeamsConnector {
-    pub fn new(webhook_url: impl Into<String>) -> Self {
+    pub fn new(webhook_url: impl Into<String>) -> Result<Self, BridgeError> {
+        let http =
+            crate::bridge_client().map_err(|error| BridgeError::BadConfig("teams", error))?;
+        Ok(Self::with_http_client(webhook_url, http))
+    }
+
+    /// Dial through a client the caller already built (the route layer passes
+    /// the guard's pinned, redirect-free client).
+    pub fn with_http_client(webhook_url: impl Into<String>, http: reqwest::Client) -> Self {
         Self {
             webhook_url: webhook_url.into(),
-            http: reqwest::Client::new(),
+            allow_loopback: false,
+            http,
         }
     }
 
+    /// Admit a plain-http loopback destination (mock servers and the
+    /// dev-gated policy only).
+    #[must_use]
+    pub fn allow_loopback(mut self) -> Self {
+        self.allow_loopback = true;
+        self
+    }
+
     pub fn validate(&self) -> Result<(), BridgeError> {
-        crate::slack::validate_webhook_url(&self.webhook_url, "teams")?;
+        crate::slack::validate_webhook_url(&self.webhook_url, "teams", self.allow_loopback)?;
         Ok(())
     }
 
@@ -53,6 +72,9 @@ impl TeamsConnector {
             .await
             .map_err(|e| BridgeError::Unreachable("teams", e.to_string()))?;
         let status = response.status();
+        if status.is_redirection() {
+            return Err(crate::refuse_redirect("teams", status));
+        }
         let text = response.text().await.unwrap_or_default();
         if !status.is_success() {
             return Err(BridgeError::Refused(

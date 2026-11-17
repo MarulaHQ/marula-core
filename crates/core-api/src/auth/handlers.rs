@@ -54,6 +54,13 @@ pub struct RefreshRequest {
     pub session_id: Option<Uuid>,
 }
 
+// `mfa_token` in the bridge arm is for clients with NO cookie jar (CLI,
+// scripts). A browser gets the same token in the httpOnly cookie the response
+// sets, and stores neither copy: a script that could read it could present it
+// at the verify endpoint without the password. Kept out of the `///` doc on
+// purpose — the derived OpenAPI description is pinned, and a comment does not
+// move the pin.
+//
 /// Login outcome: tokens directly, or a short-lived MFA bridge token when
 /// any second factor is enrolled. Untagged so legacy clients that ignore
 /// `mfa_required` keep parsing the plain token pair they always got.
@@ -495,13 +502,21 @@ pub async fn login(
             serde_json::json!({ "methods": caps.methods() }),
         )
         .await;
+        // The bridge token rides an httpOnly cookie from here on. Browsers use
+        // it and never read it; it stays in the response body for clients with
+        // no cookie jar (CLI, scripts), which is why the field is not removed.
+        let bridge_cookie = cookies::mfa_cookie(
+            state.config.public_base_url.starts_with("https"),
+            &mfa_token,
+            state.config.mfa_pending_ttl_secs,
+        );
         return Ok(auth_json_response(
             LoginResponse::MfaRequired {
                 mfa_required: true,
                 mfa_token,
                 methods: caps.methods().into_iter().map(String::from).collect(),
             },
-            Vec::new(),
+            vec![(header::SET_COOKIE, bridge_cookie)],
         ));
     }
 

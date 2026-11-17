@@ -8,6 +8,11 @@
 //!   removal is typed 404 when absent;
 //! * config is SEALED at rest (same crypto posture as webhook secrets)
 //!   and NEVER returned once installed — responses carry presence only;
+//! * the ADDRESS RULE runs at both ends: a `webhook_url` is screened with
+//!   `core_domain::egress` before it is sealed and again before a send, so a
+//!   consent can never become a request to the host this API runs on (the
+//!   dev-gated loopback allowance is the only exception, and only a debug
+//!   build with `MARULA_DEV_TOOLS=1` holds it);
 //! * test pings go through the app-bridges adapters with the UNSEALED
 //!   secret held only in the request scope (never logged, never persisted);
 //! * the VoIP surface is machine ingest THROUGH THE SAME consents —
@@ -152,6 +157,17 @@ pub async fn install(
             "the connector configuration cannot be empty".into(),
         ));
     }
+    // The address rule at the write boundary, the same one `/api/webhooks`
+    // asks: a webhook URL that names loopback, a link-local or metadata
+    // address, or a private range is refused before it is sealed, so a stored
+    // consent can never become a request to the host this API runs on. The
+    // dev-gated loopback allowance is the only way a loopback destination gets
+    // through, and only a debug build with MARULA_DEV_TOOLS=1 holds it.
+    if let Some(url) = req.config.get("webhook_url").and_then(Value::as_str) {
+        crate::outbound::guard_under(url, state.config.egress_policy())
+            .await
+            .map_err(|denial| ApiError::Validation(format!("webhook_url refused: {denial}")))?;
+    }
     let actor = authed.principal.user.id;
     let org_id = authed.principal.user.org_id;
     let scopes = default_scopes(kind);
@@ -274,6 +290,37 @@ pub async fn test(
     };
     let cfg: Value = serde_json::from_slice(&config)
         .map_err(|_| ApiError::Unavailable("the sealed connector config is unreadable".into()))?;
+    // The send-side half of the rule the install boundary applies. A row
+    // written before that guard existed — or by another generation — must not
+    // become a request to the host this API runs on, and a name's answer today
+    // is not the answer it gave when the row was written, so the address is
+    // judged again here and the destination is never trusted from storage.
+    let policy = state.config.egress_policy();
+    // Screen once and KEEP what the guard returned. Its client is pinned to the
+    // addresses it judged and follows no redirects, so the adapter dials exactly
+    // the destination this check approved; discarding it would let a name answer
+    // publicly here and privately a moment later, and would let a 3xx choose a
+    // second destination nothing screened.
+    let guarded =
+        match cfg.get("webhook_url").and_then(Value::as_str) {
+            Some(url) => Some(crate::outbound::guard_under(url, policy).await.map_err(
+                |denial| ApiError::Validation(format!("webhook_url refused: {denial}")),
+            )?),
+            None => None,
+        };
+    // The guard's own serialization, not the row's string: it is what was
+    // judged, so a parser differential cannot authorize one URL and dial another.
+    let url = guarded
+        .as_ref()
+        .map(|approved| approved.url().to_string())
+        .unwrap_or_default();
+    let pinned_client = || -> ApiResult<reqwest::Client> {
+        guarded
+            .as_ref()
+            .ok_or_else(|| ApiError::Validation("webhook_url is required".into()))?
+            .client(std::time::Duration::from_secs(20))
+            .map_err(|denial| ApiError::Validation(format!("webhook_url refused: {denial}")))
+    };
     let payload = app_bridges::NotificationPayload {
         title: "Marula test".into(),
         body: "A provisioned test ping from the Marula integrations surface.".into(),
@@ -281,31 +328,31 @@ pub async fn test(
     };
     match kind {
         "slack" | "teams" => {
-            let url = cfg
-                .get("webhook_url")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
             let outcome = match kind {
                 "slack" => {
-                    app_bridges::slack::SlackConnector::new(url)
-                        .send(&payload)
-                        .await
+                    let connector =
+                        app_bridges::slack::SlackConnector::with_http_client(url, pinned_client()?);
+                    let connector = if policy.is_dev_loopback() {
+                        connector.allow_loopback()
+                    } else {
+                        connector
+                    };
+                    connector.send(&payload).await
                 }
                 _ => {
-                    app_bridges::teams::TeamsConnector::new(url)
-                        .send(&payload)
-                        .await
+                    let connector =
+                        app_bridges::teams::TeamsConnector::with_http_client(url, pinned_client()?);
+                    let connector = if policy.is_dev_loopback() {
+                        connector.allow_loopback()
+                    } else {
+                        connector
+                    };
+                    connector.send(&payload).await
                 }
             };
             Ok(Json(to_test(kind, outcome)))
         }
         "rewst" => {
-            let url = cfg
-                .get("webhook_url")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
             let secret = cfg
                 .get("secret")
                 .and_then(|v| v.as_str())
@@ -321,7 +368,13 @@ pub async fn test(
                 notification: payload,
                 entity_id: None,
             };
-            let bridge = app_bridges::rewst::RewstBridge::new(url, secret);
+            let bridge =
+                app_bridges::rewst::RewstBridge::with_http_client(url, secret, pinned_client()?);
+            let bridge = if policy.is_dev_loopback() {
+                bridge.allow_loopback()
+            } else {
+                bridge
+            };
             let outcome = bridge.trigger(&trigger).await;
             Ok(Json(to_test(kind, outcome)))
         }

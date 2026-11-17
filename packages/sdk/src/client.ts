@@ -157,8 +157,17 @@ export class MarulaClient {
     return result;
   }
 
-  /** POST /api/v1/auth/mfa/verify — completes an MFA-gated login. */
-  async mfaVerify(body: { mfa_token: string; code: string }): Promise<TokenPair> {
+  /** POST /api/v1/auth/mfa/verify — completes an MFA-gated login.
+   *
+   * `mfa_token` is the bridge token from the login response. A browser passes
+   * an empty string: the login response also sets it in an httpOnly cookie the
+   * server reads, so a page never has to hold the token.
+   * `trust_device` lengthens the refresh window to 30 days. */
+  async mfaVerify(body: {
+    mfa_token: string;
+    code: string;
+    trust_device?: boolean;
+  }): Promise<TokenPair> {
     return this.authCall("/api/v1/auth/mfa/verify", body);
   }
 

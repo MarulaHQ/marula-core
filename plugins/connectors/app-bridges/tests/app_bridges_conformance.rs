@@ -75,7 +75,9 @@ fn sample_payload() -> NotificationPayload {
 #[tokio::test]
 async fn slack_delivers_and_canary_rejects_are_typed() {
     let mock = spawn_mock(axum::http::StatusCode::OK, "ok").await;
-    let slack = SlackConnector::new(mock.base_url.clone());
+    let slack = SlackConnector::new(mock.base_url.clone())
+        .expect("client")
+        .allow_loopback();
     slack.send(&sample_payload()).await.expect("delivers");
     let captured = mock.captured();
     assert!(
@@ -92,14 +94,16 @@ async fn slack_delivers_and_canary_rejects_are_typed() {
     // typed refusal (never silent success). The mock is stateless per
     // request, so one probe carries the whole assertion.
     let rejecting = spawn_mock(axum::http::StatusCode::OK, "invalid_payload").await;
-    let probe = SlackConnector::new(rejecting.base_url.clone());
+    let probe = SlackConnector::new(rejecting.base_url.clone())
+        .expect("client")
+        .allow_loopback();
     assert!(matches!(
         probe.send(&sample_payload()).await,
         Err(BridgeError::Refused("slack", _))
     ));
 
     // A plain https URL; the boundary refuses non-https config.
-    let bad = SlackConnector::new("http://example.com/hook");
+    let bad = SlackConnector::new("http://example.com/hook").expect("client");
     assert!(matches!(
         bad.send(&sample_payload()).await,
         Err(BridgeError::BadConfig("slack", _))
@@ -113,7 +117,9 @@ async fn slack_delivers_and_canary_rejects_are_typed() {
 #[tokio::test]
 async fn teams_delivers_one_adaptive_card_with_the_deep_link() {
     let mock = spawn_mock(axum::http::StatusCode::ACCEPTED, "1").await;
-    let teams = TeamsConnector::new(mock.base_url.clone());
+    let teams = TeamsConnector::new(mock.base_url.clone())
+        .expect("client")
+        .allow_loopback();
     teams.send(&sample_payload()).await.expect("delivers");
     let captured = mock.captured();
     let card: serde_json::Value =
@@ -133,7 +139,9 @@ async fn teams_delivers_one_adaptive_card_with_the_deep_link() {
 async fn rewst_signs_the_trigger_and_the_url_carries_the_secret_headers() {
     use app_bridges::rewst::RewstBridge;
     let mock = spawn_mock(axum::http::StatusCode::OK, "queued").await;
-    let bridge = RewstBridge::new(mock.base_url.clone(), "shared-secret-42");
+    let bridge = RewstBridge::new(mock.base_url.clone(), "shared-secret-42")
+        .expect("client")
+        .allow_loopback();
     bridge
         .trigger(&RewstTriggerPayload {
             org: "hearth".into(),
@@ -155,14 +163,81 @@ async fn rewst_signs_the_trigger_and_the_url_carries_the_secret_headers() {
     );
 }
 
+/// A destination that answers `302` is asking the bridge to dial a second host
+/// the owner never consented to. The client follows no redirects, so the answer
+/// is a typed refusal rather than a second unscreened request — on every
+/// adapter, because the branch is per adapter and not shared.
+#[tokio::test]
+async fn a_redirect_is_refused_rather_than_followed() {
+    for kind in ["slack", "teams", "rewst"] {
+        let mock = spawn_mock(axum::http::StatusCode::FOUND, "").await;
+        let outcome = match kind {
+            "slack" => {
+                SlackConnector::new(mock.base_url.clone())
+                    .expect("client")
+                    .allow_loopback()
+                    .send(&sample_payload())
+                    .await
+            }
+            "teams" => {
+                TeamsConnector::new(mock.base_url.clone())
+                    .expect("client")
+                    .allow_loopback()
+                    .send(&sample_payload())
+                    .await
+            }
+            _ => {
+                RewstBridge::new(mock.base_url.clone(), "shared-secret-42")
+                    .expect("client")
+                    .allow_loopback()
+                    .trigger(&RewstTriggerPayload {
+                        org: "hearth".into(),
+                        event: "sla.breach".into(),
+                        notification: sample_payload(),
+                        entity_id: None,
+                    })
+                    .await
+            }
+        };
+        assert!(
+            matches!(
+                outcome,
+                Err(BridgeError::Refused(_, ref detail)) if detail.contains("302")
+            ),
+            "{kind} must refuse a 302 and name the status, got {outcome:?}"
+        );
+    }
+}
+
+/// Production dials through the guard's client (pinned addresses, no redirects),
+/// not through `new`. The refusal has to hold on that path too: the adapter's
+/// own status check is what turns a `3xx` into a typed refusal, so the injected
+/// client is exercised directly.
+#[tokio::test]
+async fn a_redirect_is_refused_through_an_injected_client() {
+    let mock = spawn_mock(axum::http::StatusCode::TEMPORARY_REDIRECT, "").await;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("pinned client");
+    let slack = SlackConnector::with_http_client(mock.base_url.clone(), client).allow_loopback();
+    assert!(
+        matches!(
+            slack.send(&sample_payload()).await,
+            Err(BridgeError::Refused("slack", ref detail)) if detail.contains("307")
+        ),
+        "the injected client path refuses a redirect too"
+    );
+}
+
 #[tokio::test]
 async fn bad_config_never_reaches_a_socket() {
-    let empty = SlackConnector::new("");
+    let empty = SlackConnector::new("").expect("client");
     assert!(matches!(
         empty.validate(),
         Err(BridgeError::BadConfig("slack", _))
     ));
-    let rewst_blank = RewstBridge::new("https://ok.rewst.io/x", "  ");
+    let rewst_blank = RewstBridge::new("https://ok.rewst.io/x", "  ").expect("client");
     assert!(matches!(
         rewst_blank.validate(),
         Err(BridgeError::BadConfig("rewst", _))

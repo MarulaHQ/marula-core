@@ -110,6 +110,23 @@ const FILTER_FIELDS = [
 
 type View = "all" | "open" | "overdue" | "paid";
 
+/** The invoice run's default window: the first of this month, and today.
+ *
+ * `YYYY-MM-DD` strings, because that is what the date inputs and the API both
+ * take; both are built from UTC parts so the same wall clock gives the same
+ * window in every timezone.
+ */
+function monthStartIso(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    .toISOString()
+    .slice(0, 10);
+}
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function BillingPage() {
   const auth = useRequireAuth();
   const prefs = useDataSurfacePrefs();
@@ -125,8 +142,11 @@ export default function BillingPage() {
   const [clauses, setClauses] = useState<FilterClause[]>([]);
 
   const [runOpen, setRunOpen] = useState(false);
-  const [runFrom, setRunFrom] = useState("");
-  const [runTo, setRunTo] = useState("");
+  // Both ends of the run window start filled. A blank To used to reach the
+  // server, which refuses it ("to is required"), so Preview and the run it
+  // gates failed until the operator noticed the empty field.
+  const [runFrom, setRunFrom] = useState(() => monthStartIso());
+  const [runTo, setRunTo] = useState(() => todayIso());
   const [dueInDays, setDueInDays] = useState("30");
   const [preview, setPreview] = useState<OrgBillingPreview | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -172,12 +192,6 @@ export default function BillingPage() {
   }, [prefs.ready, savedColumns]);
 
   const refresh = useCallback(async () => {
-    const today = new Date();
-    const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
-      .toISOString()
-      .slice(0, 10);
-    if (runFrom === "") setRunFrom(monthStart);
-    if (runTo === "") setRunFrom(monthStart);
     setLoadError(null);
     try {
       const [invoiceRes, runRes, candidateRes, clientRes] = await Promise.all([
@@ -197,7 +211,7 @@ export default function BillingPage() {
     } catch {
       setLoadError("Could not load the invoices — try reloading.");
     }
-  }, [runFrom, runTo]);
+  }, []);
 
   useEffect(() => {
     if (auth.status === "authed") void refresh();
@@ -526,7 +540,11 @@ export default function BillingPage() {
                   </Link>{" "}
                   — every entry, its disposition, and the close sign-off live there.
                 </p>
-                <Button variant="secondary" onClick={() => void loadPreview()} disabled={previewing}>
+                <Button
+                  variant="secondary"
+                  onClick={() => void loadPreview()}
+                  disabled={previewing || runFrom === "" || runTo === ""}
+                >
                   {previewing ? <Spinner /> : null} Preview
                 </Button>
                 {preview !== null ? (
@@ -563,7 +581,13 @@ export default function BillingPage() {
                   </Button>
                   <Button
                     onClick={() => void createRun()}
-                    disabled={running || preview === null || preview.evaluations.length === 0}
+                    disabled={
+                      running ||
+                      preview === null ||
+                      preview.evaluations.length === 0 ||
+                      runFrom === "" ||
+                      runTo === ""
+                    }
                   >
                     {running ? <Spinner /> : null} Issue invoices
                   </Button>
