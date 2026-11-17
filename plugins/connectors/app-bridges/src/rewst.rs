@@ -39,8 +39,13 @@ impl RewstTriggerPayload {
 }
 
 impl RewstBridge {
-    pub fn new(webhook_url: impl Into<String>, secret: impl Into<String>) -> Self {
-        Self::with_http_client(webhook_url, secret, crate::bridge_client())
+    pub fn new(
+        webhook_url: impl Into<String>,
+        secret: impl Into<String>,
+    ) -> Result<Self, BridgeError> {
+        let http =
+            crate::bridge_client().map_err(|error| BridgeError::BadConfig("rewst", error))?;
+        Ok(Self::with_http_client(webhook_url, secret, http))
     }
 
     /// Dial through a client the caller already built (the route layer passes

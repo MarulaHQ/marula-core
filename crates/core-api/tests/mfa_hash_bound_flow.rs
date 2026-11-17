@@ -942,8 +942,9 @@ async fn the_bridge_token_rides_an_http_only_cookie_scoped_to_verify() {
         "a bridge token readable by script is the bug: {bridge}"
     );
     assert!(
-        bridge.contains("Path=/api/auth/mfa"),
-        "the token must not ride a request for any other route: {bridge}"
+        bridge.contains("Path=/api/v1/auth/mfa"),
+        "the browser posts to /api/v1/auth/mfa/verify, so a cookie scoped \
+         anywhere else is never attached: {bridge}"
     );
     let body = body_json(login).await;
     assert!(

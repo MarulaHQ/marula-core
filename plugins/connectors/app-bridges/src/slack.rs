@@ -70,8 +70,10 @@ pub fn validate_webhook_url(
 
 impl SlackConnector {
     /// `webhook_url` comes sealed from the connector installation.
-    pub fn new(webhook_url: impl Into<String>) -> Self {
-        Self::with_http_client(webhook_url, crate::bridge_client())
+    pub fn new(webhook_url: impl Into<String>) -> Result<Self, BridgeError> {
+        let http =
+            crate::bridge_client().map_err(|error| BridgeError::BadConfig("slack", error))?;
+        Ok(Self::with_http_client(webhook_url, http))
     }
 
     /// Dial through a client the caller already built — the route layer passes
