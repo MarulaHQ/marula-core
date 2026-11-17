@@ -97,10 +97,11 @@ export const ORG_STEP_LABELS: Record<
     cta: "Go to Imports",
   },
   ai: {
-    short: "Configure AI",
-    title: "Enable AI surfaces (optional)",
-    blurb: "Booking, drafting and merge-assist surfaces stay OFF until you turn them on.",
-    cta: "Enable AI",
+    short: "Connect AI",
+    title: "Connect AI (optional)",
+    blurb:
+      "Pick your chat and decision providers, seal their keys, set the defaults. Skipping is safe — nothing calls a model until a provider is configured.",
+    cta: "Save and continue",
   },
 };
 

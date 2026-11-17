@@ -144,11 +144,18 @@ async function seedAuth(ctx, page, owner, mode) {
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/${mode}-04-wizard-feeder.png`, fullPage: false });
 
-    // 5 · user first-run flow
+    // 5 · the AI setup step (W72): the shipped rail is indexed
+    // (`wizard-step-6` is the sixth org step), so drive it directly.
+    await page.getByTestId("wizard-step-6").click().catch(() => {});
+    await page.getByTestId("ai-setup").waitFor({ timeout: 10_000 }).catch(() => {});
+    await page.waitForTimeout(400); // let the staggered card entrance settle
+    await page.screenshot({ path: `${OUT}/${mode}-05-wizard-ai-setup.png`, fullPage: true });
+
+    // 6 · user first-run flow
     await page.goto(`${WEB}/onboarding`);
     await ensureMode();
     await page.waitForTimeout(800);
-    await page.screenshot({ path: `${OUT}/${mode}-05-user-onboarding.png` });
+    await page.screenshot({ path: `${OUT}/${mode}-06-user-onboarding.png` });
     await ctx.close();
   }
 

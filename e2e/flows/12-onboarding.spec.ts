@@ -19,7 +19,8 @@
 // (`onboarding-rail-*`, `onboarding-never-show`) belonged to two modules with
 // zero importers that `63c4836a` orphaned and lane A15 deleted.
 import { expect, test } from "../helpers/harness";
-import { authedFetch } from "../helpers/api";
+import { authedFetch, apiLogin, API_URL, DEMO_PASSWORD, WEB_URL, type TokenPair } from "../helpers/api";
+import { TOKENS_KEY, TOKENS_EXP_KEY } from "../helpers/harness";
 
 /** Mirrors ORG_STEP_ORDER / USER_STEP_ORDER (apps/web/lib/onboarding.ts:43-44):
  *  the rail is indexed by position in these lists, not by step name. Kept
@@ -48,6 +49,24 @@ interface SummaryWithMembers extends OrgSummary {
 /** 1-based rail button for an org step. */
 function orgRailStep(step: string): number {
   return (ORG_STEP_ORDER as readonly string[]).indexOf(step) + 1;
+}
+
+/** Seed a fresh context's page with the tokens AuthProvider restores from
+ *  (the same seeding the capture script uses; a page built by hand does not
+ *  run the harness's authedPage fixture). */
+async function seedTokens(page: import("@playwright/test").Page, tokens: TokenPair): Promise<void> {
+  await page.addInitScript(
+    ([tokensKey, expKey, raw, exp]: string[]) => {
+      window.localStorage.setItem(tokensKey, raw);
+      window.localStorage.setItem(expKey, exp);
+    },
+    [
+      TOKENS_KEY,
+      TOKENS_EXP_KEY,
+      JSON.stringify(tokens),
+      String(Date.now() + tokens.expires_in * 1000 - 30_000),
+    ],
+  );
 }
 
 /** 1-based rail button for a per-user step. */
@@ -225,4 +244,217 @@ test("per-user first-run: orientation completes, defaults persist, skips stick",
     await authedPage.getByTestId("onboarding-save-defaults").click();
     await expect.poll(async () => resolved("defaults"), { timeout: 20_000 }).toBe(true);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Wave 72 lane W72-1 — the AI setup step (the wizard's sixth step).
+//
+// The step is owner/admin surface (the seal/test/credential/pick endpoints
+// are all require_admin + owner/admin standing), so the two reads here are:
+// the OWNER sees the working step, the TECHNICIAN sees one honest sentence
+// and no key fields. Order independence: every test resets the org wizard
+// itself, stages its own data through the API, and puts the shared org's
+// state back (keys removed, catalog entries disabled) — the wizard's step
+// recording is the state the other tests already re-arm.
+// ---------------------------------------------------------------------------
+
+interface AiStatus {
+  configured_providers: string[];
+}
+
+interface CatalogEntry {
+  id: string;
+  provider: string;
+  model: string;
+  label: string;
+  capabilities: unknown;
+  enabled: boolean;
+}
+
+interface AiMatrix {
+  catalog: CatalogEntry[];
+  credentials: { id: string; provider: string; status: string; owner_user_id: string | null }[];
+}
+
+interface MeSurfaces {
+  surfaces: { surface_key: string; picked: { provider: string; model: string } | null }[];
+}
+
+/** The wizard lands on its resumed list or the rail — get to the rail. */
+async function openWizardStep(page: import("@playwright/test").Page, step: number): Promise<void> {
+  await page.goto("/welcome");
+  await expect(page.getByTestId("wizard-step-1").or(page.getByTestId("wizard-resume-clients")).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  if ((await page.getByTestId("wizard-resume-clients").count()) > 0) {
+    await page.getByTestId("wizard-resume-clients").click();
+  }
+  await page.getByTestId(`wizard-step-${step}`).click();
+}
+
+test("AI setup: renders for the owner with the honest gaps, gates the technician out", async ({
+  browser,
+  authedPage,
+  ownerTokens,
+}) => {
+  const post = authedFetch(ownerTokens.access_token);
+  await post("/onboarding/reset/org", { method: "POST", body: {} });
+
+  // The OWNER (admin standing) gets the working step.
+  await openWizardStep(authedPage, 6);
+  await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
+  for (const id of ["openai", "anthropic", "ollama", "custom"]) {
+    await expect(authedPage.getByTestId(`ai-setup-provider-${id}`)).toBeVisible();
+  }
+  // The backend gap is visible, named, and inert: no key field can open for
+  // a provider the seal surface does not accept.
+  await expect(authedPage.getByTestId("ai-setup-provider-gemini")).toContainText(
+    "Not available yet",
+  );
+  await authedPage.getByTestId("ai-setup-provider-gemini").click({ force: true });
+  await expect(authedPage.getByTestId("ai-setup-key-input")).toHaveCount(0);
+  // And the exit is first-class on the step itself.
+  await expect(authedPage.getByTestId("ai-setup-notnow")).toBeVisible();
+
+  // The TECHNICIAN gets one honest sentence and no cards. One session, not
+  // two: the context login's own pair is what the page is seeded with (the
+  // harness's p62-gate-truth lesson — a page presenting a token the cookie
+  // session already rotated arms the refresh gate).
+  const ctx = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 } });
+  const techPage = await ctx.newPage();
+  const techRes = await ctx.request.post(`${API_URL}/api/v1/auth/login`, {
+    data: { email: "tech@demo.local", password: DEMO_PASSWORD },
+  });
+  if (!techRes.ok()) throw new Error(`tech login failed (${techRes.status()})`);
+  const techTokens = (await techRes.json()) as TokenPair;
+  await seedTokens(techPage, techTokens);
+  // The step rides the org wizard, which any member can open; the gate is
+  // the step's own, not the wizard's.
+  await openWizardStep(techPage, 6);
+  await expect(techPage.getByTestId("ai-setup-gate")).toBeVisible({ timeout: 20_000 });
+  await expect(techPage.getByTestId("ai-setup-chat-cards")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("AI setup: a key saves with test-connection feedback and leaves nothing behind", async ({
+  authedPage,
+  ownerTokens,
+}) => {
+  const post = authedFetch(ownerTokens.access_token);
+  const get = authedFetch(ownerTokens.access_token);
+  await post("/onboarding/reset/org", { method: "POST", body: {} });
+
+  await openWizardStep(authedPage, 6);
+  await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
+
+  // Pick ChatGPT, paste a key, save. The seal is local (no vendor call in
+  // v1), so the honest test result is the connected line.
+  await authedPage.getByTestId("ai-setup-provider-openai").click();
+  await authedPage.getByTestId("ai-setup-key-input").fill("sk-demo-e2e-w72");
+  await authedPage.getByTestId("ai-setup-key-save").click();
+  await expect(authedPage.getByTestId("ai-setup-test-openai")).toContainText(
+    /Connected|Failed/,
+    { timeout: 20_000 },
+  );
+  // Presence only: the draft never renders back.
+  await expect(authedPage.getByTestId("ai-setup-key-input")).toHaveValue("");
+
+  // The org state carries the key; then the test puts the org back.
+  const status = (await get<unknown>("/settings/ai/status")) as AiStatus;
+  expect(status.configured_providers).toContain("openai");
+  await authedFetch(ownerTokens.access_token)("/settings/ai/byok/openai", {
+    method: "DELETE",
+  });
+  const after = (await get<unknown>("/settings/ai/status")) as AiStatus;
+  expect(after.configured_providers).not.toContain("openai");
+});
+
+test("AI setup: the chat default persists through the org pick", async ({
+  authedPage,
+  ownerTokens,
+}) => {
+  const post = authedFetch(ownerTokens.access_token);
+  const get = authedFetch(ownerTokens.access_token);
+  await post("/onboarding/reset/org", { method: "POST", body: {} });
+
+  // Stage one completion pair for Ollama (no key needed, so it is eligible
+  // on a bare org). Remember the pair's previous state to put it back.
+  const matrixBefore = (await get<unknown>("/settings/ai/matrix")) as AiMatrix;
+  const staged = matrixBefore.catalog.find((e) => e.provider === "ollama" && e.model === "llama3");
+  const stagedWasEnabled = staged?.enabled ?? false;
+  await post("/settings/ai/catalog", {
+    method: "PUT",
+    body: {
+      provider: "ollama",
+      model: "llama3",
+      label: "llama3",
+      capabilities: ["completion"],
+      enabled: true,
+      idempotency_key: `w72-spec:${Date.now()}`,
+    },
+  });
+
+  // The org default pick that stands before the test — restored after.
+  const meBefore = (await get<unknown>("/ai/me/surfaces")) as MeSurfaces;
+  const priorPick = meBefore.surfaces.find((s) => s.surface_key === "general_chat")?.picked ?? null;
+
+  await openWizardStep(authedPage, 6);
+  await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
+  await authedPage.getByTestId("ai-setup-provider-ollama").click();
+  await authedPage.getByTestId("ai-setup-chat-default-ollama-llama3").click();
+  await authedPage.getByTestId("ai-setup-save").click();
+  await expect(authedPage.getByTestId("ai-setup-report")).toContainText(
+    "Chat default set to ollama / llama3.",
+    { timeout: 20_000 },
+  );
+
+  // Server truth: the general_chat pick resolves to the staged pair.
+  await expect
+    .poll(async () => {
+      const me = (await get<unknown>("/ai/me/surfaces")) as MeSurfaces;
+      return me.surfaces.find((s) => s.surface_key === "general_chat")?.picked?.model ?? null;
+    })
+    .toBe("llama3");
+
+  // Put the shared org back as far as the API allows: the staged catalog
+  // entry goes dark again, and a pick that existed before is rewritten. A
+  // pick that did NOT exist stays (the org pick surface has no DELETE) —
+  // harmless while the org's AI switch is off, and named here so the next
+  // lane that adds the DELETE closes it.
+  await post("/settings/ai/catalog", {
+    method: "PUT",
+    body: {
+      provider: "ollama",
+      model: "llama3",
+      label: "llama3",
+      capabilities: ["completion"],
+      enabled: stagedWasEnabled,
+      idempotency_key: `w72-spec-cleanup:${Date.now()}`,
+    },
+  });
+  if (priorPick !== null) {
+    await post("/settings/ai/model-picks/general_chat", {
+      method: "PUT",
+      body: { provider: priorPick.provider, model: priorPick.model, idempotency_key: `w72-spec-restore:${Date.now()}` },
+    });
+  }
+});
+
+test("AI setup: 'Not now' skips without saving anything", async ({ authedPage, ownerTokens }) => {
+  const post = authedFetch(ownerTokens.access_token);
+  const get = authedFetch(ownerTokens.access_token);
+  await post("/onboarding/reset/org", { method: "POST", body: {} });
+  const before = (await get<unknown>("/settings/ai/status")) as AiStatus;
+
+  await openWizardStep(authedPage, 6);
+  await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
+  // Type a key and walk away from it: the skip seals nothing.
+  await authedPage.getByTestId("ai-setup-provider-openai").click();
+  await authedPage.getByTestId("ai-setup-key-input").fill("sk-never-saved-w72");
+  await authedPage.getByTestId("ai-setup-notnow").click();
+
+  // The step recorded its skip (skip-for-now persists nothing, the step
+  // stays pending) and the key store is untouched.
+  const after = (await get<unknown>("/settings/ai/status")) as AiStatus;
+  expect(after.configured_providers).toEqual(before.configured_providers);
 });

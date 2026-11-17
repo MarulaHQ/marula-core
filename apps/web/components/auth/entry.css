@@ -731,6 +731,13 @@
   animation: entry-mstep-in 120ms ease;
 }
 
+/* The AI setup step's provider cards arrive in a quiet 40ms stagger — the
+   same 120ms rise, one wave, nothing looping. Motion law: transform/opacity
+   only, and reduced motion collapses it to static. */
+.entry-aicard {
+  animation: entry-mstep-in 120ms ease backwards;
+}
+
 /* ---- The desktop-app card on the accept flow's last step ------------------ */
 
 .entry-appcard {
@@ -1055,6 +1062,11 @@
 
   /* The guided step's arrival rise is motion, so it collapses with the rest. */
   .entry-mstep {
+    animation: none;
+  }
+
+  /* The AI setup step's staggered cards too. */
+  .entry-aicard {
     animation: none;
   }
 }
