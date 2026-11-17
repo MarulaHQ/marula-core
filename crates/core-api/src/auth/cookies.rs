@@ -228,6 +228,22 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    /// The browser's own rule: the request path is the cookie path, or it is
+    /// under it at a segment boundary. `/api/v1/auth/mfax` is not under
+    /// `/api/v1/auth/mfa`, so a plain prefix comparison is too loose.
+    fn route_is_under_cookie_path(route: &str, path: &str) -> bool {
+        route == path || route.starts_with(&format!("{path}/"))
+    }
+
+    /// The attribute, whole. A substring check accepts
+    /// `Path=/api/v1/auth/mfa-invalid`, and no browser ever attaches that.
+    fn path_attribute(cookie: &str) -> Option<&str> {
+        cookie
+            .split(';')
+            .map(str::trim)
+            .find_map(|attribute| attribute.strip_prefix("Path="))
+    }
+
     /// The browser only attaches a cookie to a URL under its `Path`. The SDK
     /// posts the second factor to `/api/v1/auth/mfa/verify`
     /// (`packages/sdk/src/client.ts`), so a path without the version prefix
@@ -241,19 +257,20 @@ mod tests {
             "/api/v1/auth/mfa/webauthn/complete",
         ] {
             assert!(
-                route.starts_with(MFA_COOKIE_PATH),
+                route_is_under_cookie_path(route, MFA_COOKIE_PATH),
                 "{route} must sit under the cookie path {MFA_COOKIE_PATH}"
             );
         }
+        assert!(
+            !route_is_under_cookie_path("/api/v1/auth/mfax/verify", MFA_COOKIE_PATH),
+            "a sibling segment is not covered"
+        );
         let set = mfa_cookie(true, "bridge", 300);
-        assert!(set.contains(&format!("Path={MFA_COOKIE_PATH}")), "{set}");
+        assert_eq!(path_attribute(&set), Some(MFA_COOKIE_PATH), "{set}");
         assert!(set.contains("HttpOnly"), "{set}");
         assert!(set.contains("Max-Age=300"), "{set}");
         let cleared = clear_mfa_cookie(true);
+        assert_eq!(path_attribute(&cleared), Some(MFA_COOKIE_PATH), "{cleared}");
         assert!(cleared.contains("Max-Age=0"), "{cleared}");
-        assert!(
-            cleared.contains(&format!("Path={MFA_COOKIE_PATH}")),
-            "{cleared}"
-        );
     }
 }

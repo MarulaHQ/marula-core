@@ -937,12 +937,22 @@ async fn the_bridge_token_rides_an_http_only_cookie_scoped_to_verify() {
         .find(|cookie| cookie.starts_with("marula_mfa_pending="))
         .expect("login sets the bridge cookie")
         .clone();
+    let attributes: Vec<&str> = bridge.split(';').map(str::trim).collect();
     assert!(
-        bridge.contains("; HttpOnly"),
+        attributes.contains(&"HttpOnly"),
         "a bridge token readable by script is the bug: {bridge}"
     );
-    assert!(
-        bridge.contains("Path=/api/v1/auth/mfa"),
+    // The attribute, compared whole: `Path=/api/v1/auth/mfa-invalid` contains
+    // the expected path as a prefix, passes a `contains` check, and is still a
+    // cookie a browser never sends. The manual Cookie header below bypasses the
+    // browser's own path matching, so this assertion is the only thing standing
+    // where the browser would be.
+    let path_attribute = attributes
+        .iter()
+        .find_map(|attribute| attribute.strip_prefix("Path="))
+        .expect("the bridge cookie names a Path");
+    assert_eq!(
+        path_attribute, "/api/v1/auth/mfa",
         "the browser posts to /api/v1/auth/mfa/verify, so a cookie scoped \
          anywhere else is never attached: {bridge}"
     );
