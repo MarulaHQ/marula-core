@@ -92,12 +92,12 @@ describe("tourSurfaceForPath", () => {
 
 describe("tourForSurface", () => {
   it("selects the tour authored for the surface", () => {
-    expect(tourForSurface("today", [], false)?.id).toBe("workbar:v2");
-    expect(tourForSurface("project-record", [], false)?.id).toBe("project-record");
+    expect(tourForSurface("today", [], false)?.id).toBe("workbar:v3");
+    expect(tourForSurface("project-record", [], false)?.id).toBe("project-record:v2");
   });
 
   it("never repeats a completed tour (first-visit-per-surface)", () => {
-    expect(tourForSurface("today", ["workbar:v2"], false)).toBeNull();
+    expect(tourForSurface("today", ["workbar:v3"], false)).toBeNull();
   });
 
   it("gates admin-only tours from members", () => {
@@ -152,6 +152,43 @@ describe("tourForSurface", () => {
     }
   });
 
+  it("keeps every step inside the brand voice limits (no dashes, short lines)", () => {
+    // The voice guide's rules, mechanised: commas and colons, never em
+    // dashes; no questions or exclamations; titles of five words or fewer;
+    // bodies under thirty words. The guide is the authority, so a rewrite
+    // that breaks it should fail here rather than at review.
+    const banned = [
+      "revolutionary",
+      "supercharge",
+      "seamless",
+      "leverage",
+      "synergy",
+      "simply",
+      "users",
+      "robust",
+      "effortless",
+      "intuitive",
+      "powerful",
+    ];
+    for (const tour of TOURS) {
+      expect(tour.title.split(/\s+/).length, `${tour.id} title is too long`).toBeLessThanOrEqual(5);
+      for (const step of tour.steps) {
+        const copy = `${step.title} ${step.body}`;
+        expect(copy, `${tour.id}: ${step.title}`).not.toMatch(/[—–]/);
+        expect(copy, `${tour.id}: ${step.title}`).not.toMatch(/[?!]/);
+        expect(
+          step.body.split(/\s+/).filter(Boolean).length,
+          `${tour.id}: ${step.title} body is too long`,
+        ).toBeLessThan(30);
+        for (const word of banned) {
+          expect(copy.toLowerCase(), `${tour.id}: ${step.title} uses "${word}"`).not.toMatch(
+            new RegExp(`\\b${word}\\b`),
+          );
+        }
+      }
+    }
+  });
+
   it("never targets the nav rail (the nav gets zero steps)", () => {
     for (const tour of TOURS) {
       for (const step of tour.steps) {
@@ -170,7 +207,7 @@ describe("tourTargetsReady", () => {
 
   it("requires every step target to exist before starting", () => {
     document.body.innerHTML = '<div data-testid="search-launcher"></div>';
-    const tour = TOURS.find((t) => t.id === "workbar:v2");
+    const tour = TOURS.find((t) => t.id === "workbar:v3");
     if (tour) expect(tourTargetsReady(tour)).toBe(false);
   });
 
@@ -184,14 +221,14 @@ describe("tourTargetsReady", () => {
       '<a href="#overdue"></a>' +
       '<a href="/tickets"></a>' +
       "</div>";
-    const tour = TOURS.find((t) => t.id === "workbar:v2");
+    const tour = TOURS.find((t) => t.id === "workbar:v3");
     if (tour) expect(tourTargetsReady(tour)).toBe(true);
   });
 
   it("declines a record tour while a target is still missing", () => {
     // The record tour mounts its commitment strip with the first read, so
     // a partial DOM must not start it.
-    const tour = TOURS.find((t) => t.id === "project-record");
+    const tour = TOURS.find((t) => t.id === "project-record:v2");
     if (!tour) throw new Error("project-record tour missing");
     document.body.innerHTML = '<div data-slot="commitment-bar"></div>';
     expect(tourTargetsReady(tour)).toBe(false);

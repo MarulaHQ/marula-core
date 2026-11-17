@@ -245,41 +245,41 @@ test("every tour walks its surface, step by step", async (
       surface: "project record",
       path: `/projects/${projects[0]?.id}`,
       steps: [
-        "The promise, in one line",
-        "Four views, no reload",
-        "A starts the next task",
-        "Change a date, read the ripple",
+        "The promise at a glance",
+        "Four views of one project",
+        "Add a task with A",
+        "Preview date changes",
       ],
     },
     {
       surface: "ticket record",
       path: `/tickets/${tickets[0]?.id}`,
       steps: [
-        "The record is the ticket",
-        "Six tabs, one record",
-        "Every note has an audience",
-        "Wrap up stops the clock",
+        "Number, title, status",
+        "Six tabs, one ticket",
+        "Choose who reads the note",
+        "Wrap up and log time",
       ],
     },
     {
       surface: "approvals",
       path: "/approvals",
-      steps: ["Three numbers, one decision", "The queue and the paper trail", "Decide without leaving the row"],
+      steps: ["Read the three counts", "Queue and history", "Decide from the keyboard"],
     },
     {
       surface: "calendar",
       path: "/calendar",
-      steps: ["Week, month, agenda", "Know the class before the colour", "Drag to move; a conflict is refused", "The arrows move a week"],
+      steps: ["Week, month or agenda", "Know the entry types", "Drag to reschedule", "Connect your calendar"],
     },
     {
       surface: "purchasing",
       path: "/purchasing",
-      steps: ["What suppliers still owe", "Catch the late ones", "One dialog, then the order page", "Vendors sit beside orders"],
+      steps: ["See what's still owed", "Chase late orders", "Create an order", "Check the vendor list"],
     },
     {
       surface: "merge workbench",
       path: "/inventory/workbench",
-      steps: ["Work one class at a time", "Let Jev look first", "Pending is work, deferred is a decision"],
+      steps: ["One queue per record type", "Run the scan first", "Pending or deferred"],
     },
   ];
 
