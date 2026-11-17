@@ -12,8 +12,10 @@ import { tourSurfaceForPath } from "../../lib/tours/surfaces";
 import {
   SESSION_TOUR_CAP,
   TOURS,
+  tourAllowed,
   tourForSurface,
   tourTargetsReady,
+  type Tour,
 } from "../../lib/tours/tours";
 
 /** One representative path per surface a tour is authored against. The
@@ -100,13 +102,23 @@ describe("tourForSurface", () => {
     expect(tourForSurface("today", ["workbar:v3"], false)).toBeNull();
   });
 
-  it("gates admin-only tours from members", () => {
-    const adminTour = TOURS.find((t) => t.adminOnly);
-    if (adminTour) {
-      const surface = adminTour.surfaces[0]!;
-      expect(tourForSurface(surface, [], false)).toBeNull();
-      expect(tourForSurface(surface, [], true)).not.toBeNull();
-    }
+  it("gates admin-only tours from members (controlled fixture)", () => {
+    // The registry has no admin-only tour, so a conditional over it would
+    // never exercise the gate. The predicate takes the tour, so a fixture
+    // proves both halves: a member is refused and an admin is allowed.
+    const adminTour: Tour = {
+      id: "fixture:admin",
+      surfaces: ["fixture"],
+      title: "Admin fixture",
+      adminOnly: true,
+      steps: [{ target: "#fixture", title: "One", body: "Two." }],
+    };
+    expect(tourAllowed(adminTour, [], false)).toBe(false);
+    expect(tourAllowed(adminTour, [], true)).toBe(true);
+    // A completed tour is refused even for an admin.
+    expect(tourAllowed(adminTour, ["fixture:admin"], true)).toBe(false);
+    // The same tour without the flag is fine for a member.
+    expect(tourAllowed({ ...adminTour, adminOnly: false }, [], false)).toBe(true);
   });
 
   it("gives every tour a surface a real path resolves to, with docs under it", () => {

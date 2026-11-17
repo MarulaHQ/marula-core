@@ -464,6 +464,18 @@ export const TOURS: readonly Tour[] = [
  * browser session, so a person hopping surfaces never gets nagged. */
 export const SESSION_TOUR_CAP = 1;
 
+/** Whether a tour may run for this viewer: not already completed, and the
+ * admin gate satisfied. Selection only; readiness is a separate check. */
+export function tourAllowed(
+  tour: Tour,
+  completed: readonly string[],
+  isAdmin: boolean,
+): boolean {
+  if (completed.includes(tour.id)) return false;
+  if (tour.adminOnly && !isAdmin) return false;
+  return true;
+}
+
 export function tourForSurface(
   surface: string,
   completed: readonly string[],
@@ -471,8 +483,7 @@ export function tourForSurface(
 ): Tour | null {
   for (const tour of TOURS) {
     if (!tour.surfaces.includes(surface)) continue;
-    if (completed.includes(tour.id)) continue;
-    if (tour.adminOnly && !isAdmin) continue;
+    if (!tourAllowed(tour, completed, isAdmin)) continue;
     return tour;
   }
   return null;
