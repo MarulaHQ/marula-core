@@ -477,7 +477,9 @@ describe("AiSetupStep exits", () => {
   });
 
   it("gives each radio group one keyboard entry point, selection following focus", async () => {
-    renderStep((m) => seedCatalog(m, []));
+    // Two eligible chat defaults (an OpenAI key is sealed, Ollama needs
+    // none), so the arrow has somewhere real to go.
+    renderStep((m) => seedCatalog(m, ["openai"]));
     await screen.findByTestId("ai-setup");
 
     // Nothing selected yet: the first backed decision provider carries the
@@ -485,16 +487,22 @@ describe("AiSetupStep exits", () => {
     const jev = screen.getByTestId("ai-setup-decision-typesafe") as HTMLButtonElement;
     expect(jev.tabIndex).toBe(0);
 
-    // Arrow keys move within a group; selection follows focus through the
-    // same click path a pointer takes.
     const group = screen.getByTestId("ai-setup-chat-defaults");
     const radios = Array.from(
       group.querySelectorAll<HTMLButtonElement>('[role="radio"]:not([disabled])'),
     );
-    expect(radios.length).toBeGreaterThan(0);
-    radios[0]?.focus();
-    fireEvent.keyDown(group, { key: "ArrowDown" });
-    expect(radios.length === 1 || document.activeElement === radios[1]).toBe(true);
+    expect(radios.length).toBe(2);
+    const first = radios[0];
+    const second = radios[1];
+    if (first === undefined || second === undefined) throw new Error("two radios expected");
+
+    first.focus();
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+
+    // Focus moved AND selection followed; a missing handler fails this.
+    expect(document.activeElement).toBe(second);
+    expect(second.getAttribute("aria-checked")).toBe("true");
   });
 
   it("drops a rendered report as soon as a pending value changes", async () => {
@@ -538,7 +546,7 @@ describe("AiSetupStep exits", () => {
     fireEvent.click(screen.getByTestId("ai-setup-save"));
     const report = await screen.findByTestId("ai-setup-report");
     expect(report.textContent).toContain("was refused");
-    expect(screen.getByTestId("ai-setup-done").textContent).toContain("Try again");
+    expect(screen.getByTestId("ai-setup-done").textContent).toContain("Save again");
   });
 
   it("reports nothing-picked honestly and, with AI off, records the skip", async () => {

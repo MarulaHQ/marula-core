@@ -41,7 +41,7 @@
 // test-connection results, and every interaction below is a browser one —
 // nothing here is server-rendered content.
 
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Spinner } from "@marula-core/ui";
 import { Icon } from "@marula-core/ui/kit";
 import type { components } from "@marula-core/sdk";
@@ -181,10 +181,26 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
   const [reported, setReported] = useState(false);
   const [outcomes, setOutcomes] = useState<SaveOutcome[] | null>(null);
 
+  // The pending values a save would carry, mirrored into a ref so the save's
+  // completion can tell whether the operator changed anything while it ran.
+  const pendingRef = useRef<string>("");
+  /** True when a save finished but the pending values moved during it: the
+   *  report stands, but the primary must save again rather than finish. */
+  const [dirtySinceSave, setDirtySinceSave] = useState(false);
+
   // A rendered report is a promise that Done will not lose work. Any edit
   // to a pending value breaks it: drop the report so the primary returns to
   // Save (and a failed batch can be retried with the fix in place).
   useEffect(() => {
+    pendingRef.current = JSON.stringify([
+      aiOn,
+      pickedChat,
+      keyDraft,
+      pickedDecision,
+      decisionKeyDraft,
+      chatDefaultKey,
+      decisionDefaultKey,
+    ]);
     if (!reported) return;
     setReported(false);
     setOutcomes(null);
@@ -345,8 +361,9 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
 
     // 1. The master switch, only when it actually changed. A refused save
     //    must not count as on: completion keys off the persisted value.
-    let switchPersisted = persistedAiOn ?? decisionFeaturesEnabled;
-    if (aiOn !== null && aiOn !== decisionFeaturesEnabled) {
+    const confirmedAiOn = persistedAiOn ?? decisionFeaturesEnabled;
+    let switchPersisted = confirmedAiOn;
+    if (aiOn !== null && aiOn !== confirmedAiOn) {
       const { error } = await api.api.PUT("/api/v1/settings/org", {
         body: { key: "ai.features_enabled", value: aiOn },
       });
@@ -426,17 +443,35 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
       const forked = decision.surfaces.filter((s) => s.customized).length;
       let pinned = 0;
       let refused = 0;
-      for (const s of decision.surfaces.filter((x) => !x.customized)) {
-        const { error } = await api.api.PUT("/api/v1/settings/ai/decision/{surface_key}/config", {
-          params: { path: { surface_key: s.surface_key } },
-          body: {
-            model_provider: provider,
-            model_id: model,
-            idempotency_key: `dconf:${s.surface_key}:${Date.now()}`,
-          } as never,
-        });
-        if (error === undefined) pinned += 1;
-        else refused += 1;
+      try {
+        for (const s of decision.surfaces.filter((x) => !x.customized)) {
+          const { error } = await api.api.PUT("/api/v1/settings/ai/decision/{surface_key}/config", {
+            params: { path: { surface_key: s.surface_key } },
+            body: {
+              model_provider: provider,
+              model_id: model,
+              idempotency_key: `dconf:${s.surface_key}:${Date.now()}`,
+            } as never,
+          });
+          if (error === undefined) pinned += 1;
+          else refused += 1;
+        }
+      } catch (e) {
+        // Report the pins that already stored before the interruption
+        // propagates; the outer catch adds the interruption line.
+        if (pinned > 0) {
+          lines.push({
+            ok: true,
+            line: `Decision default ${provider} / ${model} pinned on ${pinned} surface${pinned === 1 ? "" : "s"} before the save stopped.`,
+          });
+        }
+        if (refused > 0) {
+          lines.push({
+            ok: false,
+            line: `${refused} decision surface${refused === 1 ? "" : "s"} refused the pin before the save stopped.`,
+          });
+        }
+        throw e;
       }
       if (pinned > 0) {
         lines.push({
@@ -480,6 +515,8 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
    *  state, so the primary action never sticks disabled. */
   const saveAll = async () => {
     setSaving(true);
+    setDirtySinceSave(false);
+    const sent = pendingRef.current;
     const lines: SaveOutcome[] = [];
     try {
       await saveAllInner(lines);
@@ -488,9 +525,18 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
         ok: false,
         line: "The save stopped part-way. Anything reported above is stored; run it again for the rest.",
       });
+    } finally {
+      // Edits made while the save was in flight are NOT in `sent`; keep the
+      // report, but never let Done claim they were saved.
+      if (pendingRef.current !== sent) {
+        lines.push({
+          ok: true,
+          line: "Changes arrived while saving. Save again to include them.",
+        });
+        setDirtySinceSave(true);
+      }
       setOutcomes([...lines]);
       setReported(true);
-    } finally {
       setSaving(false);
     }
   };
@@ -1352,7 +1398,9 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
           type="button"
           className="entry-btn"
           onClick={() =>
-            void (reported ? (hasFailedOutcome ? saveAll() : finish()) : saveAll())
+            void (
+              reported ? (hasFailedOutcome || dirtySinceSave ? saveAll() : finish()) : saveAll()
+            )
           }
           disabled={saving}
           data-testid={reported ? "ai-setup-done" : "ai-setup-save"}
@@ -1362,8 +1410,8 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
               <Spinner /> Saving…
             </>
           ) : reported ? (
-            hasFailedOutcome ? (
-              "Try again"
+            hasFailedOutcome || dirtySinceSave ? (
+              "Save again"
             ) : (persistedAiOn ?? decisionFeaturesEnabled) ? (
               "Done"
             ) : (
