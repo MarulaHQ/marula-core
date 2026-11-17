@@ -262,7 +262,10 @@ not carry.
   `prefers-reduced-motion` collapsing them. Subtle motion is encouraged:
   entrance reveals, staggered list entrances, panel slide-ins, hover
   micro-feedback, tab and filter morphs. The constraints are performance, not
-  austerity. Never animate a layout property.
+  austerity. Never animate a layout property. One carve-out (2026-11-17,
+  user ruling): guided-tour motion may run to 400ms where it earns it —
+  still transform/opacity only, still fully static under
+  `prefers-reduced-motion`.
 - **Keyboard-first:** a 2px offset focus outline in the mode's focus-ring token.
   Inline shortcut hints. Every primary flow works without a mouse.
 
