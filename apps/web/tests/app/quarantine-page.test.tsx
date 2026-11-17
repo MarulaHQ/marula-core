@@ -92,20 +92,29 @@ describe("/settings/quarantine", () => {
   });
 
   it("draws an honest empty state when nothing is held", async () => {
+    // The sentence renders in the pre-load frame (auth is authed, items are
+    // empty), so matching it proves nothing on its own. Hold the list
+    // response behind a gate, assert the loading state, then release and
+    // assert the sentence comes from the applied response.
     const mock = setupApi();
-    renderPage();
-    // The sentence renders as soon as auth lands, before the list read
-    // starts, so matching it alone proves nothing. Wait for the quarantine
-    // request to settle, then assert the loaded state.
-    await waitFor(() => {
-      expect(
-        mock.calls.some(
-          (c) => c.method === "GET" && c.path.includes("/admin/quarantine"),
-        ),
-      ).toBe(true);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    mock.on("GET", "/api/v1/admin/quarantine", async () => {
+      await gate;
+      return { json: { items: [], pending: 0, released: 0 } };
+    });
+    renderPage();
+
+    // Loading began, and the sentence is gone while it runs.
+    await screen.findByRole("status");
+    expect(screen.queryByText(/Nothing is quarantined/)).toBeNull();
+
+    release();
     const empty = await screen.findByText(/Nothing is quarantined/);
     expect(empty).toBeInTheDocument();
+    expect(mock.callsTo("GET", "/api/v1/admin/quarantine")).toHaveLength(1);
   });
 
   it("offers release and delete on a held row, and records the reason", async () => {

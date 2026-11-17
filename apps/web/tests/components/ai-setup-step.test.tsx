@@ -505,6 +505,35 @@ describe("AiSetupStep exits", () => {
     expect(second.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("does not complete when the enable request is refused", async () => {
+    const onDone = vi.fn();
+    const onSkip = vi.fn();
+    renderStep(
+      (m) => {
+        seedEmptyOrg(m);
+        m.on("PUT", "/api/v1/settings/org", () => ({
+          status: 422,
+          json: { error: { message: "the org settings write was refused" } },
+        }));
+      },
+      { onDone, onSkip },
+    );
+    await screen.findByTestId("ai-setup");
+    // Ask for AI, get refused, save.
+    fireEvent.click(screen.getByTestId("ai-setup-master-switch"));
+    fireEvent.click(screen.getByTestId("ai-setup-save"));
+    const report = await screen.findByTestId("ai-setup-report");
+    expect(report.textContent).toContain("The AI switch did not save");
+    expect(report.textContent).not.toContain("AI turned on");
+    // A refused save cannot complete the step: the primary is a re-run,
+    // never Done, so the 409 path is unreachable while the switch is off.
+    const primary = screen.getByTestId("ai-setup-done");
+    expect(primary.textContent).toContain("Save again");
+    fireEvent.click(primary);
+    expect(onDone).not.toHaveBeenCalled();
+    expect(onSkip).not.toHaveBeenCalled();
+  });
+
   it("drops a rendered report as soon as a pending value changes", async () => {
     renderStep((m) => seedCatalog(m, []));
     await screen.findByTestId("ai-setup");

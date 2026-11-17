@@ -525,6 +525,9 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
         ok: false,
         line: "The save stopped part-way. Anything reported above is stored; run it again for the rest.",
       });
+      // A rejected write has an uncertain server outcome. Reload so the
+      // confirmed switch value (and everything else) drives the exit.
+      await load();
     } finally {
       // Edits made while the save was in flight are NOT in `sent`; keep the
       // report, but never let Done claim they were saved.
