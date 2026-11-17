@@ -305,12 +305,28 @@ function git(args) {
   return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" }).trim();
 }
 
-/** A revision for `git diff`, not an option. `git diff --name-only <base>...HEAD`
- * parses `--foo` as a flag, so a base that starts with a dash is refused before
- * git sees it. */
+/** Whether `base` can be handed to git as a revision argument rather than an
+ * option. Only the two things that make a string an option matter: it must not
+ * start with a dash, and it must not contain whitespace or a control character.
+ * Everything else is git's rule to apply, and a ref may contain `+`, which a
+ * character whitelist would have rejected. */
+export function isRevisionArgument(base) {
+  return base !== "" && !base.startsWith("-") && !/[\s\x00-\x1f]/.test(base);
+}
+
+/** A base that resolves to a commit. The shape check runs first so a dash-led
+ * value never reaches git at all; `--end-of-options` covers the resolution step
+ * on the same reasoning. */
 function safeBase(base) {
-  if (!/^[A-Za-z0-9._/~^-]+$/.test(base) || base.startsWith("-")) {
-    fail(`--base ${base} is not a git revision`);
+  if (!isRevisionArgument(base)) fail(`--base ${base} is not a git revision`);
+  try {
+    execFileSync(
+      "git",
+      ["rev-parse", "--verify", "--quiet", "--end-of-options", `${base}^{commit}`],
+      { cwd: ROOT, stdio: "pipe" },
+    );
+  } catch {
+    fail(`--base ${base} does not resolve to a commit; fetch it first`);
   }
   return base;
 }
@@ -526,6 +542,14 @@ function selfTest() {
   assert(assembled.includes("### Added\n\n- A capability.\n- Another one."), "bullets land under their section");
   assert(!assembled.includes("A refactor nobody sees"), "a none fragment never reaches the changelog");
   assert(assembled.endsWith("\n\n"), "a blank line separates it from the next release");
+
+  assert(isRevisionArgument("origin/main"), "a normal base is accepted");
+  assert(
+    isRevisionArgument("origin/release/0.4+maintenance"),
+    "git allows + in a ref, and so does this",
+  );
+  assert(!isRevisionArgument("--upload-pack=touch"), "a leading dash is never a revision");
+  assert(!isRevisionArgument(""), "an empty base is not a revision");
 
   assert(isCalendarDate("2026-11-17"), "a real date is accepted");
   assert(!isCalendarDate("2026-02-31"), "a date that does not exist is refused");
