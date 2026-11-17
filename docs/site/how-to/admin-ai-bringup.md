@@ -13,9 +13,6 @@ order and the first live call works. Do them out of order and you get a
 typed refusal that names the step you skipped, which is the design working
 ([AI: deny-by-default](../explanation/ai-deny-by-default.md)).
 
-Screenshots of this page in both themes are in the lane evidence record,
-`internal/design/qa-p47-byok-runbook/captures/`.
-
 ## Prerequisites
 
 - Admin access to **Settings → AI**. BYOK writes are an owner/admin

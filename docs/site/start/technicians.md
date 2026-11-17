@@ -15,6 +15,11 @@ description: "The technician's path through Marula: work the queue, run a servic
    internal and customer-visible notes and the approval step.
 3. [Dispatch from the board](../how-to/staff-dispatch.md) — if you are the one
    moving unassigned tickets onto open slots.
+4. [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md) —
+   read the client hub before a site visit, follow a procedure, and reveal a
+   credential without leaving a trail in your notes.
+5. [Check your project work](../how-to/staff-work-a-project.md#12-work-one-task-on-its-own-page) —
+   every task assigned to you across projects, with waiting as its own state.
 
 ## "I am in the van"
 
@@ -58,6 +63,9 @@ description: "The technician's path through Marula: work the queue, run a servic
   phone camera, without losing focus in the form you are filling.
 - [Use Marula with a keyboard, a screen reader, and themes](../how-to/staff-accessibility.md) —
   light, dark and high-contrast themes, and navigating without a mouse.
+- [Ask the assistant about the screen you are on](../how-to/ask-the-assistant.md) —
+  ask from the palette, read the sources, and approve any change before it is
+  sent.
 
 ## "I am stuck"
 

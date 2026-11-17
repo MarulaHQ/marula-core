@@ -10116,7 +10116,7 @@ export interface paths {
         /**
          * POST /api/project-templates/{id}/create — instantiation with the one check
          *     the gallery promises first: a billable template cannot start without a
-         *     contract that bills the chosen client (S11.11). The refusal is decided in
+         *     contract that bills the chosen client. The refusal is decided in
          *     the same transaction that writes the project, with the contract rows locked.
          */
         post: operations["project_template_create"];
@@ -10671,7 +10671,7 @@ export interface paths {
         put?: never;
         /**
          * POST .../approve — approval changes the document only. When the org asks for
-         *     portal acknowledgement the order waits for the client first (S13.9).
+         *     portal acknowledgement the order waits for the client first.
          */
         post: operations["project_change_order_approve"];
         delete?: never;
@@ -10691,7 +10691,7 @@ export interface paths {
         put?: never;
         /**
          * POST .../bill — releases the money through the existing billing seam. A
-         *     refused release leaves the order applied and records why (S13.8).
+         *     refused release leaves the order applied and records why.
          */
         post: operations["project_change_order_bill"];
         delete?: never;
@@ -10901,8 +10901,8 @@ export interface paths {
         /**
          * GET /api/projects/{id}/phase-burn — the burn read model (report P3):
          *     consumed approved billable minutes and card-priced value per phase
-         *     against the phase's budget, with the typed `none | warn | over`
-         *     alert state (`warn` at ≥80%, `over` at ≥100%). Without
+         *     against the phase's budget, with a typed alert state: `none`, then
+         *     `warn` from 80 percent, then `over` from 100 percent. Without
          *     `financial:read` the amounts and the alert are redacted (RB2).
          */
         get: operations["projects_phase_burn"];
@@ -16817,9 +16817,12 @@ export interface components {
         ArchiveTemplateRequest: {
             archived: boolean;
         };
-        /** @description A bodyless `304 Not Modified` carrying the validator that matched. */
+        /** @description The archive request body. */
         ArchiveTicketRequest: {
-            /** @description `true` archives, `false` restores. Archiving keeps the first instant. */
+            /**
+             * @description `true` archives the ticket, `false` restores it. Archiving keeps the
+             *     first instant.
+             */
             archived: boolean;
         };
         /**

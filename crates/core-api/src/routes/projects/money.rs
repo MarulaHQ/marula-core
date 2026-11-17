@@ -54,8 +54,8 @@ impl PhaseBurnView {
 
 /// GET /api/projects/{id}/phase-burn — the burn read model (report P3):
 /// consumed approved billable minutes and card-priced value per phase
-/// against the phase's budget, with the typed `none | warn | over`
-/// alert state (`warn` at ≥80%, `over` at ≥100%). Without
+/// against the phase's budget, with a typed alert state: `none`, then
+/// `warn` from 80 percent, then `over` from 100 percent. Without
 /// `financial:read` the amounts and the alert are redacted (RB2).
 #[utoipa::path(operation_id = "projects_phase_burn", get, path = "/api/projects/{id}/phase-burn", tag = "projects", security(("bearer" = [])),
     params(("id" = Uuid, Path)),

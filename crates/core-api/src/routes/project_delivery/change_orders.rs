@@ -532,7 +532,7 @@ pub struct ProjectChangeOrderDecisionRequest {
 }
 
 /// POST .../approve — approval changes the document only. When the org asks for
-/// portal acknowledgement the order waits for the client first (S13.9).
+/// portal acknowledgement the order waits for the client first.
 #[utoipa::path(operation_id = "project_change_order_approve", post, path = "/api/projects/{id}/change-orders/{change_order_id}/approve", tag = "projects", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("change_order_id" = Uuid, Path)), request_body = ProjectChangeOrderDecisionRequest,
     responses((status = 200, body = ChangeOrderView)))]
@@ -805,7 +805,7 @@ pub async fn apply(
 }
 
 /// POST .../bill — releases the money through the existing billing seam. A
-/// refused release leaves the order applied and records why (S13.8).
+/// refused release leaves the order applied and records why.
 #[utoipa::path(operation_id = "project_change_order_bill", post, path = "/api/projects/{id}/change-orders/{change_order_id}/bill", tag = "projects", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("change_order_id" = Uuid, Path)),
     responses((status = 200, body = ChangeOrderView),

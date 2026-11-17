@@ -1,5 +1,5 @@
 ---
-description: "Your clients shouldn't have to email your helpdesk just to check if a ticket is being worked on, download last month's invoice, or approve a hardware quote."
+description: "Clients check tickets, invoices and quotes in the portal without emailing your helpdesk. Set it up in two steps: expose the boards, then provision each contact."
 ---
 
 # Tutorial: portal onboarding
@@ -7,7 +7,7 @@ description: "Your clients shouldn't have to email your helpdesk just to check i
 > **Audience:** both — steps 1–3 are admin (provisioning and exposure);
 > steps 4–5 are the client's first minutes and can be handed to them.
 
-Your clients shouldn't have to email your helpdesk just to check if a ticket is being worked on, download last month's invoice, or approve a hardware quote. Marula includes a built-in **Client Portal** where your customer's contacts can log requests, read client-facing help articles, pay or review invoices, and book appointment slots.
+The **Client Portal** is built in: your customer's contacts log requests, read client-facing help articles, pay or review invoices, and book appointment slots, without a single email to your helpdesk.
 
 To prevent accidental data leaks, the portal runs in its own isolated sign-in zone. There is no public "sign up" button: you decide which ticket boards are visible and explicitly invite each client contact under **Settings → Portal**.
 
@@ -30,7 +30,7 @@ Click **Provision portal user** to create a login for a contact at a specific cl
 
 ## 3. Share the portal sign-in details with your client
 
-Open the portal sign-in page (`Marula — client portal sign-in`). It uses a dedicated navigation bar (**Requests**, **Invoices**, **Knowledge**, and **Schedule**) and displays **"Support access provided by your service desk"** in the footer.
+Open the portal sign-in page (`Marula — client portal sign-in`). It uses a dedicated navigation bar (**Tickets**, **Projects**, **Invoices**, **Quotes**, **Schedule**, **Help**, and **Documentation**) and displays **"Support access provided by your service desk"** in the footer.
 
 Three things to know when handing logins to a customer:
 
@@ -40,11 +40,11 @@ Three things to know when handing logins to a customer:
 
 ## 4. Walk through the client's first request
 
-Sign in as the portal user you created. You land on **Requests**:
+Sign in as the portal user you created. You land on **Tickets**:
 
 1. Click to submit a new request on the exposed Service Desk board. On your team's side, this immediately appears as a normal ticket tagged with the `portal` channel.
 2. Reply on the request thread. Note that internal notes written by your technicians never appear here; the client only sees client-visible replies.
-3. Click **Invoices** to view issued bills, **Knowledge** to search help articles your team marked as client-visible, or **Schedule** to request an appointment window.
+3. Click **Invoices** to view issued bills, **Quotes** to approve or decline a proposal, **Help** to search articles your team marked as client-visible, **Documentation** to read the documents they shared, or **Schedule** to request an appointment window.
 
 ## 5. What the client can never reach
 
@@ -54,4 +54,4 @@ Portal users are fenced off at the database and API routing layers from your int
 
 - You control portal access in two steps under **Settings → Portal**: expose the board, then provision the contact inside their client organization.
 - Portal logins and sessions, along with portal search queries, are completely separated from your internal staff workspace.
-- Clients get four clean self-service tabs: **Requests**, **Invoices**, **Knowledge**, and **Schedule**.
+- Clients get seven self-service tabs: **Tickets**, **Projects**, **Invoices**, **Quotes**, **Schedule**, **Help**, and **Documentation**.

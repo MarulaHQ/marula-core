@@ -6,6 +6,12 @@
     "today": {
       "docs": [
         {
+          "path": "how-to/staff-knowledge-base",
+          "audience": "both",
+          "updated": "2026-11-16",
+          "title": "How to find a runbook, a credential and a client's records"
+        },
+        {
           "path": "how-to/technician-service-day",
           "audience": "both",
           "updated": "2026-09-26",
@@ -210,6 +216,12 @@
     "billing": {
       "docs": [
         {
+          "path": "how-to/draft-a-quote-or-contract",
+          "audience": "both",
+          "updated": "2026-11-16",
+          "title": "How to draft a quote or contract from your notes"
+        },
+        {
           "path": "tutorials/first-invoice",
           "audience": "admin",
           "updated": "2026-09-29",
@@ -249,6 +261,12 @@
     },
     "sales": {
       "docs": [
+        {
+          "path": "how-to/draft-a-quote-or-contract",
+          "audience": "both",
+          "updated": "2026-11-16",
+          "title": "How to draft a quote or contract from your notes"
+        },
         {
           "path": "tutorials/first-invoice",
           "audience": "admin",
@@ -366,6 +384,18 @@
     "kb": {
       "docs": [
         {
+          "path": "how-to/staff-knowledge-base",
+          "audience": "both",
+          "updated": "2026-11-16",
+          "title": "How to find a runbook, a credential and a client's records"
+        },
+        {
+          "path": "how-to/admin-knowledge-base",
+          "audience": "admin",
+          "updated": "2026-11-16",
+          "title": "How to write knowledge and keep client records current"
+        },
+        {
           "path": "explanation/kb-class-categories",
           "audience": "both",
           "updated": "2026-09-22",
@@ -385,6 +415,12 @@
     },
     "ai": {
       "docs": [
+        {
+          "path": "how-to/ask-the-assistant",
+          "audience": "both",
+          "updated": "2026-11-16",
+          "title": "How to ask the assistant about the screen you are on"
+        },
         {
           "path": "how-to/admin-local-ai-models",
           "audience": "admin",
@@ -430,6 +466,12 @@
     "settings-email": {
       "docs": [
         {
+          "path": "how-to/admin-email-templates",
+          "audience": "admin",
+          "updated": "2026-11-16",
+          "title": "How to edit the emails Marula sends"
+        },
+        {
           "path": "how-to/admin-email",
           "audience": "admin",
           "updated": "2026-09-26",
@@ -449,6 +491,18 @@
     },
     "settings-general": {
       "docs": [
+        {
+          "path": "how-to/operator-dead-work",
+          "audience": "admin",
+          "updated": "2026-11-16",
+          "title": "How to recover work that gave up"
+        },
+        {
+          "path": "how-to/operator-object-integrity",
+          "audience": "admin",
+          "updated": "2026-11-16",
+          "title": "How to check that records and stored files still agree"
+        },
         {
           "path": "how-to/admin-org-bootstrap",
           "audience": "admin",
@@ -485,6 +539,12 @@
     },
     "settings-integrations": {
       "docs": [
+        {
+          "path": "how-to/admin-connectors",
+          "audience": "admin",
+          "updated": "2026-11-16",
+          "title": "How to connect a tool your team already uses"
+        },
         {
           "path": "how-to/admin-plugin-consent",
           "audience": "admin",
@@ -580,8 +640,8 @@
         {
           "path": "how-to/client-portal-tasks",
           "audience": "both",
-          "updated": "2026-09-22",
-          "title": "How to use the portal (client-side tasks)"
+          "updated": "2026-11-16",
+          "title": "How to use the client portal"
         },
         {
           "path": "how-to/client-quote-approval",

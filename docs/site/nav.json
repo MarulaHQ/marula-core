@@ -37,6 +37,7 @@
         "how-to/admin-users-invites",
         "how-to/admin-sso",
         "how-to/admin-email",
+        "how-to/admin-email-templates",
         "how-to/admin-sla-calendars",
         "how-to/admin-workflow-categories",
         "how-to/admin-automation-rules",
@@ -47,7 +48,17 @@
         "how-to/admin-toolboxes",
         "how-to/admin-reply-snippets",
         "how-to/admin-purchasing",
-        "how-to/admin-entitlements"
+        "how-to/admin-entitlements",
+        "how-to/admin-connectors",
+        "how-to/operator-dead-work",
+        "how-to/operator-object-integrity"
+      ]
+    },
+    {
+      "label": "Knowledge and client records",
+      "items": [
+        "how-to/staff-knowledge-base",
+        "how-to/admin-knowledge-base"
       ]
     },
     {
@@ -75,6 +86,7 @@
     {
       "label": "Billing and contracts",
       "items": [
+        "how-to/draft-a-quote-or-contract",
         "how-to/project-billing",
         "how-to/admin-billing-verification",
         "how-to/admin-contract-types",
@@ -97,6 +109,7 @@
         "how-to/admin-api-keys",
         "how-to/admin-ai-bringup",
         "how-to/admin-ai-access",
+        "how-to/ask-the-assistant",
         "how-to/admin-local-ai-models",
         "how-to/admin-plugin-surfaces",
         "how-to/write-a-plugin",

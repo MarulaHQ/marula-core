@@ -109,11 +109,15 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 
 | Capability | What it does | Surface | Status | Where it lives |
 |---|---|---|---|---|
-| Projects | Phases, tasks, dependencies, completion | Web, API | Shipped | `crates/core-api/src/routes/projects.rs` |
-| Views | Gantt and phase burn | Web, API | Shipped | `crates/core-api/src/routes/projects.rs` |
-| Templates | Templates instantiated with their phases and tasks | Web, API | Shipped | `crates/core-api/src/routes/projects.rs` |
-| Saved views | Stored filters and shapes | Web, API | Shipped | `crates/core-api/src/routes/projects.rs` |
-| Billing releases | Phase or milestone billing with cancellation | Web, API | Shipped | `crates/core-api/src/routes/projects.rs` |
+| Projects | Projects with status, the client, the dates and the delivery record | Web, API | Shipped | `crates/core-api/src/routes/projects/mod.rs` |
+| Plan and timeline | Phases, tasks, dependencies, drag ordering and date previews, plus baselines and the critical path | Web, API | Shipped | `crates/core-api/src/routes/projects/plan.rs`, `apps/web/components/project-plan-surface.tsx` |
+| Schedule and calendars | Working week, calendar zones and cross-project collision checks | API | Shipped | `crates/core-projects/src/schedule.rs` |
+| Task workbench and pods | One task with status, blocker, time, materials, links and notes | Web, API | Shipped | `crates/core-api/src/routes/projects/tasks.rs`, `apps/web/app/projects/[id]/tasks` |
+| Portfolio | Quarter view grouped by client, at-risk reasons, an undated tray and shared snapshots | Web, API | Shipped | `crates/core-api/src/routes/project_delivery/portfolio.rs` |
+| Templates | Gallery, preview, instantiate, fork, versions and lessons | Web, API | Shipped | `crates/core-api/src/routes/project_delivery/templates.rs`, `crates/core-api/src/routes/projects/templates.rs` |
+| Change orders | Draft to billed, client acknowledgement, and separate apply and billing acts | Web, API | Shipped | `crates/core-api/src/routes/project_delivery/change_orders.rs` |
+| Billing releases | Phase or milestone billing with cancellation | Web, API | Shipped | `crates/core-api/src/routes/projects/money.rs` |
+| Risk findings | Nine rules over the plan, with severity and an explanation | Web, API | Shipped | `crates/core-api/src/routes/projects/risk.rs` |
 | Recurring schedules | Recurring ticket templates and a worker run ledger | Web, API | Shipped | `crates/core-api/src/routes/recurring.rs` |
 
 ## 7. Knowledge and documents
@@ -121,6 +125,9 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | Capability | What it does | Surface | Status | Where it lives |
 |---|---|---|---|---|
 | Knowledge base | Articles, category trees, rich content and search | Web, Portal, API | Shipped | `crates/core-api/src/routes/kb.rs` |
+| Client hub and search | Client directory, completeness, one search across every store | Web, API | Shipped | `crates/core-api/src/routes/knowledge_home.rs` |
+| Infrastructure records | Racks, networks, domains and procedures with linked records | Web, API | Shipped | `crates/core-api/src/routes/knowledge_home.rs` |
+| Expiry rollup | Domain registrations and certificates, plus document reviews and warranty dates, plus credential rotation | Web, API | Shipped | `crates/core-api/src/routes/knowledge_home.rs` |
 | Embeds | Provider registry, embed resolution and per-article embeds | Web, API | Shipped | `crates/core-api/src/routes/kb.rs` |
 | External documents | Synced documents with link checking | API | Shipped | `crates/core-api/src/routes/kb.rs` |
 | Knowledge import | Bundle ingest with external keys and visibility | CLI, API | Shipped | `crates/core-kb/src/import.rs` |
@@ -199,9 +206,11 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 |---|---|---|---|---|
 | Portal auth | Password and magic-link sign-in on an isolated session | Portal, API | Shipped | `crates/core-api/src/routes/portal.rs` |
 | Requests | Submit and follow tickets on exposed boards | Portal | Shipped | `apps/web/app/portal/tickets` |
+| Projects | Shared plan, updates and change-order acknowledgement | Portal | Shipped | `apps/web/app/portal/projects` |
 | Invoices | List, open, download and pay | Portal | Shipped | `apps/web/app/portal/invoices` |
 | Quotes | Approve or decline | Portal | Shipped | `apps/web/app/portal/quotes` |
 | Knowledge | Browse and search client-visible articles | Portal | Shipped | `apps/web/app/portal/kb` |
+| Documentation | Client-visible documents and guides with review dates | Portal | Shipped | `apps/web/app/portal/knowledge` |
 | Scheduling | Available slots, appointment requests and cancellation | Portal | Shipped | `apps/web/app/portal/schedule` |
 | CSAT | Survey tokens and a resolution survey page | Portal, API | Shipped | `crates/core-api/src/routes/portal.rs` |
 | Branding | Logo, colour and a custom domain with DNS verification | Web, API | Shipped | `crates/core-api/src/routes/org_custom_domain.rs` |
@@ -291,6 +300,10 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | Team and security | People, invites, roles, MFA and sessions | Web, API | Shipped | `apps/web/app/settings/team` |
 | AI and agents | Master switch, matrix, decision harness, keys, caps | Web, API | Shipped | `apps/web/app/settings/ai` |
 | Integrations | Connectors, email, portal, FX, plugins and self-host | Web, API | Shipped | `apps/web/app/settings` |
+| Connectors | Roster, scoped connections, destinations, health and audience | Web, API | Shipped | `crates/core-api/src/routes/connector_actions.rs`, `apps/web/app/settings/connectors` |
+| Email templates | Outbound mail, placeholders, preview, fork and restore | Web, API | Shipped | `crates/core-api/src/routes/templates.rs`, `apps/web/app/settings/email/templates` |
+| Dead work | Abandoned jobs and email, plus webhooks and stream events, with redrive and cancel, plus resume a paused destination | Web, API | Shipped | `crates/core-api/src/routes/dead_work.rs` |
+| Object integrity | Orphan and missing-bytes findings from the object pass | Web, API | Shipped | `crates/core-api/src/routes/object_integrity_admin.rs` |
 | Shortcuts and onboarding | Command registry, tours, onboarding resets | Web, API | Shipped | `apps/web/app/settings/shortcuts` |
 | Export and quarantine | Data export and quarantine review | Web, API | Shipped | `apps/web/app/settings/export` |
 

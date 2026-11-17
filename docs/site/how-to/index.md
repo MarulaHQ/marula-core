@@ -14,6 +14,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 
 - [Work a ticket](staff-work-a-ticket.md) — Open a ticket from your morning queue, run the timer, post internal or customer-visible notes, and send your hours to approvals.
 - [Work a project](staff-work-a-project.md) — Build a plan from phases and tasks, put the work in the order it runs, move bars on the timeline through the preview, and capture a baseline you can measure change against.
+- [Find a runbook, a credential and a client's records](staff-knowledge-base.md) — Start at the client hub, search every documentation store at once, read the infrastructure records, and reveal a credential without leaving a trail.
 - [Dispatch from the board](staff-dispatch.md) — See technician capacity across the day, drag unassigned tickets onto open calendar slots, and resolve scheduling conflicts.
 - [Plan the week ahead](staff-dispatch-planning.md) — Read the seven-day horizon: demand by priority against roster hours, capacity per technician, skill gaps, and project load already committed.
 - [Log travel and reconcile mileage](staff-dispatch-travel.md) — Record trips against tickets, check the 14-day reconciliation, merge duplicate trips, and turn drafts into time entries and expenses.
@@ -36,12 +37,13 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 
 ## Guides for client portal users
 
-- [Portal client-side tasks](client-portal-tasks.md) — Sign in to the client portal to submit support requests, view invoices, read help articles, and book appointment times.
+- [Portal client-side tasks](client-portal-tasks.md) — Sign in to the client portal to follow requests and projects, answer a change order, read invoices and quotes, search help, open shared documentation, and book an appointment.
 - [Approve or decline a quote](client-quote-approval.md) — Review line items and expiration dates on a sent quote and record your approval or decline reason.
 
 ## Billing and purchasing guides (office managers and bookkeepers)
 
 - [Price a service contract](admin-contract-types.md) — Set up recurring retainers, time-and-materials rate cards, prepaid hour blocks, not-to-exceed caps, minimums, annual escalators, change orders, and service credits.
+- [Draft a quote or contract from your notes](draft-a-quote-or-contract.md) — Describe the agreement in typed notes, speech or an upload, check the reading and its assumptions, then edit the draft in the ordinary builder before saving.
 - [Bill project work](project-billing.md) — Link a project to a client contract, track phase budget burn, release completed milestones into invoice runs, and log project hours without creating a dummy ticket.
 - [Verify a billing period](admin-billing-verification.md) — Review every logged hour in a billing window, categorize or write down entries with a recorded reason, and sign off before issuing invoices.
 - [Buy: vendors, purchase orders, receiving, bills](admin-purchasing.md) — Create vendor records, issue purchase orders, scan arriving goods into stock, and post vendor bills against project budgets.
@@ -59,6 +61,11 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 - [Configure SLA calendars & escalation ladders](admin-sla-calendars.md) — Define business hours and holidays alongside priority escalation rules.
 - [Author automation rules](admin-automation-rules.md) — Create event-driven rules, test them with a dry run against sample tickets, and route incoming alerts.
 - [Configure email](admin-email.md) — Route inbound support emails to boards, set up SPF/DKIM/DMARC records, configure Postmark or SMTP sending, and manage organization-wide signature policies.
+- [Edit the emails Marula sends](admin-email-templates.md) — Change the outbound invitation and confirmation messages, and the reset mail, insert the right placeholders, and preview with sample values without sending.
+- [Write knowledge and keep client records current](admin-knowledge-base.md) — Publish an article through the three-condition portal gate, manage categories and secret grants, and keep the client's infrastructure records feeding the expiry rollup.
+- [Connect a tool your team already uses](admin-connectors.md) — Install a connector, create a scoped connection, add destinations, prove health, and narrow who may use it.
+- [Recover work that gave up](operator-dead-work.md) — Read the jobs, email, webhook deliveries and stream events a ledger abandoned, then redrive or cancel one row with the consequence in front of you.
+- [Check that records and stored files still agree](operator-object-integrity.md) — Read the object-integrity pass's orphans and missing bytes, and verify a restore without asking for a repair button.
 - [Set up CSAT surveys on resolution](admin-csat-surveys.md) — Send one-click customer satisfaction surveys when tickets close, respecting quiet hours and minimum intervals between surveys.
 - [Set up labels and label templates](admin-labels.md) — Design QR and Code128 barcode labels for Zebra and DYMO printers.
 - [Set up toolboxes and dispatch defaults](admin-toolboxes.md) — Group serialized tools into physical kits and auto-recommend parts on the day pack by ticket type or board.
@@ -71,6 +78,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 ## AI, plugins, API, and self-hosting guides (admins and developers)
 
 - [Manage AI access](admin-ai-access.md) — Control the master AI switch, grant specific AI helpers to individual roles, and set usage caps.
+- [Ask the assistant about the screen you are on](ask-the-assistant.md) — Use the palette's Ask mode, read the sources behind an answer, and understand why a proposed change waits for approval.
 - [Bring up AI with your own API keys](admin-ai-bringup.md) — Make the six AI settings decisions in the order that makes the first live call work, with the refusal naming the step you skipped when you get the order wrong.
 - [Run transcription and embeddings on your own hardware](admin-local-ai-models.md) — Run Whisper voice transcription and 768-dimension vector search locally with Ollama so no data leaves your network.
 - [Change the embedding model](operator-embedding-model.md) — Pick a tier or a named model, read the capacity refusal, and watch the resumable re-index that follows a switch.
