@@ -92,11 +92,18 @@ describe("/settings/quarantine", () => {
   });
 
   it("draws an honest empty state when nothing is held", async () => {
-    setupApi();
+    const mock = setupApi();
     renderPage();
-    // Wait for the sentence itself: the counts element already reads 0 in
-    // the pre-load frame, so it is a race, not a signal. CI lost that race
-    // as soon as the suite's scheduling changed.
+    // The sentence renders as soon as auth lands, before the list read
+    // starts, so matching it alone proves nothing. Wait for the quarantine
+    // request to settle, then assert the loaded state.
+    await waitFor(() => {
+      expect(
+        mock.calls.some(
+          (c) => c.method === "GET" && c.path.includes("/admin/quarantine"),
+        ),
+      ).toBe(true);
+    });
     const empty = await screen.findByText(/Nothing is quarantined/);
     expect(empty).toBeInTheDocument();
   });

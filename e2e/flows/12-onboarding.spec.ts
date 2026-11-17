@@ -20,7 +20,7 @@
 // zero importers that `63c4836a` orphaned and lane A15 deleted.
 import { expect, test } from "../helpers/harness";
 import { authedFetch, apiLogin, API_URL, DEMO_PASSWORD, WEB_URL, type TokenPair } from "../helpers/api";
-import { TOKENS_KEY, TOKENS_EXP_KEY } from "../helpers/harness";
+import { TOKENS_KEY, TOKENS_EXP_KEY, loginContext } from "../helpers/harness";
 
 /** Mirrors ORG_STEP_ORDER / USER_STEP_ORDER (apps/web/lib/onboarding.ts:43-44):
  *  the rail is indexed by position in these lists, not by step name. Kept
@@ -328,11 +328,9 @@ test("AI setup: renders for the owner with the honest gaps, gates the technician
   // session already rotated arms the refresh gate).
   const ctx = await browser.newContext({ baseURL: WEB_URL, viewport: { width: 1440, height: 900 } });
   const techPage = await ctx.newPage();
-  const techRes = await ctx.request.post(`${API_URL}/api/v1/auth/login`, {
-    data: { email: "tech@demo.local", password: DEMO_PASSWORD },
-  });
-  if (!techRes.ok()) throw new Error(`tech login failed (${techRes.status()})`);
-  const techTokens = (await techRes.json()) as TokenPair;
+  // The durable wrong-password gate is shared state; the helper retries
+  // through it like every other flow's login.
+  const techTokens = await loginContext(ctx, "tech@demo.local");
   await seedTokens(techPage, techTokens);
   // The step rides the org wizard, which any member can open; the gate is
   // the step's own, not the wizard's.
@@ -350,15 +348,26 @@ test("AI setup: a key saves with test-connection feedback and leaves nothing beh
   const get = authedFetch(ownerTokens.access_token);
   await post("/onboarding/reset/org", { method: "POST", body: {} });
 
+  // A sealed key never renders back, so overwriting one would destroy
+  // configuration this test cannot restore. Use a provider with no key.
+  const before = (await get<unknown>("/settings/ai/status")) as AiStatus;
+  const provider = ["openai", "anthropic"].find(
+    (p) => !before.configured_providers.includes(p),
+  );
+  if (provider === undefined) {
+    test.skip(true, "both unkeyed chat providers already carry a sealed key — nothing to save against");
+    return;
+  }
+
   await openAiStep(authedPage);
   await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
 
-  // Pick ChatGPT, paste a key, save. The seal is local (no vendor call in
-  // v1), so the honest test result is the connected line.
-  await authedPage.getByTestId("ai-setup-provider-openai").click();
+  // Pick the unkeyed provider, paste a key, save. The seal is local (no
+  // vendor call in v1), so the honest test result is the connected line.
+  await authedPage.getByTestId(`ai-setup-provider-${provider}`).click();
   await authedPage.getByTestId("ai-setup-key-input").fill("sk-demo-e2e-w72");
   await authedPage.getByTestId("ai-setup-key-save").click();
-  await expect(authedPage.getByTestId("ai-setup-test-openai")).toContainText(
+  await expect(authedPage.getByTestId(`ai-setup-test-${provider}`)).toContainText(
     /Connected|Failed/,
     { timeout: 20_000 },
   );
@@ -367,12 +376,12 @@ test("AI setup: a key saves with test-connection feedback and leaves nothing beh
 
   // The org state carries the key; then the test puts the org back.
   const status = (await get<unknown>("/settings/ai/status")) as AiStatus;
-  expect(status.configured_providers).toContain("openai");
-  await authedFetch(ownerTokens.access_token)("/settings/ai/byok/openai", {
+  expect(status.configured_providers).toContain(provider);
+  await authedFetch(ownerTokens.access_token)(`/settings/ai/byok/${provider}`, {
     method: "DELETE",
   });
   const after = (await get<unknown>("/settings/ai/status")) as AiStatus;
-  expect(after.configured_providers).not.toContain("openai");
+  expect(after.configured_providers).not.toContain(provider);
 });
 
 test("AI setup: the chat default persists through the org pick", async ({

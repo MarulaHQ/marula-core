@@ -122,8 +122,15 @@ test("skip tour ends the tour and leaves the global switch alone", async ({
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
   const overlay = authedPage.getByTestId("tour-overlay");
   await expect(overlay).toBeVisible({ timeout: 8_000 });
+  // markCompleted is a settings PUT fired without await by the scheduler:
+  // overlay removal is not a persistence barrier, so arm the response
+  // before acting and wait for it before any reset.
+  const persisted = authedPage.waitForResponse(
+    (r) => r.url().includes("/settings/user") && r.request().method() === "PUT",
+  );
   await authedPage.getByTestId("tour-skip").click();
   await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  await persisted;
   // Skip is THIS tour only: the global switch must still be off.
   await authedPage.goto("/settings/preferences");
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
@@ -140,8 +147,12 @@ test("escape ends the current tour", async ({ authedPage, ownerTokens }) => {
   await authedPage.goto("/today");
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
   await expect(authedPage.getByTestId("tour-overlay")).toBeVisible({ timeout: 8_000 });
+  const persisted = authedPage.waitForResponse(
+    (r) => r.url().includes("/settings/user") && r.request().method() === "PUT",
+  );
   await authedPage.keyboard.press("Escape");
   await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  await persisted;
   await resetTourState(ownerTokens.access_token);
 });
 
@@ -166,8 +177,12 @@ test("take the tour replays on demand even while tours are disabled", async ({
   await expect(authedPage.getByTestId("help-take-tour")).toBeVisible();
   await authedPage.getByTestId("help-take-tour").click();
   await expect(authedPage.getByTestId("tour-overlay")).toBeVisible({ timeout: 8_000 });
+  const persisted = authedPage.waitForResponse(
+    (r) => r.url().includes("/settings/user") && r.request().method() === "PUT",
+  );
   await authedPage.getByTestId("tour-skip").click();
   await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
+  await persisted;
   // RESTORE: disabled was armed FOR this test.
   await resetTourState(ownerTokens.access_token);
 });
