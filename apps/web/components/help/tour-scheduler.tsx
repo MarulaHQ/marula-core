@@ -8,7 +8,12 @@
 //  - a tour runs once per account (tours.completed, server-persisted with
 //    an offline localStorage fallback);
 //  - capped per session (SESSION_TOUR_CAP) so surface-hopping never nags;
-//  - every step target must exist on screen or the tour silently skips.
+//  - every step target must exist on screen or the tour silently skips;
+//  - explicit replay ("Take the tour" in the help panel, via the tour
+//    request bus) bypasses the switches and the session cap — both
+//    govern AUTO-starts only, never a deliberate ask;
+//  - "Skip tour" (overlay, onSkipTour) reuses the Done write path: mark
+//    THIS tour's id complete and close, leaving the global switch alone.
 
 "use client";
 
@@ -23,6 +28,7 @@ import {
   tourTargetsReady,
   type Tour,
 } from "../../lib/tours/tours";
+import { subscribeTourRequests } from "../../lib/tours/tour-bus";
 import { useToursState } from "../../lib/help/help-settings";
 import { TourOverlay } from "./tour-overlay";
 
@@ -56,6 +62,23 @@ export function TourScheduler() {
     };
   }, [pathname, tours.loaded, tours.disabled, tours.orgDisabled, tours.completed, isAdmin, active]);
 
+  // Replay ("Take the tour" in the help panel): explicit intent, so this
+  // path skips the disabled/org switches and the session cap (both
+  // govern auto-starts only) and passes an EMPTY completed list, so a
+  // tour already seen still replays. No bump: replay never consumes the
+  // session cap.
+  useEffect(
+    () =>
+      subscribeTourRequests((routeKey) => {
+        if (active) return;
+        const tour = tourForRouteKey(routeKey, [], isAdmin);
+        if (!tour || !tourTargetsReady(tour)) return;
+        setActive(tour);
+        setStepIndex(0);
+      }),
+    [active, isAdmin],
+  );
+
   const finish = useCallback(() => {
     if (active) void tours.markCompleted(active.id);
     setActive(null);
@@ -76,6 +99,9 @@ export function TourScheduler() {
       onNext={() => setStepIndex((i) => Math.min(i + 1, active.steps.length - 1))}
       onBack={() => setStepIndex((i) => Math.max(i - 1, 0))}
       onDone={finish}
+      // "Skip tour" is this-tour-only: same write path as Done (mark the
+      // id complete, close) — the global switch is onDisableTours, not this.
+      onSkipTour={finish}
       onDisableTours={disableTours}
     />
   );

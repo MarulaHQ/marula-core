@@ -6,11 +6,13 @@
 // audience-filtered (admin-only guides hidden from members), with
 // panel-wide search and a per-guide "Was this helpful?" pair riding the
 // typed settings seam. Deep links out to the published docs bundle for
-// the full page — markdown stays the single source of truth.
+// the full page — markdown stays the single source of truth. A plain
+// "Take the tour" row offers the surface's guided tour on demand
+// (explicit replay, delivered through the tour request bus).
 //
 // Non-purpose: no markdown rendering in-app (the docs site is the page),
-// no tour logic here (TourScheduler owns that), no settings editing
-// beyond the tours toggle deep-link.
+// no tour logic here (TourScheduler owns that — the panel only asks it
+// to start), no settings editing.
 
 "use client";
 
@@ -20,19 +22,22 @@ import {
 } from "@marula-core/ui";
 import { IconButton } from "@marula-core/ui/kit";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../lib/api";
 import {
   DEFAULT_ROUTE_KEY,
   docsForRouteKey,
   docsUrl,
   filterByAudience,
+  isAdminViewer,
   rankSurfaceFirst,
   routeKeyForPath,
   searchAllDocs,
   type HelpDoc,
 } from "../../lib/help/manifest";
 import { recordDocFeedback } from "../../lib/help/help-settings";
+import { requestTourStart } from "../../lib/tours/tour-bus";
+import { tourForRouteKey, tourTargetsReady } from "../../lib/tours/tours";
 
 const AUDIENCE_TONES: Record<string, "neutral" | "warning"> = {
   admin: "warning",
@@ -137,6 +142,7 @@ export function HelpPanel() {
   const rootRef = useRef<HTMLDivElement>(null);
 
   const routeKey = routeKeyForPath(pathname);
+  const isAdmin = isAdminViewer(me?.permissions ?? []);
 
   const surfaceDocs = useMemo(() => {
     const permissions = me?.permissions ?? [];
@@ -157,6 +163,26 @@ export function HelpPanel() {
   );
 
   const rows = query.trim().length >= 2 ? searchResults : surfaceDocs;
+
+  // Replay offer for the current surface: a plain action, so no seen or
+  // not-seen state, and no regard for the auto-start switches — replay
+  // is explicit intent. Shown only when a tour exists for this routeKey
+  // (empty completed list: a tour you finished may still be replayed)
+  // AND its targets are on screen, so the panel never promises a tour
+  // that cannot run. Re-checked when the panel opens.
+  const surfaceTour = useMemo(() => {
+    if (!open) return null;
+    const tour = tourForRouteKey(routeKey, [], isAdmin);
+    return tour !== null && tourTargetsReady(tour) ? tour : null;
+  }, [open, routeKey, isAdmin]);
+
+  const takeTour = useCallback(() => {
+    // Close first so the overlay never competes with the open panel,
+    // then ask the scheduler. The request bypasses the auto-start
+    // switches and the session cap by design.
+    setOpen(false);
+    requestTourStart(routeKey);
+  }, [routeKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -230,6 +256,23 @@ export function HelpPanel() {
               style={{ borderColor: "var(--m-border)", background: "var(--m-bg-subtle)", color: "var(--m-text)" }}
             />
           </div>
+          {surfaceTour && (
+            <button
+              type="button"
+              data-testid="help-take-tour"
+              onClick={takeTour}
+              className="block w-full shrink-0 cursor-pointer border-b px-3 py-2.5 text-left transition-opacity duration-100 hover:opacity-80"
+              style={{ borderColor: "var(--m-border)" }}
+            >
+              <p className="text-[13px] font-medium" style={{ color: "var(--m-text)" }}>
+                Take the tour
+              </p>
+              <p className="mt-0.5 text-[11px]" style={{ color: "var(--m-text-muted)" }}>
+                {surfaceTour.title} — {surfaceTour.steps.length}{" "}
+                {surfaceTour.steps.length === 1 ? "step" : "steps"}.
+              </p>
+            </button>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {rows.length === 0 ? (
               <p className="px-3 py-6 text-center text-[12.5px]" style={{ color: "var(--m-text-muted)" }}>
