@@ -6,14 +6,23 @@
 // panel's "Take the tour" row starts a tour on demand even while tours
 // are disabled (the switches govern automatic starts only).
 //
+// It also walks every record-surface tour step by step. A tour only starts
+// when all of its targets are on screen, so a green walk is the proof that
+// the selectors match the real components with real data — the check a
+// source review cannot make.
+//
 // ORDER-INDEPENDENCE (p37-env-orchestration, see e2e/README.md): the tour
 // state (tours.disabled / tours.completed) is per-user persisted settings —
 // an earlier run (or the light project before the dark one) may carry real
 // suppression/completion rows. Every test that ASSERTS on tour behavior
 // resets that state at its start and restores what it armed at its end, so
 // the flow makes no assumption about pristine demo rows.
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { expect, test } from "../helpers/harness";
 import { authedFetch } from "../helpers/api";
+import { resetSurfacePrefs } from "../helpers/prefs";
 
 /** Reset THIS account's tours state to the seeded defaults (auto tours
  * may start again) via the public settings API. */
@@ -200,4 +209,127 @@ test("the help panel offers the tour only where one can run", async ({
   await authedPage.getByTestId("help-button").click();
   await expect(authedPage.getByTestId("help-panel")).toBeVisible();
   await expect(authedPage.getByTestId("help-take-tour")).toHaveCount(0);
+});
+
+// Wave 72 — the record surfaces. A tour starts only when EVERY step target
+// is on screen, so walking a tour here is also the proof that its selectors
+// match the real components with real data. Reading the JSX cannot prove
+// that: the Wave 71 gate found tours whose targets a grep had called correct.
+//
+// Each surface gets a step in one test so a failure names the surface, and
+// the account's tour state is reset once around the whole walk. Record ids
+// are read from the API rather than by clicking a list row: visiting the
+// list first would spend the session's one auto-start on its own tour.
+test("every tour walks its surface, step by step", async (
+  { authedPage, ownerTokens },
+  testInfo,
+) => {
+  const get = authedFetch(ownerTokens.access_token);
+  const projects = await get<any[]>("/projects");
+  const tickets = await get<any[]>("/tickets?limit=1");
+  // A missing record is a seed failure, not a reason to pass: the demo seed
+  // ships both, and a skip here would hide a broken fixture behind a green
+  // tick. Fail loudly instead.
+  expect(projects.length, "seed has no project for the record tour").toBeGreaterThan(0);
+  expect(tickets.length, "seed has no ticket for the record tour").toBeGreaterThan(0);
+
+  await resetTourState(ownerTokens.access_token);
+  // A saved view is not spec state: a prior case may have left Approvals on
+  // "Approved" (the tour's counts only render on Queue) or a surface on a
+  // density that changes what is on screen. Reset before the first goto.
+  await resetSurfacePrefs(ownerTokens.access_token);
+
+  type Walk = { surface: string; path: string; steps: string[] };
+  const walks: Walk[] = [
+    {
+      surface: "project record",
+      path: `/projects/${projects[0]?.id}`,
+      steps: [
+        "The promise, in one line",
+        "Four views, no reload",
+        "A starts the next task",
+        "Change a date, read the ripple",
+      ],
+    },
+    {
+      surface: "ticket record",
+      path: `/tickets/${tickets[0]?.id}`,
+      steps: [
+        "The record is the ticket",
+        "Six tabs, one record",
+        "Every note has an audience",
+        "Wrap up stops the clock",
+      ],
+    },
+    {
+      surface: "approvals",
+      path: "/approvals",
+      steps: ["Three numbers, one decision", "The queue and the paper trail", "Decide without leaving the row"],
+    },
+    {
+      surface: "calendar",
+      path: "/calendar",
+      steps: ["Week, month, agenda", "Know the class before the colour", "Drag to move; a conflict is refused", "The arrows move a week"],
+    },
+    {
+      surface: "purchasing",
+      path: "/purchasing",
+      steps: ["What suppliers still owe", "Catch the late ones", "One dialog, then the order page", "Vendors sit beside orders"],
+    },
+    {
+      surface: "merge workbench",
+      path: "/inventory/workbench",
+      steps: ["Work one class at a time", "Let Jev look first", "Pending is work, deferred is a decision"],
+    },
+  ];
+
+  for (const walk of walks) {
+    await test.step(walk.surface, async () => {
+      await authedPage.goto(walk.path);
+      await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
+      const overlay = authedPage.getByTestId("tour-overlay");
+      // The scheduler polls readiness for six seconds while a record page
+      // fills in, so the first paint being empty is expected.
+      await expect(overlay).toBeVisible({ timeout: 15_000 });
+      // Evidence for the review: the first step on each surface, in the
+      // theme this project runs. The report attachment is kept when the run
+      // fails; TOUR_CAPTURE_DIR also writes the shot for a lane's record.
+      const shot = await authedPage.screenshot();
+      await testInfo.attach(`tour-${walk.surface.replaceAll(" ", "-")}`, {
+        body: shot,
+        contentType: "image/png",
+      });
+      const captureDir = process.env.TOUR_CAPTURE_DIR;
+      if (captureDir) {
+        await mkdir(captureDir, { recursive: true });
+        await writeFile(
+          join(captureDir, `tour-${walk.surface.replaceAll(" ", "-")}-${testInfo.project.name}.png`),
+          shot,
+        );
+      }
+      for (const [i, title] of walk.steps.entries()) {
+        await expect(authedPage.getByTestId("tour-tooltip")).toContainText(title, {
+          timeout: 10_000,
+        });
+        if (i < walk.steps.length - 1) {
+          await authedPage.getByTestId("tour-next").click();
+        }
+      }
+      await authedPage.getByTestId("tour-done").click();
+      await expect(overlay).toHaveCount(0);
+
+      // Each surface is an independent first visit: the per-session cap
+      // (one auto-start) has its own test above, and without clearing it
+      // every surface after the first would legitimately stay silent.
+      await authedPage.evaluate(() => sessionStorage.removeItem("marula-tour-session"));
+
+      // Replay resolves the same surface, even though the tour is now
+      // completed: the panel's row is keyed by surface, not by seen state.
+      await authedPage.getByTestId("help-button").click();
+      await expect(authedPage.getByTestId("help-take-tour")).toBeVisible();
+      await authedPage.keyboard.press("Escape");
+    });
+  }
+
+  await resetTourState(ownerTokens.access_token);
 });

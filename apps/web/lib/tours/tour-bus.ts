@@ -10,7 +10,7 @@
 // Non-purpose: no buffering or replay of requests — a request reaches
 // only the subscribers mounted when it is published.
 
-export type TourRequestListener = (routeKey: string) => void;
+export type TourRequestListener = (surface: string) => void;
 
 const listeners = new Set<TourRequestListener>();
 
@@ -23,7 +23,7 @@ export function subscribeTourRequests(cb: TourRequestListener): () => void {
   };
 }
 
-/** Ask the scheduler to start the tour for a route key. */
-export function requestTourStart(routeKey: string): void {
-  for (const cb of [...listeners]) cb(routeKey);
+/** Ask the scheduler to start the tour for a tour surface. */
+export function requestTourStart(surface: string): void {
+  for (const cb of [...listeners]) cb(surface);
 }

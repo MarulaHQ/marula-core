@@ -1,12 +1,18 @@
 // Declarative feature tours (Wave 26 lane 2, leg B; content re-authored
-// Wave 71 lane 3 against the qa-w71-tours research).
+// Wave 71 lane 3, extended Wave 72 to the record surfaces).
 //
 // Purpose: per-surface first-visit highlights authored as DATA — a tour
-// is a route-key + ordered steps targeting elements by selector (data
+// is a surface + ordered steps targeting elements by selector (data
 // attributes / existing testids). No per-page hand-coding: the scheduler
-// picks the tour for the current route, the overlay renders it. A tour
-// auto-starts only when every step target actually exists on screen, so
-// a layout change degrades to "no tour", never a broken overlay.
+// picks the tour for the current surface (lib/tours/surfaces.ts), the
+// overlay renders it. A tour auto-starts only when every step target
+// actually exists on screen, so a layout change degrades to "no tour",
+// never a broken overlay.
+//
+// Every step must be visible at the same moment: the readiness check runs
+// once against the whole step list, so a tour cannot cross tabs (a target
+// behind an unopened tab fails it). Author record tours against the
+// surface's default view.
 //
 // Tour ids are durable: tours.completed (and its localStorage fallback)
 // stores them per account, so an id never changes meaning. The ids below
@@ -27,8 +33,8 @@ export interface TourStep {
 export interface Tour {
   /** Stable id persisted in tours.completed (capped JSON log). */
   id: string;
-  /** Route keys (same vocabulary as the help manifest) that carry it. */
-  routeKeys: string[];
+  /** Tour surfaces (lib/tours/surfaces.ts) that carry it. */
+  surfaces: string[];
   title: string;
   steps: TourStep[];
   /** Admin-only surfaces gate their tour the same way admin docs gate. */
@@ -41,7 +47,7 @@ export const TOURS: readonly Tour[] = [
     // so its id is bumped per the re-arm convention above: accounts that
     // completed the Wave 26 tour see the rewrite once.
     id: "workbar:v2",
-    routeKeys: ["today"],
+    surfaces: ["today"],
     title: "Today, read top to bottom",
     steps: [
       {
@@ -63,7 +69,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "tickets",
-    routeKeys: ["tickets"],
+    surfaces: ["tickets"],
     title: "The queue is the day",
     steps: [
       {
@@ -85,7 +91,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "boards",
-    routeKeys: ["boards"],
+    surfaces: ["boards"],
     title: "The board is the workflow",
     steps: [
       {
@@ -112,7 +118,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "dispatch",
-    routeKeys: ["dispatch"],
+    surfaces: ["dispatch"],
     title: "Book the slots",
     steps: [
       {
@@ -139,7 +145,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "projects",
-    routeKeys: ["projects"],
+    surfaces: ["projects"],
     title: "Shape the engagement",
     steps: [
       {
@@ -166,7 +172,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "dashboards",
-    routeKeys: ["dashboards"],
+    surfaces: ["dashboards"],
     title: "Build the wall",
     steps: [
       {
@@ -188,7 +194,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "automations",
-    routeKeys: ["automations"],
+    surfaces: ["automations"],
     title: "Automate the repeats",
     steps: [
       {
@@ -214,12 +220,12 @@ export const TOURS: readonly Tour[] = [
     ],
   },
   {
-    // /stock has no route-key rule yet (ROUTE_KEY_RULES maps it to the
-    // "default" fallback), so this tour rides "default" and the
-    // target-existence check keeps it to pages that actually render the
-    // stock ledger. If /stock gains its own route key, move it there.
+    // /stock used to have no route-key rule, so this tour rode the
+    // "default" fallback and belonged to every unmapped path. Wave 72
+    // gave it a surface of its own (lib/tours/surfaces.ts); the id is
+    // unchanged because nothing a reader sees was rewritten.
     id: "stock",
-    routeKeys: ["default"],
+    surfaces: ["stock"],
     title: "Count what you own",
     steps: [
       {
@@ -246,7 +252,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "clients",
-    routeKeys: ["clients"],
+    surfaces: ["clients"],
     title: "One row per client",
     steps: [
       {
@@ -268,7 +274,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "billing",
-    routeKeys: ["billing"],
+    surfaces: ["billing"],
     title: "Bill the work",
     steps: [
       {
@@ -290,7 +296,7 @@ export const TOURS: readonly Tour[] = [
   },
   {
     id: "kb",
-    routeKeys: ["kb"],
+    surfaces: ["kb"],
     title: "Write it once",
     steps: [
       {
@@ -311,17 +317,161 @@ export const TOURS: readonly Tour[] = [
     ],
   },
   {
-    // Wave 26 tour, retargeted and rewritten in Wave 71: the page lost its
-    // search field, so the tour now leads with the merge queue it has. The
-    // content changed, so the id is bumped per the re-arm convention.
-    id: "inventory-workbench:v2",
-    routeKeys: ["inventory"],
+    // Wave 72: the engagement record. Authored against the default Plan
+    // view; tab panels are not targets because the readiness check runs
+    // once for the whole step list and a hidden tab would fail it.
+    id: "project-record",
+    surfaces: ["project-record"],
+    title: "Run one engagement",
+    steps: [
+      {
+        target: '[data-slot="commitment-bar"]',
+        title: "The promise, in one line",
+        body: "Started, promised go-live, next milestone and what is at risk. When a date slips, this strip is the first place it shows.",
+      },
+      {
+        target: '[role="tablist"]',
+        title: "Four views, no reload",
+        body: "Plan holds phases and dates, Timeline is the same work as a chart, Tasks is the list to triage, Time and budget is what the engagement has burned.",
+      },
+      {
+        target: '[data-testid="plan-add-task"]',
+        title: "A starts the next task",
+        body: "Task, or the A key, starts a row where you are. Enter commits it and Escape cancels; a task with no dates waits under Not dated yet rather than pretending to be scheduled.",
+      },
+      {
+        target: '[data-testid="project-schedule"]',
+        title: "Change a date, read the ripple",
+        body: "Change a start date or scale a set of rows and the preview lists every task that shifts before anything saves. The undo banner names what was applied, and each change is one audit entry.",
+      },
+    ],
+  },
+  {
+    id: "approvals",
+    surfaces: ["approvals"],
+    title: "Clear the queue",
+    steps: [
+      {
+        target: '[data-testid="approvals-stat-unapproved"]',
+        title: "Three numbers, one decision",
+        body: "Unapproved is what still needs you, Non-billable is time that cannot be billed, and Flagged appears only when the audit has answers to show.",
+      },
+      {
+        target: '[aria-label="Views"]',
+        title: "The queue and the paper trail",
+        body: "Queue is today's work. Approved, My decisions and Rejected are the record, and a rejected entry keeps the reason the technician has to read.",
+      },
+      {
+        target: '[data-testid="approvals-queue"]',
+        title: "Decide without leaving the row",
+        body: "j and k move, x selects, a approves, and anything else opens the reject reason. Your own time is read-only here, because nobody signs off their own hours.",
+      },
+    ],
+  },
+  {
+    id: "calendar",
+    surfaces: ["calendar"],
+    title: "Three views of the same week",
+    steps: [
+      {
+        target: '[aria-label="Calendar view"]',
+        title: "Week, month, agenda",
+        body: "One read model, three instruments. Week is the one to work from; agenda answers what is next without the grid.",
+      },
+      {
+        target: '[aria-label="Entry legend"]',
+        title: "Know the class before the colour",
+        body: "Appointments, on call, synced busy time, time off and ticket deadlines each carry their own mark, so colour is never the only cue.",
+      },
+      {
+        target: '[data-testid="week-grid"]',
+        title: "Drag to move; a conflict is refused",
+        body: "Appointments snap to fifteen minutes. If the slot is taken the move is rejected and the entry stays where it was, with the reason on screen.",
+      },
+      {
+        target: '[aria-label="Next"]',
+        title: "The arrows move a week",
+        body: "Previous and Next step a week, or a month in month view. Today comes back to this week from wherever you have wandered.",
+      },
+    ],
+  },
+  {
+    id: "ticket-record",
+    surfaces: ["ticket-record"],
+    title: "Work the record",
+    steps: [
+      {
+        target: '[data-testid="wb-ticket-title"]',
+        title: "The record is the ticket",
+        body: "Number, title, status and priority sit at the top, and the status stepper under them moves the ticket without opening a form.",
+      },
+      {
+        target: '[aria-label="Ticket sections"]',
+        title: "Six tabs, one record",
+        body: "Activity is the timeline, Details carries the fields, Related links parent and child tickets, and Time Entries, Files and Notes keep their own history.",
+      },
+      {
+        target: '[data-testid="notes-composer"]',
+        title: "Every note has an audience",
+        body: "The composer sets who reads it: an internal note, an in-house update or a client-visible reply that lands in the portal. The switch is part of the post.",
+      },
+      {
+        target: '[data-testid="wb-close-ticket"]',
+        title: "Wrap up stops the clock",
+        body: "Wrap up stops the timer, mints the time entry and applies the closing status in one sheet, so the hours cannot go missing between three screens.",
+      },
+    ],
+  },
+  {
+    id: "purchasing",
+    surfaces: ["purchasing"],
+    title: "Buy the parts",
+    steps: [
+      {
+        target: '[data-testid="ledger-shortcut-awaiting"]',
+        title: "What suppliers still owe",
+        body: "Awaiting receive is every open order with something still to arrive. Press it to work only those.",
+      },
+      {
+        target: '[data-testid="ledger-shortcut-overdue"]',
+        title: "Catch the late ones",
+        body: "Past expected is open orders that missed their date, which is the list to call about rather than the one to read.",
+      },
+      {
+        target: '[data-testid="purchasing-new"]',
+        title: "One dialog, then the order page",
+        body: "Vendor, currency, project, expected date and the lines go in here. It lands on the order's own page, where receiving and bills live.",
+      },
+      {
+        target: '[data-testid="purchasing-vendors-link"]',
+        title: "Vendors sit beside orders",
+        body: "The directory every order points at. Open it when the question is who supplies a part rather than what was ordered.",
+      },
+    ],
+  },
+  {
+    // Wave 26 tour, retargeted in Wave 71 onto the merge queue button.
+    // Wave 72 moved it to the workbench it names (the button opened a
+    // page that had three steps of its own) and rewrote the content, so
+    // the id is bumped again per the re-arm convention.
+    id: "inventory-workbench:v3",
+    surfaces: ["inventory-workbench"],
     title: "One device, one record",
     steps: [
       {
-        target: '[data-testid="open-workbench"]',
-        title: "Mind the merge queue",
-        body: "Overlapping connectors nominate duplicates; the workbench is where they become single clean records.",
+        target: '[aria-label="Dedupe queues"]',
+        title: "Work one class at a time",
+        body: "Devices, contacts and clients are separate queues because they merge on different keys. The count on each tab is what the matcher found for that class.",
+      },
+      {
+        target: '[data-testid="jev-run"]',
+        title: "Let Jev look first",
+        body: "The scan reports what it found and how it chose; a capped report says more candidates remain, so a quiet result is never read as a clean estate.",
+      },
+      {
+        target: '[data-testid="workbench-queue-count"]',
+        title: "Pending is work, deferred is a decision",
+        body: "Pending waits on you; deferred was parked on purpose. Accept two records into one, keep them apart, or defer until someone who knows answers.",
       },
     ],
   },
@@ -331,13 +481,13 @@ export const TOURS: readonly Tour[] = [
  * browser session, so a person hopping surfaces never gets nagged. */
 export const SESSION_TOUR_CAP = 1;
 
-export function tourForRouteKey(
-  routeKey: string,
+export function tourForSurface(
+  surface: string,
   completed: readonly string[],
   isAdmin: boolean,
 ): Tour | null {
   for (const tour of TOURS) {
-    if (!tour.routeKeys.includes(routeKey)) continue;
+    if (!tour.surfaces.includes(surface)) continue;
     if (completed.includes(tour.id)) continue;
     if (tour.adminOnly && !isAdmin) continue;
     return tour;

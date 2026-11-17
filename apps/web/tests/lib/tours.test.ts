@@ -1,41 +1,135 @@
-// Declarative tours (Wave 26 lane 2, leg B): route selection, completion
-// suppression, session cap, and the settings-seam log parsers.
+// Declarative tours (Wave 26 lane 2, leg B; surfaces and the record wave
+// in Wave 72): surface selection, completion suppression, session cap,
+// and the settings-seam log parsers.
 import { describe, expect, it, beforeEach } from "vitest";
 import {
   parseCompletedTours,
   parseDocFeedback,
 } from "../../lib/help/help-settings";
+import manifest from "../../lib/help/help-manifest.json";
+import { routeKeyForPath } from "../../lib/help/route-keys";
+import { tourSurfaceForPath } from "../../lib/tours/surfaces";
 import {
   SESSION_TOUR_CAP,
   TOURS,
-  tourForRouteKey,
+  tourForSurface,
   tourTargetsReady,
 } from "../../lib/tours/tours";
 
-describe("tourForRouteKey", () => {
+/** One representative path per surface a tour is authored against. The
+ *  tests below use it to prove every tour is reachable by a real path,
+ *  and that the path still has documentation under its own key. */
+const SURFACE_PATHS: Record<string, string> = {
+  today: "/today",
+  tickets: "/tickets",
+  "ticket-record": "/tickets/30000000-0000-4000-8000-000000000001",
+  boards: "/boards",
+  dispatch: "/dispatch",
+  projects: "/projects",
+  "project-record": "/projects/40000000-0000-4000-8000-000000000001",
+  dashboards: "/dashboards",
+  automations: "/automations",
+  stock: "/stock",
+  clients: "/clients",
+  billing: "/billing",
+  kb: "/kb",
+  calendar: "/calendar",
+  approvals: "/approvals",
+  purchasing: "/purchasing",
+  "inventory-workbench": "/inventory/workbench",
+};
+
+describe("tourSurfaceForPath", () => {
+  it("resolves a record path to its own surface, not the list's key", () => {
+    expect(tourSurfaceForPath("/projects/40000000-0000-4000-8000-000000000001")).toBe(
+      "project-record",
+    );
+    expect(tourSurfaceForPath("/projects/40000000-0000-4000-8000-000000000001/timeline")).toBe(
+      "project-record",
+    );
+    expect(
+      tourSurfaceForPath("/tickets/30000000-0000-4000-8000-000000000001"),
+    ).toBe("ticket-record");
+  });
+
+  it("keeps the list's key for its static sub-pages", () => {
+    // These are lists in their own right, and the list tour's targets are
+    // not on them — readiness declines the tour rather than mis-keying it.
+    expect(tourSurfaceForPath("/projects")).toBe("projects");
+    expect(tourSurfaceForPath("/projects/portfolio")).toBe("projects");
+    expect(tourSurfaceForPath("/projects/my-work")).toBe("projects");
+    expect(tourSurfaceForPath("/projects/templates/abc")).toBe("projects");
+    expect(tourSurfaceForPath("/tickets/classic")).toBe("tickets");
+    expect(tourSurfaceForPath("/tickets/classic/abc")).toBe("tickets");
+  });
+
+  it("gives stock and purchasing their own surfaces instead of the fallback", () => {
+    // Before Wave 72 /stock rode "default"; any unmapped path shared it.
+    expect(tourSurfaceForPath("/stock")).toBe("stock");
+    expect(tourSurfaceForPath("/stock/loans")).toBe("stock");
+    expect(tourSurfaceForPath("/purchasing")).toBe("purchasing");
+    expect(tourSurfaceForPath("/purchasing/50000000-0000-4000-8000-000000000001")).toBe(
+      "purchasing",
+    );
+    // The workbench is a different surface from its queue.
+    expect(tourSurfaceForPath("/inventory")).toBe("inventory");
+    expect(tourSurfaceForPath("/inventory/workbench")).toBe("inventory-workbench");
+  });
+
+  it("falls back to the docs route key for every other surface", () => {
+    expect(tourSurfaceForPath("/settings/fx")).toBe(routeKeyForPath("/settings/fx"));
+    expect(tourSurfaceForPath("/settings/inventory")).toBe(routeKeyForPath("/settings/inventory"));
+    expect(tourSurfaceForPath("/nothing-here")).toBe("default");
+  });
+
+  it("keeps the docs key on the parent surface for a record page", () => {
+    // The help panel must still answer with the list's documentation.
+    expect(routeKeyForPath("/projects/abc")).toBe("projects");
+    expect(routeKeyForPath("/tickets/abc")).toBe("tickets");
+    expect(routeKeyForPath("/stock")).toBe("default");
+  });
+});
+
+describe("tourForSurface", () => {
   it("selects the tour authored for the surface", () => {
-    const tour = tourForRouteKey("today", [], false);
-    expect(tour?.id).toBe("workbar:v2");
+    expect(tourForSurface("today", [], false)?.id).toBe("workbar:v2");
+    expect(tourForSurface("project-record", [], false)?.id).toBe("project-record");
   });
 
   it("never repeats a completed tour (first-visit-per-surface)", () => {
-    expect(tourForRouteKey("today", ["workbar:v2"], false)).toBeNull();
+    expect(tourForSurface("today", ["workbar:v2"], false)).toBeNull();
   });
 
   it("gates admin-only tours from members", () => {
     const adminTour = TOURS.find((t) => t.adminOnly);
     if (adminTour) {
-      const key = adminTour.routeKeys[0]!;
-      expect(tourForRouteKey(key, [], false)).toBeNull();
-      expect(tourForRouteKey(key, [], true)).not.toBeNull();
+      const surface = adminTour.surfaces[0]!;
+      expect(tourForSurface(surface, [], false)).toBeNull();
+      expect(tourForSurface(surface, [], true)).not.toBeNull();
     }
   });
 
-  it("authors every tour against the manifest route vocabulary", () => {
-    const manifest = helpManifestRoutes();
+  it("gives every tour a surface a real path resolves to, with docs under it", () => {
+    const documented = Object.keys(manifest.routes);
     for (const tour of TOURS) {
-      for (const key of tour.routeKeys) {
-        expect(manifest).toContain(key);
+      for (const surface of tour.surfaces) {
+        const path = SURFACE_PATHS[surface];
+        expect(path, `${tour.id} names surface "${surface}" with no path in the test`).toBeDefined();
+        expect(tourSurfaceForPath(path!), `${path} does not resolve to ${surface}`).toBe(surface);
+        // Help docs keep using the docs key, so it must still resolve to a
+        // documented surface even when the tour surface is finer.
+        expect(documented).toContain(routeKeyForPath(path!));
+      }
+    }
+  });
+
+  it("never puts two tours on one surface (the second would be dead data)", () => {
+    const seen = new Map<string, string>();
+    for (const tour of TOURS) {
+      for (const surface of tour.surfaces) {
+        const other = seen.get(surface);
+        expect(other, `${surface} is claimed by ${other} and ${tour.id}`).toBeUndefined();
+        seen.set(surface, tour.id);
       }
     }
   });
@@ -45,22 +139,8 @@ describe("tourForRouteKey", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("keeps first-wave tours inside the 3–6 step budget (research §4.3)", () => {
-    const firstWave = new Set([
-      "workbar:v2",
-      "tickets",
-      "boards",
-      "dispatch",
-      "projects",
-      "dashboards",
-      "automations",
-      "stock",
-      "clients",
-      "billing",
-      "kb",
-    ]);
+  it("keeps every tour inside the 3–6 step budget (research §4.3)", () => {
     for (const tour of TOURS) {
-      if (!firstWave.has(tour.id)) continue;
       expect(
         tour.steps.length,
         `${tour.id} has ${tour.steps.length} steps`,
@@ -81,14 +161,6 @@ describe("tourForRouteKey", () => {
     }
   });
 
-  function helpManifestRoutes(): string[] {
-    // Imported lazily to keep this test focused on the tours data.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const m = require("../../lib/help/help-manifest.json") as {
-      routes: Record<string, unknown>;
-    };
-    return Object.keys(m.routes);
-  }
 });
 
 describe("tourTargetsReady", () => {
@@ -114,6 +186,15 @@ describe("tourTargetsReady", () => {
       "</div>";
     const tour = TOURS.find((t) => t.id === "workbar:v2");
     if (tour) expect(tourTargetsReady(tour)).toBe(true);
+  });
+
+  it("declines a record tour while a target is still missing", () => {
+    // The record tour mounts its commitment strip with the first read, so
+    // a partial DOM must not start it.
+    const tour = TOURS.find((t) => t.id === "project-record");
+    if (!tour) throw new Error("project-record tour missing");
+    document.body.innerHTML = '<div data-slot="commitment-bar"></div>';
+    expect(tourTargetsReady(tour)).toBe(false);
   });
 });
 
