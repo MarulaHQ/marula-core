@@ -215,9 +215,14 @@ for (const theme of ['light', 'dark']) {
     }
   }, false);
 
-  // 6. Preferences with the tours toggle.
+  // 6. Preferences with the tours toggle. Wave 66's signature card sits
+  // above it, so the toggle is below the fold on a stock viewport —
+  // bring the card into view before the shot.
   await shot(browser, VP, theme, `preferences-tours-${t}.png`, '/settings/preferences', async (page) => {
-    await page.waitForSelector('[data-testid="pref-tours-card"]', { timeout: 15_000 });
+    const card = page.getByTestId('pref-tours-card');
+    await card.waitFor({ timeout: 15_000 });
+    await card.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
   });
 }
 
