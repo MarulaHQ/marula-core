@@ -32,6 +32,17 @@ pub const PORTAL_COOKIE: &str = "marula_portal";
 pub const CSRF_COOKIE: &str = "marula_csrf";
 pub const CSRF_HEADER: &str = "x-marula-csrf";
 
+/// The MFA bridge token. It proves factor one for one login attempt and lives
+/// for `mfa_pending_ttl_secs`, so it is a bearer of half a credential — held in
+/// an httpOnly cookie so no script on the origin can read it, and scoped to the
+/// MFA handlers under the path below.
+pub const MFA_COOKIE: &str = "marula_mfa_pending";
+
+/// Narrower than the session jars on purpose: the token is useful to the
+/// handlers that complete or step up a login and nothing else, so a request for
+/// a page, an invoice or a ticket never carries it.
+const MFA_COOKIE_PATH: &str = "/api/auth/mfa";
+
 const COOKIE_PATH: &str = "/api";
 /// The double-submit value is read by the APPLICATION's own JavaScript
 /// (that is the mechanism), so it must sit where the app's documents live —
@@ -97,6 +108,19 @@ pub fn clear_portal_cookie(secure: bool) -> String {
     cookie_string(PORTAL_COOKIE, "", 0, secure, true)
 }
 
+/// The bridge token handed to a browser after a correct password, on the
+/// response that says a second factor is required.
+pub fn mfa_cookie(secure: bool, value: &str, max_age: i64) -> String {
+    cookie_string_at(MFA_COOKIE, value, max_age, secure, true, MFA_COOKIE_PATH)
+}
+
+/// Spends the bridge cookie. A reload between the code being accepted and the
+/// page moving on must not find a live token, even though the JWT is stateless
+/// and still inside its window.
+pub fn clear_mfa_cookie(secure: bool) -> String {
+    cookie_string_at(MFA_COOKIE, "", 0, secure, true, MFA_COOKIE_PATH)
+}
+
 /// The csrf clear matches the set flags exactly (no HttpOnly, host-wide
 /// path) so the browser expires the same cookie the setter wrote — a clear
 /// scoped differently silently leaves the old value in the jar.
@@ -124,6 +148,12 @@ fn cookie_from(headers: &HeaderMap, name: &str) -> Option<String> {
                 (key == name && !val.is_empty()).then(|| val.to_string())
             })
         })
+}
+
+/// The MFA bridge token, when the browser carried it in the cookie the login
+/// response set. An API client has no cookie and sends the token in the body.
+pub fn mfa_token_from(headers: &HeaderMap) -> Option<String> {
+    cookie_from(headers, MFA_COOKIE)
 }
 
 /// The staff cookie carries `{session_id}.{refresh}` — split here so the

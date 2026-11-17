@@ -100,9 +100,13 @@ export default function LoginPage() {
       if (mode === "signin") {
         const result = await api.login({ email, password });
         if ("mfa_required" in result) {
+          // Only the factor list is kept, because it decides which alternative
+          // the challenge screen offers. The bridge token itself was set as an
+          // httpOnly cookie by the login response, so this page never holds it
+          // and no script on the origin can read it.
           window.sessionStorage.setItem(
-            "marula-mfa-pending",
-            JSON.stringify({ mfa_token: result.mfa_token, methods: result.methods }),
+            "marula-mfa-methods",
+            JSON.stringify({ methods: result.methods }),
           );
           window.location.assign("/mfa");
           return;

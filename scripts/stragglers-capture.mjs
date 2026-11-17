@@ -203,8 +203,7 @@ async function shot(browser, viewport, theme, name, path, interactions, unauthed
       window.localStorage.setItem('marula-tokens-exp', String(Date.now() + 60_000));
     }
     if (unauthed === 'mfa') {
-      window.sessionStorage.setItem('marula-mfa-pending', JSON.stringify({
-        mfa_token: 'bridge-token',
+      window.sessionStorage.setItem('marula-mfa-methods', JSON.stringify({
         methods: ['totp', 'recovery', 'passkey'],
       }));
     }

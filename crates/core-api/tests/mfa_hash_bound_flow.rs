@@ -897,3 +897,104 @@ async fn enrollment_refuses_at_the_bound_and_leaves_the_factor_pending() {
     assert_eq!(db_count(&state, org_id, TOTP_CONFIRMED, user_id).await, 1);
     assert_eq!(db_count(&state, org_id, UNUSED_CODES, user_id).await, 8);
 }
+
+/// The bridge token is half a credential: it proves the password was right and
+/// cannot be replaced by anything the caller types. So the browser must not
+/// hold it in script-readable storage. Login sets it in an httpOnly cookie
+/// scoped to the one endpoint that consumes it, verify accepts that cookie with
+/// no body token, and a successful verify spends the cookie.
+#[tokio::test]
+#[serial_test::serial]
+async fn the_bridge_token_rides_an_http_only_cookie_scoped_to_verify() {
+    let state = test_state().await;
+    let app = core_api::router(state.clone());
+    let _ = one_slot_gate();
+    let slug = format!("bridge-cookie-{}", Uuid::now_v7().simple());
+    let owner = register_org(&app, &slug).await;
+    let email = owner["email"].as_str().expect("email").to_string();
+    let bearer = owner["access_token"].as_str().expect("bearer").to_string();
+    let (_secret, codes) = enroll_totp(&app, &bearer).await;
+
+    let login = send(
+        &app,
+        Method::POST,
+        "/api/auth/login",
+        None,
+        Some(json!({ "email": email, "password": PASSWORD })),
+    )
+    .await;
+    assert_eq!(login.status(), StatusCode::OK);
+
+    // Read the headers before the body: `body_json` consumes the response.
+    let set_cookies: Vec<String> = login
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok().map(str::to_string))
+        .collect();
+    let bridge = set_cookies
+        .iter()
+        .find(|cookie| cookie.starts_with("marula_mfa_pending="))
+        .expect("login sets the bridge cookie")
+        .clone();
+    assert!(
+        bridge.contains("; HttpOnly"),
+        "a bridge token readable by script is the bug: {bridge}"
+    );
+    assert!(
+        bridge.contains("Path=/api/auth/mfa"),
+        "the token must not ride a request for any other route: {bridge}"
+    );
+    let body = body_json(login).await;
+    assert!(
+        body["mfa_token"].as_str().is_some_and(|t| !t.is_empty()),
+        "the body copy stays for clients with no cookie jar"
+    );
+
+    // No cookie and no body token: nothing to verify against.
+    let anonymous = send(
+        &app,
+        Method::POST,
+        "/api/auth/mfa/verify",
+        None,
+        Some(json!({ "mfa_token": "", "code": codes[0] })),
+    )
+    .await;
+    assert_eq!(
+        anonymous.status(),
+        StatusCode::UNAUTHORIZED,
+        "an empty body token is not a bridge"
+    );
+
+    // Only the cookie. The body field is empty on purpose: this is exactly
+    // what the browser sends.
+    let request = axum::http::Request::builder()
+        .method(Method::POST)
+        .uri("/api/auth/mfa/verify")
+        .header("content-type", "application/json")
+        .header(
+            "cookie",
+            bridge.split(';').next().unwrap_or_default().to_string(),
+        )
+        .body(axum::body::Body::from(
+            json!({ "mfa_token": "", "code": codes[0] }).to_string(),
+        ))
+        .unwrap();
+    let accepted = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(
+        accepted.status(),
+        StatusCode::OK,
+        "the cookie alone completes the second factor"
+    );
+    let spent = accepted
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find(|cookie| cookie.starts_with("marula_mfa_pending="))
+        .expect("the bridge cookie is cleared on success");
+    assert!(
+        spent.contains("Max-Age=0"),
+        "a spent bridge token must not survive a reload: {spent}"
+    );
+}
