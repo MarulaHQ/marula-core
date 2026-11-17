@@ -328,7 +328,12 @@ export function TourOverlay({
         : { opacity: 1, transform: "none", transition: "none" };
 
   return (
-    <div data-testid="tour-overlay" role="dialog" aria-label={tour.title}>
+    <div
+      data-testid="tour-overlay"
+      role="dialog"
+      aria-label={tour.title}
+      className="pointer-events-none fixed inset-0 z-50"
+    >
       {/* The dim is decoration only (pointer-events-none): the highlighted
           element stays interactive and Escape-style dismissal is done via
           the tooltip controls. */}
@@ -356,7 +361,7 @@ export function TourOverlay({
       <div
         data-testid="tour-tooltip"
         ref={cardRef}
-        className="fixed z-50 w-[320px] rounded-xl border p-3 shadow-lg"
+        className="pointer-events-auto fixed z-50 w-[320px] rounded-xl border p-3 shadow-lg"
         style={{
           top: tip.top,
           left: tip.left,

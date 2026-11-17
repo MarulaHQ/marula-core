@@ -281,15 +281,21 @@ interface MeSurfaces {
 }
 
 /** The wizard lands on its resumed list or the rail — get to the rail. */
-async function openWizardStep(page: import("@playwright/test").Page, step: number): Promise<void> {
+/** Reach the wizard's Connect AI step (the sixth org step, key `ai`).
+ *  The demo org resolves clients, boards and tickets from its own data,
+ *  so /welcome opens on the resumed list (the pack's state 14) with a
+ *  row per pending step, and the AI row's button focuses that step. A
+ *  genuinely empty org opens the rail directly. Either way this ends on
+ *  the rail with Connect AI focused. */
+async function openAiStep(page: import("@playwright/test").Page): Promise<void> {
   await page.goto("/welcome");
-  await expect(page.getByTestId("wizard-step-1").or(page.getByTestId("wizard-resume-clients")).first()).toBeVisible({
-    timeout: 30_000,
-  });
-  if ((await page.getByTestId("wizard-resume-clients").count()) > 0) {
-    await page.getByTestId("wizard-resume-clients").click();
+  await expect(
+    page.getByTestId("wizard-resumed").or(page.getByTestId("wizard-step-6")).first(),
+  ).toBeVisible({ timeout: 30_000 });
+  if ((await page.getByTestId("wizard-resumed").count()) > 0) {
+    await page.getByTestId("wizard-resume-ai").click();
   }
-  await page.getByTestId(`wizard-step-${step}`).click();
+  await expect(page.getByTestId("wizard-step-6")).toBeVisible({ timeout: 30_000 });
 }
 
 test("AI setup: renders for the owner with the honest gaps, gates the technician out", async ({
@@ -301,7 +307,7 @@ test("AI setup: renders for the owner with the honest gaps, gates the technician
   await post("/onboarding/reset/org", { method: "POST", body: {} });
 
   // The OWNER (admin standing) gets the working step.
-  await openWizardStep(authedPage, 6);
+  await openAiStep(authedPage);
   await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
   for (const id of ["openai", "anthropic", "ollama", "custom"]) {
     await expect(authedPage.getByTestId(`ai-setup-provider-${id}`)).toBeVisible();
@@ -330,7 +336,7 @@ test("AI setup: renders for the owner with the honest gaps, gates the technician
   await seedTokens(techPage, techTokens);
   // The step rides the org wizard, which any member can open; the gate is
   // the step's own, not the wizard's.
-  await openWizardStep(techPage, 6);
+  await openAiStep(techPage);
   await expect(techPage.getByTestId("ai-setup-gate")).toBeVisible({ timeout: 20_000 });
   await expect(techPage.getByTestId("ai-setup-chat-cards")).toHaveCount(0);
   await ctx.close();
@@ -344,7 +350,7 @@ test("AI setup: a key saves with test-connection feedback and leaves nothing beh
   const get = authedFetch(ownerTokens.access_token);
   await post("/onboarding/reset/org", { method: "POST", body: {} });
 
-  await openWizardStep(authedPage, 6);
+  await openAiStep(authedPage);
   await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
 
   // Pick ChatGPT, paste a key, save. The seal is local (no vendor call in
@@ -398,7 +404,7 @@ test("AI setup: the chat default persists through the org pick", async ({
   const meBefore = (await get<unknown>("/ai/me/surfaces")) as MeSurfaces;
   const priorPick = meBefore.surfaces.find((s) => s.surface_key === "general_chat")?.picked ?? null;
 
-  await openWizardStep(authedPage, 6);
+  await openAiStep(authedPage);
   await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
   await authedPage.getByTestId("ai-setup-provider-ollama").click();
   await authedPage.getByTestId("ai-setup-chat-default-ollama-llama3").click();
@@ -446,7 +452,7 @@ test("AI setup: 'Not now' skips without saving anything", async ({ authedPage, o
   await post("/onboarding/reset/org", { method: "POST", body: {} });
   const before = (await get<unknown>("/settings/ai/status")) as AiStatus;
 
-  await openWizardStep(authedPage, 6);
+  await openAiStep(authedPage);
   await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
   // Type a key and walk away from it: the skip seals nothing.
   await authedPage.getByTestId("ai-setup-provider-openai").click();
