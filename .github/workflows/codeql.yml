@@ -42,6 +42,17 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          # Test fixtures are not runtime key paths. `**/tests/**` covers the
+          # integration crates (crates/*/tests, which run as their own
+          # binaries) and `**/tests.rs` covers the sibling test modules
+          # (plugins/connectors/*/src/tests.rs). Inline `#[cfg(test)] mod tests`
+          # blocks inside a shipped file cannot be excluded by path, so CodeQL
+          # keeps reporting those; they are dismissed with a reason instead of
+          # being allowed to bury the real findings.
+          config: |
+            paths-ignore:
+              - "**/tests/**"
+              - "**/tests.rs"
 
       - uses: github/codeql-action/analyze@v4
         with:
