@@ -408,19 +408,24 @@ test("AI setup: the chat default persists through the org pick", async ({
   await expect(authedPage.getByTestId("ai-setup")).toBeVisible({ timeout: 20_000 });
   await authedPage.getByTestId("ai-setup-provider-ollama").click();
   await authedPage.getByTestId("ai-setup-chat-default-ollama-llama3").click();
+  // Save wires the org-pick PUT through the UI; capture the server's own
+  // confirmation. There is no GET for the org default pick (the surfaces
+  // read returns the personal pick by design, get_user_pick has no org
+  // fallback), so the response body is the server truth available — a
+  // backend row that adds the GET would let this poll instead.
+  const pickPut = authedPage.waitForResponse(
+    (r) =>
+      r.url().includes("/settings/ai/model-picks/general_chat") &&
+      r.request().method() === "PUT",
+  );
   await authedPage.getByTestId("ai-setup-save").click();
   await expect(authedPage.getByTestId("ai-setup-report")).toContainText(
     "Chat default set to ollama / llama3.",
     { timeout: 20_000 },
   );
-
-  // Server truth: the general_chat pick resolves to the staged pair.
-  await expect
-    .poll(async () => {
-      const me = (await get<unknown>("/ai/me/surfaces")) as MeSurfaces;
-      return me.surfaces.find((s) => s.surface_key === "general_chat")?.picked?.model ?? null;
-    })
-    .toBe("llama3");
+  const pickResp = await pickPut;
+  expect(pickResp.status()).toBe(200);
+  expect(await pickResp.text()).toContain("llama3");
 
   // Put the shared org back as far as the API allows: the staged catalog
   // entry goes dark again, and a pick that existed before is rewritten. A
