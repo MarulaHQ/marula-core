@@ -63,14 +63,20 @@ test("tour cap: one auto-started tour per session, then suppression", async ({
     .then(() => true)
     .catch(() => false);
   if (appeared) {
-    // Walk or skip it — completion persists per account.
+    // Walk it: Done appears on the last step, so press Next until it does
+    // (the workbar tour runs three steps). The exit animates for 200ms
+    // and completes AFTER the click, so wait for the overlay to be gone
+    // before navigating — that is also when the completion write lands.
     const done = authedPage.getByTestId("tour-done");
-    if (await done.isVisible().catch(() => false)) {
-      await done.click();
-    } else {
-      await authedPage.getByTestId("tour-next").click();
-      await authedPage.getByTestId("tour-done").click();
+    if (!(await done.isVisible().catch(() => false))) {
+      const next = authedPage.getByTestId("tour-next");
+      for (let i = 0; i < 6 && !(await done.isVisible().catch(() => false)); i++) {
+        await next.click();
+        await expect(done).toBeVisible({ timeout: 5_000 }).catch(() => {});
+      }
     }
+    await done.click();
+    await expect(authedPage.getByTestId("tour-overlay")).toHaveCount(0);
   }
   // Navigating onward in the SAME session must never start a second tour.
   await authedPage.goto("/tickets");
