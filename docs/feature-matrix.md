@@ -313,6 +313,7 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 |---|---|---|
 | AI-drafted commercial documents | Draft a quote or contract from the catalogue, pricing and terms, as a proposal a person edits and approves | Later |
 | Reports and dashboards from a description | Build a report or dashboard from existing views and charts, run it against real data, then hand it over as an editable proposal | Later |
+| Localization | Interface, email and portal copy in the reader's language, with en-GB and en-US as separate locales and French, Spanish, Mandarin and Arabic next | Later |
 
 ## Keeping this current
 

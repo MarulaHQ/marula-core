@@ -101,6 +101,13 @@ Last updated 2026-11-16.
   plainly what it could not. Every draft lands in the builders you already use
   as a proposal you edit and approve, under the same per-surface gate as every
   other AI help.
+- **Your own language.** The interface, the emails, the help text and the client
+  portal read in the language the person uses. British and American English are
+  two locales, not one with a spelling switch: dates, money, numbers and the
+  start of the week follow the reader, so a Monday meeting is Monday in both.
+  French and Spanish come next, then Mandarin and Arabic, and Arabic lays the
+  interface out right to left rather than only translating it. A language ships
+  once someone who speaks it has read the strings.
 - **A final audit.** Before the milestones above are called done, a full walk
   of every surface by someone who has not touched it before.
 
