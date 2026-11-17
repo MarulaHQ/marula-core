@@ -773,7 +773,7 @@ pub struct CreateFromTemplateRequest {
 
 /// POST /api/project-templates/{id}/create — instantiation with the one check
 /// the gallery promises first: a billable template cannot start without a
-/// contract that bills the chosen client (S11.11). The refusal is decided in
+/// contract that bills the chosen client. The refusal is decided in
 /// the same transaction that writes the project, with the contract rows locked.
 #[utoipa::path(operation_id = "project_template_create", post, path = "/api/project-templates/{id}/create", tag = "projects", security(("bearer" = [])),
     params(("id" = Uuid, Path)), request_body = CreateFromTemplateRequest,

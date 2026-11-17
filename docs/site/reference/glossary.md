@@ -63,6 +63,26 @@ product and is missing here, that is a gap worth reporting through
 | **Grant** | Permission given to something optional, such as an AI helper or a plugin capability. Nothing is granted by default. |
 | **Deny-by-default** | The rule that an ungranted capability is invisible rather than refused after the attempt. See [AI: deny-by-default](../explanation/ai-deny-by-default.md). |
 
+## Knowledge and client records
+
+| Term | What it means |
+|---|---|
+| **Client hub** | The knowledge-base page for one client: counts for every record type, completeness with its gaps, expiries, recent changes and a value-free vault glance. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
+| **Completeness** | Eight checks on a client's documentation: contacts, sites, devices, documentation, a credential, a network, a domain and a procedure. The card names the gaps rather than showing a bare score. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
+| **Rack layout** | The unit-by-unit map of a rack: which device occupies which start unit and height, on which face. See [Write knowledge and keep client records current](../how-to/admin-knowledge-base.md). |
+| **Subnet / reservation** | A network range with its gateway and VLAN, plus the DHCP settings, and an address inside it reserved for a named host. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
+| **Procedure** | A runbook with ordered steps, an owner and a version. Optional steps are marked; ticking a step is not recorded. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
+| **Expiry rollup** | One list of domain registrations, TLS certificates, document reviews and warranties, plus credential rotation, each with an owner and a source. See [Find a runbook, a credential and a client's records](../how-to/staff-knowledge-base.md). |
+| **Published to the portal** | An article is visible to clients only when it is published, marked client-facing, and sits in a client-facing category. See [Write knowledge and keep client records current](../how-to/admin-knowledge-base.md). |
+| **Change order** | A documented scope change with its own steps and acknowledgement, plus a billing release. Approval never applies it. Applying never bills it. See [Work a project](../how-to/staff-work-a-project.md). |
+| **Billing release** | The money line a change order stages for the next billing run. It can be cancelled while pending, and a failed release leaves the plan change applied. See [Work a project](../how-to/staff-work-a-project.md). |
+| **Portfolio** | Every project on one time axis, grouped by client, with at-risk reasons and undated work kept in a separate tray. See [Work a project](../how-to/staff-work-a-project.md). |
+| **Dead work** | Work a ledger abandoned after its last attempt: jobs, email, webhook deliveries and stream events. See [Recover work that gave up](../how-to/operator-dead-work.md). |
+| **Object integrity** | The pass that compares database rows with object-store bytes, reporting orphans and missing bytes. See [Check that records and stored files still agree](../how-to/operator-object-integrity.md). |
+| **Connector destination** | One named target inside a connected vendor (a channel, conversation, route or workflow), identified by the vendor's own id. See [Connect a tool your team already uses](../how-to/admin-connectors.md). |
+| **Describe it** | The quote and contract authoring door: notes, speech or an upload become a draft in the ordinary builder. Nothing is saved until a person saves it. See [Draft a quote or contract from your notes](../how-to/draft-a-quote-or-contract.md). |
+| **Ask** | The command palette's chat mode, available only when the `general_chat` surface is granted. It reads the current screen, shows sources, and files proposals for approval. See [Ask the assistant about the screen you are on](../how-to/ask-the-assistant.md). |
+
 ## The product's own vocabulary
 
 | Term | What it means |

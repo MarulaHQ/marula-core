@@ -8,7 +8,7 @@ Three columns, no dates we do not own. When something ships, it moves down and
 the [changelog](CHANGELOG.md) records what changed. The capability breakdown
 behind this page is in the [feature matrix](docs/feature-matrix.md).
 
-Last updated 2026-11-04.
+Last updated 2026-11-16.
 
 ## Shipped
 
@@ -24,26 +24,47 @@ Last updated 2026-11-04.
 - **The money side.** Contracts, invoicing drawn from recorded time, credit
   notes, billing verification, quotes with a catalog, multi-currency with FX
   snapshots, the sales pipeline, approval queues, and a Stripe payment provider
-  with typed decline reasons.
+  with typed decline reasons. Describe a quote or a contract in typed notes,
+  speech or an uploaded document and the agent drafts it from your catalogue,
+  past quotes, budget and terms, shows what it understood, and hands the draft
+  to the ordinary builder. Nothing is saved until a person saves it.
 - **AI assistance, gated.** AI help, turned on where admins allow it (ticket
   notes, document drafts, email replies), per surface and per role, with your
   own keys in a sealed credential store, append-only usage accounting, and an
   agent that reads your tickets through consented tools and proposes changes
-  for a human to approve.
+  for a human to approve. The command palette carries an Ask mode that starts
+  from the screen in front of you, names its sources, and files any proposal
+  for approval.
 - **Secrets.** The password vault with category RBAC, one-time share links,
   rotation hooks, and streaming decryption for secret files.
+- **Delivery work.** Projects with a plan and a timeline, drag ordering that
+  previews the dates before it writes, baselines you can measure change
+  against, a quarter portfolio grouped by client, templates with a gallery and
+  lessons, a task workbench with pods for time, materials and blockers, My work
+  across projects, and change orders whose approval, apply and billing are
+  separate acts with the client's acknowledgement in the portal.
+- **Knowledge that belongs to a client.** A client hub that gathers articles,
+  documents, devices, credentials, racks, networks, domains and procedures,
+  one search across every store, an expiry rollup with an owner for every date,
+  and a portal that shows published help and shared documentation without
+  leaking a draft.
 - **Integrations.** NinjaOne, Hudu, Microsoft 365, UniFi, 3CX, Slack and
   Teams, Rewst, and the QuickBooks and Xero exports ship in the core: each
   source feeds one identity-keyed record with a merge queue, so the same device
   or contact never forks into duplicates. IT Glue, Auvik, ImmyBot and Zapier are
   the first marketplace connectors, built in their own repos and published
-  through the marketplace.
+  through the marketplace. A connector roster configures each installed
+  connector as one or more scoped connections, with destinations, a health
+  canary and an audience that cannot widen what a person can see.
 - **The connector marketplace.** A public catalog for connectors beyond the
   standard set, with first-party and community listings installed through the
   same signed, consent-gated lifecycle as every plugin.
-- **Getting started.** A first-run wizard for the org, a short orientation for
-  each new user, help on every surface that opens the matching documentation,
-  guided tours, and one keyboard registry with an overlay and cheat sheet.
+- **Getting started.** A first-run wizard for the org, a three-step invite
+  that recommends a role and previews what it grants, a guided accept page, a
+  short orientation for each new user, help on every surface that opens the
+  matching documentation, guided tours, and one keyboard registry with an
+  overlay and cheat sheet. The invitation email is a template an admin can
+  edit without touching the flow.
 - **A desktop app.** The Tauri 2 macOS shell with signed bundles and automatic
   updates, plus themes (Tangerine, Slate, a high-contrast preset) that ship
   validated from the same tokens as the web app.
@@ -54,7 +75,9 @@ Last updated 2026-11-04.
 - **Docs that replace a support channel.** A documentation site organized by
   task, with guides for installing on your own machine, upgrading, backing
   up, and restoring; every page tags its audience and gets its links checked
-  in CI.
+  in CI. The same site covers the knowledge base, projects, the connector
+  roster, email templates, the assistant, and the two operator recovery
+  readers (dead work and object integrity).
 - **The client's vote.** Quote approval from the client portal (same domain
   guard as the staff legs), satisfaction surveys on resolution, and canned
   replies with a settings page for the desk.
@@ -68,11 +91,6 @@ Last updated 2026-11-04.
 
 ## Later
 
-- **Commercial intelligence.** Describe a new quote or contract in plain
-  language, or drop in the meeting notes from the call, and the agent drafts
-  the document from the catalog, pricing and terms you already keep, under the
-  same per-surface gate as every other AI help. Drafts are proposals: edited
-  and approved by a person before anything reaches a client.
 - **Reports and dashboards, described.** Say what you want to see, typed or
   spoken, and the agent drafts it from the views, measures, filters, charts and
   cards the product already serves: the right lens, the right chart, the cards

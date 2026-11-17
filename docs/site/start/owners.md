@@ -54,6 +54,11 @@ value, the new value and the actor: a person, an agent run or an import.
   the question.
 - [The read model view catalogue](../reference/read-model.md) — every view and its
   columns, so you know what can be asked.
+- [See the delivery portfolio](../how-to/staff-work-a-project.md#10-see-every-project-on-one-axis) —
+  every project on one axis, grouped by client, with the at-risk reasons and the
+  work that has no dates kept off the chart.
+- [Read change orders](../how-to/staff-work-a-project.md#13-change-the-scope-without-rewriting-history) —
+  what changed, who agreed, what it moved and what it billed.
 
 ## "Who has access, and to what"
 
@@ -64,6 +69,9 @@ value, the new value and the actor: a person, an agent run or an import.
 - [Knowledge-base categories and the secret vault](../explanation/kb-class-categories.md) —
   why restricted items are hidden rather than shown locked, and why every password
   reveal is logged.
+- [Write knowledge and keep client records current](../how-to/admin-knowledge-base.md) —
+  who owns the shelves, what the portal gate requires, and what the completeness
+  reading is telling you.
 - [The portal isolation model](../explanation/portal-isolation.md) — what a client
   account can never reach.
 
@@ -97,8 +105,9 @@ rather than filled with invented behaviour.
   term. The contract pages cover setup, not the renewal cycle.
 - Margin per client or per ticket: labour cost is not a documented input, so no
   page claims a margin figure.
-- Quoting: [approving a quote](../how-to/client-quote-approval.md) is documented
-  from the client side. Authoring a quote, and the path from an accepted quote to
-  an invoice, has no page.
+- Quoting: authoring is now covered by [describe it](../how-to/draft-a-quote-or-contract.md),
+  and approval is covered from the client side by
+  [approve or decline a quote](../how-to/client-quote-approval.md). The path from
+  an accepted quote to an invoice still has no page.
 - Data retention and deletion: no page states how long records are kept or what
   an erasure request removes.
