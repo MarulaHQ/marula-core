@@ -41,7 +41,13 @@ pub const MFA_COOKIE: &str = "marula_mfa_pending";
 /// Narrower than the session jars on purpose: the token is useful to the
 /// handlers that complete or step up a login and nothing else, so a request for
 /// a page, an invoice or a ticket never carries it.
-const MFA_COOKIE_PATH: &str = "/api/auth/mfa";
+///
+/// The path is the CANONICAL mount, `/api/v1` (`routes::Mount::Canonical`),
+/// because that is the URL the browser actually posts to: the SDK's
+/// `mfaVerify` calls `/api/v1/auth/mfa/verify`. A path without the version
+/// prefix would silently never be attached — the browser chooses cookies by
+/// the URL it requests, and no server-side rewrite can put it back.
+const MFA_COOKIE_PATH: &str = "/api/v1/auth/mfa";
 
 const COOKIE_PATH: &str = "/api";
 /// The double-submit value is read by the APPLICATION's own JavaScript
@@ -216,4 +222,38 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The browser only attaches a cookie to a URL under its `Path`. The SDK
+    /// posts the second factor to `/api/v1/auth/mfa/verify`
+    /// (`packages/sdk/src/client.ts`), so a path without the version prefix
+    /// would drop the cookie and make every browser MFA login fail while every
+    /// server-side test still passed.
+    #[test]
+    fn the_bridge_cookie_path_covers_the_routes_the_browser_calls() {
+        for route in [
+            "/api/v1/auth/mfa/verify",
+            "/api/v1/auth/mfa/webauthn/begin",
+            "/api/v1/auth/mfa/webauthn/complete",
+        ] {
+            assert!(
+                route.starts_with(MFA_COOKIE_PATH),
+                "{route} must sit under the cookie path {MFA_COOKIE_PATH}"
+            );
+        }
+        let set = mfa_cookie(true, "bridge", 300);
+        assert!(set.contains(&format!("Path={MFA_COOKIE_PATH}")), "{set}");
+        assert!(set.contains("HttpOnly"), "{set}");
+        assert!(set.contains("Max-Age=300"), "{set}");
+        let cleared = clear_mfa_cookie(true);
+        assert!(cleared.contains("Max-Age=0"), "{cleared}");
+        assert!(
+            cleared.contains(&format!("Path={MFA_COOKIE_PATH}")),
+            "{cleared}"
+        );
+    }
 }

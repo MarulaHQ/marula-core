@@ -296,11 +296,31 @@ pub async fn test(
     // is not the answer it gave when the row was written, so the address is
     // judged again here and the destination is never trusted from storage.
     let policy = state.config.egress_policy();
-    if let Some(url) = cfg.get("webhook_url").and_then(Value::as_str) {
-        crate::outbound::guard_under(url, policy)
-            .await
-            .map_err(|denial| ApiError::Validation(format!("webhook_url refused: {denial}")))?;
-    }
+    // Screen once and KEEP what the guard returned. Its client is pinned to the
+    // addresses it judged and follows no redirects, so the adapter dials exactly
+    // the destination this check approved; discarding it would let a name answer
+    // publicly here and privately a moment later, and would let a 3xx choose a
+    // second destination nothing screened.
+    let guarded =
+        match cfg.get("webhook_url").and_then(Value::as_str) {
+            Some(url) => Some(crate::outbound::guard_under(url, policy).await.map_err(
+                |denial| ApiError::Validation(format!("webhook_url refused: {denial}")),
+            )?),
+            None => None,
+        };
+    // The guard's own serialization, not the row's string: it is what was
+    // judged, so a parser differential cannot authorize one URL and dial another.
+    let url = guarded
+        .as_ref()
+        .map(|approved| approved.url().to_string())
+        .unwrap_or_default();
+    let pinned_client = || -> ApiResult<reqwest::Client> {
+        guarded
+            .as_ref()
+            .ok_or_else(|| ApiError::Validation("webhook_url is required".into()))?
+            .client(std::time::Duration::from_secs(20))
+            .map_err(|denial| ApiError::Validation(format!("webhook_url refused: {denial}")))
+    };
     let payload = app_bridges::NotificationPayload {
         title: "Marula test".into(),
         body: "A provisioned test ping from the Marula integrations surface.".into(),
@@ -308,14 +328,10 @@ pub async fn test(
     };
     match kind {
         "slack" | "teams" => {
-            let url = cfg
-                .get("webhook_url")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
             let outcome = match kind {
                 "slack" => {
-                    let connector = app_bridges::slack::SlackConnector::new(url);
+                    let connector =
+                        app_bridges::slack::SlackConnector::with_http_client(url, pinned_client()?);
                     let connector = if policy.is_dev_loopback() {
                         connector.allow_loopback()
                     } else {
@@ -324,7 +340,8 @@ pub async fn test(
                     connector.send(&payload).await
                 }
                 _ => {
-                    let connector = app_bridges::teams::TeamsConnector::new(url);
+                    let connector =
+                        app_bridges::teams::TeamsConnector::with_http_client(url, pinned_client()?);
                     let connector = if policy.is_dev_loopback() {
                         connector.allow_loopback()
                     } else {
@@ -336,11 +353,6 @@ pub async fn test(
             Ok(Json(to_test(kind, outcome)))
         }
         "rewst" => {
-            let url = cfg
-                .get("webhook_url")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string();
             let secret = cfg
                 .get("secret")
                 .and_then(|v| v.as_str())
@@ -356,7 +368,8 @@ pub async fn test(
                 notification: payload,
                 entity_id: None,
             };
-            let bridge = app_bridges::rewst::RewstBridge::new(url, secret);
+            let bridge =
+                app_bridges::rewst::RewstBridge::with_http_client(url, secret, pinned_client()?);
             let bridge = if policy.is_dev_loopback() {
                 bridge.allow_loopback()
             } else {

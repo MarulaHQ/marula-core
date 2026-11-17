@@ -40,11 +40,21 @@ impl RewstTriggerPayload {
 
 impl RewstBridge {
     pub fn new(webhook_url: impl Into<String>, secret: impl Into<String>) -> Self {
+        Self::with_http_client(webhook_url, secret, crate::bridge_client())
+    }
+
+    /// Dial through a client the caller already built (the route layer passes
+    /// the guard's pinned, redirect-free client).
+    pub fn with_http_client(
+        webhook_url: impl Into<String>,
+        secret: impl Into<String>,
+        http: reqwest::Client,
+    ) -> Self {
         Self {
             webhook_url: webhook_url.into(),
             secret: secret.into(),
             allow_loopback: false,
-            http: reqwest::Client::new(),
+            http,
         }
     }
 
@@ -83,6 +93,9 @@ impl RewstBridge {
             .await
             .map_err(|e| BridgeError::Unreachable("rewst", e.to_string()))?;
         let status = response.status();
+        if status.is_redirection() {
+            return Err(crate::refuse_redirect("rewst", status));
+        }
         let text = response.text().await.unwrap_or_default();
         if !status.is_success() {
             return Err(BridgeError::Refused(

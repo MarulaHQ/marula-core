@@ -155,6 +155,24 @@ async fn rewst_signs_the_trigger_and_the_url_carries_the_secret_headers() {
     );
 }
 
+/// A destination that answers `302` is asking the bridge to dial a second host
+/// the owner never consented to. The client follows no redirects, so the answer
+/// is a typed refusal rather than a second unscreened request.
+#[tokio::test]
+async fn a_redirect_is_refused_rather_than_followed() {
+    let mock = spawn_mock(axum::http::StatusCode::FOUND, "").await;
+    let slack = SlackConnector::new(mock.base_url.clone()).allow_loopback();
+    assert!(
+        matches!(
+            slack.send(&sample_payload()).await,
+            Err(BridgeError::Refused("slack", ref detail)) if detail.contains("302")
+        ),
+        "a 302 must be refused, and the refusal names the status"
+    );
+    // The mock answered once and there is nowhere for it to send us; the point
+    // is the refusal, not a counter, so the assertion above is the whole test.
+}
+
 #[tokio::test]
 async fn bad_config_never_reaches_a_socket() {
     let empty = SlackConnector::new("");

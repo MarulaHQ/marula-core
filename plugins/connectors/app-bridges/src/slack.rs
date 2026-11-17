@@ -18,27 +18,26 @@ pub struct SlackConnector {
 
 /// Whether `raw` names a loopback ADDRESS exactly.
 ///
-/// The authority is parsed and the host must be an IP that is loopback
-/// (`127.0.0.0/8`, `::1`) — the same class the egress guard's dev allowance
-/// admits. A string prefix check would admit `http://localhost.attacker.test`,
-/// which is a public name that merely starts with the letters of `localhost`;
-/// a name is refused by the guard upstream in every policy, so there is no
-/// name spelling to except here.
+/// Parsed with the WHATWG parser rather than by string surgery. A hand-rolled
+/// split reads `http://127.0.0.1:80@evil.test/` as host `127.0.0.1` — the real
+/// host is `evil.test` and the rest is userinfo — so the exemption would have
+/// admitted a public host. Only `http` on a loopback IP qualifies, and userinfo
+/// is refused outright: a name is judged by the guard upstream in every policy,
+/// so there is no name spelling to except here.
 fn is_loopback_url(raw: &str) -> bool {
-    use std::net::IpAddr;
+    use url::Host;
 
-    let Some(rest) = raw.strip_prefix("http://") else {
+    let Ok(parsed) = url::Url::parse(raw) else {
         return false;
     };
-    let authority = rest.split('/').next();
-    let Some(authority) = authority.filter(|a| !a.is_empty()) else {
+    if parsed.scheme() != "http" || !parsed.username().is_empty() || parsed.password().is_some() {
         return false;
-    };
-    let host = match authority.strip_prefix('[') {
-        Some(bracketed) => bracketed.split(']').next().unwrap_or_default(),
-        None => authority.rsplit_once(':').map_or(authority, |(h, _)| h),
-    };
-    host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+    }
+    match parsed.host() {
+        Some(Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(Host::Domain(_)) | None => false,
+    }
 }
 
 /// URL validation at the write boundary: https required. A plain-http
@@ -72,10 +71,17 @@ pub fn validate_webhook_url(
 impl SlackConnector {
     /// `webhook_url` comes sealed from the connector installation.
     pub fn new(webhook_url: impl Into<String>) -> Self {
+        Self::with_http_client(webhook_url, crate::bridge_client())
+    }
+
+    /// Dial through a client the caller already built — the route layer passes
+    /// the guard's pinned, redirect-free client, so the address that was
+    /// checked is the address this connector connects to.
+    pub fn with_http_client(webhook_url: impl Into<String>, http: reqwest::Client) -> Self {
         Self {
             webhook_url: webhook_url.into(),
             allow_loopback: false,
-            http: reqwest::Client::new(),
+            http,
         }
     }
 
@@ -113,6 +119,9 @@ impl SlackConnector {
             .await
             .map_err(|e| BridgeError::Unreachable("slack", e.to_string()))?;
         let status = response.status();
+        if status.is_redirection() {
+            return Err(crate::refuse_redirect("slack", status));
+        }
         let text = response.text().await.unwrap_or_default();
         if !status.is_success() {
             return Err(BridgeError::Refused(
@@ -172,6 +181,9 @@ mod tests {
         for refused in [
             "http://localhost.attacker.test/hook",
             "http://127.0.0.1.attacker.test/hook",
+            // A real host with loopback dressed as userinfo. A hand-rolled
+            // authority split reads the left side as the host and admits it.
+            "http://127.0.0.1:80@evil.test/hook",
             "http://example.com/hook",
         ] {
             assert!(
