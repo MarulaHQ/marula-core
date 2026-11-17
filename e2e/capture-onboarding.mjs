@@ -146,19 +146,17 @@ async function seedAuth(ctx, page, owner, mode) {
       await page.screenshot({ path: `${OUT}/${mode}-01-today-original.png`, fullPage: false });
     }
 
-    // 2 · wizard first step (clients). The demo org resolves its first
-    // three steps from data, so /welcome opens on the resumed list; the
-    // row buttons (wizard-resume-<key>) are what focus a step, and the
-    // rail only exists once one is open.
+    // 2 · wizard first screen for this org. The demo org resolves its
+    // first three steps from data, so /welcome opens on the resumed
+    // list — that IS the first screen here, and a bare org would open
+    // the rail instead.
     await page.goto(`${WEB}/welcome`);
     await ensureMode();
     await page.getByTestId("wizard-resumed").or(page.getByTestId("wizard-step-clients")).first().waitFor({ timeout: 20_000 }).catch(() => {});
-    await page.getByTestId("wizard-resume-clients").click().catch(() => {});
-    await page.getByTestId("wizard-step-clients").waitFor({ timeout: 10_000 }).catch(() => {});
     await page.screenshot({ path: `${OUT}/${mode}-02-wizard-first-step.png`, fullPage: false });
 
     // 3 · skip contracts visible in the invite form region
-    await page.getByTestId("wizard-resume-invite").click().catch(() => {});
+    await page.getByTestId("wizard-resume-invites").click().catch(() => {});
     await page.getByTestId("onboarding-rail-invites").click().catch(() => {});
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/${mode}-03-wizard-invites.png`, fullPage: false });
