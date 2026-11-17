@@ -353,7 +353,7 @@ export function TourOverlay({
           left: rect.left - 4,
           width: rect.width + 8,
           height: rect.height + 8,
-          boxShadow: "0 0 0 9999px rgba(15, 12, 9, 0.55)",
+          boxShadow: "0 0 0 9999px var(--m-scrim)",
           outline: "2px solid var(--m-accent)",
           transformOrigin: "0 0",
         }}
