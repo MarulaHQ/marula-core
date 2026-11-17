@@ -94,10 +94,11 @@ describe("/settings/quarantine", () => {
   it("draws an honest empty state when nothing is held", async () => {
     setupApi();
     renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId("quarantine-counts").textContent).toContain("0");
-    });
-    expect(screen.getByText(/Nothing is quarantined/)).toBeTruthy();
+    // Wait for the sentence itself: the counts element already reads 0 in
+    // the pre-load frame, so it is a race, not a signal. CI lost that race
+    // as soon as the suite's scheduling changed.
+    const empty = await screen.findByText(/Nothing is quarantined/);
+    expect(empty).toBeInTheDocument();
   });
 
   it("offers release and delete on a held row, and records the reason", async () => {
