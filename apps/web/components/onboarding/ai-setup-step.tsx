@@ -111,7 +111,10 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     if (chatRow?.picked != null) {
       setChatPicked(`${chatRow.picked.provider}/${chatRow.picked.model}`);
     }
-    if (status.error !== undefined && mat.error !== undefined && dec.error !== undefined) {
+    // Any failed read is recoverable here. Treating only an all-three
+    // failure as an error left the decision section (and the loading
+    // branch that gates on it) spinning forever on a partial failure.
+    if (status.error !== undefined || mat.error !== undefined || dec.error !== undefined) {
       setLoadError("The AI settings could not load. Check your connection and try again.");
     }
   }, []);
@@ -218,6 +221,7 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     if (meta.need === "none") return null; // Ollama: nothing to paste, nothing to seal
     setKeyError(null);
     setKeyBusy(true);
+    const submitted = keyDraft.trim();
     const previous = overview;
     const wasSealed = configuredByok.has(meta.id);
     // Optimistic presence flip — the key itself never renders back.
@@ -238,7 +242,7 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
       buildBody: (base) => ({
         idempotency_key: base.idempotency_key,
         provider: meta.id,
-        api_key: keyDraft.trim(),
+        api_key: submitted,
       }),
       request: (client, body) => client.PUT("/api/v1/settings/ai/byok", { body }),
     });
@@ -250,7 +254,9 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
       setKeyError(message);
       return { ok: false, line: message };
     }
-    setKeyDraft("");
+    // Clear only the draft this save submitted: the operator may have
+    // picked another provider and typed that key while this was in flight.
+    setKeyDraft((prev) => (prev.trim() === submitted ? "" : prev));
     void testProvider(meta.id);
     return {
       ok: true,
@@ -269,21 +275,35 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     setDecisionKeyError(null);
     setDecisionKeyBusy(true);
     const wasSealed = orgCredentialProviders.has(DECISION_CREDENTIAL_PROVIDER);
-    const { error } = await api.api.PUT("/api/v1/settings/ai/credentials", {
-      body: {
-        provider: DECISION_CREDENTIAL_PROVIDER,
-        kind: "api_key",
-        secret: decisionKeyDraft.trim(),
-        idempotency_key: `aicred:${DECISION_CREDENTIAL_PROVIDER}:${Date.now()}`,
-      } as never,
-    });
-    setDecisionKeyBusy(false);
+    const submitted = decisionKeyDraft.trim();
+    let error: unknown;
+    try {
+      ({ error } = await api.api.PUT("/api/v1/settings/ai/credentials", {
+        body: {
+          provider: DECISION_CREDENTIAL_PROVIDER,
+          kind: "api_key",
+          secret: submitted,
+          idempotency_key: `aicred:${DECISION_CREDENTIAL_PROVIDER}:${Date.now()}`,
+        } as never,
+      }));
+    } catch {
+      // A transport failure rejects rather than returning `error`; without
+      // this the busy flag and the primary action stay stuck.
+      const message = "The Jev credential could not be sent. Check the connection and try again.";
+      setDecisionKeyError(message);
+      return { ok: false, line: message };
+    } finally {
+      setDecisionKeyBusy(false);
+    }
     if (error !== undefined) {
       const message = resultErrorText(error, "The Jev credential was rejected. Nothing was changed.");
       setDecisionKeyError(message);
       return { ok: false, line: message };
     }
-    setDecisionKeyDraft("");
+    setDecisionKeyDraft((prev) => (prev.trim() === submitted ? "" : prev));
+    // The credential list feeds orgCredentialProviders, which gates the
+    // decision defaults — reload so Jev becomes eligible immediately.
+    await load();
     return {
       ok: true,
       line: wasSealed
@@ -292,9 +312,8 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
     };
   };
 
-  /** The honest exit: run every pending save, collect what happened. */
-  const saveAll = async () => {
-    setSaving(true);
+  /** The save body: every pending write, one honest report. */
+  const saveAllInner = async () => {
     const lines: SaveOutcome[] = [];
 
     // 1. The master switch, only when it actually changed.
@@ -336,8 +355,11 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
       }
     }
 
-    // 4. The chat default pick (org default on the chat surface).
-    if (chatDefaultKey !== null && chatDefaultKey !== chatPicked) {
+    // 4. The chat default pick (org default on the chat surface). Write
+    //    whenever a selection was made: chatPicked holds the operator's
+    //    PERSONAL pick from /ai/me/surfaces, which never reflects the org
+    //    default, and the PUT is idempotent for an unchanged pair.
+    if (chatDefaultKey !== null) {
       const [provider = "", ...rest] = chatDefaultKey.split("/");
       const model = rest.join("/");
       const { error } = await api.api.PUT("/api/v1/settings/ai/model-picks/{surface_key}", {
@@ -395,13 +417,42 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
       }
     }
 
+    // The server completes the ai step only while the master switch is on
+    // (the readiness gate mirrors ai.features_enabled), so the report says
+    // plainly that the step stays listed while AI is off.
     if (lines.length === 0) {
       lines.push({ ok: true, line: "Nothing was picked, so nothing was saved." });
     }
+    const effectiveAiOn = aiOn ?? decisionFeaturesEnabled;
+    if (!effectiveAiOn) {
+      lines.push({
+        ok: true,
+        line: "AI stays off, so this step stays on your setup list — turn AI on here or in Settings → AI when you are ready.",
+      });
+    }
     setOutcomes(lines);
     setReported(true);
-    setSaving(false);
     void load();
+  };
+
+  /** The honest exit: run every pending save, collect what happened. A
+   *  transport failure anywhere still lands a report and clears the busy
+   *  state, so the primary action never sticks disabled. */
+  const saveAll = async () => {
+    setSaving(true);
+    try {
+      await saveAllInner();
+    } catch {
+      setOutcomes([
+        {
+          ok: false,
+          line: "The save stopped part-way. Anything reported above is stored; run it again for the rest.",
+        },
+      ]);
+      setReported(true);
+    } finally {
+      setSaving(false);
+    }
   };
 
   /** The org's de facto decision default: one pair agreed on by every
@@ -422,7 +473,13 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
   const finish = () => {
     setOutcomes(null);
     setReported(false);
-    onDone();
+    // The server refuses to complete the ai step while ai.features_enabled
+    // is off (onboarding readiness mirrors that setting), so a 409 is the
+    // predictable result of Done-with-AI-off. The save above still stands;
+    // record the honest outcome instead: skip keeps the step listed.
+    const effectiveAiOn = aiOn ?? decisionFeaturesEnabled;
+    if (effectiveAiOn) onDone();
+    else onSkip();
   };
 
   // ---- the branch shape: gate → error → loading → body ----------------------
@@ -463,7 +520,12 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
             Try again
           </button>
           <span className="entry-actions__spacer" />
-          <button type="button" className="entry-btn entry-btn--secondary" onClick={onSkip}>
+          <button
+            type="button"
+            className="entry-btn entry-btn--secondary"
+            onClick={onSkip}
+            data-testid="ai-setup-notnow"
+          >
             Not now
           </button>
         </div>
@@ -1200,7 +1262,11 @@ export function AiSetupStep({ onBack, backDisabled, onSkip, onDone }: AiSetupSte
               <Spinner /> Saving…
             </>
           ) : reported ? (
-            "Done"
+            (aiOn ?? decisionFeaturesEnabled) ? (
+              "Done"
+            ) : (
+              "Continue without AI"
+            )
           ) : (
             "Save and continue"
           )}

@@ -11,6 +11,9 @@
 //   • unconfigured providers are not selectable defaults — a catalog pair
 //     whose provider has no key stays visible but disabled;
 //   • the skip persists nothing — "Not now" records no mutation at all;
+//   • Done completes the step only while the org master switch is on (the
+//     server gate mirrors ai.features_enabled); with AI off the save stands
+//     and the exit records a skip, never a 409;
 //   • the chat default rides the org pick (model-picks/general_chat), the
 //     decision default rides the per-surface pin, and the report names
 //     what saved and what did not.
@@ -267,6 +270,7 @@ describe("AiSetupStep defaults", () => {
   it("saves the chat default through the org pick and reports honestly", async () => {
     let picked: { provider: string; model: string } | null = null;
     const onDone = vi.fn();
+    const onSkip = vi.fn();
     renderStep(
       (m) => {
         seedCatalog(m, []);
@@ -277,7 +281,7 @@ describe("AiSetupStep defaults", () => {
           };
         });
       },
-      { onDone },
+      { onDone, onSkip },
     );
     await screen.findByTestId("ai-setup");
     fireEvent.click(screen.getByTestId("ai-setup-chat-default-ollama-llama3"));
@@ -288,9 +292,69 @@ describe("AiSetupStep defaults", () => {
     expect(screen.getByTestId("ai-setup-report").textContent).toContain(
       "Chat default set to ollama / llama3.",
     );
-    // The report is the gate: Done advances only after it rendered.
+    // AI is off in this org, so the server would refuse to complete the
+    // step. The report says so, and the exit records the skip.
+    expect(screen.getByTestId("ai-setup-report").textContent).toContain("AI stays off");
+    fireEvent.click(screen.getByTestId("ai-setup-done"));
+    expect(onSkip).toHaveBeenCalledOnce();
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("writes the org pick even when the operator's personal pick matches it", async () => {
+    let wrote = false;
+    renderStep((m) => {
+      seedCatalog(m, []);
+      m.on("GET", "/api/v1/ai/me/surfaces", () => ({
+        json: {
+          surfaces: [
+            { surface_key: "general_chat", picked: { provider: "ollama", model: "llama3" } },
+          ],
+          windows: [null, null],
+        },
+      }));
+      m.on("PUT", "/api/v1/settings/ai/model-picks/general_chat", () => {
+        wrote = true;
+        return { json: { mutation: { version: 1 } } };
+      });
+    });
+    await screen.findByTestId("ai-setup");
+    fireEvent.click(screen.getByTestId("ai-setup-chat-default-ollama-llama3"));
+    fireEvent.click(screen.getByTestId("ai-setup-save"));
+    await screen.findByTestId("ai-setup-report");
+    // The skip-on-match guard compared against the PERSONAL pick, which
+    // never reflects the org default, so the write was silently dropped.
+    expect(wrote).toBe(true);
+  });
+
+  it("completes the step when AI is on", async () => {
+    const onDone = vi.fn();
+    renderStep(
+      (m) => {
+        seedEmptyOrg(m);
+        m.on("GET", "/api/v1/settings/ai/decision", () => ({
+          json: { features_enabled: true, mode: "off", surfaces: [] },
+        }));
+      },
+      { onDone },
+    );
+    await screen.findByTestId("ai-setup");
+    fireEvent.click(screen.getByTestId("ai-setup-save"));
+    await screen.findByTestId("ai-setup-report");
     fireEvent.click(screen.getByTestId("ai-setup-done"));
     expect(onDone).toHaveBeenCalledOnce();
+  });
+
+  it("treats a single failed read as recoverable, never an endless spinner", async () => {
+    renderStep((m) => {
+      seedEmptyOrg(m);
+      m.on("GET", "/api/v1/settings/ai/decision", () => {
+        throw new Error("decision read down");
+      });
+    });
+    const errorCard = await screen.findByText(/could not load/);
+    expect(errorCard).toBeInTheDocument();
+    expect(screen.getByText("Try again")).toBeInTheDocument();
+    expect(screen.getAllByTestId("ai-setup-notnow").length).toBeGreaterThan(0);
   });
 
   it("pins the decision default on every non-forked decision surface", async () => {
@@ -411,9 +475,10 @@ describe("AiSetupStep exits", () => {
     expect(document.body.textContent).not.toContain("sk-never-saved");
   });
 
-  it("reports nothing-picked honestly and still advances on Done", async () => {
+  it("reports nothing-picked honestly and, with AI off, records the skip", async () => {
     const onDone = vi.fn();
-    renderStep(seedEmptyOrg, { onDone });
+    const onSkip = vi.fn();
+    renderStep(seedEmptyOrg, { onDone, onSkip });
     await screen.findByTestId("ai-setup");
     fireEvent.click(screen.getByTestId("ai-setup-save"));
     await screen.findByTestId("ai-setup-report");
@@ -421,6 +486,7 @@ describe("AiSetupStep exits", () => {
       "Nothing was picked, so nothing was saved.",
     );
     fireEvent.click(screen.getByTestId("ai-setup-done"));
-    expect(onDone).toHaveBeenCalledOnce();
+    expect(onSkip).toHaveBeenCalledOnce();
+    expect(onDone).not.toHaveBeenCalled();
   });
 });
