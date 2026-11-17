@@ -146,24 +146,34 @@ async function seedAuth(ctx, page, owner, mode) {
       await page.screenshot({ path: `${OUT}/${mode}-01-today-original.png`, fullPage: false });
     }
 
-    // 2 · wizard first step (clients)
+    // 2 · wizard first step (clients). The demo org resolves its first
+    // three steps from data, so /welcome opens on the resumed list; the
+    // row buttons (wizard-resume-<key>) are what focus a step, and the
+    // rail only exists once one is open.
     await page.goto(`${WEB}/welcome`);
     await ensureMode();
-    await page.getByTestId("wizard-step-clients").waitFor({ timeout: 20_000 }).catch(() => {});
+    await page.getByTestId("wizard-resumed").or(page.getByTestId("wizard-step-clients")).first().waitFor({ timeout: 20_000 }).catch(() => {});
+    await page.getByTestId("wizard-resume-clients").click().catch(() => {});
+    await page.getByTestId("wizard-step-clients").waitFor({ timeout: 10_000 }).catch(() => {});
     await page.screenshot({ path: `${OUT}/${mode}-02-wizard-first-step.png`, fullPage: false });
 
     // 3 · skip contracts visible in the invite form region
+    await page.getByTestId("wizard-resume-invite").click().catch(() => {});
     await page.getByTestId("onboarding-rail-invites").click().catch(() => {});
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/${mode}-03-wizard-invites.png`, fullPage: false });
 
     // 4 · feeder + AI skip controls
+    await page.getByTestId("wizard-resume-feeder").click().catch(() => {});
     await page.getByTestId("onboarding-rail-feeder").click().catch(() => {});
     await page.waitForTimeout(300);
     await page.screenshot({ path: `${OUT}/${mode}-04-wizard-feeder.png`, fullPage: false });
 
-    // 5 · the AI setup step (W72): the shipped rail is indexed
-    // (`wizard-step-6` is the sixth org step), so drive it directly.
+    // 5 · the AI setup step (W72). The demo org resolves its first three
+    // steps from its own data, so /welcome opens on the resumed list and
+    // the AI row's Start button (wizard-resume-ai) is what focuses the
+    // step; a bare org opens the rail directly (wizard-step-6).
+    await page.getByTestId("wizard-resume-ai").click().catch(() => {});
     await page.getByTestId("wizard-step-6").click().catch(() => {});
     await page.getByTestId("ai-setup").waitFor({ timeout: 10_000 }).catch(() => {});
     await page.waitForTimeout(400); // let the staggered card entrance settle
