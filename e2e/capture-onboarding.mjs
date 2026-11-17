@@ -173,7 +173,9 @@ async function seedAuth(ctx, page, owner, mode) {
     // step; a bare org opens the rail directly (wizard-step-6).
     await page.getByTestId("wizard-resume-ai").click().catch(() => {});
     await page.getByTestId("wizard-step-6").click().catch(() => {});
-    await page.getByTestId("ai-setup").waitFor({ timeout: 10_000 }).catch(() => {});
+    // Deliberately not caught: a missing step must fail the capture, not
+    // photograph whatever page happened to be on screen.
+    await page.getByTestId("ai-setup").waitFor({ timeout: 10_000 });
     await page.waitForTimeout(400); // let the staggered card entrance settle
     await page.screenshot({ path: `${OUT}/${mode}-05-wizard-ai-setup.png`, fullPage: true });
 
