@@ -306,7 +306,11 @@ function git(args) {
 }
 
 export function isProductPath(path) {
-  if (!PRODUCT_ROOTS.test(path)) return false;
+  if (!PRODUCT_ROOTS.test(path) && !VERSION_FILES.includes(path)) return false;
+  // A version manifest is not behaviour, whichever directory it sits in. The
+  // list is the same one the pump writes, so adding a manifest to the release
+  // cannot make every future bump ask its author for a fragment.
+  if (VERSION_FILES.includes(path)) return false;
   return !NON_PRODUCT.some((pattern) => pattern.test(path));
 }
 
@@ -538,6 +542,11 @@ function selfTest() {
   assert(!isProductPath("scripts/release-note.mjs"), "tooling is not product");
   assert(!isProductPath("packages/ui/package.json"), "a manifest is not behaviour");
   assert(!isProductPath("Cargo.toml"), "the version manifest is not behaviour");
+  assert(!isProductPath("native/app.json"), "a shell manifest is not behaviour");
+  assert(
+    !isProductPath("desktop/tauri.conf.json"),
+    "the desktop manifest is not behaviour",
+  );
   assert(!isProductPath("docs/site/reference/api.md"), "docs are not product");
   assert(!isProductPath("e2e/flows/01-auth.spec.ts"), "e2e is not product");
 
