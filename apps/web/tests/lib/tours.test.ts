@@ -102,6 +102,22 @@ describe("tourForSurface", () => {
     expect(tourForSurface("today", ["workbar:v3"], false)).toBeNull();
   });
 
+  it("selects through the surface list with the gate applied (controlled fixture)", () => {
+    // The predicate test below proves the rule; this proves SELECTION runs
+    // it, which a bypassed check in tourForSurface would not.
+    const adminTour: Tour = {
+      id: "fixture:admin",
+      surfaces: ["fixture"],
+      title: "Admin fixture",
+      adminOnly: true,
+      steps: [{ target: "#fixture", title: "One", body: "Two." }],
+    };
+    expect(tourForSurface("fixture", [], false, [adminTour])).toBeNull();
+    expect(tourForSurface("fixture", [], true, [adminTour])).toBe(adminTour);
+    // A different surface never selects it, even for an admin.
+    expect(tourForSurface("elsewhere", [], true, [adminTour])).toBeNull();
+  });
+
   it("gates admin-only tours from members (controlled fixture)", () => {
     // The registry has no admin-only tour, so a conditional over it would
     // never exercise the gate. The predicate takes the tour, so a fixture

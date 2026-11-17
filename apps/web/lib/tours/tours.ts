@@ -480,8 +480,11 @@ export function tourForSurface(
   surface: string,
   completed: readonly string[],
   isAdmin: boolean,
+  // Injectable so a test can drive selection with a controlled list; the
+  // app always uses the registry.
+  tours: readonly Tour[] = TOURS,
 ): Tour | null {
-  for (const tour of TOURS) {
+  for (const tour of tours) {
     if (!tour.surfaces.includes(surface)) continue;
     if (!tourAllowed(tour, completed, isAdmin)) continue;
     return tour;
