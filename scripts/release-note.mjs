@@ -316,11 +316,13 @@ function safeBase(base) {
 }
 
 export function isProductPath(path) {
-  if (!PRODUCT_ROOTS.test(path) && !VERSION_FILES.includes(path)) return false;
-  // A version manifest is not behaviour, whichever directory it sits in. The
-  // list is the same one the pump writes, so adding a manifest to the release
-  // cannot make every future bump ask its author for a fragment.
+  // A version manifest is not behaviour, whichever directory it sits in, and
+  // this is the same list the pump writes — so adding a manifest to the release
+  // cannot make every future bump ask its author for a fragment. Answered
+  // first, on its own line, so the exemption does not depend on reading a
+  // compound condition correctly.
   if (VERSION_FILES.includes(path)) return false;
+  if (!PRODUCT_ROOTS.test(path)) return false;
   return !NON_PRODUCT.some((pattern) => pattern.test(path));
 }
 
@@ -571,6 +573,7 @@ function selfTest() {
     !isProductPath("desktop/tauri.conf.json"),
     "the desktop manifest is not behaviour",
   );
+  assert(isProductPath("native/App.tsx"), "a native source file is still product");
   assert(!isProductPath("docs/site/reference/api.md"), "docs are not product");
   assert(!isProductPath("e2e/flows/01-auth.spec.ts"), "e2e is not product");
 
