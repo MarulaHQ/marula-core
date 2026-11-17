@@ -102,9 +102,84 @@ for f in "$migrations_dir"/*.sql; do
   fi
 done
 
+# Shipped migrations are immutable. sqlx digests the whole file, comments
+# included, so editing one that already shipped makes every existing
+# installation's next `migrate` fail with "previously applied but has been
+# modified". A prose sweep did exactly that on 2026-10-21 (53 files, comment
+# lines only), and the upgrade matrix found it weeks later. The newest upgrade
+# fixture records the digest each version was captured with, so it is the
+# reference for every version it holds.
+fixture="$(dirname "$0")/../fixtures/upgrades/v0.3.0.seed.sql.gz"
+if [[ -f "$fixture" ]]; then
+  # A heredoc inside `$( )` is parsed differently by bash 3.2 (the macOS
+  # /bin/bash): the body's quotes are not literal there and the substitution
+  # never closes. The script goes in a temp file instead, which every bash
+  # parses the same way.
+  certify_py="$(mktemp "${TMPDIR:-/tmp}/check-migrations.XXXXXX")"
+  trap 'rm -f "$certify_py"' EXIT
+  cat > "$certify_py" <<'PYEOF'
+import gzip, hashlib, os, re, sys
+
+fixture, migrations_dir = sys.argv[1], sys.argv[2]
+
+# The crates' own exemption manifest: the same file `run_migrations` reads, so
+# an allowed rewrite is named in one place and argued for there.
+allowed = set()
+manifest = os.path.join(migrations_dir, "APPLIED_REWRITES")
+if os.path.exists(manifest):
+    with open(manifest) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            allowed.add(int(line.split()[0]))
+
+recorded = {}
+started = False
+with gzip.open(fixture, "rt") as handle:
+    for line in handle:
+        if line.startswith("COPY public._sqlx_migrations"):
+            started = True
+            continue
+        if not started:
+            continue
+        if line.startswith("\\."):
+            break
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) > 4 and parts[0].isdigit():
+            recorded[int(parts[0])] = parts[4].replace("\\x", "").lstrip("\\")
+
+files = {}
+for name in os.listdir(migrations_dir):
+    match = re.match(r"^(\d+)_", name)
+    if match and name.endswith(".sql"):
+        files[int(match.group(1))] = os.path.join(migrations_dir, name)
+
+for version, want in sorted(recorded.items()):
+    if version in allowed:
+        continue
+    path = files.get(version)
+    if path is None:
+        print(f"{version}: recorded in the fixture, missing from this tree")
+        continue
+    with open(path, "rb") as handle:
+        got = hashlib.sha384(handle.read()).hexdigest()
+    if got != want:
+        print(f"{version}: {os.path.basename(path)}")
+PYEOF
+  drift="$(python3 "$certify_py" "$fixture" "$migrations_dir")"
+  rm -f "$certify_py"
+  trap - EXIT
+  if [[ -n "$drift" ]]; then
+    echo "::error::shipped migration(s) changed since the v0.3.0 capture — sqlx refuses to migrate an existing install:" >&2
+    printf '%s\n' "$drift" >&2
+    rc=1
+  fi
+fi
+
 if [[ "$rc" -eq 0 ]]; then
-  echo "Migration safety: clean ($(ls "$migrations_dir" | wc -l | tr -d ' ') migrations scanned)."
+  echo "Migration safety: clean ($(ls "$migrations_dir"/*.sql | wc -l | tr -d ' ') migrations scanned)."
 else
-  echo "Migration safety: FAILED — rename offending migrations to include --breaking and document the data impact." >&2
+  echo "Migration safety: FAILED — read the lines above: an unflagged destructive statement, a filename that does not match NNN_name.sql, or a shipped migration edited after its release." >&2
 fi
 exit "$rc"

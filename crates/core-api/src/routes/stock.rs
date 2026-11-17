@@ -1624,6 +1624,7 @@ pub async fn receive(
 ) -> ApiResult<Json<MovementMutationResponse>> {
     require_pos(req.qty_milli, "receive quantity")?;
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, Permission::MoveStock)?;
     let org_id = authed.principal.user.org_id;
     let (kind, _currency) = item_kind(&state, &extensions, req.item_id).await?;
     let serialized = kind == "serialized";
@@ -1708,6 +1709,11 @@ fn require_serialized_consistent(
 
 fn authed_principal(extensions: &Extensions) -> ApiResult<(core_domain::ids::OrgId, Uuid, bool)> {
     let authed = authed::<crate::auth::AuthedUser>(extensions)?;
+    // Every movement that rides this helper (consume, adjust, transfer,
+    // ship_out) changes quantity and, through unit cost, inventory value.
+    // The grant is `stock:move` — the on-site parts permission a technician
+    // holds — not the `commercial:edit` that gates item and location CRUD.
+    require_permission(&authed.principal, Permission::MoveStock)?;
     let financial = financial_read(&authed);
     Ok((
         authed.principal.user.org_id,

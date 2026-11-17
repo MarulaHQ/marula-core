@@ -26,7 +26,7 @@ import {
   Spinner,
 } from "@marula-core/ui";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, useAuth } from "../../lib/api";
 import {
   clearTaskBlocker,
@@ -171,13 +171,18 @@ export function TaskPodsPanel({
   const [roleOptions, setRoleOptions] = useState<RoleDocument[] | null>(null);
   const [roleKey, setRoleKey] = useState("technician");
 
+  /** Which task the panel shows; a completion from another must not land. */
+  const taskGeneration = useRef(0);
+
   // The route page reuses this panel when the task changes, so the previous
   // task's promotion, blocker form and notice are dropped at the switch.
   useEffect(() => {
+    taskGeneration.current += 1;
     setPromoted(null);
     setBlockerOpen(false);
     setNote("");
     setError(null);
+    setBusy(false);
   }, [taskId]);
 
   // Dependencies belong to the task, so an obsolete response can never
@@ -299,14 +304,18 @@ export function TaskPodsPanel({
   }, [projectId, taskId, kind, note]);
 
   async function onPromote() {
+    const generation = taskGeneration.current;
     setBusy(true);
     setError(null);
     try {
-      setPromoted(await promoteTask(projectId, taskId, { board_id: null, priority: null }));
+      const result = await promoteTask(projectId, taskId, { board_id: null, priority: null });
+      // A promotion for the task that just left the panel would show its
+      // ticket under the next task's heading.
+      if (generation === taskGeneration.current) setPromoted(result);
     } catch (e) {
-      setError((e as Error).message);
+      if (generation === taskGeneration.current) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (generation === taskGeneration.current) setBusy(false);
     }
   }
 
@@ -417,7 +426,7 @@ export function TaskPodsPanel({
               </Button>
             ) : null}
           </div>
-          {blockerOpen ? (
+          {blockerOpen && !readOnly && canEdit ? (
             <div className="mt-2 flex flex-col gap-2 rounded-ctl bg-muted p-2">
               <Label htmlFor="blocker-kind">What is it waiting on?</Label>
               <Select value={kind} onValueChange={setKind}>

@@ -42,6 +42,58 @@ fn assets(action: Action) -> Permission {
     }
 }
 
+/// An asset whose client is on a `restricted_to` list that excludes the caller
+/// reads as a 404. An internal-org asset (`client_id` NULL) is always visible;
+/// the helper owns the predicate.
+async fn require_asset_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    asset: &DeviceAsset,
+    principal: &core_domain::entities::Principal,
+) -> ApiResult<()> {
+    if let Some(client_id) = asset.client_id {
+        super::clients::require_client_visible(conn, org_id, client_id, principal).await?;
+    }
+    Ok(())
+}
+
+fn visibility_of(
+    principal: &core_domain::entities::Principal,
+) -> core_db::tickets::ClientVisibility {
+    core_db::tickets::ClientVisibility {
+        user_id: principal.user.id,
+        is_admin: principal.is_owner_or_admin(),
+    }
+}
+
+/// The expiry rollup casts `device_assets.fields->>'warranty_end'` straight to
+/// `date`, so a value that is date-shaped but not a real day (`2026-02-30`)
+/// aborts that query and every page that reads it, for the whole organisation.
+/// A typed layout already validates a declared `date` field; this guards the
+/// layout-less write, which stores the object verbatim.
+fn validate_warranty_end(fields: &Value) -> ApiResult<()> {
+    let Some(raw) = fields.get("warranty_end") else {
+        return Ok(());
+    };
+    // A JSON null is "not set", the same answer a typed layout gives it: the
+    // layout-less path must not reject a document the typed one accepts, and
+    // an update that keeps a null must not fail on the way through.
+    if raw.is_null() {
+        return Ok(());
+    }
+    let Some(text) = raw.as_str() else {
+        return Err(ApiError::Validation(
+            "field 'warranty_end' must be a date string (YYYY-MM-DD)".into(),
+        ));
+    };
+    if chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_err() {
+        return Err(ApiError::Validation(format!(
+            "field 'warranty_end' is not a real calendar date: {text}"
+        )));
+    }
+    Ok(())
+}
+
 fn vault(action: Action) -> Permission {
     Permission::Matrix {
         module: Module::Passwords,
@@ -231,6 +283,7 @@ pub async fn list(
         q.scope.as_deref(),
         q.layout_id,
         q.q.as_deref(),
+        Some(visibility_of(&authed.principal)),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -255,6 +308,7 @@ pub async fn get_one(
         .await
         .map_err(ApiError::from)?;
     let asset = core_db::assets::get_asset(&mut *tx, org_id, id).await?;
+    require_asset_visible(&mut tx, org_id, &asset, &authed.principal).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(asset))
 }
@@ -291,6 +345,7 @@ pub async fn create(
         .fields
         .clone()
         .unwrap_or_else(|| Value::Object(Default::default()));
+    validate_warranty_end(&fields)?;
     if let Some(layout_id) = req.layout_id {
         let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
         core_db::set_org_and_user(&mut tx, org_id, user_id)
@@ -346,6 +401,17 @@ pub async fn create(
         .await?
         {
             return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        // A restricted client cannot be handed a new asset through the write
+        // door while its read door is shut.
+        if let Some(client_id) = client_id {
+            super::clients::require_client_visible(
+                &mut ctx.tx,
+                org_id,
+                client_id,
+                &authed.principal,
+            )
+            .await?;
         }
         let id = Uuid::now_v7();
         let mut asset = core_db::assets::create_asset(
@@ -453,6 +519,7 @@ pub async fn update(
         let before = core_db::assets::get_asset(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_asset_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
 
         // Effective layout + fields validation (same rule as documents:
         // a layout change re-validates the kept fields vs the new schema).
@@ -477,6 +544,9 @@ pub async fn update(
                 None
             }
         };
+
+        let effective_fields = req.fields.clone().unwrap_or_else(|| before.fields.clone());
+        validate_warranty_end(&effective_fields)?;
 
         let asset = core_db::assets::update_asset(
             &mut *ctx.tx,
@@ -603,10 +673,12 @@ pub async fn remove(
     let user_id = authed.principal.user.id;
 
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        core_db::assets::get_asset(&mut *ctx.tx, org_id, id)
+        let asset = core_db::assets::get_asset(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_asset_visible(&mut ctx.tx, org_id, &asset, &authed.principal).await?;
         core_db::assets::delete_asset(&mut ctx.tx, org_id, id).await?;
+        crate::routes::knowledge_home::purge_links(&mut ctx.tx, org_id, "asset", id).await?;
         ctx.emit(
             types::ASSET_DELETED,
             "asset",
@@ -632,6 +704,18 @@ pub async fn list_links(
     extensions: Extensions,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<core_domain::entities::ResolvedLink>>> {
+    // The link panel is a view of the asset, so it takes the asset's gate:
+    // a restricted client's cross-entity edges answer 404, not the panel.
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, assets(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let asset = core_db::assets::get_asset(&mut *tx, org_id, id).await?;
+    require_asset_visible(&mut tx, org_id, &asset, &authed.principal).await?;
+    tx.commit().await.map_err(ApiError::from)?;
     links_for(&state, &extensions, LinkKind::Asset, id).await
 }
 
@@ -662,9 +746,10 @@ pub async fn add_link(
         .ok_or_else(|| ApiError::Validation(format!("unknown link kind '{}'", req.to_kind)))?;
 
     org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
-        core_db::assets::get_asset(&mut *ctx.tx, org_id, id)
+        let asset = core_db::assets::get_asset(&mut *ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_asset_visible(&mut ctx.tx, org_id, &asset, &authed.principal).await?;
         link_target_exists(&mut ctx.tx, org_id, to_kind, req.to_id).await?;
         let link = core_db::document_links::create_link(
             &mut *ctx.tx,
@@ -716,7 +801,8 @@ pub async fn list_vault(
         .await
         .map_err(ApiError::from)?;
     // Scope check on the asset itself (typed 404, not an empty list).
-    core_db::assets::get_asset(&mut *tx, org_id, id).await?;
+    let asset = core_db::assets::get_asset(&mut *tx, org_id, id).await?;
+    require_asset_visible(&mut tx, org_id, &asset, &authed.principal).await?;
     let rows = sqlx::query(
         r#"SELECT p.id, p.title, p.username, p.url, p.expires_at
            FROM document_links l

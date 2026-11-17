@@ -432,6 +432,16 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             Some(("role_name_taken", "a role with this name already exists"))
         }
         "uq_catalog_items_sku" => Some(("sku_taken", "an item with this SKU already exists")),
+        // 0226 and 0231: one live client update per period, one reservation per
+        // host in a subnet. Both answer typed, not as a generic conflict.
+        "uq_project_client_updates_period" => Some((
+            "client_update_period_taken",
+            "a client update for this period already exists",
+        )),
+        "uq_knowledge_ip_reservations_host" => Some((
+            "ip_reservation_host_taken",
+            "this host address is already reserved in that subnet",
+        )),
         "quotes_number_key" => Some((
             "quote_number_taken",
             "a quote with this number already exists",
@@ -1254,6 +1264,8 @@ mod tests {
             "users_org_id_email_key",
             "roles_org_id_name_key",
             "uq_catalog_items_sku",
+            "uq_project_client_updates_period",
+            "uq_knowledge_ip_reservations_host",
             "quotes_number_key",
             "pipeline_stages_name_key",
             "uq_ticket_categories_root_name",
@@ -1297,9 +1309,9 @@ mod tests {
         // child-name collisions are the same UX problem), and the two SSO
         // name pairs (`oidc_provider_name_taken`, `edge_source_name_taken` —
         // a per-org and a deployment-wide collision of the same name are the
-        // same answer to the admin). So 27 constraints map to 24 distinct
+        // same answer to the admin). So 29 constraints map to 26 distinct
         // codes.
-        assert_eq!(seen.len(), 24, "unexpected reason-code fan-out: {seen:?}");
+        assert_eq!(seen.len(), 26, "unexpected reason-code fan-out: {seen:?}");
         assert_eq!(
             map_unique_constraint("uq_ticket_categories_root_name").map(|(k, _)| k),
             map_unique_constraint("uq_ticket_categories_child_name").map(|(k, _)| k)

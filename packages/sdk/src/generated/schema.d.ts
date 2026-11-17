@@ -29707,7 +29707,7 @@ export interface components {
             /** Format: int64 */
             amount_minor: number;
             description: string;
-            /** @description Priced and shown beside the total, never counted inside it. */
+            /** @description A line offered beside the total, not billed in it. */
             optional: boolean;
             /** Format: int32 */
             position: number;
@@ -31642,10 +31642,10 @@ export interface components {
             /** @description Required when no catalog item backs the line. */
             description?: string | null;
             /**
-             * @description Priced and shown, excluded from the subtotal and the tax. An optional
-             *     line is never dropped; `false` keeps the required-line behaviour.
+             * @description A priced extra the client may take: quoted beside the total, never
+             *     billed. Defaults to false.
              */
-            optional?: boolean;
+            optional?: boolean | null;
             /**
              * Format: int64
              * @description Quantity in thousandths of a unit (1.5 = 1500).
@@ -51291,6 +51291,7 @@ export interface operations {
                 q: string;
                 limit?: number;
                 client_id?: string;
+                kinds?: string;
             };
             header?: never;
             path?: never;

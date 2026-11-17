@@ -1,0 +1,67 @@
+# Shipped migrations whose SQL is not the SQL a released installation recorded.
+#
+# sqlx digests a migration file whole, comments included, and refuses to run when
+# an already-applied version differs from the file on disk. That check is the
+# point of the table, so every entry here is an exception that has to argue for
+# itself, and `run_migrations` normalises only the versions listed. Both this file
+# and `scripts/check-migrations.sh` read it, so there is one authority, not two.
+#
+# Format: <version> <reason>. `#` starts a comment; blank lines are ignored.
+#
+# 2026-10-21, b0153db3: a repository-wide prose sweep edited 53 files under
+# migrations/, every changed line a `--` comment. No statement changed.
+11 comment-only rewrite (2026-10-21 prose sweep)
+13 comment-only rewrite (2026-10-21 prose sweep)
+14 comment-only rewrite (2026-10-21 prose sweep)
+15 comment-only rewrite (2026-10-21 prose sweep)
+16 comment-only rewrite (2026-10-21 prose sweep)
+17 comment-only rewrite (2026-10-21 prose sweep)
+19 comment-only rewrite (2026-10-21 prose sweep)
+21 comment-only rewrite (2026-10-21 prose sweep)
+22 comment-only rewrite (2026-10-21 prose sweep)
+23 comment-only rewrite (2026-10-21 prose sweep)
+24 comment-only rewrite (2026-10-21 prose sweep)
+25 comment-only rewrite (2026-10-21 prose sweep)
+26 comment-only rewrite (2026-10-21 prose sweep)
+27 comment-only rewrite (2026-10-21 prose sweep)
+28 comment-only rewrite (2026-10-21 prose sweep)
+29 comment-only rewrite (2026-10-21 prose sweep)
+30 comment-only rewrite (2026-10-21 prose sweep)
+31 comment-only rewrite (2026-10-21 prose sweep)
+32 comment-only rewrite (2026-10-21 prose sweep)
+33 comment-only rewrite (2026-10-21 prose sweep)
+34 comment-only rewrite (2026-10-21 prose sweep)
+35 comment-only rewrite (2026-10-21 prose sweep)
+36 comment-only rewrite (2026-10-21 prose sweep)
+37 comment-only rewrite (2026-10-21 prose sweep)
+38 comment-only rewrite (2026-10-21 prose sweep)
+39 comment-only rewrite (2026-10-21 prose sweep)
+40 comment-only rewrite (2026-10-21 prose sweep)
+41 comment-only rewrite (2026-10-21 prose sweep)
+42 comment-only rewrite (2026-10-21 prose sweep)
+43 comment-only rewrite (2026-10-21 prose sweep)
+44 comment-only rewrite (2026-10-21 prose sweep)
+45 comment-only rewrite (2026-10-21 prose sweep)
+56 comment-only rewrite (2026-10-21 prose sweep)
+57 comment-only rewrite (2026-10-21 prose sweep)
+58 comment-only rewrite (2026-10-21 prose sweep)
+59 comment-only rewrite (2026-10-21 prose sweep)
+60 comment-only rewrite (2026-10-21 prose sweep)
+63 comment-only rewrite (2026-10-21 prose sweep)
+69 comment-only rewrite (2026-10-21 prose sweep)
+70 unassigned-record fix: the shipped backfill referenced its own loop record
+71 name-aware preset backfill: the insert collided with a pre-preset role of the same name
+74 comment-only rewrite (2026-10-21 prose sweep)
+106 comment-only rewrite (2026-10-21 prose sweep)
+112 comment-only rewrite (2026-10-21 prose sweep)
+113 comment-only rewrite (2026-10-21 prose sweep)
+124 comment-only rewrite (2026-10-21 prose sweep)
+125 comment-only rewrite (2026-10-21 prose sweep)
+126 comment-only rewrite (2026-10-21 prose sweep)
+128 comment-only rewrite (2026-10-21 prose sweep)
+129 comment-only rewrite (2026-10-21 prose sweep)
+131 comment-only rewrite (2026-10-21 prose sweep)
+134 comment-only rewrite (2026-10-21 prose sweep)
+135 comment-only rewrite (2026-10-21 prose sweep)
+136 comment-only rewrite (2026-10-21 prose sweep)
+182 unassigned-record fix: the shipped backfill referenced its own loop record

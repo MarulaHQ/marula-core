@@ -192,6 +192,7 @@ pub async fn issue(
 ) -> ApiResult<Json<CreditNoteMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Create))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     if req.total_minor <= 0 {
         return Err(ApiError::Validation("total_minor must be positive".into()));
     }
@@ -455,6 +456,7 @@ pub async fn apply(
 ) -> ApiResult<Json<CreditNoteAllocationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Create))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     if req.amount_minor <= 0 {
         return Err(ApiError::Validation("amount_minor must be positive".into()));
     }
@@ -711,6 +713,7 @@ pub async fn refund(
 ) -> ApiResult<Json<CreditNoteAllocationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Create))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     if req.amount_minor <= 0 {
         return Err(ApiError::Validation("amount_minor must be positive".into()));
     }
@@ -861,6 +864,7 @@ pub async fn void(
 ) -> ApiResult<Json<CreditNoteMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);

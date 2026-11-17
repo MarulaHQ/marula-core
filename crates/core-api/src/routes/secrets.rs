@@ -180,6 +180,21 @@ async fn folder_visible(
         .map_err(ApiError::from)
 }
 
+/// The client gate on a credential record: a record whose client is on a
+/// `restricted_to` list that excludes the caller reads as a 404. An org-scope
+/// record (`client_id` NULL) is always visible; the helper owns the predicate.
+async fn require_record_visible(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    record: &SecretRecord,
+    principal: &Principal,
+) -> ApiResult<()> {
+    if let Some(client_id) = record.client_id {
+        super::clients::require_client_visible(conn, org_id, client_id, principal).await?;
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Folder routes
 // ---------------------------------------------------------------------------
@@ -591,13 +606,19 @@ pub async fn list_records(
         .map_err(ApiError::from)?;
     let records = match q.client_id {
         Some(client) => {
+            // A restricted client's vault is a 404, not an empty browser.
+            super::clients::require_client_visible(&mut tx, org_id, client, &authed.principal)
+                .await?;
             core_db::secret_vault::list_client_records(&mut tx, client, q.folder_id).await?
         }
         None => core_db::secret_vault::list_org_records(&mut tx, org_id, q.folder_id).await?,
     };
     let mut visible = Vec::with_capacity(records.len());
     for record in records {
-        // The CATEGORY gate narrows restricted chains record-by-record.
+        // The CATEGORY gate narrows restricted chains record-by-record. The
+        // client gate already ran above: `list_org_records` selects only
+        // org-scope rows (client rows carry `org_id` NULL), and the client
+        // branch checked its client before the query.
         if folder_visible(&mut tx, org_id, &authed.principal, record.folder_id).await? {
             visible.push(record);
         }
@@ -626,6 +647,7 @@ pub async fn get_record(
     let record = core_db::secret_vault::get_record(&mut tx, org_id, id)
         .await
         .map_err(ApiError::from)?;
+    require_record_visible(&mut tx, org_id, &record, &authed.principal).await?;
     if !folder_visible(&mut tx, org_id, &authed.principal, record.folder_id).await? {
         return Err(ApiError::NotFound);
     }
@@ -695,6 +717,17 @@ pub async fn create_record(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         // The CATEGORY edit gate BEFORE any write (restricted chains deny).
+        // The client gate rides beside it: a restricted client's vault cannot
+        // receive a record the caller could not read back.
+        if let Some(client_id) = req.client_id {
+            super::clients::require_client_visible(
+                &mut ctx.tx,
+                org_id,
+                client_id,
+                &authed.principal,
+            )
+            .await?;
+        }
         let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
         let allowed = core_db::secret_vault::folder_access(
             &mut ctx.tx,
@@ -836,6 +869,7 @@ pub async fn update_record(
         let before = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_record_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
         let before_folded = serde_json::to_value(&before).unwrap_or(serde_json::Value::Null);
         let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
         let allowed = core_db::secret_vault::folder_access(
@@ -941,6 +975,7 @@ pub async fn delete_record(
         let before = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_record_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
         let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
         let allowed = core_db::secret_vault::folder_access(
             &mut ctx.tx,
@@ -955,6 +990,9 @@ pub async fn delete_record(
             return Err(ApiError::Forbidden("category locked to your role".into()));
         }
         core_db::secret_vault::delete_record(&mut ctx.tx, org_id, id).await?;
+        // A credential id in `knowledge_links` would keep resolving after the
+        // record is gone, so the edge rows leave with it.
+        crate::routes::knowledge_home::purge_links(&mut ctx.tx, org_id, "secret", id).await?;
         ctx.emit(
             types::SECRET_RECORD_DELETED,
             "secret_record",
@@ -996,6 +1034,7 @@ pub async fn reveal_record(
         let record = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_record_visible(&mut ctx.tx, org_id, &record, &authed.principal).await?;
         let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
         let allowed = core_db::secret_vault::folder_access(
             &mut ctx.tx,
@@ -1127,6 +1166,7 @@ pub async fn put_record_file(
         let record = core_db::secret_vault::get_record(&mut preflight.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_record_visible(&mut preflight.tx, org_id, &record, &authed.principal).await?;
         if record.kind != SecretRecordKind::Document {
             return Err(ApiError::Validation(
                 "file bytes belong on document-kind records".into(),
@@ -1177,6 +1217,7 @@ pub async fn put_record_file(
         let before = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_record_visible(&mut ctx.tx, org_id, &before, &authed.principal).await?;
         if before.kind != SecretRecordKind::Document {
             return Err(ApiError::Validation(
                 "file bytes belong on document-kind records".into(),
@@ -1323,6 +1364,7 @@ pub async fn get_record_file(
             let record = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
                 .await
                 .map_err(|e| instant::mutation_scope_err(e.into()))?;
+            require_record_visible(&mut ctx.tx, org_id, &record, &authed.principal).await?;
             if record.kind != SecretRecordKind::Document {
                 return Err(ApiError::Validation(
                     "file bytes belong on document-kind records".into(),
@@ -1701,6 +1743,11 @@ pub async fn bulk_ingest(
             core_db::secret_vault::folder_access(&mut tx, org_id, &role_ids, req.folder_id, true)
                 .await
                 .map_err(ApiError::from)?;
+        // One client scope covers the whole chunk, so one gate covers it too.
+        if let Some(client_id) = req.client_id {
+            super::clients::require_client_visible(&mut tx, org_id, client_id, &authed.principal)
+                .await?;
+        }
         tx.commit().await.map_err(ApiError::from)?;
         if !allowed {
             return Err(ApiError::Forbidden(
@@ -1884,6 +1931,24 @@ pub async fn list_record_links(
     extensions: Extensions,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Vec<ResolvedLink>>> {
+    // The mount's module permission is not the credential's gate: an id whose
+    // category is locked to another role is a 404 here, exactly as the record
+    // read and the add-link path answer it.
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, secrets(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let record = core_db::secret_vault::get_record(&mut tx, org_id, id)
+        .await
+        .map_err(|e| instant::mutation_scope_err(e.into()))?;
+    require_record_visible(&mut tx, org_id, &record, &authed.principal).await?;
+    if !folder_visible(&mut tx, org_id, &authed.principal, record.folder_id).await? {
+        return Err(ApiError::NotFound);
+    }
+    tx.commit().await.map_err(ApiError::from)?;
     crate::routes::documents::links_for(&state, &extensions, LinkKind::Secret, id).await
 }
 
@@ -1911,6 +1976,7 @@ pub async fn add_record_link(
         let record = core_db::secret_vault::get_record(&mut ctx.tx, org_id, id)
             .await
             .map_err(|e| instant::mutation_scope_err(e.into()))?;
+        require_record_visible(&mut ctx.tx, org_id, &record, &authed.principal).await?;
         let role_ids: Vec<Uuid> = authed.roles.iter().map(|r| r.id).collect();
         let allowed = core_db::secret_vault::folder_access(
             &mut ctx.tx,

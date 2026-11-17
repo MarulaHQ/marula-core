@@ -72,12 +72,18 @@ test("nav jump Alt+1 and Alt+2 follow the rail order", async ({ authedPage }) =>
   await expect(authedPage).toHaveURL(/\/tickets(\?.*)?$/);
 });
 
-test("palette chord Cmd/Ctrl+K opens unified search", async ({ authedPage }) => {
+test("palette chord Cmd/Ctrl+K opens the unified search overlay", async ({ authedPage }) => {
   await authedPage.goto("/tickets");
   await expect(authedPage.getByTestId("top-bar")).toBeVisible({ timeout: 30_000 });
   // The profile read settles before any chord expectation.
   await expect(authedPage.getByTestId("shortcut-profile-ready")).toBeAttached();
   await authedPage.keyboard.press("ControlOrMeta+k");
+  // K01 changed what the chord does: the palette opens over the page instead
+  // of navigating to /search. The full-page surface is still reachable from
+  // the palette's footer, so both halves of the old expectation are covered.
+  const palette = authedPage.getByRole("dialog");
+  await expect(palette.getByRole("combobox")).toBeVisible({ timeout: 10_000 });
+  await palette.getByRole("link", { name: "Full search page" }).click();
   await expect(authedPage).toHaveURL(/\/search(\?.*)?$/);
 });
 

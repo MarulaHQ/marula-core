@@ -49,7 +49,11 @@ const ROLES = {
   portal_tiers: [],
 };
 
-function setupApi(hidden: string[] = [], admin = false): MockApi {
+function setupApi(
+  hidden: string[] = [],
+  admin = false,
+  settings: { rows?: unknown[]; fail?: boolean } = {},
+): MockApi {
   const mock = new MockApi();
   // The caller is a technician. `chain` is granted only to dispatchers, so it
   // is outside the caller's ceiling; `links` is named by no document and stays
@@ -66,9 +70,19 @@ function setupApi(hidden: string[] = [], admin = false): MockApi {
   mock.on("GET", `/api/v1/projects/${PROJECT}/tasks/${TASK}/dependencies`, () => ({
     json: { depends_on: [] },
   }));
-  mock.on("GET", "/api/v1/project-pods/settings", () => ({
-    json: [settingsRow("technician", ["status"]), settingsRow("dispatcher", ["chain"])],
-  }));
+  if (settings.fail === true) {
+    mock.on("GET", "/api/v1/project-pods/settings", () => ({
+      status: 500,
+      json: { error: { reason: "internal", message: "the settings read failed" } },
+    }));
+  } else {
+    mock.on("GET", "/api/v1/project-pods/settings", () => ({
+      json: settings.rows ?? [
+        settingsRow("technician", ["status"]),
+        settingsRow("dispatcher", ["chain"]),
+      ],
+    }));
+  }
   mock.on("GET", "/api/v1/project-pods/prefs", () => ({
     json: { surface: "project_task", hidden, pod_order: [] },
   }));
@@ -148,6 +162,29 @@ describe("TaskPodsPanel role documents", () => {
         surface: "project_task",
       }),
     );
+    cleanup();
+  });
+});
+
+describe("TaskPodsPanel when the role documents are absent or unreadable", () => {
+  it("treats an empty document set as no ceiling", async () => {
+    // No document names a pod, so no document restricts one: the panel must
+    // draw all three rather than inferring a ceiling from silence.
+    setupApi([], false, { rows: [] });
+    mount();
+    expect(await screen.findByLabelText("Status and blocker")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Waiting on")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Links")).toBeInTheDocument();
+    cleanup();
+  });
+
+  it("draws the pods when the settings read fails instead of holding a spinner", async () => {
+    setupApi([], false, { fail: true });
+    mount();
+    // A failed read degrades to "no documents": the workbench stays usable,
+    // which is the only honest behaviour when the ceiling is unknown.
+    expect(await screen.findByLabelText("Status and blocker")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Links")).toBeInTheDocument();
     cleanup();
   });
 });

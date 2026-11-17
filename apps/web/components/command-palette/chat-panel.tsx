@@ -230,6 +230,10 @@ export function ChatPanel({ grant, context }: { grant: GrantStatus; context: Scr
 function useWorkBarHeight(active: boolean): number {
   const [height, setHeight] = useState(0);
   useEffect(() => {
+    // A restart with no bar present has to clear the previous bar's height:
+    // `attach(null)` cannot, because the effect's initial element is already
+    // null and the identity guard returns before measuring.
+    setHeight(0);
     if (!active) return;
     let element: HTMLElement | null = null;
     let sizeObserver: ResizeObserver | null = null;

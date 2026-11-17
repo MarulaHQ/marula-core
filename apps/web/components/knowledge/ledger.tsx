@@ -17,6 +17,7 @@
 import type { ReactNode } from "react";
 import {
   Badge,
+  Button,
   EmptyState,
   Skeleton,
 } from "@marula-core/ui";
@@ -511,9 +512,15 @@ export function RuleStep({
 export function ErrorNote({
   children,
   title,
+  onRetry,
+  retryLabel = "Retry",
 }: {
   children: ReactNode;
   title?: string;
+  /** A failed read offers its own way back: without one the reader has to
+   *  reload the whole page, and the error reads as a dead end. */
+  onRetry?: () => void;
+  retryLabel?: string;
 }): ReactNode {
   return (
     <div
@@ -528,6 +535,16 @@ export function ErrorNote({
         {title ? <b className="mr-1">{title}</b> : null}
         {children}
       </span>
+      {onRetry !== undefined ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="ml-auto shrink-0"
+          onClick={onRetry}
+        >
+          {retryLabel}
+        </Button>
+      ) : null}
     </div>
   );
 }

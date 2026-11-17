@@ -147,6 +147,44 @@ pub(crate) fn default_limit() -> i64 {
     50
 }
 
+/// Every task of a project, not just the first page.
+///
+/// The store clamps a page to 200 rows. A reader that claims something about
+/// "the tasks" — a schedule, a risk read, a client draft — must see all of
+/// them, so it pages until a short page instead of trusting one call.
+pub(crate) async fn list_all_tasks(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    project_id: Uuid,
+) -> ApiResult<Vec<ProjectTask>> {
+    const PAGE: i64 = 200;
+    let mut out: Vec<ProjectTask> = Vec::new();
+    let mut offset = 0i64;
+    loop {
+        let page = core_db::projects::list_tasks(
+            &mut *tx,
+            org_id,
+            project_id,
+            core_db::projects::TaskFilter {
+                phase_id: None,
+                status: None,
+                assignee_id: None,
+                milestone: None,
+                limit: PAGE,
+                offset,
+            },
+        )
+        .await?;
+        let short = (page.len() as i64) < PAGE;
+        out.extend(page);
+        if short {
+            break;
+        }
+        offset += PAGE;
+    }
+    Ok(out)
+}
+
 pub(crate) fn valid_currency(code: &str) -> bool {
     CurrencyCode::new(code).is_ok()
 }

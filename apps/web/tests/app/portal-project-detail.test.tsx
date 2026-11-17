@@ -80,6 +80,43 @@ describe("/portal/projects/[id] hold card", () => {
     cleanup();
   });
 
+  it("shows the load error and the way back when the project read fails", async () => {
+    const mock = new MockApi();
+    mock.on("POST", "/api/v1/portal/refresh", () => ({
+      json: { access_token: "a", expires_in: 3600 },
+    }));
+    mock.on("GET", "/api/v1/portal/me", () => ({
+      json: {
+        id: "u1",
+        org_id: "o1",
+        client_id: "c1",
+        email: "ops@acme.com",
+        display_name: "Ops User",
+        role: "contact",
+      },
+    }));
+    mock.on("GET", "/api/v1/portal/projects/p1", () => ({
+      status: 404,
+      json: { error: { reason: "not_found", message: "No such project" } },
+    }));
+    mock.install();
+
+    render(
+      <PortalAuthProvider>
+        <PortalProjectPage />
+      </PortalAuthProvider>,
+    );
+
+    // A failed read is not a permanently loading page: name it, and leave the
+    // client a way back rather than a spinner that never resolves.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: "Back to your projects" }),
+    ).toHaveAttribute("href", "/portal/projects");
+    cleanup();
+  });
+
   it("falls back to saying work is paused when no reason was written", async () => {
     setupApi(project(null));
     render(

@@ -60,23 +60,27 @@ export default function PortalKbPage() {
     const request =
       trimmed === ""
         ? portalApi.kbArticles()
-        : portalApi
-            .kbSearch(trimmed)
-            .then((hits) => hits.map((h) => h.article))
-            .catch(() => {
-              if (!cancelled) setError("That search didn't work. Try a shorter word.");
-              return [] as PortalKbArticle[];
-            });
+        : portalApi.kbSearch(trimmed).then((hits) => hits.map((h) => h.article));
     request
       .then((list) => {
         if (!cancelled) {
-          setArticles(list);
+          setArticles(Array.isArray(list) ? list : []);
           setError(null);
         }
       })
       .catch((err: unknown) => {
+        // A failed search is not "nothing matches": keep the list unset and
+        // say the search did not run.
         if (!cancelled) {
-          setError(friendlyMutationText(err, "We couldn't load the help pages."));
+          setArticles(null);
+          setError(
+            friendlyMutationText(
+              err,
+              trimmed === ""
+                ? "We couldn't load the help pages."
+                : "That search didn't work. Try a shorter word.",
+            ),
+          );
         }
       });
     return () => {
@@ -126,9 +130,11 @@ export default function PortalKbPage() {
         testId="portal-kb-list"
       >
         {articles === null ? (
-          <div style={{ display: "flex", justifyContent: "center", padding: "32px 0" }}>
-            <Spinner aria-label="Loading the help pages" />
-          </div>
+          error === null ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "32px 0" }}>
+              <Spinner aria-label="Loading the help pages" />
+            </div>
+          ) : null
         ) : articles.length === 0 ? (
           <div className="portal-empty" style={{ padding: "32px 24px" }}>
             <p>

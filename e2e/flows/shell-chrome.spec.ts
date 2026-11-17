@@ -89,8 +89,13 @@ test("the top bar and rail hold the pack's composition", async ({ authedPage }, 
     clip: { x: 0, y: 0, width: viewport?.width ?? 1440, height: 240 },
   });
 
-  // The launcher is the search field: it takes the person to the search page.
+  // The launcher is the unified-search entry: K01 opens the command palette
+  // over the page rather than navigating, and the palette's footer keeps the
+  // full /search page one click away.
   await launcher.click();
+  const palette = authedPage.getByRole("dialog");
+  await expect(palette.getByRole("combobox")).toBeVisible({ timeout: 10_000 });
+  await palette.getByRole("link", { name: "Full search page" }).click();
   await expect(authedPage).toHaveURL(/\/search(\?.*)?$/);
   await expect(authedPage.getByTestId("top-bar")).toBeVisible();
 });

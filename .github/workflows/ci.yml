@@ -447,6 +447,23 @@ jobs:
         run: |
           gunzip -c fixtures/upgrades/v0.2.0.seed.sql.gz \
             | psql postgres://postgres:postgres@localhost:5432/marula_upgrade -v ON_ERROR_STOP=1 -q
+      # `pg_dump` carries a database, not the cluster: the `meridian_app` role
+      # that migration 0001 created on the captured installation is not in the
+      # fixture, and migrations 0046-0113 grant to it by name. A real v0.2.0
+      # host has the role (0001 made it there); this container starts with only
+      # `postgres`, so the job puts it back before the forward path runs. 0114
+      # creates `marula_app` itself, exactly as it does on every install.
+      - name: Create the pre-rebrand app role
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'meridian_app') THEN
+              CREATE ROLE meridian_app LOGIN PASSWORD 'meridian_app';
+            END IF;
+          END
+          $$;
+          SQL
       - name: Migrate fixture to HEAD
         # `SQLX_OFFLINE` is load-bearing here, not an optimisation. The restore
         # above leaves a v0.2.0 schema in the database, and a compile that dials

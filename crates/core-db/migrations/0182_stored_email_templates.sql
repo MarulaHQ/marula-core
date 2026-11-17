@@ -92,8 +92,11 @@ BEGIN
          NULL)
       ) AS t(k, s, n, d, subj, b, h)
       WHERE NOT EXISTS (
+        -- The candidate row is `t`; `missing` is only assigned once this FOR
+        -- picks a row, so reading it here raised "record \"missing\" is not
+        -- assigned yet" — the same shape 0070 had, on the first org present.
         SELECT 1 FROM templates tpl
-        WHERE tpl.org_id = org.id AND tpl.kind = missing.k AND tpl.slug = missing.s
+        WHERE tpl.org_id = org.id AND tpl.kind = t.k AND tpl.slug = t.s
       )
     LOOP
       INSERT INTO templates (id, org_id, kind, slug, name, description, subject, body, html, variables, builtin, is_system)

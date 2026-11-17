@@ -370,13 +370,11 @@ where
                FROM (
                  SELECT a.name, a.client_id, c.name AS client_name, a.tag, a.id,
                         v.raw,
-                        CASE WHEN substr(v.raw, 1, 4)::int BETWEEN 1 AND 9999
-                              AND substr(v.raw, 6, 2)::int BETWEEN 1 AND 12
-                              AND substr(v.raw, 9, 2)::int BETWEEN 1 AND 31
-                             THEN make_date(substr(v.raw, 1, 4)::int,
-                                            substr(v.raw, 6, 2)::int, 1)
-                                  + (substr(v.raw, 9, 2)::int - 1)
-                        END AS candidate
+                        -- A shape check is not a calendar check: 2026-02-30
+                        -- matches the regex and used to abort the whole
+                        -- rollup. The helper returns NULL, so the row is
+                        -- skipped instead of raising.
+                        app_parse_date_or_null(v.raw) AS candidate
                    FROM device_assets a
                    JOIN clients c ON c.id = a.client_id
                    CROSS JOIN LATERAL (
@@ -1715,7 +1713,7 @@ pub fn is_link_kind(kind: &str) -> bool {
 /// Drops the edges one record owned. Neither endpoint can be a foreign key —
 /// a link names a record by kind and id — so deleting the record has to delete
 /// them; a leftover edge reads as a relationship to something that is gone.
-pub(crate) async fn delete_links_for(
+pub async fn delete_links_for(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     kind: &str,
@@ -2317,16 +2315,28 @@ pub struct KnowledgeSearchHit {
 /// belong to no client (the org knowledge base, org documents, the org vault)
 /// drop out when a client is named — "scoped to Acme" is Acme's records, not
 /// everything Acme might read.
+/// What the unified search may look at. `client_id` narrows to one client,
+/// `kinds` narrows to named stores, and the user/admin pair applies the
+/// per-client visibility rule before the limit rather than after it.
+pub struct KnowledgeSearchScope {
+    pub client_id: Option<Uuid>,
+    pub kinds: Option<Vec<String>>,
+    pub user_id: Uuid,
+    pub is_admin: bool,
+}
+
 pub async fn search<'e, E>(
     executor: E,
     org_id: Uuid,
-    client_id: Option<Uuid>,
     pattern: &str,
     limit: i64,
+    scope: KnowledgeSearchScope,
 ) -> DbResult<Vec<KnowledgeSearchHit>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    // A restricted client's rows are invisible to a caller it does not name.
+    // `c.id IS NULL` keeps org-level records (no client) visible.
     Ok(sqlx::query_as::<_, KnowledgeSearchHit>(
         r#"SELECT kind, id, title, subtitle, client_id, client_name, href FROM (
              SELECT 'client'::text AS kind, c.id, c.name AS title,
@@ -2337,6 +2347,8 @@ where
                FROM clients c
               WHERE c.org_id = $1 AND c.name ILIKE $3
                 AND ($2::uuid IS NULL OR c.id = $2)
+                AND (jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
              UNION ALL
              SELECT 'secret', r.id, r.title, 'Credential · value hidden',
                     r.client_id, c.name,
@@ -2345,6 +2357,8 @@ where
                LEFT JOIN clients c ON c.id = r.client_id
               WHERE r.org_id = $1 AND r.title ILIKE $3
                 AND ($2::uuid IS NULL OR r.client_id = $2)
+                AND (c.id IS NULL OR jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
              UNION ALL
              SELECT 'asset', a.id, a.name, coalesce(nullif(a.kind, ''), 'Configuration'),
                     a.client_id, c.name, '/assets/' || a.id::text, 2, a.updated_at
@@ -2352,6 +2366,8 @@ where
                LEFT JOIN clients c ON c.id = a.client_id
               WHERE a.org_id = $1 AND a.name ILIKE $3
                 AND ($2::uuid IS NULL OR a.client_id = $2)
+                AND (c.id IS NULL OR jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
              UNION ALL
              SELECT 'rack', r.id, r.name, 'Rack',
                     r.client_id, c.name, '/kb/racks/' || r.id::text, 2, r.updated_at
@@ -2359,6 +2375,8 @@ where
                JOIN clients c ON c.id = r.client_id
               WHERE r.org_id = $1 AND r.name ILIKE $3
                 AND ($2::uuid IS NULL OR r.client_id = $2)
+                AND (jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
              UNION ALL
              SELECT 'network', n.id, n.name, 'Network',
                     n.client_id, c.name, '/kb/networks/' || n.id::text, 2, n.updated_at
@@ -2366,6 +2384,8 @@ where
                JOIN clients c ON c.id = n.client_id
               WHERE n.org_id = $1 AND n.name ILIKE $3
                 AND ($2::uuid IS NULL OR n.client_id = $2)
+                AND (jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
              UNION ALL
              SELECT 'domain', d.id, d.domain, 'Domain or certificate',
                     d.client_id, c.name, '/kb/domains?domain=' || d.id::text, 2, d.updated_at
@@ -2373,6 +2393,8 @@ where
                JOIN clients c ON c.id = d.client_id
               WHERE d.org_id = $1 AND d.domain ILIKE $3
                 AND ($2::uuid IS NULL OR d.client_id = $2)
+                AND (jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
              UNION ALL
              SELECT 'procedure', p.id, p.title, 'Procedure',
                     p.client_id, c.name, '/kb/procedures/' || p.id::text, 3, p.updated_at
@@ -2380,6 +2402,8 @@ where
                JOIN clients c ON c.id = p.client_id
               WHERE p.org_id = $1 AND p.title ILIKE $3
                 AND ($2::uuid IS NULL OR p.client_id = $2)
+                AND (jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
              UNION ALL
              -- The knowledge base is org-wide (kb_articles has no client), so
              -- a client scope excludes it rather than pretending it belongs.
@@ -2396,14 +2420,20 @@ where
               WHERE d.org_id = $1 AND d.title ILIKE $3
                 AND d.archived_at IS NULL
                 AND ($2::uuid IS NULL OR d.client_id = $2)
+                AND (c.id IS NULL OR jsonb_array_length(c.restricted_to) = 0
+                     OR c.restricted_to ? $6::text OR $7)
            ) hit
+          WHERE ($5::text[] IS NULL OR hit.kind = ANY($5))
           ORDER BY rank ASC, touched DESC
           LIMIT $4"#,
     )
     .bind(org_id)
-    .bind(client_id)
+    .bind(scope.client_id)
     .bind(pattern)
     .bind(limit)
+    .bind(scope.kinds)
+    .bind(scope.user_id.to_string())
+    .bind(scope.is_admin)
     .fetch_all(executor)
     .await?)
 }

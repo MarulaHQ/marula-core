@@ -204,6 +204,21 @@ pub enum Permission {
     /// mirror a directory into this org, and an org granting it is delegating
     /// role assignment for its users — which is what the mirror does.
     ManageDirectoryGroups,
+    /// The on-site parts grant: receive, consume, adjust, transfer and ship out
+    /// stock against the append-only movement ledger.
+    ///
+    /// It exists because moving parts is field work, not commercial
+    /// administration. Technicians do the on-site parts workflow and never held
+    /// `commercial:edit`, so the five movement routes asked for a permission
+    /// their own preset could not carry. The grant covers the ledger legs and
+    /// nothing else: stock item and location CRUD, thresholds and the board
+    /// reads stay on the Commercial matrix.
+    ///
+    /// Held by the on-site technician and the back office — the Technician and
+    /// Senior Tech presets, and the Owner, Admin and Dispatcher presets, which
+    /// ran these movements before this grant existed. No read-only preset
+    /// carries it.
+    MoveStock,
 }
 
 impl Permission {
@@ -261,6 +276,12 @@ impl Permission {
                 // keeps using `special:manage_users` / `special:manage_roles`.
                 Permission::ViewDirectoryGroups => "directory_groups:read".into(),
                 Permission::ManageDirectoryGroups => "directory_groups:write".into(),
+                // Stock movements are a field grant, not a commercial one.
+                // The wire key follows the `financial:read` / `org_usage:read`
+                // shape — module-namespaced, not `special:`-prefixed — so a
+                // custom role or a service account carries it like any matrix
+                // peer.
+                Permission::MoveStock => "stock:move".into(),
                 Permission::Matrix { .. } => unreachable!(),
             },
         }
@@ -377,6 +398,7 @@ impl BuiltinRole {
                     Permission::ManageApiKeys,
                     Permission::ViewAuditLog,
                     Permission::PortalAdmin,
+                    Permission::MoveStock,
                 ]));
                 p
             }
@@ -411,7 +433,7 @@ impl BuiltinRole {
                         action: Action::View,
                     },
                 ]);
-                p.extend(specials(&[Permission::ManageBoards]));
+                p.extend(specials(&[Permission::ManageBoards, Permission::MoveStock]));
                 p
             }
             BuiltinRole::Technician => {
@@ -459,6 +481,7 @@ impl BuiltinRole {
                         action: Action::View,
                     },
                 ]);
+                p.extend(specials(&[Permission::MoveStock]));
                 p
             }
             // Senior Tech: everything a Technician holds, escalated — the
@@ -510,7 +533,7 @@ impl BuiltinRole {
                         action: Action::View,
                     },
                 ]);
-                p.extend(specials(&[Permission::ApproveTime]));
+                p.extend(specials(&[Permission::ApproveTime, Permission::MoveStock]));
                 p
             }
             // Bookkeeper: the money role. Full invoicing control (invoice
@@ -1232,6 +1255,49 @@ mod tests {
         assert!(check(
             &BuiltinRole::Dispatcher.permissions(),
             Permission::ViewFinancials
+        )
+        .is_allowed()
+        .not());
+    }
+
+    /// Stock movements are their own grant, `stock:move`: the technician runs
+    /// the on-site parts workflow and holds it, the back-office presets that
+    /// moved stock before keep it, and no read-only or financial-only preset
+    /// does — a viewer cannot drain a shelf with a matrix read grant.
+    #[test]
+    fn technician_holds_move_stock_and_a_read_only_preset_does_not() {
+        assert_eq!(Permission::MoveStock.key(), "stock:move");
+        for role in [
+            BuiltinRole::Owner,
+            BuiltinRole::Admin,
+            BuiltinRole::Dispatcher,
+            BuiltinRole::SeniorTech,
+            BuiltinRole::Technician,
+        ] {
+            assert!(
+                check(&role.permissions(), Permission::MoveStock).is_allowed(),
+                "{role:?} must move stock"
+            );
+        }
+        for role in [
+            BuiltinRole::Bookkeeper,
+            BuiltinRole::Auditor,
+            BuiltinRole::ReadOnly,
+        ] {
+            assert!(
+                check(&role.permissions(), Permission::MoveStock)
+                    .is_allowed()
+                    .not(),
+                "{role:?} must not move stock"
+            );
+        }
+        // The technician's parts workflow is not a commercial-edit grant.
+        assert!(check(
+            &BuiltinRole::Technician.permissions(),
+            Permission::Matrix {
+                module: Module::Commercial,
+                action: Action::Edit
+            }
         )
         .is_allowed()
         .not());

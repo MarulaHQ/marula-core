@@ -154,20 +154,7 @@ pub async fn risk(
     let project = core_db::projects::get_project(&mut *tx, org_id, id).await?;
     let phases = core_db::projects::list_phases(&mut *tx, org_id, id).await?;
     let burns = core_db::projects::phase_burn(&mut *tx, org_id, id).await?;
-    let tasks = core_db::projects::list_tasks(
-        &mut *tx,
-        org_id,
-        id,
-        core_db::projects::TaskFilter {
-            phase_id: None,
-            status: None,
-            assignee_id: None,
-            milestone: None,
-            limit: 10_000,
-            offset: 0,
-        },
-    )
-    .await?;
+    let tasks = super::list_all_tasks(&mut tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
     let mut phase_facts = Vec::with_capacity(phases.len());

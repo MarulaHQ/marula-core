@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRequireAuth } from "../../../lib/api";
 import { SurfaceHeader } from "@marula-core/ui";
 import {
@@ -20,7 +20,7 @@ import {
   type Procedure,
 } from "../../../components/knowledge/knowledge-api";
 
-export default function ProceduresPage() {
+function ProceduresPage() {
   useRequireAuth();
   const search = useSearchParams();
   const clientId = search.get("client_id");
@@ -117,5 +117,15 @@ export default function ProceduresPage() {
         )}
       </div>
     </PageFrame>
+  );
+}
+
+// The route reads its filters from the query string, which bails the page out
+// of prerendering. Next requires a Suspense boundary for that at build time.
+export default function ProceduresRoute() {
+  return (
+    <Suspense fallback={null}>
+      <ProceduresPage />
+    </Suspense>
   );
 }

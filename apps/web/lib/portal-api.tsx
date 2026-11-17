@@ -180,6 +180,24 @@ function rotateSession(stored: PortalTokens | null): Promise<PortalTokens> {
 }
 
 /**
+ * A portal answer body, read defensively. A 200 with no body is not JSON;
+ * parsing it blindly throws a raw SyntaxError the page can only report as a
+ * crash, so the empty case and the unreadable case get their own sentences.
+ */
+async function readJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (text.trim() === "") return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new PortalError(
+      "The server returned an answer this page could not read. Try again.",
+      response.status,
+    );
+  }
+}
+
+/**
  * One fetch wrapper for every portal call: attaches the access token,
  * rotates the refresh token once on 401, and clears state on hard logout.
  */
@@ -222,7 +240,7 @@ async function portalFetch<T>(
           ...(csrfHeader() ? { "x-marula-csrf": csrfHeader() as string } : {}),
         },
       });
-      if (retry.ok) return (await retry.json()) as T;
+      if (retry.ok) return await readJson<T>(retry);
     } catch {
       // The shared rotation failed (genuinely logged out, or a sibling
       // tab already retired the pair): fall through to the hard logout.
@@ -240,7 +258,7 @@ async function portalFetch<T>(
     }
     throw new PortalError(message, response.status);
   }
-  return (await response.json()) as T;
+  return await readJson<T>(response);
 }
 
 export class PortalError extends Error {
@@ -306,11 +324,11 @@ export const portalApi = {
   },
 
   getTicket(id: string): Promise<PortalTicketDetail> {
-    return portalFetch<PortalTicketDetail>(`/api/v1/portal/tickets/${id}`, {});
+    return portalFetch<PortalTicketDetail>(`/api/v1/portal/tickets/${encodeURIComponent(id)}`, {});
   },
 
   reply(id: string, body: string): Promise<PortalComment> {
-    return portalFetch<PortalComment>(`/api/v1/portal/tickets/${id}/reply`, {
+    return portalFetch<PortalComment>(`/api/v1/portal/tickets/${encodeURIComponent(id)}/reply`, {
       method: "POST",
       body: JSON.stringify({ body }),
     });
@@ -319,11 +337,11 @@ export const portalApi = {
   /** CSAT surveys on resolution (Wave 34 lane 2): tokenized, single-use,
    * scoped to the signed-in client. The view never burns the token. */
   csatView(token: string): Promise<PortalCsatView> {
-    return portalFetch<PortalCsatView>(`/api/v1/portal/csat/${token}`, {});
+    return portalFetch<PortalCsatView>(`/api/v1/portal/csat/${encodeURIComponent(token)}`, {});
   },
 
   csatSubmit(token: string, score: number, comment?: string): Promise<PortalCsatView> {
-    return portalFetch<PortalCsatView>(`/api/v1/portal/csat/${token}`, {
+    return portalFetch<PortalCsatView>(`/api/v1/portal/csat/${encodeURIComponent(token)}`, {
       method: "POST",
       body: JSON.stringify({ score, comment: comment || undefined }),
     });
@@ -336,13 +354,13 @@ export const portalApi = {
   },
 
   getInvoice(id: string): Promise<PortalInvoiceDetail> {
-    return portalFetch<PortalInvoiceDetail>(`/api/v1/portal/invoices/${id}`, {});
+    return portalFetch<PortalInvoiceDetail>(`/api/v1/portal/invoices/${encodeURIComponent(id)}`, {});
   },
 
   /** Ledger-only settlement through the PaymentProvider seam (none-mode:
    * nothing is charged externally; the receipt records the settlement). */
   payInvoice(id: string, amountMinor: number, notes?: string): Promise<PortalPayResponse> {
-    return portalFetch<PortalPayResponse>(`/api/v1/portal/invoices/${id}/pay`, {
+    return portalFetch<PortalPayResponse>(`/api/v1/portal/invoices/${encodeURIComponent(id)}/pay`, {
       method: "POST",
       body: JSON.stringify({
         amount_minor: amountMinor,
@@ -355,14 +373,14 @@ export const portalApi = {
   /** Attachment attachments on one ticket (portal v2 pins): metadata only;
    * bytes stream on download. */
   listTicketAttachments(id: string): Promise<PortalAttachmentView[]> {
-    return portalFetch<PortalAttachmentView[]>(`/api/v1/portal/tickets/${id}/attachments`, {});
+    return portalFetch<PortalAttachmentView[]>(`/api/v1/portal/tickets/${encodeURIComponent(id)}/attachments`, {});
   },
 
   /** The attachment bytes as a blob URL (bearer-fetched; the caller opens
    * and later revokes it). */
   async ticketAttachmentUrl(id: string, attachmentId: string): Promise<string> {
     const response = await fetch(
-      `${API_BASE}/api/v1/portal/tickets/${id}/attachments/${attachmentId}/download`,
+      `${API_BASE}/api/v1/portal/tickets/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}/download`,
       { headers: { authorization: `Bearer ${loadTokens()?.access_token ?? ""}` } },
     );
     if (!response.ok) throw new PortalError("attachment unavailable", response.status);
@@ -379,13 +397,17 @@ export const portalApi = {
   },
 
   kbArticle(id: string): Promise<PortalKbArticle> {
-    return portalFetch<PortalKbArticle>(`/api/v1/portal/kb/articles/${id}`, {});
+    return portalFetch<PortalKbArticle>(`/api/v1/portal/kb/articles/${encodeURIComponent(id)}`, {});
   },
 
-  /** The documents and published articles this client may read. It rides the
-   *  portal auth stack (bearer + the shared 401 rotation), so the page must
-   *  call this rather than a bare `fetch`: the portal session is only ever
-   *  read from the Authorization header. */
+  /** Every document and published article this client may read. Portal
+   *  session, bearer-first: the page used a bare cookie fetch, which the route
+   *  cannot answer. */
+  listKnowledgeDocuments(): Promise<PortalKnowledgeDoc[]> {
+    return portalFetch<PortalKnowledgeDoc[]>("/api/v1/portal/knowledge/documents", {});
+  },
+
+  /** The same read, named for the page that already asks for it. */
   knowledgeDocuments(): Promise<PortalKnowledgeDoc[]> {
     return portalFetch<PortalKnowledgeDoc[]>("/api/v1/portal/knowledge/documents", {});
   },
@@ -433,7 +455,7 @@ export const portalApi = {
 
   cancelAppointmentRequest(id: string): Promise<{ status: string }> {
     return portalFetch<{ status: string }>(
-      `/api/v1/portal/appointment-requests/${id}/cancel`,
+      `/api/v1/portal/appointment-requests/${encodeURIComponent(id)}/cancel`,
       { method: "POST", body: JSON.stringify({}) },
     );
   },
@@ -445,13 +467,13 @@ export const portalApi = {
   },
 
   getQuote(id: string): Promise<PortalQuoteDetail> {
-    return portalFetch<PortalQuoteDetail>(`/api/v1/portal/quotes/${id}`, {});
+    return portalFetch<PortalQuoteDetail>(`/api/v1/portal/quotes/${encodeURIComponent(id)}`, {});
   },
 
   /** Approve (accept) a sent quote — the same sent → accepted lifecycle
    * leg the provider's staff flow runs. */
   approveQuote(id: string, reason?: string): Promise<PortalQuoteDecisionResponse> {
-    return portalFetch<PortalQuoteDecisionResponse>(`/api/v1/portal/quotes/${id}/approve`, {
+    return portalFetch<PortalQuoteDecisionResponse>(`/api/v1/portal/quotes/${encodeURIComponent(id)}/approve`, {
       method: "POST",
       body: JSON.stringify({
         reason: reason ?? null,
@@ -462,7 +484,7 @@ export const portalApi = {
 
   /** Decline a sent quote, optionally with a reason (audit-only). */
   declineQuote(id: string, reason?: string): Promise<PortalQuoteDecisionResponse> {
-    return portalFetch<PortalQuoteDecisionResponse>(`/api/v1/portal/quotes/${id}/decline`, {
+    return portalFetch<PortalQuoteDecisionResponse>(`/api/v1/portal/quotes/${encodeURIComponent(id)}/decline`, {
       method: "POST",
       body: JSON.stringify({
         reason: reason ?? null,
@@ -474,7 +496,7 @@ export const portalApi = {
   /** The invoice's print-ready HTML document as a blob URL (bearer-fetched;
    * the caller opens and later revokes it). */
   async invoiceDocumentUrl(id: string): Promise<string> {
-    const response = await fetch(`${API_BASE}/api/v1/portal/invoices/${id}/document`, {
+    const response = await fetch(`${API_BASE}/api/v1/portal/invoices/${encodeURIComponent(id)}/document`, {
       headers: { authorization: `Bearer ${loadTokens()?.access_token ?? ""}` },
     });
     if (!response.ok) throw new PortalError("document unavailable", response.status);
@@ -549,8 +571,14 @@ export interface PortalKbArticle {
   updated_at: string;
 }
 
-/** One row on /portal/knowledge: a document the staff marked client-visible,
- *  or a published article. */
+export interface PortalKbSearchHit {
+  article: PortalKbArticle;
+  score: number;
+}
+
+/** A row of the portal's own documentation list (`portal_documents`): one
+ *  document the desk shared, or one published article. `href` is the portal
+ *  path the desk intends it to open at. */
 export interface PortalKnowledgeDoc {
   id: string;
   kind: "document" | "article";
@@ -558,11 +586,6 @@ export interface PortalKnowledgeDoc {
   summary: string;
   href: string;
   updated_at: string;
-}
-
-export interface PortalKbSearchHit {
-  article: PortalKbArticle;
-  score: number;
 }
 
 export interface PortalSlotInterval {
@@ -699,6 +722,8 @@ export interface PortalQuote {
   notes: string | null;
   terms: string | null;
   subtotal_minor: number;
+  /** Sum of optional lines: shown on the quote, not billed in the total. */
+  optional_minor?: number;
   tax_rate_bps: number;
   tax_minor: number;
   total_minor: number;
@@ -713,6 +738,7 @@ export interface PortalQuoteLine {
   quantity_milli: number;
   unit_amount_minor: number;
   taxable: boolean;
+  optional?: boolean;
   amount_minor: number;
   position: number;
 }

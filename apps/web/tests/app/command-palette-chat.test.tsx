@@ -120,6 +120,19 @@ describe("command palette with the general_chat grant", () => {
     );
   });
 
+  it("does not run the search leg while Ask mode holds the field", async () => {
+    const mock = setupApi();
+    renderHost();
+    const user = userEvent.setup();
+    const dialog = await openAsk(user);
+
+    const input = within(dialog).getByRole("textbox", { name: "Ask about this screen" });
+    await user.type(input, "vpn");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(mock.callsTo("GET", "/api/v1/search")).toHaveLength(0);
+  });
+
   it("streams an answer with sources and a dashed proposal that waits for approval", async () => {
     setupApi();
     renderHost();

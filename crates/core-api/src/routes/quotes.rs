@@ -20,6 +20,12 @@
 //! `insert_lines`, kind `fixed_fee`, `run_id = NULL`). One conversion per
 //! quote; the validity window is enforced at convert time. The draft
 //! invoice then rides the ordinary issue/void/pay/dunning surface.
+//!
+//! **Optional lines are never billed.** A line marked `optional` is priced
+//! and shown beside the total (`quotes.optional_minor`), and every roll-up —
+//! subtotal, tax base, total — leaves it out. Conversion keeps the same rule:
+//! the contract's fee schedule, the draft invoice's lines and its total carry
+//! the required lines only.
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
@@ -94,10 +100,9 @@ pub struct QuoteLineInput {
     /// the line.
     pub unit_amount_minor: Option<i64>,
     pub taxable: Option<bool>,
-    /// Priced and shown, excluded from the subtotal and the tax. An optional
-    /// line is never dropped; `false` keeps the required-line behaviour.
-    #[serde(default)]
-    pub optional: bool,
+    /// A priced extra the client may take: quoted beside the total, never
+    /// billed. Defaults to false.
+    pub optional: Option<bool>,
 }
 
 /// POST /api/quotes body.
@@ -259,7 +264,7 @@ async fn resolve_lines(
             unit: taxable_unit(unit),
             quantity_milli: input.quantity_milli,
             taxable: taxable.unwrap_or(true),
-            optional: input.optional,
+            optional: input.optional.unwrap_or(false),
             unit_amount_minor,
             amount_minor,
             position: position as i32,
@@ -1089,6 +1094,9 @@ pub async fn convert(
 ) -> ApiResult<Json<ConvertQuoteResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    // Converting a quote creates the invoice the client will pay, so the act
+    // needs the finance read grant alongside the commercial edit.
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
@@ -1158,12 +1166,19 @@ pub async fn convert(
         contract.validate().map_err(ApiError::from)?;
         core_db::contracts::create_contract(&mut *ctx.tx, &contract).await?;
 
-        // 2. The fee schedule: one fee per REQUIRED quote line (+ tax as a fee
-        //    so the invoice's line-sum total matches the quote total). Optional
-        //    lines are not part of the quote total, so they are not billed.
+        // 2. The fee schedule: one fee per REQUIRED quote line (+ tax as a
+        //    fee so the invoice's line-sum total matches the quote total).
+        //    Optional lines are quoted, not billed: they stay on the quote
+        //    and out of the contract, the invoice lines and the total.
         let mut labels_used: HashSet<String> = HashSet::new();
-        let mut fees: Vec<ContractFixedFee> = Vec::with_capacity(lines.len() + 1);
-        for line in lines.iter().filter(|line| !line.optional) {
+        let required: Vec<&QuoteLine> = lines.iter().filter(|line| !line.optional).collect();
+        if required.is_empty() {
+            return Err(ApiError::Validation(
+                "a quote whose every line is optional bills nothing and cannot convert".into(),
+            ));
+        }
+        let mut fees: Vec<ContractFixedFee> = Vec::with_capacity(required.len() + 1);
+        for line in required {
             let label = unique_label(&mut labels_used, &line.description);
             fees.push(ContractFixedFee {
                 id: Uuid::now_v7(),
@@ -1191,11 +1206,6 @@ pub async fn convert(
                 notes: Some(format!("from quote {}", quote.number)),
                 created_at: chrono::Utc::now(),
             });
-        }
-        if fees.is_empty() {
-            return Err(ApiError::Validation(
-                "the quote has only optional lines, so there is nothing to bill".into(),
-            ));
         }
         core_db::contracts::replace_fees(&mut ctx.tx, org_id, contract_id, &fees).await?;
 
