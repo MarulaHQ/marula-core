@@ -91,13 +91,13 @@ async function shot(browser, viewport, theme, name, path, interactions, seedTour
     if (opts.seedTours) {
       window.localStorage.setItem(
         'marula-tours-completed',
-        JSON.stringify(TOUR_IDS),
+        JSON.stringify(opts.tourIds),
       );
     }
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal{display:none!important}';
     document.addEventListener('DOMContentLoaded', () => document.head.appendChild(style));
-  }, { theme: themeToken, seedTours });
+  }, { theme: themeToken, seedTours, tourIds: TOUR_IDS });
 
   await page.route('**/api/**', async (r) => {
     const url = new URL(r.request().url());
@@ -122,6 +122,24 @@ async function shot(browser, viewport, theme, name, path, interactions, seedTour
     }
     if (key === '/api/v1/settings/user' && method === 'PUT') {
       await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().postDataJSON()) });
+      return;
+    }
+    // Wave 66 added the signature card on preferences; it reads the token
+    // list off this envelope. An empty token list keeps the card honest.
+    if (key === '/api/v1/settings/user/email-envelope') {
+      await r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          policy: 'user_default',
+          user_greeting: null,
+          user_signature: null,
+          org_signature: null,
+          signature_source: 'unset',
+          greeting_source: 'unset',
+          tokens: [],
+        }),
+      });
       return;
     }
     if (key === '/api/v1/tickets' && method === 'GET') {
@@ -181,11 +199,14 @@ for (const theme of ['light', 'dark']) {
     await page.waitForTimeout(700);
   });
 
-  // 5. Spotlight tour overlay on /boards (boards tour: fresh session,
-  // targets the board itself). /today is avoided because the onboarding
+  // 5. Spotlight tour overlay on /tickets (tickets tour: fresh session;
+  // its targets — the views trigger, the filter, the attention
+  // shortcuts — render on the fixture queue). /boards is avoided: under
+  // the fixtures it renders its empty state, so the boards tour has no
+  // targets there. /today is avoided because the onboarding
   // resume banner (lane 1) crashes under minimal fixtures, not under the
   // real backend (e2e flow 13 covers the real-stack path).
-  await shot(browser, VP, theme, `tour-overlay-${t}.png`, '/boards', async (page) => {
+  await shot(browser, VP, theme, `tour-overlay-${t}.png`, '/tickets', async (page) => {
     try {
       await page.waitForSelector('[data-testid="tour-overlay"]', { state: 'attached', timeout: 25_000 });
       await page.waitForTimeout(400);

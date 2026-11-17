@@ -7,9 +7,27 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { readFileSync } from "fs";
 
-const API = "http://localhost:8080";
-const WEB = "http://localhost:3000";
+// Per-run ports come from the booted stack (e2e/.e2e-stack.env, written by
+// scripts/e2e-stack.sh); the historical defaults keep this script usable
+// against a manual dev boot on :8080/:3000.
+function stackEnv(key, fallback) {
+  try {
+    const line = readFileSync(
+      new URL("../e2e/.e2e-stack.env", import.meta.url),
+      "utf8",
+    )
+      .split("\n")
+      .find((l) => l.startsWith(`${key}=`));
+    return line ? line.slice(key.length + 1).trim() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const API = stackEnv("E2E_API_URL", "http://localhost:8080").replace(/\/$/, "");
+const WEB = stackEnv("E2E_WEB_URL", "http://localhost:3000");
 const OUT = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
