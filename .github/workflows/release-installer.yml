@@ -418,16 +418,16 @@ jobs:
       - name: Assemble the release directory
         shell: bash
         run: |
-          # shellcheck disable=SC2086 # ASSEMBLE_EXTRA is a flag list by design: the
-          # Windows leg needs one --extra per OpenSSL DLL, so it must word-split.
-          # The digests are an array instead: a Windows path must not be split or
-          # have its backslashes eaten.
+          # The digests are an array: a Windows path must not be split or have
+          # its backslashes eaten.
           images_args=()
           digests="${{ runner.temp }}/image-digests/images.json"
           if [ -f "$digests" ]; then
             images_args=(--images "$digests")
             echo "the archive's manifest will name the published image digests"
           fi
+          # shellcheck disable=SC2086 # ASSEMBLE_EXTRA is a flag list by design: the
+          # Windows leg needs one --extra per OpenSSL DLL, so it must word-split.
           node scripts/release/assemble.mjs \
             --version "$VERSION" \
             --os "${{ matrix.os }}" \
@@ -501,7 +501,10 @@ jobs:
   offline:
     name: Offline bundle — linux ${{ matrix.arch }}
     needs: [version, build]
-    if: needs.version.outputs.tagged == 'true' || github.event.inputs.offline == 'true'
+    # The gate is stated rather than inherited. `build` succeeding is what makes
+    # an offline bundle possible at all, and a skipped `images` job does not
+    # skip this one — a build with a skipped need still runs.
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.version.outputs.tagged == 'true' || github.event.inputs.offline == 'true') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     permissions:
