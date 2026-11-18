@@ -55,11 +55,13 @@ on:
 permissions:
   contents: read
 
-# Keyed on the branch like `ci.yml`, not on `github.ref`: on a pull request that
-# ref is `refs/pull/<n>/merge`, which changes when the base moves, so a rebase
-# would start a second run instead of cancelling the superseded one.
+# Keyed on the pull request number, then `github.ref` for pushes, like `ci.yml`.
+# Not `github.ref` alone: on a pull request that ref is `refs/pull/<n>/merge`,
+# which changes when the base moves, so a rebase would start a second run
+# instead of cancelling the superseded one. Not `head_ref` either: that is only
+# the branch name, so two forks with a `patch-1` branch would cancel each other.
 concurrency:
-  group: installer-lint-${{ github.head_ref || github.ref }}
+  group: installer-lint-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:

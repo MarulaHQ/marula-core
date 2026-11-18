@@ -18,12 +18,13 @@ on:
     branches: [main]
 
 concurrency:
-  # Keyed on the branch, not `github.ref`: on a pull_request that ref is
-  # `refs/pull/<n>/merge`, which changes whenever the base branch moves, so a
-  # rebase started a SECOND full matrix while the superseded one ran to the
-  # end. `head_ref` is the PR's own branch and stays put, so a rebase now
-  # cancels the run it replaced.
-  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  # Keyed on the pull request number, then `github.ref` for pushes. Not
+  # `github.ref` alone: on a pull_request that ref is `refs/pull/<n>/merge`,
+  # which changes whenever the base branch moves, so a rebase started a SECOND
+  # full matrix while the superseded one ran to the end. Not `head_ref` either:
+  # that is only the branch name, so two forks with a `patch-1` branch would
+  # cancel each other's runs.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -251,7 +252,6 @@ jobs:
       SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@v7
       # Reported, not reclaimed: the runner logs 88G avail of 145G before the
@@ -264,6 +264,12 @@ jobs:
         with:
           shared-key: rust-test
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
+          # would key this cache apart from `rls-coverage`, which runs no
+          # sccache under the same `rust-test` key. A wrapper does not change
+          # compiler output, so it does not belong in the key; the other
+          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
+          env-vars: "CARGO CC CFLAGS CXX CMAKE"
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           # The action has no default version: without this it downloads
@@ -354,7 +360,6 @@ jobs:
       SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@v7
       # Reported, not reclaimed: the runner logs 88G avail of 145G before the
@@ -367,6 +372,12 @@ jobs:
         with:
           shared-key: rust-test
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
+          # would key this cache apart from `rls-coverage`, which runs no
+          # sccache under the same `rust-test` key. A wrapper does not change
+          # compiler output, so it does not belong in the key; the other
+          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
+          env-vars: "CARGO CC CFLAGS CXX CMAKE"
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           # The action has no default version: without this it downloads
@@ -770,7 +781,6 @@ jobs:
       SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -778,6 +788,12 @@ jobs:
         with:
           shared-key: rust-test
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
+          # would key this cache apart from `rls-coverage`, which runs no
+          # sccache under the same `rust-test` key. A wrapper does not change
+          # compiler output, so it does not belong in the key; the other
+          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
+          env-vars: "CARGO CC CFLAGS CXX CMAKE"
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           # The action has no default version: without this it downloads
