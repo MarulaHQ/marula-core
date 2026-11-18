@@ -203,7 +203,10 @@ running a verifier.
 
 Turning the paid chain on is a configuration change plus credentials, not a code
 change: `APPLE_*` for macOS signing and notarisation, a CA-issued
-`WINDOWS_CERTIFICATE` for Windows. The signing step already reads them.
+`WINDOWS_CERTIFICATE` for Windows. The signing step already reads them, so the
+next tag after the secrets are set signs and notarises on its own. Nothing in
+this repository needs editing for the switch, and the run summary states the
+posture that release actually got.
 
 ## The offline bundle
 

@@ -66,20 +66,21 @@ Linux and Windows builds offer the address only, because their embedded app
 needs a database bundled per platform, which is a named follow-up
 ([ADR 0031](../../adr/0031-desktop-platform-matrix.md)).
 
-## What the OS says about an unsigned build
+## What the OS says about a build without a paid signature
 
-Bundles ship unsigned while the signing lane is in flight. A warning does not
-mean the download failed. It means the bundle carries no certificate yet. Each
+Bundles ship without a paid platform certificate. A warning does not mean the
+download failed. It means the bundle carries no trusted certificate yet. Each
 platform says so its own way:
 
 | Platform | What you see | What it means |
 |---|---|---|
 | macOS | Gatekeeper says it cannot check the app for malicious software | the app is signed ad-hoc, with no notarization. Open it from System Settings, Privacy & Security, via Open Anyway |
-| Windows | SmartScreen: "Windows protected your PC" | the bundle has no Authenticode certificate. More info, then Run anyway |
-| Linux | nothing | the `deb` and the AppImage are unsigned; the checksum list is the check that remains |
+| Windows | SmartScreen: "Windows protected your PC" | the bundle has no trusted Authenticode certificate. More info, then Run anyway. A self-signed certificate produces the same warning on a machine that has not imported it |
+| Linux | nothing | the `deb` and the AppImage carry no platform signature; the checksum list is the check that remains |
 
 That checksum list, and the signature over it, is what a careful installer
-reads on any platform: [verify a release](verify-a-release.md). Platform
-signing is being wired into the release pipeline now, and when a signed
-release ships, its verification instructions come with it. Nothing on this
-page promises a date.
+reads on any platform: [verify a release](verify-a-release.md). When the
+certificates are added to the release pipeline, the next tagged release signs
+and notarises on its own: the workflow already reads them, so no code changes
+and nothing for you to re-download ahead of that release. That release's notes
+say which posture each platform got.
