@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 /// The registry prefix and one digest per service, lifted from a bundle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Images {
-    /// `ghcr.io/marulagh`, shared by every reference in the file.
+    /// `ghcr.io/marulahq`, shared by every reference in the file.
     pub base: String,
     /// `core-api` → `sha256:<64 hex>`.
     pub digests: BTreeMap<String, String>,
@@ -90,9 +90,9 @@ pub fn parse(text: &str) -> Result<Images, String> {
         }
         // `--image-base` composes `<prefix>-<service>`, so the prefix is the
         // registry plus the image name with the service suffix removed:
-        // `ghcr.io/marulagh/marula-web` for `web` is `ghcr.io/marulagh/marula`.
-        // Taking everything before the last `/` would give `ghcr.io/marulagh`
-        // and produce `ghcr.io/marulagh-web`, a repository that does not exist.
+        // `ghcr.io/marulahq/marula-web` for `web` is `ghcr.io/marulahq/marula`.
+        // Taking everything before the last `/` would give `ghcr.io/marulahq`
+        // and produce `ghcr.io/marulahq-web`, a repository that does not exist.
         let (registry, image) = prefix.rsplit_once('/').ok_or_else(|| {
             format!("the image for {service} is {reference:?}, which names no registry")
         })?;
@@ -153,14 +153,14 @@ mod tests {
         std::fs::write(
             dir.join("release.json"),
             document(&format!(
-                "{{\"core-api\":\"ghcr.io/marulagh/marula-core-api@sha256:{HEX}\"}}"
+                "{{\"core-api\":\"ghcr.io/marulahq/marula-core-api@sha256:{HEX}\"}}"
             )),
         )
         .expect("a manifest");
         let found = resolve(&dir, None)
             .expect("a readable bundle")
             .expect("a bundle beside the directory");
-        assert_eq!(found.base, "ghcr.io/marulagh/marula");
+        assert_eq!(found.base, "ghcr.io/marulahq/marula");
         assert_eq!(found.digests["core-api"], format!("sha256:{HEX}"));
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -172,7 +172,7 @@ mod tests {
         std::fs::write(
             dir.join("release.json"),
             document(&format!(
-                "{{\"core-api\":\"ghcr.io/marulagh/marula-core-api@sha256:{HEX}\"}}"
+                "{{\"core-api\":\"ghcr.io/marulahq/marula-core-api@sha256:{HEX}\"}}"
             )),
         )
         .expect("a manifest");
@@ -194,25 +194,25 @@ mod tests {
     #[test]
     fn a_bundle_that_names_its_digests_yields_a_base_and_one_per_service() {
         let text = document(&format!(
-            "{{\"core-api\":\"ghcr.io/marulagh/marula-core-api@sha256:{HEX}\",\
-              \"web\":\"ghcr.io/marulagh/marula-web@sha256:{HEX}\"}}"
+            "{{\"core-api\":\"ghcr.io/marulahq/marula-core-api@sha256:{HEX}\",\
+              \"web\":\"ghcr.io/marulahq/marula-web@sha256:{HEX}\"}}"
         ));
         let images = parse(&text).expect("a well formed bundle");
-        assert_eq!(images.base, "ghcr.io/marulagh/marula");
+        assert_eq!(images.base, "ghcr.io/marulahq/marula");
         assert_eq!(images.digests.len(), 2);
         assert_eq!(images.digests["core-api"], format!("sha256:{HEX}"));
     }
 
     #[test]
     fn a_tag_is_refused_because_it_can_be_moved() {
-        let text = document("{\"core-api\":\"ghcr.io/marulagh/marula-core-api:0.4.0\"}");
+        let text = document("{\"core-api\":\"ghcr.io/marulahq/marula-core-api:0.4.0\"}");
         let error = parse(&text).expect_err("a tag is not an identity");
         assert!(error.contains("names no digest"), "{error}");
     }
 
     #[test]
     fn a_digest_that_is_not_a_sha256_is_refused() {
-        let text = document("{\"core-api\":\"ghcr.io/marulagh/marula-core-api@sha256:deadbeef\"}");
+        let text = document("{\"core-api\":\"ghcr.io/marulahq/marula-core-api@sha256:deadbeef\"}");
         let error = parse(&text).expect_err("a short digest is not a digest");
         assert!(error.contains("sha256:<64 hex>"), "{error}");
     }
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn two_registries_in_one_bundle_are_refused() {
         let text = document(&format!(
-            "{{\"core-api\":\"ghcr.io/marulagh/marula-core-api@sha256:{HEX}\",\
+            "{{\"core-api\":\"ghcr.io/marulahq/marula-core-api@sha256:{HEX}\",\
               \"web\":\"registry.example.com/other/marula-web@sha256:{HEX}\"}}"
         ));
         let error = parse(&text).expect_err("one bundle, one registry");

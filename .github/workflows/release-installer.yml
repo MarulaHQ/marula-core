@@ -71,6 +71,10 @@ on:
         description: Require signing secrets (as a tagged release does)
         type: boolean
         default: false
+      images:
+        description: "Build and publish the container images too (slow: about an hour)"
+        type: boolean
+        default: false
 
 # Least privilege at the top, per job below (the p38 rule this repository
 # already follows).
@@ -155,6 +159,28 @@ jobs:
       - name: Lint every workflow
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
+
+  # The four application images, built in the same run as the bundle. This is
+  # the wiring `docs/release-images.md` asks for: the digest map the images job
+  # writes is an artifact of THIS run, which is what lets `publish` merge it into
+  # the manifest. A separate dispatch leaves the digests in another run's
+  # artifacts, where the manifest step cannot see them.
+  #
+  # Tags only, plus a manual run that asks for them. A pull-request or rehearsal
+  # run has no release to publish, and the emulated arm64 half costs about an
+  # hour — but `-f images=true` rehearses this exact job without a tag.
+  images:
+    name: Images
+    needs: [version]
+    if: ${{ needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.images == 'true') }}
+    permissions:
+      # The called workflow pushes to GHCR, and a called workflow can never hold
+      # more than its caller grants.
+      contents: read
+      packages: write
+    uses: ./.github/workflows/release-images.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
 
   build:
     name: Build — ${{ matrix.os }} ${{ matrix.arch }}
@@ -516,11 +542,17 @@ jobs:
   # checksum list is not something the bootstrap will accept.
   publish:
     name: Manifest and signatures
-    needs: [version, build, offline]
+    needs: [version, build, offline, images]
     # `always()` plus explicit result checks, because `needs:` alone would skip
-    # this job whenever the offline job was skipped (a manual run that did not
-    # ask for the offline bundle still gets a manifest and a signature).
-    if: ${{ always() && needs.build.result == 'success' && (needs.offline.result == 'success' || needs.offline.result == 'skipped') && (needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sign == 'true')) }}
+    # this job whenever a neighbour was skipped (a manual run that did not ask
+    # for the offline bundle still gets a manifest and a signature, and a run
+    # that is not a tag skips the images job).
+    #
+    # A FAILED images job is different from a skipped one: a tag then has no
+    # digest map, and a manifest without digests describes a bundle that can only
+    # be installed offline. That is a degraded release, so it is refused rather
+    # than published quietly.
+    if: ${{ always() && needs.build.result == 'success' && (needs.offline.result == 'success' || needs.offline.result == 'skipped') && (needs.images.result == 'success' || needs.images.result == 'skipped') && (needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sign == 'true')) }}
     # The signing secret is an ENVIRONMENT secret, so this job declares the
     # environment that holds it. The environment carries required reviewers and a
     # tag-only deployment policy; without this line the secret resolves as empty

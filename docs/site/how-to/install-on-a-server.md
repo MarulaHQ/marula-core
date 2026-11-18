@@ -105,7 +105,7 @@ Rust, Node and the sources on the target. A released bundle ships a
 
 ```sh
 marula install --dir /srv/marula --images registry \
-  --image-base ghcr.io/marulagh/marula \
+  --image-base ghcr.io/marulahq/marula \
   --image-manifest ./release.json
 ```
 

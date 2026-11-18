@@ -78,9 +78,12 @@ repository. A signature proves which key signed, not who held it.
 5. **Push** `main` and the tag.
 6. **Release notes** on GitHub: the changelog section verbatim, plus a "Breaking"
    heading when there is one, and the database-migration note.
-7. **Images** (when published): `ghcr.io/marulahq/<component>:vX.Y.Z`. GHCR owner names
-   are lowercase, so the registry path is `marulahq` even though the organisation is
-   `MarulaHQ`.
+7. **Images.** The tag's `release-installer` run builds and pushes
+   `ghcr.io/marulahq/marula-<component>:vX.Y.Z`, then merges the digests into the
+   manifest. GHCR owner names are lowercase, so the registry path is `marulahq`
+   even though the organisation is `MarulaHQ`. On the first release that
+   publishes images, open each package's settings and make it public, or a
+   self-hoster's pull fails with `unauthorized`.
 8. **Verify the artefacts** a user would get: pull the image, run the documented
    self-host path, confirm the version endpoint reports `vX.Y.Z`.
 9. **The binary and the installers.** The `v*.*.*` tag runs the

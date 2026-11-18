@@ -17,14 +17,15 @@ Four images, one repository prefix, one image per service:
 
 | Service | Image |
 |---|---|
-| `core-api` | `ghcr.io/marulagh/marula-core-api` |
-| `worker` | `ghcr.io/marulagh/marula-worker` |
-| `web` | `ghcr.io/marulagh/marula-web` |
-| `migrate` | `ghcr.io/marulagh/marula-migrate` |
+| `core-api` | `ghcr.io/marulahq/marula-core-api` |
+| `worker` | `ghcr.io/marulahq/marula-worker` |
+| `web` | `ghcr.io/marulahq/marula-web` |
+| `migrate` | `ghcr.io/marulahq/marula-migrate` |
 
-`ghcr.io/marulagh` is public, so a self-hoster pulls without a token. A private
-registry works too: `--image-base` takes any prefix, and the operator runs
-`docker login` once.
+`marulahq` is the organisation's login in lowercase, which is the only form GHCR
+accepts. `ghcr.io/marulahq` is public, so a self-hoster pulls without a token. A
+private registry works too: `--image-base` takes any prefix, and the operator
+runs `docker login` once.
 
 The four are built from `deploy/Dockerfile.rust` with a different `BIN` argument,
 except `web`, which builds the Next.js bundle.
@@ -87,26 +88,29 @@ The manifest step merges that before it writes `SHA256SUMS`, and the release key
 signs the list — so the digests are covered by the signature rather than added
 beside it.
 
-Run it by hand first, on a release that is already published:
+A tagged release runs it. `release-installer.yml` calls this workflow as its
+`images` job, so the digest map is an artifact of the same run as the manifest
+that has to name it. Running the workflow by hand still works, and is the cheap
+way to prove a push without cutting a tag:
 
 ```sh
 gh workflow run release-images.yml -f version=0.3.1
 ```
 
 The job takes about an hour, and almost all of that is the emulated `arm64`
-half. It does not depend on a tag, so running it early costs nothing and proves
-the push before a tagged release waits on it.
+half. A manual run of the release workflow rehearses the same path without a
+tag: `gh workflow run release-installer.yml -f images=true`.
 
-Two things it cannot do for you:
+A failed images job fails the release. `publish` accepts a skipped images job,
+which is what a non-tag run has, but not a failed one: a manifest with no
+`images` map describes a bundle that installs only from the offline tarball.
+
+One thing the job cannot do for you:
 
 - **Make the packages public.** GHCR creates private packages for a token push,
   even in a public repository. Until all four are set to public in their package
   settings, a self-hoster's `docker pull` fails with `unauthorized` and no
   explanation. The run summary repeats this.
-- **Wire itself into the tagged release.** The workflow is `workflow_call`-able
-  so `release-installer.yml` can invoke it as a job once the first run is
-  trusted; until then a tagged release publishes a manifest with no `images`
-  map, and the manifest step prints a notice saying so.
 
 ## Retention
 
@@ -139,17 +143,15 @@ Two gaps are honest to name:
 
 Built: `images.mjs` (build, push, read the digest back, write the map), the
 assembler's `--images` merge, the installer reading a bundle's `images` instead
-of four typed flags, and the refusals that name a missing prefix or a service
-with no digest.
+of four typed flags, the refusals that name a missing prefix or a service with
+no digest, and the `images` job in `release-installer.yml` that runs this
+workflow on every tag.
 
-Missing, in the order that unblocks an install from a bundle:
+Still open:
 
-1. A first push. The workflow exists; no release has run it yet, so every
-   bundle's manifest carries no `images` map and `--images registry` correctly
-   refuses against it.
-2. The wiring from `release-installer.yml` to that workflow, which is one `uses:`
-   job away once the first run is proved.
-3. `cosign` signing over the images, if the mirroring story above is not enough.
+1. A published set. Until a run pushes one, no bundle's manifest carries an
+   `images` map and `--images registry` correctly refuses against it.
+2. `cosign` signing over the images, if the mirroring story above is not enough.
 
 ## Cloudflare is not the image registry
 

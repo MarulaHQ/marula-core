@@ -230,7 +230,7 @@ impl std::fmt::Display for PlanError {
                 write!(
                     f,
                     "a registry install needs the registry prefix the release published to, \
-                     as in ghcr.io/marulagh/marula. Type it under Application images in \
+                     as in ghcr.io/marulahq/marula. Type it under Application images in \
                      settings, or pass --image-base on a terminal. A release bundle's \
                      release.json already names it"
                 )

@@ -853,7 +853,7 @@ mod tests {
         let target = target(&dir);
         let mut selection = Selection::new("split", &dir);
         selection.images = ImageSource::Registry;
-        selection.image_base = Some("ghcr.io/marulagh/marula".to_string());
+        selection.image_base = Some("ghcr.io/marulahq/marula".to_string());
         for service in ["core-api", "worker", "migrate", "web"] {
             selection.image_digests.insert(
                 service.to_string(),
@@ -872,7 +872,7 @@ mod tests {
         assert!(
             images
                 .1
-                .contains("image: ghcr.io/marulagh/marula-core-api@sha256:1111"),
+                .contains("image: ghcr.io/marulahq/marula-core-api@sha256:1111"),
             "{}",
             images.1
         );
@@ -884,7 +884,7 @@ mod tests {
         assert!(
             images
                 .1
-                .contains("image: ghcr.io/marulagh/marula-migrate@sha256:1111"),
+                .contains("image: ghcr.io/marulahq/marula-migrate@sha256:1111"),
             "the one-shot migration image is pinned too: {}",
             images.1
         );
@@ -911,7 +911,7 @@ mod tests {
         let target = target(&dir);
         let mut selection = Selection::new("split", &dir);
         selection.images = ImageSource::Registry;
-        selection.image_base = Some("ghcr.io/marulagh/marula".to_string());
+        selection.image_base = Some("ghcr.io/marulahq/marula".to_string());
         selection
             .image_digests
             .insert("core-api".to_string(), "sha256:22".to_string());

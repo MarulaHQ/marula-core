@@ -605,7 +605,7 @@ function selfTest() {  const assert = (condition, message) => {
     // The digests a release publishes ride in the manifest the checksum list
     // covers, and a tag in that field is refused rather than shipped.
     const digest = (service) =>
-      `ghcr.io/marulagh/marula-${service}@sha256:${"a".repeat(64)}`;
+      `ghcr.io/marulahq/marula-${service}@sha256:${"a".repeat(64)}`;
     const imagesFile = join(out, "images.json");
     writeFileSync(imagesFile, JSON.stringify({ images: { "core-api": digest("core-api") } }));
     writeManifest({ version: "9.9.9", out, commit: "0".repeat(40), images: imagesFile });
@@ -620,7 +620,7 @@ function selfTest() {  const assert = (condition, message) => {
     );
     writeFileSync(
       join(out, "tagged.json"),
-      JSON.stringify({ "core-api": "ghcr.io/marulagh/marula-core-api:9.9.9" }),
+      JSON.stringify({ "core-api": "ghcr.io/marulahq/marula-core-api:9.9.9" }),
     );
     let refused = null;
     try {
