@@ -1,0 +1,101 @@
+name: Installer lint
+
+# `installer` is a Tauri workspace member that `ci.yml` now excludes from its
+# Rust jobs. The reason is measured: the `apt-get install` of its GTK/WebKit
+# headers took 42s on one run and 589s, 809s and 1135s on others — it is
+# network-bound — and the crate contributes exactly one test. It ran twice per
+# push (once in the clippy job, once in the test job). This file pays it once,
+# in a job that does not gate the merge and does not sit on the critical path.
+# It is not free: any change in the crate's dependency graph still starts it.
+#
+# Excluded from the per-push matrix is not the same as dropped, so this file
+# carries the crate's clippy and its test. It is path-filtered, which is only
+# safe because **this job is not a required status check** in the `Main`
+# ruleset: a required check whose workflow a `paths:` filter skips never
+# reports, and the pull request then waits on it forever while every check it
+# did run is green (README, "Renaming a job can block every pull request").
+#
+# The trade it does make is enforcement: clippy and this test used to run inside
+# two required checks, and now a red result here does not block a merge. It runs
+# in parallel with the matrix and is not on the critical path, which is what
+# makes the wider path filter below affordable.
+
+on:
+  pull_request:
+    paths:
+      - 'installer/**'
+      - 'apps/installer/**'
+      # `marula-installer` depends on `marula-core-cli` by path, and that pulls
+      # the core-api/core-db/worker/plugin-host graph. A change anywhere in that
+      # graph can break the installer without touching its own directory, so the
+      # filter has to follow the dependency, not the folder.
+      - 'crates/**'
+      - 'plugins/**'
+      - '.cargo/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/installer-lint.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  # `main` too: without it a breakage that merged green stays broken until some
+  # later pull request happens to touch one of these paths.
+  push:
+    branches: [main]
+    paths:
+      - 'installer/**'
+      - 'apps/installer/**'
+      - 'crates/**'
+      - 'plugins/**'
+      - '.cargo/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/installer-lint.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Keyed on the branch like `ci.yml`, not on `github.ref`: on a pull request that
+# ref is `refs/pull/<n>/merge`, which changes when the base moves, so a rebase
+# would start a second run instead of cancelling the superseded one.
+concurrency:
+  group: installer-lint-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installer:
+    name: Installer — clippy · test
+    # `ubuntu-24.04` for the reason recorded on `ci.yml`'s `rust` job:
+    # `ubuntu-latest` moved to Ubuntu 26.04 on 2026-10-19 and is serving builds
+    # of it with no Ubuntu archive sources, which fails the install below
+    # before the first lint. This is now the only per-push job that installs
+    # distro packages, so it is also the one that needs the pin most.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # The same `rust-check` family as `ci.yml`, so a branch warm from the main
+      # matrix restores instead of re-downloading the crate graph.
+      # `save-if: false` is deliberate: this workflow is path-filtered and rare,
+      # and if it saved, its graph (installer plus its dependencies) would
+      # overwrite the fuller entry the per-push `rust` job wrote under the same
+      # key. It restores and never writes.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-check
+          save-if: false
+      - name: System libraries the GTK-linked crates need
+        # `installer` is a Tauri member, so `glib-sys` wants `glib-2.0.pc` from
+        # pkg-config and the webkit/soup headers come from the same install.
+        # Without them the build dies inside a build script before a lint runs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-dev libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev
+      - run: cargo clippy -p marula-installer --all-targets -- -D warnings
+      # The one test. Plain `cargo test` keeps this workflow on the same runner
+      # as `ci.yml`'s test steps rather than introducing a second one for a
+      # single binary.
+      - run: cargo test -p marula-installer
