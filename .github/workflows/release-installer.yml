@@ -125,7 +125,7 @@ jobs:
   # The scripts are cheap to check and are the part a PR can get wrong, so
   # they are checked on every run, before any runner spends minutes building.
   scripts:
-    name: Release scripts — syntax, lint, assembler self-test
+    name: Release scripts — syntax, lint, and self-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -139,10 +139,12 @@ jobs:
         run: |
           bash -n scripts/release/*.sh
           shellcheck -S warning scripts/release/*.sh
-      - name: Assembler syntax and self-test
+      - name: Assembler and image scripts — syntax and self-test
         run: |
           node --check scripts/release/assemble.mjs
           node scripts/release/assemble.mjs --self-test
+          node --check scripts/release/images.mjs
+          node scripts/release/images.mjs --self-test
 
   # Workflow YAML is code, and the only place a typo in it is caught is the run
   # that needed it. actionlint reads the syntax, the expression contexts, the
@@ -167,8 +169,8 @@ jobs:
   # artifacts, where the manifest step cannot see them.
   #
   # Tags only, plus a manual run that asks for them. A pull-request or rehearsal
-  # run has no release to publish, and the emulated arm64 half costs about an
-  # hour — but `-f images=true` rehearses this exact job without a tag.
+  # run has no release to publish. `-f images=true` rehearses this exact job
+  # without a tag.
   images:
     name: Images
     needs: [version]

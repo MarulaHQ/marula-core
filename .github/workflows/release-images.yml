@@ -7,9 +7,17 @@
 # `--images registry` install without a person copying four values out of a
 # signed document.
 #
-# One runner per image, both architectures in each: four emulated `arm64` builds
-# side by side instead of four in a row. `scripts/release/images.mjs` does the
-# building, tagging and digest reading, so this file holds no image logic.
+# One runner per image AND architecture, each on its own native machine:
+# `ubuntu-24.04` for amd64 and `ubuntu-24.04-arm` for arm64. The two legs push
+# `<version>-<arch>` tags, and a `publish` leg per service joins them with
+# `buildx imagetools create`. Nothing is emulated. The previous shape built both
+# architectures in one job under QEMU, and the emulated Rust compile ran past the
+# 90-minute job limit while the web image finished in four minutes.
+# `scripts/release/images.mjs --matrix` plans the legs, so the runner pairing
+# lives in one place instead of in this file and cannot drift.
+#
+# `scripts/release/images.mjs` does the building, tagging and digest reading, so
+# this file holds no image logic.
 #
 # What this file deliberately does NOT do: write the release manifest, sign
 # anything, or attach artifacts to a GitHub Release. The digests land as a
@@ -65,10 +73,80 @@ env:
   IMAGE_BASE: ghcr.io/marulahq
 
 jobs:
-  images:
-    name: Image ${{ matrix.service }}
+  # The legs and their runners come from `images.mjs --matrix`, which refuses an
+  # architecture it has no native runner for. Planning here rather than in a
+  # matrix literal keeps the runner pairing next to the self-test that proves it.
+  plan:
+    name: Plan the build legs
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Plan one leg per service and architecture
+        id: matrix
+        run: |
+          echo "matrix=$(node scripts/release/images.mjs --matrix --platforms "${{ inputs.platforms }}")" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Image ${{ matrix.service }} (${{ matrix.arch }})
+    needs: plan
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # No QEMU: the runner's own architecture is the one being built. The
+      # script refuses a second platform here, so a leg cannot silently return
+      # to emulation.
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Builds and pushes this architecture's tag. `--tag-suffix` makes the
+      # leg's tag, and no digest is recorded: the installer pins the joined
+      # manifest, which `publish` mints below.
+      - name: Build the ${{ matrix.arch }} leg
+        run: |
+          node scripts/release/images.mjs \
+            --version "${{ inputs.version }}" \
+            --image-base "$IMAGE_BASE" \
+            --platform "${{ matrix.platform }}" \
+            --tag-suffix "${{ matrix.arch }}" \
+            --service "${{ matrix.service }}"
+
+  # Joins the legs into the multi-arch manifest an installer pulls, then reads
+  # that manifest's digest back. A missing leg fails here, where the service is
+  # named, rather than in an install that cannot pin it.
+  publish:
+    name: Publish ${{ matrix.service }}
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write
@@ -83,14 +161,6 @@ jobs:
         with:
           node-version: 22
 
-      # Only the `arm64` half needs emulation; setting QEMU up unconditionally
-      # keeps the workflow readable and costs seconds when the list is amd64-only.
-      - name: Set up QEMU for the foreign architecture
-        uses: docker/setup-qemu-action@v4
-
-      - name: Set up buildx
-        uses: docker/setup-buildx-action@v4
-
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -98,15 +168,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Builds, pushes by tag, reads the digest back, and writes this service's
-      # map. `--service` narrows the build to the one this runner owns.
-      - name: Build and record the digest
+      - name: Join the legs and record the digest
         run: |
           node scripts/release/images.mjs \
             --version "${{ inputs.version }}" \
             --image-base "$IMAGE_BASE" \
             --platforms "${{ inputs.platforms }}" \
             --service "${{ matrix.service }}" \
+            --publish \
             --digests "images-${{ matrix.service }}.json"
 
       - uses: actions/upload-artifact@v7
@@ -118,7 +187,7 @@ jobs:
 
   collect:
     name: Collect the digests
-    needs: images
+    needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
