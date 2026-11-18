@@ -5,8 +5,8 @@
  * Four images, one prefix, one version tag each, built natively per architecture
  * and published as one manifest per image. The digest is the identity: a tag can
  * be moved, and `--images registry` refuses to plan without a digest for every
- * service it starts. So this reads each digest back after pushing and writes it
- * into `release.json`, which the release lane then signs.
+ * service it starts. Each build reports the digest it pushed through buildx's
+ * metadata file, and the leg writes that reference into its artifact.
  *
  * The three Rust services share `deploy/Dockerfile.rust` and differ by `BIN`;
  * the web image has its own Dockerfile and a Next.js export. Those pairs mirror
@@ -257,7 +257,21 @@ export function digestFromInspect(stdout) {
   return digest;
 }
 
-function buildArgs(spec, args, ref) {
+/**
+ * The digest `buildx build --metadata-file` reports for what it pushed.
+ *
+ * This is the race-free source: the file is written by the build that pushed,
+ * so a tag moved afterwards cannot change what the leg records.
+ */
+export function digestFromMetadata(document) {
+  const digest = String(document?.["containerimage.digest"] ?? "");
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
+    throw new Error(`the build metadata reports ${JSON.stringify(digest)} instead of a digest`);
+  }
+  return digest;
+}
+
+function buildArgs(spec, args, ref, metadata) {
   const out = [
     "buildx", "build",
     "--platform", args.platforms,
@@ -266,6 +280,7 @@ function buildArgs(spec, args, ref) {
     "--provenance=true",
     "--sbom=true",
     "--push",
+    "--metadata-file", metadata,
   ];
   if (spec.bin) out.push("--build-arg", `BIN=${spec.bin}`);
   out.push(args.context);
@@ -365,33 +380,52 @@ function main() {
     // release's identity, because the installer pins the joined manifest.
     const ref = buildReference(spec, args, args.tagSuffix);
     console.log(`building ${ref} for ${args.platforms}`);
-    run(buildArgs(spec, args, ref), args.dryRun);
+    const pushed = buildImage(spec, args, ref);
     if (args.tagSuffix) {
-      if (args.dryRun) {
+      if (!pushed) {
         if (args.legDigests) console.log(`would record the ${spec.service} ${args.tagSuffix} leg digest in ${args.legDigests}`);
         continue;
       }
-      // Read the pushed reference back and write it beside the leg's artifact.
-      // Publish joins these, never the tag, so a re-run cannot pick up an image
-      // that a later dispatch pushed under the same `-<arch>` tag.
-      const legRef = readDigest(ref, spec, args);
+      // Publish joins the digest this build reported, never the tag, so neither
+      // a re-run nor another writer that moves `-<arch>` can change the image.
       if (args.legDigests) {
-        writeLegDigest(args.legDigests, spec.service, args.tagSuffix, legRef);
-        console.log(`  ${spec.service} → ${legRef} (leg digest recorded)`);
+        writeLegDigest(args.legDigests, spec.service, args.tagSuffix, pushed);
+        console.log(`  ${spec.service} → ${pushed} (leg digest recorded)`);
       } else {
-        console.log(`  ${spec.service} → ${legRef} (build leg; --publish records the digest)`);
+        console.log(`  ${spec.service} → ${pushed} (build leg; --publish records the digest)`);
       }
       continue;
     }
-    if (args.dryRun) {
+    if (!pushed) {
       console.log(`would read the digest of ${ref}`);
       continue;
     }
-    digests[spec.service] = readDigest(ref, spec, args);
+    digests[spec.service] = pushed;
     console.log(`  ${spec.service} → ${digests[spec.service]}`);
   }
 
   writeDigests(args, digests, selected.length);
+}
+
+/**
+ * Build, push, and report the digest buildx pushed.
+ *
+ * The digest comes from `--metadata-file`, not from inspecting the tag
+ * afterwards: between a push and an inspect, the tag can be moved, and the
+ * recorded artifact would then name a different build. Metadata is written by
+ * the same build that did the push, so it cannot drift.
+ */
+function buildImage(spec, args, ref) {
+  const dir = mkdtempSync(join(tmpdir(), "marula-image-"));
+  const metadata = join(dir, "metadata.json");
+  try {
+    run(buildArgs(spec, args, ref, metadata), args.dryRun);
+    if (args.dryRun) return null;
+    const document = JSON.parse(readFileSync(metadata, "utf8"));
+    return `${args.imageBase}/${spec.image}@${digestFromMetadata(document)}`;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Join each service's arch tags into one manifest and record its digest. */
@@ -417,6 +451,8 @@ function publish(selected, args) {
 }
 
 function readDigest(ref, spec, args) {
+  // Publish reads the manifest it just created. `imagetools create` has no
+  // metadata-file channel, so this is the only handle on the joined digest.
   const inspected = run(
     ["buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest.Digest}}"],
     false,
@@ -487,6 +523,20 @@ export function selfTest() {
     threw = true;
   }
   assert(threw, "a value that is not a digest is refused");
+
+  // The pushed digest comes from the build's own metadata, not from a tag read
+  // after the push: the tag can be moved in between, the metadata cannot.
+  assert(
+    digestFromMetadata({ "containerimage.digest": digest }) === digest,
+    "the build metadata is where the pushed digest comes from",
+  );
+  let noMetadataDigest = false;
+  try {
+    digestFromMetadata({ "containerimage.name": "ghcr.io/marulahq/marula-web" });
+  } catch {
+    noMetadataDigest = true;
+  }
+  assert(noMetadataDigest, "metadata without a digest is refused instead of guessed");
 
   const merged = withImages({ assets: { "linux-x64": {} } }, { "core-api": "x" });
   assert(merged.assets["linux-x64"], "merging keeps what the manifest already had");
