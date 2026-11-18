@@ -48,10 +48,9 @@
 #
 # The signing gate states a posture instead of refusing to run: on a `v*.*.*`
 # tag a leg signs when its platform's certificate is present, and otherwise
-# bundles ad-hoc (macOS) or unsigned (Windows) with a warning the release note
-# repeats. A pull request or a branch push never reads the secrets. `sign=true`
-# on a manual dispatch is the strict rehearsal: it fails and names what is
-# missing, which is what a paid trust chain will eventually make the tag do.
+# bundles unsigned with a warning the release note repeats. A pull request or a
+# branch push never reads the secrets. `sign=true` on a manual dispatch is the
+# strict rehearsal: it fails and names what is missing.
 
 name: Release installer
 
