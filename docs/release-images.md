@@ -88,10 +88,13 @@ The manifest step merges that before it writes `SHA256SUMS`, and the release key
 signs the list — so the digests are covered by the signature rather than added
 beside it.
 
-A tagged release runs it. `release-installer.yml` calls this workflow as its
-`images` job, so the digest map is an artifact of the same run as the manifest
-that has to name it. Running the workflow by hand still works, and is the cheap
-way to prove a push without cutting a tag:
+A tagged release runs it, before the platform builds. Each platform archive
+carries the digests in its own `release.json`, because someone can download and
+install that archive without the rest of the release set. `release-installer.yml`
+calls this workflow as its `images` job, and the build jobs run after it, so the
+digest map is an artifact of the same run as the manifests that have to name it.
+Running the workflow by hand still works, and is the cheap way to prove a push
+without cutting a tag:
 
 ```sh
 gh workflow run release-images.yml -f version=0.3.1
