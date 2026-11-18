@@ -189,6 +189,7 @@ jobs:
     # archive without the release set. A skipped images job (any run that is not
     # a tag and did not ask for them) does not hold the build back.
     needs: [version, images]
+    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
