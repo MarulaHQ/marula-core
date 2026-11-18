@@ -70,7 +70,7 @@ git push origin v0.3.1        # the maintainer's call, not an agent's
 ```
 
 On a `v*.*.*` tag each leg signs when its platform's certificate is present and
-otherwise bundles with the documented posture (macOS ad-hoc, Windows unsigned),
+otherwise bundles unsigned (both platforms),
 warning so the run summary and the release note carry it. A pull request or a
 branch push never reads the secrets and always bundles unsigned.
 
@@ -171,16 +171,18 @@ to. It uses the `marula` already on `PATH` (`--verifier` names another). With
 none present it stops and prints the by-hand command above. It also refuses to
 run when its own source is a pipe, so `curl … | sh` fails rather than working.
 
-## Platform signatures: self-signed or ad-hoc for now
+## Platform signatures: unsigned or self-signed for now
 
 macOS and Windows artifacts ship **without a paid trust chain**. This is a
 decision, not an oversight, and the run summary states the posture each leg
 produced:
 
-- macOS: with no Apple certificate, the bundle is ad-hoc signed and not
-  notarised. Gatekeeper warns on first open, and a user allows it in System
-  Settings. A self-signed Apple-style certificate does not help here: it cannot
-  be notarised, so it produces the same warning.
+- macOS: with no Apple certificate the installer bundle is **unsigned**.
+  `tauri bundle --no-sign` skips signing and nothing later signs the `.app`, so
+  Gatekeeper warns on first open. A self-signed Apple-style certificate does not
+  change that: it cannot be notarised, so the warning stays. The desktop app is
+  different: its build script applies an ad-hoc signature, which is what that
+  artifact carries.
 - Windows: with a self-signed Authenticode certificate in `WINDOWS_CERTIFICATE`,
   the bundle is signed and stops being unsigned, but a machine that has not
   imported the certificate still shows "Unknown publisher". An organisation that

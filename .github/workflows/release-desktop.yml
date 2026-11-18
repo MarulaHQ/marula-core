@@ -1,6 +1,6 @@
 name: Release desktop
 
-# Desktop client artifacts (W61-2, extended by ADR 0031; conditional signing is W61-4).
+# Desktop client artifacts.
 #
 # macOS ships the embedded app (ADR 0005): Postgres, core-api and the Next
 # standalone tree inside the bundle. Linux and Windows ship the connected

@@ -109,16 +109,14 @@ mismatch means the file is not the file.
 
 ## What this does not cover
 
-macOS and Windows builds ship without a paid platform signature for now: macOS
-is ad-hoc signed, Windows is unsigned unless the release used a self-signed
-certificate. The operating system will warn on first launch even after every
-check above passes. What is true in that posture: the archive's checksum is
-signed with the release key, `marula artifact verify` refuses a tampered file,
-and the update manifest refuses an unsigned one. What a platform signature adds
-is the OS saying so without you running a verifier.
-
-Each release's notes name the posture every platform got, so that is the place
-to check what a particular download carries.
+macOS and Windows builds ship without a paid platform signature for now. The
+installer app is unsigned and the desktop app is ad-hoc signed, so neither is
+notarised. Windows is unsigned unless a self-signed certificate was used. The
+operating system will warn on first launch even after every check above passes.
+What is true in that posture: the archive's checksum is signed with the release
+key, `marula artifact verify` refuses a tampered file, and the update manifest
+refuses an unsigned one. What a platform signature adds is the OS saying so
+without you running a verifier.
 
 Next, if the checks pass: [install on a server](install-on-a-server.md) or
 [install with the app](install-with-the-app.md).

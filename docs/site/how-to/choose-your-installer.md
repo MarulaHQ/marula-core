@@ -74,11 +74,9 @@ platform says so its own way:
 
 | Platform | What you see | What it means |
 |---|---|---|
-| macOS | Gatekeeper says it cannot check the app for malicious software | the app is signed ad-hoc, with no notarization. Open it from System Settings, Privacy & Security, via Open Anyway |
+| macOS | Gatekeeper says it cannot check the app for malicious software | the bundle has no notarised Developer ID signature. The desktop app is ad-hoc signed and the installer app is unsigned. Open it from System Settings, Privacy & Security, via Open Anyway |
 | Windows | SmartScreen: "Windows protected your PC" | the bundle has no trusted Authenticode certificate. More info, then Run anyway. A self-signed certificate produces the same warning on a machine that has not imported it |
 | Linux | nothing | the `deb` and the AppImage carry no platform signature; the checksum list is the check that remains |
 
 That checksum list, and the signature over it, is what a careful installer
-reads on any platform: [verify a release](verify-a-release.md). Each release's
-notes name the posture every platform got, so read them before treating a
-warning as a problem.
+reads on any platform: [verify a release](verify-a-release.md).

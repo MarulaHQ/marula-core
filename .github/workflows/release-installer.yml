@@ -1,10 +1,9 @@
 # Release installer — the per-platform release artifacts.
 #
-# Wave 60 lane W60-4 (`p60-installer-artifact`). One leg per supported platform
-# builds the two things a release ships (the `marula` CLI and the installer app),
-# assembles one directory per platform with `scripts/release/assemble.mjs`, and
-# uploads it. A final job writes the manifest, checksums everything, and signs
-# the checksums with the release key.
+# One leg per supported platform builds the two things a release ships (the
+# `marula` CLI and the installer app), assembles one directory per platform with
+# `scripts/release/assemble.mjs`, and uploads it. A final job writes the
+# manifest, checksums everything, and signs the checksums with the release key.
 #
 # Supported platforms are macOS arm64, Linux x64, Linux arm64 and Windows x64.
 # Intel macOS is not built: a cold-cache leg took 53 minutes for the CLI and 35
@@ -302,11 +301,12 @@ jobs:
           fi
 
           # A tag no longer stops for a missing certificate. Without one, the leg
-          # bundles without a platform signature: ad-hoc on macOS, unsigned on
-          # Windows. The certificate's own provenance is not inspected here, so
-          # the comment makes no claim about whether it is self-signed. The leg
-          # must say which posture it produced so the release note can repeat it,
-          # and `sign=true` on a dispatch keeps the strict gate for a rehearsal.
+          # bundles unsigned: `tauri bundle --no-sign` skips its signing block and
+          # nothing later signs the bundle. The certificate's own provenance is
+          # not inspected, so a set certificate may be self-signed or CA-issued.
+          # The leg says which posture it produced so the release note can repeat
+          # it, and `sign=true` on a dispatch keeps the strict gate for a
+          # rehearsal.
           strict=false
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.sign }}" = "true" ]; then
             strict=true
@@ -327,7 +327,7 @@ jobs:
               exit 1
             fi
             echo "sign=false" >> "$GITHUB_OUTPUT"
-            printf '::warning::No %s signing certificate in this run (missing: %s). Bundling without a platform signature (macOS ad-hoc, Windows unsigned); the release note must state this posture.\n' "${RUNNER_OS}" "${missing[*]}"
+            printf '::warning::No %s signing certificate in this run (missing: %s). Bundling unsigned; the release note must state this posture.\n' "${RUNNER_OS}" "${missing[*]}"
             exit 0
           fi
           echo "sign=true" >> "$GITHUB_OUTPUT"
@@ -345,7 +345,7 @@ jobs:
           set -euo pipefail
           case "${RUNNER_OS}" in
             macOS)
-              if [ "${SIGN}" = "true" ]; then POSTURE="signed and notarised"; else POSTURE="ad-hoc (not notarised)"; fi
+              if [ "${SIGN}" = "true" ]; then POSTURE="signed and notarised"; else POSTURE="unsigned"; fi
               ;;
             Windows)
               if [ "${SIGN}" = "true" ]; then POSTURE="signed (certificate imported from WINDOWS_CERTIFICATE)"; else POSTURE="unsigned"; fi
