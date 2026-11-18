@@ -48,9 +48,13 @@ installer carries the database or downloads it.
 `workflow_dispatch` without them still builds: the bundler's updater artifacts
 are switched off for that run (with the flag on and no key, `tauri build`
 refuses to emit ones it cannot sign), and the job Summary states unsigned. A
-`desktop-v*` tag is the opposite gate — a missing secret fails the leg and
-names it, because a tagged release is not cut unsigned
-(`release-installer.yml` runs the same rule). A bundle without a certificate
+`desktop-v*` tag is the opposite gate: a missing secret fails the leg and names
+it, because a tagged desktop release is not cut unsigned.
+
+The installer workflow takes the softer path. A `v*.*.*` tag whose platform
+certificate is missing bundles unsigned and warns, so a release can ship
+without a paid certificate. `workflow_dispatch` with `sign=true` is the strict
+rehearsal and fails, naming the secrets. A bundle without a certificate
 installs and runs; the OS adds a warning, and the warning is named here instead
 of being discovered. What each posture produces and how a user verifies it is
 §7.
