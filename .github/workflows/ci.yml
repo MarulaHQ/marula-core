@@ -247,6 +247,13 @@ jobs:
       SCCACHE_BUCKET: marula-ci-sccache
       SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
       SCCACHE_REGION: auto
+      # A revoked key or an R2 outage must not brick the build. Without the
+      # skip, the startup storage read aborts the server (`check()` bails on a
+      # read error), and without the ignore, a failed read mid-compile is fatal
+      # to that compile. With both, the build goes local and prints a warning;
+      # the stats step is where a miss rate shows it.
+      SCCACHE_SKIP_CACHE_CHECK: "1"
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
       # Static, not `${{ runner.os }}`: the `runner` context is not available in
       # a job-level `env:` block. Every Rust job builds x86_64 Linux here.
       SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
@@ -355,6 +362,13 @@ jobs:
       SCCACHE_BUCKET: marula-ci-sccache
       SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
       SCCACHE_REGION: auto
+      # A revoked key or an R2 outage must not brick the build. Without the
+      # skip, the startup storage read aborts the server (`check()` bails on a
+      # read error), and without the ignore, a failed read mid-compile is fatal
+      # to that compile. With both, the build goes local and prints a warning;
+      # the stats step is where a miss rate shows it.
+      SCCACHE_SKIP_CACHE_CHECK: "1"
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
       # Static, not `${{ runner.os }}`: the `runner` context is not available in
       # a job-level `env:` block. Every Rust job builds x86_64 Linux here.
       SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
@@ -776,6 +790,13 @@ jobs:
       SCCACHE_BUCKET: marula-ci-sccache
       SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
       SCCACHE_REGION: auto
+      # A revoked key or an R2 outage must not brick the build. Without the
+      # skip, the startup storage read aborts the server (`check()` bails on a
+      # read error), and without the ignore, a failed read mid-compile is fatal
+      # to that compile. With both, the build goes local and prints a warning;
+      # the stats step is where a miss rate shows it.
+      SCCACHE_SKIP_CACHE_CHECK: "1"
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
       # Static, not `${{ runner.os }}`: the `runner` context is not available in
       # a job-level `env:` block. Every Rust job builds x86_64 Linux here.
       SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
