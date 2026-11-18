@@ -13,7 +13,10 @@
  *                                `marula install --ui` looks in by default
  *     deploy/                    the compose files and everything they mount
  *     LICENSE, README.md         what the AGPL asks a distribution to carry
- *     release.json               what this directory is, for a machine
+ *     release.json               what this directory is, for a machine —
+ *                                including the published image digests when
+ *                                `--images` names them, because this archive
+ *                                is downloaded and installed on its own
  *     SHA256SUMS                 every file above, sorted, `sha256sum -c` shaped
  *
  * and, beside the directory, the two files the download path needs:
@@ -269,6 +272,18 @@ export function assemble(options) {
       cpSync(file, join(staging, basename(file)));
     }
 
+    // Published digests belong in THIS manifest too, not only in the release
+    // set's: a platform archive is downloaded on its own, and the installer
+    // reads the `release.json` beside it. Without the map a registry install
+    // from that archive is refused, so the digests have to be known before the
+    // directory is written and archived.
+    const images =
+      options.images === undefined
+        ? undefined
+        : typeof options.images === "string"
+          ? readImages(options.images)
+          : options.images;
+
     const manifest = {
       schema: "marula.release/1",
       version,
@@ -282,6 +297,7 @@ export function assemble(options) {
       ],
       ui: "apps/installer/dist",
       ...(options.commit ? { commit: options.commit } : {}),
+      ...(images ? { images } : {}),
     };
     writeFileSync(join(staging, "release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
@@ -518,6 +534,32 @@ function selfTest() {  const assert = (condition, message) => {
     );
     log("layout is complete, and dev.env stays behind");
 
+    // A platform archive is installed on its own, so its manifest has to carry
+    // the image digests. Without `--images` it must not invent one.
+    const bare = JSON.parse(readFileSync(join(first.dir, "release.json"), "utf8"));
+    assert(!("images" in bare), "no images map without --images");
+
+    const digestsFile = join(temp, "images.json");
+    writeFileSync(
+      digestsFile,
+      JSON.stringify({
+        "core-api": `ghcr.io/marulahq/marula-core-api@sha256:${"a".repeat(64)}`,
+      }),
+    );
+    const pinned = assemble({ ...base, commit: "0".repeat(40), images: digestsFile });
+    const withImages = JSON.parse(readFileSync(join(pinned.dir, "release.json"), "utf8"));
+    assert(
+      withImages.images?.["core-api"]?.includes("@sha256:"),
+      "the platform manifest carries the digests it was given",
+    );
+    const pinnedSums = parseSums(readFileSync(join(pinned.dir, "SHA256SUMS"), "utf8"));
+    const listed = pinnedSums.find(([, path]) => path === "release.json");
+    assert(
+      listed && listed[0] === sha256File(join(pinned.dir, "release.json")),
+      "the tree sums cover the manifest that names the digests",
+    );
+    log("the platform manifest carries the digests, and its sums cover it");
+
     // The sums are sha256sum-shaped, sorted, and match the bytes.
     const parsed = parseSums(readFileSync(join(first.dir, "SHA256SUMS"), "utf8"));
     assert(parsed.length === first.files, "one line per file");
@@ -605,7 +647,7 @@ function selfTest() {  const assert = (condition, message) => {
     // The digests a release publishes ride in the manifest the checksum list
     // covers, and a tag in that field is refused rather than shipped.
     const digest = (service) =>
-      `ghcr.io/marulagh/marula-${service}@sha256:${"a".repeat(64)}`;
+      `ghcr.io/marulahq/marula-${service}@sha256:${"a".repeat(64)}`;
     const imagesFile = join(out, "images.json");
     writeFileSync(imagesFile, JSON.stringify({ images: { "core-api": digest("core-api") } }));
     writeManifest({ version: "9.9.9", out, commit: "0".repeat(40), images: imagesFile });
@@ -620,7 +662,7 @@ function selfTest() {  const assert = (condition, message) => {
     );
     writeFileSync(
       join(out, "tagged.json"),
-      JSON.stringify({ "core-api": "ghcr.io/marulagh/marula-core-api:9.9.9" }),
+      JSON.stringify({ "core-api": "ghcr.io/marulahq/marula-core-api:9.9.9" }),
     );
     let refused = null;
     try {
@@ -717,7 +759,7 @@ function usage() {
     "usage: assemble.mjs --version <semver> --os <linux|macos|windows> --arch <arm64|x64>",
     "                    [--out <dir>] [--root <repo>] [--target-dir <dir>]",
     "                    [--target-triple <triple>] [--binary <path>] [--commit <sha>]",
-    "                    [--no-archive]",
+    "                    [--images <images.json>] [--no-archive]",
     "       assemble.mjs --manifest --version <semver> [--out <dir>] [--commit <sha>]",
     "                    [--images <images.json>]",
     "       assemble.mjs --self-test",

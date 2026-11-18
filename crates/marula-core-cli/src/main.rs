@@ -133,7 +133,7 @@ enum Command {
         #[arg(long, value_name = "build|registry", default_value = "build")]
         images: String,
         /// Registry prefix for `--images registry`, e.g.
-        /// `ghcr.io/marulagh/marula`. Each service is `<prefix>-<service>`.
+        /// `ghcr.io/marulahq/marula`. Each service is `<prefix>-<service>`.
         #[arg(long)]
         image_base: Option<String>,
         /// Pin one service to a digest: `service=sha256:...` (repeatable).

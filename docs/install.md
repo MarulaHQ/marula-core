@@ -143,7 +143,7 @@ to the release's digest:
 ```yaml
 services:
   core-api:
-    image: ghcr.io/marulagh/marula-core-api@sha256:…
+    image: ghcr.io/marulahq/marula-core-api@sha256:…
     pull_policy: always
     build: !reset null
 ```

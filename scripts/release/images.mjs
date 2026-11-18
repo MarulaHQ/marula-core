@@ -32,7 +32,7 @@ const SERVICES = [
 
 function parseArgs(argv) {
   const out = {
-    imageBase: "ghcr.io/marulagh",
+    imageBase: "ghcr.io/marulahq",
     platforms: "linux/amd64,linux/arm64",
     dryRun: false,
     context: ".",
@@ -269,7 +269,7 @@ export function selfTest() {
   const merged = withImages({ assets: { "linux-x64": {} } }, { "core-api": "x" });
   assert(merged.assets["linux-x64"], "merging keeps what the manifest already had");
   assert(merged.images["core-api"] === "x", "merging adds the digests");
-  const reference = (service) => `ghcr.io/marulagh/marula-${service}@sha256:${"a".repeat(64)}`;
+  const reference = (service) => `ghcr.io/marulahq/marula-${service}@sha256:${"a".repeat(64)}`;
   const full = mergeDigests([
     { "core-api": reference("core-api"), worker: reference("worker") },
     { migrate: reference("migrate"), web: reference("web") },
@@ -292,7 +292,7 @@ export function selfTest() {
     unknownRefused = true;
   }
   assert(unknownRefused, "an unknown --service is refused rather than ignored");
-  const bare = JSON.parse(digestsDocument({ "core-api": "ghcr.io/marulagh/marula-core-api@sha256:" + "a".repeat(64) }));
+  const bare = JSON.parse(digestsDocument({ "core-api": "ghcr.io/marulahq/marula-core-api@sha256:" + "a".repeat(64) }));
   assert(bare["core-api"].endsWith("@sha256:" + "a".repeat(64)), "the bare map is what the manifest step reads");
 
   const compose = readFileSync("deploy/docker-compose.yml", "utf8");

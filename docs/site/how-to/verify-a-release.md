@@ -74,13 +74,13 @@ wants to confirm it by hand:
 
 ```sh
 python3 -c "import json; print(json.load(open('release.json'))['images']['core-api'])"
-# ghcr.io/marulagh/marula-core-api@sha256:…
+# ghcr.io/marulahq/marula-core-api@sha256:…
 ```
 
 Ask the registry what that reference points at:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/marulagh/marula-core-api@sha256:…
+docker buildx imagetools inspect ghcr.io/marulahq/marula-core-api@sha256:…
 ```
 
 The digest it prints is the digest you asked for, or the pull fails. A tag in

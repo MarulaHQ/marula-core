@@ -71,6 +71,10 @@ on:
         description: Require signing secrets (as a tagged release does)
         type: boolean
         default: false
+      images:
+        description: "Build and publish the container images too (slow: about an hour)"
+        type: boolean
+        default: false
 
 # Least privilege at the top, per job below (the p38 rule this repository
 # already follows).
@@ -156,9 +160,36 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
 
+  # The four application images, built in the same run as the bundle. This is
+  # the wiring `docs/release-images.md` asks for: the digest map the images job
+  # writes is an artifact of THIS run, which is what lets `publish` merge it into
+  # the manifest. A separate dispatch leaves the digests in another run's
+  # artifacts, where the manifest step cannot see them.
+  #
+  # Tags only, plus a manual run that asks for them. A pull-request or rehearsal
+  # run has no release to publish, and the emulated arm64 half costs about an
+  # hour — but `-f images=true` rehearses this exact job without a tag.
+  images:
+    name: Images
+    needs: [version]
+    if: ${{ needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.images == 'true') }}
+    permissions:
+      # The called workflow pushes to GHCR, and a called workflow can never hold
+      # more than its caller grants.
+      contents: read
+      packages: write
+    uses: ./.github/workflows/release-images.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
   build:
     name: Build — ${{ matrix.os }} ${{ matrix.arch }}
-    needs: version
+    # The images first: each platform archive carries the published digests in
+    # its own `release.json`, because a user can download and install that
+    # archive without the release set. A skipped images job (any run that is not
+    # a tag and did not ask for them) does not hold the build back.
+    needs: [version, images]
+    if: ${{ !cancelled() && needs.version.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
@@ -374,9 +405,27 @@ jobs:
           echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
           echo "ASSEMBLE_EXTRA=--extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libcrypto-3-x64.dll --extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libssl-3-x64.dll" >> "$GITHUB_ENV"
 
+      - name: Fetch the image digests
+        # Present only on a run that published images (a tag, or a manual run
+        # that asked for them). The archive carries them in its own manifest,
+        # because a platform archive is downloaded and installed on its own.
+        if: ${{ needs.images.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: marula-images
+          path: ${{ runner.temp }}/image-digests
+
       - name: Assemble the release directory
         shell: bash
         run: |
+          # The digests are an array: a Windows path must not be split or have
+          # its backslashes eaten.
+          images_args=()
+          digests="${{ runner.temp }}/image-digests/images.json"
+          if [ -f "$digests" ]; then
+            images_args=(--images "$digests")
+            echo "the archive's manifest will name the published image digests"
+          fi
           # shellcheck disable=SC2086 # ASSEMBLE_EXTRA is a flag list by design: the
           # Windows leg needs one --extra per OpenSSL DLL, so it must word-split.
           node scripts/release/assemble.mjs \
@@ -385,7 +434,8 @@ jobs:
             --arch "${{ matrix.arch }}" \
             --commit "$GITHUB_SHA" \
             --out dist/release \
-            ${ASSEMBLE_EXTRA:-}
+            ${ASSEMBLE_EXTRA:-} \
+            ${images_args[@]+"${images_args[@]}"}
 
       # A green link is not a working binary: on Windows the OpenSSL DLLs have to
       # be found at run time, and a bundle that only compiled is a bundle that
@@ -451,7 +501,10 @@ jobs:
   offline:
     name: Offline bundle — linux ${{ matrix.arch }}
     needs: [version, build]
-    if: needs.version.outputs.tagged == 'true' || github.event.inputs.offline == 'true'
+    # The gate is stated rather than inherited. `build` succeeding is what makes
+    # an offline bundle possible at all, and a skipped `images` job does not
+    # skip this one — a build with a skipped need still runs.
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.version.outputs.tagged == 'true' || github.event.inputs.offline == 'true') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     permissions:
@@ -516,11 +569,17 @@ jobs:
   # checksum list is not something the bootstrap will accept.
   publish:
     name: Manifest and signatures
-    needs: [version, build, offline]
+    needs: [version, build, offline, images]
     # `always()` plus explicit result checks, because `needs:` alone would skip
-    # this job whenever the offline job was skipped (a manual run that did not
-    # ask for the offline bundle still gets a manifest and a signature).
-    if: ${{ always() && needs.build.result == 'success' && (needs.offline.result == 'success' || needs.offline.result == 'skipped') && (needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sign == 'true')) }}
+    # this job whenever a neighbour was skipped (a manual run that did not ask
+    # for the offline bundle still gets a manifest and a signature, and a run
+    # that is not a tag skips the images job).
+    #
+    # A FAILED images job is different from a skipped one: a tag then has no
+    # digest map, and a manifest without digests describes a bundle that can only
+    # be installed offline. That is a degraded release, so it is refused rather
+    # than published quietly.
+    if: ${{ always() && needs.build.result == 'success' && (needs.offline.result == 'success' || needs.offline.result == 'skipped') && (needs.images.result == 'success' || needs.images.result == 'skipped') && (needs.version.outputs.tagged == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.sign == 'true')) }}
     # The signing secret is an ENVIRONMENT secret, so this job declares the
     # environment that holds it. The environment carries required reviewers and a
     # tag-only deployment policy; without this line the secret resolves as empty

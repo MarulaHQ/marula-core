@@ -62,7 +62,7 @@ env:
   # GHCR refuses upper case, so this stays lower case even though the org's
   # display name is not. `images.mjs` defaults to the same value; it is set here
   # so a fork can point at its own org with one edit.
-  IMAGE_BASE: ghcr.io/marulagh
+  IMAGE_BASE: ghcr.io/marulahq
 
 jobs:
   images:
@@ -111,7 +111,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: marula-images-${{ matrix.service }}
+          name: images-${{ matrix.service }}
           path: images-${{ matrix.service }}.json
           if-no-files-found: error
           retention-days: 30
@@ -132,7 +132,7 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          pattern: marula-images-*
+          pattern: images-*
           path: digests
           merge-multiple: true
 
