@@ -231,17 +231,26 @@ jobs:
       # Without it every test that builds a config panics before it asserts
       # anything (api_versioning: 5 tests at line 69).
       MARULA_EMBEDDING_TIER: minimal
-      # sccache through the Actions cache backend. `SCCACHE_GHA_ENABLED` puts
-      # the compiler cache in the SAME 10 GB per-repository budget as
-      # rust-cache; that contest is the reason to move, and the move is
-      # env-only: `SCCACHE_BUCKET`, `SCCACHE_ENDPOINT` and `SCCACHE_REGION`
-      # against R2/S3 with the credentials as secrets, no step changes. Until
-      # then the two do compete: sccache writes one immutable entry per
-      # compilation unit and Actions evicts LRU at 10 GB, so a growing sccache
-      # set can push the target-dir entry out. Measure a warm pair of runs (hit
-      # rate plus rust-cache's `cache-hit`) before calling this settled.
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
+      # sccache on R2, not the Actions cache. The Actions backend shares the
+      # 10 GB per-repository budget with rust-cache and would evict the
+      # target-dir entry it exists to complement; R2 has no such ceiling and no
+      # egress charge. sccache objects are immutable and never rewritten, so the
+      # bucket's lifecycle rule is the only GC — sccache evicts nothing on a
+      # remote backend.
+      #
+      # The wrapper is guarded on a secret rather than set unconditionally: fork
+      # pull requests (and Dependabot) never receive repository secrets, and
+      # sccache with an endpoint but no credentials fails every compile. With
+      # the guard those runs build unwrapped and stay green.
+      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && 'sccache' || '' }}
+      SCCACHE_BUCKET: marula-ci-sccache
+      SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SCCACHE_REGION: auto
+      # Static, not `${{ runner.os }}`: the `runner` context is not available in
+      # a job-level `env:` block. Every Rust job builds x86_64 Linux here.
+      SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@v7
@@ -333,12 +342,18 @@ jobs:
       # Without it every test that builds a config panics before it asserts
       # anything (api_versioning: 5 tests at line 69).
       MARULA_EMBEDDING_TIER: minimal
-      # sccache through the Actions cache backend — same 10 GB per-repository
-      # budget as rust-cache, and the same env-only switch to R2/S3
-      # (`SCCACHE_BUCKET`, `SCCACHE_ENDPOINT`, `SCCACHE_REGION`). Recorded in
-      # full on `rust-tests-core-api`.
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
+      # The same R2 configuration as `rust-tests-core-api`, recorded in full
+      # there. The guard on `RUSTC_WRAPPER` is what keeps fork pull requests,
+      # which receive no secrets, building unwrapped instead of failing.
+      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && 'sccache' || '' }}
+      SCCACHE_BUCKET: marula-ci-sccache
+      SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SCCACHE_REGION: auto
+      # Static, not `${{ runner.os }}`: the `runner` context is not available in
+      # a job-level `env:` block. Every Rust job builds x86_64 Linux here.
+      SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@v7
@@ -743,14 +758,18 @@ jobs:
       # Without it every test that builds a config panics before it asserts
       # anything (api_versioning: 5 tests at line 69).
       MARULA_EMBEDDING_TIER: minimal
-      # sccache through the Actions cache backend — same 10 GB per-repository
-      # budget as rust-cache, and the same env-only switch to R2/S3
-      # (`SCCACHE_BUCKET`, `SCCACHE_ENDPOINT`, `SCCACHE_REGION`). This job
-      # recompiles core-api and the CLI that other jobs already built, which is
-      # exactly the work a compiler cache can hand back. Recorded in full on
-      # `rust-tests-core-api`.
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
+      # The same R2 configuration as `rust-tests-core-api`, recorded in full
+      # there. This job recompiles core-api and the CLI that other jobs already
+      # built, which is exactly the work a compiler cache can hand back.
+      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && 'sccache' || '' }}
+      SCCACHE_BUCKET: marula-ci-sccache
+      SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SCCACHE_REGION: auto
+      # Static, not `${{ runner.os }}`: the `runner` context is not available in
+      # a job-level `env:` block. Every Rust job builds x86_64 Linux here.
+      SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@v7
