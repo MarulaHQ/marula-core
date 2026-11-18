@@ -208,8 +208,8 @@ export function buildReference(spec, args, suffix) {
 }
 
 /** Join the per-architecture legs into one manifest list under the release tag. */
-export function publishArgs(ref, legs) {
-  return ["buildx", "imagetools", "create", "--tag", ref, ...legs];
+export function publishArgs(ref, legs, metadata) {
+  return ["buildx", "imagetools", "create", "--tag", ref, "--metadata-file", metadata, ...legs];
 }
 
 /**
@@ -241,22 +241,6 @@ function readLegDigest(dir, service, suffix) {
   return reference;
 }
 
-/** `buildx imagetools inspect` answers with a JSON string holding the digest. */
-export function digestFromInspect(stdout) {
-  const trimmed = stdout.trim();
-  let value;
-  try {
-    value = JSON.parse(trimmed);
-  } catch {
-    value = trimmed;
-  }
-  const digest = String(value).replace(/^"|"$/g, "");
-  if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
-    throw new Error(`imagetools did not report a digest (got ${JSON.stringify(stdout.slice(0, 80))})`);
-  }
-  return digest;
-}
-
 /**
  * The digest `buildx build --metadata-file` reports for what it pushed.
  *
@@ -267,6 +251,22 @@ export function digestFromMetadata(document) {
   const digest = String(document?.["containerimage.digest"] ?? "");
   if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
     throw new Error(`the build metadata reports ${JSON.stringify(digest)} instead of a digest`);
+  }
+  return digest;
+}
+
+/**
+ * The index digest `buildx imagetools create --metadata-file` reports.
+ *
+ * Same rule as the build legs: the digest comes from the tool that wrote the
+ * manifest, not from reading the tag afterwards, because a tag can move between
+ * those two calls. Buildx 0.32.0 introduced this metadata; the publish job pins
+ * a version that has it.
+ */
+export function digestFromCreateMetadata(document) {
+  const digest = String(document?.["containerimage.descriptor"]?.digest ?? "");
+  if (!/^sha256:[0-9a-f]{64}$/.test(digest)) {
+    throw new Error(`the create metadata reports ${JSON.stringify(digest)} instead of an index digest`);
   }
   return digest;
 }
@@ -442,22 +442,32 @@ function publish(selected, args) {
       ? suffixes.map((suffix) => readLegDigest(args.legDigests, spec.service, suffix))
       : suffixes.map((suffix) => buildReference(spec, args, suffix));
     console.log(`publishing ${ref} from ${legs.length} architecture leg(s)`);
-    run(publishArgs(ref, legs), args.dryRun);
-    if (args.dryRun) continue;
-    digests[spec.service] = readDigest(ref, spec, args);
+    const joined = publishImage(spec, args, ref, legs);
+    if (!joined) continue;
+    digests[spec.service] = joined;
     console.log(`  ${spec.service} → ${digests[spec.service]}`);
   }
   writeDigests(args, digests, selected.length);
 }
 
-function readDigest(ref, spec, args) {
-  // Publish reads the manifest it just created. `imagetools create` has no
-  // metadata-file channel, so this is the only handle on the joined digest.
-  const inspected = run(
-    ["buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest.Digest}}"],
-    false,
-  );
-  return `${args.imageBase}/${spec.image}@${digestFromInspect(inspected)}`;
+/**
+ * Create the manifest and report the index digest it wrote.
+ *
+ * The digest comes from the create call's own metadata for the same reason the
+ * build legs take theirs from the build: the tag this creates can be moved
+ * between the create and a follow-up inspect.
+ */
+function publishImage(spec, args, ref, legs) {
+  const dir = mkdtempSync(join(tmpdir(), "marula-publish-"));
+  const metadata = join(dir, "metadata.json");
+  try {
+    run(publishArgs(ref, legs, metadata), args.dryRun);
+    if (args.dryRun) return null;
+    const document = JSON.parse(readFileSync(metadata, "utf8"));
+    return `${args.imageBase}/${spec.image}@${digestFromCreateMetadata(document)}`;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function writeDigests(args, digests, expected) {
@@ -514,18 +524,9 @@ if (invokedDirectly) {
  */
 export function selfTest() {
   const digest = `sha256:${"a".repeat(64)}`;
-  assert(digestFromInspect(JSON.stringify(digest)) === digest, "a quoted JSON digest is read");
-  assert(digestFromInspect(digest) === digest, "a bare digest is read");
-  let threw = false;
-  try {
-    digestFromInspect("not-a-digest");
-  } catch {
-    threw = true;
-  }
-  assert(threw, "a value that is not a digest is refused");
 
-  // The pushed digest comes from the build's own metadata, not from a tag read
-  // after the push: the tag can be moved in between, the metadata cannot.
+  // Both digests come from the tool that wrote the image, never from a tag read
+  // afterwards: the tag can be moved in between, the metadata cannot.
   assert(
     digestFromMetadata({ "containerimage.digest": digest }) === digest,
     "the build metadata is where the pushed digest comes from",
@@ -537,6 +538,18 @@ export function selfTest() {
     noMetadataDigest = true;
   }
   assert(noMetadataDigest, "metadata without a digest is refused instead of guessed");
+
+  assert(
+    digestFromCreateMetadata({ "containerimage.descriptor": { digest } }) === digest,
+    "the create metadata is where the joined index digest comes from",
+  );
+  let noIndexDigest = false;
+  try {
+    digestFromCreateMetadata({ "containerimage.descriptor": { mediaType: "application/vnd.oci.image.index.v1+json" } });
+  } catch {
+    noIndexDigest = true;
+  }
+  assert(noIndexDigest, "create metadata without an index digest is refused instead of guessed");
 
   const merged = withImages({ assets: { "linux-x64": {} } }, { "core-api": "x" });
   assert(merged.assets["linux-x64"], "merging keeps what the manifest already had");
@@ -580,9 +593,9 @@ export function selfTest() {
   assert(archSuffixes("linux/amd64,linux/arm64").join(",") === "amd64,arm64", "the suffix is the platform's arch");
   assert(archSuffixes("linux/arm64").length === 1, "a one-architecture run publishes a one-leg manifest");
   assert(
-    publishArgs("ref", ["ref-amd64", "ref-arm64"]).join(" ") ===
-      "buildx imagetools create --tag ref ref-amd64 ref-arm64",
-    "publish joins the arch tags under the release tag",
+    publishArgs("ref", ["ref-amd64", "ref-arm64"], "/tmp/meta.json").join(" ") ===
+      "buildx imagetools create --tag ref --metadata-file /tmp/meta.json ref-amd64 ref-arm64",
+    "publish joins the arch tags and records the create metadata",
   );
 
   const planned = matrixFor("linux/amd64,linux/arm64");
