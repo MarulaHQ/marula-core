@@ -117,9 +117,8 @@ signed with the release key, `marula artifact verify` refuses a tampered file,
 and the update manifest refuses an unsigned one. What a platform signature adds
 is the OS saying so without you running a verifier.
 
-Adding the certificates changes the next tagged release on its own, because the
-workflow already reads them, and that release's notes name the posture each
-platform got.
+Each release's notes name the posture every platform got, so that is the place
+to check what a particular download carries.
 
 Next, if the checks pass: [install on a server](install-on-a-server.md) or
 [install with the app](install-with-the-app.md).

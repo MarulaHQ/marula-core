@@ -79,8 +79,6 @@ platform says so its own way:
 | Linux | nothing | the `deb` and the AppImage carry no platform signature; the checksum list is the check that remains |
 
 That checksum list, and the signature over it, is what a careful installer
-reads on any platform: [verify a release](verify-a-release.md). When the
-certificates are added to the release pipeline, the next tagged release signs
-and notarises on its own: the workflow already reads them, so no code changes
-and nothing for you to re-download ahead of that release. That release's notes
-say which posture each platform got.
+reads on any platform: [verify a release](verify-a-release.md). Each release's
+notes name the posture every platform got, so read them before treating a
+warning as a problem.

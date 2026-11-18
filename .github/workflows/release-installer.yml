@@ -301,11 +301,12 @@ jobs:
             exit 0
           fi
 
-          # A tag no longer stops for a missing certificate. Until the paid trust
-          # chain exists, the posture is a self-signed Windows certificate or an
-          # ad-hoc macOS bundle, and the leg must say which one it produced so
-          # the release note can repeat it. `sign=true` on a dispatch keeps the
-          # strict gate for anyone rehearsing a signed release.
+          # A tag no longer stops for a missing certificate. Without one, the leg
+          # bundles without a platform signature: ad-hoc on macOS, unsigned on
+          # Windows. The certificate's own provenance is not inspected here, so
+          # the comment makes no claim about whether it is self-signed. The leg
+          # must say which posture it produced so the release note can repeat it,
+          # and `sign=true` on a dispatch keeps the strict gate for a rehearsal.
           strict=false
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.sign }}" = "true" ]; then
             strict=true
@@ -767,15 +768,28 @@ jobs:
       - name: Attach the files to the release page
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --draft \
-              --title "Marula Core ${VERSION}" \
-              --notes "Draft created by the release workflow. Paste the CHANGELOG section here, state the platform signing posture for each platform, then publish. The files are attached already."
-            echo "::warning::Created $TAG as a draft with the assets attached. Add the CHANGELOG section and publish it."
+          # A failed lookup is not a missing release: an auth or network error
+          # must fail the step, because `gh release create` would then fail on
+          # an existing release and stop before anything is uploaded.
+          view_error=""
+          if ! view_error=$(gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.tag_name' 2>&1 >/dev/null); then
+            case "$view_error" in
+              *"HTTP 404"*)
+                gh release create "$TAG" --verify-tag --draft \
+                  --title "Marula Core ${VERSION}" \
+                  --notes "Draft created by the release workflow. Paste the CHANGELOG section here, state the platform signing posture for each platform, then publish. The files are attached already."
+                echo "::warning::Created $TAG as a draft with the assets attached. Add the CHANGELOG section and publish it."
+                ;;
+              *)
+                printf '::error::could not read the release for %s: %s\n' "$TAG" "$view_error"
+                exit 1
+                ;;
+            esac
           fi
           # Files only: `dist/release` also holds one unpacked directory per
           # platform, and those are the archive's content, not an asset.
-          mapfile -t assets < <(find dist/release -maxdepth 1 -type f | sort)
+          assets=()
+          while IFS= read -r file; do assets+=("$file"); done < <(find dist/release -maxdepth 1 -type f | sort)
           [ "${#assets[@]}" -gt 0 ] || { echo "::error::no files to attach in dist/release"; exit 1; }
           # --clobber makes a re-run idempotent: same files, same names, no
           # duplicate assets, and the checksum list still covers them.

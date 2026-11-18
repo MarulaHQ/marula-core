@@ -79,7 +79,8 @@ repository. A signature proves which key signed, not who held it.
 6. **Release notes** on GitHub: the changelog section verbatim, plus a "Breaking"
    heading when there is one, and the database-migration note. The tag's workflow
    attaches the files and creates the page as a draft when it is absent, so this
-   step may be "edit the draft, state the signing posture, publish".
+   step may be "edit the draft and state the signing posture". Do not publish
+   yet: step 8 checks the artefacts first.
 7. **Images.** The tag's `release-installer` run builds and pushes
    `ghcr.io/marulahq/marula-<component>:X.Y.Z`, then merges the digests into the
    platform archives and the release manifest. GHCR owner names are lowercase, so
@@ -93,9 +94,9 @@ repository. A signature proves which key signed, not who held it.
    `release-installer` workflow, which builds and signs them, then attaches the
    whole set to the release page for that tag. If no release page exists yet the
    `attach` job creates a draft with the files already on it; paste the
-   changelog section into the draft, state the signing posture per platform, and
-   publish it. `docs/release.md` covers what each file is and how to check a
-   download by hand.
+   changelog section into the draft and state the signing posture per platform.
+   Publish the draft here, once step 8 has checked the artefacts. `docs/release.md`
+   covers what each file is and how to check a download by hand.
 
 ## Sign after a history rewrite, never before
 
