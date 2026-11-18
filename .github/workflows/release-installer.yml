@@ -1,13 +1,18 @@
 # Release installer — the per-platform release artifacts.
 #
-# Wave 60 lane W60-4 (`p60-installer-artifact`). Five legs build the two things
-# a release ships (the `marula` CLI and the installer app), assemble one
-# directory per platform with `scripts/release/assemble.mjs`, and upload it.
-# A final job writes the manifest, checksums everything, and signs the
-# checksums with the release key.
+# Wave 60 lane W60-4 (`p60-installer-artifact`). One leg per supported platform
+# builds the two things a release ships (the `marula` CLI and the installer app),
+# assembles one directory per platform with `scripts/release/assemble.mjs`, and
+# uploads it. A final job writes the manifest, checksums everything, and signs
+# the checksums with the release key.
 #
-# What this file does and does not do: the five legs build every platform, the
-# `publish` job writes the manifest and signs the checksums, and the `attach`
+# Supported platforms are macOS arm64, Linux x64, Linux arm64 and Windows x64.
+# Intel macOS is not built: a cold-cache leg took 53 minutes for the CLI and 35
+# more for the installer app, past this job's limit, and a warm cache is not
+# guaranteed on a new branch. The tracking issue records how to restore it.
+#
+# What this file does and does not do: the legs build every supported platform,
+# the `publish` job writes the manifest and signs the checksums, and the `attach`
 # job puts the files on the release page. Notes are not written here: a release
 # page that does not exist yet is created as a DRAFT, because the changelog
 # section and the signing posture are a person's words.
@@ -205,9 +210,6 @@ jobs:
           - os: macos
             arch: arm64
             runner: macos-15 # arm64
-          - os: macos
-            arch: x64
-            runner: macos-15-intel
           - os: linux
             arch: x64
             runner: ubuntu-24.04

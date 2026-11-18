@@ -34,7 +34,7 @@ docs answer the shorter questions:
 
 | Platform | Mode | Bundle targets | Signing |
 |---|---|---|---|
-| macOS | embedded and connected | `app` (CI ships the `.app` zipped), `dmg` locally | Developer ID signature + notarization when the Apple secrets are set (`§2`); ad-hoc otherwise |
+| macOS (arm64) | embedded and connected | `app` (CI ships the `.app` zipped), `dmg` locally | Developer ID signature + notarization when the Apple secrets are set (`§2`); ad-hoc otherwise |
 | Linux | connected | `deb`, `appimage` | the `.AppImage` carries the updater's minisign signature when `TAURI_SIGNING_PRIVATE_KEY` is set; the `deb` is checksum-only |
 | Windows | connected | `nsis`, `msi` | Authenticode when `WINDOWS_CERTIFICATE` is set; unsigned otherwise, and SmartScreen will warn |
 
@@ -285,7 +285,7 @@ that leg does not install (`.github/workflows/ci.yml`).
 | Linux desktop bundles (`deb`, `appimage`) | Configured in `desktop/tauri.linux.conf.json`. The `.AppImage` carries the updater's minisign signature when the updater key exists; the `deb` is checksum-only until an apt repository publishes (the reason is below). |
 | Windows desktop bundles (`nsis`, `msi`) | Configured in `desktop/tauri.windows.conf.json`. Authenticode-signed when `WINDOWS_CERTIFICATE` exists; unsigned otherwise, and SmartScreen will warn. |
 | Updater artifacts (`.sig` files) | Signed with the minisign updater key when `TAURI_SIGNING_PRIVATE_KEY` exists, and collected beside the bundles. Without the key the run emits none and says so. |
-| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds five legs. These belong to the installer app, not to the client (`docs/release.md`). |
+| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds four legs (macOS arm64, Linux x64, Linux arm64, Windows x64). These belong to the installer app, not to the client (`docs/release.md`). |
 
 **What a dispatch produces.** With every secret set in place: macOS signed and
 notarized, the Linux AppImage minisign-signed, Windows Authenticode-signed, and

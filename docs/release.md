@@ -9,8 +9,10 @@ bundle carrying the container images the install needs.
 
 ## What a release produces
 
-The `release-installer` workflow builds five legs, one per platform, and each
-leg writes a directory plus one archive:
+The `release-installer` workflow builds four legs (`macOS` arm64, `Linux` x64,
+`Linux` arm64, `Windows` x64), and each leg writes a directory plus one archive.
+Intel macOS is not built for now: a cold-cache Intel leg exceeded the job limit,
+and the tracking issue records how to restore it.
 
 | File | What it is |
 | --- | --- |
