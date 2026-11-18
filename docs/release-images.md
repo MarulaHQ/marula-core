@@ -49,10 +49,17 @@ pulls the pinned image instead of compiling one.
 
 ## What the pipeline does, per release
 
-1. Build `linux/amd64` and `linux/arm64` in one `buildx` run per image, with
-   `--provenance=true --sbom=true`, and push by tag.
-2. Read each image's digest back:
-   `docker buildx imagetools inspect <ref> --format '{{json .Manifest.Digest}}'`.
+1. Build `linux/amd64` and `linux/arm64` on their own native runners, one
+   `buildx` run per image and architecture, with
+   `--provenance=true --sbom=true`, and push each leg by tag.
+2. Join each service's legs into one manifest with
+   `docker buildx imagetools create`, and take the index digest from that
+   create call's metadata, which names the manifest it wrote. A tag read after
+   the create can be moved; the metadata cannot.
+   Each leg records the digest it pushed as its own artifact, and the join
+   consumes those references. A publish job that is retried after a later
+   dispatch replaced a `<version>-<arch>` tag therefore still joins the image it
+   built, not the replacement.
 3. Write the digests into the release manifest as `images`, so the signed
    document names exactly what it published. `images.mjs` writes them either into
    an existing manifest or, with `--digests images.json`, as the bare map the
@@ -81,12 +88,14 @@ install byte-identical images.
 ## Publishing them
 
 `.github/workflows/release-images.yml` is the job that does steps 1 and 2 above:
-one runner per image, both architectures in each, GHCR as the destination. It
-writes the digests as a workflow artifact named `marula-images`, which the
-release workflow's `marula-*` download picks up as `dist/release/images.json`.
-The manifest step merges that before it writes `SHA256SUMS`, and the release key
-signs the list — so the digests are covered by the signature rather than added
-beside it.
+one runner per image and architecture, GHCR as the destination. The `amd64`
+legs run on `ubuntu-24.04` and the `arm64` legs on `ubuntu-24.04-arm`, so both
+architectures compile natively; a per-service publish leg joins them with
+`buildx imagetools create` and reads the resulting digest. It writes the digests
+as a workflow artifact named `marula-images`, which the release workflow's
+`marula-*` download picks up as `dist/release/images.json`. The manifest step
+merges that before it writes `SHA256SUMS`, and the release key signs the list —
+so the digests are covered by the signature rather than added beside it.
 
 A tagged release runs it, before the platform builds. Each platform archive
 carries the digests in its own `release.json`, because someone can download and
@@ -100,9 +109,10 @@ without cutting a tag:
 gh workflow run release-images.yml -f version=0.3.1
 ```
 
-The job takes about an hour, and almost all of that is the emulated `arm64`
-half. A manual run of the release workflow rehearses the same path without a
-tag: `gh workflow run release-installer.yml -f images=true`.
+Each architecture builds on its own native runner, so the job no longer pays for
+emulation; the `arm64` half is as fast as the `amd64` one. A manual run of the
+release workflow rehearses the same path without a tag:
+`gh workflow run release-installer.yml -f images=true`.
 
 A failed images job fails the release. `publish` accepts a skipped images job,
 which is what a non-tag run has, but not a failed one: a manifest with no
