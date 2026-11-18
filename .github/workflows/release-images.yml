@@ -93,8 +93,14 @@ jobs:
 
       - name: Plan one leg per service and architecture
         id: matrix
+        # Inputs reach the shell through the environment. `${{ inputs.x }}` in a
+        # run block is substituted before bash parses the line, so a quote in
+        # the value would end the quoted string and start a command.
+        env:
+          PLATFORMS: ${{ inputs.platforms }}
         run: |
-          echo "matrix=$(node scripts/release/images.mjs --matrix --platforms "${{ inputs.platforms }}")" >> "$GITHUB_OUTPUT"
+          matrix="$(node scripts/release/images.mjs --matrix --platforms "$PLATFORMS")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   images:
     name: Image ${{ matrix.service }} (${{ matrix.arch }})
@@ -127,17 +133,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Builds and pushes this architecture's tag. `--tag-suffix` makes the
-      # leg's tag, and no digest is recorded: the installer pins the joined
-      # manifest, which `publish` mints below.
+      # Builds and pushes this architecture's tag, then records the digest it
+      # pushed in `legs/`. The installer pins the joined manifest, which
+      # `publish` mints from those digest files below.
       - name: Build the ${{ matrix.arch }} leg
+        env:
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          SERVICE: ${{ matrix.service }}
         run: |
           node scripts/release/images.mjs \
-            --version "${{ inputs.version }}" \
+            --version "$VERSION" \
             --image-base "$IMAGE_BASE" \
-            --platform "${{ matrix.platform }}" \
-            --tag-suffix "${{ matrix.arch }}" \
-            --service "${{ matrix.service }}"
+            --platform "$PLATFORM" \
+            --tag-suffix "$ARCH" \
+            --service "$SERVICE" \
+            --leg-digests legs
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: legs-${{ matrix.service }}-${{ matrix.arch }}
+          path: legs/
+          if-no-files-found: error
+          retention-days: 30
 
   # Joins the legs into the multi-arch manifest an installer pulls, then reads
   # that manifest's digest back. A missing leg fails here, where the service is
@@ -168,15 +187,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # The digests this run's legs recorded, not the `-<arch>` tags: a retry of
+      # just this job must not join an image another dispatch pushed since.
+      - name: Gather this service's leg digests
+        uses: actions/download-artifact@v8
+        with:
+          pattern: legs-${{ matrix.service }}-*
+          path: legs
+          merge-multiple: true
+
       - name: Join the legs and record the digest
+        env:
+          VERSION: ${{ inputs.version }}
+          PLATFORMS: ${{ inputs.platforms }}
+          SERVICE: ${{ matrix.service }}
         run: |
           node scripts/release/images.mjs \
-            --version "${{ inputs.version }}" \
+            --version "$VERSION" \
             --image-base "$IMAGE_BASE" \
-            --platforms "${{ inputs.platforms }}" \
-            --service "${{ matrix.service }}" \
+            --platforms "$PLATFORMS" \
+            --service "$SERVICE" \
             --publish \
-            --digests "images-${{ matrix.service }}.json"
+            --leg-digests legs \
+            --digests "images-$SERVICE.json"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -221,9 +254,11 @@ jobs:
           retention-days: 30
 
       - name: Say what to do with the packages
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           {
-            echo "### Images published for ${{ inputs.version }}"
+            echo "### Images published for $VERSION"
             echo
             echo '```'
             cat images.json

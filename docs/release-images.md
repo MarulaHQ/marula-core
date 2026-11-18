@@ -55,6 +55,10 @@ pulls the pinned image instead of compiling one.
 2. Join each service's legs into one manifest with
    `docker buildx imagetools create`, then read its digest back:
    `docker buildx imagetools inspect <ref> --format '{{json .Manifest.Digest}}'`.
+   Each leg records the digest it pushed as its own artifact, and the join
+   consumes those references. A publish job that is retried after a later
+   dispatch replaced a `<version>-<arch>` tag therefore still joins the image it
+   built, not the replacement.
 3. Write the digests into the release manifest as `images`, so the signed
    document names exactly what it published. `images.mjs` writes them either into
    an existing manifest or, with `--digests images.json`, as the bare map the

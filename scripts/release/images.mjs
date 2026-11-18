@@ -30,8 +30,9 @@
  * with a token carrying write:packages). Nothing else: no CI, no dashboard.
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 const SERVICES = [
   { service: "core-api", image: "marula-core-api", dockerfile: "deploy/Dockerfile.rust", bin: "core-api" },
@@ -40,7 +41,7 @@ const SERVICES = [
   { service: "web", image: "marula-web", dockerfile: "deploy/Dockerfile.web", bin: null },
 ];
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = {
     imageBase: "ghcr.io/marulahq",
     platforms: "linux/amd64,linux/arm64",
@@ -61,6 +62,7 @@ function parseArgs(argv) {
       case "--platform": out.platforms = value(); break;
       case "--platforms": out.platforms = value(); break;
       case "--tag-suffix": out.tagSuffix = value(); break;
+      case "--leg-digests": out.legDigests = value(); break;
       case "--publish": out.publish = true; break;
       case "--matrix": out.matrix = true; break;
       case "--manifest": out.manifest = value(); break;
@@ -74,8 +76,8 @@ function parseArgs(argv) {
         console.log(
           "usage: images.mjs --version X [--image-base ghcr.io/org] [--platforms a,b] " +
             "[--service core-api] [--manifest release.json] [--digests images.json] [--dry-run]\n" +
-            "       images.mjs --version X --service core-api --platform linux/arm64 --tag-suffix arm64\n" +
-            "       images.mjs --version X --service core-api --publish --platforms a,b [--digests images.json]\n" +
+            "       images.mjs --version X --service core-api --platform linux/arm64 --tag-suffix arm64 --leg-digests legs\n" +
+            "       images.mjs --version X --service core-api --publish --platforms a,b [--leg-digests legs] [--digests images.json]\n" +
             "       images.mjs --matrix [--platforms a,b]\n" +
             "       images.mjs --merge <dir> --digests images.json",
         );
@@ -93,8 +95,21 @@ function parseArgs(argv) {
         "build each architecture on its own runner, then --publish joins them",
     );
   }
+  if (out.tagSuffix) {
+    // The suffix names the tag and the publish leg's digest file, so it has to
+    // be the platform's own architecture: a mismatch here would push an arm64
+    // image under `-amd64` and produce a manifest that lists one architecture
+    // twice.
+    out.tagSuffix = normalizeArch(out.tagSuffix);
+    if (platformArch(out.platforms) !== out.tagSuffix) {
+      throw new Error(`--tag-suffix ${out.tagSuffix} does not match --platform ${out.platforms}`);
+    }
+  }
   if (out.tagSuffix && (out.digests || out.manifest)) {
     throw new Error("--tag-suffix pushes a build leg, not a release image: the digest to pin comes from --publish");
+  }
+  if (out.legDigests && !out.tagSuffix && !out.publish) {
+    throw new Error("--leg-digests belongs to a build leg (--tag-suffix) or to --publish");
   }
   return out;
 }
@@ -117,17 +132,39 @@ const run = (args, dryRun) => {
 /** The hosted runner that builds each architecture natively, keyed by arch. */
 const RUNNERS = { amd64: "ubuntu-24.04", arm64: "ubuntu-24.04-arm" };
 
+/** Aliases containerd accepts, folded to the name the runner map and tags use. */
+const ARCH_ALIASES = { aarch64: "arm64" };
+
+export function normalizeArch(arch) {
+  return ARCH_ALIASES[arch] ?? arch;
+}
+
 /** `linux/arm64` → `arm64`, refusing anything that is not a Linux platform. */
 function platformArch(platform) {
   const [os, arch] = platform.split("/");
   if (os !== "linux" || !arch) throw new Error(`platform ${platform} is not linux/<arch>`);
-  return arch;
+  return normalizeArch(arch);
 }
 
+/**
+ * The platforms named, each paired with its normalized architecture.
+ *
+ * Two entries for one architecture are refused here rather than after the
+ * builds: both legs would push the same tag, and the publish step would then
+ * reject a run that had already spent twenty minutes compiling.
+ */
 function platformList(platforms) {
   const entries = platforms.split(",").map((entry) => entry.trim()).filter(Boolean);
   if (entries.length === 0) throw new Error("no platforms named");
-  return entries;
+  const legs = entries.map((platform) => ({ platform, arch: platformArch(platform) }));
+  const seen = new Set();
+  for (const { platform, arch } of legs) {
+    if (seen.has(arch)) {
+      throw new Error(`--platforms names ${arch} twice (${platform}): one image per architecture`);
+    }
+    seen.add(arch);
+  }
+  return legs;
 }
 
 /**
@@ -135,7 +172,7 @@ function platformList(platforms) {
  * selects the runner, so one parse decides all three.
  */
 export function archSuffixes(platforms) {
-  return platformList(platforms).map(platformArch);
+  return platformList(platforms).map((leg) => leg.arch);
 }
 
 /**
@@ -150,15 +187,15 @@ export function matrixFor(platforms, services = SERVICES) {
   const include = [];
   const legs = platformList(platforms);
   for (const spec of services) {
-    for (const platform of legs) {
-      const arch = platformArch(platform);
-      const runner = RUNNERS[arch];
-      if (!runner) {
+    for (const { platform, arch } of legs) {
+      // Own properties only: `RUNNERS["constructor"]` would inherit a function
+      // that JSON.stringify drops, producing a leg with no runner at all.
+      if (!Object.hasOwn(RUNNERS, arch)) {
         throw new Error(
           `no hosted runner builds ${platform} natively: known are ${Object.keys(RUNNERS).join(", ")}`,
         );
       }
-      include.push({ service: spec.service, platform, arch, runner });
+      include.push({ service: spec.service, platform, arch, runner: RUNNERS[arch] });
     }
   }
   return { include };
@@ -173,6 +210,35 @@ export function buildReference(spec, args, suffix) {
 /** Join the per-architecture legs into one manifest list under the release tag. */
 export function publishArgs(ref, legs) {
   return ["buildx", "imagetools", "create", "--tag", ref, ...legs];
+}
+
+/**
+ * The digest a build leg pushed, in one file per service and architecture.
+ *
+ * Publish joins these references rather than resolving the `-arm64` tag again.
+ * A failed publish can be re-run on its own, and by then a later dispatch may
+ * have moved that tag to a different build; the digest file still names the
+ * image this run compiled.
+ */
+export function legDigestPath(dir, service, suffix) {
+  return join(dir, `${service}-${suffix}.digest`);
+}
+
+function writeLegDigest(dir, service, suffix, reference) {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(legDigestPath(dir, service, suffix), `${reference}\n`);
+}
+
+function readLegDigest(dir, service, suffix) {
+  const path = legDigestPath(dir, service, suffix);
+  if (!existsSync(path)) {
+    throw new Error(`no ${service} ${suffix} leg digest at ${path}: its build leg did not record one`);
+  }
+  const reference = readFileSync(path, "utf8").trim();
+  if (!/@sha256:[0-9a-f]{64}$/.test(reference)) {
+    throw new Error(`the ${service} ${suffix} leg digest is ${JSON.stringify(reference)}, which pins no digest`);
+  }
+  return reference;
 }
 
 /** `buildx imagetools inspect` answers with a JSON string holding the digest. */
@@ -301,7 +367,20 @@ function main() {
     console.log(`building ${ref} for ${args.platforms}`);
     run(buildArgs(spec, args, ref), args.dryRun);
     if (args.tagSuffix) {
-      console.log(`  ${spec.service} → ${ref} (build leg; --publish records the digest)`);
+      if (args.dryRun) {
+        if (args.legDigests) console.log(`would record the ${spec.service} ${args.tagSuffix} leg digest in ${args.legDigests}`);
+        continue;
+      }
+      // Read the pushed reference back and write it beside the leg's artifact.
+      // Publish joins these, never the tag, so a re-run cannot pick up an image
+      // that a later dispatch pushed under the same `-<arch>` tag.
+      const legRef = readDigest(ref, spec, args);
+      if (args.legDigests) {
+        writeLegDigest(args.legDigests, spec.service, args.tagSuffix, legRef);
+        console.log(`  ${spec.service} → ${legRef} (leg digest recorded)`);
+      } else {
+        console.log(`  ${spec.service} → ${legRef} (build leg; --publish records the digest)`);
+      }
       continue;
     }
     if (args.dryRun) {
@@ -318,13 +397,16 @@ function main() {
 /** Join each service's arch tags into one manifest and record its digest. */
 function publish(selected, args) {
   const suffixes = archSuffixes(args.platforms);
-  if (new Set(suffixes).size !== suffixes.length) {
-    throw new Error(`--platforms repeats an architecture: ${args.platforms}`);
-  }
   const digests = {};
   for (const spec of selected) {
     const ref = buildReference(spec, args, undefined);
-    const legs = suffixes.map((suffix) => buildReference(spec, args, suffix));
+    if (args.legDigests) console.log(`reading ${spec.service} leg digests from ${args.legDigests}`);
+    // A dry run rehearses the command it would print, so it reads the leg files
+    // too and names the one that is missing instead of previewing a join that
+    // could not run.
+    const legs = args.legDigests
+      ? suffixes.map((suffix) => readLegDigest(args.legDigests, spec.service, suffix))
+      : suffixes.map((suffix) => buildReference(spec, args, suffix));
     console.log(`publishing ${ref} from ${legs.length} architecture leg(s)`);
     run(publishArgs(ref, legs), args.dryRun);
     if (args.dryRun) continue;
@@ -467,12 +549,64 @@ export function selfTest() {
   }
   assert(noRunner, "an architecture with no native runner is refused instead of emulated");
 
+  assert(archSuffixes("linux/aarch64").join(",") === "arm64", "the aarch64 alias folds to arm64");
+  let duplicate = false;
+  try {
+    matrixFor("linux/amd64,linux/amd64");
+  } catch {
+    duplicate = true;
+  }
+  assert(duplicate, "a repeated architecture is refused before any leg is scheduled");
+  let inherited = false;
+  try {
+    matrixFor("linux/constructor");
+  } catch {
+    inherited = true;
+  }
+  assert(inherited, "an inherited object property is not mistaken for a configured runner");
+
+  // A leg records the digest it pushed, and publish joins that reference rather
+  // than the tag a later dispatch could move.
+  const legs = mkdtempSync(join(tmpdir(), "marula-legs-"));
+  const legRef = `ghcr.io/marulahq/marula-web@sha256:${"b".repeat(64)}`;
+  writeLegDigest(legs, "web", "arm64", legRef);
+  assert(legDigestPath(legs, "web", "arm64").endsWith("web-arm64.digest"), "a leg digest is named by service and suffix");
+  assert(readLegDigest(legs, "web", "arm64") === legRef, "a recorded leg digest is read back");
+  let missingLeg = false;
+  try {
+    readLegDigest(legs, "web", "amd64");
+  } catch (error) {
+    missingLeg = error.message.includes("amd64");
+  }
+  assert(missingLeg, "a missing leg digest names the architecture it is missing");
+  rmSync(legs, { recursive: true, force: true });
+
+  let mismatched = false;
+  try {
+    parseArgs(["--version", "1.2.3", "--platform", "linux/arm64", "--tag-suffix", "amd64"]);
+  } catch {
+    mismatched = true;
+  }
+  assert(mismatched, "a suffix that is not the platform's architecture is refused");
+  assert(
+    parseArgs(["--version", "1.2.3", "--platform", "linux/aarch64", "--tag-suffix", "aarch64"]).tagSuffix === "arm64",
+    "the suffix folds through the same alias",
+  );
+  let multiSuffix = false;
+  try {
+    parseArgs(["--version", "1.2.3", "--platforms", "linux/amd64,linux/arm64", "--tag-suffix", "arm64"]);
+  } catch {
+    multiSuffix = true;
+  }
+  assert(multiSuffix, "a suffix on a multi-architecture run is refused");
+
   // The failure this replaced: one job built both architectures, so the whole
   // job waited on emulated arm64 and hit its timeout. Emulation must not creep
   // back in through the workflow YAML.
   const workflow = readFileSync(".github/workflows/release-images.yml", "utf8");
   assert(!workflow.includes("setup-qemu-action"), "the image workflow does not set QEMU up for a foreign architecture");
   assert(workflow.includes("--matrix"), "the workflow takes its runners from the matrix this script plans");
+  assert(workflow.includes("--leg-digests"), "the workflow joins the digests the build legs recorded");
 
   const compose = readFileSync("deploy/docker-compose.yml", "utf8");
   for (const spec of SERVICES) {
