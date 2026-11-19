@@ -12,6 +12,12 @@
  *     apps/installer/dist/       the wizard front-end, at the path
  *                                `marula install --ui` looks in by default
  *     deploy/                    the compose files and everything they mount
+ *     install.sh                 the bundle's front door: checks SHA256SUMS,
+ *                                then hands to `marula install` (root-relative,
+ *                                because that is where a person types it)
+ *     env.example                the eight values, for the compose path
+ *     gen-env.sh                 writes those values with real secrets, so a
+ *                                compose install from the bundle needs no checkout
  *     LICENSE, README.md         what the AGPL asks a distribution to carry
  *     release.json               what this directory is, for a machine —
  *                                including the published image digests when
@@ -290,6 +296,24 @@ export function assemble(options) {
       cpSync(file, join(staging, basename(file)));
     }
 
+    // The install script and the env template sit beside the binary, where a
+    // person runs `./install.sh` and where the docs point. They live in
+    // `deploy/` in the repository so the compose files and the script that
+    // drives them stay together.
+    // cpSync keeps the source mode, and the script is committed executable.
+    cpSync(
+      requireFile(join(root, "deploy", "install.sh"), "the install script"),
+      join(staging, "install.sh"),
+    );
+    cpSync(
+      requireFile(join(root, "deploy", "env.example"), "the env template"),
+      join(staging, "env.example"),
+    );
+    cpSync(
+      requireFile(join(root, "scripts", "gen-env.sh"), "the env generator"),
+      join(staging, "gen-env.sh"),
+    );
+
     // A hidden file that reached the tree any other way (the wizard's build
     // output is the likely source) would be dropped by the artifact upload,
     // leaving SHA256SUMS describing a tree no downloader receives. Refuse here,
@@ -513,6 +537,10 @@ function selfTest() {  const assert = (condition, message) => {
   writeFileSync(join(fake, "target", "release", "bundle", "deb", "marula.deb"), "deb\n");
   writeFileSync(join(fake, "apps", "installer", "dist", "index.html"), "<!doctype html>\n");
   writeFileSync(join(fake, "apps", "installer", "dist", "app.js"), "console.log(1)\n");
+  writeFileSync(join(fake, "deploy", "install.sh"), "#!/bin/sh\necho fake\n", { mode: 0o755 });
+  writeFileSync(join(fake, "deploy", "env.example"), "JWT_SECRET=change-me\n");
+  mkdirSync(join(fake, "scripts"), { recursive: true });
+  writeFileSync(join(fake, "scripts", "gen-env.sh"), "#!/bin/sh\necho fake\n", { mode: 0o755 });
   writeFileSync(join(fake, "deploy", "docker-compose.yml"), "services: {}\n");
   writeFileSync(join(fake, "deploy", "docker-compose.all-in-one.yml"), "services: {}\n");
   writeFileSync(join(fake, "deploy", "dev.env"), "MARULA_DEV_TOOLS=1\n");
@@ -555,6 +583,9 @@ function selfTest() {  const assert = (condition, message) => {
       "deploy/docker-compose.yml",
       "deploy/docker-compose.all-in-one.yml",
       "deploy/pooler/pgbouncer.ini",
+      "install.sh",
+      "env.example",
+      "gen-env.sh",
       "LICENSE",
       "README.md",
       "release.json",
@@ -562,6 +593,10 @@ function selfTest() {  const assert = (condition, message) => {
     ]) {
       assert(existsSync(join(first.dir, rel)), `expected ${rel} in the release directory`);
     }
+    assert(
+      (statSync(join(first.dir, "install.sh")).mode & 0o111) !== 0,
+      "the install script keeps its execute bit",
+    );
     assert(!existsSync(join(first.dir, "deploy", "dev.env")), "dev.env is not shipped");
     for (const rel of [".gitkeep", "edge/certs/.gitignore"]) {
       assert(

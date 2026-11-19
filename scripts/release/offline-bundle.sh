@@ -138,6 +138,15 @@ else
   say "skipping the build; the images must already be here"
 fi
 
+# Compose builds the `build:` services and nothing else, so the third-party
+# images the file references (the database, the cache, the pooler) are never in
+# the store unless something pulled them. `--ignore-buildable` asks for exactly
+# those, and it is what turns "these images are not in the local store" into a
+# bundle that carries what it claims to. The rehearsal on 2026-11-19 reached this
+# script for the first time and died on the three it had never pulled.
+say "pulling the images compose references but does not build"
+COMPOSE_PROJECT_NAME=marula docker compose "${COMPOSE_ARGS[@]}" pull --ignore-buildable
+
 STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
 BUNDLE="marula-$VERSION-offline-$OS-$ARCH"
