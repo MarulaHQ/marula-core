@@ -1019,6 +1019,20 @@ fn doctor_command(
     let recommendation = install::recommend(&descriptor, &facts);
     let name = profile
         .or_else(|| recommendation.profile.clone())
+        .or_else(|| {
+            // With the floors waived there is nothing to recommend, so the check
+            // needs a shape to run against. The shipped default, minus the demo,
+            // is the one an install would have chosen on a bigger host.
+            allow_unfit.then(|| {
+                descriptor
+                    .profiles
+                    .iter()
+                    .find(|candidate| candidate.name != install::plan::DEMO_PROFILE)
+                    .map(|candidate| candidate.name.to_string())
+                    .unwrap_or_default()
+            })
+        })
+        .filter(|name| !name.is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "no shipped profile fits this host; name one with --profile to check it anyway"
