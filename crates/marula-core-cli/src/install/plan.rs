@@ -237,8 +237,7 @@ impl std::fmt::Display for PlanError {
             Self::PasswordNotUrlSafe { name } => write!(
                 f,
                 "{name} is pasted into a connection URL and may only contain letters, digits, \
-                 '-', '.', '_' or '~'. Generate one with `openssl rand -hex 32`, or percent-encode \
-                 it yourself before passing it"
+                 '-', '.', '_' or '~'. Generate one with `openssl rand -hex 32`"
             ),
             Self::FloorsNotMet { profile, missing } => write!(
                 f,

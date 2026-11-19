@@ -90,12 +90,19 @@ say "tearing the first stack down before the second one takes its ports"
 # carries no sources, so this leg needs the overrides the installer wrote:
 # `marula.images.yml` pins each service to the published digest and resets
 # `build:`. Without them compose tries to compile and the leg cannot pass.
+# The shape decides which services exist: all-in-one runs the loops inside
+# core-api and has no worker. Starting the base file's worker there would build a
+# service the shape never starts, from a directory with no sources.
+SHAPE_SERVICES=(core-api worker web)
+if grep -q '^MARULA_ALL_IN_ONE=1' "$INSTALL_DIR/compose.env" 2>/dev/null; then
+  SHAPE_SERVICES=(core-api web)
+fi
 (cd "$BUNDLE" && docker compose \
   --env-file "$INSTALL_DIR/compose.env" \
   -f deploy/docker-compose.yml \
   -f "$INSTALL_DIR/marula.images.yml" \
   -f "$INSTALL_DIR/marula.restart.yml" \
-  up -d --wait)
+  up -d --wait "${SHAPE_SERVICES[@]}")
 
 for _ in $(seq 1 30); do
   if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then

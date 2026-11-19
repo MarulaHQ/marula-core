@@ -863,6 +863,15 @@ async fn install_command(
 
     let chosen = match profile.clone().or_else(|| recommendation.profile.clone()) {
         Some(name) => name,
+        // With the floors waived there is nothing to recommend, and refusing here
+        // is the same bug the flag exists to prevent: a CI host or a deliberately
+        // small box is what asks for it.
+        None if allow_unfit => descriptor
+            .profiles
+            .iter()
+            .find(|candidate| candidate.name != install::plan::DEMO_PROFILE)
+            .map(|candidate| candidate.name.to_string())
+            .unwrap_or_default(),
         None => {
             let mut out =
                 String::from("no shipped profile fits this host. What each one needs beyond it:\n");
@@ -1076,6 +1085,7 @@ fn doctor_command(
 
     println!("marula doctor — profile {name}, values from {source}\n");
     let mut checks = install::doctor::run_default(&descriptor, chosen, &facts, &env, !running);
+    let mut waived = 0usize;
     if allow_unfit {
         // The floors are the one check a CI host is allowed to miss. It is
         // marked waived rather than removed, so the output still says the host
@@ -1084,6 +1094,7 @@ fn doctor_command(
             if check.name == "host floors" && !check.ok {
                 check.ok = true;
                 check.detail = format!("waived by --allow-unfit: {}", check.detail);
+                waived += 1;
             }
         }
     }
@@ -1102,7 +1113,11 @@ fn doctor_command(
     }
 
     if install::doctor::all_ok(&checks) {
-        println!("\nall {} checks passed", checks.len());
+        if waived > 0 {
+            println!("\nall {} checks passed ({waived} waived)", checks.len());
+        } else {
+            println!("\nall {} checks passed", checks.len());
+        }
         return Ok(());
     }
     let failed = checks.iter().filter(|check| !check.ok).count();

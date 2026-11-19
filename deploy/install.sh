@@ -79,11 +79,18 @@ else
   shasum -a 256 --quiet -c SHA256SUMS
 fi
 
+# An archive carries the published digests in release.json and none of the
+# sources, so building is not an option there: every install from this script
+# uses the registry unless the caller says otherwise.
+if [ -f "$HERE/release.json" ] && ! printf '%s\n' ${ARGS[@]+"${ARGS[@]}"} | grep -q '^--images'; then
+  ARGS+=(--images registry)
+fi
+
 # With no arguments at all, open the wizard: that is the laptop path, and asking
 # someone to learn a flag before they have seen the product is the friction this
 # script exists to remove. Any flag they pass goes to `marula install` untouched.
 if [ "${#ARGS[@]}" -eq 0 ] && [ "$INSTALL_DIR" = "$HOME/marula" ]; then
-  ARGS=(--ui)
+  ARGS=(--ui --images registry)
 fi
 
 say "installing into $INSTALL_DIR"
