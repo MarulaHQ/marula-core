@@ -17,8 +17,8 @@ services:
       MARULA_ALL_IN_ONE: "1"
       # Unpooled on purpose (Wave 52 lane P9): the command above starts three
       # application services and no pooler, and one instance's 54 connections
-      # fit inside Postgres's default 100. Overriding the base file's pooled
-      # URLs keeps the documented all-in-one boot working without it.
+      # fit inside Postgres's default 100, and the base file dials Postgres
+      # directly now, so this restates that rather than overriding a pooler.
       DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula
       MARULA_LISTEN_DATABASE_URL: postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula
       # OWNER role on purpose: the worker loops read across orgs and must

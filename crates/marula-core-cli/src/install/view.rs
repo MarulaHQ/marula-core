@@ -584,7 +584,13 @@ fn selection(
     overrides: &BTreeMap<String, String>,
 ) -> Result<Selection, String> {
     let mut selection = Selection::new(profile, &session.dir);
-    selection.overrides = overrides.clone();
+    // Through `set`, not straight into the map: the wizard and `--set` are two
+    // doors into the same plan, and a rule enforced on one of them is not a rule.
+    for (name, value) in overrides {
+        selection
+            .set(&format!("{name}={value}"))
+            .map_err(|error| error.to_string())?;
+    }
     selection.images = session.images;
     selection.restart = session.restart;
     selection.allow_unfit = session.allow_unfit;
@@ -1038,7 +1044,7 @@ mod tests {
         overrides.insert("MARULA_EMBEDDING_TIER".to_string(), "minimal".to_string());
         overrides.insert(
             "POSTGRES_PASSWORD".to_string(),
-            "a password the wizard must never echo".to_string(),
+            "wizard-must-never-echo".to_string(),
         );
         let plan = session.plan("all-in-one", &overrides).expect("a plan");
         let tier = plan
