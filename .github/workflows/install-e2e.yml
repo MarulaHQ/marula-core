@@ -1,0 +1,112 @@
+# install-e2e — install a published release the way a person does.
+#
+# The installer's registry mode had no end-to-end test. The plan and the wizard
+# are covered by unit tests, and nothing ever pulled the published images, ran
+# the bundle's own script and asked `marula doctor` whether the result works.
+# That gap is where "the command finished" and "the install works" drifted apart.
+#
+# Two triggers, both deliberate:
+#
+#   * `release: published` runs it against the release that just went out. A
+#     release page whose artifacts cannot install is not a release.
+#   * `workflow_dispatch` re-runs it against any published version, so a broken
+#     release can be re-checked after the registry or a base image is fixed
+#     without cutting another tag.
+#
+# What it downloads is what a self-hoster downloads: the platform archive and its
+# one-line checksum, from the release page, over the network. Nothing is taken
+# from the workflow's own artifacts, because a test that installs a different
+# artifact than the product ships proves nothing.
+
+name: Install E2E
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published version to install, without the leading v (e.g. 0.6.0)"
+        type: string
+        required: true
+      runner:
+        description: "Runner label to install on"
+        type: string
+        default: ubuntu-24.04
+
+permissions:
+  contents: read
+
+concurrency:
+  group: install-e2e-${{ github.event.inputs.version || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  install:
+    name: Install ${{ github.event.inputs.version || github.event.release.tag_name }} on Linux
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ github.event.inputs.version || github.event.release.tag_name }}"
+          version="${version#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$version' is not a release version"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Download the published archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          gh release download "v${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --dir dist \
+            --pattern "marula-${VERSION}-linux-x64.tar.gz" \
+            --pattern "SHA256SUMS-linux-x64"
+
+      - name: Verify the archive against the published checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The one-line list is shaped for `sha256sum -c`, and it names the
+          # archive exactly as the release page does.
+          (cd dist && sha256sum -c "SHA256SUMS-linux-x64")
+
+      - name: Unpack it
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          tar -xzf "dist/marula-${VERSION}-linux-x64.tar.gz" -C dist
+          test -x "dist/marula-${VERSION}-linux-x64/install.sh"
+
+      - name: Install from the published digests, then the compose path
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/install-e2e.sh \
+            "dist/marula-${{ steps.version.outputs.version }}-linux-x64" \
+            "${RUNNER_TEMP}/marula-install"
+
+      - name: What was running, when it fails
+        if: failure()
+        shell: bash
+        run: |
+          docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' || true
+          for name in $(docker ps -aq); do
+            echo "::group::$(docker inspect -f '{{.Name}}' "$name")"
+            docker logs --tail 60 "$name" 2>&1 || true
+            echo "::endgroup::"
+          done
