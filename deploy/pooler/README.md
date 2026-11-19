@@ -92,8 +92,9 @@ data:
     pool_mode = transaction
     server_reset_query = DISCARD ALL
     server_reset_query_always = 1
-    max_prepared_statements = 0
+    max_prepared_statements = 100
     default_pool_size = 15
+    reserve_pool_size = 5
     max_db_connections = 40
     max_client_conn = 400
 ---

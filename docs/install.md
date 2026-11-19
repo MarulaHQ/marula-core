@@ -503,9 +503,15 @@ The copy of `marula.env` is part of the backup. The eight values are in it and
 nothing else reproduces them: a stack rebuilt with new signing keys signs
 everyone out.
 
-If the install ran with `sudo`, run the same block from a root shell, with
-`INSTALL` and `marula_compose` defined there (see above). A non-root shell
-cannot write `/var/backups/marula` or read a root-owned `marula.env`.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:93a4593e44b87dae29d2a06c7abe0b7929268604c7d6ab072bf7d71cbfb4e203 -->
+
+If the install ran with `sudo`, run the whole block in a root shell, with
+`INSTALL` and `marula_compose` defined there (see above). A non-root shell cannot
+write `/var/backups/marula` or read a root-owned `marula.env`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 The dump command runs `pg_dump` inside the Postgres container and connects over
 its local socket, which the image's `initdb` leaves on trust, so it needs no
