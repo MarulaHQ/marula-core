@@ -233,6 +233,12 @@ impl DeploymentTarget for ComposeTarget {
 
         let mut overrides = vec![restart_path];
         if selection.images == ImageSource::Registry {
+            // `demo-seed` has a `build:` and no published image, so a registry
+            // install of the demo shape would still compile it from a directory
+            // that carries no sources. Refusing here beats failing in a build.
+            if profile.name == super::plan::DEMO_PROFILE {
+                return Err(PlanError::DemoNeedsSources);
+            }
             let base = selection
                 .image_base
                 .clone()

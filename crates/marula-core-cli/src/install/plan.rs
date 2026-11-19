@@ -204,6 +204,10 @@ pub enum PlanError {
     },
     /// A registry install with no registry to pull from.
     ImageBaseMissing,
+    /// The demo shape builds its seeder from this checkout, and a release archive
+    /// carries no sources. Refused at plan time rather than left to a build that
+    /// cannot work.
+    DemoNeedsSources,
     /// The detected target cannot do what the selection asks for.
     TargetUnavailable {
         target: &'static str,
@@ -248,6 +252,11 @@ impl std::fmt::Display for PlanError {
                 f,
                 "a registry install needs a digest for {service}: a tag can be moved, and the \
                  release signs a digest. The release's release.json carries one per service"
+            ),
+            Self::DemoNeedsSources => write!(
+                f,
+                "the demo shape builds its seeder from a source checkout, and a release archive \
+                 carries no sources. Run it from a clone with --images build, or pick another shape"
             ),
             Self::ImageBaseMissing => {
                 write!(
