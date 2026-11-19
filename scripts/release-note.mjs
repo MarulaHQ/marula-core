@@ -45,8 +45,11 @@ const CARGO = join(ROOT, "Cargo.toml");
 
 /** Every package that carries the product version. Kept in one list so a bump
  * cannot move seven of eight. */
+const CHART = "deploy/helm/marula/Chart.yaml";
+
 const VERSION_FILES = [
   "Cargo.toml",
+  CHART,
   "apps/web/package.json",
   "apps/installer/package.json",
   "packages/ui/package.json",
@@ -267,6 +270,27 @@ function prepareChangelog(version, date, release, list) {
   return { path: CHANGELOG, content: text };
 }
 
+/**
+ * The one place a version field is rewritten, per manifest shape. The chart has
+ * two: `version` and `appVersion`, unquoted and quoted, and a bump that moved
+ * one and not the other would publish a chart whose label disagrees with its
+ * release.
+ */
+export function bumpVersionContent(relative, before, version) {
+  if (relative === "Cargo.toml") {
+    return before.replace(
+      /(\[workspace\.package\][\s\S]*?^version\s*=\s*")[^"]+(")/m,
+      `$1${version}$2`,
+    );
+  }
+  if (relative === CHART) {
+    return before
+      .replace(/^version:\s*.*$/m, `version: ${version}`)
+      .replace(/^appVersion:\s*".*"$/m, `appVersion: "${version}"`);
+  }
+  return before.replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`);
+}
+
 /** Every version file at `version`, validated before any of them is written. */
 function prepareVersionFiles(version) {
   return VERSION_FILES.map((relative) => {
@@ -280,13 +304,7 @@ function prepareVersionFiles(version) {
           `(${error.code ?? error.message}); update VERSION_FILES with it`,
       );
     }
-    const after =
-      relative === "Cargo.toml"
-        ? before.replace(
-            /(\[workspace\.package\][\s\S]*?^version\s*=\s*")[^"]+(")/m,
-            `$1${version}$2`,
-          )
-        : before.replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`);
+    const after = bumpVersionContent(relative, before, version);
     if (after === before) fail(`${relative} did not carry the version`);
     return { path, content: after };
   });
@@ -558,6 +576,14 @@ function selfTest() {
   for (const relative of VERSION_FILES) {
     assert(existsSync(join(ROOT, relative)), `${relative} carries a version`);
   }
+
+  const chart = bumpVersionContent(
+    CHART,
+    'name: marula\nversion: 0.1.0\nappVersion: "0.1.0"\n',
+    "0.2.0",
+  );
+  assert(chart.includes("version: 0.2.0"), "the chart version moves");
+  assert(chart.includes('appVersion: "0.2.0"'), "the chart appVersion moves with it");
 
   const good = parseFragment(
     "---\nbump: patch\n---\n\n### Fixed\n\n- The thing stops doing the wrong thing.\n",
