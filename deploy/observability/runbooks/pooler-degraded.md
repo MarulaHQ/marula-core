@@ -9,10 +9,14 @@ expose `SHOW STATS`, and nothing in the pack scrapes it. So the pooler arrives h
 one of three symptoms behind somebody else's alert, and two of the three are silent.
 
 The `pooler` profile's topology is in `deploy/pooler/pgbouncer.ini`: transaction
-mode, 15 server connections per (database, user) pair (`:60`), 40 in total
-(`:63`), the reset query after every transaction (`:53`), and the
-prepared-statement cache off (`:54`). A default install dials Postgres directly
-and has no pooler to degrade, so this page applies only when that profile is on.
+mode, 15 server connections per (database, user) pair with up to five more from
+the reserve pool while a client waits, 40 per database as the hard ceiling, and
+the reset query after every transaction. PgBouncer tracks prepared statements
+(`max_prepared_statements = 100`); the application's own cache is the setting
+that is off (`MARULA_DB_STATEMENT_CACHE = 0`), and that is what keeps a statement
+name from outliving the transaction that created it. A default install dials
+Postgres directly and has no pooler to degrade, so this page applies only when
+that profile is on.
 The reasoning, with measurements, is [connection pooling](../../../docs/reference/connection-pooling.md).
 
 The symptom that costs the most time is the quiet one. A `LISTEN` attached to a pooled
