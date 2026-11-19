@@ -2,95 +2,731 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "marula chart values",
   "type": "object",
-  "description": "The blocks another system writes: the hosted control plane renders one values document per tenant from its TenantResource. Validated here so a misspelled block fails at `helm template` instead of deploying a chart with a silently ignored key.",
-  "additionalProperties": true,
+  "description": "The values this chart accepts. Helm ignores a key it does not know, so every object the chart and the control plane write is closed to unknown keys: a misspelled block fails `helm template` instead of silently deploying a default. Blocks the chart does not interpret (secrets, email, object store, observability) stay open because their contents are references, not settings this schema can name.",
+  "additionalProperties": false,
   "properties": {
-    "digestPinningEnforced": { "type": "boolean" },
-    "nonMarulaDigestPinningEnforced": { "type": "boolean" },
-    "existingSecret": { "type": "string" },
-    "runtimeClass": { "type": "string" },
-    "priorityClassName": { "type": "string" },
+    "digestPinningEnforced": {
+      "type": "boolean"
+    },
+    "nonMarulaDigestPinningEnforced": {
+      "type": "boolean"
+    },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "existingSecret": {
+      "type": "string"
+    },
+    "runtimeClass": {
+      "type": "string"
+    },
+    "priorityClassName": {
+      "type": "string"
+    },
+    "imagePullSecrets": {
+      "type": "array"
+    },
+    "fsGroup": {
+      "type": "integer"
+    },
+    "secrets": {
+      "type": "object"
+    },
     "images": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["coreApi", "worker", "cli", "web"],
       "properties": {
-        "registry": { "type": "string", "minLength": 1 },
-        "pullPolicy": { "type": "string" },
-        "coreApi": { "$ref": "#/definitions/image" },
-        "worker": { "$ref": "#/definitions/image" },
-        "cli": { "$ref": "#/definitions/image" },
-        "web": { "$ref": "#/definitions/image" }
-      }
+        "registry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pullPolicy": {
+          "type": "string"
+        },
+        "coreApi": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        },
+        "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        },
+        "cli": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        }
+      },
+      "required": [
+        "coreApi",
+        "worker",
+        "cli",
+        "web"
+      ]
     },
     "postgresql": {
       "type": "object",
-      "required": ["deploy"],
+      "additionalProperties": false,
       "properties": {
-        "deploy": { "type": "boolean" },
-        "externalUrl": { "type": "string" },
-        "externalAppUrl": { "type": "string" },
-        "database": { "type": "string" },
-        "ownerUser": { "type": "string" },
-        "appUser": { "type": "string" }
-      }
+        "deploy": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "database": {
+          "type": "string"
+        },
+        "ownerUser": {
+          "type": "string"
+        },
+        "ownerPassword": {
+          "type": "string"
+        },
+        "appUser": {
+          "type": "string"
+        },
+        "appPassword": {
+          "type": "string"
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "className": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            }
+          }
+        },
+        "externalUrl": {
+          "type": "string"
+        },
+        "externalAppUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deploy"
+      ]
+    },
+    "pooler": {
+      "type": "object"
     },
     "redis": {
       "type": "object",
-      "required": ["deploy"],
+      "additionalProperties": false,
       "properties": {
-        "deploy": { "type": "boolean" },
-        "externalUrl": { "type": "string" }
-      }
+        "deploy": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "externalUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deploy"
+      ]
     },
     "coreApi": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "replicaCount": { "type": "integer", "minimum": 0 }
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bindAddr": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer"
+            },
+            "maxReplicas": {
+              "type": "integer"
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer"
+            }
+          }
+        },
+        "shutdownGraceSeconds": {
+          "type": "integer"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "preStopSleepSeconds": {
+          "type": "integer"
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                }
+              }
+            },
+            "liveness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array"
+        },
+        "corsOrigin": {
+          "type": "string"
+        },
+        "publicBaseUrl": {
+          "type": "string"
+        },
+        "maxUploadMb": {
+          "type": "integer"
+        },
+        "trustedProxies": {
+          "type": "string"
+        }
       }
     },
     "worker": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "replicaCount": { "type": "integer", "minimum": 0 }
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bindAddr": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer"
+            },
+            "maxReplicas": {
+              "type": "integer"
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer"
+            }
+          }
+        },
+        "shutdownGraceSeconds": {
+          "type": "integer"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "preStopSleepSeconds": {
+          "type": "integer"
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                }
+              }
+            },
+            "liveness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array"
+        },
+        "relayBatch": {
+          "type": "integer"
+        }
       }
     },
     "web": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "replicaCount": { "type": "integer", "minimum": 0 },
-        "enabled": { "type": "boolean" },
-        "nextPublicApiUrl": { "type": "string" }
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bindAddr": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer"
+            },
+            "maxReplicas": {
+              "type": "integer"
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer"
+            }
+          }
+        },
+        "shutdownGraceSeconds": {
+          "type": "integer"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "preStopSleepSeconds": {
+          "type": "integer"
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                }
+              }
+            },
+            "liveness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "nextPublicApiUrl": {
+          "type": "string"
+        }
       }
+    },
+    "email": {
+      "type": "object"
+    },
+    "mailpit": {
+      "type": "object"
+    },
+    "objectStore": {
+      "type": "object"
+    },
+    "garage": {
+      "type": "object"
+    },
+    "otel": {
+      "type": "object"
+    },
+    "migrations": {
+      "type": "object"
+    },
+    "service": {
+      "type": "object"
     },
     "ingress": {
       "type": "object",
-      "required": ["enabled"],
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "className": { "type": "string" },
-        "host": { "type": "string" },
-        "tlsMode": { "type": "string", "enum": ["direct", "edge"] },
-        "tlsSecretName": { "type": "string" }
-      }
-    },
-    "nodeSelector": { "type": "object" },
-    "tolerations": { "type": "array" },
-    "affinity": { "type": "object" }
-  },
-  "definitions": {
-    "image": {
-      "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "tag"],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string", "minLength": 1 },
-        "digest": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "tlsMode": {
           "type": "string",
-          "pattern": "^(sha256:[0-9a-f]{64})?$"
+          "enum": [
+            "direct",
+            "edge"
+          ]
+        },
+        "tlsSecretName": {
+          "type": "string"
+        },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bodySizeMb": {
+              "type": "integer"
+            },
+            "readTimeoutSeconds": {
+              "type": "integer"
+            },
+            "sendTimeoutSeconds": {
+              "type": "integer"
+            },
+            "buffering": {
+              "type": "string"
+            }
+          }
+        },
+        "annotations": {
+          "type": "object"
         }
-      }
+      },
+      "required": [
+        "enabled"
+      ]
+    },
+    "podDisruptionBudget": {
+      "type": "object"
+    },
+    "topologySpread": {
+      "type": "object"
+    },
+    "networkPolicy": {
+      "type": "object"
+    },
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "runAsUserByComponent": {
+      "type": "object"
+    },
+    "containerSecurityContext": {
+      "type": "object"
+    },
+    "resources": {
+      "type": "object"
+    },
+    "nodeSelector": {
+      "type": "object"
+    },
+    "tolerations": {
+      "type": "array"
+    },
+    "affinity": {
+      "type": "object"
     }
   }
 }

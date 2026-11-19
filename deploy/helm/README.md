@@ -33,9 +33,11 @@ self-host install also sets:
 - `nodeSelector`, `tolerations` and `affinity` are the same placement, expressed
   for the scheduler. All four application workloads read them.
 
-`values.schema.json` types those blocks. Helm ignores a key it does not know, so
-without the schema a misspelled block renders a chart with a silently ignored
-value; the schema makes that a failure instead.
+`values.schema.json` types those blocks and closes them to unknown keys, as it
+does the root. Helm ignores a key it does not know, so without that a misspelled
+block renders a chart with a silently ignored value. A new chart value is added
+to `values.yaml` and to the schema in the same change, or the chart stops
+accepting it.
 
 `images.cli` is the migrations image, which is published as `marula-migrate`
 and runs the `marula-core-cli` binary. The slot keeps the binary's name.
