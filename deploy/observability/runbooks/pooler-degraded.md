@@ -8,10 +8,12 @@ There is no alert for the pooler, because there is no series for it. PgBouncer d
 expose `SHOW STATS`, and nothing in the pack scrapes it. So the pooler arrives here as
 one of three symptoms behind somebody else's alert, and two of the three are silent.
 
-The shipped topology is in `deploy/pooler/pgbouncer.ini`: transaction mode, 15 server
-connections per (database, user) pair (`:60`), 40 in total (`:63`), the reset query
-after every transaction (`:53`), and the prepared-statement cache off (`:54`). The
-reasoning, with measurements, is [connection pooling](../../../docs/reference/connection-pooling.md).
+The `pooler` profile's topology is in `deploy/pooler/pgbouncer.ini`: transaction
+mode, 15 server connections per (database, user) pair (`:60`), 40 in total
+(`:63`), the reset query after every transaction (`:53`), and the
+prepared-statement cache off (`:54`). A default install dials Postgres directly
+and has no pooler to degrade, so this page applies only when that profile is on.
+The reasoning, with measurements, is [connection pooling](../../../docs/reference/connection-pooling.md).
 
 The symptom that costs the most time is the quiet one. A `LISTEN` attached to a pooled
 connection receives nothing and reports no error, so live push and the relay's wakeup
