@@ -122,6 +122,7 @@
       "items": [
         "how-to/choose-your-installer",
         "how-to/install-on-a-server",
+        "how-to/install-from-source",
         "how-to/install-with-the-app",
         "how-to/install-the-desktop-app",
         "how-to/upgrade",

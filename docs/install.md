@@ -1,252 +1,301 @@
 # Install Marula on a machine
 
-One engine, three ways in. The **Marula Installer** app walks five decisions
-with a live preview of the config it will write. `marula install --ui` serves the
-same wizard over loopback, for a machine where the app cannot be installed.
-`marula install` prints the plan as text, for a terminal or a runbook. All three
-measure the machine with the same function and write the same `marula.env`.
+This page installs Marula on a server that serves a team. You download the
+release bundle for your platform, unpack it, and run the installer that ships
+inside it. The installer measures the machine, prints the plan, and applies it
+when you say so.
 
-The decisions behind the shape are in ADR 0026 (the deployment target and the
-plan) and ADR 0027 (the app, and the fallback). This page is the operator's side
-of them.
+There is no hosted `curl … | sh` yet. The bundle is the install path, and a
+bundle you can read before running is the point.
 
-Four published guides cover the same ground for someone doing the install:
-[which installer do I want](https://getmarula.com/docs/psa/v0.3/how-to/choose-your-installer)
-sorts every download on the release pages,
-[install on a server from the terminal](https://getmarula.com/docs/psa/v0.3/how-to/install-on-a-server)
-and [install with the app](https://getmarula.com/docs/psa/v0.3/how-to/install-with-the-app)
-walk the server install, and
-[install the desktop app](https://getmarula.com/docs/psa/v0.3/how-to/install-the-desktop-app)
-covers the client that connects to what you installed.
-What each shape runs, and the floors it asks for, is in
-[deployment shapes](https://getmarula.com/docs/psa/v0.3/reference/deployment-shapes).
-This page stays the repository's account of the mechanics; those are what a
-self-hoster reads first.
+## What you need
 
-## The app
+- A Linux host, x86_64 or arm64. macOS runs the stack too, for testing.
+- Docker with Compose 2.24 or newer. Older Compose ignores the `!reset` key
+  that pins a registry install to the release's images.
+- Four cores, 8 GB of memory and 40 GB of free disk for the default shape.
+  The smaller shapes have lower disk floors; the installer refuses a host that
+  misses one and names the number it missed.
+- Ports 3000, 8080 and 15432 free on the host. A profile can add more. 15432
+  is Postgres, published for local tooling, and the `edge` profile takes it off
+  the network.
+- No account, licence key or hosted service. Docker Hardened Images are free
+  and pull without a login. If a pull ever asks for credentials, `docker login
+  dhi.io` with a free Docker account is all it takes.
 
-The installer app is the primary way in. It opens on a welcome screen that says
-what it is, over one of the brand's four textures picked at launch, and then asks
-a choice that sets how much you decide:
+Nothing else has to be installed. The bundle carries the binary, the wizard
+front end, the compose files and the files they mount.
 
-- **Recommended** asks seven questions. Everything else keeps its default, and
-  each default states why it is the default.
-- **Developer install** shows the whole surface: every parameter, grouped as the
-  descriptor groups it, searchable by name or by what it changes, with what each
-  one requires and what it cannot be combined with. `⌘K` reaches it from any
-  screen, in either path.
+## Install
 
-Either way the flow is five screens with one decision each:
-
-1. **How.** The two paths above, and what each one will ask.
-2. **This machine.** Cores, memory, free disk at the install path, Docker, a GPU
-   if one is visible — measured with the same capacity check the product runs at
-   boot. The recommendation names the numbers it was chosen on.
-3. **Shape.** `split` and `all-in-one` side by side, each with its floors marked
-   against this host. A shape the machine cannot carry says which floor it
-   misses, in that floor's own units, and the full description of a shape is one
-   disclosure away rather than three lines in the reading path. Developer mode
-   adds an override on the short shape: **Open split anyway** takes you into its
-   settings, and the review repeats the numbers at the top. Recommended mode
-   offers only the shapes this machine can carry.
-4. **Settings.** The seven decisions, or the whole catalogue. A field shows the
-   default and the reason the default was chosen. A changed field shows what
-   changes because of it.
-5. **Review.** The plan as steps, each with the reason it exists and the
-   descriptor field that justifies it. Then the config it writes, grouped by what
-   it configures, with the technical lever name under each label. Then what stays
-   yours to do, the apply, and the doctor's verdict.
-
-The app has no telemetry and sends nothing off the machine. It reads the
-descriptor and the host, and it works with the network down once the images are
-pulled. Its window is 1440×900 by default and lays out from 1024 pixels wide.
-
-It installs into `~/marula`. To install elsewhere, set `MARULA_INSTALL_DIR`
-before launching it. The review screen always names the directory it will write
-to.
-
-## The browser fallback
-
-`marula install --ui` serves the same wizard from loopback, for a server with no
-desktop, a workstation where installing an app is not allowed, or a box reached
-over SSH:
+Download the archive for your platform from the
+[Releases page](https://github.com/MarulaHQ/marula-core/releases), then check it
+against the signed checksum list before you unpack it:
 
 ```sh
-marula install --ui                  # prints one URL, opens a browser
-marula install --ui --no-open        # for a headless host: print the URL only
-marula install --ui --port 8899      # a fixed port, when the printer is shared
+sha256sum -c SHA256SUMS-linux-x64       # shasum -a 256 -c on a Mac without coreutils
+tar -xzf marula-<version>-linux-x64.tar.gz
+cd marula-<version>-linux-x64
 ```
 
-The URL carries a one-time token. Opening it once sets an `HttpOnly`,
-`SameSite=Strict` cookie, and the token stops working. The session lasts until
-the process stops. The server binds `127.0.0.1` only, refuses a `Host` header
-that is not loopback, and requires the session cookie plus an installer header
-on every API call. If no browser can be opened, it says so and keeps serving, and
-the URL in the terminal is the way in.
+[`docs/release.md`](release.md) has the signature check, why it comes first,
+and what each failure means.
 
-`--ui-dir` points at the built front-end, which the release bundle ships beside
-the binary. One directory, two hosts: the app loads the same files.
-
-## What it will do for you
+Read the plan. It writes nothing:
 
 ```sh
-marula install --dir /srv/marula                 # print the plan, write nothing
-marula install --dir /srv/marula --apply         # write the env file, start the stack
-marula doctor --dir /srv/marula                  # check the result
+./install.sh --dir /srv/marula --images registry
 ```
 
-The plan names every step, the reason it exists, and the descriptor field that
-justifies it. It also names what stays manual, because an install that silently
-leaves the backup target unset is the install nobody finishes: the TLS
-certificate and hostname, the backup destination, an alert receiver.
+With no arguments at all, the script opens the wizard instead and installs into
+`~/marula`. Run it from the unpacked archive, because it fixes the compose file
+and the wizard front end to the bundle's own copies and refuses `--compose-file`
+or `--ui-dir`.
 
-`--apply` writes one file, `marula.env`, and runs
-`docker compose --env-file … -f … up -d --wait`, adding the profile's override
-file when it has one (`all-in-one` runs `docker-compose.all-in-one.yml` over the
-base file, because that shape is one process rather than two). It returns when the profile's
-healthchecks pass, so "the command finished" and "the install works" are the
-same event. The compose file and the pooler config come from the release, and
-this target supplies the environment that binds them. Where the application
-images come from is a decision, and the next section is the honest version of
-it.
+The script verifies the bundle's `SHA256SUMS`, then hands every other flag to
+the bundled `marula install`. `--images registry` stops Compose from building
+and pins the four application images to the digests in the bundle's
+`release.json`, which the installer finds on its own, so no digest is copied by
+hand. The plan names the host facts it measured, every step with the reason it
+exists, and the work that stays yours: the hostname and TLS certificate, the
+backup destination, an alert receiver.
 
-Each line of `marula.env` sits under the sentence that explains it, taken from
-the descriptor. Nothing is restated from memory and nothing is invented:
+Apply it when the plan looks right:
 
 ```sh
-# One container instead of two: the background loops share core-api's memory
-# and restart with it, so a fault split would have contained takes the API
-# down too.
-MARULA_ALL_IN_ONE=1
+./install.sh --dir /srv/marula --images registry --apply
 ```
 
-Only the profile's presets, your overrides and the four values the process
-refuses to boot without are written. Every other lever keeps the descriptor's
-default, so the file stays a deployment description instead of a transcript of
-one release.
+`--apply` writes one environment file, `marula.env`, in the directory you
+named, starts the stack, and returns when the profile's health checks pass. A
+successful exit means the API answers, not that containers started.
 
-## Where the images come from, and what restarts
+If the directory is not writable by your user, run the same commands with
+`sudo`, as the README block does.
 
-Two decisions are not environment variables, so they are not in `marula.env`.
-They change the compose invocation, and the plan writes each as a generated file
-beside the env so the install says what it did.
-
-**`--images build|registry`.** The default, `build`, compiles this checkout: the
-compose file's four application services carry a `build:` context, so a first
-install needs the source, a Rust toolchain in the image build, and a Node
-toolchain for the web bundle. It is the shape a developer install uses and the
-only shape that works before a registry has published anything.
-
-`--images registry` stops Compose from building and pins each application image
-to the release's digest:
-
-```yaml
-services:
-  core-api:
-    image: ghcr.io/marulahq/marula-core-api@sha256:…
-    pull_policy: always
-    build: !reset null
+```sh
+./marula doctor --dir /srv/marula
 ```
 
-`build: !reset null` is what removes the base file's `build:`. Without it Compose
-builds the service and ignores the image. `!reset` needs Compose 2.24 or newer.
-A registry install refuses to plan without a digest for every service it starts
-(`--image-digest core-api=sha256:…`), because a tag can be moved and a digest is
-what the release signed.
+The doctor reads `marula.env` and checks the host, Docker, the required values,
+the ports and the embedding model. It exits non-zero when a check fails, so it
+is safe to put in a runbook or a cron job.
 
-Third-party images are already pinned by digest in the compose file, so they are
-pulled either way.
+## What you get
 
-**`--restart unless-stopped|always|no`.** The default follows Docker's usual
-posture: a service comes back after a crash and after the daemon restarts, and a
-deliberate stop stays stopped. `always` also comes back after a deliberate stop,
-which surprises people. `no` leaves the failure in front of you, which is right
-on a box you are working on and wrong on one that serves a team. The plan writes
-`marula.restart.yml` for the long-running services only. A one-shot
-(`migrate`, `app-role-password`) is never given a policy, because restarting it
-repeats work or fails forever.
+| URL | What it is |
+|---|---|
+| http://<host>:3000 | The workspace: tickets, dispatch, projects, billing |
+| http://<host>:3000/portal | The client portal |
+| http://<host>:8080 | `core-api`, the only writer to the database |
+| http://<host>:8080/docs | The API reference, generated from the OpenAPI document |
+| http://<host>:8082/healthz | The worker's health endpoint |
 
-None of these policies starts anything at boot on its own. A container only
-comes back with the machine if the Docker daemon starts with the machine, which
-is a setting of the host's service manager and not of this installer.
+Open `/login` and switch to **Create org** to make your organisation and the
+first owner account. [Bootstrap your first
+organisation](site/how-to/admin-org-bootstrap.md) walks that screen and the four
+settings worth changing before your team logs in.
 
-## The eight values it generates
+Nothing here terminates TLS. Put a proxy in front before you open the port to
+the internet: the `edge` profile ships a Caddy configuration with three
+certificate modes, and
+[`docs/site/reference/reverse-proxy-tls.md`](site/reference/reverse-proxy-tls.md)
+covers the one you pick.
 
-The compose stack refuses to render without eight values. Four are parameters
-the descriptor describes (the two signing keys and the two seam tokens); four are
-infrastructure the descriptor does not (the owner and app database passwords, the
-object store's RPC secret and the error tracker's key).
+## The eight secrets
 
-`--apply` resolves all eight in this order: your `--set` value, then what an
-existing `marula.env` already holds, then a freshly generated 32-byte hex value.
-The order matters. A re-run must not rotate a signing key, which signs everyone
-out, or the database password the running volume was initialised with. The same
-file is therefore safe to apply twice.
+The stack refuses to render without eight values. `--apply` generates any that
+are missing, using `openssl rand -hex 32` equivalents, and writes them resolved
+into `marula.env`.
 
-The values are written resolved, never as templates. Compose expands variables in
-the YAML but not in `--env-file` values, so a `postgres://…:${MARULA_APP_PASSWORD}@…`
-left in the file would reach Postgres as a literal password.
+| Value | What it protects |
+|---|---|
+| `JWT_SECRET` | Signs access and refresh tokens. Changing it signs everyone out. |
+| `MARULA_SECRET_KEY` | Encrypts sealed integration secrets at rest. core-api and the worker must hold the same value, or sealed secrets become unreadable. |
+| `MARULA_INTERNAL_TOKEN` | The bearer half of the worker-to-API seam. |
+| `EMAIL_INTERNAL_TOKEN` | The email half of the same seam. |
+| `POSTGRES_PASSWORD` | The `marula` owner role's password. Postgres applies it when it first creates the data volume, so a later change to the file does not change the role. |
+| `MARULA_APP_PASSWORD` | The `marula_app` role's password, which the `app-role-password` one-shot applies on every start. Safe to rotate. |
+| `GARAGE_RPC_SECRET` | Garage's inter-node RPC secret, used by the `stage2` object store. |
+| `GLITCHTIP_SECRET_KEY` | GlitchTip's Django signing key, used by the `observability` profile. |
 
-`--dry-run` prints the whole file with every secret masked as `****`, including
-where one appears inside a URL. A key in a scrollback or a CI log is a leaked
+Two rules keep the file useful. A re-run reads what `marula.env` already holds
+before it generates anything, so applying twice does not rotate a signing key or
+a database password. And the file holds resolved values rather than templates,
+because Compose does not expand variables inside an env file.
+
+`deploy/dev.env` in the repository is not an install: its values are published,
+so anyone who has read the repository can mint an owner token against a stack
+running on them. The stack warns at boot while they are in use.
+
+To set a value yourself, pass it once:
+
+```sh
+./install.sh --dir /srv/marula --images registry --apply --set MARULA_DB_POOL_MAX=40
+```
+
+A name the descriptor does not publish is refused before anything is written,
+so a typo is an argument error rather than a setting that does nothing.
+`--set` also accepts the four infrastructure values the installer generates
+itself: both database passwords, the object store secret and the error tracker
 key.
 
-## Choosing a profile
+## Shapes
 
-The installer scores the host against each profile's floors and picks the
-highest one it meets, preferring `split` because it is the shipped topology. A
-host that misses a floor is told which one, in its own units:
+A shape is a promise about processes. The installer scores the host against
+each one and takes the highest that fits, preferring `split`.
 
-```text
-no shipped profile fits this host. What each one needs beyond it:
-  split: 8192 MB memory (this platform publishes no reading)
-```
+| Shape | What runs | Cores | Memory | Free disk |
+|---|---|---|---|---|
+| `split` | core-api and the worker as separate containers | 4 | 8192 MB | 40 GB |
+| `all-in-one` | one core-api process, with the worker loops inside | 4 | 8192 MB | 30 GB |
+| `demo` | `split` plus a seeded organisation, loopback only | 4 | 8192 MB | 30 GB |
 
-On a platform that publishes no memory reading, the refusal names the fix:
-pass `--memory-mb`, or set `MARULA_HOST_MEMORY_MB`, and the same host is scored
-again. The value is the operator's declaration, not a guess by the installer.
+`split` is the shipped topology: a stalled worker restarts without
+interrupting the API, and the two processes scale apart. `all-in-one` trades
+that for one container on a small box. `demo` is never chosen for you, because
+it carries a published password and an unauthenticated reset surface, and the
+installer pins its API to loopback.
 
-If the profile's local embedding model does not fit the host, the plan says so
-and names the cloud path: set `MARULA_EMBEDDING_PROVIDER=openai` and
-`MARULA_EMBEDDING_API_KEY`. The installer will not quietly pick a smaller local
-model, because that trades recall for memory without telling you.
-
-`--allow-unfit` plans a shape the host misses anyway, which is what the app's
-developer mode does. The plan runs and prints the floors it missed before the
-steps. Nothing in it prevents the stack failing later, so it is a decision to
-proceed with less than the shape asks for, not a way to make the numbers true.
-
-## Overrides
-
-`--set NAME=value` changes one lever, repeatable:
+Name a shape when you want it:
 
 ```sh
-marula install --dir /srv/marula --set MARULA_DB_POOL_MAX=40 --set EMAIL_TRANSPORT=smtp
+./install.sh --dir /srv/marula --apply --profile all-in-one
 ```
 
-A name the descriptor does not publish is refused before anything is written.
-That is the same catalogue `marula deploy describe --json` emits, so a typo is
-an argument error rather than a setting that silently does nothing.
+A host the shape cannot carry is refused with the floor it missed. On a
+platform that publishes no memory reading, declare it with `--memory-mb 16384`
+or `MARULA_HOST_MEMORY_MB`, and the same host is scored again. `--allow-unfit`
+plans a shape the host misses anyway, which is a decision to proceed with less
+than the shape asks for.
 
-## What it does not do
+## Profiles
 
-No artifact packaging and no updates (W60-4 and W60-5 own those). No uninstall.
-It does not create the TLS certificate, the backup target or the alert receiver,
-and it does not start a second machine.
+Compose profiles add moving parts an install does not need on day one. They
+stay off until you name them.
 
-## Checking an install
+| Profile | What it adds | When to turn it on |
+|---|---|---|
+| `pooler` | PgBouncer in transaction mode, plus its auth renderer | Several API instances, or many clients against a Postgres that caps connections |
+| `stage2` | Garage object storage and a Mailpit mail sink | Attachments on the host, or mail captured locally instead of sent |
+| `observability` | OTel collector, Tempo, Loki, Prometheus with the alert pack, Grafana, GlitchTip, Uptime Kuma | You want traces, logs, metrics and a status page on the box |
+| `ai` | A local Ollama runtime | The org runs a local embedding or chat model |
+| `backup` | WAL-G point-in-time recovery and restic snapshots | You want scheduled backups instead of a nightly dump |
+| `edge` | Caddy terminating TLS | The host faces the internet |
 
-`marula doctor` reads `marula.env` when it exists and the process environment
-otherwise, so it answers for an install it did not create. Each check says what
-it looked at and what it found:
+Start one from the unpacked release, with the install's env file:
 
-| Check | Fails when |
+```sh
+docker compose -f deploy/docker-compose.yml --env-file /srv/marula/marula.env \
+  --profile stage2 up -d
+```
+
+The pooler is opt-in because a single-node install does not need it. core-api
+and the worker dial Postgres directly, and one instance's connections fit
+inside the 100 a stock Postgres allows. Turn the profile on when you add a
+second API instance, and set the two database URLs to `pgbouncer:6432` and
+`MARULA_DB_STATEMENT_CACHE=0` in the env file at the same time.
+[`deploy/README.md`](../deploy/README.md) has the connection arithmetic and
+[`docs/reference/connection-pooling.md`](reference/connection-pooling.md) has
+the measurements.
+
+## Upgrade
+
+Upgrades move one release at a time, and Marula supports jumps from either of
+the two previous tagged releases. Read the release notes before you start: they
+carry a **Breaking & deprecated** section even when it is empty.
+
+1. Take a backup that has restored once. The next section is the short version,
+   and [the backup runbook](site/reference/backup-restore.md) is the long one.
+2. Download the new bundle and check its checksum the same way you did the
+   first one.
+3. Run the new installer against the directory you already use:
+
+   ```sh
+   ./install.sh --dir /srv/marula --images registry --apply
+   ```
+
+   The plan reads the existing `marula.env` first, so the eight values stay put
+   and the new images replace the old ones. Migrations run before the API
+   starts, and the command returns when the health checks pass.
+
+4. Run `./marula doctor --dir /srv/marula` and open the workspace.
+
+A release that publishes a signed update manifest can be applied without the
+download step. `marula update --check` says whether a newer release exists, and
+`marula update --apply` verifies the signature, backs up the files the install
+owns, applies through the same target and rolls the files back when the doctor
+disagrees. Rollback restores configuration, not data, so the backup in step 1
+is still yours to take. [`docs/update.md`](update.md) has the flags.
+
+## Backup and restore
+
+Everything lives in Postgres, and once object storage is on, the attachments
+live in the bucket as well. Back up both or neither: a database-only restore
+leaves attachments pointing at objects that are not there.
+
+Take a dump as the `marula` owner, from the unpacked release directory:
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file /srv/marula/marula.env \
+  exec -T postgres pg_dump -U marula -d marula -Fc > marula-$(date +%F).dump
+```
+
+Dump as `marula`, not `marula_app`. The app role is constrained by row-level
+security and cannot produce a complete dump. Use a `pg_dump` that matches the
+server's major version; the postgres image carries the right one.
+
+To restore, stop core-api and the worker, restore the dump into a database of
+the same major version, start them again, and restore the object store in the
+same window. If rows and objects come back at different times, leave
+`MARULA_OBJECT_GC` off until the restore finishes, or the integrity pass marks
+live attachments as missing. [The backup and restore
+runbook](site/reference/backup-restore.md) has the restore order, the restic and
+WAL-G paths, and the drill that proves a restore works.
+
+## Hardening
+
+The stack is built to run without root and without a writable filesystem.
+
+- Every third-party slot that has a hardened equivalent uses a Docker Hardened
+  Image: Postgres with pgvector, Valkey, PgBouncer, Grafana, Tempo, Loki and
+  ClamAV. Garage, Mailpit, GlitchTip, Uptime Kuma and the OpenTelemetry
+  collector run upstream images under the same pinning rules.
+- Every image reference carries an exact tag and a registry digest. The digest
+  is what runs, and the release's manifest names the digests it published.
+- `cap_drop: [ALL]` and `no-new-privileges` apply to every service. Most mount
+  a read-only root filesystem and write only to their own volume or a tmpfs.
+  Postgres, Grafana and ClamAV keep a writable root because their own boot
+  logic needs one, and each says so in the compose file.
+- The application images drop to a fixed numeric user at build time. Nothing
+  runs as root except Postgres' one-time first-boot init, which re-execs as
+  `postgres` before it accepts a connection.
+
+Hardened registry pulls need no account. The images are free, and a fresh host
+with no credential store pulls them like any other public image. That is
+Docker's policy rather than a promise from this repository, so if a pull ever
+asks for credentials, `docker login dhi.io` with a free Docker account is the
+fallback. The login is cached on the host, so an install and its later pulls
+share it. If your fleet cannot reach `dhi.io`, mirror the hardened images into a
+registry you control and change the image references in the compose file to your
+mirror. Keep the digests, so a mirror cannot substitute a different image behind
+your back.
+
+## Troubleshooting
+
+| Symptom | What it means |
 |---|---|
-| host floors | the machine has less than the profile needs |
-| docker | the daemon does not answer |
-| required values | one of the four boot-critical values is empty |
-| port | something already holds a port the profile publishes |
-| embedding model | the profile's local model needs more memory than the host reports |
+| `unauthorized` while pulling `dhi.io/...` | Docker asked for credentials, which the hardened images do not normally require. `docker login dhi.io` with a free Docker account is the fix. |
+| `no shipped profile fits this host` | The host misses a floor and the message names it. Free disk and cores are the usual ones. On a platform with no memory reading, pass `--memory-mb`. |
+| `port is already allocated` | Something holds 3000, 8080 or 15432. Stop it, or move the service. |
+| The plan refuses the embedding model | The profile's local model needs more memory than the host reports. Set `MARULA_EMBEDDING_PROVIDER=openai` and `MARULA_EMBEDDING_API_KEY`, or give the host more memory. |
+| `--apply` stopped partway | Read the step it named, then run `./marula doctor --dir /srv/marula` and `docker compose logs` for the service that did not come up. The env file is already written, so a second `--apply` continues from the values on disk. |
+| Compose rejects `!reset` | Your Compose is older than 2.24. Upgrade Docker Compose and apply again. |
+| `marula.env` is lost | The eight values are gone with it. Restore the file from your backup; a stack rebuilt with new signing keys signs everyone out. |
 
-It exits non-zero when any check fails, and it ends with the compose services it
-can see.
+The install's logs are the compose services' logs, and `marula doctor` names
+the check that failed. A stack that answers is the same event as a command
+that exits zero, which is why the installer waits for the health checks.
+
+For a demo box, `marula demo reset --dir /srv/demo` replaces the seeded data
+between showings.

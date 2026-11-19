@@ -20,26 +20,32 @@ numbers below are the same numbers the plan checks.
 | | `split` | `all-in-one` | `demo` |
 |---|---|---|---|
 | Application processes | core-api and worker, separate | one core-api process, worker loops inside | core-api and worker, separate |
-| Containers | 7 | 5 | 9 |
+| Containers | 6 | 5 | 8 |
 | Cores | 4 | 4 | 4 |
 | Memory | 8192 MB | 8192 MB | 8192 MB |
 | Free disk | 40 GB | 30 GB | 30 GB |
 | Ports | 8080 (API), 8082 (worker health) | 8080 and 8082 on the one process | 8080 and 8082, **loopback only** |
 
 Containers counts the whole stack: the application, Postgres, Valkey, the
-migration one-shot and the web console. `split` adds a worker and PgBouncer.
+migration one-shot and the web console. `split` adds a worker. Turning on the
+`pooler` profile adds PgBouncer and its auth renderer.
 
 ## split
 
 The default. core-api serves the API and the live-push stream; the worker runs
-the background loops in its own container. PgBouncer in transaction mode sits
-between them and Postgres, so a burst of API requests queues at the pooler
-instead of exhausting the database's connections.
+the background loops in its own container. Both dial Postgres directly, and one
+instance's connections fit inside the 100 a stock Postgres allows.
 
 Pick it because a stalled worker should restart without interrupting the API
 somebody is talking to, and because the two processes then scale separately.
 Pay for it with a second copy of the application image and a second set of
 resource limits.
+
+When you need several API instances, turn on the compose `pooler` profile. It
+puts PgBouncer in transaction mode between the services and Postgres, so a burst
+of requests queues at the pooler instead of exhausting the database's
+connections. [Deploy](../../../deploy/README.md) has the command and the
+connection arithmetic.
 
 The disk floor is 10 GB higher than `all-in-one` for exactly that reason.
 
@@ -50,9 +56,10 @@ means a fault in a loop takes the API down with it. It exists for a demo box, a
 laptop, or a single small server where a second container is more moving parts
 than the team can justify.
 
-It sets eleven values that `split` leaves alone: the pooler is out of the path,
-so the API talks to Postgres directly and the statement cache has to be off, and
-the worker's health endpoint moves into the API process.
+It sets eleven values that `split` leaves alone: the worker-loop cadences, the
+all-in-one marker, the one-box reliability setting, and the worker's health
+endpoint moving into the API process. Both shapes dial Postgres the same way,
+directly, unless you turn on the `pooler` profile.
 
 ## demo
 

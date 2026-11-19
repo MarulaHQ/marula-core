@@ -93,6 +93,7 @@ Not sure which guide you need? [Start here](../start/index.md) routes by role, a
 - [Run the local demo stack](local-demo-stack.md) — Boot a seeded demo on your own machine with one command, including the BYOK checklist and the desktop alternative that needs no Docker.
 - [Which installer do I want?](choose-your-installer.md) — Match the artifact to the goal: a server install, the desktop client, or Marula running on one machine with no server.
 - [Install on a server from the terminal](install-on-a-server.md) — Read the plan, pick a shape the machine can carry, apply it, and check the result with the doctor.
+- [Install from source](install-from-source.md) — Take a fresh clone to a running stack, run the web app with hot reload, and find the checks a pull request has to pass.
 - [Install with the app](install-with-the-app.md) — Walk the five screens, from measuring the machine to the review that runs the plan.
 - [Install the desktop app](install-the-desktop-app.md) — Put Marula in a window on macOS, Linux, or Windows: the download, the first-run choice, and the uninstall.
 - [Verify a release before you install it](verify-a-release.md) — Check the signed checksum list, the archive, the extracted tree, and the image digests, in that order.

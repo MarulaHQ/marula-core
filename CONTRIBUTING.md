@@ -6,13 +6,18 @@ Thanks for helping build the open-core PSA. The short version: **PRs from everyo
 
 ```bash
 git clone https://github.com/MarulaHQ/marula-core && cd marula-core
-pnpm install
-docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env up -d --build   # postgres+pgvector, Valkey, core-api, worker, web
-docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env stop web
-pnpm dev                                              # Next.js on :3000 against the API on :8080, with hot reload
+docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env up -d --build
 ```
 
-`deploy/dev.env` carries the published development secrets, so the stack warns at boot and belongs on a machine you own. Without the `stop web` step the container serves the UI on `:3000` and `pnpm dev` has nowhere to bind.
+The workspace is on http://localhost:3000, the API on http://localhost:8080 and
+its reference on http://localhost:8080/docs. The first build compiles the Rust
+workspace and the web bundle, so it takes minutes. Later runs reuse the layers.
+
+`deploy/dev.env` carries the published development secrets, so the stack warns
+at boot and belongs on a machine you own. To run the web app with hot reload,
+stop the `web` container and run `pnpm install && pnpm dev`; otherwise the two
+fight over port 3000. [Working on the code](docs/install-from-source.md) has the
+toolchains, the optional pooler, the end-to-end stack and the gate commands.
 
 ## macOS 27: `E0432: unresolved imports` is a build artifact, not your code
 
