@@ -53,14 +53,24 @@ trap cleanup EXIT
 say "installing from the published digests into $INSTALL_DIR"
 # --images registry is the whole point: it builds nothing and pins every service
 # to the digest the bundle names, which is what a self-hoster runs.
-# The GitHub runner's free disk is below the split shape's 40 GB floor, so the
-# plan is told to proceed on this box. The test is about the install path, not
-# about capacity; the floor itself is exercised by the doctor's own checks.
-"$BUNDLE/install.sh" --dir "$INSTALL_DIR" --images registry --apply --allow-unfit
+#
+# The shape is named, not recommended. Left alone, the installer and the doctor
+# each ask the host what fits, and on a box near a floor they can answer
+# differently: the test would then install one shape and check another. `split`
+# is the shape this leg checks, and the doctor is told the same, so its verdict
+# is about the stack that was installed.
+#
+# `--allow-unfit` is the capacity waiver and nothing else. The runner's free disk
+# is below split's 40 GB floor, which the doctor reports as `waived` rather than
+# as a pass; the floors themselves are covered by the doctor's unit tests. What
+# this leg exists to prove is the install path, and that is unchecked otherwise.
+SHAPE_NAME='split'
+"$BUNDLE/install.sh" --dir "$INSTALL_DIR" --images registry --profile "$SHAPE_NAME" --apply --allow-unfit
 
 say "checking the result"
 "$BUNDLE/marula" doctor \
   --dir "$INSTALL_DIR" \
+  --profile "$SHAPE_NAME" \
   --compose-file "$BUNDLE/deploy/docker-compose.yml" \
   --allow-unfit
 

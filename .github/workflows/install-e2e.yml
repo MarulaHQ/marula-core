@@ -113,6 +113,19 @@ jobs:
           tar -xzf "dist/marula-${VERSION}-linux-x64.tar.gz" -C dist
           test -x "dist/marula-${VERSION}-linux-x64/install.sh"
 
+      - name: Make room for the stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The image has about 14 GB free, and the leg installs the split shape:
+          # four application images plus Postgres, Valkey and the rest, with the
+          # layer unpacking on top. The toolchains below are the runner's, not
+          # ours, and nothing in this job uses them.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
       - name: Install from the published digests, then the compose path
         env:
           VERSION: ${{ steps.version.outputs.version }}
