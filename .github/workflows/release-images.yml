@@ -25,6 +25,11 @@
 # `marula-*` download picks up as `dist/release/images.json`; the manifest step
 # merges them before it writes `SHA256SUMS`, and the release key signs that list.
 #
+# The same digests are also published as `image-digests.json` (artifact
+# `image-digests`): a documented, deterministic `component → digest` document for
+# tooling outside this repository's release path. It is not a release asset —
+# the signed checksum list does not cover it — and `docs/release.md` says so.
+#
 # Run it by hand first. `workflow_dispatch` exists so the first push can be
 # proved on one release before a tagged run depends on it:
 #
@@ -248,11 +253,21 @@ jobs:
 
       # This is the file the release workflow looks for. A partial set fails
       # here, where the list of what is missing is on screen, rather than in an
-      # install that cannot pin one service.
+      # install that cannot pin one service. The same digests are written a
+      # second time as `image-digests.json`, the published contract: sorted
+      # keys, one trailing newline, so two runs over the same data agree byte
+      # for byte.
       - name: Join the leg outputs into one map
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          node scripts/release/images.mjs --merge digests --digests images.json
+          node scripts/release/images.mjs \
+            --merge digests \
+            --version "$VERSION" \
+            --digests images.json \
+            --digest-manifest image-digests.json
           cat images.json
+          cat image-digests.json
 
       - uses: actions/upload-artifact@v7
         with:
@@ -260,6 +275,18 @@ jobs:
           path: images.json
           if-no-files-found: error
           retention-days: 30
+
+      # Deliberately not named `marula-*`. The release workflow downloads that
+      # pattern into dist/release and the attach job uploads every file it finds
+      # there, while the signed SHA256SUMS covers only `marula-<version>-*`,
+      # `SHA256SUMS-*` and release.json — so a copy in that set would publish an
+      # unsigned asset. The manifest travels as a workflow artifact instead.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-digests
+          path: image-digests.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Say what to do with the packages
         env:
