@@ -34,7 +34,7 @@ docs answer the shorter questions:
 
 | Platform | Mode | Bundle targets | Signing |
 |---|---|---|---|
-| macOS | embedded and connected | `app` (CI ships the `.app` zipped), `dmg` locally | Developer ID signature + notarization when the Apple secrets are set (`§2`); ad-hoc otherwise |
+| macOS (arm64) | embedded and connected | `app` (CI ships the `.app` zipped), `dmg` locally | Developer ID signature + notarization when the Apple secrets are set (`§2`); ad-hoc otherwise |
 | Linux | connected | `deb`, `appimage` | the `.AppImage` carries the updater's minisign signature when `TAURI_SIGNING_PRIVATE_KEY` is set; the `deb` is checksum-only |
 | Windows | connected | `nsis`, `msi` | Authenticode when `WINDOWS_CERTIFICATE` is set; unsigned otherwise, and SmartScreen will warn |
 
@@ -48,9 +48,13 @@ installer carries the database or downloads it.
 `workflow_dispatch` without them still builds: the bundler's updater artifacts
 are switched off for that run (with the flag on and no key, `tauri build`
 refuses to emit ones it cannot sign), and the job Summary states unsigned. A
-`desktop-v*` tag is the opposite gate — a missing secret fails the leg and
-names it, because a tagged release is not cut unsigned
-(`release-installer.yml` runs the same rule). A bundle without a certificate
+`desktop-v*` tag is the opposite gate: a missing secret fails the leg and names
+it, because a tagged desktop release is not cut unsigned.
+
+The installer workflow takes the softer path. A `v*.*.*` tag whose platform
+certificate is missing bundles unsigned and warns, so a release can ship
+without a paid certificate. `workflow_dispatch` with `sign=true` is the strict
+rehearsal and fails, naming the secrets. A bundle without a certificate
 installs and runs; the OS adds a warning, and the warning is named here instead
 of being discovered. What each posture produces and how a user verifies it is
 §7.
@@ -285,7 +289,7 @@ that leg does not install (`.github/workflows/ci.yml`).
 | Linux desktop bundles (`deb`, `appimage`) | Configured in `desktop/tauri.linux.conf.json`. The `.AppImage` carries the updater's minisign signature when the updater key exists; the `deb` is checksum-only until an apt repository publishes (the reason is below). |
 | Windows desktop bundles (`nsis`, `msi`) | Configured in `desktop/tauri.windows.conf.json`. Authenticode-signed when `WINDOWS_CERTIFICATE` exists; unsigned otherwise, and SmartScreen will warn. |
 | Updater artifacts (`.sig` files) | Signed with the minisign updater key when `TAURI_SIGNING_PRIVATE_KEY` exists, and collected beside the bundles. Without the key the run emits none and says so. |
-| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds five legs. These belong to the installer app, not to the client (`docs/release.md`). |
+| Installer bundles for a server (the `deb`/`dmg`/NSIS legs) | `release-installer.yml` builds four legs (macOS arm64, Linux x64, Linux arm64, Windows x64). These belong to the installer app, not to the client (`docs/release.md`). |
 
 **What a dispatch produces.** With every secret set in place: macOS signed and
 notarized, the Linux AppImage minisign-signed, Windows Authenticode-signed, and

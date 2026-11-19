@@ -21,14 +21,15 @@ set per platform:
 
 | Platform | Artifact | Architectures |
 |---|---|---|
-| macOS | a zip of `Marula.app` | arm64, x64 |
+| macOS | a zip of `Marula.app` | arm64 |
 | Linux | `deb` and `AppImage` | x64, arm64 |
 | Windows | NSIS setup `.exe` and `msi` | x64 |
 
 ## Install on macOS
 
-1. Download the zip for your Mac. Apple silicon is arm64. Unzip it and drag
-   `Marula.app` into Applications.
+1. Download the zip for your Mac. Only Apple silicon (arm64) is built today;
+   an Intel Mac has no bundle yet. Unzip it and drag `Marula.app` into
+   Applications.
 2. First launch is stopped by Gatekeeper, because the app is not notarized
    yet. Open it from System Settings, Privacy & Security, via Open Anyway.
    [Why](#unsigned-builds-and-what-the-os-says).

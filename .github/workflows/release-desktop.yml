@@ -1,6 +1,6 @@
 name: Release desktop
 
-# Desktop client artifacts (W61-2, extended by ADR 0031; conditional signing is W61-4).
+# Desktop client artifacts.
 #
 # macOS ships the embedded app (ADR 0005): Postgres, core-api and the Next
 # standalone tree inside the bundle. Linux and Windows ship the connected
@@ -36,8 +36,8 @@ name: Release desktop
 # artifacts are switched off for that run (without the key it refuses to emit
 # any), and the job Summary states that the output is unsigned. It never
 # silently ships a posture it did not get secrets for. A desktop-v* tag is the
-# opposite gate, matching release-installer.yml: a missing secret fails the leg
-# and names what is missing, because a tagged release is not cut unsigned.
+# opposite gate: a missing secret fails the leg and names what is missing,
+# because a tagged desktop release is not cut unsigned.
 #
 # Unproven until the first run: no job here has run yet. The first run must be
 # a manual dispatch on a branch, not a tag.
@@ -67,9 +67,6 @@ jobs:
           - os: macos
             arch: arm64
             runner: macos-15
-          - os: macos
-            arch: x64
-            runner: macos-15-intel
           - os: linux
             arch: x64
             runner: ubuntu-24.04

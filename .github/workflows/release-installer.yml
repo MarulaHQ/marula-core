@@ -1,16 +1,20 @@
 # Release installer — the per-platform release artifacts.
 #
-# Wave 60 lane W60-4 (`p60-installer-artifact`). Five legs build the two things
-# a release ships (the `marula` CLI and the installer app), assemble one
-# directory per platform with `scripts/release/assemble.mjs`, and upload it.
-# A final job writes the manifest, checksums everything, and signs the
-# checksums with the release key.
+# One leg per supported platform builds the two things a release ships (the
+# `marula` CLI and the installer app), assembles one directory per platform with
+# `scripts/release/assemble.mjs`, and uploads it. A final job writes the
+# manifest, checksums everything, and signs the checksums with the release key.
 #
-# What this file deliberately does NOT do: create a GitHub Release, push to a
-# registry, or publish anything to a host. That is a publishing decision (the
-# same reason `release.yml.disabled` stays disabled): the artifacts land on the
-# workflow run, and attaching them to a release page, a CDN or a docs site is a
-# person's call. docs/release.md says what to do with them.
+# Supported platforms are macOS arm64, Linux x64, Linux arm64 and Windows x64.
+# Intel macOS is not built: a cold-cache leg took 53 minutes for the CLI and 35
+# more for the installer app, past this job's limit, and a warm cache is not
+# guaranteed on a new branch. The tracking issue records how to restore it.
+#
+# What this file does and does not do: the legs build every supported platform,
+# the `publish` job writes the manifest and signs the checksums, and the `attach`
+# job puts the files on the release page. Notes are not written here: a release
+# page that does not exist yet is created as a DRAFT, because the changelog
+# section and the signing posture are a person's words.
 #
 # Every secret this file reads lives OUTSIDE this repository, in the
 # repository's Actions secrets. No key, password or certificate is committed,
@@ -42,10 +46,11 @@
 #   nothing keeps), so the key is not required here:
 #     TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 #
-# The signing gate is FAIL CLOSED: on a `v*.*.*` tag, a missing secret fails the
-# leg and names what is missing. On a pull request or a branch push, signing
-# steps are skipped with a `::notice::` that says so, because a fork cannot
-# read the secrets and a pull request must not need them.
+# The signing gate states a posture instead of refusing to run: on a `v*.*.*`
+# tag a leg signs when its platform's certificate is present, and otherwise
+# bundles unsigned with a warning the release note repeats. A pull request or a
+# branch push never reads the secrets. `sign=true` on a manual dispatch is the
+# strict rehearsal: it fails and names what is missing.
 
 name: Release installer
 
@@ -68,7 +73,7 @@ on:
         type: boolean
         default: false
       sign:
-        description: Require signing secrets (as a tagged release does)
+        description: "Fail when a platform's signing secrets are missing (strict rehearsal)"
         type: boolean
         default: false
       images:
@@ -203,9 +208,6 @@ jobs:
           - os: macos
             arch: arm64
             runner: macos-15 # arm64
-          - os: macos
-            arch: x64
-            runner: macos-15-intel
           - os: linux
             arch: x64
             runner: ubuntu-24.04
@@ -293,29 +295,65 @@ jobs:
 
           if [ "${TAGGED}" != "true" ]; then
             echo "sign=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Not a tagged release, so this leg bundles unsigned. Signing and notarisation are required on a v*.*.* tag."
-            exit 0
-          fi
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.sign }}" != "true" ]; then
-            echo "sign=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::workflow_dispatch without sign=true, so this leg bundles unsigned."
+            echo "::notice::Not a tagged release, so this leg bundles unsigned. A tag bundles with whatever posture its certificates allow."
             exit 0
           fi
 
+          # A tag no longer stops for a missing certificate. Without one, the leg
+          # bundles unsigned: `tauri bundle --no-sign` skips its signing block and
+          # nothing later signs the bundle. The certificate's own provenance is
+          # not inspected, so a set certificate may be self-signed or CA-issued.
+          # The leg says which posture it produced so the release note can repeat
+          # it, and `sign=true` on a dispatch keeps the strict gate for a
+          # rehearsal.
+          strict=false
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.sign }}" = "true" ]; then
+            strict=true
+          fi
+
           missing=()
-          for name in "${required[@]}"; do
-            if [ -z "$(printenv "$name" || true)" ]; then
-              missing+=("$name")
-            fi
-          done
+          if [ "${#required[@]}" -gt 0 ]; then
+            for name in "${required[@]}"; do
+              if [ -z "${!name:-}" ]; then
+                missing+=("$name")
+              fi
+            done
+          fi
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf '::error::This is a tagged release and these signing secrets are missing: %s\n' "${missing[*]}"
-            printf 'An unsigned release is not a release: the platform refuses to run it without a warning,\n'
-            printf 'and a warning trains users to click through the one dialog that matters.\n'
-            exit 1
+            if [ "$strict" = "true" ]; then
+              printf '::error::sign=true and these signing secrets are missing: %s\n' "${missing[*]}"
+              printf 'The strict gate refuses to rehearse a signed release without them.\n'
+              exit 1
+            fi
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            printf '::warning::No %s signing certificate in this run (missing: %s). Bundling unsigned; the release note must state this posture.\n' "${RUNNER_OS}" "${missing[*]}"
+            exit 0
           fi
           echo "sign=true" >> "$GITHUB_OUTPUT"
           echo "signing prerequisites are present for ${RUNNER_OS}"
+
+      # Every leg states the posture it produced, in the run summary where the
+      # person cutting the release reads it. The release note repeats this line
+      # for each platform, and a run that silently shipped unsigned would be the
+      # one failure this step exists to prevent.
+      - name: State the signing posture
+        shell: bash
+        env:
+          SIGN: ${{ steps.signing.outputs.sign }}
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}" in
+            macOS)
+              if [ "${SIGN}" = "true" ]; then POSTURE="signed and notarised"; else POSTURE="unsigned"; fi
+              ;;
+            Windows)
+              if [ "${SIGN}" = "true" ]; then POSTURE="signed (certificate imported from WINDOWS_CERTIFICATE)"; else POSTURE="unsigned"; fi
+              ;;
+            *)
+              POSTURE="not applicable (no platform signature)"
+              ;;
+          esac
+          echo "- ${RUNNER_OS} ${{ matrix.arch }}: ${POSTURE}" >> "$GITHUB_STEP_SUMMARY"
 
       # macOS: import the Developer ID certificate into a throwaway keychain.
       # The keychain password is generated here; it protects a temporary file
@@ -687,8 +725,9 @@ jobs:
             find dist/release -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.tar.zst' -o -name '*.sig' -o -name 'SHA256SUMS*' -o -name 'release.json' \) \
               -exec ls -l {} \; | awk '{ printf "| %s | %s |\n", $9, $5 }' | sort
             echo
-            echo "Attaching these to a release page (and publishing the base URL the"
-            echo "docs print) is a maintainer decision, not a step of this workflow."
+            echo "The attach job puts these files on the release page, creating it"
+            echo "as a draft when it does not exist yet. Writing the notes from the"
+            echo "changelog and pressing publish stay with the maintainer."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the release set
@@ -698,3 +737,61 @@ jobs:
           path: dist/release
           if-no-files-found: error
           retention-days: 30
+
+  # The files exist as a workflow artifact by now; this job puts them where a
+  # user looks for them. It attaches files and nothing else: the changelog
+  # section and the platform signing posture are a person's words, so a release
+  # page that does not exist yet becomes a DRAFT with a note saying what it
+  # needs, never a published page with placeholder prose.
+  attach:
+    name: Attach the assets to the release
+    needs: [version, publish]
+    if: ${{ needs.version.outputs.tagged == 'true' && needs.publish.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      # The one job that writes to the repository: uploading release assets.
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Fetch the release set
+        uses: actions/download-artifact@v8
+        with:
+          name: marula-${{ needs.version.outputs.version }}-release
+          path: dist/release
+
+      - name: Attach the files to the release page
+        run: |
+          set -euo pipefail
+          # A failed lookup is not a missing release: an auth or network error
+          # must fail the step, because `gh release create` would then fail on
+          # an existing release and stop before anything is uploaded.
+          view_error=""
+          if ! view_error=$(gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.tag_name' 2>&1 >/dev/null); then
+            case "$view_error" in
+              *"HTTP 404"*)
+                gh release create "$TAG" --verify-tag --draft \
+                  --title "Marula Core ${VERSION}" \
+                  --notes "Draft created by the release workflow. Paste the CHANGELOG section here, state the platform signing posture for each platform, then publish. The files are attached already."
+                echo "::warning::Created $TAG as a draft with the assets attached. Add the CHANGELOG section and publish it."
+                ;;
+              *)
+                printf '::error::could not read the release for %s: %s\n' "$TAG" "$view_error"
+                exit 1
+                ;;
+            esac
+          fi
+          # Files only: `dist/release` also holds one unpacked directory per
+          # platform, and those are the archive's content, not an asset.
+          assets=()
+          while IFS= read -r file; do assets+=("$file"); done < <(find dist/release -maxdepth 1 -type f | sort)
+          [ "${#assets[@]}" -gt 0 ] || { echo "::error::no files to attach in dist/release"; exit 1; }
+          # --clobber makes a re-run idempotent: same files, same names, no
+          # duplicate assets, and the checksum list still covers them.
+          gh release upload "$TAG" "${assets[@]}" --clobber
+          echo "attached ${#assets[@]} file(s) to $TAG"
+          gh release view "$TAG" --json assets --jq '.assets[].name' | sort

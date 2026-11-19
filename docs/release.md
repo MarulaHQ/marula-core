@@ -9,8 +9,10 @@ bundle carrying the container images the install needs.
 
 ## What a release produces
 
-The `release-installer` workflow builds five legs, one per platform, and each
-leg writes a directory plus one archive:
+The `release-installer` workflow builds four legs (`macOS` arm64, `Linux` x64,
+`Linux` arm64, `Windows` x64), and each leg writes a directory plus one archive.
+Intel macOS is not built for now: a cold-cache Intel leg exceeded the job limit,
+and the tracking issue records how to restore it.
 
 | File | What it is |
 | --- | --- |
@@ -67,16 +69,18 @@ git tag -s v0.3.1 -m "Marula Core v0.3.1"
 git push origin v0.3.1        # the maintainer's call, not an agent's
 ```
 
-On a `v*.*.*` tag each leg requires the signing secrets for its own platform. If
-one is missing the leg fails with the secret's name in the message, because an
-unsigned release is not a release. On a pull request or a branch push the same
-legs build unsigned and print a notice saying so.
+On a `v*.*.*` tag each leg signs when its platform's certificate is present and
+otherwise bundles unsigned (both platforms),
+warning so the run summary and the release note carry it. A pull request or a
+branch push never reads the secrets and always bundles unsigned.
 
 The final `publish` job fetches every leg, writes `release.json` and the
-combined `SHA256SUMS`, signs the lists, re-verifies them, and uploads the whole
-set as one workflow artifact. It does not create a GitHub Release or push
-anything to a host. Attaching the files to a release page, and choosing the
-base URL the docs print, stay with the maintainer.
+combined `SHA256SUMS`, signs the lists, and re-verifies them. The `attach` job
+then puts the whole set on the GitHub release for the tag. A release page that
+does not exist yet is created as a **draft**, because writing the notes from the
+changelog and choosing to publish are a person's decisions; the files are
+attached either way, and a re-run replaces them with `--clobber` instead of
+duplicating them.
 
 A manual run can rehearse the pipeline:
 
@@ -167,24 +171,46 @@ to. It uses the `marula` already on `PATH` (`--verifier` names another). With
 none present it stops and prints the by-hand command above. It also refuses to
 run when its own source is a pipe, so `curl … | sh` fails rather than working.
 
-## Platform signatures: unsigned for now
+## Platform signatures: unsigned or self-signed for now
 
-macOS and Windows artifacts ship **unsigned and unnotarised** until the trust
-chain exists. This is a decision, not an oversight:
+macOS and Windows artifacts ship **without a paid trust chain**. This is a
+decision, not an oversight, and the run summary states the posture each leg
+produced:
 
-- macOS: `signingIdentity` stays `null`, so Gatekeeper warns on first open and the
-  app is not notarised. A user has to allow it in System Settings.
-- Windows: no Authenticode certificate, so SmartScreen warns on first run.
+- macOS: with no Apple certificate the installer bundle is **unsigned**.
+  `tauri bundle --no-sign` skips signing and nothing later signs the `.app`, so
+  Gatekeeper warns on first open. A self-signed Apple-style certificate does not
+  change that: it cannot be notarised, so the warning stays. The desktop app is
+  different: its build script applies an ad-hoc signature, which is what that
+  artifact carries.
+- Windows: with a self-signed Authenticode certificate in `WINDOWS_CERTIFICATE`,
+  the bundle is signed and stops being unsigned, but a machine that has not
+  imported the certificate still shows "Unknown publisher". An organisation that
+  wants a quiet install imports the exported `.cer` into its Trusted People
+  store. Leave `WINDOWS_TIMESTAMP_URL` unset: a timestamp server would be a
+  third party and a self-signed chain has none.
+- Linux: no platform signature exists to add. A `.deb` carries no per-file
+  signature, and the server install path does not run one: the archive and
+  `bootstrap.sh` are trusted through the release key's signature over
+  `SHA256SUMS`, which the `publish` job makes and re-verifies.
 
-What is still true while they are unsigned: the archive's checksum is signed with
-the release key, `marula artifact verify` refuses a tampered file, and the update
-manifest refuses an unsigned signature. The trust anchor covers the bytes; what
-the platform signatures add is an operating system saying so without the user
-having to run a verifier.
+A tag no longer fails when a platform certificate is missing. It bundles with
+the posture above and warns, so the release note can state it. `-f sign=true` on
+a manual dispatch keeps the strict gate: it fails and names the missing secrets,
+which is how a signed release is rehearsed.
 
-Turning them on is a configuration change plus credentials, not a code change:
-`TAURI_SIGNING_PRIVATE_KEY` and `APPLE_*` for macOS, `WINDOWS_CERTIFICATE` for
-Windows. The `sign` input on the workflow already gates them.
+What is true in every posture: the archive's checksum is signed with the release
+key, `marula artifact verify` refuses a tampered file, and the update manifest
+refuses an unsigned signature. The trust anchor covers the bytes; what a
+platform signature adds is the operating system saying so without the user
+running a verifier.
+
+Turning the paid chain on is a configuration change plus credentials, not a code
+change: `APPLE_*` for macOS signing and notarisation, a CA-issued
+`WINDOWS_CERTIFICATE` for Windows. The signing step already reads them, so the
+next tag after the secrets are set signs and notarises on its own. Nothing in
+this repository needs editing for the switch, and the run summary states the
+posture that release actually got.
 
 ## The offline bundle
 
