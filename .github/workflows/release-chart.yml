@@ -116,8 +116,13 @@ jobs:
             echo "ghcr.io/marulahq/charts/marula:${VERSION} is already published" >&2
             exit 1
           fi
+          # A missing manifest is the only outcome that continues. Helm says
+          # `not found` for an OCI tag it could not resolve (verified against
+          # the registry) and containerd-style transports say `manifest
+          # unknown`; a bare `404` is NOT matched, because an error can carry
+          # the request URL and a version such as 1.2.404 in its text.
           case "${output}" in
-            *"not found"*|*"manifest unknown"*|*"404"*)
+            *"not found"*|*"manifest unknown"*|*"name unknown"*)
               echo "ghcr.io/marulahq/charts/marula:${VERSION} is not published"
               ;;
             *)
