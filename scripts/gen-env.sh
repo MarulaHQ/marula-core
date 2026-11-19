@@ -81,29 +81,29 @@ cat >"$TMP" <<EOF
 # Every value is a secret. Do not commit this file.
 
 # Signs every session token. Rotating it signs everyone out.
-JWT_SECRET=$(secret)
+JWT_SECRET=$JWT_SECRET
 
 # Encrypts stored connector credentials and webhook signing keys. Rotating it
 # makes those values unreadable, so back it up with the database.
-MARULA_SECRET_KEY=$(secret)
+MARULA_SECRET_KEY=$MARULA_SECRET_KEY
 
 # Authenticates service-to-service calls inside the stack.
-MARULA_INTERNAL_TOKEN=$(secret)
+MARULA_INTERNAL_TOKEN=$MARULA_INTERNAL_TOKEN
 
 # Authenticates the mail path between core-api and the email service.
-EMAIL_INTERNAL_TOKEN=$(secret)
+EMAIL_INTERNAL_TOKEN=$EMAIL_INTERNAL_TOKEN
 
 # The Postgres owner role. Applied by initdb on the first boot only.
-POSTGRES_PASSWORD=$(secret)
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
 # The application role, subject to row-level security.
-MARULA_APP_PASSWORD=$(secret)
+MARULA_APP_PASSWORD=$MARULA_APP_PASSWORD
 
 # The object store's inter-node secret.
-GARAGE_RPC_SECRET=$(secret)
+GARAGE_RPC_SECRET=$GARAGE_RPC_SECRET
 
 # The error tracker's own encryption key.
-GLITCHTIP_SECRET_KEY=$(secret)
+GLITCHTIP_SECRET_KEY=$GLITCHTIP_SECRET_KEY
 EOF
 chmod 600 "$TMP"
 mv -f "$TMP" "$OUT"
