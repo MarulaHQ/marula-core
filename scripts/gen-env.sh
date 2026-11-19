@@ -5,9 +5,13 @@
 # someone who would rather run `docker compose up -d` than a wizard, and who
 # should not be pasting a published development secret into a server.
 #
-#   scripts/gen-env.sh                     # writes ./marula.env
-#   scripts/gen-env.sh /srv/marula/marula.env
-#   scripts/gen-env.sh --force marula.env  # replace one that is already there
+#   ./gen-env.sh                     # writes ./marula.env
+#   ./gen-env.sh /srv/marula/marula.env
+#   ./gen-env.sh --force marula.env  # replace one that is already there
+#
+# In a checkout it lives at scripts/gen-env.sh; a release archive ships the same
+# file beside the binary as ./gen-env.sh, and the commands above are written for
+# that path.
 #
 # The eight values and why each exists are documented in `deploy/env.example`;
 # this script writes the same names with 32 random bytes each, in the same shape
