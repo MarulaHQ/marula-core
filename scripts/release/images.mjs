@@ -25,6 +25,8 @@
  *     --platform linux/arm64 --tag-suffix arm64
  *   node scripts/release/images.mjs --version 0.4.0 --service core-api --publish \
  *     --platforms linux/amd64,linux/arm64 --digests images-core-api.json
+ *   node scripts/release/images.mjs --merge legs --version 0.4.0 \
+ *     --digests images.json --digest-manifest image-digests.json
  *
  * Needs `docker` with buildx and a logged-in registry (`docker login ghcr.io`
  * with a token carrying write:packages). Nothing else: no CI, no dashboard.
@@ -40,6 +42,9 @@ const SERVICES = [
   { service: "migrate", image: "marula-migrate", dockerfile: "deploy/Dockerfile.rust", bin: "marula-core-cli" },
   { service: "web", image: "marula-web", dockerfile: "deploy/Dockerfile.web", bin: null },
 ];
+
+/** One version format for the flag parser and the digest manifest writer. */
+const isReleaseVersion = (version) => /^\d+\.\d+\.\d+$/.test(version ?? "");
 
 export function parseArgs(argv) {
   const out = {
@@ -67,6 +72,7 @@ export function parseArgs(argv) {
       case "--matrix": out.matrix = true; break;
       case "--manifest": out.manifest = value(); break;
       case "--digests": out.digests = value(); break;
+      case "--digest-manifest": out.digestManifest = value(); break;
       case "--service": out.services = [...(out.services ?? []), value()]; break;
       case "--merge": out.merge = value(); break;
       case "--context": out.context = value(); break;
@@ -79,7 +85,7 @@ export function parseArgs(argv) {
             "       images.mjs --version X --service core-api --platform linux/arm64 --tag-suffix arm64 --leg-digests legs\n" +
             "       images.mjs --version X --service core-api --publish --platforms a,b [--leg-digests legs] [--digests images.json]\n" +
             "       images.mjs --matrix [--platforms a,b]\n" +
-            "       images.mjs --merge <dir> --digests images.json",
+            "       images.mjs --merge <dir> --version X --digests images.json [--digest-manifest image-digests.json]",
         );
         process.exit(0);
         break;
@@ -88,7 +94,7 @@ export function parseArgs(argv) {
   }
   if (out.merge || out.matrix) return out;
   if (!out.version) throw new Error("--version is required");
-  if (!/^\d+\.\d+\.\d+$/.test(out.version)) throw new Error(`--version must be a semver release (got ${out.version})`);
+  if (!isReleaseVersion(out.version)) throw new Error(`--version must be a semver release (got ${out.version})`);
   if (out.tagSuffix && out.platforms.includes(",")) {
     throw new Error(
       `--tag-suffix names one architecture (got ${out.tagSuffix}) but --platforms is ${out.platforms}: ` +
@@ -315,30 +321,76 @@ export function withImages(manifest, digests) {
 /**
  * One digest map from the several files a CI matrix produces.
  *
- * Every service must be there. A registry install refuses to plan without a
- * digest for each service it starts, so a partial merge would produce a manifest
- * that cannot install — better to fail in the job that has the list.
+ * Every service must be there, and nothing else may be. A registry install
+ * refuses to plan without a digest for each service it starts, so a partial
+ * merge would produce a manifest that cannot install — better to fail in the job
+ * that has the list. An extra component is refused for the same reason: the
+ * published set is four services, and a name outside it is either a typo or a
+ * service that was never added to the release.
  */
 export function mergeDigests(documents) {
-  const merged = Object.assign({}, ...documents);
+  return completeDigests(Object.assign({}, ...documents));
+}
+
+/** Every digest pins one of the four published services. */
+function completeDigests(digests) {
   const digest = /@sha256:[0-9a-f]{64}$/;
-  for (const [service, reference] of Object.entries(merged)) {
+  const known = SERVICES.map((spec) => spec.service);
+  const spare = Object.keys(digests).filter((service) => !known.includes(service));
+  if (spare.length > 0) {
+    throw new Error(
+      `${spare.join(", ")} is not a published service: the set is ${known.join(", ")}`,
+    );
+  }
+  for (const [service, reference] of Object.entries(digests)) {
     if (typeof reference !== "string" || !digest.test(reference)) {
       throw new Error(`the digest for ${service} is ${JSON.stringify(reference)}, which pins no digest`);
     }
   }
-  const missing = SERVICES.map((spec) => spec.service).filter(
-    (name) => typeof merged[name] !== "string",
-  );
+  const missing = known.filter((name) => typeof digests[name] !== "string");
   if (missing.length > 0) {
     throw new Error(`no digest for ${missing.join(", ")}: every service needs one`);
   }
-  return merged;
+  return digests;
+}
+
+/**
+ * Keys in one order, so the same digests always serialize to the same bytes.
+ *
+ * Code-unit order, not locale order: `localeCompare` depends on the ICU data of
+ * the machine, and an artifact whose bytes move with the runner's locale is not
+ * a deterministic artifact.
+ */
+function sortedDigests(digests) {
+  return Object.fromEntries(
+    Object.entries(digests).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+  );
 }
 
 /** The bare `service → reference` map, which `assemble.mjs --images` reads. */
 export function digestsDocument(digests) {
-  return `${JSON.stringify(digests, null, 2)}\n`;
+  return `${JSON.stringify(sortedDigests(digests), null, 2)}\n`;
+}
+
+/**
+ * The published digest manifest: one file that names every released image.
+ *
+ * This is the artifact a consumer outside this repository's own pipeline reads,
+ * so it carries the release version and a schema name beside the map, and it is
+ * byte-identical for the same release data: sorted keys, two-space indent, one
+ * trailing newline. The references are the ones the publish legs took from the
+ * create call's metadata, never a tag resolved later.
+ */
+export function digestManifest(version, digests) {
+  if (!isReleaseVersion(version)) {
+    throw new Error(`the digest manifest needs a semver release (got ${version})`);
+  }
+  const document = {
+    schema: "marula.images/1",
+    version,
+    images: sortedDigests(completeDigests(digests)),
+  };
+  return `${JSON.stringify(document, null, 2)}\n`;
 }
 
 function main() {
@@ -360,6 +412,14 @@ function main() {
     if (!args.digests) throw new Error("--merge needs --digests to say where to write the result");
     writeFileSync(args.digests, digestsDocument(merged));
     console.log(`merged ${files.length} digest file(s) into ${args.digests}`);
+    if (args.digestManifest) {
+      // The release version is required here rather than defaulted: a manifest
+      // that does not say which release it describes can be attached to the
+      // wrong tag without anyone noticing.
+      if (!args.version) throw new Error("--digest-manifest needs --version to name the release it describes");
+      writeFileSync(args.digestManifest, digestManifest(args.version, merged));
+      console.log(`wrote the digest manifest for ${args.version} into ${args.digestManifest}`);
+    }
     return;
   }
   const selected = selectServices(args.services);
@@ -567,6 +627,71 @@ export function selfTest() {
     partialRefused = error.message.includes("worker");
   }
   assert(partialRefused, "a merge that is missing a service names it and refuses");
+  let spareRefused = false;
+  try {
+    mergeDigests([{ ...full, cli: reference("cli") }]);
+  } catch (error) {
+    spareRefused = error.message.includes("cli");
+  }
+  assert(spareRefused, "a digest map carrying a component outside the four is refused");
+
+  // The published set is a contract, not an implementation detail. The
+  // comparison is against a literal so an edit to SERVICES that renames a
+  // service, an image or a binary fails here instead of shipping an image no
+  // chart or installer can name.
+  const canonical = [
+    ["core-api", "marula-core-api", "core-api"],
+    ["worker", "marula-worker", "worker"],
+    ["migrate", "marula-migrate", "marula-core-cli"],
+    ["web", "marula-web", null],
+  ];
+  assert(
+    JSON.stringify(SERVICES.map((spec) => [spec.service, spec.image, spec.bin])) === JSON.stringify(canonical),
+    "the four published services, their images and their binaries are the canonical set",
+  );
+
+  // The digest manifest is a published artifact, so its bytes are the test:
+  // the same digests in a different insertion order must not move a byte.
+  const forwards = digestManifest("1.2.3", {
+    "core-api": reference("core-api"),
+    worker: reference("worker"),
+    migrate: reference("migrate"),
+    web: reference("web"),
+  });
+  const backwards = digestManifest("1.2.3", {
+    web: reference("web"),
+    migrate: reference("migrate"),
+    worker: reference("worker"),
+    "core-api": reference("core-api"),
+  });
+  assert(forwards === backwards, "the digest manifest is byte-identical whatever order the digests arrive in");
+  assert(forwards.endsWith("}\n") && !forwards.endsWith("\n\n"), "the digest manifest ends in exactly one newline");
+  const parsedManifest = JSON.parse(forwards);
+  assert(parsedManifest.schema === "marula.images/1", "the digest manifest names its schema");
+  assert(parsedManifest.version === "1.2.3", "the digest manifest names the release it describes");
+  assert(
+    Object.keys(parsedManifest.images).join(",") === "core-api,migrate,web,worker",
+    "the digest manifest lists the four components in one sorted order",
+  );
+  assert(
+    parsedManifest.images.migrate === reference("migrate"),
+    "the digest manifest pins the image each service actually published",
+  );
+  let manifestWithoutVersion = false;
+  try {
+    digestManifest(undefined, full);
+  } catch {
+    manifestWithoutVersion = true;
+  }
+  assert(manifestWithoutVersion, "the digest manifest refuses to be written without a release version");
+  let manifestPartial = false;
+  try {
+    digestManifest("1.2.3", { "core-api": reference("core-api") });
+  } catch (error) {
+    manifestPartial = error.message.includes("worker");
+  }
+  assert(manifestPartial, "the digest manifest refuses an incomplete image set");
+
   assert(selectServices().length === 4, "a bare run builds all four images");
   const one = selectServices(["web"]);
   assert(one.length === 1 && one[0].service === "web", "--service narrows the set to the one asked for");
@@ -670,6 +795,11 @@ export function selfTest() {
   assert(!workflow.includes("setup-qemu-action"), "the image workflow does not set QEMU up for a foreign architecture");
   assert(workflow.includes("--matrix"), "the workflow takes its runners from the matrix this script plans");
   assert(workflow.includes("--leg-digests"), "the workflow joins the digests the build legs recorded");
+  assert(workflow.includes("--digest-manifest"), "the workflow writes the published digest manifest");
+  // Named without the `marula-` prefix: the release workflow downloads
+  // `marula-*` into dist/release and attaches every file there, while the
+  // signed SHA256SUMS does not cover this file.
+  assert(workflow.includes("name: image-digests\n"), "the digest manifest travels as its own workflow artifact");
 
   const compose = readFileSync("deploy/docker-compose.yml", "utf8");
   for (const spec of SERVICES) {
