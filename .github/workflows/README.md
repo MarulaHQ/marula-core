@@ -8,6 +8,7 @@ Docker daemon or a signature database.
 | File | Trigger | Jobs | State |
 | --- | --- | --- | --- |
 | `ci.yml` | pull request, push to `main` | `boundary`, `rust`, `frontend`, `ui-gates`, `token-conformance`, `migrations`, `upgrade-scope`, `upgrade-matrix`, `openapi-pins`, `container-lint`, `container-security`, `rls-pool-reads`, `rls-coverage`, `rust-contract` | **enabled 2026-10-31** — the 2026-10-29 pause is over by user direction, so the merge-blocking set runs again. Renaming the file is still the switch; adding `.disabled` parks it without deleting it. While it was off, nothing on a pull request was red and the pages that cite it as enforcement (`docs/perf.md`, `docs/theme.md`, `docs/upgrade-compatibility-policy.md`, `docs/tech-stack.md`) described a gate that was not running |
+| `installer-lint.yml` | pull request and push to `main` touching `installer/`, `apps/installer/`, `crates/`, `plugins/`, `.cargo/`, `rust-toolchain.toml`, `Cargo.toml` or `Cargo.lock`, manual dispatch | `installer` | enabled — `ci.yml` excludes the Tauri member because its GTK/WebKit header install is network-bound (42s once, then 589s, 809s, 1135s) for exactly one test. This file is where that clippy and that test still run. It is not a required status check, which is what makes a path-filtered trigger safe: a skipped required check never reports and blocks the pull request forever. The cost is stated rather than hidden: the install still runs on any change in the crate's dependency graph (which is most Rust changes), so the gain is one install per push instead of two, in a job that does not gate the merge and does not sit on the critical path |
 | `nightly.yml.disabled` | schedule 05:30 UTC, manual dispatch | `perf-smoke`, `perf-load-budget`, `perf-scale-100k`, `domain-coverage`, `clamd-live` | parked — the heavy scheduled set, by user direction 2026-10-21: minutes, not doubt |
 | `e2e.yml` | schedule 05:30 UTC, pull request labelled `run-e2e`, manual dispatch | `e2e` | **enabled 2026-11-15** — the Playwright suite owns its triggers. It ran only on the night schedule while it lived in `nightly.yml`, which meant a flow regression waited a day and a reviewer had no way to ask for the suite on the pull request in front of them. The label is the gate: an unlabelled pull request pays nothing |
 | `native.yml.disabled` | schedule 05:45 UTC, manual dispatch | `native-checks`, `maestro-ios` | parked — Maestro drives simulators, so it is a minutes job like the rest of the schedule |
@@ -93,18 +94,26 @@ than absorbing it.
 
 ## The runner image is pinned on purpose
 
-`rust`, `rust-tests-rest` and `e2e` run on `ubuntu-24.04`, not
-`ubuntu-latest`. The label moved to Ubuntu 26.04 on 2026-10-19 and was still
-serving mixed builds of it: one run landed on `ubuntu26/20261111.82`, which came
-up with no Ubuntu archive sources, so `apt-get update` fetched only the
-Microsoft repository and every distro package failed as "Unable to locate". The
-same step passed eighty minutes earlier on `ubuntu26/20261111.196`.
+Every job that uses `rust-cache` — `rust`, `rust-tests-core-api`,
+`rust-tests-rest`, `rust-contract`, `upgrade-matrix`, `rls-coverage` — runs on
+`ubuntu-24.04`, along with `installer-lint` and `e2e`. The label moved to
+Ubuntu 26.04 on 2026-10-19 and was still serving mixed builds of it: one run
+landed on `ubuntu26/20261111.82`, which came up with no Ubuntu archive
+sources, so `apt-get update` fetched only the Microsoft repository and every
+distro package failed as "Unable to locate". The same step passed eighty
+minutes earlier on `ubuntu26/20261111.196`.
 
-Those three jobs are the only ones that install distro packages — GTK and
-WebKit headers for the Tauri member, and Playwright's browser dependencies.
-Pinning the distro is cheaper than discovering which image build a run landed
-on. When the 26.04 fleet stops disagreeing with itself, move them back and
-delete this section.
+`rust` and `rust-tests-rest` no longer install distro packages: the GTK and
+WebKit headers went with `installer` excluded, so `ci.yml` has no `apt-get
+install` left. Per push, `installer-lint.yml` is the only workflow that installs
+anything; `e2e` still pulls Playwright's browser dependencies, but only on its
+schedule or the `run-e2e` label.
+
+The cache-using jobs stay on 24.04 regardless of the archive question. A
+`rust-cache` key carries the OS and architecture, not the distro, so a target
+dir built on 26.04 would be restored on 24.04 and treated as fresh — a linker
+or glibc mismatch waiting for the first run that needs it. Pinning the distro is
+cheaper than discovering which image build a run landed on.
 
 ## Renaming a job can block every pull request
 
