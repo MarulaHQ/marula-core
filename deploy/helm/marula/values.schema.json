@@ -234,26 +234,20 @@
           "properties": {
             "requests": {
               "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "cpu": {
-                  "type": "string"
-                },
-                "memory": {
-                  "type": "string"
-                }
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
               }
             },
             "limits": {
               "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "cpu": {
-                  "type": "string"
-                },
-                "memory": {
-                  "type": "string"
-                }
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
               }
             }
           }
@@ -300,6 +294,9 @@
                   "type": "integer"
                 },
                 "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
                   "type": "integer"
                 }
               }
@@ -376,26 +373,20 @@
           "properties": {
             "requests": {
               "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "cpu": {
-                  "type": "string"
-                },
-                "memory": {
-                  "type": "string"
-                }
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
               }
             },
             "limits": {
               "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "cpu": {
-                  "type": "string"
-                },
-                "memory": {
-                  "type": "string"
-                }
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
               }
             }
           }
@@ -442,6 +433,9 @@
                   "type": "integer"
                 },
                 "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
                   "type": "integer"
                 }
               }
@@ -509,26 +503,20 @@
           "properties": {
             "requests": {
               "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "cpu": {
-                  "type": "string"
-                },
-                "memory": {
-                  "type": "string"
-                }
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
               }
             },
             "limits": {
               "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "cpu": {
-                  "type": "string"
-                },
-                "memory": {
-                  "type": "string"
-                }
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
               }
             }
           }
@@ -575,6 +563,9 @@
                   "type": "integer"
                 },
                 "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
                   "type": "integer"
                 }
               }
@@ -720,10 +711,33 @@
       "type": "object"
     },
     "nodeSelector": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "tolerations": {
-      "type": "array"
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "tolerationSeconds": {
+            "type": "integer"
+          }
+        }
+      }
     },
     "affinity": {
       "type": "object"

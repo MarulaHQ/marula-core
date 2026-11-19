@@ -33,11 +33,18 @@ self-host install also sets:
 - `nodeSelector`, `tolerations` and `affinity` are the same placement, expressed
   for the scheduler. All four application workloads read them.
 
-`values.schema.json` types those blocks and closes them to unknown keys, as it
-does the root. Helm ignores a key it does not know, so without that a misspelled
-block renders a chart with a silently ignored value. A new chart value is added
-to `values.yaml` and to the schema in the same change, or the chart stops
-accepting it.
+`values.schema.json` closes the root and the blocks this chart interprets
+(`images`, `coreApi`, `worker`, `web`, `postgresql`, `redis`, `ingress`) to
+unknown keys, because Helm ignores a key it does not know and a misspelled
+block would otherwise deploy a default. A new value belongs in the schema in
+the same change that adds it to `values.yaml`.
+
+Placement values are different. `nodeSelector` accepts any label name with a
+string value, `tolerations` accepts Toleration objects, and `affinity` is
+passed through as the Kubernetes object it is. Their key names are the
+scheduler's vocabulary, not this chart's, so the schema types their shape
+without pretending to know every label. A misspelling inside `affinity` is
+Kubernetes' to reject, not the schema's.
 
 `images.cli` is the migrations image, which is published as `marula-migrate`
 and runs the `marula-core-cli` binary. The slot keeps the binary's name.
