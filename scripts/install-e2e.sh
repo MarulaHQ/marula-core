@@ -42,8 +42,10 @@ cleanup() {
   for env_file in "$INSTALL_DIR/marula.env" "$INSTALL_DIR/compose.env"; do
     [ -f "$env_file" ] || continue
     say "stopping the stack that used $env_file"
-    (cd "$BUNDLE" && docker compose --env-file "$env_file" -f deploy/docker-compose.yml down -v) \
-      >/dev/null 2>&1 || true
+    (cd "$BUNDLE" && docker compose --env-file "$env_file" \
+      -f deploy/docker-compose.yml \
+      -f "$INSTALL_DIR/marula.images.yml" \
+      -f "$INSTALL_DIR/marula.restart.yml" down -v) >/dev/null 2>&1 || true
   done
 }
 trap cleanup EXIT
@@ -73,16 +75,26 @@ curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null ||
   die "the API did not answer /healthz on 127.0.0.1:8080; the install reported success"
 
 say "tearing the first stack down before the second one takes its ports"
-(cd "$BUNDLE" && docker compose --env-file "$INSTALL_DIR/marula.env" -f deploy/docker-compose.yml down -v) ||
+(cd "$BUNDLE" && docker compose --env-file "$INSTALL_DIR/marula.env" \
+  -f deploy/docker-compose.yml \
+  -f "$INSTALL_DIR/marula.images.yml" \
+  -f "$INSTALL_DIR/marula.restart.yml" down -v) ||
   say "teardown of the first stack reported a problem; continuing to the compose path"
 
 # The compose path is a different front door: no CLI plan, one generated env
 # file, and compose itself. It has to work from the bundle's own files or the
 # archive is only half a distribution.
 "$BUNDLE/gen-env.sh" "$INSTALL_DIR/compose.env"
+# The base file's four application services are `build:`-only and a bundle
+# carries no sources, so this leg needs the overrides the installer wrote:
+# `marula.images.yml` pins each service to the published digest and resets
+# `build:`. Without them compose tries to compile and the leg cannot pass.
 (cd "$BUNDLE" && docker compose \
   --env-file "$INSTALL_DIR/compose.env" \
-  -f deploy/docker-compose.yml up -d --wait)
+  -f deploy/docker-compose.yml \
+  -f "$INSTALL_DIR/marula.images.yml" \
+  -f "$INSTALL_DIR/marula.restart.yml" \
+  up -d --wait)
 
 for _ in $(seq 1 30); do
   if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then

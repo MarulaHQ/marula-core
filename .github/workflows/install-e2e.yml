@@ -44,6 +44,9 @@ concurrency:
 jobs:
   install:
     name: Install ${{ github.event.inputs.version || github.event.release.tag_name }} on Linux
+    # `published` also fires for a prerelease, and a suffixed version is not what
+    # this gate is about: the stable release page is.
+    if: ${{ !github.event.release.prerelease }}
     runs-on: ${{ github.event.inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
@@ -66,13 +69,14 @@ jobs:
       - name: Download the published archive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           gh release download "v${VERSION}" \
-            --repo "${{ github.repository }}" \
+            --repo "$GH_REPO" \
             --dir dist \
             --pattern "marula-${VERSION}-linux-x64.tar.gz" \
             --pattern "SHA256SUMS-linux-x64" \

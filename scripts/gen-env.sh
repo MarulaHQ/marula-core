@@ -114,4 +114,5 @@ mv -f "$TMP" "$OUT"
 trap - EXIT
 
 say "wrote $OUT with eight secrets (mode 600)"
-printf 'next: docker compose --env-file %s -f deploy/docker-compose.yml up -d\n' "$OUT"
+printf 'next, from a source checkout: docker compose --env-file %s -f deploy/docker-compose.yml up -d\n' "$OUT"
+printf 'a release archive installs with ./install.sh instead, which pins the published images\n'

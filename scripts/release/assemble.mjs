@@ -599,6 +599,10 @@ function selfTest() {  const assert = (condition, message) => {
       "the install script keeps its execute bit",
     );
     assert(!existsSync(join(first.dir, "deploy", "dev.env")), "dev.env is not shipped");
+    assert(
+      !existsSync(join(first.dir, "deploy", "install.sh")),
+      "the archive has one front door, not a second copy inside deploy/ that refuses to run",
+    );
     for (const rel of [".gitkeep", "edge/certs/.gitignore"]) {
       assert(
         !existsSync(join(first.dir, "deploy", rel)),
