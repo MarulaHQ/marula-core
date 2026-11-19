@@ -106,16 +106,11 @@ jobs:
 
       - name: Install Tauri's Linux dependencies
         if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libxdo-dev \
-            libssl-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev
+            librsvg2-dev patchelf libxdo-dev libssl-dev
 
       # Which of the three postures this leg can reach, decided once and read
       # by every later step. On a dispatch a missing set is a notice and the

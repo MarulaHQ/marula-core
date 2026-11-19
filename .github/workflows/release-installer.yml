@@ -259,17 +259,12 @@ jobs:
       # package.
       - name: Install Tauri's Linux dependencies
         if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            patchelf
+        uses: ./.github/actions/apt-install
+        with:
+          packages: >-
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev
+            libjavascriptcoregtk-4.1-dev librsvg2-dev libssl-dev
+            libayatana-appindicator3-dev patchelf
 
       - name: Build the installer app
         run: cargo build --release --manifest-path installer/Cargo.toml
@@ -562,10 +557,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install zstd
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends zstd
+      # zstd ships with both Linux runner images (1.5.7 on ubuntu-24.04 and its
+      # arm variant), so this installs nothing in the normal case. It used to run
+      # apt unconditionally, which is how a mirror outage failed this leg on a
+      # tag whose images had already published.
+      - name: Ensure zstd
+        uses: ./.github/actions/apt-install
+        with:
+          packages: zstd
+          present: zstd
 
       # The assembled directory comes back from the build leg rather than
       # being rebuilt here: the offline bundle carries the same bytes the
