@@ -15,6 +15,12 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.runtimeClass }}
+      runtimeClassName: {{ . }}
+      {{- end }}
       securityContext:
         {{- $ctx := deepCopy .Values.podSecurityContext -}}
         {{- $_ := set $ctx "runAsUser" (index .Values.runAsUserByComponent "cli" | default 65532) -}}
