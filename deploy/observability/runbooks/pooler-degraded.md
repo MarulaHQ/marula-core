@@ -40,8 +40,8 @@ both stop while every request keeps succeeding.
 
    `prepared statement "P_0" does not exist` means the statement cache is on behind a
    transaction pooler. `MARULA_DB_STATEMENT_CACHE` has to be `0`, and
-   `the_statement_cache_fits_the_shipped_pooler` in
-   `crates/marula-core-cli/src/deploy.rs:2078` pins that default against the pooler's
+   the test `the_statement_cache_fits_the_pooler_profile` in
+   `crates/marula-core-cli/src/deploy.rs` pins that default against the pooler's
    `max_prepared_statements`. Fix the setting, not the query.
 
 3. Is anything still listening:
