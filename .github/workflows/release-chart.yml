@@ -33,6 +33,11 @@ permissions: {}
 # dispatch can name the same version; keying this by ref would let both pass
 # the existence check before either pushes, and the second would overwrite the
 # first. Chart publications are infrequent, so serialising them all is cheap.
+#
+# The default queue holds one pending run, so a third trigger replaces the
+# waiting one. `queue: max` would keep both, but the repository's workflow
+# lint (actionlint 1.7.12, release-installer.yml) rejects that key, and a
+# superseded pending release is visible in the Actions list and re-runnable.
 concurrency:
   group: release-chart
   cancel-in-progress: false
