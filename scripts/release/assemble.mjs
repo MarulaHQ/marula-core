@@ -33,6 +33,12 @@
  * download verifiable on its own; the release job also publishes a combined
  * list over every asset.
  *
+ * A hidden file never enters the tree, and the assembler refuses if one does.
+ * `actions/upload-artifact` skips hidden files by default, so a tree carrying
+ * one would have a SHA256SUMS entry for bytes the downloaded artifact does not
+ * have, and every consumer that checks the list would fail on a file nobody
+ * wrote. `deploy/.gitkeep` did that to the v0.5.0 offline bundles.
+ *
  *   node scripts/release/assemble.mjs --version 0.3.1 --os linux --arch x64
  *   node scripts/release/assemble.mjs --version 0.3.1 --os windows --arch x64 \
  *        --target-triple x86_64-pc-windows-msvc
@@ -87,8 +93,19 @@ const BUNDLE_DIRS = {
  */
 const PRIMARY_BUNDLE = { linux: "deb", macos: "macos", windows: "nsis" };
 
-/** Paths under `deploy/` a release never carries. */
+/**
+ * Paths under `deploy/` a release never carries. `dev.env` is a developer's
+ * local settings and hidden files are git plumbing: neither is something an
+ * installed release reads.
+ */
 const DEPLOY_EXCLUDED = new Set(["dev.env"]);
+
+/**
+ * True when any segment of a relative path starts with a dot. The artifact
+ * upload ignores such files, so nothing they cover can be trusted to survive
+ * the trip from the build leg to the jobs that consume it.
+ */
+const isHidden = (rel) => rel.split("/").some((segment) => segment.startsWith("."));
 
 /** Raised when an input the release cannot guess at is absent. */
 export class MissingInput extends Error {
@@ -262,7 +279,8 @@ export function assemble(options) {
       recursive: true,
       filter: (source) => {
         const rel = relative(join(root, "deploy"), source).split(sep).join("/");
-        return !DEPLOY_EXCLUDED.has(rel);
+        // `rel` is empty for `deploy/` itself, whose hidden check is false.
+        return !DEPLOY_EXCLUDED.has(rel) && !isHidden(rel);
       },
     });
     cpSync(license, join(staging, "LICENSE"));
@@ -270,6 +288,20 @@ export function assemble(options) {
     for (const extra of options.extra ?? []) {
       const file = requireFile(resolve(extra), `the extra file ${extra}`);
       cpSync(file, join(staging, basename(file)));
+    }
+
+    // A hidden file that reached the tree any other way (the wizard's build
+    // output is the likely source) would be dropped by the artifact upload,
+    // leaving SHA256SUMS describing a tree no downloader receives. Refuse here,
+    // naming the files, rather than letting three later jobs fail on a checksum
+    // the build leg rendered correctly.
+    const hidden = walkFiles(staging).filter(isHidden);
+    if (hidden.length > 0) {
+      throw new Error(
+        "the release tree holds hidden files, which the artifact upload drops:\n  " +
+          `${hidden.join("\n  ")}\n` +
+          "exclude them from the tree, or the uploaded artifact will disagree with SHA256SUMS",
+      );
     }
 
     // Published digests belong in THIS manifest too, not only in the release
@@ -484,6 +516,9 @@ function selfTest() {  const assert = (condition, message) => {
   writeFileSync(join(fake, "deploy", "docker-compose.yml"), "services: {}\n");
   writeFileSync(join(fake, "deploy", "docker-compose.all-in-one.yml"), "services: {}\n");
   writeFileSync(join(fake, "deploy", "dev.env"), "MARULA_DEV_TOOLS=1\n");
+  writeFileSync(join(fake, "deploy", ".gitkeep"), "");
+  mkdirSync(join(fake, "deploy", "edge", "certs"), { recursive: true });
+  writeFileSync(join(fake, "deploy", "edge", "certs", ".gitignore"), "");
   writeFileSync(join(fake, "deploy", "pooler", "pgbouncer.ini"), "[databases]\n");
   writeFileSync(join(fake, "LICENSE"), "AGPL-3.0\n");
   writeFileSync(join(fake, "README.md"), "# fake\n");
@@ -528,11 +563,35 @@ function selfTest() {  const assert = (condition, message) => {
       assert(existsSync(join(first.dir, rel)), `expected ${rel} in the release directory`);
     }
     assert(!existsSync(join(first.dir, "deploy", "dev.env")), "dev.env is not shipped");
+    for (const rel of [".gitkeep", "edge/certs/.gitignore"]) {
+      assert(
+        !existsSync(join(first.dir, "deploy", rel)),
+        `the hidden deploy/${rel} is not shipped`,
+      );
+    }
     assert(
       (statSync(join(first.dir, "marula")).mode & 0o111) !== 0,
       "the binary keeps its execute bit",
     );
-    log("layout is complete, and dev.env stays behind");
+    log("layout is complete, and dev.env and .gitkeep stay behind");
+
+    // The artifact upload drops hidden files, so a tree that carried one would
+    // upload bytes that SHA256SUMS does not describe. That cost two offline
+    // legs on v0.5.0, so the assembler refuses instead.
+    const stray = join(fake, "apps", "installer", "dist", ".vite");
+    writeFileSync(stray, "");
+    let hiddenRefusal = null;
+    try {
+      assemble(base);
+    } catch (error) {
+      hiddenRefusal = error.message;
+    }
+    rmSync(stray, { force: true });
+    assert(
+      hiddenRefusal?.includes(".vite"),
+      "a hidden file in the tree is refused, naming it",
+    );
+    log("a hidden file anywhere in the tree is refused, by name");
 
     // A platform archive is installed on its own, so its manifest has to carry
     // the image digests. Without `--images` it must not invent one.
@@ -572,6 +631,7 @@ function selfTest() {  const assert = (condition, message) => {
       assert(sha256File(join(first.dir, path)) === hash, `hash of ${path}`);
     }
     assert(!paths.includes("SHA256SUMS"), "the sums never list themselves");
+    assert(!paths.some(isHidden), "the sums cover no hidden path, which could not be uploaded");
     log(`${parsed.length} files summed, sorted, and re-hashing clean`);
 
     // Idempotent: a second run reproduces the same list.
