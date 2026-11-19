@@ -20,7 +20,7 @@ numbers below are the same numbers the plan checks.
 | | `split` | `all-in-one` | `demo` |
 |---|---|---|---|
 | Application processes | core-api and worker, separate | one core-api process, worker loops inside | core-api and worker, separate |
-| Containers | 6 | 5 | 8 |
+| Containers | 6 | 5 | 9 |
 | Cores | 4 | 4 | 4 |
 | Memory | 8192 MB | 8192 MB | 8192 MB |
 | Free disk | 40 GB | 30 GB | 30 GB |

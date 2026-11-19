@@ -238,7 +238,11 @@ else is opt-in.
 | `observability` | OTel collector, Tempo, Loki, Prometheus with the alert pack, Grafana, GlitchTip, Uptime Kuma | Traces, logs, metrics and a status page on the box |
 | `ai` | A local Ollama runtime | A local embedding or chat model |
 | `backup` | WAL-G and restic | Scheduled backups and point-in-time recovery |
-| `edge` | Caddy terminating TLS | The host faces the internet |
+
+`edge` is not a profile of this file. It is the overlay in
+`edge/compose.edge.yml`, which publishes 80 and 443 and removes the base file's
+raw port mappings. The command that layers it is under "Starting a public
+deployment" above, and [`edge/README.md`](edge/README.md) explains the TLS modes.
 
 The pooler stays out of the default for the reason above: one instance's
 connections fit, and a second moving part in front of Postgres is a thing to

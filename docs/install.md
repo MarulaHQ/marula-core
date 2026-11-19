@@ -22,9 +22,9 @@ you can read before running is the point.
   The largest line in that budget is the shipped embedding model, which the
   `ai` compose profile runs, plus room for Postgres and the object store. Leave
   `ai` off and the install has headroom to spare.
-- These ports free on the host. The base compose file publishes each of them on
-  every interface, so this is what your network sees as well as what the stack
-  needs:
+- These ports free on the host. The base compose file publishes every one of
+  them, and the interface depends on the port: 3000, 8080, 8082 and 15432 on
+  every interface, 16379 on loopback only.
   - `3000`: the workspace and the client portal.
   - `8080`: the API and its `/docs` reference.
   - `8082`: the worker's health endpoint. `split` and `demo` serve it from the
@@ -34,6 +34,8 @@ you can read before running is the point.
     port. Because the base file maps it on every interface, it is a database
     reachable from anywhere that can reach the host. The `edge` profile is the
     supported way to remove that mapping.
+  - `16379`: Valkey, mapped to `127.0.0.1`, so only the host can reach it. It is
+    there to inspect the cache, not to serve anything.
 - No account, licence key or hosted service. Docker Hardened Images are free
   and pull without a login. If a pull ever asks for credentials, `docker login
   dhi.io` with a free Docker account is all it takes.
@@ -229,8 +231,11 @@ marula_compose() {
 For an `all-in-one` or `demo` install, add the shape's overlay as another `-f`
 line inside the function, before the final `"$@"`:
 `-f deploy/docker-compose.all-in-one.yml` or
-`-f deploy/docker-compose.demo.yml`. The `-f` flags have to come before the
-subcommand, which is why they live in the function rather than on each call.
+`-f deploy/docker-compose.demo.yml`. A `demo` install also needs
+`--profile demo` there, because the demo seeder and its two setup one-shots are
+behind that profile and Compose refuses the project without it. The `-f` and
+`--profile` flags have to come before the subcommand, which is why they live in
+the function rather than on each call.
 
 The compose file sets the project name to `marula`, so the containers are
 `marula-core-api-1` and so on. Run this as the user that ran the install, or
@@ -306,6 +311,10 @@ the API, and the two processes scale apart. `all-in-one` trades that for one
 container on a small box. `demo` is never chosen for you, because it carries a
 published password and an unauthenticated reset surface, and the installer pins
 its API to loopback.
+
+`demo` also builds its seeder from a source checkout: `demo-seed` has a `build:`
+and no published image, so a release bundle cannot run this shape. On a bundle,
+use `split` or `all-in-one` until a seed image is published.
 
 Name a shape when you want it:
 
@@ -501,13 +510,18 @@ The stack is built to run without root and without a writable filesystem.
   collector run upstream images under the same pinning rules.
 - Every image reference carries an exact tag and a registry digest. The digest
   is what runs, and the release's manifest names the digests it published.
-- `cap_drop: [ALL]` and `no-new-privileges` apply to every service. Most mount
-  a read-only root filesystem and write only to their own volume or a tmpfs.
-  Postgres, Grafana and ClamAV keep a writable root because their own boot
-  logic needs one, and each says so in the compose file.
-- The application images drop to a fixed numeric user at build time. Nothing
-  runs as root except Postgres' one-time first-boot init, which re-execs as
-  `postgres` before it accepts a connection.
+- `cap_drop: [ALL]` and `no-new-privileges` apply to every service except four
+  one-shot helpers: the AI profile's `ollama-model`, which pulls the model, and
+  the demo overlay's `object-init`, `db-grants` and `demo-seed`, which prepare
+  the demo volume, its grants and its data. Most services mount a read-only root
+  filesystem and write only to their own volume or a tmpfs. Postgres, Grafana and
+  ClamAV keep a writable root because their own boot logic needs one.
+- The application images drop to a fixed numeric user at build time. Root
+  appears in one-shots whose job needs it: Postgres' first-boot init, which
+  re-execs as `postgres` before it accepts a connection, `pooler-auth`, which
+  writes the pooler's auth file into a path only root can create, and the demo
+  overlay's `object-init`, which creates and chowns the object volume. Nothing
+  long-running runs as root.
 
 Hardened pulls need no account. The images are free, and a fresh host with no
 credential store pulls them like any other public image. That is Docker's
@@ -531,7 +545,7 @@ each service is `<base>-<service>`.
 | `sha256sum: command not found` on macOS | Use `shasum -a 256 -c SHA256SUMS-macos-arm64`. |
 | `unauthorized` while pulling `dhi.io/...` | Docker asked for credentials, which the hardened images do not normally require. `docker login dhi.io` with a free Docker account is the fix. |
 | `no shipped profile fits this host` | The host misses a floor in the shape's budget and the message names it. Free disk and cores are the usual ones. On a platform with no memory reading, pass `--memory-mb`. |
-| `port is already allocated` | Something holds 3000, 8080, 8082 or 15432. Stop it, or move the service. |
+| `port is already allocated` | Something holds 3000, 8080, 8082, 15432 or 16379. Stop it, or move the service. |
 | The API refuses to start after an install | Only when the local model you configured needs more cores or memory than the host has. With the `ai` profile off, the shipped default fits every accepted shape. Lower `MARULA_EMBEDDING_TIER` or set `MARULA_EMBEDDING_PROVIDER=openai`. |
 | `--apply` stopped partway | Read the step it named, then run `marula_compose logs --tail 100 <service>` for the service that did not come up, and `./marula doctor --dir /srv/marula`. The env file is already written, so a second `--apply` continues from the values on disk. |
 | Compose rejects `!reset` | Your Compose is older than 2.24. Upgrade Docker Compose and apply again. |
