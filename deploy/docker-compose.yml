@@ -331,6 +331,11 @@ services:
   # shell or client, so there is nothing for compose to exec — same reason
   # core-api has none. The dependants below wait for `service_started` and
   # their `restart: unless-stopped` closes the sub-second gap.
+  # Upgrading an install that already set MARULA_APP_DATABASE_URL or
+  # MARULA_WORKER_APP_DATABASE_URL to pgbouncer:6432: the value in its env file
+  # still wins over these defaults. Either start this profile (`--profile
+  # pooler`) so the host resolves, or change both URLs to postgres:5432 before
+  # recreating the stack.
   pgbouncer:
     profiles: ["pooler"]
     mem_limit: 128m
@@ -558,12 +563,11 @@ services:
       args: { BIN: core-api }
     # Entrypoint is pinned to core-api in the Dockerfile; see deploy note.
     environment:
-      # Pooled by default (Wave 52 lane P9): the API's two pools dial the
-      # transaction pooler, not Postgres. Override with
-      # MARULA_APP_DATABASE_URL to go direct — and then raise
-      # MARULA_DB_STATEMENT_CACHE and accept the connection ceiling back.
       # Direct to Postgres. The pooler is a scale feature and sits behind the
-      # `pooler` profile; point this at pgbouncer:6432 when that profile runs.
+      # `pooler` profile. One instance opens 54 client connections and a stock
+      # Postgres allows 100, so a single core-api is the supported default: a
+      # second replica needs the pooler profile with BOTH this URL and the
+      # worker's pointed at pgbouncer:6432, or `max_connections` raised to fit.
       DATABASE_URL: "${MARULA_APP_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password, applied to the role by the app-role-password one-shot (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}@postgres:5432/marula}"
       # The ONE LISTEN connection goes straight to Postgres: a subscription
       # cannot ride a connection the pooler hands to the next client.
@@ -692,9 +696,9 @@ services:
     # Owner role on purpose: the relay reads outbox rows across ALL orgs
     # and must not be constrained by RLS (see crates/worker config notes).
     environment:
-      # Pooled by default (Wave 52 lane P9); the relay's LISTEN connection
-      # goes direct so the wakeup it subscribes to actually arrives.
-      # Direct, for the same reason as core-api: the pooler is opt-in.
+      # Direct, for the same reason as core-api: the pooler is opt-in. The
+      # relay's LISTEN connection is direct either way, so the wakeup it
+      # subscribes to actually arrives.
       DATABASE_URL: ${MARULA_WORKER_APP_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula}
       MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0

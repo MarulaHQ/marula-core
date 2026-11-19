@@ -30,7 +30,15 @@ INSTALL_DIR=$(cd "$INSTALL_DIR" && pwd)
 [ -f "$BUNDLE/release.json" ] || die "$BUNDLE/release.json is missing: the bundle does not describe its images"
 [ -f "$BUNDLE/deploy/docker-compose.yml" ] || die "$BUNDLE/deploy/docker-compose.yml is missing"
 
+# On success the stacks are torn down. On failure they stay up: the workflow's
+# next step dumps `docker ps` and the logs, and a teardown here would remove the
+# evidence of the failure it exists to explain.
+SUCCESS=0
 cleanup() {
+  if [ "$SUCCESS" -ne 1 ]; then
+    say "leaving both stacks running so their logs can be read"
+    return
+  fi
   for env_file in "$INSTALL_DIR/marula.env" "$INSTALL_DIR/compose.env"; do
     [ -f "$env_file" ] || continue
     say "stopping the stack that used $env_file"
@@ -82,4 +90,5 @@ done
 curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null ||
   die "the compose path did not bring the API up"
 
+SUCCESS=1
 say "both paths installed a working stack"

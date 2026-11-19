@@ -65,10 +65,10 @@ jobs:
       - name: Download the published archive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
           mkdir -p dist
           gh release download "v${VERSION}" \
             --repo "${{ github.repository }}" \
@@ -85,19 +85,22 @@ jobs:
           (cd dist && sha256sum -c "SHA256SUMS-linux-x64")
 
       - name: Unpack it
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
           tar -xzf "dist/marula-${VERSION}-linux-x64.tar.gz" -C dist
           test -x "dist/marula-${VERSION}-linux-x64/install.sh"
 
       - name: Install from the published digests, then the compose path
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           scripts/install-e2e.sh \
-            "dist/marula-${{ steps.version.outputs.version }}-linux-x64" \
+            "dist/marula-${VERSION}-linux-x64" \
             "${RUNNER_TEMP}/marula-install"
 
       - name: What was running, when it fails
