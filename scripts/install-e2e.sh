@@ -66,14 +66,14 @@ say "checking the result"
 
 say "the API answers on its published port"
 for _ in $(seq 1 30); do
-  if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
-    echo "  /healthz ok"
+  if curl -fsS --max-time 2 http://127.0.0.1:8080/readyz >/dev/null 2>&1; then
+    echo "  /readyz ok"
     break
   fi
   sleep 2
 done
-curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null ||
-  die "the API did not answer /healthz on 127.0.0.1:8080; the install reported success"
+curl -fsS --max-time 2 http://127.0.0.1:8080/readyz >/dev/null ||
+  die "the API did not answer /readyz on 127.0.0.1:8080; the install reported success"
 
 say "tearing the first stack down before the second one takes its ports"
 (cd "$BUNDLE" && docker compose --env-file "$INSTALL_DIR/marula.env" \
@@ -96,24 +96,29 @@ say "tearing the first stack down before the second one takes its ports"
 # The shape is recorded in the installer's env file, not in the one `gen-env.sh`
 # writes: that one carries the eight secrets and nothing about the topology.
 SHAPE_SERVICES=(core-api worker web)
+SHAPE_FILES=()
 if grep -q '^MARULA_ALL_IN_ONE=1' "$INSTALL_DIR/marula.env" 2>/dev/null; then
+  # all-in-one runs the loops inside core-api: no worker, and the overlay that
+  # removes it and adds the in-process wiring the shape needs.
   SHAPE_SERVICES=(core-api web)
+  SHAPE_FILES=(-f deploy/docker-compose.all-in-one.yml)
 fi
 (cd "$BUNDLE" && docker compose \
   --env-file "$INSTALL_DIR/compose.env" \
   -f deploy/docker-compose.yml \
+  ${SHAPE_FILES[@]+"${SHAPE_FILES[@]}"} \
   -f "$INSTALL_DIR/marula.images.yml" \
   -f "$INSTALL_DIR/marula.restart.yml" \
   up -d --wait "${SHAPE_SERVICES[@]}")
 
 for _ in $(seq 1 30); do
-  if curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
-    echo "  /healthz ok from the compose path"
+  if curl -fsS --max-time 2 http://127.0.0.1:8080/readyz >/dev/null 2>&1; then
+    echo "  /readyz ok from the compose path"
     break
   fi
   sleep 2
 done
-curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null ||
+curl -fsS --max-time 2 http://127.0.0.1:8080/readyz >/dev/null ||
   die "the compose path did not bring the API up"
 
 SUCCESS=1

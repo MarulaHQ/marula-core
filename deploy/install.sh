@@ -42,10 +42,15 @@ while [ $# -gt 0 ]; do
       INSTALL_DIR="$2"
       shift 2
       ;;
-    --compose-file | --ui-dir)
+    --dir=*)
+      INSTALL_DIR="${1#--dir=}"
+      shift
+      ;;
+    --compose-file | --ui-dir | --compose-file=* | --ui-dir=*)
       # Both are fixed by the bundle. Taking another one here would describe a
-      # stack whose files this bundle does not carry.
-      die "$1 is fixed by the bundle; unpack the archive whole and run this script from it"
+      # stack whose files this bundle does not carry. The `=` spellings are here
+      # because a pattern on the bare name alone lets them through to the CLI.
+      die "${1%%=*} is fixed by the bundle; unpack the archive whole and run this script from it"
       ;;
     -h | --help)
       awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$SELF"
@@ -79,18 +84,20 @@ else
   shasum -a 256 --quiet -c SHA256SUMS
 fi
 
+# With no arguments at all, open the wizard: that is the laptop path, and asking
+# someone to learn a flag before they have seen the product is the friction this
+# script exists to remove. This runs first: the registry default below would
+# otherwise make the list non-empty and turn the first-run command into a plan
+# that writes nothing.
+if [ "${#ARGS[@]}" -eq 0 ] && [ "$INSTALL_DIR" = "$HOME/marula" ]; then
+  ARGS=(--ui)
+fi
+
 # An archive carries the published digests in release.json and none of the
 # sources, so building is not an option there: every install from this script
 # uses the registry unless the caller says otherwise.
 if [ -f "$HERE/release.json" ] && ! printf '%s\n' ${ARGS[@]+"${ARGS[@]}"} | grep -q '^--images'; then
   ARGS+=(--images registry)
-fi
-
-# With no arguments at all, open the wizard: that is the laptop path, and asking
-# someone to learn a flag before they have seen the product is the friction this
-# script exists to remove. Any flag they pass goes to `marula install` untouched.
-if [ "${#ARGS[@]}" -eq 0 ] && [ "$INSTALL_DIR" = "$HOME/marula" ]; then
-  ARGS=(--ui --images registry)
 fi
 
 say "installing into $INSTALL_DIR"
