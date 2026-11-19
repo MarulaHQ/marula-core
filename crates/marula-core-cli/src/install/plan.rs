@@ -954,7 +954,7 @@ mod tests {
         let app_password = resolved.get("MARULA_APP_PASSWORD").expect("generated");
         assert!(
             text.contains(&format!(
-                "postgres://marula_app:{app_password}@pgbouncer:6432/marula"
+                "postgres://marula_app:{app_password}@postgres:5432/marula"
             )),
             "the profile's URL carries the generated password"
         );

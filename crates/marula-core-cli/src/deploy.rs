@@ -690,20 +690,22 @@ pub fn descriptor() -> DeployDescriptor {
 fn profiles() -> Vec<Profile> {
     use std::collections::BTreeMap;
 
-    // The shipped shape is POOLED (Wave 52 lane P9). `DATABASE_URL` names the
-    // transaction pooler, `MARULA_LISTEN_DATABASE_URL` names Postgres directly
-    // because a LISTEN cannot ride a pooled connection, and the statement
-    // cache is off because a prepared statement name must not outlive the
-    // transaction that created it. `docs/reference/connection-pooling.md`
-    // carries the measurements behind all three.
+    // The shipped shapes dial Postgres directly. The pooler was the default
+    // until it became optional: one host's two processes fit inside a stock
+    // Postgres ceiling, and a stack that starts a pooler by default makes every
+    // operator read about transaction pooling before they have a problem.
+    // `docs/reference/connection-pooling.md` carries the measurements for the
+    // pooled shape, which the `pooler` compose profile still provides. The
+    // statement cache stays off: it is the conservative setting, and the pooled
+    // profile requires it.
     let split = Profile {
         name: "split",
-        title: "Split services behind a transaction pooler",
-        description: "The default topology. core-api and worker run as separate processes, so each scales and restarts on its own, with PgBouncer in transaction mode in front of Postgres. The compose stack ships this shape. Pointing DATABASE_URL straight at Postgres works only once you raise MARULA_DB_STATEMENT_CACHE, and it brings back the connection ceiling the pooler was hiding. The floors come from the shipped embedding model, which needs four cores of its own, plus room for Postgres, the pooler and the object store.",
+        title: "Split services",
+        description: "The default topology. core-api and worker run as separate processes, so each scales and restarts on its own, dialling Postgres directly. Two processes fit inside the connection ceiling a stock Postgres allows, so the stack starts without a pooler. Turn the pooler on with the compose pooler profile when instances multiply. The floors come from the shipped embedding model, which needs four cores of its own, plus room for Postgres and the object store.",
         sets: BTreeMap::from([
             (
                 "DATABASE_URL",
-                "postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula",
+                "postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula",
             ),
             (
                 "MARULA_LISTEN_DATABASE_URL",
@@ -722,13 +724,13 @@ fn profiles() -> Vec<Profile> {
                 name: "core-api",
                 role: "core-api",
                 ports: vec![8080],
-                needs: vec!["postgres", "redis", "pgbouncer"],
+                needs: vec!["postgres", "redis"],
             },
             Service {
                 name: "worker",
                 role: "worker",
                 ports: vec![8082],
-                needs: vec!["postgres", "redis", "pgbouncer"],
+                needs: vec!["postgres", "redis"],
             },
         ],
     };
@@ -790,12 +792,11 @@ fn profiles() -> Vec<Profile> {
             disk_gb: 30,
         },
         sets: BTreeMap::from([
-            // The base file's split preset. The overlay replaces the database
-            // URLs per service (direct Postgres, no pooler hop on a demo box),
-            // so these are what everything else reads.
+            // The base file's split preset, which already dials Postgres
+            // directly; the overlay only changes what a demo needs.
             (
                 "DATABASE_URL",
-                "postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula",
+                "postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula",
             ),
             (
                 "MARULA_LISTEN_DATABASE_URL",
@@ -811,13 +812,13 @@ fn profiles() -> Vec<Profile> {
                 name: "core-api",
                 role: "core-api",
                 ports: vec![8080],
-                needs: vec!["postgres", "redis", "pgbouncer"],
+                needs: vec!["postgres", "redis"],
             },
             Service {
                 name: "worker",
                 role: "worker",
                 ports: vec![8082],
-                needs: vec!["postgres", "redis", "pgbouncer"],
+                needs: vec!["postgres", "redis"],
             },
         ],
     };
@@ -3394,17 +3395,18 @@ mod tests {
             .expect("split profile");
         let roles: Vec<&str> = p.services.iter().map(|s| s.role).collect();
         assert_eq!(roles, vec!["core-api", "worker"]);
-        // Wave 52 lane P9: the shipped shape is pooled, and the three presets
-        // that make it safe are part of the profile rather than prose.
+        // A single host's two processes dial Postgres directly. The pooler is
+        // the opt-in `pooler` compose profile, so a shape that points at it by
+        // default would name a service the default stack does not start.
         assert_eq!(
             p.sets.get("DATABASE_URL"),
-            Some(&"postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula"),
-            "split dials the pooler, and carries no credential of its own"
+            Some(&"postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula"),
+            "split dials Postgres directly, and carries no credential of its own"
         );
         assert_eq!(
             p.sets.get("MARULA_LISTEN_DATABASE_URL"),
             Some(&"postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula"),
-            "the LISTEN connection bypasses the pooler"
+            "the LISTEN connection never rides a pooler"
         );
         assert_eq!(p.sets.get("MARULA_DB_STATEMENT_CACHE"), Some(&"0"));
     }

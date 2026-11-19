@@ -760,12 +760,19 @@ mod tests {
                 StepKind::WriteFile { .. } => None,
             })
             .expect("a run step");
-        for named in ["core-api", "worker", "pgbouncer", "migrate", "web"] {
+        // The split shape dials Postgres directly: the pooler is the opt-in
+        // compose profile, so a default install that started it would be
+        // starting a service the profile never asked for.
+        for named in ["core-api", "worker", "migrate", "web"] {
             assert!(
                 split_args.iter().any(|arg| arg == named),
                 "{named} is missing from the split plan: {split_args:?}"
             );
         }
+        assert!(
+            !split_args.iter().any(|arg| arg == "pgbouncer"),
+            "the pooler is opt-in and must not start by default: {split_args:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
