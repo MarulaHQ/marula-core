@@ -68,8 +68,11 @@ const SECTIONS = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Securit
 const BUMPS = ["patch", "minor", "none"];
 
 /** Product paths: a change here can reach a user. Tests, docs and tooling
- * cannot, and asking for a fragment on those is how a gate gets ignored. */
-const PRODUCT_ROOTS = /^(crates|apps|packages|plugins|native)\//;
+ * cannot, and asking for a fragment on those is how a gate gets ignored.
+ * `deploy` is product because a hoster installs what it holds: the Helm chart
+ * and the compose profiles are the product's deployment surface, and a chart
+ * change that ships without a note is a release that lies about itself. */
+const PRODUCT_ROOTS = /^(crates|apps|packages|plugins|native|deploy)\//;
 const NON_PRODUCT = [
   /(^|\/)tests?\//,
   /\.md$/,
@@ -492,7 +495,9 @@ function cmdCheck(flags) {
     console.error("  bump: minor  a capability someone can use (0.4.0: the middle number moves)");
     console.error("  bump: patch  a fix to something that already works");
     console.error("  bump: none   product code with no user-visible change (### Internal)");
-    console.error("  Only tests, docs, e2e, scripts and .github are exempt.");
+    console.error(
+      "  Only tests, docs, e2e, scripts, design and .github are exempt.",
+    );
     process.exit(1);
   }
   console.log(`release-note: ${added.length} fragment(s) on ${product.length} changed product file(s)`);
@@ -504,6 +509,10 @@ export function advisePaths(paths) {
   const reasons = [];
   const capability = [
     [/^crates\/.*\/migrations\//, "a migration: new stored state"],
+    [
+      /^deploy\/helm\/[^/]+\/(templates\/|values|Chart\.yaml$)/,
+      "the chart: a deployment surface a hoster installs",
+    ],
     [/^crates\/core-api\/src\/routes\/[^/]+\.rs$/, "a route module: new or changed surface"],
     [/^apps\/web\/app\/.*page\.tsx$/, "a page"],
     [/^packages\/ui\/src\//, "a shared component"],
@@ -626,6 +635,13 @@ function selfTest() {
   assert(isProductPath("native/App.tsx"), "a native source file is still product");
   assert(!isProductPath("docs/site/reference/api.md"), "docs are not product");
   assert(!isProductPath("e2e/flows/01-auth.spec.ts"), "e2e is not product");
+  assert(
+    isProductPath("deploy/helm/marula/templates/core-api.yaml"),
+    "a chart template reaches the deployment a hoster installs",
+  );
+  assert(isProductPath("deploy/docker-compose.yml"), "the self-host compose file is product");
+  assert(!isProductPath("deploy/helm/README.md"), "chart docs are still docs");
+  assert(!isProductPath("deploy/runbooks/upgrade.md"), "a runbook is still docs");
 
   const minor = advisePaths(["crates/core-api/migrations/0187_x.sql"]);
   assert(minor.bump === "minor", "a migration suggests minor");
@@ -633,6 +649,10 @@ function selfTest() {
   assert(patch.bump === "patch", "a fix module suggests patch");
   const none = advisePaths(["docs/adr/0034.md", "scripts/x.mjs"]);
   assert(none.bump === "none", "docs-only suggests none");
+  const chartAdvice = advisePaths(["deploy/helm/marula/values.schema.json"]);
+  assert(chartAdvice.bump === "minor", "a chart change suggests minor");
+  const composeAdvice = advisePaths(["deploy/docker-compose.yml"]);
+  assert(composeAdvice.bump === "patch", "a compose edit alone suggests patch");
 
   console.log("release-note: self-test passed (versions, fragments, paths, advice)");
 }
