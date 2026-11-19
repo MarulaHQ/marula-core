@@ -158,7 +158,7 @@ services:
     # RETURNING OLD/NEW, temporal constraints. Bumping an existing volume:
     # dump/restore (`pg_dump marula`) or pg_upgrade-in-place; 18's pg_upgrade
     # retains optimizer statistics so no slow-plans grind after cutover.
-    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    image: ${MARULA_IMAGE_PGVECTOR:-dhi.io/pgvector:0.8-pg18}@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
     mem_limit: 1g
     cpus: 2.0
     logging: *default-logging
@@ -239,7 +239,7 @@ services:
     # Valkey (Redis 7 wire-compatible fork; drop-in for REDIS_URL). Service
     # keeps the `redis` name so REDIS_URL / depends_on references are
     # unaffected.
-    image: dhi.io/valkey:8.1.10@sha256:3caa5e36670b3eb234fd3d958452431c802c6a8de22a8abf747ec72b532582f2
+    image: ${MARULA_IMAGE_VALKEY:-dhi.io/valkey:8.1.10}@sha256:3caa5e36670b3eb234fd3d958452431c802c6a8de22a8abf747ec72b532582f2
     logging: *default-logging
     <<: *cap-common
     restart: unless-stopped
@@ -281,7 +281,7 @@ services:
   # outside these two containers. The rootfs is read-only and the only write
   # anywhere is that one file.
   pooler-auth:
-    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    image: ${MARULA_IMAGE_PGVECTOR:-dhi.io/pgvector:0.8-pg18}@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
     mem_limit: 32m
     cpus: 0.5
     restart: "no"
@@ -334,7 +334,7 @@ services:
     mem_limit: 128m
     cpus: 1.0
     logging: *default-logging
-    image: dhi.io/pgbouncer:1.26@sha256:17157120154cd111541281b39e9ad846e567e7fc1ea2e964abdc8c4bf4547fff
+    image: ${MARULA_IMAGE_PGBOUNCER:-dhi.io/pgbouncer:1.26}@sha256:17157120154cd111541281b39e9ad846e567e7fc1ea2e964abdc8c4bf4547fff
     <<: *cap-common
     restart: unless-stopped
     # DHI nonroot 65532. Config and password file are read-only bind mounts;
@@ -375,7 +375,7 @@ services:
   # carry a shell, and reusing it adds no pin to keep in step. Overriding
   # the entrypoint means no cluster is initialised and nothing is written.
   dev-posture:
-    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    image: ${MARULA_IMAGE_PGVECTOR:-dhi.io/pgvector:0.8-pg18}@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
     mem_limit: 32m
     restart: "no"
     logging: *default-logging
@@ -486,7 +486,7 @@ services:
   # generated password would be pointless (it has to reach core-api as well)
   # and a fallback would be the defect this service exists to remove.
   app-role-password:
-    image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
+    image: ${MARULA_IMAGE_PGVECTOR:-dhi.io/pgvector:0.8-pg18}@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
     mem_limit: 64m
     cpus: 0.5
     restart: "no"
@@ -811,7 +811,7 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: dxflrs/garage:v1.1.0@sha256:fdb8272fcbe643eef830ee17874d5d4ed623a86501f1acbac8012583113b1c26
+    image: ${MARULA_IMAGE_GARAGE:-dxflrs/garage:v1.1.0}@sha256:fdb8272fcbe643eef830ee17874d5d4ed623a86501f1acbac8012583113b1c26
     profiles: ["stage2"]
     <<: *cap-common
     # Distroless single binary, no bundled user — runs as the explicit
@@ -848,7 +848,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     logging: *default-logging
-    image: axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    image: ${MARULA_IMAGE_MAILPIT:-axllent/mailpit:v1.31.3}@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
     profiles: ["stage2"]
     <<: *cap-common
     # Why no :latest (p38): the previous floating tag silently swapped the
@@ -875,7 +875,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     logging: *default-logging
-    image: otel/opentelemetry-collector-contrib:0.118.0@sha256:3f6274fe609da4f9964fbc2ef36b83d08d47964fbb11629251393590d3924072
+    image: ${MARULA_IMAGE_OPENTELEMETRY_COLLECTOR_CONTRIB:-otel/opentelemetry-collector-contrib:0.118.0}@sha256:3f6274fe609da4f9964fbc2ef36b83d08d47964fbb11629251393590d3924072
     profiles: ["observability"]
     <<: *cap-common
     # DHI nonroot (65532); config is a read-only bind mount, and the
@@ -906,7 +906,7 @@ services:
     # third-party image here. It declares the nobody uid as its own user and
     # creates /prometheus owned by that uid, which is what makes the named
     # volume writable without a root step.
-    image: prom/prometheus@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
+    image: ${MARULA_IMAGE_PROMETHEUS:-prom/prometheus}@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
     profiles: ["observability"]
     <<: *cap-common
     # Writes only its TSDB under /prometheus (a volume) and needs /tmp for its
@@ -933,7 +933,7 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: dhi.io/tempo:2.7@sha256:a374e7d31fed1bd6140fe9bd2e71b70af19b1034ca057e32c6f37ea543ab82fb
+    image: ${MARULA_IMAGE_TEMPO:-dhi.io/tempo:2.7}@sha256:a374e7d31fed1bd6140fe9bd2e71b70af19b1034ca057e32c6f37ea543ab82fb
     profiles: ["observability"]
     <<: *cap-common
     # DHI nonroot (65532); the wal dir lives on the tempodata volume,
@@ -951,7 +951,7 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: dhi.io/loki:3.6@sha256:6465cec55310a20319da23852655dff975e6b233ae073aab4135a469740b0a94
+    image: ${MARULA_IMAGE_LOKI:-dhi.io/loki:3.6}@sha256:6465cec55310a20319da23852655dff975e6b233ae073aab4135a469740b0a94
     profiles: ["observability"]
     <<: *cap-common
     # DHI nonroot (65532); chunk/index live under /loki (a volume) and
@@ -972,7 +972,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     logging: *default-logging
-    image: dhi.io/grafana:11@sha256:cfa9d61225bd4a574993e0a74226de3a031b4e55f0ea50a081b2cc5f319c4e79
+    image: ${MARULA_IMAGE_GRAFANA:-dhi.io/grafana:11}@sha256:cfa9d61225bd4a574993e0a74226de3a031b4e55f0ea50a081b2cc5f319c4e79
     profiles: ["observability"]
     <<: *cap-common
     # DHI runs grafana as uid 65532. EXEMPTION (read_only): Grafana writes
@@ -1007,7 +1007,7 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: glitchtip/glitchtip:6.2.6@sha256:a3d8eb1b36c1e1603d55ab32711ea3dd8115874742a781a57391a62a16e0dff6
+    image: ${MARULA_IMAGE_GLITCHTIP:-glitchtip/glitchtip:6.2.6}@sha256:a3d8eb1b36c1e1603d55ab32711ea3dd8115874742a781a57391a62a16e0dff6
     profiles: ["observability"]
     <<: *cap-common
     # GlitchTip 6.2.6 is the audited pin replacing :latest (2026-09-28).
@@ -1046,7 +1046,7 @@ services:
     mem_limit: 512m
     cpus: 1.0
     logging: *default-logging
-    image: louislam/uptime-kuma:2.5.5@sha256:c74379ac4509ce2d2c2633f509e67003ee2e45b6e995c5e43fc101f45a0e1fbe
+    image: ${MARULA_IMAGE_UPTIME_KUMA:-louislam/uptime-kuma:2.5.5}@sha256:c74379ac4509ce2d2c2633f509e67003ee2e45b6e995c5e43fc101f45a0e1fbe
     profiles: ["observability"]
     <<: *cap-common
     # 2.5.5 is the audited pin (2026-09-30, registry digest resolved on the
@@ -1104,7 +1104,7 @@ services:
     # with a version notice, so the bundled default could not run on it at all.
     # Digest is the multi-arch manifest list (linux/amd64 + linux/arm64), one
     # value for both.
-    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
+    image: ${MARULA_IMAGE_OLLAMA:-ollama/ollama:0.40.7}@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
     profiles: ["ai"]
     <<: *cap-common
     # The image sets no `User:` and its documented model path is under
@@ -1153,7 +1153,7 @@ services:
   # then exits; `OLLAMA_NO_CLOUD=1` above only refuses pulls the *server*
   # would start behind an inference request.
   ollama-model:
-    image: ollama/ollama:0.40.7@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
+    image: ${MARULA_IMAGE_OLLAMA:-ollama/ollama:0.40.7}@sha256:2e6cc92ffa43b4b1a2e70e315407e00ac97ec125afc71277d73c7efe01c4f31b
     profiles: ["ai"]
     logging: *default-logging
     depends_on:
@@ -1179,7 +1179,7 @@ services:
     mem_limit: 2g
     cpus: 1.0
     logging: *default-logging
-    image: dhi.io/clamav:1.5.4@sha256:d02fd8be62db0cecad42586c976e7c8f831aafa353c7ab9dcb1938ced04bb61d
+    image: ${MARULA_IMAGE_CLAMAV:-dhi.io/clamav:1.5.4}@sha256:d02fd8be62db0cecad42586c976e7c8f831aafa353c7ab9dcb1938ced04bb61d
     profiles: ["stage2"]
     <<: *cap-common
     # DHI ships linux/arm64 natively (upstream clamav/clamav never did), so

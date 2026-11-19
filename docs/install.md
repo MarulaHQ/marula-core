@@ -434,12 +434,21 @@ core-api web pgbouncer`), or change the host in both URLs to `postgres:5432`
 URLs without the profile are the one combination that starts a stack whose
 health checks cannot pass.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e435277eb399ef50d98f2c0d7a2aabd380393acd9c79a5bbdd99eb804586f97b -->
+
 1. Back up first, even if you have no backup habit yet. The [backup
    section](#backup-and-restore) below covers the database, `marula.env` and,
-   through the runbook, the object store. The drill in [the backup
+   through the runbook, the object store. When object storage is enabled, back
+   up attachments in the same window as the database dump, following the
+   [object-store backup procedure](site/reference/backup-restore.md#backup).
+   The drill in [the backup
    runbook](site/reference/backup-restore.md) is how you find out the backup
    restores, and it is worth doing on a spare database, but it is not a
    precondition for this upgrade.
+
+<!-- /coderabbit-ai-generated:v1 -->
 2. Download the new archive and its checksum list, and check the archive the
    same way you did the first one.
 3. Unpack the new release and run its installer against the directory you
@@ -546,17 +555,54 @@ credential store pulls them like any other public image. That is Docker's
 policy rather than a promise from this repository, so if a pull ever asks for
 credentials, `docker login dhi.io` with a free Docker account is the fallback.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:86282eb6292a2aa7af20009d220227d354bbee42077e50e4e71f7e11f7eba041 -->
+
 To run from a mirror, start with the four Marula images: pass
 `--image-base ghcr.io/your-org/marula`, and the installer pulls them from your
 prefix with the release's digests. The release's own prefix comes from
 `release.json` when you leave the flag out, and each service is
-`<base>-<service>`. The hardened third-party images are the other half, and they
-live in the bundle's `deploy/docker-compose.yml`. Editing that file changes the
-tree its `SHA256SUMS` covers, so `./install.sh` refuses the next run. If you edit
-it, run the bundled `./marula install --compose-file deploy/docker-compose.yml
---images registry …` directly instead of `install.sh`, and keep the digests so a
-mirror cannot substitute a different image.
+`<base>-<service>`. For third-party images, export the matching repository variables before running
+`./install.sh --dir /srv/marula --images registry --apply`. For example:
 
+```sh
+export MARULA_IMAGE_PGVECTOR=registry.example.com/marula/pgvector:0.8-pg18
+export MARULA_IMAGE_VALKEY=registry.example.com/marula/valkey:8.1.10
+./install.sh --dir /srv/marula --images registry --apply \
+  --image-base registry.example.com/marula/marula
+```
+
+Copy each image to the mirror with its release digest intact. These variables
+replace only the repository and optional tag; Compose appends the digest pinned
+in the release. The installer inherits them from your shell. Keep the exports in
+an operator-owned shell file outside the unpacked bundle and source it before
+every installer or `marula_compose` command. They are shell variables, not
+installer `--set` parameters, and are not saved in `marula.env`.
+
+| Variable | Default repository and tag |
+|---|---|
+| `MARULA_IMAGE_PGVECTOR` | `dhi.io/pgvector:0.8-pg18` |
+| `MARULA_IMAGE_VALKEY` | `dhi.io/valkey:8.1.10` |
+| `MARULA_IMAGE_PGBOUNCER` | `dhi.io/pgbouncer:1.26` |
+| `MARULA_IMAGE_GARAGE` | `dxflrs/garage:v1.1.0` |
+| `MARULA_IMAGE_MAILPIT` | `axllent/mailpit:v1.31.3` |
+| `MARULA_IMAGE_OPENTELEMETRY_COLLECTOR_CONTRIB` | `otel/opentelemetry-collector-contrib:0.118.0` |
+| `MARULA_IMAGE_PROMETHEUS` | `prom/prometheus` |
+| `MARULA_IMAGE_TEMPO` | `dhi.io/tempo:2.7` |
+| `MARULA_IMAGE_LOKI` | `dhi.io/loki:3.6` |
+| `MARULA_IMAGE_GRAFANA` | `dhi.io/grafana:11` |
+| `MARULA_IMAGE_GLITCHTIP` | `glitchtip/glitchtip:6.2.6` |
+| `MARULA_IMAGE_UPTIME_KUMA` | `louislam/uptime-kuma:2.5.5` |
+| `MARULA_IMAGE_OLLAMA` | `ollama/ollama:0.40.7` |
+| `MARULA_IMAGE_CLAMAV` | `dhi.io/clamav:1.5.4` |
+
+Leave the bundle's `deploy/docker-compose.yml`, `release.json` and `SHA256SUMS`
+unchanged. `install.sh` can then verify the unpacked files during `--apply`;
+Compose resolves the mirror repositories from your environment afterward.
+
+
+<!-- /coderabbit-ai-generated:v1 -->
 ## Troubleshooting
 
 | Symptom | What it means |
