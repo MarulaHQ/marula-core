@@ -12,21 +12,28 @@ you can read before running is the point.
 
 - A Linux host, x86_64 or arm64. macOS on Apple silicon runs the stack too, and
   the release publishes a `macos-arm64` bundle for it.
-- Docker with Compose 2.24 or newer. The installer's registry override uses
-  Compose's `!reset` key to remove the base file's build instructions, and
-  Compose older than 2.24 ignores that key and builds instead.
+- Docker with Compose 2.24 or newer. `docker compose version` prints what you
+  have. The installer checks that the Compose plugin answers, not which version
+  it is. The registry override uses Compose's `!reset` key to remove the base
+  file's build instructions, and Compose older than 2.24 ignores that key and
+  builds instead.
 - A budget for the whole box, not one process: four cores, 8 GB of memory and
   40 GB of free disk for the default shape, or 30 GB of disk on `all-in-one`.
   The largest line in that budget is the shipped embedding model, which the
   `ai` compose profile runs, plus room for Postgres and the object store. Leave
   `ai` off and the install has headroom to spare.
-- These ports free on the host:
+- These ports free on the host. The base compose file publishes each of them on
+  every interface, so this is what your network sees as well as what the stack
+  needs:
   - `3000`: the workspace and the client portal.
   - `8080`: the API and its `/docs` reference.
   - `8082`: the worker's health endpoint. `split` and `demo` serve it from the
     worker container, and `all-in-one` serves it from the API process.
-  - `15432`: Postgres, published for local tooling. The application does not
-    use this port, so block it or leave it on loopback.
+  - `15432`: Postgres, published for local tooling. The application reaches
+    Postgres by service name on the internal network and does not need this
+    port. Because the base file maps it on every interface, it is a database
+    reachable from anywhere that can reach the host. The `edge` profile is the
+    supported way to remove that mapping.
 - No account, licence key or hosted service. Docker Hardened Images are free
   and pull without a login. If a pull ever asks for credentials, `docker login
   dhi.io` with a free Docker account is all it takes.
@@ -115,6 +122,10 @@ compiles the four application images from a source checkout. A release bundle
 carries no sources, so every install from a bundle uses `--images registry`. The
 wizard asks the same question and offers the published images.
 
+Omit the flag on a bundle and the plan still prints, because nothing looks for
+sources at plan time. `--apply` then fails when Compose tries to build the first
+image from the workspace root, which the bundle does not carry.
+
 Registry mode pulls these four images by digest instead of building them:
 
 - `marula-core-api`
@@ -145,10 +156,12 @@ waits for. A zero exit means every service the shape starts answered its check.
 It does not mean TLS, mail, backups or alerting are configured; the plan's
 "still yours to do" list stays yours.
 
-If you used the wizard, it has already applied. Skip to the doctor.
+If you used the wizard, it has already applied and the install is in
+`~/marula`. The doctor takes the directory, so give it the one you have:
 
 ```sh
-./marula doctor --dir /srv/marula
+./marula doctor --dir "$HOME/marula"     # wizard install
+./marula doctor --dir /srv/marula        # plan-path install
 ```
 
 The doctor reads `marula.env` and checks the host, Docker, the required values,
@@ -169,9 +182,12 @@ first owner account. [Bootstrap your first
 organisation](site/how-to/admin-org-bootstrap.md) walks that screen and the four
 settings worth changing before your team logs in.
 
-Nothing here terminates TLS. Put a proxy in front before you open the port to
-the internet: the `edge` compose profile ships a Caddy configuration with three
-certificate modes, and
+Nothing here terminates TLS, and the base compose file publishes 3000, 8080,
+8082 and 15432 on every interface. The installer does not change that, so after
+`--apply` anyone who can reach the host can reach the workspace and the API. Put
+a proxy in front before you open the host to the internet: the `edge` compose
+profile removes those four mappings and serves 80 and 443 through Caddy with one
+of three certificate modes, and
 [`docs/site/reference/reverse-proxy-tls.md`](site/reference/reverse-proxy-tls.md)
 covers the one you pick.
 
@@ -220,9 +236,10 @@ The compose file sets the project name to `marula`, so the containers are
 `marula-core-api-1` and so on. Run this as the user that ran the install, or
 with `sudo` if the install did.
 
-On `all-in-one`, start named services (`marula_compose up -d core-api web`)
-instead of a bare `up -d`, because the base file also defines the separate
-worker and the two would fight over port 8082.
+On `all-in-one`, always name the services. A bare `marula_compose up -d` starts
+the base file's separate worker too, and it fights core-api for port 8082.
+`marula_compose up -d core-api web` starts the stack itself, and a profile
+command names the services that profile adds, as the examples below do.
 
 ## The eight secrets
 
@@ -322,12 +339,16 @@ is the second `--profile`, and it is unrelated to the installer's shape flag.
 | `backup` | WAL-G point-in-time recovery and restic snapshots | You want scheduled backups instead of a nightly dump |
 | `edge` | Caddy terminating TLS | The host faces the internet |
 
-Start one with the shell function from [Running commands against the
+Start one by naming the services it adds, with the shell function from
+[Running commands against the
 install](#running-commands-against-the-install):
 
 ```sh
-marula_compose --profile stage2 up -d
+marula_compose --profile stage2 up -d garage mailpit
 ```
+
+Naming them is what keeps the command safe on `all-in-one`, where starting the
+whole file would bring up the separate worker as well.
 
 The `edge` profile is the exception: it also needs its overlay and the domain
 settings, so use the command in [`deploy/edge/README.md`](../deploy/edge/README.md)
@@ -356,7 +377,7 @@ in [Local AI](site/reference/self-host-local-ai.md). Two ways to turn it on:
 
 ```sh
 # Local model, no account, runs on the host.
-marula_compose --profile ai up -d
+marula_compose --profile ai up -d ollama ollama-model
 ```
 
 ```sh
@@ -404,10 +425,13 @@ started a connection pooler and pointed both database URLs at `pgbouncer:6432`.
 If your `marula.env` still names that host, it outranks the new direct default,
 and a stack started without the pooler has nothing to answer on that port. Pick
 one: keep the pooled URLs and start the stack with `marula_compose --profile
-pooler up -d`, or change `MARULA_APP_DATABASE_URL` and
-`MARULA_WORKER_APP_DATABASE_URL` to `postgres:5432` in `marula.env` before you
-run `marula_compose up -d`. One core-api instance fits inside a stock Postgres
-connection ceiling, so the direct URLs are the default for a single host.
+pooler up -d` (on `all-in-one`, name the services:
+`marula_compose --profile pooler up -d core-api web pgbouncer`), or change
+`MARULA_APP_DATABASE_URL` and `MARULA_WORKER_APP_DATABASE_URL` to
+`postgres:5432` in `marula.env` before you run `marula_compose up -d` (on
+`all-in-one`, `marula_compose up -d core-api web`). One core-api instance fits
+inside a stock Postgres connection ceiling, so the direct URLs are the default
+for a single host.
 
 A release that publishes a signed update manifest can be applied without the
 download step. `./marula update --check --manifest <file>` says whether a newer
@@ -450,21 +474,22 @@ Dump as `marula`, not `marula_app`. The app role is constrained by row-level
 security and cannot produce a complete dump. Use a `pg_dump` that matches the
 server's major version; the postgres image carries the right one.
 
-To restore, stop the application containers, restore the dump into a database
-of the same major version, then start them again:
+To restore, stop the application containers and start them again afterwards.
+The restore in between is not a one-liner and this page does not cover it:
+[the backup and restore runbook](site/reference/backup-restore.md) is required
+reading at this step, because it gives the order (database, then object store,
+then services) and the rehearsal that restores the artifact into a scratch
+database before you touch live data.
 
 ```sh
-marula_compose stop core-api worker
-# restore the dump into a fresh database here
-marula_compose up -d core-api worker
+marula_compose stop core-api worker        # all-in-one: core-api only
+# restore here: runbook, Restore section, steps 2 to 4
+marula_compose up -d core-api worker       # all-in-one: core-api only
 ```
 
 Restore the object store in the same window. If rows and objects come back at
 different times, leave `MARULA_OBJECT_GC` off until the restore finishes, or the
-integrity pass marks live attachments as missing. On `all-in-one`, stop and
-start `core-api` alone, because the worker loops live inside it. [The backup and
-restore runbook](site/reference/backup-restore.md) has the restore order, the
-restic and WAL-G paths, and the drill that proves a restore works.
+integrity pass marks live attachments as missing.
 
 ## Hardening
 
@@ -510,7 +535,7 @@ each service is `<base>-<service>`.
 | The API refuses to start after an install | Only when the local model you configured needs more cores or memory than the host has. With the `ai` profile off, the shipped default fits every accepted shape. Lower `MARULA_EMBEDDING_TIER` or set `MARULA_EMBEDDING_PROVIDER=openai`. |
 | `--apply` stopped partway | Read the step it named, then run `marula_compose logs --tail 100 <service>` for the service that did not come up, and `./marula doctor --dir /srv/marula`. The env file is already written, so a second `--apply` continues from the values on disk. |
 | Compose rejects `!reset` | Your Compose is older than 2.24. Upgrade Docker Compose and apply again. |
-| `marula.env` is lost | Restore the copy from your backup, then run `marula_compose up -d`. Without that file the eight values are gone, and a stack rebuilt with new signing keys signs everyone out. |
+| `marula.env` is lost | Restore the copy from your backup, then run `marula_compose up -d` (on `all-in-one`, `marula_compose up -d core-api web`). Without that file the eight values are gone, and a stack rebuilt with new signing keys signs everyone out. |
 | `permission denied` reading `marula.env` | The install ran with `sudo` and you did not. Run the command with `sudo`, or change the file's owner once. |
 
 `marula_compose` is the shell function from [Running commands against the
