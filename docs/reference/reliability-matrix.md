@@ -56,7 +56,7 @@ when the row stops being true:
 | Outbox relay | `crates/core-events` contract tests, and the `event-freshness` objective that spends a budget when lag grows |
 | Job queue | `crates/worker/tests/webhook_restart_replay.rs` and `crates/worker/tests/signed_delivery_e2e.rs` |
 | Sweeps, retention, partitions | `crates/worker/src/data_retention_sweep.rs` and the matrix in `crates/core-db/src/retention.rs` |
-| Pooler | The descriptor test that pins the statement-cache default against the shipped pooler (`crates/marula-core-cli/src/deploy.rs:2078`), and the RLS probe in [connection pooling](connection-pooling.md) |
+| Pooler | The descriptor test `the_statement_cache_fits_the_shipped_pooler` in `crates/marula-core-cli/src/deploy.rs`, and the RLS probe in [connection pooling](connection-pooling.md) |
 | Backups, drill | `deploy/backup/drill.sh` and the rows it writes to `ops.backup_drill_runs` |
 | Alerting | `scripts/check-alert-rules.mjs`, which fails when a rule's metric leaves the contract or its runbook stops naming it |
 | Capacity trigger | The crate test tying `PAGE1_TRIGGER_MS` to `PAGE1_BUDGET_MS` (`crates/core-db/src/capacity.rs:471`) |

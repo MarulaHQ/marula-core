@@ -119,14 +119,17 @@ directory.
 
 ### 3. Choose where the images come from
 
-The installer takes `--images build|registry`. The default is `build`, which
+The CLI takes `--images build|registry`, and its default is `build`, which
 compiles the four application images from a source checkout. A release bundle
-carries no sources, so every install from a bundle uses `--images registry`. The
-wizard asks the same question and offers the published images.
+carries no sources, so for a bundle the answer is always `registry`.
+`deploy/install.sh` adds that flag itself when its `release.json` sits beside
+it, so a script install needs nothing.
 
-Omit the flag on a bundle and the plan still prints, because nothing looks for
-sources at plan time. `--apply` then fails when Compose tries to build the first
-image from the workspace root, which the bundle does not carry.
+That matters only if you call `./marula install` directly: omit the flag there
+and the plan still prints, because nothing looks for sources at plan time, and
+`--apply` fails when Compose tries to build from the workspace root the bundle
+does not carry. The wizard asks the same question and offers the published
+images.
 
 Registry mode pulls these four images by digest instead of building them:
 
@@ -433,18 +436,20 @@ carry a **Breaking & deprecated** section even when it is empty.
 
 4. Run `./marula doctor --dir /srv/marula` and open the workspace.
 
-**Upgrading from a release that defaulted to the pooler.** Earlier releases
-started a connection pooler and pointed both database URLs at `pgbouncer:6432`.
-If your `marula.env` still names that host, it outranks the new direct default,
-and a stack started without the pooler has nothing to answer on that port. Pick
-one: keep the pooled URLs and start the stack with `marula_compose --profile
-pooler up -d` (on `all-in-one`, name the services:
-`marula_compose --profile pooler up -d core-api web pgbouncer`), or change
-`MARULA_APP_DATABASE_URL` and `MARULA_WORKER_APP_DATABASE_URL` to
-`postgres:5432` in `marula.env` before you run `marula_compose up -d` (on
-`all-in-one`, `marula_compose up -d core-api web`). One core-api instance fits
-inside a stock Postgres connection ceiling, so the direct URLs are the default
-for a single host.
+**Upgrading from a release that defaulted to the pooler.** Upgrading changes
+nothing by itself. The compose services read `MARULA_APP_DATABASE_URL` and
+`MARULA_WORKER_APP_DATABASE_URL`, neither of which the installer or a profile
+writes, and fall back to Postgres directly. A `DATABASE_URL` line in an old
+`marula.env` has no effect, because the compose file's `environment:` block
+shadows it. A pooled install keeps working: after the upgrade the services take
+the direct default, and the `pooler` profile is still there if you want the hop
+back. If you once hand-set either `MARULA_*_DATABASE_URL` to `pgbouncer:6432`,
+either keep the profile on (`marula_compose --profile pooler up -d`, and on
+`all-in-one` name the services: `marula_compose --profile pooler up -d core-api
+web pgbouncer`) or remove that key from `marula.env` and run `marula_compose up
+-d` (`all-in-one`: `marula_compose up -d core-api web`) to take the direct
+default. One core-api instance fits inside a stock Postgres connection ceiling,
+so the direct URLs are the default for a single host.
 
 A release that publishes a signed update manifest can be applied without the
 download step. `./marula update --check --manifest <file>` says whether a newer

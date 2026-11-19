@@ -84,9 +84,11 @@ Those URLs put the password straight into the authority, so it has to be
 URL-safe. Punctuation such as `#`, `@` or `/` changes where the host ends and the
 client reaches nothing. Letters, digits and `-`, `.`, `_` or `~` are safe, which
 covers the dev values and anything from `openssl rand -hex 32`. If the password
-already exists with punctuation, percent-encode it before it goes into the URL.
-The installer's `--set` refuses a value it cannot put in a URL; this Compose path
-has no such check, so the rule lives with the file.
+already exists with punctuation, percent-encode it before it goes into the URL,
+which is an env-file value with no check behind it. Do not carry that trick to
+the installer's `--set`: it rejects `%` along with every character outside that
+set, so give it a generated value instead. This Compose path has no check of its
+own, so the rule lives with the file.
 
 If you pass the tracked `deploy/dev.env`, copy it first and pass the copy, so
 the repository file stays clean: `cp deploy/dev.env deploy/dev.local.env`, add
