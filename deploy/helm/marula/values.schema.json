@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "marula chart values",
+  "type": "object",
+  "description": "The blocks another system writes: the hosted control plane renders one values document per tenant from its TenantResource. Validated here so a misspelled block fails at `helm template` instead of deploying a chart with a silently ignored key.",
+  "additionalProperties": true,
+  "properties": {
+    "digestPinningEnforced": { "type": "boolean" },
+    "nonMarulaDigestPinningEnforced": { "type": "boolean" },
+    "existingSecret": { "type": "string" },
+    "runtimeClass": { "type": "string" },
+    "priorityClassName": { "type": "string" },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coreApi", "worker", "cli", "web"],
+      "properties": {
+        "registry": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string" },
+        "coreApi": { "$ref": "#/definitions/image" },
+        "worker": { "$ref": "#/definitions/image" },
+        "cli": { "$ref": "#/definitions/image" },
+        "web": { "$ref": "#/definitions/image" }
+      }
+    },
+    "postgresql": {
+      "type": "object",
+      "required": ["deploy"],
+      "properties": {
+        "deploy": { "type": "boolean" },
+        "externalUrl": { "type": "string" },
+        "externalAppUrl": { "type": "string" },
+        "database": { "type": "string" },
+        "ownerUser": { "type": "string" },
+        "appUser": { "type": "string" }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "required": ["deploy"],
+      "properties": {
+        "deploy": { "type": "boolean" },
+        "externalUrl": { "type": "string" }
+      }
+    },
+    "coreApi": {
+      "type": "object",
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "web": {
+      "type": "object",
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 0 },
+        "enabled": { "type": "boolean" },
+        "nextPublicApiUrl": { "type": "string" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "host": { "type": "string" },
+        "tlsMode": { "type": "string", "enum": ["direct", "edge"] },
+        "tlsSecretName": { "type": "string" }
+      }
+    },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "affinity": { "type": "object" }
+  },
+  "definitions": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[0-9a-f]{64})?$"
+        }
+      }
+    }
+  }
+}

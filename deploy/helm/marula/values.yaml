@@ -48,19 +48,22 @@ images:
   pullPolicy: IfNotPresent
   coreApi:
     repository: marula-core-api
-    tag: "v0.3.3"
+    tag: "v0.4.0"
     digest: ""
   worker:
     repository: marula-worker
-    tag: "v0.3.3"
+    tag: "v0.4.0"
     digest: ""
+  # The migrations job runs the `marula-core-cli` binary, published as the
+  # `marula-migrate` image (scripts/release/images.mjs). The slot is named
+  # `cli` because that is the binary, not the image.
   cli:
-    repository: marula-core-cli
-    tag: "v0.3.3"
+    repository: marula-migrate
+    tag: "v0.4.0"
     digest: ""
   web:
     repository: marula-web
-    tag: "v0.3.3"
+    tag: "v0.4.0"
     digest: ""
 
 # ---------------------------------------------------------------- database --
@@ -486,3 +489,12 @@ resources:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+# Pod scheduling class for every Marula workload in the release. A hosted
+# dedicated tenant sets `runtimeClass: gvisor`; the platform's own installs
+# leave it empty and get the cluster default. The migrations hook carries the
+# same value so a tenant's schema change runs under the same isolation as the
+# processes that read the result.
+runtimeClass: ""
+# PriorityClass name for every Marula workload. The reconciler derives it from
+# the tenant class; empty means the cluster default.
+priorityClassName: ""
