@@ -167,7 +167,11 @@ If you used the wizard, it has already applied and the install is in
 ```
 
 The doctor reads `marula.env` and checks the host, Docker, the required values,
-the ports and the embedding model. It exits non-zero when a check fails.
+the ports and the embedding model. It exits non-zero when a check fails. On a
+box you know is undersized, `--allow-unfit` waives the host-floors check and
+prints `waived by --allow-unfit` with the floors it missed, and the summary
+counts it as waived rather than passed. Every other check still fails on its
+own.
 
 ## What you get
 

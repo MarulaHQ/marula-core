@@ -39,15 +39,14 @@ instance's connections fit inside the 100 a stock Postgres allows.
 Pick it because a stalled worker should restart without interrupting the API
 somebody is talking to, and because the two processes then scale separately.
 Pay for it with a second copy of the application image and a second set of
-resource limits.
+resource limits. That second image copy is why the disk floor is 10 GB higher
+than `all-in-one`.
 
 When you need several API instances, turn on the compose `pooler` profile. It
 puts PgBouncer in transaction mode between the services and Postgres, so a burst
 of requests queues at the pooler instead of exhausting the database's
 connections. [Deploy](../../../deploy/README.md) has the command and the
 connection arithmetic.
-
-The disk floor is 10 GB higher than `all-in-one` for exactly that reason.
 
 ## all-in-one
 
@@ -88,16 +87,19 @@ restore and the time-travel step.
 
 ## Where the floors come from
 
-The four cores are a line in the shipped embedding model's budget, not a boot
-dependency. The model is opt-in through the `ai` compose profile: a default
-install does not start it, the API boots without it, and retrieval falls back to
-the lexical leg rather than failing. If you would rather use cloud embeddings,
-set `MARULA_EMBEDDING_PROVIDER=openai` and `MARULA_EMBEDDING_API_KEY`, and the
-hybrid memory refusal in the plan stops applying. The installer will not quietly
-pick a smaller local model for you.
+The four cores are a line in the shipped embedding model's budget. The model is
+opt-in through the `ai` compose profile, so a default install runs no model and
+retrieval falls back to the lexical leg rather than failing. Boot is the
+exception: the API resolves whatever model is configured before it serves, and
+refuses to start when that model needs more cores or memory than the host has.
+The shipped default fits every host the shapes accept, so a default install on
+an accepted host does not meet this refusal. If you would rather use cloud
+embeddings, set `MARULA_EMBEDDING_PROVIDER=openai` and
+`MARULA_EMBEDDING_API_KEY`, and the hybrid memory refusal in the plan stops
+applying. The installer will not quietly pick a smaller local model for you.
 
-The memory floor covers the model, Postgres and Valkey on one box. The disk floor
-covers the images and the database with room to grow.
+The memory floor is a budget for the model, Postgres and Valkey on one box. The
+disk floor covers the images and the database with room to grow.
 
 ## How the installer picks
 
