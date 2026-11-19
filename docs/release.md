@@ -48,9 +48,11 @@ and pushes it to `ghcr.io/marulahq/<image>:<tag>`. `release-chart` packages
 deployment points Argo at; `deploy/helm/test/hosted-values.yaml` is the values
 document that deployment renders, and the chart CI renders it on every change.
 
-Release versions of both are immutable. The workflows refuse to publish a tag
-that already exists, because a chart or an image changing under a version
-someone has pinned is an upgrade nobody asked for.
+The chart is immutable: `release-chart` refuses a version the registry already
+holds, because a chart changing under a version someone pinned is an upgrade
+nobody asked for. The image workflow does not refuse a re-run, because a release that failed
+halfway has to be able to push again. The digest manifest, not the tag, is
+what says which build a version actually produced.
 
 ## Where the signature comes from
 
