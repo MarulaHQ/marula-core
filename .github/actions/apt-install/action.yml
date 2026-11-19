@@ -38,9 +38,12 @@ runs:
             exit 0
           else
             status=$?
+          fi
+          # Only promise a retry when another attempt follows it.
+          if [ "${attempt}" -lt 3 ]; then
             echo "::warning::apt attempt ${attempt} failed with ${status}; retrying in $((attempt * 20))s"
             sleep $((attempt * 20))
           fi
         done
-        echo "::error::apt failed three times, so the mirror is not answering rather than the package names being wrong"
+        echo "::error::apt gave up after three attempts. The apt output above says which: a mirror that stayed unavailable, or a package name apt cannot resolve."
         exit 1
