@@ -752,7 +752,7 @@ fn profiles() -> Vec<Profile> {
             ("MARULA_ROBUSTNESS", "single_box"),
             (
                 "MARULA_WORKER_DATABASE_URL",
-                "postgres://marula:marula@postgres:5432/marula",
+                "postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula",
             ),
             ("EMAIL_POLL_SECS", "60"),
             ("QUEUE_IDLE_MS", "60000"),
@@ -924,7 +924,7 @@ fn params() -> Vec<Param> {
             "App-pool ceiling. Sizes both the API app pool and, in all-in-one, the worker pool.",
         )
         .consequence("The ceiling on the API's application connections. Each connection is a Postgres backend with its own memory, and a pool the database will not accept turns a load spike into refusals.")
-        .rationale("20 is the per-process ceiling the capacity model assumes. Four pools add up to 54 connections per instance, which the pooler holds at 15 server side."),
+        .rationale("20 is the per-process ceiling the capacity model assumes. Four pools add up to 54 connections per instance, which the pooler profile holds at 15 server side."),
         param(
             "MARULA_REPORTING_POOL_MAX",
             "database",
@@ -954,7 +954,7 @@ fn params() -> Vec<Param> {
             "sqlx prepared-statement cache capacity per connection. 0 (the default) disables it.",
         )
         .consequence("How many prepared statements one connection keeps. Non-zero behind a transaction pooler hands a statement name to a connection that no longer has it, and the failure appears at query time. Raise it no higher than the pooler's max_prepared_statements, and only with the pooler's reset query off.")
-        .rationale("0 because the shipped pooler runs DISCARD ALL after every transaction. A cached name cannot survive that, so a cache would pay for re-parsing twice."),
+        .rationale("0 because the pooler profile runs DISCARD ALL after every transaction. A cached name cannot survive that, so a cache would pay for re-parsing twice."),
         param(
             "MARULA_LISTEN_DATABASE_URL",
             "database",

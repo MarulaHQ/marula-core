@@ -51,11 +51,12 @@ jobs:
 
       - name: Resolve the version
         id: version
+        env:
+          RAW_VERSION: ${{ github.event.inputs.version || github.event.release.tag_name }}
         shell: bash
         run: |
           set -euo pipefail
-          version="${{ github.event.inputs.version || github.event.release.tag_name }}"
-          version="${version#v}"
+          version="${RAW_VERSION#v}"
           if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::'$version' is not a release version"
             exit 1
@@ -74,7 +75,22 @@ jobs:
             --repo "${{ github.repository }}" \
             --dir dist \
             --pattern "marula-${VERSION}-linux-x64.tar.gz" \
-            --pattern "SHA256SUMS-linux-x64"
+            --pattern "SHA256SUMS-linux-x64" \
+            --pattern "SHA256SUMS-linux-x64.sig"
+
+      - name: Verify the checksum list's signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The checksum proves integrity over the same TLS channel the archive
+          # came down. The signature is what proves the release key produced the
+          # list, and the trust anchor is the one in this checkout.
+          ssh-keygen -Y verify \
+            -f release-keys/allowed_signers \
+            -I releases@getmarula.com \
+            -n file \
+            -s dist/SHA256SUMS-linux-x64.sig \
+            < dist/SHA256SUMS-linux-x64
 
       - name: Verify the archive against the published checksum
         shell: bash

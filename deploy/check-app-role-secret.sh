@@ -167,7 +167,11 @@ MARULA_APP_PASSWORD=check-app-password
 GARAGE_RPC_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 GLITCHTIP_SECRET_KEY=check-glitchtip-secret
 EOF
+	# The pooler is opt-in now, so `config` omits it and the auth one-shot that
+	# renders its file unless the profile is selected. The check is about those
+	# two services, so it asks for the profile explicitly.
 	if (cd "$ROOT" && docker compose --env-file "$ENVDEV" \
+		--profile pooler \
 		-f deploy/docker-compose.yml config --format json > "$OUT" 2>/dev/null); then
 		ok "compose renders"
 	else

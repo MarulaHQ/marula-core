@@ -101,10 +101,11 @@ const PRIMARY_BUNDLE = { linux: "deb", macos: "macos", windows: "nsis" };
 
 /**
  * Paths under `deploy/` a release never carries. `dev.env` is a developer's
- * local settings and hidden files are git plumbing: neither is something an
- * installed release reads.
+ * local settings, `install.sh` is copied to the archive root (a second copy
+ * inside `deploy/` would be a trap: it refuses to run outside the root), and
+ * hidden files are git plumbing: none is something an installed release reads.
  */
-const DEPLOY_EXCLUDED = new Set(["dev.env"]);
+const DEPLOY_EXCLUDED = new Set(["dev.env", "install.sh"]);
 
 /**
  * True when any segment of a relative path starts with a dot. The artifact

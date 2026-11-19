@@ -70,8 +70,8 @@ GARAGE_RPC_SECRET=$(secret)
 GLITCHTIP_SECRET_KEY=$(secret)
 
 # A temp file in the destination directory, so `mv` is a rename and never a
-# copy across filesystems. umask 077 also covers the case where an old file at
-# $OUT had a wider mode.
+# copy across filesystems. `mktemp` creates it 0600, and the chmod below keeps
+# that mode on the file that replaces $OUT, whatever mode an old one had.
 TMP=$(mktemp "$OUT.XXXXXX")
 trap 'rm -f "$TMP"' EXIT
 

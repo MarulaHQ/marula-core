@@ -499,7 +499,16 @@ fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, contents)
+    std::fs::write(path, contents)?;
+    // `marula.env` holds the eight secrets, and a stock umask leaves it at 0644.
+    // The overrides written through here are not secret, and narrowing them costs
+    // nothing; the file that matters is the one every other command reads.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 /// What the installer deliberately leaves to a person, named rather than

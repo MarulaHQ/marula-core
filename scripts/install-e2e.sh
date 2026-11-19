@@ -51,7 +51,10 @@ trap cleanup EXIT
 say "installing from the published digests into $INSTALL_DIR"
 # --images registry is the whole point: it builds nothing and pins every service
 # to the digest the bundle names, which is what a self-hoster runs.
-"$BUNDLE/install.sh" --dir "$INSTALL_DIR" --images registry --apply
+# The GitHub runner's free disk is below the split shape's 40 GB floor, so the
+# plan is told to proceed on this box. The test is about the install path, not
+# about capacity; the floor itself is exercised by the doctor's own checks.
+"$BUNDLE/install.sh" --dir "$INSTALL_DIR" --images registry --apply --allow-unfit
 
 say "checking the result"
 "$BUNDLE/marula" doctor \
@@ -70,7 +73,8 @@ curl -fsS --max-time 2 http://127.0.0.1:8080/healthz >/dev/null ||
   die "the API did not answer /healthz on 127.0.0.1:8080; the install reported success"
 
 say "tearing the first stack down before the second one takes its ports"
-(cd "$BUNDLE" && docker compose --env-file "$INSTALL_DIR/marula.env" -f deploy/docker-compose.yml down -v)
+(cd "$BUNDLE" && docker compose --env-file "$INSTALL_DIR/marula.env" -f deploy/docker-compose.yml down -v) ||
+  say "teardown of the first stack reported a problem; continuing to the compose path"
 
 # The compose path is a different front door: no CLI plan, one generated env
 # file, and compose itself. It has to work from the bundle's own files or the

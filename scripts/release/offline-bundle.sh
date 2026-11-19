@@ -145,7 +145,10 @@ fi
 # bundle that carries what it claims to. The rehearsal on 2026-11-19 reached this
 # script for the first time and died on the three it had never pulled.
 say "pulling the images compose references but does not build"
-COMPOSE_PROJECT_NAME=marula docker compose "${COMPOSE_ARGS[@]}" pull --ignore-buildable
+# The pooler is opt-in in the base file, so it only appears in the list when the
+# profile is selected. A bundle that omits it leaves an air-gapped host unable to
+# turn the profile on later.
+COMPOSE_PROJECT_NAME=marula docker compose "${COMPOSE_ARGS[@]}" --profile pooler pull --ignore-buildable
 
 STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
@@ -154,7 +157,7 @@ BUNDLE_DIR="$STAGING/$BUNDLE"
 mkdir -p "$BUNDLE_DIR"
 
 say "collecting the image list"
-COMPOSE_PROJECT_NAME=marula docker compose "${COMPOSE_ARGS[@]}" config --images |
+COMPOSE_PROJECT_NAME=marula docker compose "${COMPOSE_ARGS[@]}" --profile pooler config --images |
   LC_ALL=C sort -u >"$STAGING/images.list"
 [ -s "$STAGING/images.list" ] || die "compose reported no images; is $COMPOSE_FILE readable?"
 
