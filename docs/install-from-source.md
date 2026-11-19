@@ -68,16 +68,11 @@ installs that run several API instances or many concurrent clients against a
 Postgres that caps connections, so it sits behind the `pooler` profile and the
 default stack never starts it.
 
-```sh
-docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env \
-  --profile pooler up -d
-```
-
-The profile starts PgBouncer and its auth renderer, but nothing dials it yet:
-neither URL is set in `deploy/dev.env`, so the services keep connecting to
-Postgres. Add these three lines to the env file you pass with `--env-file`,
-using that file's passwords. The published dev values are `marula_app` and
-`marula`; substitute your own anywhere else.
+The profile starts PgBouncer and its auth renderer, but nothing dials it until
+the environment says so: neither URL is set in `deploy/dev.env`, and a container
+keeps the environment it was created with. Add these three lines to the env file
+you pass with `--env-file` first, then start the profile. The published dev
+values are `marula_app` and `marula`; substitute your own anywhere else.
 
 ```sh
 MARULA_APP_DATABASE_URL=postgres://marula_app:marula_app@pgbouncer:6432/marula
@@ -85,9 +80,26 @@ MARULA_WORKER_APP_DATABASE_URL=postgres://marula:marula@pgbouncer:6432/marula
 MARULA_DB_STATEMENT_CACHE=0
 ```
 
+Those URLs put the password straight into the authority, so it has to be
+URL-safe. Punctuation such as `#`, `@` or `/` changes where the host ends and the
+client reaches nothing. Letters, digits and `-`, `.`, `_` or `~` are safe, which
+covers the dev values and anything from `openssl rand -hex 32`. If the password
+already exists with punctuation, percent-encode it before it goes into the URL.
+The installer's `--set` refuses a value it cannot put in a URL; this Compose path
+has no such check, so the rule lives with the file.
+
 If you pass the tracked `deploy/dev.env`, copy it first and pass the copy, so
 the repository file stays clean: `cp deploy/dev.env deploy/dev.local.env`, add
-the lines to `deploy/dev.local.env`, and point `--env-file` at it.
+the lines to `deploy/dev.local.env`, then run:
+
+```sh
+docker compose -f deploy/docker-compose.yml --env-file deploy/dev.local.env \
+  --profile pooler up -d
+```
+
+If the stack is already running when you edit the file, run that `up -d` again:
+Compose recreates the services whose environment changed, and a container that
+is only restarted keeps the environment it was created with.
 
 Transaction mode hands a connection to the next client after each transaction,
 so the application cannot keep prepared statements. That is what the
