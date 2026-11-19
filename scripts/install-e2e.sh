@@ -61,7 +61,8 @@ say "installing from the published digests into $INSTALL_DIR"
 say "checking the result"
 "$BUNDLE/marula" doctor \
   --dir "$INSTALL_DIR" \
-  --compose-file "$BUNDLE/deploy/docker-compose.yml"
+  --compose-file "$BUNDLE/deploy/docker-compose.yml" \
+  --allow-unfit
 
 say "the API answers on its published port"
 for _ in $(seq 1 30); do

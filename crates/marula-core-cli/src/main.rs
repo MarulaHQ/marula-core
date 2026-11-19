@@ -224,6 +224,11 @@ enum Command {
         /// Declare this host's memory when the platform publishes no reading.
         #[arg(long)]
         memory_mb: Option<u32>,
+        /// Check everything except the host floors. A CI host or a deliberately
+        /// undersized box still gets the other checks, and the floors line says
+        /// it was waived rather than passing silently.
+        #[arg(long)]
+        allow_unfit: bool,
     },
 }
 
@@ -485,7 +490,8 @@ async fn main() -> anyhow::Result<()> {
             dir,
             compose_file,
             memory_mb,
-        } => doctor_command(profile, dir, compose_file, memory_mb),
+            allow_unfit,
+        } => doctor_command(profile, dir, compose_file, memory_mb, allow_unfit),
     }
 }
 
@@ -1006,6 +1012,7 @@ fn doctor_command(
     dir: std::path::PathBuf,
     compose_file: std::path::PathBuf,
     memory_mb: Option<u32>,
+    allow_unfit: bool,
 ) -> anyhow::Result<()> {
     let descriptor = deploy::descriptor();
     let facts = install::HostFacts::detect(&dir).with_declared_memory(memory_mb);
@@ -1054,7 +1061,18 @@ fn doctor_command(
     let running = !status.services.is_empty();
 
     println!("marula doctor — profile {name}, values from {source}\n");
-    let checks = install::doctor::run_default(&descriptor, chosen, &facts, &env, !running);
+    let mut checks = install::doctor::run_default(&descriptor, chosen, &facts, &env, !running);
+    if allow_unfit {
+        // The floors are the one check a CI host is allowed to miss. It is
+        // marked waived rather than removed, so the output still says the host
+        // is small instead of pretending it passed.
+        for check in &mut checks {
+            if check.name == "host floors" && !check.ok {
+                check.ok = true;
+                check.detail = format!("waived by --allow-unfit: {}", check.detail);
+            }
+        }
+    }
     for check in &checks {
         println!("{}", check.render());
     }

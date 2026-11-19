@@ -499,15 +499,35 @@ fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, contents)?;
-    // `marula.env` holds the eight secrets, and a stock umask leaves it at 0644.
-    // The overrides written through here are not secret, and narrowing them costs
-    // nothing; the file that matters is the one every other command reads.
+    // `marula.env` holds the eight secrets, and a stock umask would leave a new
+    // one at 0644. Narrow an existing file before it is truncated, and create a
+    // new one at 0600, so there is no interval in which the values are readable
+    // by another user of this host.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        if path.exists() {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
     }
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?
+    };
+    #[cfg(not(unix))]
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    use std::io::Write as _;
+    file.write_all(contents.as_bytes())?;
     Ok(())
 }
 

@@ -154,8 +154,19 @@ impl Selection {
         if name.is_empty() {
             return Err(PlanError::BadOverride(assignment.to_string()));
         }
-        self.overrides
-            .insert(name.to_string(), value.trim().to_string());
+        let value = value.trim();
+        // Both of these are substituted into `postgres://…:PASSWORD@host` without
+        // percent-encoding, so a delimiter would truncate the authority.
+        if matches!(name, "POSTGRES_PASSWORD" | "MARULA_APP_PASSWORD")
+            && !value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '~'))
+        {
+            return Err(PlanError::PasswordNotUrlSafe {
+                name: name.to_string(),
+            });
+        }
+        self.overrides.insert(name.to_string(), value.to_string());
         Ok(())
     }
 }
@@ -174,6 +185,13 @@ pub enum PlanError {
         name: String,
     },
     BadOverride(String),
+    /// A password is spliced into a connection URL without encoding, so a value
+    /// holding a URL delimiter would end the authority and point the client at a
+    /// host that is not there. The compose file's own header asks for hex for the
+    /// same reason; this refuses an override that would break it.
+    PasswordNotUrlSafe {
+        name: String,
+    },
     /// The host does not meet the profile's floors.
     FloorsNotMet {
         profile: String,
@@ -216,6 +234,12 @@ impl std::fmt::Display for PlanError {
                 write!(f, "{name} is not a lever this build publishes")
             }
             Self::BadOverride(raw) => write!(f, "expected NAME=value, got {raw:?}"),
+            Self::PasswordNotUrlSafe { name } => write!(
+                f,
+                "{name} is pasted into a connection URL and may only contain letters, digits, \
+                 '-', '.', '_' or '~'. Generate one with `openssl rand -hex 32`, or percent-encode \
+                 it yourself before passing it"
+            ),
             Self::FloorsNotMet { profile, missing } => write!(
                 f,
                 "profile {profile} needs more machine than this host has: {}",
@@ -938,6 +962,21 @@ mod tests {
             third.get("JWT_SECRET").map(String::as_str),
             Some("operator-chosen")
         );
+    }
+
+    #[test]
+    fn a_url_delimiter_in_a_password_is_refused() {
+        let mut selection = Selection::new("split", "/tmp");
+        let refused = selection
+            .set("POSTGRES_PASSWORD=p#q")
+            .expect_err("a delimiter would truncate the URL's authority");
+        assert!(matches!(refused, PlanError::PasswordNotUrlSafe { .. }));
+
+        // The value volume-conflict guidance sends operators to pass.
+        let mut legacy = Selection::new("split", "/tmp");
+        legacy
+            .set("POSTGRES_PASSWORD=marula")
+            .expect("the legacy value is url-safe");
     }
 
     #[test]

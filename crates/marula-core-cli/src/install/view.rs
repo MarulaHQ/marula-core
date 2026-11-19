@@ -1038,7 +1038,7 @@ mod tests {
         overrides.insert("MARULA_EMBEDDING_TIER".to_string(), "minimal".to_string());
         overrides.insert(
             "POSTGRES_PASSWORD".to_string(),
-            "a password the wizard must never echo".to_string(),
+            "wizard-must-never-echo".to_string(),
         );
         let plan = session.plan("all-in-one", &overrides).expect("a plan");
         let tier = plan
