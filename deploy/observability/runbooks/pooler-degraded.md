@@ -8,15 +8,23 @@ There is no alert for the pooler, because there is no series for it. PgBouncer d
 expose `SHOW STATS`, and nothing in the pack scrapes it. So the pooler arrives here as
 one of three symptoms behind somebody else's alert, and two of the three are silent.
 
-The `pooler` profile's topology is in `deploy/pooler/pgbouncer.ini`: transaction
-mode, 15 server connections per (database, user) pair with up to five more from
-the reserve pool while a client waits, 40 per database as the hard ceiling, and
-the reset query after every transaction. PgBouncer tracks prepared statements
-(`max_prepared_statements = 100`); the application's own cache is the setting
-that is off (`MARULA_DB_STATEMENT_CACHE = 0`), and that is what keeps a statement
-name from outliving the transaction that created it. A default install dials
-Postgres directly and has no pooler to degrade, so this page applies only when
-that profile is on.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:1ffa9db30e223db26d333f17771e9f81957a6d9b74fbff236cbce6046555cca2 -->
+
+The `pooler` profile in `deploy/pooler/pgbouncer.ini` uses transaction mode.
+Each (database, user) pair has 15 server connections by default
+(`default_pool_size = 15`). If a client waits longer than the default
+`reserve_pool_timeout` of 5 seconds, the pool can use up to five additional
+connections (`reserve_pool_size = 5`), for a total of 20. The hard ceiling is
+40 server connections per database across all users (`max_db_connections = 40`).
+The pooler runs the reset query after every transaction. PgBouncer tracks prepared
+statements (`max_prepared_statements = 100`); the application's own cache is off
+(`MARULA_DB_STATEMENT_CACHE = 0`), so a statement name does not outlive the
+transaction that created it. A default install dials Postgres directly and has no
+pooler to degrade, so this page applies only when that profile is on.
+
+<!-- /coderabbit-ai-generated:v1 -->
 The reasoning, with measurements, is [connection pooling](../../../docs/reference/connection-pooling.md).
 
 The symptom that costs the most time is the quiet one. A `LISTEN` attached to a pooled
