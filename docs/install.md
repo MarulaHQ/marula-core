@@ -245,8 +245,10 @@ behind that profile and Compose refuses the project without it. The `-f` and
 the function rather than on each call.
 
 The compose file sets the project name to `marula`, so the containers are
-`marula-core-api-1` and so on. Run this as the user that ran the install, or
-with `sudo` if the install did.
+`marula-core-api-1` and so on. Run this as the user that ran the install. If the
+install used `sudo`, put `sudo` before `docker` inside the function
+(`sudo docker compose …`); `sudo marula_compose` cannot work, because sudo runs
+a command and a shell function is not one.
 
 On `all-in-one`, always name the services. A bare `marula_compose up -d` starts
 the base file's separate worker too, and it fights core-api for port 8082.
@@ -374,9 +376,9 @@ stands.
 The pooler is opt-in because a single-node install does not need it. core-api
 and the worker dial Postgres directly, and one instance's connections fit
 inside the 100 a stock Postgres allows. Turn the profile on when you add a
-second API instance, and set `MARULA_APP_DATABASE_URL` and
-`MARULA_WORKER_APP_DATABASE_URL` to `pgbouncer:6432` with
-`MARULA_DB_STATEMENT_CACHE=0` in the env file at the same time.
+second API instance, and in the env file point the host inside
+`MARULA_APP_DATABASE_URL` and `MARULA_WORKER_APP_DATABASE_URL` at
+`pgbouncer:6432`, with `MARULA_DB_STATEMENT_CACHE=0`, at the same time.
 [`deploy/README.md`](../deploy/README.md) has the connection arithmetic and
 [`docs/reference/connection-pooling.md`](reference/connection-pooling.md) has
 the measurements.
@@ -415,11 +417,28 @@ Upgrades move one release at a time, and Marula supports jumps from either of
 the two previous tagged releases. Read the release notes before you start: they
 carry a **Breaking & deprecated** section even when it is empty.
 
+Two things about the install you already run are settled before step 3.
+
+**Name the shape.** Without `--profile`, the installer recommends again from
+this host, and it does not read the shape back from `marula.env`: an
+`all-in-one` install can come back as `split`. Pass the shape you have:
+`--profile split`, `--profile all-in-one`, or `--profile demo`.
+
+**Settle a pooled install.** If `MARULA_APP_DATABASE_URL` or
+`MARULA_WORKER_APP_DATABASE_URL` in `marula.env` points at `pgbouncer:6432`,
+decide now. Either start the pooler on the running stack so it is up when the
+new services are created (`marula_compose --profile pooler up -d pgbouncer`,
+and on `all-in-one` name the services: `marula_compose --profile pooler up -d
+core-api web pgbouncer`), or change the host in both URLs to `postgres:5432`
+(removing the two keys has the same effect) to take the direct default. Pooled
+URLs without the profile are the one combination that starts a stack whose
+health checks cannot pass.
+
 1. Back up first, even if you have no backup habit yet. The [backup
-   section](#backup-and-restore) below covers the database and `marula.env` in
-   two commands, and says what to do about the object store. The drill in [the
-   backup runbook](site/reference/backup-restore.md) is how you find out the
-   backup restores, and it is worth doing on a spare database, but it is not a
+   section](#backup-and-restore) below covers the database, `marula.env` and,
+   through the runbook, the object store. The drill in [the backup
+   runbook](site/reference/backup-restore.md) is how you find out the backup
+   restores, and it is worth doing on a spare database, but it is not a
    precondition for this upgrade.
 2. Download the new archive and its checksum list, and check the archive the
    same way you did the first one.
@@ -427,29 +446,16 @@ carry a **Breaking & deprecated** section even when it is empty.
    already use:
 
    ```sh
-   ./install.sh --dir /srv/marula --images registry --apply
+   ./install.sh --dir /srv/marula --images registry --profile split --apply
    ```
 
-   The plan reads the existing `marula.env` first, so the eight values stay put
-   and the new images replace the old ones. Migrations run before the API
-   starts, and the command returns when the health checks pass.
+   `split` is the default shape; pass the profile you named above when it is
+   `all-in-one` or `demo`. The plan reads the existing `marula.env` first, so
+   the eight values stay put and the new images replace the old ones.
+   Migrations run before the API starts, and the command returns when the
+   health checks pass.
 
 4. Run `./marula doctor --dir /srv/marula` and open the workspace.
-
-**Upgrading from a release that defaulted to the pooler.** Upgrading changes
-nothing by itself. The compose services read `MARULA_APP_DATABASE_URL` and
-`MARULA_WORKER_APP_DATABASE_URL`, neither of which the installer or a profile
-writes, and fall back to Postgres directly. A `DATABASE_URL` line in an old
-`marula.env` has no effect, because the compose file's `environment:` block
-shadows it. A pooled install keeps working: after the upgrade the services take
-the direct default, and the `pooler` profile is still there if you want the hop
-back. If you once hand-set either `MARULA_*_DATABASE_URL` to `pgbouncer:6432`,
-either keep the profile on (`marula_compose --profile pooler up -d`, and on
-`all-in-one` name the services: `marula_compose --profile pooler up -d core-api
-web pgbouncer`) or remove that key from `marula.env` and run `marula_compose up
--d` (`all-in-one`: `marula_compose up -d core-api web`) to take the direct
-default. One core-api instance fits inside a stock Postgres connection ceiling,
-so the direct URLs are the default for a single host.
 
 A release that publishes a signed update manifest can be applied without the
 download step. `./marula update --check --manifest <file>` says whether a newer
@@ -463,25 +469,42 @@ configuration, not data, so the backup in step 1 is still yours to take.
 
 Everything lives in Postgres, and once object storage is on, the attachments
 live in the bucket as well. Back up both or neither: a database-only restore
-leaves attachments pointing at objects that are not there.
+leaves attachments pointing at objects that are not there. The commands below
+take the database and `marula.env`. The object store needs its own copy: the
+`backup` profile's restic leg snapshots the Garage data and meta volumes with
+the nightly dump, and [the runbook](site/reference/backup-restore.md) has a
+manual copy for the rest.
 
 Write the backup outside the unpacked release directory, which the next upgrade
-replaces. `/var/backups/marula` is a good place on a server; use any directory
-you own if you did not install with `sudo`. `INSTALL` and `marula_compose` are
-the ones you defined in [Running commands against the
+replaces. `/var/backups/marula` is a good place on a server. `INSTALL` and
+`marula_compose` are the ones you defined in [Running commands against the
 install](#running-commands-against-the-install).
 
 ```sh
 BACKUP_DIR=/var/backups/marula
+BACKUP_DATE=$(date +%F)
+umask 077
 mkdir -p "$BACKUP_DIR"
-cp "$INSTALL/marula.env" "$BACKUP_DIR/marula.env-$(date +%F)"
+cp "$INSTALL/marula.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE"
 marula_compose exec -T postgres pg_dump -U marula -d marula -Fc \
-  > "$BACKUP_DIR/marula-$(date +%F).dump"
+  > "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
+  && mv "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
+        "$BACKUP_DIR/marula-$BACKUP_DATE.dump"
 ```
+
+`umask 077` makes both files readable only by you. The dump is written to a
+temporary name and moved into place only when `pg_dump` exits zero, so a failed
+run leaves the previous copy intact, and a rerun on the same day replaces a
+complete file.
 
 The copy of `marula.env` is part of the backup. The eight values are in it and
 nothing else reproduces them: a stack rebuilt with new signing keys signs
 everyone out.
+
+If the install ran with `sudo`, run the same block as root: `sudo mkdir`,
+`sudo cp`, and the compose command with `sudo` inside the function (see above).
+A non-root shell cannot write `/var/backups/marula` or read a root-owned
+`marula.env`.
 
 The dump command runs `pg_dump` inside the Postgres container and connects over
 its local socket, which the image's `initdb` leaves on trust, so it needs no
@@ -539,15 +562,16 @@ credential store pulls them like any other public image. That is Docker's
 policy rather than a promise from this repository, so if a pull ever asks for
 credentials, `docker login dhi.io` with a free Docker account is the fallback.
 
-To run from a mirror, edit the image references in the bundle's
-`deploy/docker-compose.yml`. The installer reads that file, so your edit reaches
-the next install run, whether that is the wizard or `--apply`. Keep the digests,
-so a mirror cannot substitute a different image behind your back. The four
-Marula images are the exception: `--images registry` writes a generated
-override that re-pins them to the release's digests, so pass
-`--image-base ghcr.io/your-org/marula` instead of editing those lines. The
-release's own prefix comes from `release.json` when you leave the flag out, and
-each service is `<base>-<service>`.
+To run from a mirror, start with the four Marula images: pass
+`--image-base ghcr.io/your-org/marula`, and the installer pulls them from your
+prefix with the release's digests. The release's own prefix comes from
+`release.json` when you leave the flag out, and each service is
+`<base>-<service>`. The hardened third-party images are the other half, and they
+live in the bundle's `deploy/docker-compose.yml`. Editing that file changes the
+tree its `SHA256SUMS` covers, so `./install.sh` refuses the next run. If you edit
+it, run the bundled `./marula install --compose-file deploy/docker-compose.yml
+--images registry …` directly instead of `install.sh`, and keep the digests so a
+mirror cannot substitute a different image.
 
 ## Troubleshooting
 
@@ -557,7 +581,7 @@ each service is `<base>-<service>`.
 | `unauthorized` while pulling `dhi.io/...` | Docker asked for credentials, which the hardened images do not normally require. `docker login dhi.io` with a free Docker account is the fix. |
 | `no shipped profile fits this host` | The host misses a floor in the shape's budget and the message names it. Free disk and cores are the usual ones. On a platform with no memory reading, pass `--memory-mb`. |
 | `port is already allocated` | Something holds 3000, 8080, 8082, 15432 or 16379. Stop it, or move the service. |
-| The API refuses to start after an install | Only when the local model you configured needs more cores or memory than the host has. With the `ai` profile off, the shipped default fits every accepted shape. Lower `MARULA_EMBEDDING_TIER` or set `MARULA_EMBEDDING_PROVIDER=openai`. |
+| The API refuses to start after an install | Two causes. It cannot reach Postgres, which the `core-api` log names on its first lines. Or the local model you configured needs more cores or memory than the host has, and with the `ai` profile off the shipped default fits every accepted shape. For the model case, lower `MARULA_EMBEDDING_TIER` or set `MARULA_EMBEDDING_PROVIDER=openai`. |
 | `--apply` stopped partway | Read the step it named, then run `marula_compose logs --tail 100 <service>` for the service that did not come up, and `./marula doctor --dir /srv/marula`. The env file is already written, so a second `--apply` continues from the values on disk. |
 | Compose rejects `!reset` | Your Compose is older than 2.24. Upgrade Docker Compose and apply again. |
 | `marula.env` is lost | Restore the copy from your backup, then run `marula_compose up -d` (on `all-in-one`, `marula_compose up -d core-api web`). Without that file the eight values are gone, and a stack rebuilt with new signing keys signs everyone out. |

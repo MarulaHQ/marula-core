@@ -115,20 +115,29 @@ Compose applies it in the `app-role-password` one-shot, Helm in the
 remembered afterwards.
 
 **Compose.** Put the new value in the env file you pass with `--env-file`
-(not on the command line), then bring the affected services back:
+(not on the command line). If you set `MARULA_APP_DATABASE_URL` by hand, change
+the password inside that URL as well: the variable is the whole URL, so a new
+`MARULA_APP_PASSWORD` never reaches it. Then bring the affected services back:
 
 ```sh
 docker compose -f deploy/docker-compose.yml --env-file my.env \
   up -d app-role-password core-api
 ```
 
-If the `pooler` profile is on, add it to the same command so its auth file is
-re-rendered and PgBouncer restarts onto it:
+With the `pooler` profile on, the same run has to re-render the auth file,
+recreate core-api against the new URL, and restart PgBouncer so it reads that
+file:
 
 ```sh
 docker compose -f deploy/docker-compose.yml --env-file my.env \
-  --profile pooler up -d app-role-password pooler-auth pgbouncer
+  --profile pooler up -d app-role-password core-api pooler-auth
+docker compose -f deploy/docker-compose.yml --env-file my.env \
+  --profile pooler restart pgbouncer
 ```
+
+A plain `up -d` leaves PgBouncer alone when its own service definition has not
+changed, and a running pooler keeps the auth file it read at start. The explicit
+`restart` is what makes it read the new one.
 
 Verify from a container on the compose network, not from inside the Postgres
 container, where `pg_hba` trusts loopback and *any* password is accepted:

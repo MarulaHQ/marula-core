@@ -10,9 +10,10 @@ for someone changing Marula. If you want a server that serves a team, read
   override file, and older Compose ignores it.
 - The Rust toolchain. [`rust-toolchain.toml`](../rust-toolchain.toml) pins
   stable, with `rustfmt` and `clippy`.
-- Node 22 or newer and pnpm 12.16.1. [`package.json`](../package.json) pins the
-  pnpm version through `packageManager`, so `corepack enable` is enough to
-  match it.
+- Node 22 or 24, the versions CI runs, and pnpm 12.16.1.
+  [`package.json`](../package.json) pins the pnpm version through
+  `packageManager`. `corepack enable pnpm` matches it on a Node that still
+  bundles Corepack; Node 25 dropped it, so install pnpm 12.16.1 yourself there.
 - Room for the Docker build cache. The first build compiles the whole Rust
   workspace and the web bundle into images, and that is the largest thing you
   will run locally.

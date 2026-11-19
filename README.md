@@ -155,8 +155,10 @@ says what is guaranteed and for how long.
 - Third-party components are listed in
   [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md).
 
-Running Marula unmodified for your own shop carries no extra obligations.
-Modifying it, or running it for others, asks you to share the source you changed
-on the same terms. Read the licence, or get advice if the edge cases matter. The
-Marula name, wordmark and fruit mark are trademarks, and none of these licences
-grants trademark rights.
+Under the AGPL, running an unmodified Marula for your own shop, or for clients,
+carries no source-sharing obligation. Two triggers add one. If you modify
+Marula and let people use that modified version over a network, section 13
+requires you to offer those users the modified source. Conveying the modified
+code brings the licence's distribution terms with it. Read the licence, or get
+advice if the edge cases matter. The Marula name, wordmark and fruit mark are
+trademarks, and none of these licences grants trademark rights.
