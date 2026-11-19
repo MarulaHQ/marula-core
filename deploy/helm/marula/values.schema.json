@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "marula chart values",
   "type": "object",
-  "description": "The values this chart accepts. Helm ignores a key it does not know, so every object the chart and the control plane write is closed to unknown keys: a misspelled block fails `helm template` instead of silently deploying a default. Blocks the chart does not interpret (secrets, email, object store, observability) stay open because their contents are references, not settings this schema can name.",
+  "description": "The values this chart accepts. Helm ignores a key it does not know, so the root and every block the chart reads are closed to unknown keys: a misspelled key fails `helm template` instead of silently deploying a default. What stays open is the set whose keys belong to Kubernetes rather than to this chart (nodeSelector, tolerations, affinity, the two security contexts and ingress.annotations), where the schema types the shape without pretending to know every label.",
   "additionalProperties": false,
   "properties": {
     "digestPinningEnforced": {
