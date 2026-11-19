@@ -47,10 +47,15 @@ jobs:
       - name: Resolve the version
         id: version
         # A tag is the release; a dispatch says which version it is rehearsing.
+        # The input reaches the shell through `env`, never through an
+        # expression in the script: a dispatch input is text a caller controls,
+        # and interpolation would make it part of the command.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            version="${{ inputs.version }}"
+            version="${INPUT_VERSION}"
           else
             version="${GITHUB_REF_NAME#v}"
           fi
