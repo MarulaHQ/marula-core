@@ -15,30 +15,39 @@
 
 ## Install
 
-Download this platform's archive from the [Releases
-page](https://github.com/MarulaHQ/marula-core/releases), unpack it, and run the
-installer it carries. There is no hosted `curl | sh` yet, and the bundle is the
-install path.
+The release publishes one archive and one checksum list per platform. Download
+both from the [Releases page](https://github.com/MarulaHQ/marula-core/releases):
+`marula-<version>-linux-x64.tar.gz` with `SHA256SUMS-linux-x64` on Linux x86_64,
+the `linux-arm64` pair on Linux arm64, or the `macos-arm64` pair on Apple
+silicon.
 
 ```sh
-# Download this platform's archive from the Releases page and unpack it, then:
+# Check the archive you downloaded, then unpack it and run the installer:
+sha256sum -c SHA256SUMS-linux-x64           # macOS: shasum -a 256 -c SHA256SUMS-macos-arm64
+tar -xzf marula-<version>-linux-x64.tar.gz
+cd marula-<version>-linux-x64
 ./install.sh
-# On a server, install to a service directory and read the plan before applying:
-#   sudo ./install.sh --dir /srv/marula --images registry
-#   sudo ./install.sh --dir /srv/marula --images registry --apply
+# On a server, print the plan and then apply it:
+#   ./install.sh --dir /srv/marula --images registry
+#   ./install.sh --dir /srv/marula --images registry --apply
 ```
 
-`./install.sh` checks the bundle's `SHA256SUMS` before anything runs. With no
-arguments it then opens the installer's wizard, which installs into `~/marula`.
-`--dir` prints the plan as text instead, and `--images registry` pulls the
-release's published images by digest from the bundle's `release.json`, so no
-digest is ever typed by hand. `--apply` writes the environment file and starts
-the stack, and it returns when the health checks pass. You need Docker with
-Compose 2.24 or newer. No account is needed: Docker Hardened Images are free and
-pull without a login, and if a pull ever asks for credentials, `docker login
-dhi.io` with a free Docker account is the fallback. [Installing on a
-machine](docs/install.md) covers the eight secrets, the shapes, upgrades and
-backups.
+The checksum proves the download arrived intact. The `.sig` beside the list is
+the release signature, and [`docs/release.md`](docs/release.md) shows that
+check. `./install.sh` then re-checks the unpacked tree against its own
+`SHA256SUMS`.
+
+With no arguments the installer opens its browser wizard, served on loopback,
+and installs into `~/marula`. `--dir` prints the plan as text instead, and
+`--images registry` pulls the four published images (`marula-core-api`,
+`marula-worker`, `marula-migrate`, `marula-web`) by digest from the bundle's
+`release.json`, so no digest is typed by hand. `--apply` writes the environment
+file and starts the stack, and it returns when the health checks pass. You need
+Docker with Compose 2.24 or newer. No account is needed: Docker Hardened Images
+are free and pull without a login, and if a pull ever asks for credentials,
+`docker login dhi.io` with a free Docker account is the fallback. [Installing on
+a machine](docs/install.md) covers the eight secrets, the shapes, the optional
+embedding model, upgrades and backups.
 
 ## What you get
 
