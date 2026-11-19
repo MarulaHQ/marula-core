@@ -404,8 +404,8 @@ marula_compose --profile ai up -d ollama ollama-model
   --set MARULA_EMBEDDING_PROVIDER=openai --set MARULA_EMBEDDING_API_KEY=<key>
 ```
 
-The API refuses to start only when the local model you configured needs more
-cores or memory than the host has. The shipped default fits inside every
+The API refuses to start if the local model you configured needs more cores or
+memory than the host has. The shipped default fits inside every
 shape's budget, and an install that leaves `ai` off runs no model at all, so a
 default install does not meet that refusal. If you raise
 `MARULA_EMBEDDING_TIER` or pin a larger model on a small box, the error names
@@ -434,12 +434,21 @@ core-api web pgbouncer`), or change the host in both URLs to `postgres:5432`
 URLs without the profile are the one combination that starts a stack whose
 health checks cannot pass.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e435277eb399ef50d98f2c0d7a2aabd380393acd9c79a5bbdd99eb804586f97b -->
+
 1. Back up first, even if you have no backup habit yet. The [backup
    section](#backup-and-restore) below covers the database, `marula.env` and,
-   through the runbook, the object store. The drill in [the backup
+   through the runbook, the object store. When object storage is enabled, back
+   up attachments in the same window as the database dump, following the
+   [object-store backup procedure](site/reference/backup-restore.md#backup).
+   The drill in [the backup
    runbook](site/reference/backup-restore.md) is how you find out the backup
    restores, and it is worth doing on a spare database, but it is not a
    precondition for this upgrade.
+
+<!-- /coderabbit-ai-generated:v1 -->
 2. Download the new archive and its checksum list, and check the archive the
    same way you did the first one.
 3. Unpack the new release and run its installer against the directory you
@@ -484,15 +493,17 @@ install](#running-commands-against-the-install).
 BACKUP_DIR=/var/backups/marula
 BACKUP_DATE=$(date +%F)
 umask 077
-mkdir -p "$BACKUP_DIR"
-cp "$INSTALL/marula.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE"
-marula_compose exec -T postgres pg_dump -U marula -d marula -Fc \
+mkdir -p "$BACKUP_DIR" \
+  && chmod 700 "$BACKUP_DIR" \
+  && cp "$INSTALL/marula.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE" \
+  && marula_compose exec -T postgres pg_dump -U marula -d marula -Fc \
   > "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
   && mv "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
         "$BACKUP_DIR/marula-$BACKUP_DATE.dump"
 ```
 
-`umask 077` makes both files readable only by you. The dump is written to a
+`umask 077` restricts newly created files, and `chmod 700` restricts the backup
+directory even if it already exists. The dump is written to a
 temporary name and moved into place only when `pg_dump` exits zero, so a failed
 run leaves the previous copy intact, and a rerun on the same day replaces a
 complete file.
@@ -501,10 +512,15 @@ The copy of `marula.env` is part of the backup. The eight values are in it and
 nothing else reproduces them: a stack rebuilt with new signing keys signs
 everyone out.
 
-If the install ran with `sudo`, run the same block as root: `sudo mkdir`,
-`sudo cp`, and the compose command with `sudo` inside the function (see above).
-A non-root shell cannot write `/var/backups/marula` or read a root-owned
-`marula.env`.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:93a4593e44b87dae29d2a06c7abe0b7929268604c7d6ab072bf7d71cbfb4e203 -->
+
+If the install ran with `sudo`, run the whole block in a root shell, with
+`INSTALL` and `marula_compose` defined there (see above). A non-root shell cannot
+write `/var/backups/marula` or read a root-owned `marula.env`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 The dump command runs `pg_dump` inside the Postgres container and connects over
 its local socket, which the image's `initdb` leaves on trust, so it needs no
@@ -581,7 +597,7 @@ mirror cannot substitute a different image.
 | `unauthorized` while pulling `dhi.io/...` | Docker asked for credentials, which the hardened images do not normally require. `docker login dhi.io` with a free Docker account is the fix. |
 | `no shipped profile fits this host` | The host misses a floor in the shape's budget and the message names it. Free disk and cores are the usual ones. On a platform with no memory reading, pass `--memory-mb`. |
 | `port is already allocated` | Something holds 3000, 8080, 8082, 15432 or 16379. Stop it, or move the service. |
-| The API refuses to start after an install | Two causes. It cannot reach Postgres, which the `core-api` log names on its first lines. Or the local model you configured needs more cores or memory than the host has, and with the `ai` profile off the shipped default fits every accepted shape. For the model case, lower `MARULA_EMBEDDING_TIER` or set `MARULA_EMBEDDING_PROVIDER=openai`. |
+| The API refuses to start after an install | Check the error message in `marula_compose logs --tail 100 core-api`. The API may be unable to reach Postgres, or the local model you configured may need more cores or memory than the host has. With the `ai` profile off, the shipped default fits every accepted shape. For the model case, lower `MARULA_EMBEDDING_TIER` or set `MARULA_EMBEDDING_PROVIDER=openai`. |
 | `--apply` stopped partway | Read the step it named, then run `marula_compose logs --tail 100 <service>` for the service that did not come up, and `./marula doctor --dir /srv/marula`. The env file is already written, so a second `--apply` continues from the values on disk. |
 | Compose rejects `!reset` | Your Compose is older than 2.24. Upgrade Docker Compose and apply again. |
 | `marula.env` is lost | Restore the copy from your backup, then run `marula_compose up -d` (on `all-in-one`, `marula_compose up -d core-api web`). Without that file the eight values are gone, and a stack rebuilt with new signing keys signs everyone out. |

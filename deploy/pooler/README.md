@@ -27,7 +27,7 @@ is, the rendered file is the mechanism.
 ## Running the renderer yourself
 
 A pooler that compose does not manage still needs the file. Run the same
-script where the two variables are already exported — it takes the output path
+script where the two variables are already exported; it takes the output path
 as its only argument:
 
 ```sh
@@ -92,8 +92,9 @@ data:
     pool_mode = transaction
     server_reset_query = DISCARD ALL
     server_reset_query_always = 1
-    max_prepared_statements = 0
+    max_prepared_statements = 100
     default_pool_size = 15
+    reserve_pool_size = 5
     max_db_connections = 40
     max_client_conn = 400
 ---
@@ -178,10 +179,13 @@ it to ask.
 
 ## Sizing
 
-`default_pool_size` is per (database, user) pair. The worker connects as the
-owner role and core-api as `marula_app`, so two pairs, 15 each, 30 server
-connections at rest — the number that has to stay under Postgres's
-`max_connections`, not the 54 connections per instance. Raise
+`default_pool_size` is per (database, user) pair, and `max_db_connections` is
+per pooler process, so both multiply by the replica count. The worker connects
+as the owner role and core-api as `marula_app`, so two pairs, 15 each: 30 server
+connections at rest from one pooler, 60 from the two this file deploys, and 80
+as the hard stop before any queue reserve opens. Those are the numbers to keep
+under Postgres's `max_connections`, not the 54 connections per application
+instance. A third replica adds 30 at rest and another 40 to the ceiling. Raise
 `default_pool_size` only against a measured queue, and keep
 `max_db_connections` as the hard stop.
 

@@ -49,8 +49,14 @@ the release signature, and [`docs/release.md`](docs/release.md) shows that
 check. `./install.sh` then re-checks the unpacked tree against its own
 `SHA256SUMS`.
 
-`./install.sh` with no arguments opens the browser wizard, which plans and
-applies on its own and installs into `~/marula`. With arguments it forwards them
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:6280aba4bd4687e82453fbbf4ad366e995ede4f19727abcb4c56bf37c1cac35e -->
+
+`./install.sh` with no arguments opens the loopback browser wizard, which plans
+and applies on its own and installs into `~/marula`. Release bundle users must
+select **Pull the published images** in the wizard or pass `--images registry`
+on the command line. With arguments it forwards them
 to `./marula install`: without `--ui` that prints the plan and writes nothing,
 and `--apply` writes the environment file and starts the stack. `--images
 registry` pulls the four published images (`marula-core-api`, `marula-worker`,
@@ -61,6 +67,8 @@ dhi.io` with a free Docker account is the fallback. [Installing on a
 machine](docs/install.md) covers the eight secrets, the shapes, the optional
 embedding model, upgrades and backups.
 
+
+<!-- /coderabbit-ai-generated:v1 -->
 ## What you get
 
 | URL | What it is |
@@ -155,10 +163,18 @@ says what is guaranteed and for how long.
 - Third-party components are listed in
   [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md).
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:529d6071eded3df62cd259623eb288d3e2634faf0128a3d51200af258875fc62 -->
+
 Under the AGPL, running an unmodified Marula for your own shop, or for clients,
 carries no source-sharing obligation. Two triggers add one. If you modify
 Marula and let people use that modified version over a network, section 13
-requires you to offer those users the modified source. Conveying the modified
-code brings the licence's distribution terms with it. Read the licence, or get
-advice if the edge cases matter. The Marula name, wordmark and fruit mark are
-trademarks, and none of these licences grants trademark rights.
+requires you to offer those users the modified source. Conveying either modified
+or unmodified copies brings the AGPL's distribution terms with it, including
+applicable source requirements. Read the licence, or get advice if the edge
+cases matter. The Marula name, wordmark and fruit mark are trademarks, and none
+of these licences grants trademark rights.
+
+
+<!-- /coderabbit-ai-generated:v1 -->
