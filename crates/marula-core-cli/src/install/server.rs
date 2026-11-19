@@ -327,6 +327,13 @@ impl PlanRequest {
         // carries `release.json` and none of the sources, so a build dies on the
         // first COPY. Switching here is what makes `./install.sh` work, which is
         // the command the README prints.
+        //
+        // The source test is the working directory, which is where the compose
+        // file's build context resolves from: `install.sh` cd's into the archive,
+        // so the two agree on the documented path. A caller who points `--dir` at
+        // an archive while standing in a checkout keeps `build`, and that is
+        // correct — the compose file it runs is the checkout's, whose context
+        // holds the sources.
         let images = if images == crate::install::plan::ImageSource::Build
             && crate::install::release::resolve(&session.dir, None)
                 .ok()
