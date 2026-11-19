@@ -701,7 +701,7 @@ fn profiles() -> Vec<Profile> {
     let split = Profile {
         name: "split",
         title: "Split services",
-        description: "The default topology. core-api and worker run as separate processes, so each scales and restarts on its own, dialling Postgres directly. Two processes fit inside the connection ceiling a stock Postgres allows, so the stack starts without a pooler. Turn the pooler on with the compose pooler profile, and point both database URLs at it while you do, when instances multiply. The floors come from the shipped embedding model, which needs four cores of its own, plus room for Postgres and the object store.",
+        description: "The default topology. core-api and worker run as separate processes, so each scales and restarts on its own, dialling Postgres directly. Two processes fit inside the connection ceiling a stock Postgres allows, so the stack starts without a pooler. Turn the pooler on with the compose pooler profile, and point both database URLs at it while you do, when instances multiply. The floors are a budget for the whole box. The largest line is the shipped embedding model, which the ai profile runs, plus room for Postgres and the object store; an install that leaves that profile off has headroom to spare.",
         sets: BTreeMap::from([
             (
                 "DATABASE_URL",
