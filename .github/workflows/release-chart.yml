@@ -1,0 +1,169 @@
+# Release chart — the Helm artifact the hosted control plane points Argo at.
+#
+# One job: package `deploy/helm/marula` at the release's version and push it to
+# `oci://ghcr.io/marulahq/charts`. The chart name is `marula`, so the published
+# reference is `ghcr.io/marulahq/charts/marula:<version>`; that is the URL a
+# control plane's Argo `Application` carries in `spec.source.repo`.
+#
+# Why a separate workflow from `release-images`: the images and the chart are
+# different artifacts with different failure modes, and a chart-only change
+# should not require the image matrix to run. Both are tag-triggered, so a
+# release still produces them from one tag.
+#
+# The version is the tag's, not `Chart.yaml`'s. `helm package --version`
+# overrides the field, so the chart on the registry always names the release it
+# came from. The guard below fails if `Cargo.toml` disagrees, which is the one
+# drift a tag can carry into a chart that still publishes.
+
+name: Release chart
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Chart version to publish (no leading v); must match Cargo.toml"
+        type: string
+        required: true
+
+permissions: {}
+
+# One group for every chart publication, whatever the ref. A tag run and a
+# dispatch can name the same version; keying this by ref would let both pass
+# the existence check before either pushes, and the second would overwrite the
+# first. Chart publications are infrequent, so serialising them all is cheap.
+#
+# The default queue holds one pending run, so a third trigger replaces the
+# waiting one. `queue: max` would keep both, but the repository's workflow
+# lint (actionlint 1.7.12, release-installer.yml) rejects that key, and a
+# superseded pending release is visible in the Actions list and re-runnable.
+concurrency:
+  group: release-chart
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Package and push the chart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the version
+        id: version
+        # A tag is the release; a dispatch says which version it is rehearsing.
+        # The input reaches the shell through `env`, never through an
+        # expression in the script: a dispatch input is text a caller controls,
+        # and interpolation would make it part of the command.
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${INPUT_VERSION}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          case "${version}" in
+            ""|*[!0-9A-Za-z.-]*)
+              echo "not a version: ${version}" >&2
+              exit 1
+              ;;
+          esac
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: The tag, the workspace and the chart name one version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          workspace="$(awk -F'"' '/^version = "/{print $2; exit}' Cargo.toml)"
+          if [ "${workspace}" != "${VERSION}" ]; then
+            echo "tag says ${VERSION}, Cargo.toml says ${workspace}" >&2
+            exit 1
+          fi
+          # The chart's committed version is a default for local installs; the
+          # packaged one is stamped from the tag. A mismatch means someone
+          # bumped the release without running the release lane.
+          chart="$(awk '$1=="version:"{print $2; exit}' deploy/helm/marula/Chart.yaml)"
+          if [ "${chart}" != "${VERSION}" ]; then
+            echo "Chart.yaml says ${chart}, the release is ${VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GH_TOKEN}" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Refuse to overwrite a published version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        # Release versions are immutable: a chart that changed under a version
+        # someone already pinned is a silent upgrade. Re-running a failed
+        # release publishes a new version, not the same one again.
+        #
+        # The lookup has three outcomes, and only one of them may continue. A
+        # registry timeout or an auth error is not evidence that the version is
+        # free, and `if helm show ...` would treat it as exactly that.
+        run: |
+          set -euo pipefail
+          if output=$(helm show chart oci://ghcr.io/marulahq/charts/marula --version "${VERSION}" 2>&1); then
+            echo "ghcr.io/marulahq/charts/marula:${VERSION} is already published" >&2
+            exit 1
+          fi
+          # A missing manifest is the only outcome that continues. Helm says
+          # `not found` for an OCI tag it could not resolve (verified against
+          # the registry) and containerd-style transports say `manifest
+          # unknown`; a bare `404` is NOT matched, because an error can carry
+          # the request URL and a version such as 1.2.404 in its text.
+          case "${output}" in
+            *"not found"*|*"manifest unknown"*|*"name unknown"*)
+              echo "ghcr.io/marulahq/charts/marula:${VERSION} is not published"
+              ;;
+            *)
+              echo "could not confirm the version is absent: ${output}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          helm package deploy/helm/marula \
+            --version "${VERSION}" \
+            --app-version "${VERSION}" \
+            --destination dist
+          # The package must render the hosted values document before it can
+          # be published. This is the same fixture CI checks; it runs here too
+          # so a release cannot publish a chart the PR gate never saw.
+          helm template tenant-acme "dist/marula-${VERSION}.tgz" \
+            -f deploy/helm/test/hosted-values.yaml > /dev/null
+
+      - name: Push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          helm push "dist/marula-${VERSION}.tgz" oci://ghcr.io/marulahq/charts
+
+      - name: State the artifact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          {
+            echo "### Chart"
+            echo
+            echo "- \`oci://ghcr.io/marulahq/charts/marula:${VERSION}\`"
+            echo "- Values contract: \`deploy/helm/test/hosted-values.yaml\` renders this package"
+            echo
+            echo "Argo pulls it from \`spec.source.repo\` with \`targetRevision\` equal to the"
+            echo "tenant's pinned Core version. A tenant is upgraded by moving that pin, not"
+            echo "by re-pushing a chart under a version it already holds."
+          } >> "$GITHUB_STEP_SUMMARY"

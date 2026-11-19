@@ -15,6 +15,21 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.runtimeClass }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- $ctx := deepCopy .Values.podSecurityContext -}}
         {{- $_ := set $ctx "runAsUser" (index .Values.runAsUserByComponent "cli" | default 65532) -}}
@@ -54,7 +69,4 @@ spec:
             # does not survive transaction pooling.
             - name: DATABASE_URL
               value: {{ include "marula.directOwnerUrl" . | quote }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector: {{- toYaml . | nindent 8 }}
-      {{- end }}
 {{- end }}

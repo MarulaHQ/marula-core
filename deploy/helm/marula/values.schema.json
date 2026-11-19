@@ -1,0 +1,1068 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "marula chart values",
+  "type": "object",
+  "description": "The values this chart accepts. Helm ignores a key it does not know, so every object the chart and the control plane write is closed to unknown keys: a misspelled block fails `helm template` instead of silently deploying a default. Blocks the chart does not interpret (secrets, email, object store, observability) stay open because their contents are references, not settings this schema can name.",
+  "additionalProperties": false,
+  "properties": {
+    "digestPinningEnforced": {
+      "type": "boolean"
+    },
+    "nonMarulaDigestPinningEnforced": {
+      "type": "boolean"
+    },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "existingSecret": {
+      "type": "string"
+    },
+    "runtimeClass": {
+      "type": "string"
+    },
+    "priorityClassName": {
+      "type": "string"
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "fsGroup": {
+      "type": "integer"
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "jwtSecret": {
+          "type": "string"
+        },
+        "appSecretKey": {
+          "type": "string"
+        },
+        "emailInboundHmacSecret": {
+          "type": "string"
+        },
+        "emailInternalToken": {
+          "type": "string"
+        },
+        "internalToken": {
+          "type": "string"
+        },
+        "jwtEddsaPrivateKey": {
+          "type": "string"
+        },
+        "jwtEddsaPublicKey": {
+          "type": "string"
+        },
+        "jwtKid": {
+          "type": "string"
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "registry": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pullPolicy": {
+          "type": "string"
+        },
+        "coreApi": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        },
+        "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        },
+        "cli": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[0-9a-f]{64})?$"
+            }
+          },
+          "required": [
+            "repository",
+            "tag"
+          ]
+        }
+      },
+      "required": [
+        "coreApi",
+        "worker",
+        "cli",
+        "web"
+      ]
+    },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deploy": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "database": {
+          "type": "string"
+        },
+        "ownerUser": {
+          "type": "string"
+        },
+        "ownerPassword": {
+          "type": "string"
+        },
+        "appUser": {
+          "type": "string"
+        },
+        "appPassword": {
+          "type": "string"
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "className": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            }
+          }
+        },
+        "externalUrl": {
+          "type": "string"
+        },
+        "externalAppUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deploy"
+      ]
+    },
+    "pooler": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "appUrl": {
+          "type": "string"
+        },
+        "ownerUrl": {
+          "type": "string"
+        },
+        "directAppUrl": {
+          "type": "string"
+        },
+        "directOwnerUrl": {
+          "type": "string"
+        }
+      }
+    },
+    "redis": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deploy": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "externalUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deploy"
+      ]
+    },
+    "coreApi": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bindAddr": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer"
+            },
+            "maxReplicas": {
+              "type": "integer"
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer"
+            }
+          }
+        },
+        "shutdownGraceSeconds": {
+          "type": "integer"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "preStopSleepSeconds": {
+          "type": "integer"
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "liveness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array"
+        },
+        "corsOrigin": {
+          "type": "string"
+        },
+        "publicBaseUrl": {
+          "type": "string"
+        },
+        "maxUploadMb": {
+          "type": "integer"
+        },
+        "trustedProxies": {
+          "type": "string"
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bindAddr": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer"
+            },
+            "maxReplicas": {
+              "type": "integer"
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer"
+            }
+          }
+        },
+        "shutdownGraceSeconds": {
+          "type": "integer"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "preStopSleepSeconds": {
+          "type": "integer"
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "liveness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array"
+        },
+        "relayBatch": {
+          "type": "integer"
+        }
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bindAddr": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number"
+                ]
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer"
+            },
+            "maxReplicas": {
+              "type": "integer"
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer"
+            }
+          }
+        },
+        "shutdownGraceSeconds": {
+          "type": "integer"
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer"
+        },
+        "preStopSleepSeconds": {
+          "type": "integer"
+        },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "liveness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            },
+            "readiness": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "periodSeconds": {
+                  "type": "integer"
+                },
+                "failureThreshold": {
+                  "type": "integer"
+                },
+                "timeoutSeconds": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "extraEnv": {
+          "type": "array"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "nextPublicApiUrl": {
+          "type": "string"
+        }
+      }
+    },
+    "email": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transport": {
+          "type": "string"
+        },
+        "smtpHost": {
+          "type": "string"
+        },
+        "smtpPort": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        }
+      }
+    },
+    "mailpit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        }
+      }
+    },
+    "objectStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "localDir": {
+          "type": "string"
+        },
+        "s3": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "string"
+            },
+            "bucket": {
+              "type": "string"
+            },
+            "region": {
+              "type": "string"
+            },
+            "accessKeyId": {
+              "type": "string"
+            },
+            "secretAccessKey": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "garage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "string"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "bootstrapImage": {
+          "type": "string"
+        },
+        "bootstrapImageDigest": {
+          "type": "string"
+        },
+        "createS3Key": {
+          "type": "boolean"
+        },
+        "rpcSecret": {
+          "type": "string"
+        },
+        "adminToken": {
+          "type": "string"
+        },
+        "zone": {
+          "type": "string"
+        },
+        "capacity": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "s3Region": {
+          "type": "string"
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "metaSize": {
+              "type": [
+                "string",
+                "number"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "otel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exporterOtlpEndpoint": {
+          "type": "string"
+        }
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "coreApi": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer"
+            }
+          }
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "tlsMode": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "edge"
+          ]
+        },
+        "tlsSecretName": {
+          "type": "string"
+        },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "bodySizeMb": {
+              "type": "integer"
+            },
+            "readTimeoutSeconds": {
+              "type": "integer"
+            },
+            "sendTimeoutSeconds": {
+              "type": "integer"
+            },
+            "buffering": {
+              "type": "string"
+            }
+          }
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "enabled"
+      ]
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxUnavailable": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9]+%$"
+            }
+          ]
+        }
+      }
+    },
+    "topologySpread": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxSkew": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "topologyKey": {
+          "type": "string"
+        },
+        "whenUnsatisfiable": {
+          "type": "string"
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "ingressControllerNamespace": {
+          "type": "string"
+        },
+        "extraIngress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "runAsUserByComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "coreApi": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "worker": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cli": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "web": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "postgres": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "redis": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "garage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mailpit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bootstrap": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "containerSecurityContext": {
+      "type": "object"
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        }
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "operator": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "tolerationSeconds": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "affinity": {
+      "type": "object"
+    }
+  }
+}

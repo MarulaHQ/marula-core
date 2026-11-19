@@ -657,6 +657,37 @@ jobs:
           dockerfile: deploy/backup/Dockerfile.backup
           failure-threshold: error
 
+  # The chart is a published artifact: a hosted control plane renders its
+  # values and Argo applies them, so a chart that only renders with the
+  # in-repo defaults is a chart that fails at a customer install. The hosted
+  # fixture is one values document in the shape that control plane emits; the
+  # values schema catches a misspelled block. `helm lint` alone does not: it
+  # prints the digest-pinning failure and still exits zero.
+  chart:
+    name: Helm chart — lint and the hosted values document
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Package the chart
+        run: helm package deploy/helm/marula --destination dist
+      - name: Render a hosted tenant
+        run: helm template tenant-acme deploy/helm/marula -f deploy/helm/test/hosted-values.yaml > /dev/null
+      - name: Render a suspended tenant
+        run: |
+          helm template tenant-acme deploy/helm/marula \
+            -f deploy/helm/test/hosted-values.yaml \
+            --set coreApi.replicaCount=0 \
+            --set worker.replicaCount=0 \
+            --set web.replicaCount=0 > /dev/null
+      - name: The digest gate still refuses an unpinned image
+        run: |
+          if helm template tenant-acme deploy/helm/marula \
+            -f deploy/helm/test/hosted-values.yaml \
+            --set images.web.digest="" > /dev/null 2>&1; then
+            echo "the chart rendered an unpinned image; digestPinningEnforced is not working" >&2
+            exit 1
+          fi
+
   # Two linters, because they read different files and the split is not obvious.
   #
   # hadolint (above) is a file lint: seconds, no policy bundle, and a Dockerfile

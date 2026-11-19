@@ -13,6 +13,44 @@ Image policy (the private build tracker U10b): every image reference is digest-p
 `images.*.digest` set. Digests are published per release with SBOM +
 provenance attestations (`.github/workflows/release.yml`).
 
+## The hosted values contract
+
+A hosted tenant is one namespace, one Helm release, and one values document the
+control plane renders from its `TenantResource`. The document is checked in as
+`test/hosted-values.yaml` and rendered by CI with `helm template`, so a change
+to either side fails here before it fails at an install.
+
+The chart reads three things from that document beyond the image slot the
+self-host install also sets:
+
+- `existingSecret` names the tenant's Secret. The chart does not mint one in a
+  hosted release: the platform creates it with the JWT key, the encryption key
+  and the database passwords, and the pods reference the keys.
+- `runtimeClass` and `priorityClassName` carry the tenant class placement. A
+  dedicated tenant renders `runtimeClassName: gvisor` on core-api, the worker,
+  the web front end and the migrations hook; a pooled tenant leaves both empty
+  and gets the cluster default.
+- `nodeSelector`, `tolerations` and `affinity` are the same placement, expressed
+  for the scheduler. All four application workloads read them.
+
+`values.schema.json` closes the root and every block whose keys this chart
+reads: the workload and database settings, `secrets`, `email`, `objectStore`,
+`garage`, `mailpit`, `otel`, `migrations`, `service`, `pooler`, the disruption
+and network-policy blocks, and the resources each of them configures. Helm
+ignores a key it does not know, so without that a misspelled key would deploy
+a default — `email.transprot: none` would render the `smtp` transport. A new
+value belongs in the schema in the same change that adds it to `values.yaml`.
+
+Three shapes stay open because their keys are Kubernetes', not this chart's:
+`nodeSelector` (any label name with a string value), `tolerations` (Toleration
+objects), and `affinity` (passed through as the object it is). The two security
+contexts and `ingress.annotations` are the same kind of pass-through. The
+schema types their shape without pretending to know every label, so a
+misspelling inside `affinity` is Kubernetes' to reject.
+
+`images.cli` is the migrations image, which is published as `marula-migrate`
+and runs the `marula-core-cli` binary. The slot keeps the binary's name.
+
 Validate locally (helm 3.14+):
 
     helm lint marula
