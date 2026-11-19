@@ -480,31 +480,15 @@ replaces. `/var/backups/marula` is a good place on a server. `INSTALL` and
 `marula_compose` are the ones you defined in [Running commands against the
 install](#running-commands-against-the-install).
 
-```sh
-BACKUP_DIR=/var/backups/marula
-BACKUP_DATE=$(date +%F)
-umask 077
-mkdir -p "$BACKUP_DIR"
-cp "$INSTALL/marula.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE"
-marula_compose exec -T postgres pg_dump -U marula -d marula -Fc \
-  > "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
-  && mv "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
-        "$BACKUP_DIR/marula-$BACKUP_DATE.dump"
-```
+<!-- coderabbit-ai-generated:v1 -->
 
-`umask 077` makes both files readable only by you. The dump is written to a
-temporary name and moved into place only when `pg_dump` exits zero, so a failed
-run leaves the previous copy intact, and a rerun on the same day replaces a
-complete file.
+<!-- coderabbit-ai-generated-section:v1:93a4593e44b87dae29d2a06c7abe0b7929268604c7d6ab072bf7d71cbfb4e203 -->
 
-The copy of `marula.env` is part of the backup. The eight values are in it and
-nothing else reproduces them: a stack rebuilt with new signing keys signs
-everyone out.
+If the install ran with `sudo`, run the whole block in a root shell, with
+`INSTALL` and `marula_compose` defined there (see above). A non-root shell cannot
+write `/var/backups/marula` or read a root-owned `marula.env`.
 
-If the install ran with `sudo`, run the same block as root: `sudo mkdir`,
-`sudo cp`, and the compose command with `sudo` inside the function (see above).
-A non-root shell cannot write `/var/backups/marula` or read a root-owned
-`marula.env`.
+<!-- /coderabbit-ai-generated:v1 -->
 
 The dump command runs `pg_dump` inside the Postgres container and connects over
 its local socket, which the image's `initdb` leaves on trust, so it needs no
