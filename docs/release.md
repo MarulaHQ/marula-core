@@ -38,6 +38,20 @@ SHA256SUMS                   every file above, for `sha256sum -c`
 The directory is the unit a release is reviewed as. The archive is the unit a
 person downloads, and its checksum is what a signature covers.
 
+Two more artifacts come from the same tag and do not appear in that table:
+the container images and the Helm chart. `release-images` builds
+`marula-core-api`, `marula-worker`, `marula-migrate` and `marula-web` for
+`linux/amd64` and `linux/arm64`, joins each architecture pair into one manifest
+and pushes it to `ghcr.io/marulahq/<image>:<tag>`. `release-chart` packages
+`deploy/helm/marula` at the tag's version and pushes it to
+`ghcr.io/marulahq/charts/marula:<version>`. The chart is the artifact a hosted
+deployment points Argo at; `deploy/helm/test/hosted-values.yaml` is the values
+document that deployment renders, and the chart CI renders it on every change.
+
+Release versions of both are immutable. The workflows refuse to publish a tag
+that already exists, because a chart or an image changing under a version
+someone has pinned is an upgrade nobody asked for.
+
 ## Where the signature comes from
 
 Checksums are signed with the same SSH key that signs release tags. Its public
