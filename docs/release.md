@@ -38,6 +38,71 @@ SHA256SUMS                   every file above, for `sha256sum -c`
 The directory is the unit a release is reviewed as. The archive is the unit a
 person downloads, and its checksum is what a signature covers.
 
+## The image digest manifest
+
+A release publishes four container images, and the images run also writes one
+JSON file that names them by digest:
+
+```json
+{
+  "schema": "marula.images/1",
+  "version": "0.4.0",
+  "images": {
+    "core-api": "ghcr.io/marulahq/marula-core-api@sha256:<64 hex digits>",
+    "migrate": "ghcr.io/marulahq/marula-migrate@sha256:<64 hex digits>",
+    "web": "ghcr.io/marulahq/marula-web@sha256:<64 hex digits>",
+    "worker": "ghcr.io/marulahq/marula-worker@sha256:<64 hex digits>"
+  }
+}
+```
+
+`schema` names the document shape and `version` the release it belongs to.
+`images` maps each published service to
+`ghcr.io/marulahq/<image>@sha256:<digest>`. Those digests are the ones each
+publish leg took from `buildx imagetools create --metadata-file`; none is read
+back from a tag that can move afterwards. A map missing a service is refused in
+the job that holds the list of what is missing.
+
+The file is deterministic: keys sorted, two-space indent, one trailing newline.
+Two runs over the same digests write the same bytes, so a diff between two
+releases names only what changed.
+
+`scripts/release/images.mjs` writes it with `--digest-manifest`, and
+`.github/workflows/release-images.yml` uploads it as the `image-digests`
+workflow artifact. That artifact expires after 90 days and is not attached to
+the GitHub release. The attach job uploads every file in `dist/release`, and the
+signed `SHA256SUMS` covers only `marula-<version>-*`, `SHA256SUMS-*` and
+`release.json`, so a copy there would be an unsigned release asset. The durable
+copy of the same digests is the `images` map in `release.json`, which ships with
+every platform archive and is covered by the release key's signature.
+
+Its consumer is tooling outside this repository's release path: a control plane
+that records which images a tenant runs reads `images[service]` and pins that
+reference. The bundle installer keeps reading `release.json`.
+
+## The canonical image set
+
+Four services are published, and each image runs one binary:
+
+| Service | Image | Binary |
+| --- | --- | --- |
+| `core-api` | `ghcr.io/marulahq/marula-core-api` | `core-api` |
+| `worker` | `ghcr.io/marulahq/marula-worker` | `worker` |
+| `migrate` | `ghcr.io/marulahq/marula-migrate` | `marula-core-cli` |
+| `web` | `ghcr.io/marulahq/marula-web` | the Next.js server |
+
+**`migrate` runs the `marula-core-cli` binary inside the `marula-migrate`
+image.** `marula-core-cli` is a binary name, not a published image: no
+`ghcr.io/marulahq/marula-core-cli` exists, so anything that pulls it fails. A
+chart's migration job, a runbook or a compose file that runs migrations pulls
+`marula-migrate`.
+
+`node scripts/release/images.mjs --self-test` compares the table above to a
+literal in the script and fails when a service name, an image name or a binary
+changes. It also refuses a digest map that carries a component outside the four.
+Changing the published set is a decision recorded in both places, not a rename
+that slips into a release.
+
 ## Where the signature comes from
 
 Checksums are signed with the same SSH key that signs release tags. Its public
