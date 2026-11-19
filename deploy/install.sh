@@ -32,6 +32,9 @@ say() { printf '==> %s\n' "$*"; }
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 
 INSTALL_DIR="${MARULA_INSTALL_DIR:-$HOME/marula}"
+# Whether the caller named a directory, as opposed to it happening to equal the
+# default: `--dir ~/marula` is an argument and asks for the plan, not the wizard.
+DIR_GIVEN=0
 ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,11 +42,15 @@ while [ $# -gt 0 ]; do
       # Kept out of ARGS: this script passes --dir itself, and two copies of the
       # same flag would make the CLI refuse the whole command.
       [ $# -ge 2 ] || die "--dir needs a value"
+      [ -n "$2" ] || die "--dir needs a value"
       INSTALL_DIR="$2"
+      DIR_GIVEN=1
       shift 2
       ;;
     --dir=*)
       INSTALL_DIR="${1#--dir=}"
+      [ -n "$INSTALL_DIR" ] || die "--dir needs a value"
+      DIR_GIVEN=1
       shift
       ;;
     --compose-file | --ui-dir | --compose-file=* | --ui-dir=*)
@@ -89,7 +96,7 @@ fi
 # script exists to remove. This runs first: the registry default below would
 # otherwise make the list non-empty and turn the first-run command into a plan
 # that writes nothing.
-if [ "${#ARGS[@]}" -eq 0 ] && [ "$INSTALL_DIR" = "$HOME/marula" ]; then
+if [ "${#ARGS[@]}" -eq 0 ] && [ "$DIR_GIVEN" -eq 0 ]; then
   ARGS=(--ui)
 fi
 

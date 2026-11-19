@@ -322,6 +322,22 @@ impl PlanRequest {
                 )))
             })?,
         };
+        // The wizard's first run asks for `build` because that is the right
+        // answer in a checkout. In a release archive it cannot be: the bundle
+        // carries `release.json` and none of the sources, so a build dies on the
+        // first COPY. Switching here is what makes `./install.sh` work, which is
+        // the command the README prints.
+        let images = if images == crate::install::plan::ImageSource::Build
+            && crate::install::release::resolve(&session.dir, None)
+                .ok()
+                .flatten()
+                .is_some()
+            && !std::path::Path::new("Cargo.toml").exists()
+        {
+            crate::install::plan::ImageSource::Registry
+        } else {
+            images
+        };
         let restart = match self.restart.as_deref() {
             None => crate::install::plan::RestartPolicy::UnlessStopped,
             Some(value) => crate::install::plan::RestartPolicy::parse(value).ok_or_else(|| {
