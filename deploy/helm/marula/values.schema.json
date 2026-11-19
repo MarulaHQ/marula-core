@@ -687,7 +687,10 @@
           "type": "string"
         },
         "smtpPort": {
-          "type": "string"
+          "type": [
+            "string",
+            "integer"
+          ]
         }
       }
     },
@@ -771,7 +774,10 @@
           "type": "string"
         },
         "capacity": {
-          "type": "string"
+          "type": [
+            "string",
+            "integer"
+          ]
         },
         "s3Region": {
           "type": "string"
@@ -781,10 +787,16 @@
           "additionalProperties": false,
           "properties": {
             "size": {
-              "type": "string"
+              "type": [
+                "string",
+                "number"
+              ]
             },
             "metaSize": {
-              "type": "string"
+              "type": [
+                "string",
+                "number"
+              ]
             }
           }
         }
@@ -898,9 +910,15 @@
           "type": "boolean"
         },
         "maxUnavailable": {
-          "type": [
-            "integer",
-            "string"
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "string",
+              "pattern": "^[0-9]+%$"
+            }
           ]
         }
       }
@@ -913,7 +931,8 @@
           "type": "boolean"
         },
         "maxSkew": {
-          "type": "integer"
+          "type": "integer",
+          "minimum": 1
         },
         "topologyKey": {
           "type": "string"
@@ -934,7 +953,10 @@
           "type": "string"
         },
         "extraIngress": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
         }
       }
     },
@@ -943,8 +965,44 @@
     },
     "runAsUserByComponent": {
       "type": "object",
-      "additionalProperties": {
-        "type": "integer"
+      "additionalProperties": false,
+      "properties": {
+        "coreApi": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "worker": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cli": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "web": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "postgres": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "redis": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "garage": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mailpit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bootstrap": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "containerSecurityContext": {
