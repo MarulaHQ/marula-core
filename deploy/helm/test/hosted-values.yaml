@@ -1,34 +1,31 @@
 # One values document as the hosted control plane renders it for a tenant.
 #
-# This file is a fixture, not a profile: it is the shape the reconciler emits
-# from a `TenantResource`, checked into the chart's own test surface so a
-# change to either side fails `helm template` here rather than at the first
-# hosted install. Host names and digests are placeholders; the point is the
-# key set, not the values.
-digestPinningEnforced: true
-
-existingSecret: tenant-acme-secrets
-
+# This file is a fixture, not a profile: it is the exact output of the
+# reconciler's `renderHelmValues` for a pooled tenant, checked into the chart's
+# own test surface so a change to either side fails `helm template` here rather
+# than at the first hosted install. Its twin lives in the control plane's
+# repository at `services/reconciler/test/fixtures/hosted-values.yaml`. Host
+# names and digests are placeholders; the point is the document, not the values.
+existingSecret: "tenant-acme-secrets"
 images:
-  registry: ghcr.io/marulahq
-  pullPolicy: IfNotPresent
+  registry: "ghcr.io/marulahq"
+  pullPolicy: "IfNotPresent"
   coreApi:
-    repository: marula-core-api
+    repository: "marula-core-api"
     tag: "v0.4.0"
     digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
   worker:
-    repository: marula-worker
+    repository: "marula-worker"
     tag: "v0.4.0"
     digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"
   cli:
-    repository: marula-migrate
+    repository: "marula-migrate"
     tag: "v0.4.0"
     digest: "sha256:3333333333333333333333333333333333333333333333333333333333333333"
   web:
-    repository: marula-web
+    repository: "marula-web"
     tag: "v0.4.0"
     digest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"
-
 coreApi:
   replicaCount: 1
 worker:
@@ -36,26 +33,17 @@ worker:
 web:
   replicaCount: 1
   nextPublicApiUrl: "https://acme.marula.example"
-
 ingress:
   enabled: true
-  className: nginx
-  host: acme.marula.example
-  tlsMode: direct
-  tlsSecretName: tenant-acme-tls
-
+  host: "acme.marula.example"
+  tlsMode: "direct"
+  tlsSecretName: "tenant-acme-tls"
 postgresql:
   deploy: true
-  database: marula
-  ownerUser: marula
-  appUser: marula_app
-
+  database: "tenant_acme"
+  ownerUser: "tenant_acme"
+  appUser: "marula_app"
 redis:
   deploy: true
-
-runtimeClass: ""
-priorityClassName: ""
-
-nodeSelector: {}
-tolerations: []
-affinity: {}
+nodeSelector:
+  "marula.io/tenancy": "shared"
