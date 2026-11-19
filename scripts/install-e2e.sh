@@ -93,8 +93,10 @@ say "tearing the first stack down before the second one takes its ports"
 # The shape decides which services exist: all-in-one runs the loops inside
 # core-api and has no worker. Starting the base file's worker there would build a
 # service the shape never starts, from a directory with no sources.
+# The shape is recorded in the installer's env file, not in the one `gen-env.sh`
+# writes: that one carries the eight secrets and nothing about the topology.
 SHAPE_SERVICES=(core-api worker web)
-if grep -q '^MARULA_ALL_IN_ONE=1' "$INSTALL_DIR/compose.env" 2>/dev/null; then
+if grep -q '^MARULA_ALL_IN_ONE=1' "$INSTALL_DIR/marula.env" 2>/dev/null; then
   SHAPE_SERVICES=(core-api web)
 fi
 (cd "$BUNDLE" && docker compose \
