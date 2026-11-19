@@ -1,0 +1,49 @@
+name: apt install, with a retry
+description: >
+  Installs Debian packages through apt, skipping the install when a command the
+  packages provide is already on the runner image, and retrying a failed fetch a
+  few times. Written after `security.ubuntu.com` answered 503 to every package on
+  2026-11-19 and failed two legs of a tagged release whose images had already
+  published. A mirror blip should cost a retry, not a release.
+
+inputs:
+  packages:
+    description: Space-separated package names, passed to `apt-get install`.
+    required: true
+  present:
+    description: >
+      Optional command name. When it resolves on PATH, the packages are already
+      there and apt is not touched at all.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+        PRESENT: ${{ inputs.present }}
+      run: |
+        set -u
+        if [ -n "${PRESENT}" ] && command -v "${PRESENT}" >/dev/null 2>&1; then
+          echo "${PRESENT} is already on this image, so apt is not touched:"
+          "${PRESENT}" --version 2>&1 | head -1 || true
+          exit 0
+        fi
+        # shellcheck disable=SC2086  # the package list is meant to split
+        for attempt in 1 2 3; do
+          if sudo apt-get update && sudo apt-get install --yes --no-install-recommends ${PACKAGES}; then
+            exit 0
+          else
+            status=$?
+          fi
+          # Only promise a retry when another attempt follows it.
+          if [ "${attempt}" -lt 3 ]; then
+            echo "::warning::apt attempt ${attempt} failed with ${status}; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          fi
+        done
+        echo "::error::apt gave up after three attempts. The apt output above says which: a mirror that stayed unavailable, or a package name apt cannot resolve."
+        exit 1
