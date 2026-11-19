@@ -13,6 +13,17 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-19
+
+### Added
+
+- A tagged release publishes the four application images to GHCR and records their digests in the manifest, so an install from a release bundle can pin the images that were published instead of refusing for a missing digest.
+- Hosted and automated deployments can pull the Marula Core Helm chart from the release registry. Each release also publishes one machine-readable file naming every image it built by digest, so a deployment pins exactly what shipped.
+
+### Fixed
+
+- The image prefix the CLI and the installer suggest is now `ghcr.io/marulahq/marula`; the previous one named a registry namespace that does not exist, so copying it failed on the first pull.
+
 ## [0.4.0] - 2026-11-17
 
 ### Added
@@ -362,7 +373,8 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 - Dispatch with SLA awareness and scheduling.
 - The client portal with tickets, invoices, and the knowledge base.
 
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/MarulaHQ/marula-core/compare/v0.4.0...v0.5.0
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.5.0...HEAD
 [0.4.0]: https://github.com/MarulaHQ/marula-core/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/MarulaHQ/marula-core/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/MarulaHQ/marula-core/compare/v0.3.6...v0.3.7
