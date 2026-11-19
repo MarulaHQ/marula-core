@@ -221,6 +221,16 @@ carry a **Breaking & deprecated** section even when it is empty.
 
 4. Run `./marula doctor --dir /srv/marula` and open the workspace.
 
+**Upgrading from a release that defaulted to the pooler.** Earlier releases
+started a connection pooler and pointed both database URLs at `pgbouncer:6432`.
+If your `marula.env` still names that host, it keeps winning over the new
+default, and a stack started without the pooler has nothing to answer on that
+port. Pick one: start the stack with the `pooler` profile
+(`docker compose --profile pooler …`), or change `MARULA_APP_DATABASE_URL` and
+`MARULA_WORKER_APP_DATABASE_URL` to `postgres:5432` before you recreate the
+stack. One core-api instance fits inside a stock Postgres connection ceiling, so
+the direct URLs are the supported default for a single host.
+
 A release that publishes a signed update manifest can be applied without the
 download step. `marula update --check` says whether a newer release exists, and
 `marula update --apply` verifies the signature, backs up the files the install
