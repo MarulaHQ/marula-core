@@ -3413,14 +3413,14 @@ mod tests {
 
     /// The bound the lane promised to make mechanical: the statement-cache
     /// capacity the app is told to use must fit inside the pooler's own
-    /// `max_prepared_statements`, and the shipped reset query decides whether
+    /// `max_prepared_statements`, and the profile's reset query decides whether
     /// a cache is legitimate at all.
     ///
     /// `deploy/pooler/pgbouncer.ini` is the config the compose stack runs, so
     /// reading it here ties the two halves of the setting together: editing
     /// either one alone fails this test.
     #[test]
-    fn the_statement_cache_fits_the_shipped_pooler() {
+    fn the_statement_cache_fits_the_pooler_profile() {
         let ini = std::fs::read_to_string(repo_root().join("deploy/pooler/pgbouncer.ini"))
             .expect("deploy/pooler/pgbouncer.ini");
         let value = |key: &str| -> String {
@@ -3437,7 +3437,7 @@ mod tests {
         assert_eq!(
             value("pool_mode"),
             "transaction",
-            "the shipped pooler is a transaction pooler; the app's statement cache \
+            "the pooler profile is a transaction pooler; the app's statement cache \
              capacity was chosen for it"
         );
         assert_eq!(value("server_reset_query"), "DISCARD ALL");
@@ -3470,7 +3470,7 @@ mod tests {
         assert_eq!(
             (reset_always.as_str(), cache_default),
             ("1", 0),
-            "the shipped pooler resets after every transaction, so the app's cache \
+            "the pooler profile resets after every transaction, so the app's cache \
              must stay disabled: a cached name cannot survive the reset"
         );
     }
