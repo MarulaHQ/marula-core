@@ -514,8 +514,10 @@ The stack is built to run without root and without a writable filesystem.
   one-shot helpers: the AI profile's `ollama-model`, which pulls the model, and
   the demo overlay's `object-init`, `db-grants` and `demo-seed`, which prepare
   the demo volume, its grants and its data. Most services mount a read-only root
-  filesystem and write only to their own volume or a tmpfs. Postgres, Grafana and
-  ClamAV keep a writable root because their own boot logic needs one.
+  filesystem and write only to their own volume or a tmpfs. Five long-running
+  services keep a writable root: Postgres, Grafana and ClamAV because their own
+  boot logic needs one, and `ollama` and `uptime-kuma` because each writes state
+  outside its data volume, which their compose comments record as a known gap.
 - The application images drop to a fixed numeric user at build time. Root
   appears in one-shots whose job needs it: Postgres' first-boot init, which
   re-execs as `postgres` before it accepts a connection, `pooler-auth`, which

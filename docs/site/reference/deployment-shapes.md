@@ -88,12 +88,13 @@ restore and the time-travel step.
 
 ## Where the floors come from
 
-The four cores are the shipped embedding model's floor. Marula runs retrieval
-locally by default, and a model that cannot load turns every search into an error
-rather than a slower answer. If you would rather use cloud embeddings, set
-`MARULA_EMBEDDING_PROVIDER=openai` and `MARULA_EMBEDDING_API_KEY`, and the hybrid
-memory refusal in the plan stops applying. The installer will not quietly pick a
-smaller local model for you.
+The four cores are a line in the shipped embedding model's budget, not a boot
+dependency. The model is opt-in through the `ai` compose profile: a default
+install does not start it, the API boots without it, and retrieval falls back to
+the lexical leg rather than failing. If you would rather use cloud embeddings,
+set `MARULA_EMBEDDING_PROVIDER=openai` and `MARULA_EMBEDDING_API_KEY`, and the
+hybrid memory refusal in the plan stops applying. The installer will not quietly
+pick a smaller local model for you.
 
 The memory floor covers the model, Postgres and Valkey on one box. The disk floor
 covers the images and the database with room to grow.
