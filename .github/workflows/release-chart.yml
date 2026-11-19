@@ -29,8 +29,12 @@ on:
 
 permissions: {}
 
+# One group for every chart publication, whatever the ref. A tag run and a
+# dispatch can name the same version; keying this by ref would let both pass
+# the existence check before either pushes, and the second would overwrite the
+# first. Chart publications are infrequent, so serialising them all is cheap.
 concurrency:
-  group: release-chart-${{ github.ref }}
+  group: release-chart
   cancel-in-progress: false
 
 jobs:
@@ -97,12 +101,25 @@ jobs:
         # Release versions are immutable: a chart that changed under a version
         # someone already pinned is a silent upgrade. Re-running a failed
         # release publishes a new version, not the same one again.
+        #
+        # The lookup has three outcomes, and only one of them may continue. A
+        # registry timeout or an auth error is not evidence that the version is
+        # free, and `if helm show ...` would treat it as exactly that.
         run: |
           set -euo pipefail
-          if helm show chart oci://ghcr.io/marulahq/charts/marula --version "${VERSION}" > /dev/null 2>&1; then
+          if output=$(helm show chart oci://ghcr.io/marulahq/charts/marula --version "${VERSION}" 2>&1); then
             echo "ghcr.io/marulahq/charts/marula:${VERSION} is already published" >&2
             exit 1
           fi
+          case "${output}" in
+            *"not found"*|*"manifest unknown"*|*"404"*)
+              echo "ghcr.io/marulahq/charts/marula:${VERSION} is not published"
+              ;;
+            *)
+              echo "could not confirm the version is absent: ${output}" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Package
         env:
