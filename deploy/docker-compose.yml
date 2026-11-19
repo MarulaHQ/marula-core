@@ -281,6 +281,7 @@ services:
   # outside these two containers. The rootfs is read-only and the only write
   # anywhere is that one file.
   pooler-auth:
+    profiles: ["pooler"]
     image: dhi.io/pgvector:0.8-pg18@sha256:069119d1ad25e1155e165786230ef3b4a570f1857b315166924b895c4d2c6946
     mem_limit: 32m
     cpus: 0.5
@@ -331,6 +332,7 @@ services:
   # core-api has none. The dependants below wait for `service_started` and
   # their `restart: unless-stopped` closes the sub-second gap.
   pgbouncer:
+    profiles: ["pooler"]
     mem_limit: 128m
     cpus: 1.0
     logging: *default-logging
@@ -560,7 +562,9 @@ services:
       # transaction pooler, not Postgres. Override with
       # MARULA_APP_DATABASE_URL to go direct — and then raise
       # MARULA_DB_STATEMENT_CACHE and accept the connection ceiling back.
-      DATABASE_URL: "${MARULA_APP_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password, applied to the role by the app-role-password one-shot (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}@pgbouncer:6432/marula}"
+      # Direct to Postgres. The pooler is a scale feature and sits behind the
+      # `pooler` profile; point this at pgbouncer:6432 when that profile runs.
+      DATABASE_URL: "${MARULA_APP_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD:?MARULA_APP_PASSWORD is required - the marula_app role's password, applied to the role by the app-role-password one-shot (openssl rand -hex 32). Laptop stack: --env-file deploy/dev.env}@postgres:5432/marula}"
       # The ONE LISTEN connection goes straight to Postgres: a subscription
       # cannot ride a connection the pooler hands to the next client.
       MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula}
@@ -690,7 +694,8 @@ services:
     environment:
       # Pooled by default (Wave 52 lane P9); the relay's LISTEN connection
       # goes direct so the wakeup it subscribes to actually arrives.
-      DATABASE_URL: ${MARULA_WORKER_APP_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@pgbouncer:6432/marula}
+      # Direct, for the same reason as core-api: the pooler is opt-in.
+      DATABASE_URL: ${MARULA_WORKER_APP_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula}
       MARULA_LISTEN_DATABASE_URL: ${MARULA_LISTEN_DATABASE_URL:-postgres://marula:${POSTGRES_PASSWORD}@postgres:5432/marula}
       REDIS_URL: redis://redis:6379/0
       BIND_ADDR: 0.0.0.0:8082
@@ -761,8 +766,6 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-      pgbouncer:
-        condition: service_started
 
   web:
     mem_limit: 512m
