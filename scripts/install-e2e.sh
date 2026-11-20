@@ -60,10 +60,11 @@ say "installing from the published digests into $INSTALL_DIR"
 # is the shape this leg checks, and the doctor is told the same, so its verdict
 # is about the stack that was installed.
 #
-# `--allow-unfit` is the capacity waiver and nothing else. The runner's free disk
-# is below split's 40 GB floor, which the doctor reports as `waived` rather than
-# as a pass; the floors themselves are covered by the doctor's unit tests. What
-# this leg exists to prove is the install path, and that is unchecked otherwise.
+# `--allow-unfit` is the capacity waiver and nothing else: the job clears space
+# before pulling, but a runner's free disk is not guaranteed past split's 40 GB
+# floor, so the doctor is told to report the floors as `waived` instead of
+# failing on them. The floors themselves are covered by the doctor's unit tests.
+# What this leg exists to prove is the install path, and nothing else checks it.
 SHAPE_NAME='split'
 "$BUNDLE/install.sh" --dir "$INSTALL_DIR" --images registry --profile "$SHAPE_NAME" --apply --allow-unfit
 
