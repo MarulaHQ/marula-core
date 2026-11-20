@@ -77,6 +77,7 @@ fi
 RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/marula-e2e.XXXXXX")
 EVENTS_FILE="$RUN_DIR/image-events.log"
 EVENTS_PID=""
+MARKER_TAG=""
 
 # On success the stacks are torn down and the scratch space with them. On failure
 # they stay up: the workflow's next step dumps `docker ps` and the logs, and a
@@ -85,6 +86,9 @@ EVENTS_PID=""
 SUCCESS=0
 cleanup() {
   stop_event_collector
+  if [ -n "${MARKER_TAG:-}" ]; then
+    docker image rmi "$MARKER_TAG" >/dev/null 2>&1 || true
+  fi
   if [ "$SUCCESS" -ne 1 ]; then
     say "leaving every stack this leg started up so its logs can be read"
     if [ -s "$EVENTS_FILE" ]; then
@@ -224,11 +228,11 @@ done
 #      stack names has to be fetched;
 #   2. the images the installed stack resolves to are all in that list, so the
 #      install did not need an image the bundle left out;
-#   3. the daemon recorded no `pull` between the start of the install and the
-#      moment `/readyz` answered. That comes from an event stream opened before
-#      the installer ran, not from a query afterwards: the daemon's retained
-#      history is shorter than this boot, so a query could miss the one event
-#      that matters and report the absence as a pass.
+#   3. the daemon recorded no `pull` between the start of the install and a
+#      marker event published just after `/readyz` answered. That comes from an
+#      event stream opened before the installer ran, not from a query afterwards:
+#      the daemon's retained history is shorter than this boot, so a query could
+#      miss the one event that matters and report the absence as a pass.
 #
 # What it does not show: that a host with no route at all behaves identically.
 # Cutting a runner's network kills the job, and the daemon does the fetching
@@ -286,17 +290,43 @@ assert_no_registry_fetch() {
   grep -q '^load ' "$EVENTS_FILE" ||
     die "the image-event collector saw no image load, so it was not watching when the install began"
 
-  local pulls
-  pulls=$(awk '$1 == "pull"' "$EVENTS_FILE")
-  # Asked last, after every read: a stream that died partway through the install
-  # leaves a file that still carries its earlier loads and none of the pulls it
-  # was not there for, so the answer has to be "was it alive the whole time", not
-  # "was it alive when the reads began". A process that is still running here has
-  # been running since it started, which is before the installer did.
+  # A stream that died partway through leaves a file carrying its earlier loads
+  # and none of the pulls it was not there for, so the stream has to have been
+  # running for the whole window, not only when the reads began.
   collector_alive ||
     die "the image-event collector stopped before the install finished, so this leg cannot say whether a registry was contacted"
+
+  # Attached is not the same as caught up. `kill` drops whatever the daemon has
+  # already sent but the CLI has not written yet, so a pull sitting in that tail
+  # would be read as absent. A tag is an event this leg can make at a known
+  # moment, and the daemon's image stream is ordered: the marker appearing in the
+  # file proves every event before it has been written. Bounded, because a stream
+  # that cannot deliver its own marker is a failed measurement, not a slow one.
+  local marker marker_image drained=0
+  marker_image=$(awk 'NF { print; exit }' "$BUNDLE/images.list")
+  marker="marula-e2e-drain-$$"
+  MARKER_TAG=$marker
+  docker image tag "$marker_image" "$marker" >/dev/null 2>&1 ||
+    die "could not tag $marker_image to mark the end of the event stream, so this leg cannot say whether a registry was contacted"
+  for _ in $(seq 1 20); do
+    if grep -q "^tag $marker" "$EVENTS_FILE"; then
+      drained=1
+      break
+    fi
+    sleep 0.5
+  done
+  if [ "$drained" -ne 1 ]; then
+    die "the image-event stream did not deliver its marker within 10 s, so this leg cannot say whether a registry was contacted"
+  fi
+  docker image rmi "$marker" >/dev/null 2>&1 || true
+  MARKER_TAG=""
+
+  # The file is read only once the stream is closed, so no event can arrive after
+  # the read and be missed.
   stop_event_collector
 
+  local pulls
+  pulls=$(awk '$1 == "pull"' "$EVENTS_FILE")
   if [ -n "$pulls" ]; then
     printf 'install-e2e: the daemon recorded these fetches during the install:\n' >&2
     printf '  %s\n' "$pulls" >&2

@@ -162,8 +162,8 @@ the version) to check any published release. The runner keeps its network, so
 the job does not claim the host was disconnected. It asserts what belongs to the
 bundle: after the load, every image `images.list` names is in the local store;
 the stack that starts resolves only to those images; and the daemon's own image
-events, watched from before the install until `/readyz` answered, contain no
-pull. A bundle that left an image out fails the job and names the image. A host
+events, watched from before the install to a marker emitted just after `/readyz`
+answered, contain no pull. A bundle that left an image out fails the job and names the image. A host
 with no route at all is the one case the job cannot stage, and the bundle
 carries nothing that would behave differently there.
 
