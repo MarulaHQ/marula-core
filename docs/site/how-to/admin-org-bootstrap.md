@@ -16,22 +16,23 @@ When you launch a fresh Marula install, you create your organization and first a
 > [!NOTE]
 > The first owner account is the recovery path for the org. Use a real mailbox you control, and add a second owner before launch.
 
-## 1. Switch to Create org on the sign-in page
+## 1. Take the first-organization link on the sign-in page
 
-Open `/login`. Beneath the heading *"Sign in to your service desk, or create your organization"*, switch the segmented toggle from **Sign in** to **Create org**.
+Open `/login`. At the bottom of the sign-in card, under *"Need an account? Ask your admin for an invite."*, is one quiet link: **Setting up the first organization?** It opens the registration form, whose heading reads *"Let's set this up."*
 
 ## 2. Register your organization and owner account
 
-Fill in your organization name, desired URL slug, and owner login details. Organization slugs must be unique; if a slug is already taken, the server returns `409 Conflict` (`org_slug_taken`) along with an available `suggestion` you can accept with one click. (You can also register via `POST /api/v1/register` as shown in the [API tutorial](../tutorials/first-ticket-api.md).)
+Fill in your organization name, desired URL slug, and owner login details. Organization slugs must be unique; if a slug is already taken, the server returns `409 Conflict` (`org_slug_taken`) along with an available `suggestion` you can accept with one click. (You can also register via `POST /api/v1/auth/register` as shown in the [API tutorial](../tutorials/first-ticket-api.md).)
 
 ## 3. Set your company identity and base currency
 
-Sign in and open **Settings → General**. Set these four values first, before your team starts logging tickets or invoices:
+Sign in and open **Settings → General**. Set these three values first, before your team starts logging tickets or invoices:
 
 - **Organization name**
 - **Ticket prefix** (for example, `INC` or `MSP`)
-- **Workspace slug**
 - **Base currency** (ISO 4217 code such as `USD`, `GBP`, `EUR`, or `ZAR`)
+
+The workspace slug is not editable here: it is chosen once on the registration form in step 2, and **Settings → General** shows it read-only under the currency field.
 
 Two safeguards to keep in mind:
 

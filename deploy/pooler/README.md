@@ -27,7 +27,7 @@ is, the rendered file is the mechanism.
 ## Running the renderer yourself
 
 A pooler that compose does not manage still needs the file. Run the same
-script where the two variables are already exported — it takes the output path
+script where the two variables are already exported; it takes the output path
 as its only argument:
 
 ```sh
@@ -48,21 +48,60 @@ the file is read at startup, so a running instance keeps the old one.
 
 ## Compose
 
-The default stack starts it. Postgres keeps the published port (`15432`), the
-pooler takes `6432`, and the application dials `pgbouncer:6432`:
+The `pooler` profile starts PgBouncer. Postgres keeps the published port
+(`15432`) and the pooler takes `6432`. Starting the profile is half of it: the
+application keeps dialing `postgres:5432` until the two URL variables name the
+pooler, and a container keeps the environment it was created with.
+
+Add these two lines to `marula.env`, replacing each bracketed name with the value
+the installer wrote for it. They are literal lines: Compose replaces variables in
+the compose file, not inside an env file, so an expression here would reach the
+pooler as text.
 
 ```sh
-docker compose -f deploy/docker-compose.yml up -d
-docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
+MARULA_APP_DATABASE_URL=postgres://marula_app:<MARULA_APP_PASSWORD>@pgbouncer:6432/marula
+MARULA_WORKER_APP_DATABASE_URL=postgres://marula:<POSTGRES_PASSWORD>@pgbouncer:6432/marula
+```
+
+Then start the pooler and the application services through the helper the
+install defines, which
+[the install page](../../docs/install.md#running-commands-against-the-install)
+sets up. It carries the env file and the overlays that install wrote, and a bare
+`docker compose -f deploy/docker-compose.yml` would miss them: the release images
+are pinned in `marula.images.yml`, and without it Compose tries to build from
+sources a bundle does not ship.
+
+```sh
+marula_compose --profile pooler up -d pgbouncer pooler-auth core-api worker
+```
+
+Naming `core-api` and `worker` in the same run is what recreates them against the
+new URLs. `up -d` on the pooler services alone would leave both on the
+environment they were created with, still dialing `postgres:5432`.
+
+This is a `split` setting. The `all-in-one` overlay replaces `DATABASE_URL` and
+`MARULA_WORKER_DATABASE_URL` with Postgres URLs of its own, and the `demo`
+overlay does the same to `DATABASE_URL` and `MARULA_LISTEN_DATABASE_URL` on
+`core-api` and `worker`. A service-level value beats the env file, so on those
+shapes the profile starts a pooler that nothing dials. Running pooled there means
+overriding those values in an extra `-f` file as well.
+
+Now count what Postgres holds:
+
+```sh
+marula_compose exec postgres psql -U marula -d marula \
   -c "select count(*) from pg_stat_activity where datname = 'marula'"
 ```
 
-The count is the server side, and it stays near `default_pool_size` whatever
-the instance count. For the client side and the per-pool view:
+That count is the database's total sessions, not the pooler's: both role pools,
+the direct `LISTEN` of every API instance and of the worker, and the `psql`
+session running the query are all in it. The direct connections never reach the
+pooler, because a notification cannot ride a transaction-pooled session. For the
+ceiling and the pooled side, which should stay near `default_pool_size` per pair
+however many clients connect:
 
 ```sh
-docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
-  -c "show max_connections"
+marula_compose exec postgres psql -U marula -d marula -c "show max_connections"
 # and, on a machine with psql, the pooler's own console:
 psql "postgres://marula@127.0.0.1:6432/pgbouncer" -c "SHOW POOLS" -c "SHOW STATS"
 ```
@@ -92,8 +131,9 @@ data:
     pool_mode = transaction
     server_reset_query = DISCARD ALL
     server_reset_query_always = 1
-    max_prepared_statements = 0
+    max_prepared_statements = 100
     default_pool_size = 15
+    reserve_pool_size = 5
     max_db_connections = 40
     max_client_conn = 400
 ---
@@ -178,12 +218,21 @@ it to ask.
 
 ## Sizing
 
-`default_pool_size` is per (database, user) pair. The worker connects as the
-owner role and core-api as `marula_app`, so two pairs, 15 each, 30 server
-connections at rest — the number that has to stay under Postgres's
-`max_connections`, not the 54 connections per instance. Raise
-`default_pool_size` only against a measured queue, and keep
-`max_db_connections` as the hard stop.
+`default_pool_size` is per (database, user) pair, and `max_db_connections` is
+per pooler process, so both multiply by the replica count. The worker connects
+as the owner role and core-api as `marula_app`, so two pairs, 15 each: 30 server
+connections at rest from one pooler, 60 from the two this file deploys, and 80
+as the hard stop before any queue reserve opens. A third replica adds 30 at rest
+and another 40 to the ceiling.
+
+What the pooler carries is not the whole Postgres budget. Each API instance
+keeps one direct `LISTEN` connection and the worker keeps its own, because a
+notification cannot ride a transaction-pooled session. Three API instances and
+one worker therefore hold 60 at rest and 80 at the ceiling from the pooler, plus
+four more from those direct connections: 64 in total, or 84 with the pooler's
+ceiling fully open, before migrations and `pg_dump` open anything of their own. That total is what has to stay
+under `max_connections`, not the pool of one application instance. Raise `default_pool_size` only against a measured queue, and
+keep `max_db_connections` as the hard stop.
 
 ## Rollback
 

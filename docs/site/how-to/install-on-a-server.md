@@ -19,7 +19,8 @@ runs the same engine behind a window. Both of them end at the same
 ## What the machine needs first
 
 - Docker with Compose 2.24 or newer. A registry install uses `!reset` in an
-  override file, and older Compose ignores it.
+  override file, and Compose older than 2.24 refuses that file with an
+  unknown-tag error.
 - A directory for the deployment's files. Anywhere works; `/srv/marula` is a
   common choice and the rest of this page uses it.
 - Free disk for the shape you pick. See [deployment shapes](../reference/deployment-shapes.md)

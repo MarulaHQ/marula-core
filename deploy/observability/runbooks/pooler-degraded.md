@@ -8,10 +8,24 @@ There is no alert for the pooler, because there is no series for it. PgBouncer d
 expose `SHOW STATS`, and nothing in the pack scrapes it. So the pooler arrives here as
 one of three symptoms behind somebody else's alert, and two of the three are silent.
 
-The shipped topology is in `deploy/pooler/pgbouncer.ini`: transaction mode, 15 server
-connections per (database, user) pair (`:60`), 40 in total (`:63`), the reset query
-after every transaction (`:53`), and the prepared-statement cache off (`:54`). The
-reasoning, with measurements, is [connection pooling](../../../docs/reference/connection-pooling.md).
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:1ffa9db30e223db26d333f17771e9f81957a6d9b74fbff236cbce6046555cca2 -->
+
+The `pooler` profile in `deploy/pooler/pgbouncer.ini` uses transaction mode.
+Each (database, user) pair has 15 server connections by default
+(`default_pool_size = 15`). If a client waits longer than the default
+`reserve_pool_timeout` of 5 seconds, the pool can use up to five additional
+connections (`reserve_pool_size = 5`), for a total of 20. The hard ceiling is
+40 server connections per database across all users (`max_db_connections = 40`).
+The pooler runs the reset query after every transaction. PgBouncer tracks prepared
+statements (`max_prepared_statements = 100`); the application's own cache is off
+(`MARULA_DB_STATEMENT_CACHE = 0`), so a statement name does not outlive the
+transaction that created it. A default install dials Postgres directly and has no
+pooler to degrade, so this page applies only when that profile is on.
+
+<!-- /coderabbit-ai-generated:v1 -->
+The reasoning, with measurements, is [connection pooling](../../../docs/reference/connection-pooling.md).
 
 The symptom that costs the most time is the quiet one. A `LISTEN` attached to a pooled
 connection receives nothing and reports no error, so live push and the relay's wakeup
@@ -38,8 +52,8 @@ both stop while every request keeps succeeding.
 
    `prepared statement "P_0" does not exist` means the statement cache is on behind a
    transaction pooler. `MARULA_DB_STATEMENT_CACHE` has to be `0`, and
-   `the_statement_cache_fits_the_shipped_pooler` in
-   `crates/marula-core-cli/src/deploy.rs:2078` pins that default against the pooler's
+   the test `the_statement_cache_fits_the_pooler_profile` in
+   `crates/marula-core-cli/src/deploy.rs` pins that default against the pooler's
    `max_prepared_statements`. Fix the setting, not the query.
 
 3. Is anything still listening:

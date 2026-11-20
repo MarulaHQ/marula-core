@@ -32,6 +32,7 @@ lookup is [`site/troubleshooting.md`](site/troubleshooting.md). Vocabulary is
 | Doc | Task |
 |---|---|
 | [`install.md`](install.md) | Install on a machine: the plan, `--apply`, and what stays manual |
+| [`install-from-source.md`](install-from-source.md) | The contributor path: toolchains, the two-command loop, the pooler, the e2e stack and the gates |
 | [`all-in-one.md`](all-in-one.md) | Run one process instead of two on a small install |
 | [`deploy-descriptor.md`](deploy-descriptor.md) | The machine-readable deploy surface and every runtime parameter |
 | [`capacity-model.md`](capacity-model.md) | How many agents one instance serves, from measurements |

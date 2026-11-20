@@ -56,13 +56,15 @@ perf-harness capacity \
 
 Each instance opens about 54 connections at the default pool ceilings:
 core-api app 20 and reporting 8, worker 20 and delivery 5, and one direct LISTEN
-connection. That number grows with instances, and it is no longer what Postgres
-sees: PgBouncer runs in transaction mode between the pools and the database and
-holds the server side at 15 per (database, user) pair, so 30 across the app role
-and the owner role. Postgres's default `max_connections` of 100 stays clear at
-every instance count in the table above. `docs/perf.md` §5 has the per-process
-table, and `docs/reference/connection-pooling.md` has the settings that make the
-pooler safe plus the measurements behind them. The pool ceilings are deployment
+connection. A single-node install dials Postgres directly, so Postgres sees all
+54 per instance: one instance fits inside the default `max_connections` of 100,
+and two need that ceiling raised or the `pooler` compose profile. With the
+pooler on, PgBouncer runs in transaction mode between the pools and the database
+and holds the server side at 15 per (database, user) pair, so 30 across the app
+role and the owner role, and the default 100 stays clear at every instance count
+in the table above. `docs/perf.md` §5 has the per-process table, and
+`docs/reference/connection-pooling.md` has the settings that make the pooler
+safe plus the measurements behind them. The pool ceilings are deployment
 parameters. The descriptor names them.
 
 ## Where the knobs come from

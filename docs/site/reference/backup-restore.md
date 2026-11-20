@@ -45,15 +45,31 @@ Notes the runbook enforces:
 - Dump with a client that matches the server's major version. The backup
   runner runs inside the postgres image on purpose; a diverged local
   `pg_dump` refuses the archive outright.
-- If you run `OBJECT_STORE=s3` with Garage, the restic leg snapshots the
-  garage data/meta volumes in the same window so attachments and rows stay
-  as consistent as two separate stores allow — this is **not** atomic: a
-  few seconds of drift between the WAL cutoff and the object snapshot is
-  possible. Both directions of that drift have a repair path now: the
-  worker's object integrity pass (`MARULA_OBJECT_GC=on`) reclaims objects no
-  row references and marks rows whose bytes are gone, and re-uploading the
-  same file clears the mark, because the object key is that file's digest. See
-  [data lifecycle](../../reference/data-lifecycle.md) §3.
+- If you run `OBJECT_STORE=s3` with Garage, the backup runner does **not**
+  cover it: it mounts `objectdata` and `/pgdumps` only, and Garage's
+  `garagedata` and `garagemeta` volumes belong to the `garage` service alone.
+  Copy them yourself in the same window, with the store stopped so the two
+  agree, and keep the archive beside the dump. Run this from the unpacked
+  release directory, with `marula_compose` defined as [the install
+  page](https://github.com/MarulaHQ/marula-core/blob/main/docs/install.md#running-commands-against-the-install) shows:
+
+  ```sh
+  # The compose file declares `name: marula`, so the volumes are marula_<name>.
+  PROJECT=marula
+  marula_compose stop garage
+  for v in garagedata garagemeta; do
+    docker run --rm -v "${PROJECT}_$v:/data:ro" -v "$PWD":/out alpine \
+      tar czf "/out/garage-$v-$(date +%F).tar.gz" -C /data .
+  done
+  marula_compose start garage
+  ```
+
+  Attachments and rows are then as consistent as two separate stores allow,
+  which is to say not atomic. Both directions of that drift have a repair
+  path: the worker's object integrity pass (`MARULA_OBJECT_GC=on`) reclaims
+  objects no row references and marks rows whose bytes are gone, and
+  re-uploading the same file clears the mark, because the object key is that
+  file's digest. See [data lifecycle](https://github.com/MarulaHQ/marula-core/blob/main/docs/reference/data-lifecycle.md) §3.
 - The same pass snapshots the local object store, which lives in the
   `objectdata` volume now — it used to be a directory inside a read-only
   container, which could not survive a restart.
@@ -129,7 +145,7 @@ Notes the runbook enforces:
    drops the scratch DB when done — a backup that has never restored is not
    a backup. The `backup` profile already runs this drill on a cadence
    (`DRILL_EVERY_DAYS`, default 7) and records each run, with its duration, in
-   `ops.backup_drill_runs`; [RPO and RTO](../../reference/rpo-rto.md) explains
+   `ops.backup_drill_runs`; [RPO and RTO](https://github.com/MarulaHQ/marula-core/blob/main/docs/reference/rpo-rto.md) explains
    what that duration is for and what the drill cannot prove.
 4. Restore the garage data/meta volumes or bucket contents if you use object storage.
 5. Start the services. Do **not** re-run migrations between restore and

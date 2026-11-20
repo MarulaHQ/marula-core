@@ -4,10 +4,11 @@ A pooler goes between the application pools and Postgres. It exists for one
 number: connections. `docs/perf.md` §5 sizes the pools, `docs/capacity-model.md`
 turns instance counts into that number, and both arrive at the same wall.
 
-The shipped deployment runs PgBouncer in transaction mode. This page is the
-reasoning, the two settings that make transaction pooling safe, and the
-measurements behind them. The config itself is `deploy/pooler/pgbouncer.ini`;
-`deploy/pooler/README.md` is how to run it.
+The `pooler` compose profile runs PgBouncer in transaction mode. A default
+install dials Postgres directly; this page is the reasoning, the two settings
+that make transaction pooling safe, and the measurements behind them, for the
+install that turns the profile on. The config itself is
+`deploy/pooler/pgbouncer.ini`; `deploy/pooler/README.md` is how to run it.
 
 ## Why the ceiling arrives first
 
@@ -158,7 +159,7 @@ SELECT count(*) FROM tickets WHERE org_id = :'other';  -- the other tenant's row
 COMMIT;
 ```
 
-Through the shipped pooler as `marula_app`:
+Through the `pooler` profile as `marula_app`:
 
 | Run | Transactions | Correct | Cross-tenant rows returned |
 | --- | --- | --- | --- |

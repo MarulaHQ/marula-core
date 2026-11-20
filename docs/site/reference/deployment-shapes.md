@@ -20,28 +20,33 @@ numbers below are the same numbers the plan checks.
 | | `split` | `all-in-one` | `demo` |
 |---|---|---|---|
 | Application processes | core-api and worker, separate | one core-api process, worker loops inside | core-api and worker, separate |
-| Containers | 7 | 5 | 9 |
+| Containers | 6 | 5 | 9 |
 | Cores | 4 | 4 | 4 |
 | Memory | 8192 MB | 8192 MB | 8192 MB |
 | Free disk | 40 GB | 30 GB | 30 GB |
 | Ports | 8080 (API), 8082 (worker health) | 8080 and 8082 on the one process | 8080 and 8082, **loopback only** |
 
 Containers counts the whole stack: the application, Postgres, Valkey, the
-migration one-shot and the web console. `split` adds a worker and PgBouncer.
+migration one-shot and the web console. `split` adds a worker. Turning on the
+`pooler` profile adds PgBouncer and its auth renderer.
 
 ## split
 
 The default. core-api serves the API and the live-push stream; the worker runs
-the background loops in its own container. PgBouncer in transaction mode sits
-between them and Postgres, so a burst of API requests queues at the pooler
-instead of exhausting the database's connections.
+the background loops in its own container. Both dial Postgres directly, and one
+instance's connections fit inside the 100 a stock Postgres allows.
 
 Pick it because a stalled worker should restart without interrupting the API
 somebody is talking to, and because the two processes then scale separately.
 Pay for it with a second copy of the application image and a second set of
-resource limits.
+resource limits. That second image copy is why the disk floor is 10 GB higher
+than `all-in-one`.
 
-The disk floor is 10 GB higher than `all-in-one` for exactly that reason.
+When you need several API instances, turn on the compose `pooler` profile. It
+puts PgBouncer in transaction mode between the services and Postgres, so a burst
+of requests queues at the pooler instead of exhausting the database's
+connections. [Deploy](https://github.com/MarulaHQ/marula-core/blob/main/deploy/README.md) has the command and the
+connection arithmetic.
 
 ## all-in-one
 
@@ -50,9 +55,14 @@ means a fault in a loop takes the API down with it. It exists for a demo box, a
 laptop, or a single small server where a second container is more moving parts
 than the team can justify.
 
-It sets eleven values that `split` leaves alone: the pooler is out of the path,
-so the API talks to Postgres directly and the statement cache has to be off, and
-the worker's health endpoint moves into the API process.
+It sets eleven values that `split` leaves alone. One marks the shape and one
+sets the reliability profile for a single box. The worker URL the embedded loops
+use is another, and the remaining eight are polling cadences. The health endpoint
+for those loops moving into the API process follows from the marker, not from a
+value of its own. Both shapes dial Postgres the same way,
+directly. The `pooler` profile changes that on `split`; the all-in-one overlay
+pins `DATABASE_URL` and `MARULA_WORKER_DATABASE_URL` at Postgres, so pooling that
+shape means overriding them in another file.
 
 ## demo
 
@@ -81,15 +91,19 @@ restore and the time-travel step.
 
 ## Where the floors come from
 
-The four cores are the shipped embedding model's floor. Marula runs retrieval
-locally by default, and a model that cannot load turns every search into an error
-rather than a slower answer. If you would rather use cloud embeddings, set
-`MARULA_EMBEDDING_PROVIDER=openai` and `MARULA_EMBEDDING_API_KEY`, and the hybrid
-memory refusal in the plan stops applying. The installer will not quietly pick a
-smaller local model for you.
+The four cores are a line in the shipped embedding model's budget. The model is
+opt-in through the `ai` compose profile, so a default install runs no model and
+retrieval falls back to the lexical leg rather than failing. Boot is the
+exception: the API resolves whatever model is configured before it serves, and
+refuses to start when that model needs more cores or memory than the host has.
+The shipped default fits every host the shapes accept, so a default install on
+an accepted host does not meet this refusal. If you would rather use cloud
+embeddings, set `MARULA_EMBEDDING_PROVIDER=openai` and
+`MARULA_EMBEDDING_API_KEY`, and the hybrid memory refusal in the plan stops
+applying. The installer will not quietly pick a smaller local model for you.
 
-The memory floor covers the model, Postgres and Valkey on one box. The disk floor
-covers the images and the database with room to grow.
+The memory floor is a budget for the model, Postgres and Valkey on one box. The
+disk floor covers the images and the database with room to grow.
 
 ## How the installer picks
 

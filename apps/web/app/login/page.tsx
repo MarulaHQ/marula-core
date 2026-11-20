@@ -2,7 +2,7 @@
 //
 // Purpose: email + password, the two other ways in (an emailed link and the
 // company's own sign-in), and first-run org creation — which is why this
-// screen also carries "Create org". The card carries the brand's serif
+// screen also carries the first-organization link. The card carries the serif
 // headline and the pattern sits behind it, with the fruit peeking out.
 //
 // THE WRONG-PASSWORD STATE MARKS THE FIELD AND SAYS WHAT HAPPENS NEXT. State
