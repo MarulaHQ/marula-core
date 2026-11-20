@@ -82,9 +82,6 @@ One line per platform, doing the same work: it downloads the archive for your
 platform, checks the release signature, unpacks it, and opens the installer. You
 need Docker with Compose 2.24 or newer.
 
-The Windows one-liner returns 404 today: no published release carries
-`install.ps1` yet. The [archive path](docs/install.md#windows) works.
-
 For a server, add `--dir /srv/marula --apply` to the shell script, which finishes
 without the wizard. The Windows script takes the same installer flags, which
 means calling it as a scriptblock rather than piping it into `iex`:

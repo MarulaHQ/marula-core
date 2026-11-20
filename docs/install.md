@@ -83,9 +83,6 @@ list, verify the signature against the same pinned key, verify the archive,
 unpack it, and hand over to the bundle's installer. With no arguments it opens
 the wizard and installs into `%USERPROFILE%\marula`.
 
-No published release carries `install.ps1` yet, so the one-liner above returns
-404 today. [The archive path](#by-hand) works.
-
 `iex` cannot carry arguments, so anything beyond the one-liner is the scriptblock
 form, and the flags are the installer's own:
 
