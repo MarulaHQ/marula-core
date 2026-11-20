@@ -28,6 +28,9 @@ set -euo pipefail
 
 SELF=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")
 HERE=$(dirname "$SELF")
+# A relative --dir is relative to the caller's shell, not to the bundle this
+# script cd's into; `--dir ./marula` would otherwise install inside the archive.
+ORIG_PWD=$PWD
 cd "$HERE"
 
 say() { printf '==> %s\n' "$*"; }
@@ -59,6 +62,12 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+case "$INSTALL_DIR" in
+  /*) ;;
+  ./*) INSTALL_DIR="$ORIG_PWD/${INSTALL_DIR#./}" ;;
+  *) INSTALL_DIR="$ORIG_PWD/$INSTALL_DIR" ;;
+esac
 
 command -v docker >/dev/null 2>&1 || die "docker is not on PATH; this bundle needs it"
 

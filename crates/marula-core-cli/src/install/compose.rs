@@ -233,6 +233,12 @@ impl DeploymentTarget for ComposeTarget {
 
         let mut overrides = vec![restart_path];
         if selection.images == ImageSource::Registry {
+            // `demo-seed` has a `build:` and no published image, so a registry
+            // install of the demo shape would still compile it from a directory
+            // that carries no sources. Refusing here beats failing in a build.
+            if profile.name == super::plan::DEMO_PROFILE {
+                return Err(PlanError::DemoNeedsSources);
+            }
             let base = selection
                 .image_base
                 .clone()
@@ -499,7 +505,36 @@ fn write_file(path: &Path, contents: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, contents)
+    // `marula.env` holds the eight secrets, and a stock umask would leave a new
+    // one at 0644. Narrow an existing file before it is truncated, and create a
+    // new one at 0600, so there is no interval in which the values are readable
+    // by another user of this host.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if path.exists() {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    #[cfg(unix)]
+    let mut file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?
+    };
+    #[cfg(not(unix))]
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
+    use std::io::Write as _;
+    file.write_all(contents.as_bytes())?;
+    Ok(())
 }
 
 /// What the installer deliberately leaves to a person, named rather than
@@ -760,12 +795,19 @@ mod tests {
                 StepKind::WriteFile { .. } => None,
             })
             .expect("a run step");
-        for named in ["core-api", "worker", "pgbouncer", "migrate", "web"] {
+        // The split shape dials Postgres directly: the pooler is the opt-in
+        // compose profile, so a default install that started it would be
+        // starting a service the profile never asked for.
+        for named in ["core-api", "worker", "migrate", "web"] {
             assert!(
                 split_args.iter().any(|arg| arg == named),
                 "{named} is missing from the split plan: {split_args:?}"
             );
         }
+        assert!(
+            !split_args.iter().any(|arg| arg == "pgbouncer"),
+            "the pooler is opt-in and must not start by default: {split_args:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

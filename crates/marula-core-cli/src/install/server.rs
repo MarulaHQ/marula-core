@@ -322,6 +322,29 @@ impl PlanRequest {
                 )))
             })?,
         };
+        // The wizard's first run asks for `build` because that is the right
+        // answer in a checkout. In a release archive it cannot be: the bundle
+        // carries `release.json` and none of the sources, so a build dies on the
+        // first COPY. Switching here is what makes `./install.sh` work, which is
+        // the command the README prints.
+        //
+        // The source test is the working directory, which is where the compose
+        // file's build context resolves from: `install.sh` cd's into the archive,
+        // so the two agree on the documented path. A caller who points `--dir` at
+        // an archive while standing in a checkout keeps `build`, and that is
+        // correct — the compose file it runs is the checkout's, whose context
+        // holds the sources.
+        let images = if images == crate::install::plan::ImageSource::Build
+            && crate::install::release::resolve(&session.dir, None)
+                .ok()
+                .flatten()
+                .is_some()
+            && !std::path::Path::new("Cargo.toml").exists()
+        {
+            crate::install::plan::ImageSource::Registry
+        } else {
+            images
+        };
         let restart = match self.restart.as_deref() {
             None => crate::install::plan::RestartPolicy::UnlessStopped,
             Some(value) => crate::install::plan::RestartPolicy::parse(value).ok_or_else(|| {

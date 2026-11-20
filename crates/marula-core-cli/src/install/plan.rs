@@ -154,8 +154,19 @@ impl Selection {
         if name.is_empty() {
             return Err(PlanError::BadOverride(assignment.to_string()));
         }
-        self.overrides
-            .insert(name.to_string(), value.trim().to_string());
+        let value = value.trim();
+        // Both of these are substituted into `postgres://…:PASSWORD@host` without
+        // percent-encoding, so a delimiter would truncate the authority.
+        if matches!(name, "POSTGRES_PASSWORD" | "MARULA_APP_PASSWORD")
+            && !value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '~'))
+        {
+            return Err(PlanError::PasswordNotUrlSafe {
+                name: name.to_string(),
+            });
+        }
+        self.overrides.insert(name.to_string(), value.to_string());
         Ok(())
     }
 }
@@ -174,6 +185,13 @@ pub enum PlanError {
         name: String,
     },
     BadOverride(String),
+    /// A password is spliced into a connection URL without encoding, so a value
+    /// holding a URL delimiter would end the authority and point the client at a
+    /// host that is not there. The compose file's own header asks for hex for the
+    /// same reason; this refuses an override that would break it.
+    PasswordNotUrlSafe {
+        name: String,
+    },
     /// The host does not meet the profile's floors.
     FloorsNotMet {
         profile: String,
@@ -186,6 +204,10 @@ pub enum PlanError {
     },
     /// A registry install with no registry to pull from.
     ImageBaseMissing,
+    /// The demo shape builds its seeder from this checkout, and a release archive
+    /// carries no sources. Refused at plan time rather than left to a build that
+    /// cannot work.
+    DemoNeedsSources,
     /// The detected target cannot do what the selection asks for.
     TargetUnavailable {
         target: &'static str,
@@ -216,6 +238,11 @@ impl std::fmt::Display for PlanError {
                 write!(f, "{name} is not a lever this build publishes")
             }
             Self::BadOverride(raw) => write!(f, "expected NAME=value, got {raw:?}"),
+            Self::PasswordNotUrlSafe { name } => write!(
+                f,
+                "{name} is pasted into a connection URL and may only contain letters, digits, \
+                 '-', '.', '_' or '~'. Generate one with `openssl rand -hex 32`"
+            ),
             Self::FloorsNotMet { profile, missing } => write!(
                 f,
                 "profile {profile} needs more machine than this host has: {}",
@@ -225,6 +252,11 @@ impl std::fmt::Display for PlanError {
                 f,
                 "a registry install needs a digest for {service}: a tag can be moved, and the \
                  release signs a digest. The release's release.json carries one per service"
+            ),
+            Self::DemoNeedsSources => write!(
+                f,
+                "the demo shape builds its seeder from a source checkout, and a release archive \
+                 carries no sources. Run it from a clone with --images build, or pick another shape"
             ),
             Self::ImageBaseMissing => {
                 write!(
@@ -941,6 +973,21 @@ mod tests {
     }
 
     #[test]
+    fn a_url_delimiter_in_a_password_is_refused() {
+        let mut selection = Selection::new("split", "/tmp");
+        let refused = selection
+            .set("POSTGRES_PASSWORD=p#q")
+            .expect_err("a delimiter would truncate the URL's authority");
+        assert!(matches!(refused, PlanError::PasswordNotUrlSafe { .. }));
+
+        // The value volume-conflict guidance sends operators to pass.
+        let mut legacy = Selection::new("split", "/tmp");
+        legacy
+            .set("POSTGRES_PASSWORD=marula")
+            .expect("the legacy value is url-safe");
+    }
+
+    #[test]
     fn a_template_in_a_preset_is_expanded_before_it_reaches_the_file() {
         let desc = deploy::descriptor();
         let selection = Selection::new("split", "/tmp");
@@ -954,7 +1001,7 @@ mod tests {
         let app_password = resolved.get("MARULA_APP_PASSWORD").expect("generated");
         assert!(
             text.contains(&format!(
-                "postgres://marula_app:{app_password}@pgbouncer:6432/marula"
+                "postgres://marula_app:{app_password}@postgres:5432/marula"
             )),
             "the profile's URL carries the generated password"
         );

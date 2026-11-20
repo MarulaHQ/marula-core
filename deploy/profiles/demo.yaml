@@ -12,13 +12,13 @@ services:
   - name: core-api
     role: core-api
     ports: [8080]
-    needs: [postgres, redis, pgbouncer]
+    needs: [postgres, redis]
   - name: worker
     role: worker
     ports: [8082]
-    needs: [postgres, redis, pgbouncer]
+    needs: [postgres, redis]
 sets:
-  DATABASE_URL: "postgres://marula_app:${MARULA_APP_PASSWORD}@pgbouncer:6432/marula"
+  DATABASE_URL: "postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula"
   EMAIL_TRANSPORT: "none"
   MARULA_DB_STATEMENT_CACHE: "0"
   MARULA_LISTEN_DATABASE_URL: "postgres://marula_app:${MARULA_APP_PASSWORD}@postgres:5432/marula"
