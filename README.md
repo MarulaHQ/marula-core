@@ -54,9 +54,9 @@ check. `./install.sh` then re-checks the unpacked tree against its own
 <!-- coderabbit-ai-generated-section:v1:6280aba4bd4687e82453fbbf4ad366e995ede4f19727abcb4c56bf37c1cac35e -->
 
 `./install.sh` with no arguments opens the loopback browser wizard, which plans
-and applies on its own and installs into `~/marula`. Release bundle users must
-select **Pull the published images** in the wizard or pass `--images registry`
-on the command line. With arguments it forwards them
+and applies on its own and installs into `~/marula`. In a release bundle it adds
+`--images registry` itself, so nothing is typed and the wizard starts on the
+published images. With arguments it forwards them
 to `./marula install`: without `--ui` that prints the plan and writes nothing,
 and `--apply` writes the environment file and starts the stack. `--images
 registry` pulls the four published images (`marula-core-api`, `marula-worker`,

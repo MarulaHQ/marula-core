@@ -15,8 +15,9 @@ you can read before running is the point.
 - Docker with Compose 2.24 or newer. `docker compose version` prints what you
   have. The installer checks that the Compose plugin answers, not which version
   it is. The registry override uses Compose's `!reset` key to remove the base
-  file's build instructions, and Compose older than 2.24 ignores that key and
-  builds instead.
+  file's build instructions, and Compose older than 2.24 refuses the file with
+  an unknown-tag error rather than building. The troubleshooting table at the
+  end names it.
 - A budget for the whole box, not one process: four cores, 8 GB of memory and
   40 GB of free disk for the default shape, or 30 GB of disk on `all-in-one`.
   The largest line in that budget is the shipped embedding model, which the
@@ -155,11 +156,14 @@ every later `doctor`, Compose or backup command has to run as root or with
 ./install.sh --dir /srv/marula --images registry --apply
 ```
 
-`--apply` writes `marula.env`, starts the stack, and returns when the services
-it started pass their health checks, which is what `docker compose up --wait`
-waits for. A zero exit means every service the shape starts answered its check.
-It does not mean TLS, mail, backups or alerting are configured; the plan's
-"still yours to do" list stays yours.
+`--apply` writes `marula.env`, starts the stack, and returns when `docker compose
+up --wait` sees it started. Only Postgres, Valkey and Garage define a
+healthcheck: the application images carry no shell for one to run in, so core-api,
+the worker and the web app have none on purpose. A zero exit therefore means the
+containers started, not that the API is serving. `marula doctor` is the check for
+that, and it names the line that failed. `--apply` also does not mean TLS, mail,
+backups or alerting are configured; the plan's "still yours to do" list stays
+yours.
 
 If you used the wizard, it has already applied and the install is in
 `~/marula`. The doctor takes the directory, so give it the one you have:
@@ -290,11 +294,11 @@ To set a value yourself, pass it once:
 
 `MARULA_DB_POOL_MAX` is one instance's database pool ceiling, and 40 is an
 example. Run `./marula deploy describe --json` from the release directory to
-print the whole catalogue of names the installer accepts. A name outside that
-catalogue is refused before anything is written, so a typo is an argument error
-rather than a setting that does nothing. `--set` also accepts the four
-infrastructure values the installer generates itself: both database passwords,
-the object store secret and the error tracker key.
+print the catalogue of application levers. `--set` also accepts four
+infrastructure values the installer generates itself, which do not appear there:
+both database passwords, the object store secret and the error tracker key.
+Anything outside both sets is refused before anything is written, so a typo is
+an argument error rather than a setting that does nothing.
 
 ## Shapes
 
@@ -351,7 +355,7 @@ is the second `--profile`, and it is unrelated to the installer's shape flag.
 | Compose profile | What it adds | When to turn it on |
 |---|---|---|
 | `pooler` | PgBouncer in transaction mode, plus its auth renderer | Several API instances, or many clients against a Postgres that caps connections |
-| `stage2` | Garage object storage and a Mailpit mail sink | Attachments on the host, or mail captured locally instead of sent |
+| `stage2` | Garage object storage, a Mailpit mail sink and the ClamAV scanner | Attachments on the host, mail captured locally instead of sent, or uploaded files scanned |
 | `observability` | OTel collector, Tempo, Loki, Prometheus with the alert pack, Grafana, GlitchTip, Uptime Kuma | You want traces, logs, metrics and a status page on the box |
 | `ai` | A local Ollama runtime, and a one-shot that pulls the embedding model | You want embeddings and transcription on your own hardware |
 | `backup` | WAL-G point-in-time recovery and restic snapshots | You want scheduled backups instead of a nightly dump |
@@ -378,7 +382,11 @@ and the worker dial Postgres directly, and one instance's connections fit
 inside the 100 a stock Postgres allows. Turn the profile on when you add a
 second API instance, and in the env file point the host inside
 `MARULA_APP_DATABASE_URL` and `MARULA_WORKER_APP_DATABASE_URL` at
-`pgbouncer:6432`, with `MARULA_DB_STATEMENT_CACHE=0`, at the same time.
+`pgbouncer:6432`, with `MARULA_DB_STATEMENT_CACHE=0`, at the same time. This is a
+`split` setting. The `all-in-one` and `demo` overlays set `DATABASE_URL` and
+`MARULA_WORKER_DATABASE_URL` themselves, pointing at Postgres, and a
+service-level value wins over the env file: on those shapes the profile starts a
+pooler that nothing dials until those two keys are overridden too.
 [`deploy/README.md`](../deploy/README.md) has the connection arithmetic and
 [`docs/reference/connection-pooling.md`](reference/connection-pooling.md) has
 the measurements.
@@ -427,12 +435,13 @@ this host, and it does not read the shape back from `marula.env`: an
 **Settle a pooled install.** If `MARULA_APP_DATABASE_URL` or
 `MARULA_WORKER_APP_DATABASE_URL` in `marula.env` points at `pgbouncer:6432`,
 decide now. Either start the pooler on the running stack so it is up when the
-new services are created (`marula_compose --profile pooler up -d pgbouncer`,
-and on `all-in-one` name the services: `marula_compose --profile pooler up -d
-core-api web pgbouncer`), or change the host in both URLs to `postgres:5432`
+new services are created (`marula_compose --profile pooler up -d pgbouncer`),
+or change the host in both URLs to `postgres:5432`
 (removing the two keys has the same effect) to take the direct default. Pooled
-URLs without the profile are the one combination that starts a stack whose
-health checks cannot pass.
+URLs without the profile are the one combination that starts a stack the
+application cannot use: core-api exits instead of serving. A pooled install is a
+`split` install, because the `all-in-one` and `demo` overlays set the database
+URLs themselves.
 
 <!-- coderabbit-ai-generated:v1 -->
 
@@ -462,7 +471,7 @@ health checks cannot pass.
    `all-in-one` or `demo`. The plan reads the existing `marula.env` first, so
    the eight values stay put and the new images replace the old ones.
    Migrations run before the API starts, and the command returns when the
-   health checks pass.
+   containers are up.
 
 4. Run `./marula doctor --dir /srv/marula` and open the workspace.
 
@@ -479,10 +488,11 @@ configuration, not data, so the backup in step 1 is still yours to take.
 Everything lives in Postgres, and once object storage is on, the attachments
 live in the bucket as well. Back up both or neither: a database-only restore
 leaves attachments pointing at objects that are not there. The commands below
-take the database and `marula.env`. The object store needs its own copy: the
-`backup` profile's restic leg snapshots the Garage data and meta volumes with
-the nightly dump, and [the runbook](site/reference/backup-restore.md) has a
-manual copy for the rest.
+take the database and `marula.env`. The object store needs its own copy. The
+`backup` profile's restic leg covers the local object store (`objectdata`) and
+the nightly dump, and it mounts neither `garagedata` nor `garagemeta`, so a
+deploy running Garage copies those two volumes per
+[the runbook](site/reference/backup-restore.md#backup).
 
 Write the backup outside the unpacked release directory, which the next upgrade
 replaces. `/var/backups/marula` is a good place on a server. `INSTALL` and
@@ -567,10 +577,11 @@ The stack is built to run without root and without a writable filesystem.
 
 - Every third-party slot that has a hardened equivalent uses a Docker Hardened
   Image: Postgres with pgvector, Valkey, PgBouncer, Grafana, Tempo, Loki and
-  ClamAV. Garage, Mailpit, GlitchTip, Uptime Kuma and the OpenTelemetry
-  collector run upstream images under the same pinning rules.
-- Every image reference carries an exact tag and a registry digest. The digest
-  is what runs, and the release's manifest names the digests it published.
+  ClamAV. Garage, Mailpit, GlitchTip, Uptime Kuma, Prometheus, Ollama and the
+  OpenTelemetry collector run upstream images under the same pinning rules.
+- Every image reference carries a registry digest, and every one that also
+  carries a tag moves tag and digest together. The digest is what runs, and the
+  release's manifest names the digests it published.
 - `cap_drop: [ALL]` and `no-new-privileges` apply to every service except four
   one-shot helpers: the AI profile's `ollama-model`, which pulls the model, and
   the demo overlay's `object-init`, `db-grants` and `demo-seed`, which prepare
@@ -618,8 +629,8 @@ mirror cannot substitute a different image.
 
 `marula_compose` is the shell function from [Running commands against the
 install](#running-commands-against-the-install). A completed install means every
-service the shape starts answered its health check, and `marula doctor` names
-the check that failed.
+service the shape starts is running, and `marula doctor` names the line that
+failed.
 
 For a demo install, `./marula demo reset --dir "$INSTALL"` replaces the seeded
 data between showings.

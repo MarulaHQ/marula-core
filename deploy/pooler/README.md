@@ -77,9 +77,13 @@ marula_compose --profile pooler up -d pgbouncer pooler-auth core-api worker
 
 Naming `core-api` and `worker` in the same run is what recreates them against the
 new URLs. `up -d` on the pooler services alone would leave both on the
-environment they were created with, still dialing `postgres:5432`. On an
-`all-in-one` install the worker runs inside `core-api`, so leave `worker` out of
-that line.
+environment they were created with, still dialing `postgres:5432`.
+
+This is a `split` setting. The `all-in-one` and `demo` overlays replace
+`DATABASE_URL` and `MARULA_WORKER_DATABASE_URL` with Postgres URLs of their own,
+and a service-level value beats the env file, so on those shapes the profile
+starts a pooler that nothing dials. Running pooled there means overriding those
+two keys in an extra `-f` file as well.
 
 Now count what Postgres holds:
 

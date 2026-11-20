@@ -91,7 +91,10 @@ The `pooler` profile adds PgBouncer in transaction mode for installs that need
 it: several API instances, or many concurrent clients against a database that
 caps connections. Turn it on, then set `MARULA_APP_DATABASE_URL` and
 `MARULA_WORKER_APP_DATABASE_URL` in your env file to the same credentials with
-`pgbouncer:6432` as the host:
+`pgbouncer:6432` as the host. This is a `split` setting: the `all-in-one` and
+`demo` overlays set `DATABASE_URL` and `MARULA_WORKER_DATABASE_URL` themselves,
+pointing at Postgres, and a service-level value beats the env file, so on those
+shapes the pooler starts and nothing dials it:
 
 ```sh
 docker compose -f docker-compose.yml --env-file my.env --profile pooler up -d
@@ -194,8 +197,8 @@ that no userlist is checked in.
 
 ### Images
 
-Every reference carries an exact tag and a registry digest, and the digest is
-what runs. The four Marula images are built per release and published to GHCR,
+Every reference carries a registry digest, and every one that also carries a tag
+moves tag and digest together. The digest is what runs. The four Marula images are built per release and published to GHCR,
 where they pull without a token once the package is public. That visibility is
 a package setting the publish job cannot make for you, and
 [`docs/release-images.md`](../docs/release-images.md) says so. The third-party
@@ -247,7 +250,7 @@ else is opt-in.
 | Profile | What it adds | Why you would turn it on |
 |---|---|---|
 | `pooler` | PgBouncer and its auth renderer | Several API instances, or many clients against a capped Postgres |
-| `stage2` | Garage object storage and a Mailpit mail sink | Attachments on the host, or mail captured locally |
+| `stage2` | Garage object storage, a Mailpit mail sink and the ClamAV scanner | Attachments on the host, mail captured locally, or uploads scanned |
 | `observability` | OTel collector, Tempo, Loki, Prometheus with the alert pack, Grafana, GlitchTip, Uptime Kuma | Traces, logs, metrics and a status page on the box |
 | `ai` | A local Ollama runtime | A local embedding or chat model |
 | `backup` | WAL-G and restic | Scheduled backups and point-in-time recovery |
