@@ -126,6 +126,24 @@ jobs:
           docker image prune --all --force >/dev/null 2>&1 || true
           df -h /
 
+      # The install pulls the hardened images from dhi.io, and dhi.io refuses
+      # anonymous manifest requests from GitHub's addresses: the first release
+      # attempt failed here with `unauthorized: Unauthorized`. The credentials are
+      # the free Docker Hardened Images account, held as repository secrets.
+      #
+      # This makes the leg test the installer rather than the registry's opinion
+      # of a CI address. Whether a *user's* host needs the same login is a
+      # separate question, and an open one: #112.
+      - name: Log in to Docker Hardened Images
+        if: ${{ env.DHI_USER != '' }}
+        env:
+          DHI_USER: ${{ secrets.DOCKER_USERNAME }}
+        uses: docker/login-action@v4
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PAT_TOKEN }}
+
       - name: Install from the published digests, then the compose path
         env:
           VERSION: ${{ steps.version.outputs.version }}
