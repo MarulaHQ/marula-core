@@ -10,7 +10,7 @@ If you prefer exploring a system from the terminal or want to build an integrati
 
 ## What you'll build
 
-You will boot a local Marula stack, register an organization, sign in for a bearer token, create a client and a P2 ticket, log work, and watch the resulting domain events on the live stream.
+You will boot a local Marula stack, register an organization, sign in for a bearer token, open the live stream, and then create a client and a ticket and watch the events arrive while you log work.
 
 ## Prerequisites
 
@@ -51,9 +51,31 @@ curl -s -X POST localhost:8080/api/v1/auth/login \
   -d '{"email":"you@example.com","password":"…"}'
 ```
 
-Copy the access token from the response and pass it as `Authorization: Bearer $TOKEN` on subsequent calls.
+Keep the access token in the shell you are working in, so the calls below read
+from it:
 
-## 4. Create a client and open a ticket
+```sh
+export TOKEN=…        # the access_token field from the response
+```
+
+## 4. Watch the live stream
+
+The outbox feeds a server-sent event stream. Replay is opt-in: a fresh
+connection carries only what commits after it opens, because the resume cursor is
+a `Last-Event-ID` header that a browser sends on reconnect and `curl` does not.
+Start this now, in a second terminal, with the same token, and leave it running:
+
+```sh
+export TOKEN=…        # the same value as above
+curl -N localhost:8080/api/v1/events/stream \
+  -H "authorization: Bearer $TOKEN"
+```
+
+`-N` keeps `curl` from buffering, and a `: ping` comment every 15 seconds proves
+the connection is alive while nothing is committing. Nothing else arrives until
+the next step creates something.
+
+## 5. Create a client and open a ticket
 
 First, create the client company:
 
@@ -63,7 +85,8 @@ curl -s -X POST localhost:8080/api/v1/clients \
   -d '{"name":"Acme Corp"}'
 ```
 
-A ticket belongs to a board, so list the boards first and take an `id` from the response:
+A ticket belongs to a board, so list the boards first and take an `id` from the
+response:
 
 ```sh
 curl -s localhost:8080/api/v1/boards -H "authorization: Bearer $TOKEN"
@@ -78,7 +101,10 @@ curl -s -X POST localhost:8080/api/v1/tickets \
   -d '{"board_id":"…","client_id":"…","title":"Printer on fire","priority":"p2"}'
 ```
 
-## 5. Start and stop the timer
+The call returns an instant-first envelope, and `ticket.created` lands in the
+terminal from step 4 as it commits.
+
+## 6. Start and stop the timer
 
 In the web UI, a technician starts the work-bar timer, types their troubleshooting notes, and stops the timer on a single screen. Stopping the timer creates the billable time entry automatically.
 
@@ -86,29 +112,19 @@ In the web UI, a technician starts the work-bar timer, types their troubleshooti
 > calendar live in the same view, because they are the same job."
 > — [MANIFESTO.md](https://github.com/MarulaHQ/marula-core/blob/main/MANIFESTO.md), quoted verbatim
 
-## 6. Inspect the emitted domain events
+## 7. What the stream carries
 
-Every write in `core-api` commits a versioned event to the transactional outbox in the same database transaction:
-
-The outbox feeds a server-sent event stream. Replay is opt-in: a fresh
-connection carries only what commits after it opens, because the resume cursor is
-a `Last-Event-ID` header that a browser sends on reconnect and `curl` does not.
-Open the stream in a second terminal before the ticket call in step 4, and
-`ticket.created` arrives as the first frame:
-
-```sh
-curl -N localhost:8080/api/v1/events/stream \
-  -H "authorization: Bearer $TOKEN"
-```
-
-`-N` keeps `curl` from buffering, and a `: ping` comment every 15 seconds proves
-the connection is alive while nothing is committing. The same events are what
-webhooks and automation rules consume, so this stream is the shortest way to see
-them without a receiver.
+Every entity write in `core-api`, whether a ticket, a client or a time entry,
+commits a versioned event to the transactional outbox in the same database
+transaction. The stream from step 4 is that outbox. Registration and sign-in are
+not among them: they write an audit row and return tokens, which is why your
+first frame was the ticket.
 
 ## What you learned
 
-- `core-api` is the single writer for the database; the web app, mobile app, CLI, and TypeScript SDK all call the same endpoints.
-- Every write returns an instant-first response envelope and records a domain event in the outbox.
+- `core-api` is the single writer for the database; the web app, the mobile app
+  and the TypeScript SDK all call the same endpoints.
+- An entity write returns an instant-first response envelope and records a domain
+  event in the outbox.
 
 Next: Read [How to call the API](../how-to/call-the-api.md) to use the typed `@marula-core/sdk` client, or browse the full [API reference](../reference/api.md).
