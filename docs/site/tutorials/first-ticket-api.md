@@ -14,8 +14,8 @@ You will boot a local Marula stack, register an organization, sign in for a bear
 
 ## Prerequisites
 
-- Docker (runs PostgreSQL with `pgvector`, Valkey, and local object storage)
-- Rust toolchain (pinned in `rust-toolchain.toml`) and Node.js with `pnpm`
+- Docker, with Compose 2.24 or newer. Nothing else is built on your machine:
+  the images compile the Rust workspace and the web bundle themselves.
 
 ## 1. Start the local stack
 
@@ -90,17 +90,21 @@ In the web UI, a technician starts the work-bar timer, types their troubleshooti
 
 Every write in `core-api` commits a versioned event to the transactional outbox in the same database transaction:
 
-The outbox feeds a server-sent event stream. `-N` keeps `curl` from buffering, so
-each event prints as it commits, starting with `ticket.created` from the call
-above:
+The outbox feeds a server-sent event stream. Replay is opt-in: a fresh
+connection carries only what commits after it opens, because the resume cursor is
+a `Last-Event-ID` header that a browser sends on reconnect and `curl` does not.
+Open the stream in a second terminal before the ticket call in step 4, and
+`ticket.created` arrives as the first frame:
 
 ```sh
 curl -N localhost:8080/api/v1/events/stream \
   -H "authorization: Bearer $TOKEN"
 ```
 
-The same events are what webhooks and automation rules consume, so this stream is
-the shortest way to see them without a receiver.
+`-N` keeps `curl` from buffering, and a `: ping` comment every 15 seconds proves
+the connection is alive while nothing is committing. The same events are what
+webhooks and automation rules consume, so this stream is the shortest way to see
+them without a receiver.
 
 ## What you learned
 
