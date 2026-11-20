@@ -75,12 +75,12 @@ checks the release signature, unpacks it, and opens the installer. You need
 Docker with Compose 2.24 or newer.
 
 For a server, add `--dir /srv/marula --apply` to finish without the wizard.
-[Installing on a machine](https://getmarula.com/docs) covers the rest: the
-archive by hand, the air-gapped bundle, the eight secrets, the three shapes,
-upgrades and backups. Windows is not an install target yet; the archive carries the
-binary and the desktop setup, and
-[#114](https://github.com/MarulaHQ/marula-core/issues/114) tracks the
-native path.
+[Installing on a machine](docs/install.md) covers the rest: the archive by hand,
+the air-gapped bundle, the eight secrets, the three shapes, upgrades and backups.
+Windows is not an install target yet; the archive carries the binary and the
+desktop setup, and
+[#114](https://github.com/MarulaHQ/marula-core/issues/114) tracks the native
+path.
 
 Working on the code instead?
 
@@ -92,7 +92,7 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env up -d --bu
 
 `deploy/dev.env` holds published development secrets, so the stack warns at every
 boot and belongs on a machine you own. [Working on the
-code](https://getmarula.com/docs) has the toolchain pinning, the test loop and
+code](docs/install-from-source.md) has the toolchain pinning, the test loop and
 the layout.
 
 ## What a day looks like

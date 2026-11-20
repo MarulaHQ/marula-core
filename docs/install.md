@@ -73,8 +73,11 @@ Prefer the archive? Each platform has one, with its own signed checksum list.
 | Linux arm64, no network | `marula-<version>-offline-linux-arm64.tar.zst` | `./install-offline.sh` |
 
 Unpack with `tar -xzf` (`tar --zstd -xf` for an air-gapped bundle), enter the
-directory it makes, and run the command. On macOS check the download with
-`shasum -a 256 -c SHA256SUMS-macos-arm64`; on Linux, `sha256sum -c`.
+directory it makes, and run the command. Check the download first, naming the
+list for your platform: `sha256sum -c SHA256SUMS-linux-x64` (or
+`SHA256SUMS-linux-arm64`), `shasum -a 256 -c SHA256SUMS-macos-arm64` on macOS.
+An air-gapped archive is listed in the combined `SHA256SUMS`, so that is the file
+to name there.
 
 Windows is not an install target yet. The release carries a `windows-x64`
 archive with `marula.exe` and the desktop setup inside it, but the bundle's
