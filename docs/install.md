@@ -52,7 +52,7 @@ page. What it then does is different — it checks the *archive* against a
 signature from the release key, and that key is pinned inside the script. So
 replacing the script would also replace the key, which is why the honest
 statement is "trusted as a download from this repository, and it verifies what it
-fetches". Read it before you run it; it is about 8 KB at
+fetches". Read it before you run it:
 [`scripts/release/bootstrap-install.sh`](../scripts/release/bootstrap-install.sh).
 
 It needs `curl`, `tar` and `ssh-keygen`, plus `zstd` for an air-gapped bundle.
@@ -67,7 +67,8 @@ rather than leaving you to guess.
 
 ### By hand
 
-Prefer the archive? Each platform has one, with its own signed checksum list.
+Prefer the archive? Each online platform build has one, with its own signed
+checksum list. The air-gapped bundles are listed in the combined `SHA256SUMS`.
 
 | Platform | Archive | Install |
 |---|---|---|

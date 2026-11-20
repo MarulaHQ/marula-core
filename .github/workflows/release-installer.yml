@@ -144,7 +144,9 @@ jobs:
         run: |
           bash -n scripts/release/*.sh
           shellcheck -S warning scripts/release/*.sh
-          # The bootstrap is piped into `sh`, so it has to be POSIX, not bash.
+          # The bootstrap runs under whatever /bin/sh is: the docs have people
+          # download it and run it with `sh`, and bash is not everywhere. POSIX
+          # is the contract, so it is checked as POSIX.
           dash -n scripts/release/bootstrap-install.sh
           shellcheck -s sh -S warning scripts/release/bootstrap-install.sh
       - name: Assembler and image scripts — syntax and self-test
