@@ -8,8 +8,8 @@ It is empty on purpose. Before the first release the maintainer generates the
 release key, registers it, and commits its public half:
 
 ```sh
-ssh-keygen -t ed25519 -C releases@getmarula.com -f ~/.ssh/marula-release
-printf 'releases@getmarula.com %s\n' "$(cat ~/.ssh/marula-release.pub)" \
+ssh-keygen -t ed25519 -C releases@getmarula.com -f ~/.ssh/marula-release-2026
+printf 'releases@getmarula.com %s\n' "$(cat ~/.ssh/marula-release-2026.pub)" \
   >> release-keys/allowed_signers
 ```
 
