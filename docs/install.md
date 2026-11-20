@@ -492,21 +492,23 @@ install](#running-commands-against-the-install).
 ```sh
 BACKUP_DIR=/var/backups/marula
 BACKUP_DATE=$(date +%F)
+BACKUP_TMP="$BACKUP_DIR/.partial.$$"
 umask 077
 mkdir -p "$BACKUP_DIR" \
   && chmod 700 "$BACKUP_DIR" \
-  && cp "$INSTALL/marula.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE" \
+  && cp "$INSTALL/marula.env" "$BACKUP_TMP.env" \
   && marula_compose exec -T postgres pg_dump -U marula -d marula -Fc \
-  > "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
-  && mv "$BACKUP_DIR/marula-$BACKUP_DATE.dump.tmp" \
-        "$BACKUP_DIR/marula-$BACKUP_DATE.dump"
+  > "$BACKUP_TMP.dump" \
+  && mv "$BACKUP_TMP.dump" "$BACKUP_DIR/marula-$BACKUP_DATE.dump" \
+  && mv "$BACKUP_TMP.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE"
 ```
 
 `umask 077` restricts newly created files, and `chmod 700` restricts the backup
-directory even if it already exists. The dump is written to a
-temporary name and moved into place only when `pg_dump` exits zero, so a failed
-run leaves the previous copy intact, and a rerun on the same day replaces a
-complete file.
+directory even if it already exists. Both files are staged under a temporary
+name that carries this shell's process id, so two backups on the same day do not
+write to one path. Neither one replaces a complete copy until `pg_dump` exits
+zero: a failed run leaves the previous dump and its env copy in place, and a
+rerun on the same day replaces both.
 
 The copy of `marula.env` is part of the backup. The eight values are in it and
 nothing else reproduces them: a stack rebuilt with new signing keys signs
