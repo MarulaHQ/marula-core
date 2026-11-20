@@ -618,15 +618,25 @@ jobs:
           name: marula-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}
           path: dist/release
 
-      - name: Sanity-check the downloaded tree
+      # The tree comes back through an artifact, and artifact transfer carries no
+      # file modes: everything arrives 0644, the CLI and the two shell entry
+      # points included. The published 0.6.1 air-gapped archive shows the result —
+      # `marula` inside it at 0644 — and `install-offline.sh` refuses a bundle
+      # whose CLI is not executable, so a bundle built from that tree could never
+      # install. Unpacking the release's own archive puts back the modes the tree
+      # was archived with, and that archive is what a downloader receives.
+      - name: Unpack the assembled release for this arch
         run: |
           set -euo pipefail
           DIR="dist/release/marula-$VERSION-linux-${{ matrix.arch }}"
-          if [ ! -d "$DIR" ]; then
-            echo "::error::$DIR did not come back from the build leg"
+          if [ ! -f "$DIR.tar.gz" ]; then
+            echo "::error::$DIR.tar.gz did not come back from the build leg"
             exit 1
           fi
+          rm -rf "$DIR"
+          tar -xzf "$DIR.tar.gz" -C dist/release
           (cd "$DIR" && sha256sum -c SHA256SUMS)
+          test -x "$DIR/marula"
 
       # dhi.io refuses anonymous manifest requests from GitHub's addresses, and
       # an offline bundle has to carry the third-party images. The account is
