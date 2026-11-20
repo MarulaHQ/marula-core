@@ -13,6 +13,20 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-11-20
+
+### Added
+
+- Install Marula with one command: a script that checks the release signature and opens the installer.
+- Install Marula on Windows from one line in PowerShell: download the right archive, check the release signature, unpack it and open the installer.
+
+### Fixed
+
+- Air-gapped bundles now carry an executable CLI. The release tree reached the air-gapped job through a workflow artifact, which does not carry file modes, so `marula`, `install.sh` and `gen-env.sh` arrived without their executable bit and `install-offline.sh` refused the bundle it was unpacked from.
+- An air-gapped install on a host below the chosen shape's floors no longer reports itself broken: the bundle's own `install-offline.sh` now passes the shape and the capacity waiver to the health check it runs at the end, so the check judges the stack that was installed.
+- From 0.6.2 onward, a versioned install link installs the release it names instead of the newest one: `https://getmarula.com/install/latest/linux` installs the newest release, `https://getmarula.com/install/v0.6.2/linux` installs 0.6.2, and `--version` still overrides either.
+- The installer can read free disk space on Windows, so a plan is no longer refused for a floor it could not measure.
+
 ## [0.6.1] - 2026-11-20
 
 ### Fixed
@@ -393,7 +407,8 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 [0.5.0]: https://github.com/MarulaHQ/marula-core/compare/v0.4.0...v0.5.0
 [0.6.0]: https://github.com/MarulaHQ/marula-core/compare/v0.5.0...v0.6.0
 [0.6.1]: https://github.com/MarulaHQ/marula-core/compare/v0.6.0...v0.6.1
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.6.1...HEAD
+[0.6.2]: https://github.com/MarulaHQ/marula-core/compare/v0.6.1...v0.6.2
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.6.2...HEAD
 [0.4.0]: https://github.com/MarulaHQ/marula-core/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/MarulaHQ/marula-core/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/MarulaHQ/marula-core/compare/v0.3.6...v0.3.7

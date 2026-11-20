@@ -169,7 +169,7 @@ strip = "none"
 strip = "none"
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.2"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/MarulaHQ/marula-core"
