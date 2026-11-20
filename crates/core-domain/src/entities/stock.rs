@@ -380,6 +380,321 @@ impl StockSerial {
     }
 }
 
+/// The seven live custody classes (ADR 0035 §4.1). A unit is in exactly one
+/// of these or in one terminal disposition below, never in two.
+pub const CUSTODY_CLASSES: [&str; 7] = [
+    "sale_stock",
+    "internal_fleet",
+    "rental_in",
+    "rental_out",
+    "client_custody",
+    "ewaste_custody",
+    "tools",
+];
+
+/// Terminal dispositions. A disposed unit keeps its identity and its serial or
+/// asset row; what changes is that it no longer sits in a live class.
+pub const TERMINAL_DISPOSITIONS: [&str; 4] = ["sold", "recycled", "destroyed", "returned"];
+
+/// Every value the `custody_class` columns admit, live and terminal. The DB
+/// CHECK in migration 0232 names this same list.
+pub const UNIT_CLASSES: [&str; 11] = [
+    "sale_stock",
+    "internal_fleet",
+    "rental_in",
+    "rental_out",
+    "client_custody",
+    "ewaste_custody",
+    "tools",
+    "sold",
+    "recycled",
+    "destroyed",
+    "returned",
+];
+
+pub fn is_valid_custody_class(class: &str) -> bool {
+    UNIT_CLASSES.contains(&class.trim())
+}
+
+pub fn is_live_custody_class(class: &str) -> bool {
+    CUSTODY_CLASSES.contains(&class.trim())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum CustodyClass {
+    SaleStock,
+    InternalFleet,
+    RentalIn,
+    RentalOut,
+    ClientCustody,
+    EwasteCustody,
+    Tools,
+    Sold,
+    Recycled,
+    Destroyed,
+    Returned,
+}
+
+impl CustodyClass {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            CustodyClass::SaleStock => "sale_stock",
+            CustodyClass::InternalFleet => "internal_fleet",
+            CustodyClass::RentalIn => "rental_in",
+            CustodyClass::RentalOut => "rental_out",
+            CustodyClass::ClientCustody => "client_custody",
+            CustodyClass::EwasteCustody => "ewaste_custody",
+            CustodyClass::Tools => "tools",
+            CustodyClass::Sold => "sold",
+            CustodyClass::Recycled => "recycled",
+            CustodyClass::Destroyed => "destroyed",
+            CustodyClass::Returned => "returned",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw.trim() {
+            "sale_stock" => Ok(Self::SaleStock),
+            "internal_fleet" => Ok(Self::InternalFleet),
+            "rental_in" => Ok(Self::RentalIn),
+            "rental_out" => Ok(Self::RentalOut),
+            "client_custody" => Ok(Self::ClientCustody),
+            "ewaste_custody" => Ok(Self::EwasteCustody),
+            "tools" => Ok(Self::Tools),
+            "sold" => Ok(Self::Sold),
+            "recycled" => Ok(Self::Recycled),
+            "destroyed" => Ok(Self::Destroyed),
+            "returned" => Ok(Self::Returned),
+            other => Err(DomainError::Validation(format!(
+                "invalid custody class: {other}"
+            ))),
+        }
+    }
+
+    /// A terminal disposition closes the unit's life; nothing moves back out of
+    /// it, and a unit in one never enters owned levels or valuation.
+    pub const fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            CustodyClass::Sold
+                | CustodyClass::Recycled
+                | CustodyClass::Destroyed
+                | CustodyClass::Returned
+        )
+    }
+
+    /// True when the organisation owns the unit and it may sit in owned
+    /// quantity or valuation. E-waste custody, client custody and vendor
+    /// rentals are all somebody else's goods.
+    pub const fn counts_as_owned(self) -> bool {
+        matches!(
+            self,
+            CustodyClass::SaleStock
+                | CustodyClass::InternalFleet
+                | CustodyClass::RentalOut
+                | CustodyClass::Tools
+        )
+    }
+}
+
+/// Which projection of a unit a class movement names. A lot is a line plus a
+/// quantity (ADR 0035 §1); its table arrives with the e-waste lane and the
+/// reference is already a UUID, never a free-text key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum UnitKind {
+    Serial,
+    Asset,
+    Lot,
+}
+
+impl UnitKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            UnitKind::Serial => "serial",
+            UnitKind::Asset => "asset",
+            UnitKind::Lot => "lot",
+        }
+    }
+}
+
+/// The identity a movement points at: one kind and one id, never two
+/// references. A lot id is the id of the lot line row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct UnitReference {
+    pub kind: UnitKind,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+}
+
+impl UnitReference {
+    pub const fn serial(id: Uuid) -> Self {
+        Self {
+            kind: UnitKind::Serial,
+            id,
+        }
+    }
+
+    pub const fn asset(id: Uuid) -> Self {
+        Self {
+            kind: UnitKind::Asset,
+            id,
+        }
+    }
+
+    pub const fn lot(id: Uuid) -> Self {
+        Self {
+            kind: UnitKind::Lot,
+            id,
+        }
+    }
+}
+
+/// What caused a class change. `manual` is the honest source for an operator
+/// correction and carries no source id; every other kind names the document.
+pub const CLASS_TRANSITION_SOURCES: [&str; 8] = [
+    "purchase_receipt_line",
+    "stock_movement",
+    "device_asset",
+    "client_loan",
+    "tool_checkout",
+    "credit_line",
+    "ewaste_disposition",
+    "manual",
+];
+
+pub fn is_valid_class_transition_source(source: &str) -> bool {
+    CLASS_TRANSITION_SOURCES.contains(&source.trim())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ClassTransitionSource {
+    PurchaseReceiptLine,
+    StockMovement,
+    DeviceAsset,
+    ClientLoan,
+    ToolCheckout,
+    CreditLine,
+    EwasteDisposition,
+    Manual,
+}
+
+impl ClassTransitionSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ClassTransitionSource::PurchaseReceiptLine => "purchase_receipt_line",
+            ClassTransitionSource::StockMovement => "stock_movement",
+            ClassTransitionSource::DeviceAsset => "device_asset",
+            ClassTransitionSource::ClientLoan => "client_loan",
+            ClassTransitionSource::ToolCheckout => "tool_checkout",
+            ClassTransitionSource::CreditLine => "credit_line",
+            ClassTransitionSource::EwasteDisposition => "ewaste_disposition",
+            ClassTransitionSource::Manual => "manual",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw.trim() {
+            "purchase_receipt_line" => Ok(Self::PurchaseReceiptLine),
+            "stock_movement" => Ok(Self::StockMovement),
+            "device_asset" => Ok(Self::DeviceAsset),
+            "client_loan" => Ok(Self::ClientLoan),
+            "tool_checkout" => Ok(Self::ToolCheckout),
+            "credit_line" => Ok(Self::CreditLine),
+            "ewaste_disposition" => Ok(Self::EwasteDisposition),
+            "manual" => Ok(Self::Manual),
+            other => Err(DomainError::Validation(format!(
+                "invalid class transition source: {other}"
+            ))),
+        }
+    }
+
+    pub const fn is_manual(self) -> bool {
+        matches!(self, ClassTransitionSource::Manual)
+    }
+}
+
+/// One append-only row of the class-transition ledger (migration 0232). The row
+/// is the movement; the unit's `custody_class` column is its consequence.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CustodyClassMovement {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    pub unit: UnitReference,
+    pub from_class: CustodyClass,
+    pub to_class: CustodyClass,
+    pub reason: String,
+    pub source: ClassTransitionSource,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub source_id: Option<Uuid>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub created_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl CustodyClassMovement {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        if self.from_class == self.to_class {
+            return Err(DomainError::Validation(
+                "a class movement must change the class".into(),
+            ));
+        }
+        if self.reason.trim().is_empty() {
+            return Err(DomainError::Validation(
+                "a class movement needs a reason".into(),
+            ));
+        }
+        if self.reason.chars().count() > 500 {
+            return Err(DomainError::Validation(
+                "a class movement reason must be at most 500 characters".into(),
+            ));
+        }
+        match (self.source.is_manual(), self.source_id) {
+            (true, None) => {}
+            (true, Some(_)) => {
+                return Err(DomainError::Validation(
+                    "a manual class movement carries no source id".into(),
+                ))
+            }
+            (false, None) => {
+                return Err(DomainError::Validation(
+                    "a class movement needs the document that caused it".into(),
+                ))
+            }
+            (false, Some(_)) => {}
+        }
+        if self.unit.kind == UnitKind::Lot {
+            return Err(DomainError::Validation(
+                "a lot class movement needs the e-waste lot table; the ledger admits serial and asset units today"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The class a new serial row starts in, from the vocabulary the row already
+/// carries. This is the backfill rule in migration 0232 and the reason a tool
+/// serial never starts life as sale stock.
+pub fn initial_serial_class(is_tool: bool, has_client: bool) -> CustodyClass {
+    if is_tool {
+        CustodyClass::Tools
+    } else if has_client {
+        CustodyClass::RentalOut
+    } else {
+        CustodyClass::SaleStock
+    }
+}
+
 /// Signed movement kind for `qty_milli` derivation; the write path uses
 /// these helpers so milli math never branches on floats.
 pub fn signed_delta(kind: &str, abs_qty_milli: i64) -> Option<i64> {
@@ -520,5 +835,96 @@ mod tests {
         assert!(m.validate().is_err());
         m.client_id = Some(Uuid::now_v7());
         m.validate().unwrap();
+    }
+
+    fn class_movement() -> CustodyClassMovement {
+        CustodyClassMovement {
+            id: Uuid::now_v7(),
+            org_id: Uuid::now_v7(),
+            unit: UnitReference::asset(Uuid::now_v7()),
+            from_class: CustodyClass::InternalFleet,
+            to_class: CustodyClass::SaleStock,
+            reason: "decommissioned laptop returned to sale stock".into(),
+            source: ClassTransitionSource::Manual,
+            source_id: None,
+            created_by: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn every_custody_class_round_trips_and_stays_one_of_the_two_vocabularies() {
+        for class in UNIT_CLASSES {
+            let parsed = CustodyClass::parse(class).expect("known class parses");
+            assert_eq!(parsed.as_str(), class);
+            assert!(is_valid_custody_class(class));
+            assert_eq!(
+                is_live_custody_class(class),
+                !parsed.is_terminal(),
+                "a class is either live or terminal, never both"
+            );
+        }
+        assert_eq!(
+            UNIT_CLASSES.len(),
+            CUSTODY_CLASSES.len() + TERMINAL_DISPOSITIONS.len()
+        );
+        assert!(CustodyClass::parse("in_stock").is_err());
+    }
+
+    #[test]
+    fn a_terminal_disposition_is_not_owned_quantity() {
+        for class in TERMINAL_DISPOSITIONS {
+            let parsed = CustodyClass::parse(class).unwrap();
+            assert!(parsed.is_terminal());
+            assert!(!parsed.counts_as_owned(), "{class} is not owned stock");
+        }
+        assert!(!CustodyClass::EwasteCustody.counts_as_owned());
+        assert!(!CustodyClass::ClientCustody.counts_as_owned());
+        assert!(!CustodyClass::RentalIn.counts_as_owned());
+        assert!(CustodyClass::SaleStock.counts_as_owned());
+        assert!(CustodyClass::Tools.counts_as_owned());
+    }
+
+    #[test]
+    fn a_new_tool_serial_starts_in_the_tools_class() {
+        assert_eq!(initial_serial_class(true, false), CustodyClass::Tools);
+        assert_eq!(initial_serial_class(false, true), CustodyClass::RentalOut);
+        assert_eq!(initial_serial_class(false, false), CustodyClass::SaleStock);
+    }
+
+    #[test]
+    fn a_class_movement_needs_a_change_a_reason_and_a_source() {
+        class_movement().validate().unwrap();
+
+        let mut m = class_movement();
+        m.to_class = m.from_class;
+        assert!(m.validate().is_err(), "no movement, no row");
+
+        let mut m = class_movement();
+        m.reason = "   ".into();
+        assert!(m.validate().is_err(), "a reason is required");
+
+        let mut m = class_movement();
+        m.source = ClassTransitionSource::PurchaseReceiptLine;
+        assert!(
+            m.validate().is_err(),
+            "a document source must name the document"
+        );
+        m.source_id = Some(Uuid::now_v7());
+        m.validate().unwrap();
+
+        let mut m = class_movement();
+        m.source_id = Some(Uuid::now_v7());
+        assert!(m.validate().is_err(), "manual carries no source id");
+    }
+
+    #[test]
+    fn a_lot_movement_is_refused_until_the_lot_table_exists() {
+        let mut m = class_movement();
+        m.unit = UnitReference::lot(Uuid::now_v7());
+        assert!(
+            m.validate().is_err(),
+            "no lot ledger exists yet, so no lot movement is accepted"
+        );
     }
 }
