@@ -1,12 +1,98 @@
 # Install Marula on a machine
 
-This page takes a release bundle to a running stack on a server. You download
-two files, check the archive against its checksum, unpack it, and run the
-installer inside. The installer either walks you through a browser wizard or
-prints a plan for you to apply.
+This page takes a release bundle to a running stack on a server. The short way
+is one line; the rest of the page is the same install by hand, then the eight
+secrets, the shapes, upgrades and backups.
 
-There is no hosted `curl … | sh`. The bundle is the install path, and a bundle
-you can read before running is the point.
+## One line
+
+On Linux or Apple silicon:
+
+```sh
+curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh \
+  -o /tmp/marula-install.sh && sh /tmp/marula-install.sh
+```
+
+That is `scripts/release/bootstrap-install.sh`, attached to releases from 0.6.1.
+It works out your platform, downloads that archive, verifies the signature over
+its checksum list, verifies the archive, unpacks it, and runs the bundle's
+`./install.sh` with the arguments it did not consume itself (`--dir`, `--apply`
+and anything else go straight through; a `--` before them also works). With no
+arguments that means the wizard, into `~/marula`.
+
+The script is written to a file first so that a failed download cannot look like
+a successful no-op: `curl … | sh` would hand an empty script to `sh` on a 404 and
+exit zero.
+
+```sh
+# a server: print the plan, then apply
+sh /tmp/marula-install.sh --dir /srv/marula
+sh /tmp/marula-install.sh --dir /srv/marula --apply
+# a specific version, or the air-gapped bundle
+sh /tmp/marula-install.sh --version 0.6.1
+sh /tmp/marula-install.sh --offline
+```
+
+On a shared machine, download into `$(mktemp)` rather than a fixed name:
+
+```sh
+T=$(mktemp)
+curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh -o "$T" \
+  && sh "$T" --dir /srv/marula --apply
+```
+
+The copy under `releases/download/vX.Y.Z/` is that release's snapshot of the
+script, frozen with the tag; a later release attaches a later copy. It installs
+the newest release unless you pass `--version X.Y.Z`, because the asset name
+carries no version for it to read.
+
+**Where trust comes from.** The script has no signature of its own: it arrives
+over HTTPS from GitHub, the same channel as every other asset on the release
+page. What it then does is different — it checks the *archive* against a
+signature from the release key, and that key is pinned inside the script. So
+replacing the script would also replace the key, which is why the honest
+statement is "trusted as a download from this repository, and it verifies what it
+fetches". Read it before you run it:
+[`scripts/release/bootstrap-install.sh`](../scripts/release/bootstrap-install.sh).
+
+It needs `curl`, `tar` and `ssh-keygen`, plus `zstd` for an air-gapped bundle.
+It refuses to install when it cannot check the signature, because a missing tool
+is not a reason to trust a download. The bundle it unpacks stays on the machine
+under `~/.local/share/marula` (`MARULA_BUNDLE_DIR` overrides the parent), and the
+script prints two paths: where the bundle was kept, and the release directory
+inside it. The release directory is the one this page means by "the unpacked
+release directory" — it holds `marula`, `deploy/` and `release.json`. An
+air-gapped bundle nests it one level deeper, which is why the script prints it
+rather than leaving you to guess.
+
+### By hand
+
+Prefer the archive? Each online platform build has one, with its own signed
+checksum list. The air-gapped bundles are listed in the combined `SHA256SUMS`.
+
+| Platform | Archive | Install |
+|---|---|---|
+| Linux x86_64 | `marula-<version>-linux-x64.tar.gz` | `./install.sh` |
+| Linux arm64 | `marula-<version>-linux-arm64.tar.gz` | `./install.sh` |
+| macOS, Apple silicon | `marula-<version>-macos-arm64.tar.gz` | `./install.sh` |
+| Linux x86_64, no network | `marula-<version>-offline-linux-x64.tar.zst` | `./install-offline.sh` |
+| Linux arm64, no network | `marula-<version>-offline-linux-arm64.tar.zst` | `./install-offline.sh` |
+
+Unpack with `tar -xzf` (`tar --zstd -xf` for an air-gapped bundle), enter the
+directory it makes, and run the command. Check the download first, naming the
+list for your platform: `sha256sum -c SHA256SUMS-linux-x64` (or
+`SHA256SUMS-linux-arm64`), `shasum -a 256 -c SHA256SUMS-macos-arm64` on macOS.
+An air-gapped archive is listed in the combined `SHA256SUMS`, next to archives you
+may not have downloaded, so check its one line rather than the whole list:
+
+```sh
+grep 'offline-linux-x64' SHA256SUMS | sha256sum -c -
+```
+
+Windows is not an install target yet. The release carries a `windows-x64`
+archive with `marula.exe` and the desktop setup inside it, but the bundle's
+`install.sh` looks for an executable named `marula` and needs a POSIX shell, so
+neither WSL nor Git Bash runs it as it stands.
 
 ## What you need
 
