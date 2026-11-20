@@ -49,7 +49,9 @@ Notes the runbook enforces:
   cover it: it mounts `objectdata` and `/pgdumps` only, and Garage's
   `garagedata` and `garagemeta` volumes belong to the `garage` service alone.
   Copy them yourself in the same window, with the store stopped so the two
-  agree, and keep the archive beside the dump:
+  agree, and keep the archive beside the dump. Run this from the unpacked
+  release directory, with `marula_compose` defined as [the install
+  page](../../install.md#running-commands-against-the-install) shows:
 
   ```sh
   # The compose file declares `name: marula`, so the volumes are marula_<name>.

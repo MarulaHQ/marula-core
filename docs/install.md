@@ -383,12 +383,12 @@ inside the 100 a stock Postgres allows. Turn the profile on when you add a
 second API instance, and in the env file point the host inside
 `MARULA_APP_DATABASE_URL` and `MARULA_WORKER_APP_DATABASE_URL` at
 `pgbouncer:6432`, with `MARULA_DB_STATEMENT_CACHE=0`, at the same time. This is a
-`split` setting. The `all-in-one` and `demo` overlays set `DATABASE_URL` and
-`MARULA_WORKER_DATABASE_URL` themselves, pointing at Postgres, and a
-service-level value wins over the env file: on those shapes the profile starts a
-pooler that nothing dials until those values are overridden too. The `demo`
-overlay pins `DATABASE_URL` and `MARULA_LISTEN_DATABASE_URL` on `core-api` and
-on the separate `worker` instead of setting `MARULA_WORKER_DATABASE_URL`.
+`split` setting. Both overlays set the database URLs themselves and point them
+at Postgres, and a service-level value wins over the env file: on those shapes
+the profile starts a pooler that nothing dials until those values are overridden
+too. The `all-in-one` overlay pins `DATABASE_URL` and
+`MARULA_WORKER_DATABASE_URL`; the `demo` overlay pins `DATABASE_URL` and
+`MARULA_LISTEN_DATABASE_URL` on `core-api` and on the separate `worker`.
 [`deploy/README.md`](../deploy/README.md) has the connection arithmetic and
 [`docs/reference/connection-pooling.md`](reference/connection-pooling.md) has
 the measurements.

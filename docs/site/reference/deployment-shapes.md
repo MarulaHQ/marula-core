@@ -55,9 +55,11 @@ means a fault in a loop takes the API down with it. It exists for a demo box, a
 laptop, or a single small server where a second container is more moving parts
 than the team can justify.
 
-It sets eleven values that `split` leaves alone: the worker-loop cadences, the
-all-in-one marker, the one-box reliability setting, and the worker's health
-endpoint moving into the API process. Both shapes dial Postgres the same way,
+It sets eleven values that `split` leaves alone. One marks the shape and one
+sets the reliability profile for a single box. The worker URL the embedded loops
+use is another, and the remaining eight are polling cadences. The health endpoint
+for those loops moving into the API process follows from the marker, not from a
+value of its own. Both shapes dial Postgres the same way,
 directly. The `pooler` profile changes that on `split`; the all-in-one overlay
 pins `DATABASE_URL` and `MARULA_WORKER_DATABASE_URL` at Postgres, so pooling that
 shape means overriding them in another file.
