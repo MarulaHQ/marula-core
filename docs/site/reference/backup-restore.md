@@ -52,7 +52,8 @@ Notes the runbook enforces:
   agree, and keep the archive beside the dump:
 
   ```sh
-  PROJECT=deploy      # the prefix `docker volume ls` shows for this stack
+  # The compose file declares `name: marula`, so the volumes are marula_<name>.
+  PROJECT=marula
   marula_compose stop garage
   for v in garagedata garagemeta; do
     docker run --rm -v "${PROJECT}_$v:/data:ro" -v "$PWD":/out alpine \
