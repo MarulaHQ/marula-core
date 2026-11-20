@@ -714,7 +714,15 @@ jobs:
         run: |
           set -euo pipefail
           # The pin is written into a sed script, so the value has to be a
-          # plain semver: no `|` delimiter, no `&`, no quote in it.
+          # plain semver: no `|` delimiter, no `&`, no quote in it, and no
+          # newline, which grep would not catch because it matches per line
+          # and sed would read as a second command.
+          case "$VERSION" in
+            '' | *[!0-9A-Za-z.+-]*)
+              echo "::error::release version '$VERSION' contains a character a release version does not use"
+              exit 1
+              ;;
+          esac
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
             echo "::error::release version is '$VERSION', which is not a plain semver, so the installers cannot be pinned to it"
             exit 1
