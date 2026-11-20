@@ -61,11 +61,14 @@ MARULA_WORKER_APP_DATABASE_URL=postgres://marula:PASS@pgbouncer:6432/marula
 
 Every command below carries `--env-file marula.env`; substitute the file your
 install wrote. Without it Compose reads none of the values, and `pooler-auth`
-stops on its `MARULA_APP_PASSWORD` guard before either service starts.
+stops on its `MARULA_APP_PASSWORD` guard before either service starts. Naming
+`core-api` and `worker` in the same run is what recreates them against the new
+URLs: `up -d` alone would leave both on the environment they were created with,
+still dialing `postgres:5432`.
 
 ```sh
 docker compose --env-file marula.env -f deploy/docker-compose.yml \
-  --profile pooler up -d pgbouncer pooler-auth
+  --profile pooler up -d pgbouncer pooler-auth core-api worker
 docker compose --env-file marula.env -f deploy/docker-compose.yml \
   exec postgres psql -U marula -d marula \
   -c "select count(*) from pg_stat_activity where datname = 'marula'"
