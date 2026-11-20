@@ -8,6 +8,33 @@ prints a plan for you to apply.
 There is no hosted `curl … | sh`. The bundle is the install path, and a bundle
 you can read before running is the point.
 
+## One line
+
+On Linux or macOS:
+
+```sh
+curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh | sh
+```
+
+That is `scripts/release/bootstrap-install.sh`, attached to every release. It
+works out your platform, downloads that archive, verifies the signature over its
+checksum list against the release key pinned in the script, verifies the archive,
+unpacks it, and runs the bundle's `./install.sh` with whatever you passed after
+`--`. With no arguments that means the wizard, into `~/marula`.
+
+```sh
+# a server, plan first, then apply
+curl -fsSL .../install.sh | sh -s -- --dir /srv/marula
+curl -fsSL .../install.sh | sh -s -- --dir /srv/marula --apply
+# a specific version, or an air-gapped bundle
+curl -fsSL .../install.sh | sh -s -- --version 0.6.1
+curl -fsSL .../install.sh | sh -s -- --offline
+```
+
+It needs `curl`, `tar` and `ssh-keygen`; it refuses to install anything whose
+signature it cannot check, because a missing tool is not a reason to trust a
+download. The sections below cover the same install done by hand.
+
 ## What you need
 
 - A Linux host, x86_64 or arm64. macOS on Apple silicon runs the stack too, and

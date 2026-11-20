@@ -144,6 +144,9 @@ jobs:
         run: |
           bash -n scripts/release/*.sh
           shellcheck -S warning scripts/release/*.sh
+          # The bootstrap is piped into `sh`, so it has to be POSIX, not bash.
+          dash -n scripts/release/bootstrap-install.sh
+          shellcheck -s sh -S warning scripts/release/bootstrap-install.sh
       - name: Assembler and image scripts — syntax and self-test
         run: |
           node --check scripts/release/assemble.mjs
@@ -662,6 +665,16 @@ jobs:
           pattern: marula-*
           path: dist/release
           merge-multiple: true
+
+      # The one-line entrance. Its asset name carries no version on purpose:
+      # `releases/latest/download/install.sh` only resolves while the name never
+      # changes, and the script resolves the version itself.
+      - name: Stage the one-line installer
+        run: |
+          set -euo pipefail
+          install -m 0755 scripts/release/bootstrap-install.sh dist/release/install.sh
+          test -x dist/release/install.sh
+          printf 'staged install.sh (%s bytes)\n' "$(wc -c < dist/release/install.sh)"
 
       - name: Write the manifest and the combined checksum list
         run: |

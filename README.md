@@ -65,9 +65,19 @@ subscriptions beside it.
 
 ## Install it
 
-One archive per platform and one command. The installer checks the archive
-against its own checksums, measures the machine, and shows you the plan before
-it writes anything. You need Docker with Compose 2.24 or newer.
+One line on Linux or macOS. It downloads the archive for your platform, checks
+its signature against the release key, unpacks it, and opens the installer:
+
+```sh
+curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh | sh
+```
+
+Add `-s -- --dir /srv/marula --apply` to finish without the wizard, or pin a
+version with `-s -- --version 0.6.1`. You need Docker with Compose 2.24 or newer.
+Read the script before you pipe it if you like:
+[`scripts/release/bootstrap-install.sh`](scripts/release/bootstrap-install.sh).
+
+Prefer the archive by hand? One per platform, each with its own checksum list:
 
 | Platform | Download | Install |
 |---|---|---|
