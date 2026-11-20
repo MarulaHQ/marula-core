@@ -11,6 +11,9 @@
 //! amounts ride [`crate::entities::line_amount_minor`] (half-even, parity
 //! with quote lines); the ADR 0002 FX lock moment for a bill is POSTING.
 
+use super::client::Ownership;
+use super::costs::RechargeRule;
+use super::stock::CustodyClass;
 use crate::entities::line_amount_minor;
 use crate::error::DomainError;
 use crate::ids::OrgId;
@@ -280,6 +283,298 @@ fn validate_currency(code: &str) -> Result<(), DomainError> {
         )));
     }
     Ok(())
+}
+
+/// Acquisition intent (ADR 0035 §2, §5.1). A purchase order may mix intents:
+/// the header carries defaults and the line decides. These are the words, the
+/// destination each word implies, and the validation that keeps a line from
+/// claiming a destination its kind cannot reach. The purchasing lane wires them
+/// to columns and routes; nothing here changes a PO today.
+pub const ACQUIRED_FOR_VALUES: [&str; 8] = [
+    "sale_stock",
+    "internal_fleet",
+    "rental_pool",
+    "vendor_rental",
+    "client_stocked",
+    "client_drop_ship",
+    "project_consumable",
+    "ewaste_service",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum AcquiredFor {
+    /// Bought to sell: lands in `sale_stock`.
+    SaleStock,
+    /// The organisation's own equipment: lands as an `internal_fleet` asset.
+    InternalFleet,
+    /// Bought for the rental pool: lands as a `rental_out` asset.
+    RentalPool,
+    /// Rented from a vendor: lands as a `rental_in` asset at `ownership = rented`.
+    VendorRental,
+    /// Bought for a client and stocked for them: `client_custody`.
+    ClientStocked,
+    /// Bought for a client and shipped direct: `client_custody`, no owned level.
+    ClientDropShip,
+    /// A consumable for a project or ticket: stocked, then consumed.
+    ProjectConsumable,
+    /// E-waste service or intake: custody only.
+    EwasteService,
+}
+
+impl AcquiredFor {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AcquiredFor::SaleStock => "sale_stock",
+            AcquiredFor::InternalFleet => "internal_fleet",
+            AcquiredFor::RentalPool => "rental_pool",
+            AcquiredFor::VendorRental => "vendor_rental",
+            AcquiredFor::ClientStocked => "client_stocked",
+            AcquiredFor::ClientDropShip => "client_drop_ship",
+            AcquiredFor::ProjectConsumable => "project_consumable",
+            AcquiredFor::EwasteService => "ewaste_service",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw.trim() {
+            "sale_stock" => Ok(Self::SaleStock),
+            "internal_fleet" => Ok(Self::InternalFleet),
+            "rental_pool" => Ok(Self::RentalPool),
+            "vendor_rental" => Ok(Self::VendorRental),
+            "client_stocked" => Ok(Self::ClientStocked),
+            "client_drop_ship" => Ok(Self::ClientDropShip),
+            "project_consumable" => Ok(Self::ProjectConsumable),
+            "ewaste_service" => Ok(Self::EwasteService),
+            other => Err(DomainError::Validation(format!(
+                "invalid acquired_for: {other}"
+            ))),
+        }
+    }
+
+    /// Where a receipt for this intent lands. One intent, one destination
+    /// class; a mixed PO routes per line.
+    pub const fn destination_class(self) -> CustodyClass {
+        match self {
+            AcquiredFor::SaleStock | AcquiredFor::ProjectConsumable => CustodyClass::SaleStock,
+            AcquiredFor::InternalFleet => CustodyClass::InternalFleet,
+            AcquiredFor::RentalPool => CustodyClass::RentalOut,
+            AcquiredFor::VendorRental => CustodyClass::RentalIn,
+            AcquiredFor::ClientStocked | AcquiredFor::ClientDropShip => CustodyClass::ClientCustody,
+            AcquiredFor::EwasteService => CustodyClass::EwasteCustody,
+        }
+    }
+
+    /// A purchase made on a client's behalf is the one that resolves a recharge
+    /// rule (§2, §5.3).
+    pub const fn is_client_purchase(self) -> bool {
+        matches!(
+            self,
+            AcquiredFor::ClientStocked | AcquiredFor::ClientDropShip
+        )
+    }
+}
+
+pub const DELIVERY_MODES: [&str; 3] = ["to_stock", "drop_ship_to_client", "to_site"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryMode {
+    ToStock,
+    DropShipToClient,
+    ToSite,
+}
+
+impl DeliveryMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DeliveryMode::ToStock => "to_stock",
+            DeliveryMode::DropShipToClient => "drop_ship_to_client",
+            DeliveryMode::ToSite => "to_site",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw.trim() {
+            "to_stock" => Ok(Self::ToStock),
+            "drop_ship_to_client" => Ok(Self::DropShipToClient),
+            "to_site" => Ok(Self::ToSite),
+            other => Err(DomainError::Validation(format!(
+                "invalid delivery mode: {other}"
+            ))),
+        }
+    }
+}
+
+/// What one PO line purchases. `pass_through` is bought and recharged without
+/// ever entering owned quantity; that is the defect the schema prevents by
+/// validation, not by remembering.
+pub const LINE_KINDS: [&str; 6] = [
+    "stock",
+    "serialized_unit",
+    "asset",
+    "rental_unit",
+    "service",
+    "pass_through",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum LineKind {
+    Stock,
+    SerializedUnit,
+    Asset,
+    RentalUnit,
+    Service,
+    PassThrough,
+}
+
+impl LineKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            LineKind::Stock => "stock",
+            LineKind::SerializedUnit => "serialized_unit",
+            LineKind::Asset => "asset",
+            LineKind::RentalUnit => "rental_unit",
+            LineKind::Service => "service",
+            LineKind::PassThrough => "pass_through",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw.trim() {
+            "stock" => Ok(Self::Stock),
+            "serialized_unit" => Ok(Self::SerializedUnit),
+            "asset" => Ok(Self::Asset),
+            "rental_unit" => Ok(Self::RentalUnit),
+            "service" => Ok(Self::Service),
+            "pass_through" => Ok(Self::PassThrough),
+            other => Err(DomainError::Validation(format!(
+                "invalid line kind: {other}"
+            ))),
+        }
+    }
+
+    /// A physical unit a person can hold needs a serial captured at receipt.
+    pub const fn is_serialised(self) -> bool {
+        matches!(
+            self,
+            LineKind::SerializedUnit | LineKind::Asset | LineKind::RentalUnit
+        )
+    }
+
+    /// A pass-through is never owned: it cannot land in a class the
+    /// organisation values.
+    pub const fn can_enter_owned_quantity(self) -> bool {
+        !matches!(self, LineKind::PassThrough | LineKind::Service)
+    }
+}
+
+/// The header defaults a PO carries (§5.1). The line can override the class,
+/// not the intent the money is recharged under.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PurchaseIntent {
+    pub acquired_for: AcquiredFor,
+    pub ownership: Option<Ownership>,
+    pub delivery_mode: DeliveryMode,
+    pub recharge_rule: Option<RechargeRule>,
+}
+
+impl PurchaseIntent {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        if self.acquired_for == AcquiredFor::ClientDropShip
+            && self.delivery_mode != DeliveryMode::DropShipToClient
+        {
+            return Err(DomainError::Validation(
+                "a drop-ship purchase delivers straight to the client".into(),
+            ));
+        }
+        if self.delivery_mode == DeliveryMode::DropShipToClient
+            && !self.acquired_for.is_client_purchase()
+        {
+            return Err(DomainError::Validation(
+                "only a client purchase can drop-ship to a client".into(),
+            ));
+        }
+        if self.ownership == Some(Ownership::Rented)
+            && self.acquired_for != AcquiredFor::VendorRental
+        {
+            return Err(DomainError::Validation(
+                "a rented unit is a vendor rental".into(),
+            ));
+        }
+        if self.acquired_for == AcquiredFor::VendorRental
+            && self.ownership != Some(Ownership::Rented)
+        {
+            return Err(DomainError::Validation(
+                "a vendor rental records ownership rented".into(),
+            ));
+        }
+        match (&self.recharge_rule, self.acquired_for.is_client_purchase()) {
+            (Some(rule), true) => rule.validate()?,
+            (Some(_), false) => {
+                return Err(DomainError::Validation(
+                    "a recharge rule applies only to a purchase made for a client".into(),
+                ))
+            }
+            (None, _) => {}
+        }
+        Ok(())
+    }
+}
+
+/// One line's intent and the fields that decide where it lands (§5.1).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct PurchaseLineIntent {
+    pub line_kind: LineKind,
+    pub destination_class: CustodyClass,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub asset_layout_id: Option<Uuid>,
+    pub serial_expected: bool,
+    pub weight_g: Option<i32>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<i64>))]
+    pub sell_price_minor: Option<i64>,
+    pub billable: bool,
+}
+
+impl PurchaseLineIntent {
+    pub fn validate(&self) -> Result<(), DomainError> {
+        if let Some(weight) = self.weight_g {
+            if weight <= 0 {
+                return Err(DomainError::Validation(
+                    "line weight must be positive grams".into(),
+                ));
+            }
+        }
+        if let Some(price) = self.sell_price_minor {
+            if price < 0 {
+                return Err(DomainError::Validation(
+                    "line sell price must not be negative".into(),
+                ));
+            }
+        }
+        if self.serial_expected && !self.line_kind.is_serialised() {
+            return Err(DomainError::Validation(
+                "only a serialised unit, asset or rental unit expects a serial".into(),
+            ));
+        }
+        if self.line_kind == LineKind::SerializedUnit && !self.serial_expected {
+            return Err(DomainError::Validation(
+                "a serialized_unit line expects a serial".into(),
+            ));
+        }
+        if !self.line_kind.can_enter_owned_quantity() && self.destination_class.counts_as_owned() {
+            return Err(DomainError::Validation(
+                "a pass-through or service line cannot land in owned quantity".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// One org-owned supplier/reseller.
@@ -695,5 +990,190 @@ mod tests {
         // Nothing received stays zero without erroring.
         let rolled = po_rollup(&[line(1_000, 0, 100)]).unwrap();
         assert_eq!(rolled.received_minor, 0);
+    }
+
+    fn intent() -> PurchaseIntent {
+        PurchaseIntent {
+            acquired_for: AcquiredFor::SaleStock,
+            ownership: Some(Ownership::Owned),
+            delivery_mode: DeliveryMode::ToStock,
+            recharge_rule: None,
+        }
+    }
+
+    fn line_intent() -> PurchaseLineIntent {
+        PurchaseLineIntent {
+            line_kind: LineKind::Stock,
+            destination_class: CustodyClass::SaleStock,
+            asset_layout_id: None,
+            serial_expected: false,
+            weight_g: Some(1_200),
+            sell_price_minor: Some(4_900),
+            billable: false,
+        }
+    }
+
+    #[test]
+    fn each_intent_names_one_destination_class() {
+        for value in ACQUIRED_FOR_VALUES {
+            let acquired = AcquiredFor::parse(value).unwrap();
+            assert_eq!(acquired.as_str(), value);
+            assert!(
+                is_live_destination(acquired.destination_class()),
+                "{value} must land in a live class"
+            );
+        }
+        assert_eq!(
+            AcquiredFor::VendorRental.destination_class(),
+            CustodyClass::RentalIn
+        );
+        assert_eq!(
+            AcquiredFor::RentalPool.destination_class(),
+            CustodyClass::RentalOut
+        );
+        assert_eq!(
+            AcquiredFor::ClientDropShip.destination_class(),
+            CustodyClass::ClientCustody
+        );
+    }
+
+    fn is_live_destination(class: CustodyClass) -> bool {
+        !class.is_terminal()
+    }
+
+    #[test]
+    fn a_drop_ship_delivers_to_the_client_and_only_for_a_client_purchase() {
+        let drop_ship = PurchaseIntent {
+            acquired_for: AcquiredFor::ClientDropShip,
+            delivery_mode: DeliveryMode::ToStock,
+            ..intent()
+        };
+        assert!(drop_ship.validate().is_err());
+
+        let ok = PurchaseIntent {
+            acquired_for: AcquiredFor::ClientDropShip,
+            ownership: None,
+            delivery_mode: DeliveryMode::DropShipToClient,
+            recharge_rule: Some(RechargeRule::at_cost()),
+        };
+        ok.validate().unwrap();
+
+        let wrong_owner = PurchaseIntent {
+            acquired_for: AcquiredFor::SaleStock,
+            delivery_mode: DeliveryMode::DropShipToClient,
+            ..intent()
+        };
+        assert!(
+            wrong_owner.validate().is_err(),
+            "sale stock never drops ships to a client"
+        );
+    }
+
+    #[test]
+    fn rented_in_gear_is_a_vendor_rental_in_both_directions() {
+        let rented = PurchaseIntent {
+            acquired_for: AcquiredFor::VendorRental,
+            ownership: Some(Ownership::Rented),
+            delivery_mode: DeliveryMode::ToStock,
+            recharge_rule: None,
+        };
+        rented.validate().unwrap();
+
+        let unowned_rental = PurchaseIntent {
+            acquired_for: AcquiredFor::VendorRental,
+            ownership: Some(Ownership::Owned),
+            ..rented.clone()
+        };
+        assert!(unowned_rental.validate().is_err());
+
+        let rented_but_owned = PurchaseIntent {
+            acquired_for: AcquiredFor::SaleStock,
+            ownership: Some(Ownership::Rented),
+            ..intent()
+        };
+        assert!(rented_but_owned.validate().is_err());
+    }
+
+    #[test]
+    fn a_recharge_rule_belongs_to_a_client_purchase_only() {
+        let client = PurchaseIntent {
+            acquired_for: AcquiredFor::ClientStocked,
+            ownership: None,
+            delivery_mode: DeliveryMode::ToStock,
+            recharge_rule: Some(RechargeRule::default_markup()),
+        };
+        client.validate().unwrap();
+
+        let ours = PurchaseIntent {
+            recharge_rule: Some(RechargeRule::default_markup()),
+            ..intent()
+        };
+        assert!(
+            ours.validate().is_err(),
+            "a purchase for stock is not recharged to a client"
+        );
+    }
+
+    #[test]
+    fn a_pass_through_cannot_land_in_owned_quantity() {
+        let pass_through = PurchaseLineIntent {
+            line_kind: LineKind::PassThrough,
+            destination_class: CustodyClass::SaleStock,
+            serial_expected: false,
+            weight_g: None,
+            sell_price_minor: None,
+            billable: true,
+            asset_layout_id: None,
+        };
+        assert!(
+            pass_through.validate().is_err(),
+            "the double-count defect: a pass-through in sale stock"
+        );
+
+        let client_pass_through = PurchaseLineIntent {
+            destination_class: CustodyClass::ClientCustody,
+            ..pass_through
+        };
+        client_pass_through.validate().unwrap();
+
+        let service = PurchaseLineIntent {
+            line_kind: LineKind::Service,
+            destination_class: CustodyClass::SaleStock,
+            serial_expected: false,
+            weight_g: None,
+            sell_price_minor: None,
+            billable: true,
+            asset_layout_id: None,
+        };
+        assert!(
+            service.validate().is_err(),
+            "a service is not a unit and cannot enter sale stock"
+        );
+    }
+
+    #[test]
+    fn line_kind_validation_keeps_serials_and_weights_honest() {
+        line_intent().validate().unwrap();
+
+        let mut serial = line_intent();
+        serial.line_kind = LineKind::SerializedUnit;
+        assert!(
+            serial.validate().is_err(),
+            "a serialized unit expects a serial"
+        );
+        serial.serial_expected = true;
+        serial.validate().unwrap();
+
+        let mut wrong = line_intent();
+        wrong.serial_expected = true;
+        assert!(wrong.validate().is_err(), "stock does not expect a serial");
+
+        let mut heavy = line_intent();
+        heavy.weight_g = Some(0);
+        assert!(heavy.validate().is_err());
+
+        let mut negative_price = line_intent();
+        negative_price.sell_price_minor = Some(-1);
+        assert!(negative_price.validate().is_err());
     }
 }

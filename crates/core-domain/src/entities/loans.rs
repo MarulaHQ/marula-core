@@ -20,10 +20,43 @@
 //! Money is integer minor units + ISO 4217 (ADR 0002); no conversion
 //! happens here.
 
+use super::stock::CustodyClass;
 use crate::error::DomainError;
 use crate::ids::OrgId;
 use chrono::{DateTime, NaiveDate, Utc};
 use uuid::Uuid;
+
+/// The class a unit carries while it is out on a client loan or lease. The
+/// organisation still owns it and the client holds it, which is exactly
+/// `rental_out` (ADR 0035 §4.1); a lease is the same custody with income
+/// attached, not a second class.
+pub const LOAN_OPEN_CLASS: CustodyClass = CustodyClass::RentalOut;
+
+/// The classes a unit may be issued from. A terminal unit cannot be issued, and
+/// `client_custody` means the goods were never ours to lend.
+pub fn loan_issue_origin_is_valid(origin: CustodyClass) -> bool {
+    matches!(
+        origin,
+        CustodyClass::SaleStock
+            | CustodyClass::Tools
+            | CustodyClass::InternalFleet
+            | CustodyClass::RentalOut
+    )
+}
+
+/// Where a returned unit goes: back to the class it was issued from, which the
+/// class-transition ledger records as the issue movement's `from_class`. The
+/// return is therefore a second movement, never an inferred status.
+pub fn loan_return_class(origin: CustodyClass) -> Result<CustodyClass, DomainError> {
+    if loan_issue_origin_is_valid(origin) {
+        Ok(origin)
+    } else {
+        Err(DomainError::Validation(format!(
+            "a unit in {} cannot be issued on a loan",
+            origin.as_str()
+        )))
+    }
+}
 
 /// Lease billing cycles — identical vocabulary to the 0061 asset rental
 /// fields (`rental_cycle`) so an issued lease never needs translation.
@@ -301,5 +334,21 @@ mod tests {
         assert!(bare.validate().is_err(), "no source is rejected");
         bare.device_asset_id = Some(Uuid::now_v7());
         bare.validate().unwrap();
+    }
+
+    #[test]
+    fn a_loan_moves_a_unit_out_and_back_without_inventing_a_class() {
+        assert_eq!(LOAN_OPEN_CLASS, CustodyClass::RentalOut);
+        for origin in [
+            CustodyClass::SaleStock,
+            CustodyClass::Tools,
+            CustodyClass::InternalFleet,
+            CustodyClass::RentalOut,
+        ] {
+            assert!(loan_issue_origin_is_valid(origin));
+            assert_eq!(loan_return_class(origin).unwrap(), origin);
+        }
+        assert!(!loan_issue_origin_is_valid(CustodyClass::ClientCustody));
+        assert!(loan_return_class(CustodyClass::Destroyed).is_err());
     }
 }
