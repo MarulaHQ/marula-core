@@ -145,6 +145,20 @@ may not have downloaded, so check its one line rather than the whole list:
 grep 'offline-linux-x64' SHA256SUMS | sha256sum -c -
 ```
 
+The air-gapped path is exercised on every release, not just documented. The
+`offline` job in `.github/workflows/install-e2e.yml` downloads the Linux x64
+archive, checks its one line in the combined `SHA256SUMS`, verifies the
+signature over that list, unpacks it and runs `install-offline.sh` on a runner.
+Run it by hand from the Actions tab (Install E2E, then `workflow_dispatch` with
+the version) to check any published release. The runner keeps its network, so
+the job does not claim the host was disconnected. It asserts what belongs to the
+bundle: after the load, every image `images.list` names is in the local store;
+the stack that starts resolves only to those images; and the Docker daemon
+recorded no pull from the start of the install to the moment `/readyz` answered.
+A bundle that left an image out fails the job and names the image. A host with
+no route at all is the one case the job cannot stage, and the bundle carries
+nothing that would behave differently there.
+
 The Windows archive carries no front door it can run: the bundle's `install.sh`
 is POSIX, and neither WSL nor Git Bash is a supported path to it. Two ways in,
 and neither is `./install.sh`:

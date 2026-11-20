@@ -69,6 +69,32 @@ case "$INSTALL_DIR" in
   *) INSTALL_DIR="$ORIG_PWD/$INSTALL_DIR" ;;
 esac
 
+# The two flags below are the installer's, and the doctor needs both. Without
+# `--profile` the doctor re-measures the host and judges whichever shape it would
+# have recommended, which need not be the one on disk; without `--allow-unfit` a
+# box below the shape's floors is reported as broken although the install
+# worked, which is the common shape of a small air-gapped site. Both are taken
+# from what the caller passed rather than asked for twice, so the install and the
+# check that follows it cannot name different shapes.
+DOCTOR_ARGS=()
+i=0
+while [ "$i" -lt "${#ARGS[@]}" ]; do
+  case "${ARGS[$i]}" in
+    --profile)
+      [ $((i + 1)) -lt "${#ARGS[@]}" ] || die "--profile needs a value"
+      DOCTOR_ARGS+=(--profile "${ARGS[$((i + 1))]}")
+      i=$((i + 2))
+      ;;
+    --profile=* | --allow-unfit)
+      DOCTOR_ARGS+=("${ARGS[$i]}")
+      i=$((i + 1))
+      ;;
+    *)
+      i=$((i + 1))
+      ;;
+  esac
+done
+
 command -v docker >/dev/null 2>&1 || die "docker is not on PATH; this bundle needs it"
 
 # The release directory inside the bundle is the only one that looks like this.
@@ -115,4 +141,5 @@ mkdir -p "$INSTALL_DIR"
   ${ARGS[@]+"${ARGS[@]}"}
 
 say "checking the result"
-"$BIN" doctor --compose-file "$RELEASE/deploy/docker-compose.yml" --dir "$INSTALL_DIR"
+"$BIN" doctor --compose-file "$RELEASE/deploy/docker-compose.yml" --dir "$INSTALL_DIR" \
+  ${DOCTOR_ARGS[@]+"${DOCTOR_ARGS[@]}"}
