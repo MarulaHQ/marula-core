@@ -97,7 +97,8 @@ Last updated 2026-11-20.
   with a recharge rule of cost or markup and drop-ship where the vendor ships
   direct. Landed costs are a per-organisation choice, and each layer keeps its
   own FX date. Rentals have a pool of their own. Client e-waste has a custody
-  trail and a certificate on the way out. The work is tracked on the
+  trail and a certificate on the way out. The work is tracked in
+  [#133](https://github.com/MarulaHQ/marula-core/issues/133) and on the
   [public roadmap board](https://github.com/orgs/MarulaHQ/projects/3).
 - **The phone.** A React Native app on the same typed API as the web: field
   ops, camera scanning, live sync, timers, and a proper tablet layout
