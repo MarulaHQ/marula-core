@@ -48,17 +48,21 @@ the file is read at startup, so a running instance keeps the old one.
 
 ## Compose
 
-The default stack starts it. Postgres keeps the published port (`15432`), the
-pooler takes `6432`, and the application dials `pgbouncer:6432`:
+The `pooler` profile starts it. Postgres keeps the published port (`15432`), the
+pooler takes `6432`, and with the profile on the application dials
+`pgbouncer:6432`:
 
 ```sh
-docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml --profile pooler up -d pgbouncer pooler-auth
 docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
   -c "select count(*) from pg_stat_activity where datname = 'marula'"
 ```
 
-The count is the server side, and it stays near `default_pool_size` whatever
-the instance count. For the client side and the per-pool view:
+That count is the server side, and the pooled part of it stays near
+`default_pool_size` however many clients connect. It is not the whole budget: the
+API's `LISTEN` and the worker's wakeup dial Postgres directly, one connection
+each, and the pooler does not carry them. For the client side and the per-pool
+view:
 
 ```sh
 docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
@@ -183,11 +187,16 @@ it to ask.
 per pooler process, so both multiply by the replica count. The worker connects
 as the owner role and core-api as `marula_app`, so two pairs, 15 each: 30 server
 connections at rest from one pooler, 60 from the two this file deploys, and 80
-as the hard stop before any queue reserve opens. Those are the numbers to keep
-under Postgres's `max_connections`, not the 54 connections per application
-instance. A third replica adds 30 at rest and another 40 to the ceiling. Raise
-`default_pool_size` only against a measured queue, and keep
-`max_db_connections` as the hard stop.
+as the hard stop before any queue reserve opens. A third replica adds 30 at rest
+and another 40 to the ceiling.
+
+What the pooler carries is not the whole Postgres budget. Each API instance
+keeps one direct `LISTEN` connection and the worker keeps its own, because a
+notification cannot ride a transaction-pooled session. Three API instances and
+a worker therefore hold 63 at rest and 83 at the ceiling, plus whatever
+migrations and `pg_dump` open while they run. That total is what has to stay
+under `max_connections`, not the pool of one application instance. Raise `default_pool_size` only against a measured queue, and
+keep `max_db_connections` as the hard stop.
 
 ## Rollback
 

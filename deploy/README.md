@@ -117,7 +117,11 @@ remembered afterwards.
 **Compose.** Put the new value in the env file you pass with `--env-file`
 (not on the command line). If you set `MARULA_APP_DATABASE_URL` by hand, change
 the password inside that URL as well: the variable is the whole URL, so a new
-`MARULA_APP_PASSWORD` never reaches it. Then bring the affected services back:
+`MARULA_APP_PASSWORD` never reaches it. The worker's URL dials the owner role by
+default, so this rotation never touches it; if you pointed the worker at
+`marula_app` instead, change the password inside
+`MARULA_WORKER_APP_DATABASE_URL` too and add `worker` to the commands below.
+Then bring the affected services back:
 
 ```sh
 docker compose -f deploy/docker-compose.yml --env-file my.env \
