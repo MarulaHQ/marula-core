@@ -48,9 +48,16 @@ the file is read at startup, so a running instance keeps the old one.
 
 ## Compose
 
-The `pooler` profile starts it. Postgres keeps the published port (`15432`), the
-pooler takes `6432`, and with the profile on the application dials
-`pgbouncer:6432`:
+The `pooler` profile starts PgBouncer. Postgres keeps the published port
+(`15432`) and the pooler takes `6432`. Starting the profile is half of it: the
+application keeps dialing `postgres:5432` until the two URL variables name the
+pooler, and a container keeps the environment it was created with. Add these two
+lines to the env file you pass with `--env-file`, then start the profile:
+
+```sh
+MARULA_APP_DATABASE_URL=postgres://marula_app:PASS@pgbouncer:6432/marula
+MARULA_WORKER_APP_DATABASE_URL=postgres://marula:PASS@pgbouncer:6432/marula
+```
 
 ```sh
 docker compose -f deploy/docker-compose.yml --profile pooler up -d pgbouncer pooler-auth
@@ -58,11 +65,12 @@ docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d maru
   -c "select count(*) from pg_stat_activity where datname = 'marula'"
 ```
 
-That count is the server side, and the pooled part of it stays near
-`default_pool_size` however many clients connect. It is not the whole budget: the
-API's `LISTEN` and the worker's wakeup dial Postgres directly, one connection
-each, and the pooler does not carry them. For the client side and the per-pool
-view:
+With both URLs pointing at the pooler, that count is the server side, and it
+stays near `default_pool_size` however many clients connect.
+
+It is not the whole budget: the API's `LISTEN` and the worker's wakeup dial
+Postgres directly, one connection each, and the pooler does not carry them. For
+the client side and the per-pool view:
 
 ```sh
 docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
@@ -193,8 +201,9 @@ and another 40 to the ceiling.
 What the pooler carries is not the whole Postgres budget. Each API instance
 keeps one direct `LISTEN` connection and the worker keeps its own, because a
 notification cannot ride a transaction-pooled session. Three API instances and
-a worker therefore hold 63 at rest and 83 at the ceiling, plus whatever
-migrations and `pg_dump` open while they run. That total is what has to stay
+one worker therefore hold 60 at rest and 80 at the ceiling from the pooler, plus
+four more from those direct connections: 64 in total, or 84 with the pooler's
+ceiling fully open, before migrations and `pg_dump` open anything of their own. That total is what has to stay
 under `max_connections`, not the pool of one application instance. Raise `default_pool_size` only against a measured queue, and
 keep `max_db_connections` as the hard stop.
 
