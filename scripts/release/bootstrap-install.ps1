@@ -265,6 +265,17 @@ the CLI knows.
             Fail 'needs ssh-keygen to verify the release signature; it ships with the Windows OpenSSH client (Settings > Apps > Optional features > OpenSSH Client). Without it a download cannot be trusted'
         }
 
+        # Present is not enough. `-Y verify` arrived in OpenSSH 8.1, and Windows
+        # 10 1809 ships 7.7p1, which answers "unknown option -- Y" — which would
+        # otherwise surface as a signature-mismatch error blaming the release.
+        $KeygenProbe = & $SshKeygen.Source -Y verify 2>&1 | Out-String
+        if ($KeygenProbe -match 'unknown option|illegal option|invalid option|unrecognized option') {
+            Fail ("the ssh-keygen on PATH is too old: it has no '-Y verify', which OpenSSH 8.1 added. " +
+                "Windows 10 1809 ships OpenSSH 7.7p1. Install the current OpenSSH client " +
+                "(Settings > Apps > Optional features, or Microsoft's Win32-OpenSSH release), then run this again")
+        }
+        }
+
         # A UTF-8 BOM would become part of the first field of the allowed_signers
         # line, and ssh-keygen reads that line strictly, so the bytes are written
         # explicitly without one. Windows PowerShell 5.1's Set-Content adds a BOM

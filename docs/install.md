@@ -93,8 +93,11 @@ the PowerShell way (`-Apply`, `-NoOpen`) or the way the CLI documents it
 (`--apply`, `--no-open`), and both arrive as the flag the CLI knows.
 
 It is run with PowerShell 7. `ssh-keygen` comes from the OpenSSH client that
-Windows 10 1809 and later ship, and `tar.exe` from Windows 10 1803 and later;
-without either it stops rather than installing something it could not check. The
+Windows 10 1809 and later ship, but that client is **7.7p1, which is too old**:
+signing verification arrived with `-Y verify` in OpenSSH 8.1. The script probes for
+the option before it downloads anything and tells you to upgrade rather than
+reporting a signature mismatch. `tar.exe` comes from Windows 10 1803 and later.
+Without either it stops rather than installing something it could not check. The
 bundle stays under `%LOCALAPPDATA%\marula` (`MARULA_BUNDLE_DIR` overrides the
 parent), and it prints the bundle path and the release directory, as the shell
 script does.
@@ -127,7 +130,7 @@ checksum list. The air-gapped bundles are listed in the combined `SHA256SUMS`.
 | Linux x86_64 | `marula-<version>-linux-x64.tar.gz` | `./install.sh` |
 | Linux arm64 | `marula-<version>-linux-arm64.tar.gz` | `./install.sh` |
 | macOS, Apple silicon | `marula-<version>-macos-arm64.tar.gz` | `./install.sh` |
-| Windows x86_64 | `marula-<version>-windows-x64.tar.gz` | `.\marula.exe install` |
+| Windows x86_64 | `marula-<version>-windows-x64.tar.gz` | `.\marula.exe install --compose-file deploy\docker-compose.yml --ui-dir apps\installer\dist --images registry` |
 | Linux x86_64, no network | `marula-<version>-offline-linux-x64.tar.zst` | `./install-offline.sh` |
 | Linux arm64, no network | `marula-<version>-offline-linux-arm64.tar.zst` | `./install-offline.sh` |
 
