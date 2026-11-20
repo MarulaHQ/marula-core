@@ -96,7 +96,14 @@ if [ "$OFFLINE" -eq 1 ]; then
 else
   ASSET="marula-${VERSION}-${OS}-${ARCH}.tar.gz"
 fi
-SUMS="SHA256SUMS-${OS}-${ARCH}"
+# The per-platform list names that platform's archive and nothing else. The
+# air-gapped bundle is written after the build legs, so only the combined list
+# carries it.
+if [ "$OFFLINE" -eq 1 ]; then
+  SUMS="SHA256SUMS"
+else
+  SUMS="SHA256SUMS-${OS}-${ARCH}"
+fi
 
 fetch() {
   if command -v curl >/dev/null 2>&1; then
@@ -119,10 +126,13 @@ if [ "$VERSION" = "latest" ]; then
   # The checksum list is the cheap way to learn the real version: follow the
   # redirect and read the tag out of the final URL.
   if command -v curl >/dev/null 2>&1; then
-    # A GET, not a HEAD: some proxies and static servers do not answer HEAD with
-    # the redirect, and the file is a few dozen bytes.
-    RESOLVED=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$BASE/$SUMS" 2>/dev/null |
-      sed -n 's#.*/download/v\([^/]*\)/.*#\1#p' | head -1) || true
+    # The release *page* redirect, not the asset URL: asset downloads leave for
+    # the CDN, and the final URL there carries no tag to read. This one ends at
+    # `/tag/vX.Y.Z`.
+    if ! PAGE=$(curl -fsSL -o /dev/null -w '%{url_effective}' "$RELEASES_URL/latest" 2>/dev/null); then
+      PAGE=""
+    fi
+    RESOLVED=$(printf '%s' "$PAGE" | sed -n 's#.*/tag/v\([^/]*\)/*$#\1#p' | head -1)
     [ -n "${RESOLVED:-}" ] || die "could not resolve the latest release; pass --version"
     VERSION="$RESOLVED"
     ASSET=$(printf '%s' "$ASSET" | sed "s/marula-latest-/marula-${VERSION}-/")
@@ -151,8 +161,9 @@ say "checking the archive against the signed list"
 # Exactly the asset that was fetched, not every line the list happens to carry:
 # a platform list names one archive, and checking anything else would fail on a
 # file this script never downloaded.
-grep -E "[[:space:]]${ASSET}\$" "$TMP/$SUMS" > "$TMP/one" || true
-[ -s "$TMP/one" ] || die "the signed list does not name $ASSET"
+if ! grep -E "[[:space:]]${ASSET}\$" "$TMP/$SUMS" > "$TMP/one"; then
+  die "the signed list does not name $ASSET"
+fi
 (
   cd "$TMP"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -168,7 +179,8 @@ case "$ASSET" in
     if tar --zstd -tf "$TMP/$ASSET" >/dev/null 2>&1; then
       tar --zstd -xf "$TMP/$ASSET" -C "$TMP"
     else
-      command -v zstd >/dev/null 2>&1 || die "needs zstd to unpack the air-gapped bundle"
+      command -v zstd >/dev/null 2>&1 ||
+        die "the air-gapped bundle needs zstd to unpack: apt install zstd, dnf install zstd, or brew install zstd"
       zstd -dc "$TMP/$ASSET" | tar -xf - -C "$TMP"
     fi
     DIR="$TMP/marula-${VERSION}-offline-${OS}-${ARCH}"
@@ -183,10 +195,18 @@ esac
 
 [ -x "$ENTRY" ] || die "the archive did not unpack into the shape this script expects ($ENTRY)"
 
-# The bundle's installer resolves a relative --dir against the shell it was
-# started from, and this script changes directory for it.
-cd "$DIR"
 say "handing over to the bundle installer"
+# No `cd`: the bundle's installer captures its own starting directory and
+# resolves a relative --dir against it, so changing directory here would move a
+# caller's `--dir ./instance` into the temporary unpack.
+#
+# No `exec` either. An exec would replace this shell and the EXIT trap would
+# never run, leaving the archive and the unpacked bundle behind on every
+# successful install -- and the air-gapped bundle is several hundred megabytes.
 # The parse loop stops at the first argument it does not own, so "$@" is exactly
 # what the bundle installer should receive, spaces and all.
-exec "$ENTRY" "$@"
+status=0
+"$ENTRY" "$@" || status=$?
+trap - EXIT INT TERM
+rm -rf "$TMP"
+exit "$status"

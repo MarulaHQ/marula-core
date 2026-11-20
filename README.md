@@ -65,42 +65,23 @@ subscriptions beside it.
 
 ## Install it
 
-One line on Linux or macOS. It downloads the archive for your platform, checks
-its signature against the release key, unpacks it, and opens the installer:
-
 ```sh
 curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh | sh
 ```
 
-Add `-s -- --dir /srv/marula --apply` to finish without the wizard, or pin a
-version with `-s -- --version 0.6.1`. You need Docker with Compose 2.24 or newer.
-Read the script before you pipe it if you like:
-[`scripts/release/bootstrap-install.sh`](scripts/release/bootstrap-install.sh).
+One line on Linux or Apple silicon. It downloads the archive for your platform,
+checks the release signature, unpacks it, and opens the installer. You need
+Docker with Compose 2.24 or newer.
 
-Prefer the archive by hand? One per platform, each with its own checksum list:
+For a server, `-s -- --dir /srv/marula --apply` finishes without the wizard.
+[Installing on a machine](https://getmarula.com/docs) covers the rest: the
+archive by hand, the air-gapped bundle, the eight secrets, both shapes, upgrades
+and backups. Windows is not an install target yet; the archive carries the
+binary and the desktop setup, and
+[#114](https://github.com/MarulaHQ/marula-core/issues/114) tracks the
+native path.
 
-| Platform | Download | Install |
-|---|---|---|
-| Linux x86_64 | [`marula-0.6.1-linux-x64.tar.gz`](https://github.com/MarulaHQ/marula-core/releases/download/v0.6.1/marula-0.6.1-linux-x64.tar.gz) | `./install.sh` |
-| Linux arm64 | [`marula-0.6.1-linux-arm64.tar.gz`](https://github.com/MarulaHQ/marula-core/releases/download/v0.6.1/marula-0.6.1-linux-arm64.tar.gz) | `./install.sh` |
-| macOS, Apple silicon | [`marula-0.6.1-macos-arm64.tar.gz`](https://github.com/MarulaHQ/marula-core/releases/download/v0.6.1/marula-0.6.1-macos-arm64.tar.gz) | `./install.sh` |
-| Windows x64 | [`marula-0.6.1-windows-x64.tar.gz`](https://github.com/MarulaHQ/marula-core/releases/download/v0.6.1/marula-0.6.1-windows-x64.tar.gz) | `./install.sh` in WSL or Git Bash |
-| Any Linux, no network | [`marula-0.6.1-offline-linux-x64.tar.zst`](https://github.com/MarulaHQ/marula-core/releases/download/v0.6.1/marula-0.6.1-offline-linux-x64.tar.zst) | `./install-offline.sh` |
-
-Unpack the archive (`tar -xzf marula-0.6.1-linux-x64.tar.gz`, or `tar --zstd -xf`
-for the air-gapped one), change into the directory it makes, and run the command.
-With no arguments the installer opens a loopback wizard that plans and applies on
-its own, into `~/marula`. To read the plan before anything changes, pass `--dir
-/srv/marula`; add `--apply` when it looks right. In a release bundle it pins the
-four published images by digest and adds `--images registry` itself, so nothing is
-typed by hand.
-
-The archive carries `install.sh`, the compose files, the pooler config and a
-`SHA256SUMS` covering all of them, and `install.sh` re-checks the unpacked tree
-against that list before it starts. If a pull ever asks for credentials,
-`docker login dhi.io` with a free Docker account is the fallback.
-
-Working on the code instead? The one-command checkout is still the fastest way in:
+Working on the code instead?
 
 ```bash
 git clone https://github.com/MarulaHQ/marula-core && cd marula-core
@@ -108,13 +89,10 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env up -d --bu
 # workspace UI on http://localhost:3000 · API on :8080 · Scalar docs at :8080/docs
 ```
 
-`deploy/dev.env` holds the published development secrets, so the stack warns at
-every boot. Run it on a machine you own. An install that serves anyone else
-generates its own eight secrets: [`docs/install.md`](docs/install.md) walks the
-installer, the two shapes and the eight values it writes.
-
-Everything else lives in [the docs](https://getmarula.com/docs): install on a
-server, upgrades, backups, the connector catalog, and the API reference.
+`deploy/dev.env` holds published development secrets, so the stack warns at every
+boot and belongs on a machine you own. [Working on the
+code](https://getmarula.com/docs) has the toolchain pinning, the test loop and
+the layout.
 
 ## What a day looks like
 
@@ -279,9 +257,11 @@ don't open a public issue for a security report.
   and pgvector, the full npm inventory, vendored tooling
 
 In plain language: running Marula unmodified for your own shop carries no
-extra obligations, and modifying it or running it for others asks you to share
-the source you changed on the same terms. Read the license, or get advice if
-the edge cases matter.
+source-sharing obligation. Two things add one. If you modify Marula and let
+people use that version over a network, section 13 requires you to offer those
+users the Corresponding Source of the modified version. Conveying copies, of
+either the modified or the unmodified program, brings the licence's distribution
+terms with it. Read the license, or get advice if the edge cases matter.
 
 The Marula name, wordmark and fruit mark are trademarks:
 [`TRADEMARK.md`](TRADEMARK.md). None of these licences grants trademark

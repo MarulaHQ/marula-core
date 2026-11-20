@@ -10,30 +10,64 @@ you can read before running is the point.
 
 ## One line
 
-On Linux or macOS:
+On Linux or Apple silicon:
 
 ```sh
-curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh \
+  -o /tmp/marula-install.sh && sh /tmp/marula-install.sh
 ```
 
 That is `scripts/release/bootstrap-install.sh`, attached to every release. It
 works out your platform, downloads that archive, verifies the signature over its
-checksum list against the release key pinned in the script, verifies the archive,
-unpacks it, and runs the bundle's `./install.sh` with whatever you passed after
-`--`. With no arguments that means the wizard, into `~/marula`.
+checksum list, verifies the archive, unpacks it, and runs the bundle's
+`./install.sh` with whatever you passed after `--`. With no arguments that means
+the wizard, into `~/marula`.
+
+The script is written to a file first so that a failed download cannot look like
+a successful no-op: `curl … | sh` would hand an empty script to `sh` on a 404 and
+exit zero.
 
 ```sh
-# a server, plan first, then apply
-curl -fsSL .../install.sh | sh -s -- --dir /srv/marula
-curl -fsSL .../install.sh | sh -s -- --dir /srv/marula --apply
-# a specific version, or an air-gapped bundle
-curl -fsSL .../install.sh | sh -s -- --version 0.6.1
-curl -fsSL .../install.sh | sh -s -- --offline
+# a server: print the plan, then apply
+curl -fsSL … -o /tmp/marula-install.sh && sh /tmp/marula-install.sh --dir /srv/marula
+curl -fsSL … -o /tmp/marula-install.sh && sh /tmp/marula-install.sh --dir /srv/marula --apply
+# a specific version, or the air-gapped bundle
+sh /tmp/marula-install.sh --version 0.6.1
+sh /tmp/marula-install.sh --offline
 ```
 
-It needs `curl`, `tar` and `ssh-keygen`; it refuses to install anything whose
-signature it cannot check, because a missing tool is not a reason to trust a
-download. The sections below cover the same install done by hand.
+**Where trust comes from.** The script has no signature of its own: it arrives
+over HTTPS from GitHub, the same channel as every other asset on the release
+page. What it then does is different — it checks the *archive* against a
+signature from the release key, and that key is pinned inside the script. So
+replacing the script would also replace the key, which is why the honest
+statement is "trusted as a download from this repository, and it verifies what it
+fetches". Read it before you run it; it is 6 KB at
+[`scripts/release/bootstrap-install.sh`](../scripts/release/bootstrap-install.sh).
+
+It needs `curl`, `tar` and `ssh-keygen`, and it refuses to install when it cannot
+check the signature: a missing tool is not a reason to trust a download.
+
+### By hand
+
+Prefer the archive? Each platform has one, with its own signed checksum list.
+
+| Platform | Archive | Install |
+|---|---|---|
+| Linux x86_64 | `marula-<version>-linux-x64.tar.gz` | `./install.sh` |
+| Linux arm64 | `marula-<version>-linux-arm64.tar.gz` | `./install.sh` |
+| macOS, Apple silicon | `marula-<version>-macos-arm64.tar.gz` | `./install.sh` |
+| Linux x86_64, no network | `marula-<version>-offline-linux-x64.tar.zst` | `./install-offline.sh` |
+| Linux arm64, no network | `marula-<version>-offline-linux-arm64.tar.zst` | `./install-offline.sh` |
+
+Unpack with `tar -xzf` (`tar --zstd -xf` for an air-gapped bundle), enter the
+directory it makes, and run the command. On macOS check the download with
+`shasum -a 256 -c SHA256SUMS-macos-arm64`; on Linux, `sha256sum -c`.
+
+Windows is not an install target yet. The release carries a `windows-x64`
+archive with `marula.exe` and the desktop setup inside it, but the bundle's
+`install.sh` looks for an executable named `marula` and needs a POSIX shell, so
+neither WSL nor Git Bash runs it as it stands.
 
 ## What you need
 
