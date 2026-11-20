@@ -45,7 +45,7 @@ than `all-in-one`.
 When you need several API instances, turn on the compose `pooler` profile. It
 puts PgBouncer in transaction mode between the services and Postgres, so a burst
 of requests queues at the pooler instead of exhausting the database's
-connections. [Deploy](../../../deploy/README.md) has the command and the
+connections. [Deploy](https://github.com/MarulaHQ/marula-core/blob/main/deploy/README.md) has the command and the
 connection arithmetic.
 
 ## all-in-one
