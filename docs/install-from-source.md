@@ -7,7 +7,8 @@ for someone changing Marula. If you want a server that serves a team, read
 ## What you need
 
 - Docker, with Compose 2.24 or newer. A registry install uses `!reset` in an
-  override file, and older Compose ignores it.
+  override file, and Compose older than 2.24 refuses that file with an
+  unknown-tag error.
 - The Rust toolchain. [`rust-toolchain.toml`](../rust-toolchain.toml) pins
   stable, with `rustfmt` and `clippy`.
 - Node 22 or 24, the versions CI runs, and pnpm 12.16.1.

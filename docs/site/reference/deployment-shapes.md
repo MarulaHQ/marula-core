@@ -58,7 +58,9 @@ than the team can justify.
 It sets eleven values that `split` leaves alone: the worker-loop cadences, the
 all-in-one marker, the one-box reliability setting, and the worker's health
 endpoint moving into the API process. Both shapes dial Postgres the same way,
-directly, unless you turn on the `pooler` profile.
+directly. The `pooler` profile changes that on `split`; the all-in-one overlay
+pins `DATABASE_URL` and `MARULA_WORKER_DATABASE_URL` at Postgres, so pooling that
+shape means overriding them in another file.
 
 ## demo
 

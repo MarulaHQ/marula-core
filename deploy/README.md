@@ -92,9 +92,11 @@ it: several API instances, or many concurrent clients against a database that
 caps connections. Turn it on, then set `MARULA_APP_DATABASE_URL` and
 `MARULA_WORKER_APP_DATABASE_URL` in your env file to the same credentials with
 `pgbouncer:6432` as the host. This is a `split` setting: the `all-in-one` and
-`demo` overlays set `DATABASE_URL` and `MARULA_WORKER_DATABASE_URL` themselves,
-pointing at Postgres, and a service-level value beats the env file, so on those
-shapes the pooler starts and nothing dials it:
+`demo` overlays set the database URLs themselves and point them at Postgres, and
+a service-level value beats the env file, so on those shapes the pooler starts
+and nothing dials it. In `all-in-one` the overlay pins `DATABASE_URL` and
+`MARULA_WORKER_DATABASE_URL`; in `demo` it pins `DATABASE_URL` and
+`MARULA_LISTEN_DATABASE_URL` on `core-api` and `worker`:
 
 ```sh
 docker compose -f docker-compose.yml --env-file my.env --profile pooler up -d

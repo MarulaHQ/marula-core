@@ -79,11 +79,12 @@ Naming `core-api` and `worker` in the same run is what recreates them against th
 new URLs. `up -d` on the pooler services alone would leave both on the
 environment they were created with, still dialing `postgres:5432`.
 
-This is a `split` setting. The `all-in-one` and `demo` overlays replace
-`DATABASE_URL` and `MARULA_WORKER_DATABASE_URL` with Postgres URLs of their own,
-and a service-level value beats the env file, so on those shapes the profile
-starts a pooler that nothing dials. Running pooled there means overriding those
-two keys in an extra `-f` file as well.
+This is a `split` setting. The `all-in-one` overlay replaces `DATABASE_URL` and
+`MARULA_WORKER_DATABASE_URL` with Postgres URLs of its own, and the `demo`
+overlay does the same to `DATABASE_URL` and `MARULA_LISTEN_DATABASE_URL` on
+`core-api` and `worker`. A service-level value beats the env file, so on those
+shapes the profile starts a pooler that nothing dials. Running pooled there means
+overriding those values in an extra `-f` file as well.
 
 Now count what Postgres holds:
 
