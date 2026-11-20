@@ -31,13 +31,13 @@ Last updated 2026-11-20.
   past quotes, budget and terms, shows what it understood, and hands the draft
   to the ordinary builder. Nothing is saved until a person saves it.
 - **AI assistance, gated.** AI help switched off, to shadow, or live for each
-  surface and role (ticket notes, document drafts, email replies), with your
-  own keys in a sealed credential store, append-only usage accounting, and an
-  agent that reads your tickets through consented tools and proposes changes
-  for a human to approve. A shadow run records what the model would have said
-  without acting on it. The command palette carries an Ask mode that starts
-  from the screen in front of you, names its sources, and files any proposal
-  for approval.
+  decision surface, with role grants deciding who can use each assist (ticket
+  notes, document drafts, email replies), your own keys in a sealed credential
+  store, append-only usage accounting, and an agent that reads your tickets
+  through consented tools and proposes changes for a human to approve. A shadow
+  decision run records what the model would have said without acting on it.
+  The command palette carries an Ask mode that starts from the screen in front
+  of you, names its sources, and files any proposal for approval.
 - **Secrets.** The password vault with category RBAC, one-time share links,
   rotation hooks, and streaming decryption for secret files.
 - **Delivery work.** Projects with a plan and a timeline, drag ordering that
