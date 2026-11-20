@@ -702,16 +702,65 @@ jobs:
 
       # The one-line entrances. Their asset names carry no version on purpose:
       # `releases/latest/download/install.sh` only resolves while the name never
-      # changes, and each script resolves the version itself.
+      # changes. Each shipped copy is pinned to its own release, so a script
+      # fetched from `releases/download/vX.Y.Z/` installs vX.Y.Z and cannot
+      # disagree with the URL that served it; `latest` resolves through
+      # GitHub's `/latest/download/` redirect to the newest release's own copy,
+      # which names that release. `--version` and `MARULA_VERSION` (and
+      # `-Version` on PowerShell) still override the pin.
       - name: Stage the one-line installers
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
+          # The pin is written into a sed script, so the value has to be a
+          # plain semver: no `|` delimiter, no `&`, no quote in it.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::release version is '$VERSION', which is not a plain semver, so the installers cannot be pinned to it"
+            exit 1
+          fi
+
           install -m 0755 scripts/release/bootstrap-install.sh dist/release/install.sh
           install -m 0644 scripts/release/bootstrap-install.ps1 dist/release/install.ps1
+
+          # The repository copies keep `latest`: they belong to no release. Only
+          # the staged copies name one. `|` is the sed delimiter because a
+          # semver cannot contain it, and the version was checked above.
+          sed -i.bak "s|VERSION=\"\${MARULA_VERSION:-latest}\"|VERSION=\"\${MARULA_VERSION:-$VERSION}\"|" dist/release/install.sh
+          sed -i.bak "s|else { 'latest' }|else { '$VERSION' }|" dist/release/install.ps1
+          rm -f dist/release/install.sh.bak dist/release/install.ps1.bak
           test -x dist/release/install.sh
           test -s dist/release/install.ps1
-          printf 'staged install.sh (%s bytes) and install.ps1 (%s bytes)\n' \
-            "$(wc -c < dist/release/install.sh)" "$(wc -c < dist/release/install.ps1)"
+
+          # A sed that matched nothing still exits 0, so the result is checked
+          # rather than the exit status: the version is in, the bare default is
+          # gone, and each file still parses.
+          grep -Fq "VERSION=\"\${MARULA_VERSION:-$VERSION}\"" dist/release/install.sh \
+            || { echo "::error::the staged install.sh does not carry the pinned version $VERSION"; exit 1; }
+          if grep -Fq "VERSION=\"\${MARULA_VERSION:-latest}\"" dist/release/install.sh; then
+            echo "::error::the staged install.sh still resolves 'latest', so a versioned URL would install a different release than it names"
+            exit 1
+          fi
+          grep -Fq "else { '$VERSION' }" dist/release/install.ps1 \
+            || { echo "::error::the staged install.ps1 does not carry the pinned version $VERSION"; exit 1; }
+          if grep -Fq "else { 'latest' }" dist/release/install.ps1; then
+            echo "::error::the staged install.ps1 still resolves 'latest', so a versioned URL would install a different release than it names"
+            exit 1
+          fi
+          dash -n dist/release/install.sh
+          # The staged PowerShell file is parsed by PowerShell itself, the same
+          # way the scripts job parses the source. A runner without pwsh fails
+          # here rather than skipping the check.
+          if ! command -v pwsh >/dev/null 2>&1; then
+            echo "::error::pwsh is not on this runner, so the staged install.ps1 cannot be parsed. Add PowerShell to the runner image or move this check to a job that has it."
+            exit 1
+          fi
+          # shellcheck disable=SC2016 # single quotes are the point: $_ and
+          # $errors belong to PowerShell, not to this shell.
+          pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path "dist/release/install.ps1").Path, [ref]$null, [ref]$errors) | Out-Null; if ($errors -and $errors.Count -gt 0) { $errors | ForEach-Object { Write-Host "::error::$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }; Write-Host "install.ps1 parses"'
+
+          printf 'staged install.sh (%s bytes) and install.ps1 (%s bytes), pinned to %s\n' \
+            "$(wc -c < dist/release/install.sh)" "$(wc -c < dist/release/install.ps1)" "$VERSION"
 
       - name: Write the manifest and the combined checksum list
         run: |

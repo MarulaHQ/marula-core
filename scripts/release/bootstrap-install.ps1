@@ -1,8 +1,8 @@
 # install.ps1 -- the one-line entrance to a Marula release, on Windows.
 #
-#   irm https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1 | iex
-#   & ([scriptblock]::Create((irm https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1))) -Version 0.6.1
-#   & ([scriptblock]::Create((irm https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1))) -Version 0.6.1 --dir C:\srv\marula --apply
+#   irm https://getmarula.com/install/latest/windows | iex
+#   & ([scriptblock]::Create((irm https://getmarula.com/install/latest/windows))) -Version 0.6.1
+#   & ([scriptblock]::Create((irm https://getmarula.com/install/latest/windows))) -Version 0.6.1 --dir C:\srv\marula --apply
 #
 # The PowerShell half of scripts/release/bootstrap-install.sh, and attached to
 # every release beside it. Same order, same refusals: work out the platform,

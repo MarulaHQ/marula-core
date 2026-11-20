@@ -9,7 +9,7 @@ secrets, the shapes, upgrades and backups.
 On Linux or Apple silicon:
 
 ```sh
-curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh \
+curl -fsSL https://getmarula.com/install/latest/linux \
   -o /tmp/marula-install.sh && sh /tmp/marula-install.sh
 ```
 
@@ -29,7 +29,7 @@ exit zero.
 sh /tmp/marula-install.sh --dir /srv/marula
 sh /tmp/marula-install.sh --dir /srv/marula --apply
 # a specific version, or the air-gapped bundle
-sh /tmp/marula-install.sh --version 0.6.1
+sh /tmp/marula-install.sh --version 0.6.2
 sh /tmp/marula-install.sh --offline
 ```
 
@@ -37,14 +37,18 @@ On a shared machine, download into `$(mktemp)` rather than a fixed name:
 
 ```sh
 T=$(mktemp)
-curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh -o "$T" \
+curl -fsSL https://getmarula.com/install/latest/linux -o "$T" \
   && sh "$T" --dir /srv/marula --apply
 ```
 
-The copy under `releases/download/vX.Y.Z/` is that release's snapshot of the
-script, frozen with the tag; a later release attaches a later copy. It installs
-the newest release unless you pass `--version X.Y.Z`, because the asset name
-carries no version for it to read.
+### Pin a version
+
+`https://getmarula.com/install/v0.6.2/linux` installs 0.6.2: the script installs
+the release it was served from. `--version X.Y.Z` overrides it (`-Version` on
+PowerShell, or `MARULA_VERSION` for either).
+
+0.6.1 carries a script that still installs the newest release, so a pinned URL
+for that tag does not pin.
 
 **Where trust comes from.** The script has no signature of its own: it arrives
 over HTTPS from GitHub, the same channel as every other asset on the release
@@ -68,7 +72,7 @@ rather than leaving you to guess.
 ### Windows
 
 ```powershell
-irm https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1 | iex
+irm https://getmarula.com/install/latest/windows | iex
 ```
 
 That is `scripts/release/bootstrap-install.ps1`, attached to releases beside
@@ -78,15 +82,18 @@ list, verify the signature against the same pinned key, verify the archive,
 unpack it, and hand over to the bundle's installer. With no arguments it opens
 the wizard and installs into `%USERPROFILE%\marula`.
 
+No published release carries `install.ps1` yet, so the one-liner above returns
+404 today. [The archive path](#by-hand) works.
+
 `iex` cannot carry arguments, so anything beyond the one-liner is the scriptblock
 form, and the flags are the installer's own:
 
 ```powershell
-$url = 'https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1'
-& ([scriptblock]::Create((irm $url))) -Version 0.6.1 -Dir C:\srv\marula -Apply
+$url = 'https://getmarula.com/install/latest/windows'
+& ([scriptblock]::Create((irm $url))) -Version 0.6.2 -Dir C:\srv\marula -Apply
 ```
 
-`-Version` takes `0.6.1` or `v0.6.1`. `-Offline` is refused, because the
+`-Version` takes `0.6.2` or `v0.6.2`. `-Offline` is refused, because the
 air-gapped bundle is published for Linux only. `-Dir` names the install
 directory, and every other flag goes to `marula.exe install`: it can be written
 the PowerShell way (`-Apply`, `-NoOpen`) or the way the CLI documents it

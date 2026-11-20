@@ -1,7 +1,7 @@
 #!/bin/sh
 # install.sh — the one-line entrance to a Marula release.
 #
-#   curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh -o /tmp/marula-install.sh
+#   curl -fsSL https://getmarula.com/install/latest/linux -o /tmp/marula-install.sh
 #   sh /tmp/marula-install.sh
 #   sh /tmp/marula-install.sh --dir /srv/marula --apply
 #   sh /tmp/marula-install.sh --version 0.6.1
