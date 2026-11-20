@@ -149,6 +149,20 @@ jobs:
           # is the contract, so it is checked as POSIX.
           dash -n scripts/release/bootstrap-install.sh
           shellcheck -s sh -S warning scripts/release/bootstrap-install.sh
+      # The PowerShell bootstrap is parsed by PowerShell itself; there is no
+      # shellcheck for it that runs here. pwsh ships on the ubuntu-24.04 image,
+      # and a runner without it fails this step rather than skipping the check:
+      # a syntax error in install.ps1 is otherwise found by a Windows user.
+      - name: PowerShell syntax
+        run: |
+          set -euo pipefail
+          if ! command -v pwsh >/dev/null 2>&1; then
+            echo "::error::pwsh is not on this runner, so scripts/release/bootstrap-install.ps1 cannot be parsed. Add PowerShell to the runner image or move this check to a job that has it."
+            exit 1
+          fi
+          # shellcheck disable=SC2016 # single quotes are the point: $_ and
+          # $errors belong to PowerShell, not to this shell.
+          pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path "scripts/release/bootstrap-install.ps1").Path, [ref]$null, [ref]$errors) | Out-Null; if ($errors -and $errors.Count -gt 0) { $errors | ForEach-Object { Write-Host "::error::$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }; Write-Host "bootstrap-install.ps1 parses"'
       - name: Assembler and image scripts — syntax and self-test
         run: |
           node --check scripts/release/assemble.mjs
@@ -668,15 +682,18 @@ jobs:
           path: dist/release
           merge-multiple: true
 
-      # The one-line entrance. Its asset name carries no version on purpose:
+      # The one-line entrances. Their asset names carry no version on purpose:
       # `releases/latest/download/install.sh` only resolves while the name never
-      # changes, and the script resolves the version itself.
-      - name: Stage the one-line installer
+      # changes, and each script resolves the version itself.
+      - name: Stage the one-line installers
         run: |
           set -euo pipefail
           install -m 0755 scripts/release/bootstrap-install.sh dist/release/install.sh
+          install -m 0644 scripts/release/bootstrap-install.ps1 dist/release/install.ps1
           test -x dist/release/install.sh
-          printf 'staged install.sh (%s bytes)\n' "$(wc -c < dist/release/install.sh)"
+          test -s dist/release/install.ps1
+          printf 'staged install.sh (%s bytes) and install.ps1 (%s bytes)\n' \
+            "$(wc -c < dist/release/install.sh)" "$(wc -c < dist/release/install.ps1)"
 
       - name: Write the manifest and the combined checksum list
         run: |

@@ -65,6 +65,58 @@ release directory" — it holds `marula`, `deploy/` and `release.json`. An
 air-gapped bundle nests it one level deeper, which is why the script prints it
 rather than leaving you to guess.
 
+### Windows
+
+```powershell
+irm https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1 | iex
+```
+
+That is `scripts/release/bootstrap-install.ps1`, attached to releases beside
+`install.sh`, and it does the same work in the same order: resolve the newest
+release, download `marula-<version>-windows-x64.tar.gz` with its signed checksum
+list, verify the signature against the same pinned key, verify the archive,
+unpack it, and hand over to the bundle's installer. With no arguments it opens
+the wizard and installs into `%USERPROFILE%\marula`.
+
+`iex` cannot carry arguments, so anything beyond the one-liner is the scriptblock
+form, and the flags are the installer's own:
+
+```powershell
+$url = 'https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1'
+& ([scriptblock]::Create((irm $url))) -Version 0.6.1 -Dir C:\srv\marula -Apply
+```
+
+`-Version` takes `0.6.1` or `v0.6.1`. `-Offline` is refused, because the
+air-gapped bundle is published for Linux only. `-Dir` names the install
+directory, and every other flag goes to `marula.exe install`: it can be written
+the PowerShell way (`-Apply`, `-NoOpen`) or the way the CLI documents it
+(`--apply`, `--no-open`), and both arrive as the flag the CLI knows.
+
+It is run with PowerShell 7. `ssh-keygen` comes from the OpenSSH client that
+Windows 10 1809 and later ship, and `tar.exe` from Windows 10 1803 and later;
+without either it stops rather than installing something it could not check. The
+bundle stays under `%LOCALAPPDATA%\marula` (`MARULA_BUNDLE_DIR` overrides the
+parent), and it prints the bundle path and the release directory, as the shell
+script does.
+
+The bundle's `install.sh` is POSIX and cannot run here, so the script makes its
+checks itself: every file in the unpacked tree is recomputed against the tree's
+own `SHA256SUMS`, `docker` and `docker compose` have to answer, and then it runs
+`marula.exe install` with the bundle's compose file and wizard front end, adding
+`--images registry` because an archive carries published digests and no sources.
+
+**What is tested, and what is not.** The script was run under PowerShell 7 on
+Linux against a release fixture served locally over HTTP. That covered the
+newest-release resolution, a pinned version, a `v`-prefixed version, a relative
+`-Dir`, a tampered archive, a signed list that does not name the asset, a tree
+that disagrees with its own `SHA256SUMS`, and refusals for a missing
+`ssh-keygen`, a missing `tar`, missing Docker and a non-zero installer exit. The
+shipped file, with the real pinned key, refused a fixture signed by a different
+key. **The install has not been run on Windows.** Docker Desktop, the
+`docker compose` check and `marula.exe install` were exercised only through a
+stand-in CLI and a fake `marula.exe`, and PowerShell 5.1, which ships with
+Windows, has not been run at all.
+
 ### By hand
 
 Prefer the archive? Each online platform build has one, with its own signed
@@ -75,6 +127,7 @@ checksum list. The air-gapped bundles are listed in the combined `SHA256SUMS`.
 | Linux x86_64 | `marula-<version>-linux-x64.tar.gz` | `./install.sh` |
 | Linux arm64 | `marula-<version>-linux-arm64.tar.gz` | `./install.sh` |
 | macOS, Apple silicon | `marula-<version>-macos-arm64.tar.gz` | `./install.sh` |
+| Windows x86_64 | `marula-<version>-windows-x64.tar.gz` | `.\marula.exe install` |
 | Linux x86_64, no network | `marula-<version>-offline-linux-x64.tar.zst` | `./install-offline.sh` |
 | Linux arm64, no network | `marula-<version>-offline-linux-arm64.tar.zst` | `./install-offline.sh` |
 
@@ -89,15 +142,31 @@ may not have downloaded, so check its one line rather than the whole list:
 grep 'offline-linux-x64' SHA256SUMS | sha256sum -c -
 ```
 
-Windows is not an install target yet. The release carries a `windows-x64`
-archive with `marula.exe` and the desktop setup inside it, but the bundle's
-`install.sh` looks for an executable named `marula` and needs a POSIX shell, so
-neither WSL nor Git Bash runs it as it stands.
+The Windows archive carries no front door it can run: the bundle's `install.sh`
+is POSIX, and neither WSL nor Git Bash is a supported path to it. Two ways in,
+and neither is `./install.sh`:
+
+- `install.ps1`, from the release page, which does the download checks itself.
+  [Windows](#windows) above is that path.
+- Or the CLI's installer directly, from the unpacked directory:
+
+  ```powershell
+  .\marula.exe install --compose-file deploy\docker-compose.yml `
+    --ui-dir apps\installer\dist --dir C:\srv\marula --images registry
+  ```
+
+  That skips the two checks `install.ps1` makes before it: the tree against its
+  own `SHA256SUMS`, and the `docker compose` plugin answering. `--images
+  registry` is not optional for a bundle, which carries published digests and no
+  sources. `Get-FileHash -Algorithm SHA256` is the download check on Windows;
+  compare it with the line in `SHA256SUMS-windows-x64` that names the archive.
 
 ## What you need
 
 - A Linux host, x86_64 or arm64. macOS on Apple silicon runs the stack too, and
-  the release publishes a `macos-arm64` bundle for it.
+  the release publishes a `macos-arm64` bundle for it. Windows x64 is the newest
+  of the three: the front door is `install.ps1`, and the install behind it has
+  not been measured on Docker Desktop yet.
 - Docker with Compose 2.24 or newer. `docker compose version` prints what you
   have. The installer checks that the Compose plugin answers, not which version
   it is. The registry override uses Compose's `!reset` key to remove the base
