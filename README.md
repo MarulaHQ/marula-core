@@ -65,22 +65,36 @@ subscriptions beside it.
 
 ## Install it
 
+Linux or Apple silicon:
+
 ```sh
 T=$(mktemp) && curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh \
   -o "$T" && sh "$T"
 ```
 
-One line on Linux or Apple silicon. It downloads the archive for your platform,
-checks the release signature, unpacks it, and opens the installer. You need
-Docker with Compose 2.24 or newer.
+Windows, in PowerShell 7:
 
-For a server, add `--dir /srv/marula --apply` to finish without the wizard.
+```powershell
+irm https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1 | iex
+```
+
+One line per platform, doing the same work: it downloads the archive for your
+platform, checks the release signature, unpacks it, and opens the installer. You
+need Docker with Compose 2.24 or newer.
+
+For a server, add `--dir /srv/marula --apply` to the shell script, which finishes
+without the wizard. The Windows script takes the same installer flags, which
+means calling it as a scriptblock rather than piping it into `iex`:
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/MarulaHQ/marula-core/releases/latest/download/install.ps1))) -Version 0.6.1 --dir C:\srv\marula --apply
+```
+
 [Installing on a machine](docs/install.md) covers the rest: the archive by hand,
 the air-gapped bundle, the eight secrets, the three shapes, upgrades and backups.
-Windows is not an install target yet; the archive carries the binary and the
-desktop setup, and
-[#114](https://github.com/MarulaHQ/marula-core/issues/114) tracks the native
-path.
+The Windows path is new. Its logic is tested against a local release fixture, and
+the install itself has not been run on a Windows machine yet; [that
+page](docs/install.md#windows) says exactly what was and was not checked.
 
 Working on the code instead?
 
@@ -184,9 +198,9 @@ are all views onto that one contract.
 ## Where it's rough
 
 - **Install is one line or an archive.** There is no Homebrew formula and no
-  server package for `.deb` or `.rpm` yet, and Windows has no native installer:
-  [#114](https://github.com/MarulaHQ/marula-core/issues/114) is that work. The
-  one-line script, the archive, the compose stack and the Helm chart are the
+  server package for `.deb` or `.rpm` yet. Windows has a one-line script; the
+  install behind it has not been run on a Windows machine, so treat it as new.
+  The one-line scripts, the archive, the compose stack and the Helm chart are the
   supported paths.
 - **The UI is mid-refinement.** We are in a visual refinement pass right now,
   so some pages may have elements out of place or layouts that are not

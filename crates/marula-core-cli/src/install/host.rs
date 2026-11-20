@@ -90,16 +90,32 @@ impl HostFacts {
 
 /// Free space on the filesystem holding `dir`, in gibibytes.
 ///
-/// `df -Pk` is the portable reading: POSIX output, kilobytes, one line per
-/// filesystem. A missing directory walks up to the nearest ancestor that exists,
-/// because the installer may be asked about a path it is about to create.
+/// Two readings, because the platforms do not share one. POSIX has `df -Pk`:
+/// portable output, kilobytes, one line per filesystem. Windows has no `df`, so
+/// asking it there returns `None` and the plan refuses on an unreadable floor —
+/// which is why this asks PowerShell instead. A missing directory walks up to
+/// the nearest ancestor that exists, because the installer may be asked about a
+/// path it is about to create.
 #[must_use]
 pub fn free_disk_gb(dir: &std::path::Path) -> Option<u32> {
     let probe = dir
         .ancestors()
         .find(|candidate| candidate.exists())
         .map(std::path::Path::to_path_buf)?;
-    let output = Command::new("df").arg("-Pk").arg(&probe).output().ok()?;
+    #[cfg(windows)]
+    {
+        free_disk_gb_windows(&probe)
+    }
+    #[cfg(not(windows))]
+    {
+        free_disk_gb_unix(&probe)
+    }
+}
+
+/// `df -Pk`, the POSIX reading.
+#[cfg(not(windows))]
+fn free_disk_gb_unix(probe: &std::path::Path) -> Option<u32> {
+    let output = Command::new("df").arg("-Pk").arg(probe).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -107,6 +123,42 @@ pub fn free_disk_gb(dir: &std::path::Path) -> Option<u32> {
     let line = text.lines().nth(1)?;
     let available_kb: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
     Some(u32::try_from(available_kb / (1024 * 1024)).unwrap_or(u32::MAX))
+}
+
+/// The Windows reading.
+///
+/// PowerShell rather than a new dependency: `Get-PSDrive` reports the free bytes
+/// of the volume a path lives on, it is present on every supported Windows, and
+/// the installer already shells out for `docker`. The path travels in an
+/// environment variable so no quoting rule of a shell can mangle it. `powershell`
+/// is asked first because it is the one that always exists; `pwsh` is the
+/// fallback for an image without Windows PowerShell.
+#[cfg(windows)]
+fn free_disk_gb_windows(probe: &std::path::Path) -> Option<u32> {
+    const SCRIPT: &str = "[math]::Floor((Get-PSDrive -Name ((Get-Item -LiteralPath $env:MARULA_DISK_PROBE).PSDrive).Name).Free / 1GB)";
+    let mut last = None;
+    for shell in ["powershell", "pwsh"] {
+        let output = Command::new(shell)
+            .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+            .env("MARULA_DISK_PROBE", probe)
+            .output();
+        let Ok(output) = output else { continue };
+        if !output.status.success() {
+            last = None;
+            continue;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        if let Ok(gb) = text.trim().parse::<f64>() {
+            // A negative reading is nonsense; treat it as unreadable rather than
+            // as zero, so the message says "unreadable" and not "has 0".
+            if gb >= 0.0 {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                return Some(gb.min(f64::from(u32::MAX)) as u32);
+            }
+        }
+        last = None;
+    }
+    last
 }
 
 /// The Docker server version, when the CLI can reach it.
