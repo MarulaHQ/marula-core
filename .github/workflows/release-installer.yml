@@ -188,6 +188,11 @@ jobs:
     uses: ./.github/workflows/release-images.yml
     with:
       version: ${{ needs.version.outputs.version }}
+    # A called workflow sees no secrets unless they are passed. Without these
+    # the DHI login inside is skipped, silently.
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PAT_TOKEN: ${{ secrets.DOCKER_PAT_TOKEN }}
 
   build:
     name: Build — ${{ matrix.os }} ${{ matrix.arch }}

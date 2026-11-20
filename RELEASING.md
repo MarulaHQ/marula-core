@@ -28,10 +28,10 @@ operator which key to trust while being a key nobody holds.
 Before the first release, the maintainer creates the key and commits its public half:
 
 ```sh
-ssh-keygen -t ed25519 -C releases@getmarula.com -f ~/.ssh/marula-release
-printf 'releases@getmarula.com %s\n' "$(cat ~/.ssh/marula-release.pub)" \
+ssh-keygen -t ed25519 -C releases@getmarula.com -f ~/.ssh/marula-release-2026
+printf 'releases@getmarula.com %s\n' "$(cat ~/.ssh/marula-release-2026.pub)" \
   >> release-keys/allowed_signers
-ssh-keygen -l -f ~/.ssh/marula-release.pub    # the fingerprint to publish
+ssh-keygen -l -f ~/.ssh/marula-release-2026.pub    # the fingerprint to publish
 ```
 
 `release-keys/allowed_signers` ships with no key line, and the signing job in
@@ -40,6 +40,9 @@ intended state: a release nobody can verify is not a release.
 
 The same public line is what a clean clone uses to verify a tag, which is why it is committed
 rather than only published on the release page.
+
+The year in the filename is the rotation: a new key gets a new name, and the old
+line stays in `allowed_signers` for one release.
 
 Sign a tag, with the key loaded in the agent or a passphrase prompt to answer:
 

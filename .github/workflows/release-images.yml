@@ -63,6 +63,14 @@ on:
         description: "Architectures to build"
         type: string
         default: "linux/amd64,linux/arm64"
+    # Optional, so a fork's call still runs: without them the build pulls
+    # whatever dhi.io grants anonymously, which is everything a workstation gets
+    # and not what a GitHub address gets.
+    secrets:
+      DOCKER_USERNAME:
+        required: false
+      DOCKER_PAT_TOKEN:
+        required: false
 
 # Least privilege at the top, then `packages: write` only where it is pushed.
 permissions: {}
