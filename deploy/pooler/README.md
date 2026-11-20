@@ -52,28 +52,35 @@ The `pooler` profile starts PgBouncer. Postgres keeps the published port
 (`15432`) and the pooler takes `6432`. Starting the profile is half of it: the
 application keeps dialing `postgres:5432` until the two URL variables name the
 pooler, and a container keeps the environment it was created with. Add these two
-lines to the env file you pass with `--env-file`, then start the profile:
+lines to the env file you installed with, then start the profile:
 
 ```sh
 MARULA_APP_DATABASE_URL=postgres://marula_app:PASS@pgbouncer:6432/marula
 MARULA_WORKER_APP_DATABASE_URL=postgres://marula:PASS@pgbouncer:6432/marula
 ```
 
+Every command below carries `--env-file marula.env`; substitute the file your
+install wrote. Without it Compose reads none of the values, and `pooler-auth`
+stops on its `MARULA_APP_PASSWORD` guard before either service starts.
+
 ```sh
-docker compose -f deploy/docker-compose.yml --profile pooler up -d pgbouncer pooler-auth
-docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
+docker compose --env-file marula.env -f deploy/docker-compose.yml \
+  --profile pooler up -d pgbouncer pooler-auth
+docker compose --env-file marula.env -f deploy/docker-compose.yml \
+  exec postgres psql -U marula -d marula \
   -c "select count(*) from pg_stat_activity where datname = 'marula'"
 ```
 
-With both URLs pointing at the pooler, that count is the server side, and it
-stays near `default_pool_size` however many clients connect.
-
-It is not the whole budget: the API's `LISTEN` and the worker's wakeup dial
-Postgres directly, one connection each, and the pooler does not carry them. For
-the client side and the per-pool view:
+That count is the database's total sessions, not the pooler's: both role pools,
+the direct `LISTEN` of every API instance and of the worker, and the `psql`
+session running the query are all in it. The direct connections never reach the
+pooler, because a notification cannot ride a transaction-pooled session. For the
+ceiling and the pooled side, which should stay near `default_pool_size` per pair
+however many clients connect:
 
 ```sh
-docker compose -f deploy/docker-compose.yml exec postgres psql -U marula -d marula \
+docker compose --env-file marula.env -f deploy/docker-compose.yml \
+  exec postgres psql -U marula -d marula \
   -c "show max_connections"
 # and, on a machine with psql, the pooler's own console:
 psql "postgres://marula@127.0.0.1:6432/pgbouncer" -c "SHOW POOLS" -c "SHOW STATS"
