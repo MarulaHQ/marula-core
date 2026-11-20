@@ -51,26 +51,40 @@ the file is read at startup, so a running instance keeps the old one.
 The `pooler` profile starts PgBouncer. Postgres keeps the published port
 (`15432`) and the pooler takes `6432`. Starting the profile is half of it: the
 application keeps dialing `postgres:5432` until the two URL variables name the
-pooler, and a container keeps the environment it was created with. Add these two
-lines to the env file you installed with, then start the profile:
+pooler, and a container keeps the environment it was created with.
+
+Add these two lines to `marula.env`, replacing each bracketed name with the value
+the installer wrote for it. They are literal lines: Compose replaces variables in
+the compose file, not inside an env file, so an expression here would reach the
+pooler as text.
 
 ```sh
-MARULA_APP_DATABASE_URL=postgres://marula_app:PASS@pgbouncer:6432/marula
-MARULA_WORKER_APP_DATABASE_URL=postgres://marula:PASS@pgbouncer:6432/marula
+MARULA_APP_DATABASE_URL=postgres://marula_app:<MARULA_APP_PASSWORD>@pgbouncer:6432/marula
+MARULA_WORKER_APP_DATABASE_URL=postgres://marula:<POSTGRES_PASSWORD>@pgbouncer:6432/marula
 ```
 
-Every command below carries `--env-file marula.env`; substitute the file your
-install wrote. Without it Compose reads none of the values, and `pooler-auth`
-stops on its `MARULA_APP_PASSWORD` guard before either service starts. Naming
-`core-api` and `worker` in the same run is what recreates them against the new
-URLs: `up -d` alone would leave both on the environment they were created with,
-still dialing `postgres:5432`.
+Then start the pooler and the application services through the helper the
+install defines, which
+[the install page](../../docs/install.md#running-commands-against-the-install)
+sets up. It carries the env file and the overlays that install wrote, and a bare
+`docker compose -f deploy/docker-compose.yml` would miss them: the release images
+are pinned in `marula.images.yml`, and without it Compose tries to build from
+sources a bundle does not ship.
 
 ```sh
-docker compose --env-file marula.env -f deploy/docker-compose.yml \
-  --profile pooler up -d pgbouncer pooler-auth core-api worker
-docker compose --env-file marula.env -f deploy/docker-compose.yml \
-  exec postgres psql -U marula -d marula \
+marula_compose --profile pooler up -d pgbouncer pooler-auth core-api worker
+```
+
+Naming `core-api` and `worker` in the same run is what recreates them against the
+new URLs. `up -d` on the pooler services alone would leave both on the
+environment they were created with, still dialing `postgres:5432`. On an
+`all-in-one` install the worker runs inside `core-api`, so leave `worker` out of
+that line.
+
+Now count what Postgres holds:
+
+```sh
+marula_compose exec postgres psql -U marula -d marula \
   -c "select count(*) from pg_stat_activity where datname = 'marula'"
 ```
 
@@ -82,9 +96,7 @@ ceiling and the pooled side, which should stay near `default_pool_size` per pair
 however many clients connect:
 
 ```sh
-docker compose --env-file marula.env -f deploy/docker-compose.yml \
-  exec postgres psql -U marula -d marula \
-  -c "show max_connections"
+marula_compose exec postgres psql -U marula -d marula -c "show max_connections"
 # and, on a machine with psql, the pooler's own console:
 psql "postgres://marula@127.0.0.1:6432/pgbouncer" -c "SHOW POOLS" -c "SHOW STATS"
 ```
