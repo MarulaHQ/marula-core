@@ -274,7 +274,6 @@ the CLI knows.
                 "Windows 10 1809 ships OpenSSH 7.7p1. Install the current OpenSSH client " +
                 "(Settings > Apps > Optional features, or Microsoft's Win32-OpenSSH release), then run this again")
         }
-        }
 
         # A UTF-8 BOM would become part of the first field of the allowed_signers
         # line, and ssh-keygen reads that line strictly, so the bytes are written
