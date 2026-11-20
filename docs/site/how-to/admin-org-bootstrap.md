@@ -16,9 +16,9 @@ When you launch a fresh Marula install, you create your organization and first a
 > [!NOTE]
 > The first owner account is the recovery path for the org. Use a real mailbox you control, and add a second owner before launch.
 
-## 1. Switch to Create org on the sign-in page
+## 1. Take the first-organization link on the sign-in page
 
-Open `/login`. Beneath the heading *"Sign in to your service desk, or create your organization"*, switch the segmented toggle from **Sign in** to **Create org**.
+Open `/login`. Below the sign-in card is one quiet link, **Setting up the first organization?**; it opens the registration form, whose heading reads *"Let's set this up."*
 
 ## 2. Register your organization and owner account
 

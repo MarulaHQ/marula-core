@@ -44,9 +44,10 @@ machine you own. An install that serves anyone else generates its own values;
 | http://localhost:8080/docs | The API reference, generated from the OpenAPI document |
 | http://localhost:8082/healthz | The worker's health endpoint |
 
-The seeded demo organisation is not in a fresh stack. Use **Create org** on
-`/login` to make one, or run [`scripts/demo-up.sh`](../scripts/demo-up.sh) for a
-booted stack with demo tickets, invoices and logins already in place.
+The seeded demo organisation is not in a fresh stack. Choose **Setting up the
+first organization?** on `/login` and submit **Create organization** to make one,
+or run [`scripts/demo-up.sh`](../scripts/demo-up.sh) for a booted stack with demo
+tickets, invoices and logins already in place.
 
 ## Work on the web app with hot reload
 
