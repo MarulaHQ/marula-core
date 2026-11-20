@@ -66,17 +66,18 @@ subscriptions beside it.
 ## Install it
 
 ```sh
-curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh \
+  -o /tmp/marula-install.sh && sh /tmp/marula-install.sh
 ```
 
 One line on Linux or Apple silicon. It downloads the archive for your platform,
 checks the release signature, unpacks it, and opens the installer. You need
 Docker with Compose 2.24 or newer.
 
-For a server, `-s -- --dir /srv/marula --apply` finishes without the wizard.
+For a server, add `--dir /srv/marula --apply` to finish without the wizard.
 [Installing on a machine](https://getmarula.com/docs) covers the rest: the
-archive by hand, the air-gapped bundle, the eight secrets, both shapes, upgrades
-and backups. Windows is not an install target yet; the archive carries the
+archive by hand, the air-gapped bundle, the eight secrets, the three shapes,
+upgrades and backups. Windows is not an install target yet; the archive carries the
 binary and the desktop setup, and
 [#114](https://github.com/MarulaHQ/marula-core/issues/114) tracks the
 native path.
@@ -182,9 +183,10 @@ are all views onto that one contract.
 
 ## Where it's rough
 
-- **Install is an archive and a shell script.** There is no Homebrew formula,
-  no `.deb`, no `.rpm` and no one-line hosted installer yet; the archive, the
-  compose stack and the Helm chart are the three supported paths.
+- **Install is one line or an archive.** There is no Homebrew formula and no
+  server package for `.deb` or `.rpm` yet, and Windows has no native installer:
+  [#114](https://github.com/MarulaHQ/marula-core/issues/114) is that work. The
+  archive, the compose stack and the Helm chart are the three supported paths.
 - **The UI is mid-refinement.** We are in a visual refinement pass right now,
   so some pages may have elements out of place or layouts that are not
   responsive yet. Everything is usable, and it gets tidier week by week.

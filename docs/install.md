@@ -1,12 +1,8 @@
 # Install Marula on a machine
 
-This page takes a release bundle to a running stack on a server. You download
-two files, check the archive against its checksum, unpack it, and run the
-installer inside. The installer either walks you through a browser wizard or
-prints a plan for you to apply.
-
-There is no hosted `curl … | sh`. The bundle is the install path, and a bundle
-you can read before running is the point.
+This page takes a release bundle to a running stack on a server. The short way
+is one line; the rest of the page is the same install by hand, then the eight
+secrets, the shapes, upgrades and backups.
 
 ## One line
 
@@ -29,12 +25,24 @@ exit zero.
 
 ```sh
 # a server: print the plan, then apply
-curl -fsSL … -o /tmp/marula-install.sh && sh /tmp/marula-install.sh --dir /srv/marula
-curl -fsSL … -o /tmp/marula-install.sh && sh /tmp/marula-install.sh --dir /srv/marula --apply
+sh /tmp/marula-install.sh --dir /srv/marula
+sh /tmp/marula-install.sh --dir /srv/marula --apply
 # a specific version, or the air-gapped bundle
 sh /tmp/marula-install.sh --version 0.6.1
 sh /tmp/marula-install.sh --offline
 ```
+
+On a shared machine, download into `$(mktemp)` rather than a fixed name:
+
+```sh
+T=$(mktemp)
+curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh -o "$T" \
+  && sh "$T" --dir /srv/marula --apply
+```
+
+The script in `releases/download/vX.Y.Z/` is byte-identical to the one under
+`releases/latest/`. It still installs the newest release unless you pass
+`--version X.Y.Z`, because the asset name carries no version for it to read.
 
 **Where trust comes from.** The script has no signature of its own: it arrives
 over HTTPS from GitHub, the same channel as every other asset on the release
@@ -42,11 +50,15 @@ page. What it then does is different — it checks the *archive* against a
 signature from the release key, and that key is pinned inside the script. So
 replacing the script would also replace the key, which is why the honest
 statement is "trusted as a download from this repository, and it verifies what it
-fetches". Read it before you run it; it is 6 KB at
+fetches". Read it before you run it; it is about 8 KB at
 [`scripts/release/bootstrap-install.sh`](../scripts/release/bootstrap-install.sh).
 
-It needs `curl`, `tar` and `ssh-keygen`, and it refuses to install when it cannot
-check the signature: a missing tool is not a reason to trust a download.
+It needs `curl`, `tar` and `ssh-keygen`, plus `zstd` for an air-gapped bundle.
+It refuses to install when it cannot check the signature, because a missing tool
+is not a reason to trust a download. The bundle it unpacks stays on the machine at
+`~/.local/share/marula/marula-<version>-<os>-<arch>`, which is the directory the
+rest of this page means by "the unpacked release directory". Override it with
+`MARULA_BUNDLE_DIR`.
 
 ### By hand
 
