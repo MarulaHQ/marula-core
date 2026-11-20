@@ -81,8 +81,12 @@ Unpack with `tar -xzf` (`tar --zstd -xf` for an air-gapped bundle), enter the
 directory it makes, and run the command. Check the download first, naming the
 list for your platform: `sha256sum -c SHA256SUMS-linux-x64` (or
 `SHA256SUMS-linux-arm64`), `shasum -a 256 -c SHA256SUMS-macos-arm64` on macOS.
-An air-gapped archive is listed in the combined `SHA256SUMS`, so that is the file
-to name there.
+An air-gapped archive is listed in the combined `SHA256SUMS`, next to archives you
+may not have downloaded, so check its one line rather than the whole list:
+
+```sh
+grep 'offline-linux-x64' SHA256SUMS | sha256sum -c -
+```
 
 Windows is not an install target yet. The release carries a `windows-x64`
 archive with `marula.exe` and the desktop setup inside it, but the bundle's

@@ -201,6 +201,12 @@ fi
 # the optional profiles. It is unpacked beside the download and moved into place
 # only once it is whole.
 BUNDLE_ROOT="${MARULA_BUNDLE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/marula}"
+# A relative setting would be resolved against whatever directory the caller
+# happened to be in, and the path printed below would only mean something there.
+case "$BUNDLE_ROOT" in
+  /*) ;;
+  *) BUNDLE_ROOT="$PWD/$BUNDLE_ROOT" ;;
+esac
 mkdir -p "$BUNDLE_ROOT" || die "could not create $BUNDLE_ROOT"
 
 say "unpacking into $BUNDLE_ROOT"
