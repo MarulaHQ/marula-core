@@ -149,6 +149,24 @@ jobs:
           # is the contract, so it is checked as POSIX.
           dash -n scripts/release/bootstrap-install.sh
           shellcheck -s sh -S warning scripts/release/bootstrap-install.sh
+      # The release key is pinned in three places: the trust anchor, and the two
+      # one-line bootstraps. A drift would leave one platform trusting a key the
+      # others refuse, so the three are compared here rather than in review.
+      - name: The pinned release key agrees everywhere
+        run: |
+          set -euo pipefail
+          ANCHOR=$(grep -E '^releases@getmarula\.com ssh-' release-keys/allowed_signers | tail -n 1)
+          SH=$(awk -F'"' '/^KEY_LINE=/{print $2}' scripts/release/bootstrap-install.sh)
+          PS=$(awk -F"'" '/KeyLine = /{print $2}' scripts/release/bootstrap-install.ps1)
+          if [ -z "$ANCHOR" ] || [ -z "$SH" ] || [ -z "$PS" ]; then
+            echo "::error::could not read the pinned release key from the anchor, one bootstrap, or both"
+            exit 1
+          fi
+          if [ "$SH" != "$ANCHOR" ] || [ "$PS" != "$ANCHOR" ]; then
+            echo "::error::a bootstrap pins a different release key than release-keys/allowed_signers"
+            exit 1
+          fi
+          echo "the pinned release key agrees with release-keys/allowed_signers"
       # The PowerShell bootstrap is parsed by PowerShell itself; there is no
       # shellcheck for it that runs here. pwsh ships on the ubuntu-24.04 image,
       # and a runner without it fails this step rather than skipping the check:
