@@ -30,7 +30,7 @@ marula dev
 
 ## 2. Register an organization
 
-Send a `POST` request to `/api/v1/register`. Each organization has a unique URL slug; if your chosen slug is already taken, the API returns `409 Conflict` with reason `org_slug_taken` and a verified-available `suggestion` field you can use right away.
+Send a `POST` request to `/api/v1/auth/register`. Each organization has a unique URL slug; if your chosen slug is already taken, the API returns `409 Conflict` with reason `org_slug_taken` and a verified-available `suggestion` field you can use right away.
 
 ## 3. Sign in for an access token
 

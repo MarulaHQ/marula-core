@@ -190,9 +190,9 @@ own.
 | http://<host>:8080/docs | The API reference, generated from the OpenAPI document |
 | http://<host>:8082/healthz | The worker's health endpoint. `all-in-one` serves it from the API process |
 
-Open `/login`, choose **Setting up the first organization?** below the sign-in
-card, and submit **Create organization** to make your organisation and the first
-owner account. [Bootstrap your first
+Open `/login`, choose **Setting up the first organization?** at the bottom of the
+sign-in card, and submit **Create organization** to make your organisation and
+the first owner account. [Bootstrap your first
 organisation](site/how-to/admin-org-bootstrap.md) walks that screen and the four
 settings worth changing before your team logs in.
 

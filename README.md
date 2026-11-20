@@ -78,8 +78,9 @@ embedding model, upgrades and backups.
 | http://localhost:8080 | The API, the only writer to the database |
 | http://localhost:8080/docs | The API reference, generated from the OpenAPI document |
 
-Open `/login`, choose **Setting up the first organization?**, and submit
-**Create organization** to make your organisation and the first owner account.
+Open `/login`, choose **Setting up the first organization?** at the bottom of the
+sign-in card, and submit **Create organization** to make your organisation and
+the first owner account.
 
 <p align="center">
   <picture>
