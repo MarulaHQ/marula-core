@@ -45,8 +45,8 @@ walks it, including the desktop alternative that needs no Docker.
 To run every service in containers instead:
 
 ```sh
-git clone https://github.com/Marlin-Hofmeyer/marula && cd marula
-docker compose -f deploy/docker-compose.yml up --build
+git clone https://github.com/MarulaHQ/marula-core && cd marula-core
+docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env up --build
 ```
 
 Migrations run once as the table-owner role before core-api starts;
@@ -58,7 +58,7 @@ container service name.
 First bring-up applies the full forward-only migration chain. The demo
 script (`scripts/demo-up.sh`) and the desktop test app additionally seed
 the demo org the tutorials use
-([ADR 0005](../../adr/0005-local-desktop-test-app.md)), the script via
+([ADR 0005](https://github.com/MarulaHQ/marula-core/blob/main/docs/adr/0005-local-desktop-test-app.md)), the script via
 `marula-core-cli seed-demo --force`.
 
 ## Profiles

@@ -193,7 +193,7 @@ own.
 Open `/login`, choose **Setting up the first organization?** at the bottom of the
 sign-in card, and submit **Create organization** to make your organisation and
 the first owner account. [Bootstrap your first
-organisation](site/how-to/admin-org-bootstrap.md) walks that screen and the four
+organisation](site/how-to/admin-org-bootstrap.md) walks that screen and the
 settings worth changing before your team logs in.
 
 Nothing here terminates TLS, and the base compose file publishes 3000, 8080,

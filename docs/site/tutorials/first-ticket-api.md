@@ -10,7 +10,7 @@ If you prefer exploring a system from the terminal or want to build an integrati
 
 ## What you'll build
 
-You will boot a local Marula stack, register an organization, sign in for a bearer token, create a client and a high-priority ticket, log work, and read the resulting domain events from `/api/v1/events`.
+You will boot a local Marula stack, register an organization, sign in for a bearer token, create a client and a P2 ticket, log work, and watch the resulting domain events on the live stream.
 
 ## Prerequisites
 
@@ -20,17 +20,28 @@ You will boot a local Marula stack, register an organization, sign in for a bear
 ## 1. Start the local stack
 
 ```sh
-git clone https://github.com/Marlin-Hofmeyer/marula && cd marula
-docker compose -f deploy/docker-compose.yml up -d
-cargo install --path crates/marula-core-cli
-marula dev
+git clone https://github.com/MarulaHQ/marula-core && cd marula-core
+docker compose -f deploy/docker-compose.yml --env-file deploy/dev.env up -d --build
 ```
 
-`marula dev` runs all database migrations, starts `core-api` and `worker`, and serves the web workspace.
+The first run builds the Rust workspace and the web bundle into images, so give
+it minutes; later runs reuse the layers. Migrations run before the API starts,
+and the workspace comes up on <http://localhost:3000>. [`deploy/dev.env`](https://github.com/MarulaHQ/marula-core/blob/main/deploy/dev.env)
+holds published development secrets: it belongs on a machine you own. [Work on
+the code](../how-to/install-from-source.md) covers the same two commands and
+what each URL serves.
 
 ## 2. Register an organization
 
 Send a `POST` request to `/api/v1/auth/register`. Each organization has a unique URL slug; if your chosen slug is already taken, the API returns `409 Conflict` with reason `org_slug_taken` and a verified-available `suggestion` field you can use right away.
+
+```sh
+curl -s -X POST localhost:8080/api/v1/auth/register \
+  -H 'content-type: application/json' \
+  -d '{"org_name":"Acme","org_slug":"acme","email":"you@example.com","password":"a-long-password","display_name":"You"}'
+```
+
+The response carries the access token, so this call signs you in as well.
 
 ## 3. Sign in for an access token
 
@@ -52,12 +63,19 @@ curl -s -X POST localhost:8080/api/v1/clients \
   -d '{"name":"Acme Corp"}'
 ```
 
-Next, create a ticket using the returned client ID:
+A ticket belongs to a board, so list the boards first and take an `id` from the response:
+
+```sh
+curl -s localhost:8080/api/v1/boards -H "authorization: Bearer $TOKEN"
+```
+
+Then create the ticket with that board, the client id from the call above, and a
+priority of `p1` to `p4`:
 
 ```sh
 curl -s -X POST localhost:8080/api/v1/tickets \
   -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"client_id":"…","title":"Printer on fire","priority":"high"}'
+  -d '{"board_id":"…","client_id":"…","title":"Printer on fire","priority":"p2"}'
 ```
 
 ## 5. Start and stop the timer
@@ -66,18 +84,23 @@ In the web UI, a technician starts the work-bar timer, types their troubleshooti
 
 > "A ticket should take one screen, not three. Notes, timer, conversation,
 > calendar live in the same view, because they are the same job."
-> — [MANIFESTO.md](../../../MANIFESTO.md), quoted verbatim
+> — [MANIFESTO.md](https://github.com/MarulaHQ/marula-core/blob/main/MANIFESTO.md), quoted verbatim
 
 ## 6. Inspect the emitted domain events
 
 Every write in `core-api` commits a versioned event to the transactional outbox in the same database transaction:
 
+The outbox feeds a server-sent event stream. `-N` keeps `curl` from buffering, so
+each event prints as it commits, starting with `ticket.created` from the call
+above:
+
 ```sh
-curl -s "localhost:8080/api/v1/events?limit=5" \
+curl -N localhost:8080/api/v1/events/stream \
   -H "authorization: Bearer $TOKEN"
 ```
 
-You will see `ticket.created` along with the timer and time-entry events ready for webhooks, automation rules, and the live stream.
+The same events are what webhooks and automation rules consume, so this stream is
+the shortest way to see them without a receiver.
 
 ## What you learned
 
