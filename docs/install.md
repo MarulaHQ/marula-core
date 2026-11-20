@@ -489,27 +489,38 @@ replaces. `/var/backups/marula` is a good place on a server. `INSTALL` and
 `marula_compose` are the ones you defined in [Running commands against the
 install](#running-commands-against-the-install).
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:35b49fc579fe3176b15ae8339513bdce5817c0c5db5edc94a5da6c24594fada2 -->
+
 ```sh
-BACKUP_DIR=/var/backups/marula
-BACKUP_DATE=$(date +%F)
-BACKUP_TMP="$BACKUP_DIR/.partial.$$"
-umask 077
-mkdir -p "$BACKUP_DIR" \
-  && chmod 700 "$BACKUP_DIR" \
-  && cp "$INSTALL/marula.env" "$BACKUP_TMP.env" \
-  && marula_compose exec -T postgres pg_dump -U marula -d marula -Fc \
-  > "$BACKUP_TMP.dump" \
-  && mv "$BACKUP_TMP.dump" "$BACKUP_DIR/marula-$BACKUP_DATE.dump" \
-  && mv "$BACKUP_TMP.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE"
+(
+  BACKUP_DIR=/var/backups/marula
+  BACKUP_DATE=$(date +%F)
+  umask 077
+  mkdir -p "$BACKUP_DIR" \
+    && chmod 700 "$BACKUP_DIR" \
+    && BACKUP_TMP=$(mktemp -d "$BACKUP_DIR/.partial.XXXXXX") \
+    || exit 1
+  trap 'rm -rf "$BACKUP_TMP"' 0
+  trap 'exit 1' 1 2 15
+  cp "$INSTALL/marula.env" "$BACKUP_TMP/marula.env" \
+    && marula_compose exec -T postgres pg_dump -U marula -d marula -Fc \
+    > "$BACKUP_TMP/marula.dump" \
+    && mv "$BACKUP_TMP/marula.dump" "$BACKUP_DIR/marula-$BACKUP_DATE.dump" \
+    && mv "$BACKUP_TMP/marula.env" "$BACKUP_DIR/marula.env-$BACKUP_DATE"
+)
 ```
 
 `umask 077` restricts newly created files, and `chmod 700` restricts the backup
-directory even if it already exists. Both files are staged under a temporary
-name that carries this shell's process id, so two backups on the same day do not
-write to one path. Neither one replaces a complete copy until `pg_dump` exits
-zero: a failed run leaves the previous dump and its env copy in place, and a
-rerun on the same day replaces both.
+directory even if it already exists. Both files are staged in a unique temporary
+directory created by `mktemp -d`. The subshell removes that directory on exit,
+including when a step fails. Neither file replaces a complete copy until
+`pg_dump` exits zero: a failed dump leaves the previous dump and its env copy
+in place, and a rerun on the same day replaces both.
 
+
+<!-- /coderabbit-ai-generated:v1 -->
 The copy of `marula.env` is part of the backup. The eight values are in it and
 nothing else reproduces them: a stack rebuilt with new signing keys signs
 everyone out.
