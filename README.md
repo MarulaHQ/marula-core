@@ -66,8 +66,8 @@ subscriptions beside it.
 ## Install it
 
 ```sh
-curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh \
-  -o /tmp/marula-install.sh && sh /tmp/marula-install.sh
+T=$(mktemp) && curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/install.sh \
+  -o "$T" && sh "$T"
 ```
 
 One line on Linux or Apple silicon. It downloads the archive for your platform,
@@ -186,7 +186,8 @@ are all views onto that one contract.
 - **Install is one line or an archive.** There is no Homebrew formula and no
   server package for `.deb` or `.rpm` yet, and Windows has no native installer:
   [#114](https://github.com/MarulaHQ/marula-core/issues/114) is that work. The
-  archive, the compose stack and the Helm chart are the three supported paths.
+  one-line script, the archive, the compose stack and the Helm chart are the
+  supported paths.
 - **The UI is mid-refinement.** We are in a visual refinement pass right now,
   so some pages may have elements out of place or layouts that are not
   responsive yet. Everything is usable, and it gets tidier week by week.
@@ -310,7 +311,7 @@ plugins/              # first-party extensions (Apache-2.0): connectors/ (HTTP) 
 deploy/               # compose stacks, Helm chart, TLS edge, backup, runbooks
 desktop/              # Tauri 2 shell for macOS
 native/               # the mobile app (React Native / Expo)
-installer/            # the `marula install` crate behind the wizard
+installer/            # the native installer app (Tauri): host detection and the plan
 e2e/                  # Playwright flows and the stack harness they run against
 docs/                 # published docs site, engineering notes, ADRs, RFCs
 fixtures/             # upgrade fixtures, event fixtures and the pinned OpenAPI documents

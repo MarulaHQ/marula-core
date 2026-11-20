@@ -13,11 +13,12 @@ curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/inst
   -o /tmp/marula-install.sh && sh /tmp/marula-install.sh
 ```
 
-That is `scripts/release/bootstrap-install.sh`, attached to every release. It
-works out your platform, downloads that archive, verifies the signature over its
-checksum list, verifies the archive, unpacks it, and runs the bundle's
-`./install.sh` with whatever you passed after `--`. With no arguments that means
-the wizard, into `~/marula`.
+That is `scripts/release/bootstrap-install.sh`, attached to releases from 0.6.1.
+It works out your platform, downloads that archive, verifies the signature over
+its checksum list, verifies the archive, unpacks it, and runs the bundle's
+`./install.sh` with the arguments it did not consume itself (`--dir`, `--apply`
+and anything else go straight through; a `--` before them also works). With no
+arguments that means the wizard, into `~/marula`.
 
 The script is written to a file first so that a failed download cannot look like
 a successful no-op: `curl … | sh` would hand an empty script to `sh` on a 404 and
@@ -40,9 +41,10 @@ curl -fsSL https://github.com/MarulaHQ/marula-core/releases/latest/download/inst
   && sh "$T" --dir /srv/marula --apply
 ```
 
-The script in `releases/download/vX.Y.Z/` is byte-identical to the one under
-`releases/latest/`. It still installs the newest release unless you pass
-`--version X.Y.Z`, because the asset name carries no version for it to read.
+The copy under `releases/download/vX.Y.Z/` is that release's snapshot of the
+script, frozen with the tag; a later release attaches a later copy. It installs
+the newest release unless you pass `--version X.Y.Z`, because the asset name
+carries no version for it to read.
 
 **Where trust comes from.** The script has no signature of its own: it arrives
 over HTTPS from GitHub, the same channel as every other asset on the release
@@ -55,10 +57,13 @@ fetches". Read it before you run it; it is about 8 KB at
 
 It needs `curl`, `tar` and `ssh-keygen`, plus `zstd` for an air-gapped bundle.
 It refuses to install when it cannot check the signature, because a missing tool
-is not a reason to trust a download. The bundle it unpacks stays on the machine at
-`~/.local/share/marula/marula-<version>-<os>-<arch>`, which is the directory the
-rest of this page means by "the unpacked release directory". Override it with
-`MARULA_BUNDLE_DIR`.
+is not a reason to trust a download. The bundle it unpacks stays on the machine
+under `~/.local/share/marula` (`MARULA_BUNDLE_DIR` overrides the parent), and the
+script prints two paths: where the bundle was kept, and the release directory
+inside it. The release directory is the one this page means by "the unpacked
+release directory" — it holds `marula`, `deploy/` and `release.json`. An
+air-gapped bundle nests it one level deeper, which is why the script prints it
+rather than leaving you to guess.
 
 ### By hand
 

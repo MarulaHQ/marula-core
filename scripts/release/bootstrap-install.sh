@@ -50,7 +50,7 @@ wizard and installs into ~/marula.
   --dir <path>        Passed to the installer: which directory to install into.
   --apply             Passed to the installer: write the env file and start.
 
-Anything else is passed through, e.g.
+Anything else is passed straight through, with or without a `--` before it:
   install.sh --dir /srv/marula --apply
 USAGE
 }
@@ -243,7 +243,15 @@ rm -rf "$PARTIAL"
 ENTRY="$BUNDLE/$ENTRY_NAME"
 [ -x "$ENTRY" ] || die "the archive did not unpack into the shape this script expects ($ENTRY)"
 
-say "the bundle is at $BUNDLE"
+# An air-gapped bundle wraps the release directory in one more level, so the
+# directory with `deploy/`, `marula` and `release.json` is not the outer one.
+# Report the one an operator should stay in.
+RELEASE_DIR="$BUNDLE"
+if [ -d "$BUNDLE/marula-${VERSION}-${OS}-${ARCH}" ]; then
+  RELEASE_DIR="$BUNDLE/marula-${VERSION}-${OS}-${ARCH}"
+fi
+say "kept at $BUNDLE"
+say "the release directory is $RELEASE_DIR"
 say "handing over to the bundle installer"
 # No `cd`: the bundle's installer captures its own starting directory and
 # resolves a relative --dir against it, so changing directory here would move a
