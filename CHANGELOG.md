@@ -13,6 +13,17 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-20
+
+### Added
+
+- The release archive now installs itself. Unpack it, run ./install.sh, and the installer checks the archive against its own checksums before it starts.
+- On a server, pass --dir to install into a service directory and read the plan before anything changes, then add --apply.
+
+### Changed
+
+- The split and demo install shapes now dial Postgres directly, and the connection pooler is a profile you turn on when instances multiply rather than a service every install starts.
+
 ## [0.5.0] - 2026-11-19
 
 ### Added
@@ -374,7 +385,8 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 - The client portal with tickets, invoices, and the knowledge base.
 
 [0.5.0]: https://github.com/MarulaHQ/marula-core/compare/v0.4.0...v0.5.0
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.5.0...HEAD
+[0.6.0]: https://github.com/MarulaHQ/marula-core/compare/v0.5.0...v0.6.0
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.6.0...HEAD
 [0.4.0]: https://github.com/MarulaHQ/marula-core/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/MarulaHQ/marula-core/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/MarulaHQ/marula-core/compare/v0.3.6...v0.3.7
