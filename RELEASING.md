@@ -45,7 +45,7 @@ Sign a tag, with the key loaded in the agent or a passphrase prompt to answer:
 
 ```
 GIT_COMMITTER_NAME="Marula Core" GIT_COMMITTER_EMAIL="releases@getmarula.com" \
-  git -c user.signingkey=~/.ssh/marula-release.pub tag -s vX.Y.Z -m "Marula Core vX.Y.Z"
+  git -c user.signingkey=~/.ssh/marula-release-2026.pub tag -s vX.Y.Z -m "Marula Core vX.Y.Z"
 ```
 
 Verify one in any clone:

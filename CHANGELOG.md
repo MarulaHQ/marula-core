@@ -13,6 +13,12 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-20
+
+### Fixed
+
+- The release's air-gapped bundle builds again, so a machine with no network can install from it.
+
 ## [0.6.0] - 2026-11-20
 
 ### Added
@@ -386,7 +392,8 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 
 [0.5.0]: https://github.com/MarulaHQ/marula-core/compare/v0.4.0...v0.5.0
 [0.6.0]: https://github.com/MarulaHQ/marula-core/compare/v0.5.0...v0.6.0
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.6.0...HEAD
+[0.6.1]: https://github.com/MarulaHQ/marula-core/compare/v0.6.0...v0.6.1
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.6.1...HEAD
 [0.4.0]: https://github.com/MarulaHQ/marula-core/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/MarulaHQ/marula-core/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/MarulaHQ/marula-core/compare/v0.3.6...v0.3.7

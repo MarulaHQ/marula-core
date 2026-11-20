@@ -586,6 +586,21 @@ jobs:
           fi
           (cd "$DIR" && sha256sum -c SHA256SUMS)
 
+      # dhi.io refuses anonymous manifest requests from GitHub's addresses, and
+      # an offline bundle has to carry the third-party images. The account is
+      # free (Docker Hardened Images) and the two values are repository secrets.
+      # `env` carries them into the `if` because the secrets context is not read
+      # there, which is also what keeps a fork's PR from failing on the step.
+      - name: Log in to Docker Hardened Images
+        if: ${{ env.DHI_USER != '' }}
+        env:
+          DHI_USER: ${{ secrets.DOCKER_USERNAME }}
+        uses: docker/login-action@v4
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PAT_TOKEN }}
+
       - name: Assemble the offline bundle
         run: |
           scripts/release/offline-bundle.sh \
