@@ -117,8 +117,8 @@ In the web UI, a technician starts the work-bar timer, types their troubleshooti
 Every entity write in `core-api`, whether a ticket, a client or a time entry,
 commits a versioned event to the transactional outbox in the same database
 transaction. The stream from step 4 is that outbox. Registration and sign-in are
-not among them: they write an audit row and return tokens, which is why your
-first frame was the ticket.
+not among them: they write an audit row and return tokens. So the frames you saw
+were `client.created` from step 5's first call, then `ticket.created`.
 
 ## What you learned
 
