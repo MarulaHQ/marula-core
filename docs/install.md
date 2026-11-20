@@ -51,10 +51,11 @@ PowerShell, or `MARULA_VERSION` for either).
 for that tag does not pin.
 
 **Where trust comes from.** The script has no signature of its own: it arrives
-over HTTPS from GitHub, the same channel as every other asset on the release
-page. What it then does is different — it checks the *archive* against a
-signature from the release key, and that key is pinned inside the script. So
-replacing the script would also replace the key, which is why the honest
+over HTTPS, from `getmarula.com` and then from GitHub. `getmarula.com` is ours,
+and it redirects rather than verifies, so both hops count: either could change
+what arrives. What the script then does is different: it checks the *archive*
+against a signature from the release key, and that key is pinned inside the
+script. Replacing the script would also replace the key, which is why the honest
 statement is "trusted as a download from this repository, and it verifies what it
 fetches". Read it before you run it:
 [`scripts/release/bootstrap-install.sh`](../scripts/release/bootstrap-install.sh).
