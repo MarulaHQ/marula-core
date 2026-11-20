@@ -126,6 +126,18 @@ start_event_collector() {
   fi
 }
 
+# Whether the collector is still there, and alive rather than a child the shell
+# has not collected yet: `kill -0` answers "a process with this id exists", which
+# a zombie answers too, so the state is asked for directly.
+collector_alive() {
+  [ -n "${EVENTS_PID:-}" ] || return 1
+  kill -0 "$EVENTS_PID" 2>/dev/null || return 1
+  case "$(ps -o stat= -p "$EVENTS_PID" 2>/dev/null || true)" in
+    "" | Z*) return 1 ;;
+  esac
+  return 0
+}
+
 stop_event_collector() {
   if [ -n "${EVENTS_PID:-}" ]; then
     kill "$EVENTS_PID" 2>/dev/null || true
@@ -267,9 +279,6 @@ assert_no_registry_fetch() {
   # of these is a reason to say "unknown", and unknown fails.
   [ -n "$EVENTS_PID" ] ||
     die "no image-event collector was started, so this leg cannot say whether a registry was contacted"
-  kill -0 "$EVENTS_PID" 2>/dev/null ||
-    die "the image-event collector stopped before the install finished, so this leg cannot say whether a registry was contacted"
-  stop_event_collector
   [ -s "$EVENTS_FILE" ] ||
     die "the image-event collector wrote nothing, so this leg cannot say whether a registry was contacted"
   # The first thing the installer does is load the bundle's images, so a stream
@@ -279,6 +288,15 @@ assert_no_registry_fetch() {
 
   local pulls
   pulls=$(awk '$1 == "pull"' "$EVENTS_FILE")
+  # Asked last, after every read: a stream that died partway through the install
+  # leaves a file that still carries its earlier loads and none of the pulls it
+  # was not there for, so the answer has to be "was it alive the whole time", not
+  # "was it alive when the reads began". A process that is still running here has
+  # been running since it started, which is before the installer did.
+  collector_alive ||
+    die "the image-event collector stopped before the install finished, so this leg cannot say whether a registry was contacted"
+  stop_event_collector
+
   if [ -n "$pulls" ]; then
     printf 'install-e2e: the daemon recorded these fetches during the install:\n' >&2
     printf '  %s\n' "$pulls" >&2
