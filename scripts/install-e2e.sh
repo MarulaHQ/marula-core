@@ -71,13 +71,26 @@ fi
 [ -f "$ROOT/release.json" ] || die "$ROOT/release.json is missing: the bundle does not describe its images"
 [ -f "$ROOT/deploy/docker-compose.yml" ] || die "$ROOT/deploy/docker-compose.yml is missing"
 
-# On success the stacks are torn down. On failure they stay up: the workflow's
-# next step dumps `docker ps` and the logs, and a teardown here would remove the
-# evidence of the failure it exists to explain.
+# The leg's own scratch space, beside the install rather than inside it: the
+# install directory is the deployment under test, and a test's bookkeeping does
+# not belong in it.
+RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/marula-e2e.XXXXXX")
+EVENTS_FILE="$RUN_DIR/image-events.log"
+EVENTS_PID=""
+
+# On success the stacks are torn down and the scratch space with them. On failure
+# they stay up: the workflow's next step dumps `docker ps` and the logs, and a
+# teardown here would remove the evidence of the failure it exists to explain.
+# The image-event log is kept and printed for the same reason.
 SUCCESS=0
 cleanup() {
+  stop_event_collector
   if [ "$SUCCESS" -ne 1 ]; then
     say "leaving every stack this leg started up so its logs can be read"
+    if [ -s "$EVENTS_FILE" ]; then
+      say "the daemon's image events from this run ($EVENTS_FILE):"
+      sed 's/^/  /' "$EVENTS_FILE"
+    fi
     return
   fi
   for env_file in "$INSTALL_DIR/marula.env" "$INSTALL_DIR/compose.env"; do
@@ -87,8 +100,39 @@ cleanup() {
       -f deploy/docker-compose.yml \
       ${OVERLAYS[@]+"${OVERLAYS[@]}"} down -v) >/dev/null 2>&1 || true
   done
+  rm -rf "$RUN_DIR"
 }
 trap cleanup EXIT
+
+# Docker keeps a bounded, in-memory event log: a few hundred entries, with
+# `--filter` applied only after an event is retained. A boot emits far more
+# container and healthcheck events than that, so a pull early in the install can
+# be evicted before a query at the end could see it — and an empty answer would
+# read as a clean one, which is the exact false pass this leg exists to prevent.
+# So the events are streamed to a file from before the installer runs until after
+# `/readyz` answers.
+start_event_collector() {
+  : >"$EVENTS_FILE"
+  docker events --filter type=image \
+    --format '{{.Action}} {{.Actor.Attributes.name}}' \
+    >>"$EVENTS_FILE" 2>"$RUN_DIR/image-events.err" &
+  EVENTS_PID=$!
+  # The stream attaches asynchronously and the first thing the installer does is
+  # load the images, so give it a moment, then fail now rather than at the end if
+  # it is already gone.
+  sleep 2
+  if ! kill -0 "$EVENTS_PID" 2>/dev/null; then
+    die "the image-event collector exited at once ($(cat "$RUN_DIR/image-events.err"))"
+  fi
+}
+
+stop_event_collector() {
+  if [ -n "${EVENTS_PID:-}" ]; then
+    kill "$EVENTS_PID" 2>/dev/null || true
+    wait "$EVENTS_PID" 2>/dev/null || true
+    EVENTS_PID=""
+  fi
+}
 
 # Waits for `/readyz` on the port the compose file publishes. $1 is appended to
 # the success line and $2 is the sentence a timeout ends with: a leg that never
@@ -131,11 +175,10 @@ if [ "$MODE" = offline ]; then
   # under it so the teardown finds the containers the install made.
   export COMPOSE_PROJECT_NAME=marula
   say "installing from the images this bundle carries into $INSTALL_DIR"
-  # The daemon's image event log is the only place a registry fetch is visible
-  # afterwards, and it is what the assertion below reads. It is queried by
-  # timestamp rather than streamed, so an event cannot slip past while the
-  # stream is being set up.
-  EVENTS_SINCE=$(date +%s)
+  # Start watching the daemon's image events before the installer runs: it is the
+  # only place a registry fetch is visible, and the log has to be live from the
+  # first second because the daemon's retained history is shorter than this boot.
+  start_event_collector
   # `install-offline.sh` applies by itself — it loads the images and then hands
   # the rest to `marula install --apply` — and the CLI refuses a flag it is given
   # twice, so `--apply` and `--images` are the online leg's to name.
@@ -170,13 +213,19 @@ done
 #   2. the images the installed stack resolves to are all in that list, so the
 #      install did not need an image the bundle left out;
 #   3. the daemon recorded no `pull` between the start of the install and the
-#      moment `/readyz` answered, which is when this runs.
+#      moment `/readyz` answered. That comes from an event stream opened before
+#      the installer ran, not from a query afterwards: the daemon's retained
+#      history is shorter than this boot, so a query could miss the one event
+#      that matters and report the absence as a pass.
 #
 # What it does not show: that a host with no route at all behaves identically.
 # Cutting a runner's network kills the job, and the daemon does the fetching
 # rather than the CLI, so this reads what the install asked for, not what a
 # network would have refused. The archive's own sums are checked by
 # `install-offline.sh`, which is also why this function does not re-check them.
+# A collector that is not running, wrote nothing, or never saw the bundle's own
+# images load is a failed measurement, and it fails the leg: "we could not look"
+# must never read as "there was nothing to see".
 assert_no_registry_fetch() {
   local image count=0
   local -a missing=()
@@ -214,10 +263,22 @@ assert_no_registry_fetch() {
   fi
   echo "  the stack resolves to ${#stack_images[@]} images, every one of them in the bundle"
 
+  # The measurement is only worth its verdict if the instrument was there. Each
+  # of these is a reason to say "unknown", and unknown fails.
+  [ -n "$EVENTS_PID" ] ||
+    die "no image-event collector was started, so this leg cannot say whether a registry was contacted"
+  kill -0 "$EVENTS_PID" 2>/dev/null ||
+    die "the image-event collector stopped before the install finished, so this leg cannot say whether a registry was contacted"
+  stop_event_collector
+  [ -s "$EVENTS_FILE" ] ||
+    die "the image-event collector wrote nothing, so this leg cannot say whether a registry was contacted"
+  # The first thing the installer does is load the bundle's images, so a stream
+  # that never saw a load was not attached when the install began.
+  grep -q '^load ' "$EVENTS_FILE" ||
+    die "the image-event collector saw no image load, so it was not watching when the install began"
+
   local pulls
-  pulls=$(docker events --since "$EVENTS_SINCE" --until "$(date +%s)" \
-    --filter type=image --format '{{.Action}} {{.Actor.Attributes.name}}' |
-    awk '$1 == "pull"')
+  pulls=$(awk '$1 == "pull"' "$EVENTS_FILE")
   if [ -n "$pulls" ]; then
     printf 'install-e2e: the daemon recorded these fetches during the install:\n' >&2
     printf '  %s\n' "$pulls" >&2

@@ -161,11 +161,11 @@ Run it by hand from the Actions tab (Install E2E, then `workflow_dispatch` with
 the version) to check any published release. The runner keeps its network, so
 the job does not claim the host was disconnected. It asserts what belongs to the
 bundle: after the load, every image `images.list` names is in the local store;
-the stack that starts resolves only to those images; and the Docker daemon
-recorded no pull from the start of the install to the moment `/readyz` answered.
-A bundle that left an image out fails the job and names the image. A host with
-no route at all is the one case the job cannot stage, and the bundle carries
-nothing that would behave differently there.
+the stack that starts resolves only to those images; and the daemon's own image
+events, watched from before the install until `/readyz` answered, contain no
+pull. A bundle that left an image out fails the job and names the image. A host
+with no route at all is the one case the job cannot stage, and the bundle
+carries nothing that would behave differently there.
 
 The Windows archive carries no front door it can run: the bundle's `install.sh`
 is POSIX, and neither WSL nor Git Bash is a supported path to it. Two ways in,
