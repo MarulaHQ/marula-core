@@ -349,7 +349,17 @@ impl RechargeRule {
                 let currency = self.currency.as_deref().ok_or_else(|| {
                     DomainError::Validation("a fixed recharge needs its currency".into())
                 })?;
-                CurrencyCode::new(currency)?;
+                // The stored code is the one the caller wrote, and the schema
+                // holds `^[A-Z]{3}$`. Validating through `CurrencyCode` alone
+                // would accept "usd" and then fail the write, so the canonical
+                // form is required here, the same rule the org policy follows.
+                let code = CurrencyCode::new(currency)?;
+                if code.as_str() != currency {
+                    return Err(DomainError::Validation(format!(
+                        "a fixed recharge currency must be the canonical uppercase code: {}",
+                        code.as_str()
+                    )));
+                }
                 if self.markup_bps.is_some() {
                     return Err(DomainError::Validation(
                         "a fixed recharge has no percentage".into(),

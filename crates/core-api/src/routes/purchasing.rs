@@ -25,6 +25,23 @@
 //!
 //! Non-purpose: no UI (lane 4), no settings surface, no live carrier API
 //! (tracking links are operator-recorded URLs).
+//!
+//! Two deliberate deviations, stated so they read as decisions rather than
+//! oversights:
+//!
+//!   * `SET TRANSACTION ISOLATION LEVEL REPEATABLE READ` (`one_snapshot`) is the
+//!     one statement executed as runtime SQL here. It is transaction control,
+//!     not a data query, and a prepared statement cannot carry it, so the checked
+//!     macros do not apply.
+//!
+//!   * The idempotency fingerprint is the serialized request body, and the
+//!     purchasing wave changed that shape: omitted nullable patch fields no
+//!     longer serialize as `null`, and line inputs gained fields. A key claimed
+//!     before the wave therefore answers `idempotency_key_reused` instead of
+//!     replaying. The write has already committed, so the caller reads the
+//!     resource or re-issues with a new key. Keeping the old hash would mean
+//!     accepting a second fingerprint shape in `instant::claim`, a shared module
+//!     outside this route; that is the follow-up if the trade is not wanted.
 
 use crate::auth::middleware::{authed, require_permission};
 use crate::error::{ApiError, ApiResult};
@@ -341,8 +358,8 @@ pub struct ListOrdersQuery {
     pub q: Option<String>,
 }
 
-/// The header intent a client reads (plan §5.1): what the purchase is for, who
-/// it serves, how it is delivered and the recharge rule it carries. The rule is
+/// The header intent a client reads: what the purchase is for, who it serves,
+/// how it is delivered and the recharge rule it carries. The rule is
 /// money (`fixed` carries a price and a currency), so it obeys the same
 /// `ViewFinancials` gate the totals do.
 ///
@@ -399,8 +416,8 @@ impl PurchaseOrderIntentView {
 }
 
 /// One receipt line's consequence, as the routing engine resolved it. The
-/// destination class and the asset a line created are what makes the chain in
-/// §4.3 readable from the receipt alone.
+/// destination class and the asset a line created are what let a reader follow
+/// the chain from the purchase order to the unit the receipt created.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ReceiptLineView {
     #[serde(flatten)]
@@ -410,9 +427,9 @@ pub struct ReceiptLineView {
     pub device_asset_id: Option<Uuid>,
 }
 
-/// One issued recharge (plan §5.3). The resolved rule, the basis it was applied
-/// to, both currencies and both FX snapshots travel together because an issued
-/// recharge is never recomputed.
+/// One issued recharge. The resolved rule, the basis it was applied to, both
+/// currencies and both FX snapshots travel together because an issued recharge is
+/// never recomputed.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct PurchaseRechargeView {
     #[schema(value_type = Uuid)]
@@ -518,7 +535,7 @@ pub struct OrderLineInput {
     pub unit_cost_minor: i64,
     #[serde(default)]
     pub position: Option<i32>,
-    /// What this line buys (plan §5.1). Absent → `stock`.
+    /// What this line buys. Absent → `stock`.
     #[serde(default)]
     pub line_kind: Option<LineKind>,
     /// Where the line lands when it differs from the header's intent. Absent →
@@ -541,7 +558,8 @@ pub struct OrderLineInput {
     pub billable: Option<bool>,
 }
 
-/// POST /purchase-orders/{id}/lines body: the line plus IF1 params.
+/// POST /purchase-orders/{id}/lines body: the line plus the instant-first
+/// mutation parameters (version and idempotency key).
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct AddOrderLineRequest {
     #[serde(flatten)]
@@ -567,8 +585,8 @@ pub struct CreateOrderRequest {
     pub notes: Option<String>,
     #[serde(default)]
     pub expected_at: Option<NaiveDate>,
-    /// What the order buys (plan §5.1). Absent → `sale_stock`, delivered
-    /// `to_stock`: the behaviour every existing caller already gets.
+    /// What the order buys. Absent → `sale_stock`, delivered `to_stock`: the
+    /// behaviour every existing caller already gets.
     #[serde(default)]
     pub acquired_for: Option<AcquiredFor>,
     /// The client the purchase is made for. Required for a client purchase and
@@ -583,7 +601,7 @@ pub struct CreateOrderRequest {
     #[serde(default)]
     pub delivery_mode: Option<DeliveryMode>,
     /// The rule this purchase resolves to when it is received. Absent → the
-    /// ticket/project → client → organisation ladder (§5.3).
+    /// ticket or project, then the client, then the organisation default.
     #[serde(default)]
     pub recharge_rule: Option<RechargeRule>,
     #[serde(default)]
@@ -680,7 +698,7 @@ pub struct PurchaseOrderLineView {
     pub qty_ordered_milli: i64,
     pub qty_received_milli: i64,
     pub receipt_state: ReceiptState,
-    /// What this line buys and where it lands (plan §5.1). The destination is
+    /// What this line buys and where it lands. The destination is
     /// the resolved one — the line's own when it named a class, the header's
     /// otherwise — so a client reads what will happen rather than two words it
     /// has to combine.
@@ -794,8 +812,9 @@ pub struct ReceiveLineInput {
     /// order line carries none: a layout can gain a required field after the
     /// order is placed, and the placed line is not editable. They are validated
     /// against the layout in force inside the receipt transaction, and every
-    /// unit the line creates carries them.
-    #[serde(default)]
+    /// unit the line creates carries them. An absent field stays out of the
+    /// idempotency fingerprint; an explicit `{}` is a different request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_fields: Option<serde_json::Value>,
 }
 
@@ -1012,8 +1031,8 @@ fn contacts_from_input(
 }
 
 /// The class a line's receipt lands in: its own when it named one, the header
-/// intent's otherwise (plan §5.1 — the header carries defaults, the line
-/// decides).
+/// intent's otherwise, because the header carries defaults and the line
+/// decides.
 fn resolve_destination(
     intent: &core_db::purchasing::LineIntent,
     header: &OrderIntent,
@@ -1046,7 +1065,7 @@ fn recharge_charge_minor(basis_minor: i64, rule: &RechargeRule) -> ApiResult<i64
     }
 }
 
-/// The reporting class a recharge line carries (plan §6.4). A pass-through is
+/// The reporting class a recharge line carries. A pass-through is
 /// bought only to be passed on, so its cost is `cogs`; a service is
 /// `service_cost`; stock, assets and rentals are `inventory`; e-waste is its own
 /// class because the vendor bill is the point.
@@ -1521,6 +1540,32 @@ async fn one_snapshot(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> ApiResu
     Ok(())
 }
 
+/// The order a stored response names. A replay returns the body the first call
+/// produced, and the path id is not part of the fingerprint: the same key can
+/// arrive through another order's route.
+fn replay_order_id(stored: &Value) -> Option<Uuid> {
+    stored
+        .get("order")
+        .and_then(|order| order.get("id"))
+        .and_then(Value::as_str)
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+}
+
+/// Proves the order a stored response names is visible to this caller, then the
+/// order the request path names. Both can differ from what the caller may see.
+async fn assert_replay_order_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    principal: &core_domain::entities::Principal,
+    stored: &Value,
+    path_order_id: Uuid,
+) -> ApiResult<()> {
+    if let Some(stored_order_id) = replay_order_id(stored) {
+        assert_order_visible(conn, org_id, principal, stored_order_id).await?;
+    }
+    assert_order_visible(conn, org_id, principal, path_order_id).await
+}
+
 /// The client recorded in a stored response. A replay returns the body the first
 /// call produced, so the client it names is the one that has to be visible, not
 /// only the order's client now: an order can move from a hidden client to a
@@ -1621,20 +1666,25 @@ async fn load_detail(
     let receipts = core_db::purchasing::list_receipts(&mut *conn, org_id, order.id).await?;
     let receipt_lines =
         core_db::purchasing::list_receipt_lines_for_order(&mut *conn, org_id, order.id).await?;
+    // Group the lines once, so a receipt with many lines does not rescan the
+    // whole list for each receipt.
+    let mut lines_by_receipt: HashMap<Uuid, Vec<ReceiptLineView>> = HashMap::new();
+    for line in receipt_lines {
+        lines_by_receipt
+            .entry(line.line.receipt_id)
+            .or_default()
+            .push(ReceiptLineView {
+                destination_class: line
+                    .destination_class
+                    .unwrap_or(intent.acquired_for.destination_class()),
+                device_asset_id: line.device_asset_id,
+                line: line.line,
+            });
+    }
     let receipt_views = receipts
         .into_iter()
         .map(|receipt| PurchaseReceiptView {
-            lines: receipt_lines
-                .iter()
-                .filter(|l| l.line.receipt_id == receipt.id)
-                .map(|l| ReceiptLineView {
-                    line: l.line.clone(),
-                    destination_class: l
-                        .destination_class
-                        .unwrap_or(intent.acquired_for.destination_class()),
-                    device_asset_id: l.device_asset_id,
-                })
-                .collect(),
+            lines: lines_by_receipt.remove(&receipt.id).unwrap_or_default(),
             receipt,
         })
         .collect();
@@ -2643,6 +2693,9 @@ pub async fn create_order(
         )
         .await?
         {
+            if let Some(order_id) = replay_order_id(&stored) {
+                assert_order_visible(&mut ctx.tx, org_id, &authed.principal, order_id).await?;
+            }
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             return Ok((
                 ctx,
@@ -2803,7 +2856,8 @@ pub async fn update_order(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -2844,6 +2898,19 @@ pub async fn update_order(
             intent.recharge_rule = recharge_rule.clone();
         }
         intent.project_id = order.project_id;
+        // A ticket names its own client, and the header derives the client from
+        // it, so clearing the field while the ticket stays would be undone a
+        // line later. Refuse the pair instead of pretending the clear landed.
+        if matches!(&req.client_id, Some(None)) {
+            if let Some(ticket_id) = intent.ticket_id {
+                let ticket = core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id).await?;
+                if ticket.client_id.is_some() {
+                    return Err(ApiError::Validation(
+                        "the ticket names a client, so the purchase order cannot clear it — clear the ticket or name the same client".into(),
+                    ));
+                }
+            }
+        }
         validate_order_intent(&mut ctx.tx, org_id, &authed.principal, &mut intent).await?;
         validate_existing_lines(&mut ctx.tx, org_id, id, &intent).await?;
         order.updated_at = chrono::Utc::now();
@@ -2947,7 +3014,8 @@ pub async fn add_order_line(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -3099,8 +3167,8 @@ pub struct OrderLinePatch {
     pub billable: Option<Option<bool>>,
 }
 
-/// PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus IF1
-/// params.
+/// PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus the
+/// instant-first mutation parameters.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct UpdateOrderLineRequest {
     #[serde(flatten)]
@@ -3144,7 +3212,8 @@ pub async fn update_order_line(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -3340,7 +3409,8 @@ pub async fn delete_order_line(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -3499,7 +3569,8 @@ pub async fn place_order(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -3611,7 +3682,8 @@ pub async fn close_order_route(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -3717,7 +3789,8 @@ pub async fn cancel_order_route(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -3816,8 +3889,8 @@ fn fx_columns(snapshot: crate::routes::fx::LockedSnapshot) -> core_db::purchasin
     }
 }
 
-/// Creates the asset a receipt line lands as (plan §5.2). Scope and ownership
-/// come from the destination class, the capital basis and its FX snapshot are
+/// Creates the asset a receipt line lands as. Scope and ownership come from the
+/// destination class, the capital basis and its FX snapshot are
 /// stamped from the receipt, and a class the row's own words cannot express
 /// (the rental pool, a vendor rental) is reached by a class movement that cites
 /// the receipt line. `core_db::assets::create_asset` stays the only writer of
@@ -3936,10 +4009,10 @@ fn compact_id(seed: Uuid) -> String {
     seed.simple().to_string()
 }
 
-/// Issues the recharge a client purchase line resolves to (plan §5.3): the
-/// resolved rule applied to the receipt line's basis, a billable cost line on
-/// the ticket the purchase serves (when it names one), and the recharge row
-/// that keeps the rule, the basis, both currencies and both FX snapshots.
+/// Issues the recharge a client purchase line resolves to: the resolved rule
+/// applied to the receipt line's basis, a billable cost line on the ticket the
+/// purchase serves (when it names one), and the recharge row that keeps the
+/// rule, the basis, both currencies and both FX snapshots.
 #[allow(clippy::too_many_arguments)]
 async fn issue_recharge(
     ctx: &mut crate::org_tx::OrgTx<'_>,
@@ -4094,7 +4167,8 @@ pub async fn receive_order(
         .await?
         {
             assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
-            assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
+            assert_replay_order_visible(&mut ctx.tx, org_id, &authed.principal, &stored, id)
+                .await?;
             return Ok((
                 ctx,
                 MutationOutcome::Replayed(prepare_replay(stored, financial)),
@@ -4110,19 +4184,6 @@ pub async fn receive_order(
         if let Some(client_id) = header.client_id {
             require_purchase_client_visible(&mut ctx.tx, org_id, client_id, &authed.principal)
                 .await?;
-            // The ticket can be reassigned between order and receipt, and the
-            // charge would then land on another client's ticket. The row is held
-            // with a share lock until this transaction ends, so the client
-            // checked here is the client the cost line is written under.
-            if let Some(ticket_id) = header.ticket_id {
-                let ticket_client =
-                    core_db::purchasing::lock_ticket_client(&mut ctx.tx, org_id, ticket_id).await?;
-                if ticket_client != Some(client_id) {
-                    return Err(ApiError::Validation(
-                        "the ticket belongs to a different client than the purchase order".into(),
-                    ));
-                }
-            }
         }
         if !matches!(
             order.status,
@@ -4273,6 +4334,9 @@ pub async fn receive_order(
                     core_db::document_layouts::get_layout(&mut *ctx.tx, org_id, layout_id).await?;
                 crate::routes::documents::validate_fields(&layout, &asset_fields)?;
             }
+            let has_asset_values = asset_fields
+                .as_object()
+                .is_some_and(|fields| !fields.is_empty());
             let serialized_item = item.as_ref().is_some_and(|i| i.kind == "serialized");
             let creates_asset = match destination {
                 CustodyClass::InternalFleet
@@ -4283,6 +4347,15 @@ pub async fn receive_order(
                 }
                 _ => false,
             };
+            // Values for an asset the line will not create have nowhere to go,
+            // and silently dropping them would let a caller believe they landed.
+            if has_asset_values && !creates_asset {
+                return Err(ApiError::Validation(format!(
+                    "line \"{}\" carries asset values but lands as a {} line, which creates no asset",
+                    line.description,
+                    destination.as_str()
+                )));
+            }
             let mut serials: Vec<String> = Vec::new();
             for serial in input.serial_numbers.clone().unwrap_or_default() {
                 let trimmed = serial.trim().to_string();
@@ -4297,6 +4370,27 @@ pub async fn receive_order(
                     )));
                 }
                 serials.push(trimmed);
+            }
+            // A serial that is already tracked names a unit that exists. An asset
+            // receipt cannot mint a second identity for it, and pairing would
+            // need the serial's class to match the destination (0233), which a
+            // sale-stock serial does not.
+            if creates_asset && !serials.is_empty() {
+                if let Some(item) = item.as_ref() {
+                    let taken = core_db::purchasing::existing_serials(
+                        &mut ctx.tx,
+                        org_id,
+                        item.id,
+                        &serials,
+                    )
+                    .await?;
+                    if let Some(number) = taken.first() {
+                        return Err(ApiError::Conflict(format!(
+                            "serial \"{number}\" is already a tracked unit of {} — receive a serial that is not in use, or convert the unit that already exists",
+                            item.name
+                        )));
+                    }
+                }
             }
             let serial_required = intent.serial_expected || serialized_item;
             if serial_required && serials.is_empty() {
@@ -4387,6 +4481,19 @@ pub async fn receive_order(
                 .iter()
                 .any(|plan| plan.destination == CustodyClass::ClientCustody);
         if charges_a_ticket {
+            // Only this path writes a ticket charge, so only this path locks the
+            // ticket. The row is held until the transaction ends, which keeps
+            // the client checked here equal to the client the cost line is
+            // written under: a reassignment cannot land in between.
+            if let (Some(client_id), Some(ticket_id)) = (header.client_id, header.ticket_id) {
+                let ticket_client =
+                    core_db::purchasing::lock_ticket_client(&mut ctx.tx, org_id, ticket_id).await?;
+                if ticket_client != Some(client_id) {
+                    return Err(ApiError::Validation(
+                        "the ticket belongs to a different client than the purchase order".into(),
+                    ));
+                }
+            }
             require_permission(&authed.principal, Permission::ViewFinancials)?;
         }
 
@@ -4633,13 +4740,23 @@ pub async fn receive_order(
         )
         .await?;
         let detail = load_detail(&mut ctx.tx, org_id, order.clone(), financial).await?;
-        let response = ReceiptMutationResponse {
-            receipt: PurchaseReceiptView {
-                receipt: receipt.clone(),
-                lines: receipt_line_views.clone(),
-            },
-            order: detail.clone(),
-            mutation: instant::record(
+        let receipt_view = PurchaseReceiptView {
+            receipt: receipt.clone(),
+            lines: receipt_line_views.clone(),
+        };
+        // The replay decodes `ReceiptMutationResponse`, so the stored body is
+        // that shape minus the mutation, not the order detail alone.
+        #[derive(serde::Serialize)]
+        struct ReceiptReplay<'a> {
+            receipt: &'a PurchaseReceiptView,
+            order: &'a PurchaseOrderDetail,
+        }
+        let mutation = {
+            let replay = ReceiptReplay {
+                receipt: &receipt_view,
+                order: &detail,
+            };
+            instant::record(
                 &mut ctx,
                 instant::RecordSpec {
                     entity: RECEIPT_ENTITY,
@@ -4650,11 +4767,16 @@ pub async fn receive_order(
                     after: serde_json::to_value(&detail).unwrap_or(Value::Null),
                     updated_at: receipt.received_at,
                     key: key.as_deref(),
-                    payload: &detail,
+                    payload: &replay,
                     provenance: Default::default(),
                 },
             )
-            .await?,
+            .await?
+        };
+        let response = ReceiptMutationResponse {
+            receipt: receipt_view,
+            order: detail,
+            mutation,
         };
         Ok((ctx, MutationOutcome::Applied(response)))
     })

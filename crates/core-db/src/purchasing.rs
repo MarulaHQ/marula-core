@@ -15,12 +15,20 @@
 //! the primitives it drives (`lock_purchase_order` + guarded line bumps
 //! keep concurrent receipts honest).
 //!
-//! Statements here are built from the const column lists above and executed
-//! with `sqlx::query`, not the checked macros. That is this module's
-//! long-standing shape: a read that gains a column changes one const instead of
-//! a prepare cycle in every environment. Nothing in this module is an unchecked
-//! string built from caller input — every value is bound — and the macros that
-//! exist elsewhere in the crate keep their `.sqlx/` coverage untouched.
+//! The purchase-intent, receipt-routing and recharge statements are checked
+//! macros with their own row types: the order reads and status writes
+//! (`PurchaseOrderRow`), the order and line intent reads and writes
+//! (`OrderIntentRow`, `LineIntentRow`), the inventory policy, the recharge rule
+//! override, the recharge insert and list (`RechargeRow`), the cost-line source
+//! stamp and lookup, the asset class movement, the layout lock, the routed
+//! receipt line, the existing-serial lookup and the client-scoped project cost
+//! rollup.
+//!
+//! The vendor, contact, link, purchase-line and receipt-document readers predate
+//! this wave and still build their statements from the const column lists above
+//! and execute them with `sqlx::query`: converting that family is a separate
+//! change, and doing half of it would fork each row mapper. Nothing here is an
+//! unchecked string built from caller input — every value is bound.
 
 use crate::{DbError, DbResult};
 use chrono::{DateTime, NaiveDate, Utc};
@@ -1457,6 +1465,34 @@ pub async fn lock_ticket_client(
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(row.client_id)
+}
+
+/// The serial numbers of `numbers` that are already tracked for one stock item in
+/// this organisation, lowercased. A receipt that creates an asset must not mint a
+/// second identity for a serial that already names a unit: the asset would carry
+/// the serial in `identity_keys` while `stock_serials` held the row, and nothing
+/// would ever pair them.
+pub async fn existing_serials(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    stock_item_id: Uuid,
+    numbers: &[String],
+) -> DbResult<Vec<String>> {
+    if numbers.is_empty() {
+        return Ok(Vec::new());
+    }
+    let lowered: Vec<String> = numbers.iter().map(|n| n.to_lowercase()).collect();
+    let rows = sqlx::query!(
+        r#"SELECT serial_number FROM stock_serials
+            WHERE org_id = $1 AND stock_item_id = $2
+              AND lower(serial_number) = ANY($3)"#,
+        org_id,
+        stock_item_id,
+        lowered.as_slice(),
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows.into_iter().map(|row| row.serial_number).collect())
 }
 
 /// Takes a share lock on the asset layout a line names, so the layout validated
