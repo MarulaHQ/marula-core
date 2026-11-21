@@ -166,12 +166,13 @@ answered, contain no pull. A bundle that left an image out fails the job and
 names the image. A host with no route at all is the one case the job cannot
 stage, and the bundle carries nothing that would behave differently there.
 
-An archive names its images by tag, not by digest. A digest does not survive the
-trip through a tar: `docker load` restores a tag and drops the repo digest on
-the overlay2 driver, which is what most hosts and CI use, and an image saved
-under a digest reference comes back with no name at all. The tag is the one name
-that survives, so that is what the archive's compose file and `images.list`
-carry.
+An archive names the images it carries by tag, not by digest. A digest does not
+survive the trip through a tar: `docker load` restores a tag and drops the repo
+digest on the overlay2 driver, which is what most hosts and CI use, and an image
+saved under a digest reference comes back with no name at all. The tag is the one
+name that survives, so that is what the archive's compose file and `images.list`
+carry. A service the archive does not carry keeps the digest the release wrote,
+so turning on a profile the archive was not built for still runs pinned bytes.
 
 Two lists are involved, and they are not the same check. The release key signs the
 release's `SHA256SUMS`, which names the compressed archive; that is the signature
@@ -784,10 +785,11 @@ The stack is built to run without root and without a writable filesystem.
 - Every image reference carries a registry digest, and every one that also
   carries a tag moves tag and digest together. The digest is what runs, and the
   release's manifest names the digests it published. The air-gapped archive is
-  the one exception: a digest does not survive `docker save`/`docker load` on the
-  overlay2 store, so its compose file names tags. What pins it is the archive's
-  own `SHA256SUMS` over those images, covered transitively by the release key's
-  signature over the list that names the archive.
+  the one exception, and only for the images it carries: a digest does not survive
+  `docker save`/`docker load` on the overlay2 store, so those are named by tag,
+  while a service the archive does not carry keeps its digest. What pins the
+  carried images is the archive's own `SHA256SUMS` over them, covered transitively
+  by the release key's signature over the list that names the archive.
 - `cap_drop: [ALL]` and `no-new-privileges` apply to every service except four
   one-shot helpers: the AI profile's `ollama-model`, which pulls the model, and
   the demo overlay's `object-init`, `db-grants` and `demo-seed`, which prepare

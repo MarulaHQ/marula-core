@@ -244,6 +244,9 @@ while IFS= read -r ref; do
         # It pins a digest and carries no tag, so nothing in a tar can name it:
         # load would restore an image with no name, and the install could not
         # find it by any. Refuse here, where the fix is a tag in the compose file.
+        # This applies to the references the bundle carries, which is all this
+        # list holds. A digest-only reference to an image the bundle does not
+        # carry is left exactly as the release wrote it, and is not an error.
         die "$ref pins a digest and carries no tag, so the bundle cannot name it: give it a tag in $COMPOSE_FILE"
         ;;
     esac
@@ -309,25 +312,41 @@ chmod 0755 "$BUNDLE_DIR/install-offline.sh"
 # them. Both groups are needed to tell a tagged reference from a naked digest: a
 # registry host may carry a port (`localhost:5005/thing:1.0`), and a reference
 # with no tag has nothing to fall back on, so it is left exactly as it was.
-# Every tagged digest reference in the file becomes its tag. The rule is not
-# anchored on `image:` because a value may be quoted, or an alias whose anchor is
-# defined under another key, and either would leave the file naming one image
-# while images.list names another. A reference with no tag does not match, which
-# is deliberate: dropping its digest would silently mean `:latest`.
-say "naming the images by tag in the bundled compose files"
-TAGGED_DIGEST='([A-Za-z0-9._-]+(:[0-9]+)?/)?([A-Za-z0-9._/-]+):([A-Za-z0-9._-]+)@sha256:[0-9a-f]{64}'
-TAGGED_TAG='\1\3:\4'
+# Only the references the archive carries are renamed. A service it does not carry,
+# because its profile is not one this bundle was built for, keeps the digest the
+# release wrote: turning that profile on later then still runs the bytes the
+# release pinned, rather than whatever a tag points at by then. The signature
+# covers this file's text either way, and a mutable tag is exactly what a pinned
+# text is not.
+#
+# Each carried reference is rewritten by its own literal digest, so the match
+# cannot wander: those are 64 hex characters, and a reference with no tag is never
+# in the list to begin with.
+say "naming the images the archive carries in the bundled compose files"
 for compose in "$BUNDLE_DIR/marula-$VERSION-$OS-$ARCH"/deploy/docker-compose*.yml; do
   [ -f "$compose" ] || continue
-  sed -E "s#${TAGGED_DIGEST}#${TAGGED_TAG}#g" "$compose" >"$compose.tmp"
-  mv "$compose.tmp" "$compose"
-  # Anything this left behind is a shape the rewrite did not understand, and the
-  # bundle would name one image two ways. Refuse to ship it.
-  if remaining=$(grep -nE "$TAGGED_DIGEST" "$compose"); then
-    printf 'offline-bundle: %s still names a tagged image by digest:\n' "$compose" >&2
-    printf '%s\n' "$remaining" >&2
-    die "this bundle would name one image two ways; that image needs a tag a tar can carry"
-  fi
+  for index in "${!IMAGES[@]}"; do
+    source_ref=${REFS[$index]}
+    bundle_ref=${IMAGES[$index]}
+    [ "$source_ref" != "$bundle_ref" ] || continue
+    # The only character in a reference that means anything to sed is the dot, and
+    # it is matched as a class so that no backslash escaping is involved: how many
+    # backslashes a replacement needs is a shell difference this should not carry.
+    literal=${source_ref//./[.]}
+    sed -E "s#${literal}#${bundle_ref}#g" "$compose" >"$compose.tmp"
+    mv "$compose.tmp" "$compose"
+  done
+  # Nothing the archive carries may still be named by digest. What is left with a
+  # digest belongs to an image the archive does not carry, which is deliberate.
+  for index in "${!IMAGES[@]}"; do
+    source_ref=${REFS[$index]}
+    [ "$source_ref" != "${IMAGES[$index]}" ] || continue
+    if remaining=$(grep -nF -- "$source_ref" "$compose"); then
+      printf 'offline-bundle: %s still names a carried image by digest:\n' "$compose" >&2
+      printf '%s\n' "$remaining" >&2
+      die "this bundle would name one image two ways; that image needs a tag a tar can carry"
+    fi
+  done
 done
 
 # The bundle's own compose file is the one the install runs, and it has to resolve
