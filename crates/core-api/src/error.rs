@@ -454,6 +454,22 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "serial_already_paired",
             "that serial is already paired with an asset",
         )),
+        // Migration 0237: one rent charge per agreement per period, one damage
+        // and one loss charge per loan line. Both are a run racing itself, so
+        // the conflict names the period rather than the value.
+        "uq_rental_charges_rent_period" => Some((
+            "rental_period_already_billed",
+            "that rental period is already charged for this agreement",
+        )),
+        "uq_rental_charges_line_kind" => Some((
+            "rental_charge_already_raised",
+            "a damage or loss charge already exists for that unit on this agreement",
+        )),
+        // Migration 0237: a vendor's unit is promised to one agreement at a time.
+        "uq_vendor_rentals_open_asset" => Some((
+            "unit_already_rented",
+            "that unit is already on an open vendor rental",
+        )),
         "quotes_number_key" => Some((
             "quote_number_taken",
             "a quote with this number already exists",

@@ -725,6 +725,9 @@ use utoipa::OpenApi;
         crate::routes::stock::ship_out,
         crate::routes::stock::on_hand,
         crate::routes::stock::consumption_velocity_route,
+        crate::routes::stock::list_pool,
+        crate::routes::stock::commission_pool,
+        crate::routes::stock::decommission_pool,
         // purchasing + vendors (Wave 32 lane 2, migration 0103)
         crate::routes::purchasing::list_vendors,
         crate::routes::purchasing::create_vendor,
@@ -771,6 +774,11 @@ use utoipa::OpenApi;
         crate::routes::loans::return_loan,
         crate::routes::loans::list_loans,
         crate::routes::loans::get_loan,
+        crate::routes::loans::list_charges,
+        crate::routes::loans::create_vendor_rental,
+        crate::routes::loans::list_vendor_rentals,
+        crate::routes::loans::get_vendor_rental,
+        crate::routes::loans::return_vendor_rental,
         // e-waste custody (ADR 0035 decision 5, migration 0238)
         crate::routes::ewaste::list,
         crate::routes::ewaste::create,
@@ -1480,6 +1488,12 @@ use utoipa::OpenApi;
         crate::routes::stock::OnHandQuery,
         crate::routes::stock::VelocityMutationless,
         crate::routes::stock::VelocityQuery,
+        // rental pool (ADR 0035 decision 4, migration 0237)
+        crate::routes::stock::PoolMoveRequest,
+        crate::routes::stock::PoolMoveView,
+        crate::routes::stock::PoolMutationResponse,
+        crate::routes::stock::PoolUnitView,
+        crate::routes::stock::PoolListQuery,
         // purchasing + vendors (Wave 32 lane 2, migration 0103)
         core_domain::entities::Vendor,
         core_domain::entities::VendorContact,
@@ -1566,6 +1580,13 @@ use utoipa::OpenApi;
         crate::routes::loans::ClientLoanLineView,
         crate::routes::loans::ClientLoanMutationResponse,
         crate::routes::loans::ClientLoanDetailResponse,
+        crate::routes::loans::RentalChargeView,
+        crate::routes::loans::CreateVendorRentalRequest,
+        crate::routes::loans::VendorRentalAssetRequest,
+        crate::routes::loans::VendorRentalView,
+        crate::routes::loans::VendorRentalMutationResponse,
+        crate::routes::loans::VendorRentalListQuery,
+        crate::routes::loans::VendorRentalReturnRequest,
         // e-waste custody (ADR 0035 decision 5, migration 0238)
         crate::routes::ewaste::IntakeLineRequest,
         crate::routes::ewaste::CreateIntakeRequest,
