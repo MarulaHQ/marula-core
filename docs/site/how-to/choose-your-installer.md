@@ -34,7 +34,15 @@ plan, and write the same `marula.env`. The difference is only how you drive them
 | `marula install` | a terminal, a script, or a runbook | [install on a server](install-on-a-server.md) |
 
 A `v*.*.*` release carries the CLI archives and the installer app builds, each
-for the platforms it installs on. Check what you downloaded before you run it:
+for the platforms it installs on. The fastest way to get the CLI onto a server is
+one line:
+
+```sh
+curl -fsSL https://getmarula.com/install/latest/linux | sh
+```
+
+[Install on a server](install-on-a-server.md#get-the-cli-in-one-line) takes it
+from there, including the file form to use when you want to pass arguments. Check what you downloaded before you run it:
 [verify a release](verify-a-release.md).
 
 ## The desktop client
