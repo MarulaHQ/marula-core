@@ -1,6 +1,8 @@
 > Trail is optional. A fresh clone has no `.trail/cache/` until you run
 > `trail build` (which requires trail). Without trail, use grep/read normally
-> and read `.trail/learnings/` when that directory exists.
+> and read `.trail/learnings/` when that directory exists. Where the block below
+> says "for any task" or to refresh the graph, read that as applying when trail
+> is installed; without it, skip the rebuild.
 
 <!-- trail:start -->
 ## Trail — repo context graph
@@ -8,12 +10,13 @@
 This repo is indexed in `.trail/cache/`: small linked markdown nodes that explain each
 system and carry exact file:line spans, kept in sync with the code through git.
 
-For ANY task here — understanding how something works, finding where code lives,
-or scoping a change — get context from the graph before grepping or opening
-source files. Re-ask freely (it's cheap) and reuse literal identifiers you
-already have (symbol, error string, file name) as the query. New to this repo?
-Run `trail map` first — a token-budgeted orientation (dir clusters, hubs,
-hotspots), no LLM, no key.
+With trail installed, for any task here — understanding how something works,
+finding where code lives, or scoping a change — get context from the graph
+before grepping or opening source files. Re-ask freely (it's cheap) and reuse
+literal identifiers you already have (symbol, error string, file name) as the
+query. New to this repo? Run `trail map` first — a token-budgeted orientation
+(dir clusters, hubs, hotspots), no LLM, no key. Without trail, use grep and file
+reads normally and read `.trail/learnings/` when that directory exists.
 
 - Run `trail ask "<your question>" --source` → ranked nodes with the relevant
   code spans inlined (each hit's ≤8-line crux by default; `--full` for whole
@@ -40,6 +43,6 @@ range before finalizing. Only open source files when a node genuinely lacks a
 needed detail, and then at the exact file:line the node points to — never
 re-read whole files.
 
-After big code changes, refresh the graph with `trail build` (deterministic,
-no API key, $0).
+After big code changes, refresh the graph with `trail build` when trail is
+installed (deterministic, no API key, $0).
 <!-- trail:end -->

@@ -169,8 +169,10 @@ substitute).
 If one of these MCPs is not installed in your environment, say so in the pull
 request (or lane record), use the other leg and the project's own references
 (`docs/theme.md`, the mockup pack when you have it), and cite the real product
-screens you compared. The rule is to research before inventing; an unavailable
-integration is not a reason to block the work.
+screens you compared. If both are unavailable, say that both were unavailable,
+research by hand from the project's references and any real product screens you
+can reach, and name what you compared. The rule is to research before inventing;
+an unavailable integration is not a reason to block the work.
 
 Use both legs:
 
@@ -647,12 +649,13 @@ Rules:
 This repo is indexed in `.trail/cache/`: small linked markdown nodes that explain each
 system and carry exact file:line spans, kept in sync with the code through git.
 
-For ANY task here — understanding how something works, finding where code lives,
-or scoping a change — get context from the graph before grepping or opening
-source files. Re-ask freely (it's cheap) and reuse literal identifiers you
-already have (symbol, error string, file name) as the query. New to this repo?
-Run `trail map` first — a token-budgeted orientation (dir clusters, hubs,
-hotspots), no LLM, no key.
+With trail installed, for any task here — understanding how something works,
+finding where code lives, or scoping a change — get context from the graph
+before grepping or opening source files. Re-ask freely (it's cheap) and reuse
+literal identifiers you already have (symbol, error string, file name) as the
+query. New to this repo? Run `trail map` first — a token-budgeted orientation
+(dir clusters, hubs, hotspots), no LLM, no key. Without trail, use grep and file
+reads normally and read `.trail/learnings/` when that directory exists.
 
 - Run `trail ask "<your question>" --source` → ranked nodes with the relevant
   code spans inlined (each hit's ≤8-line crux by default; `--full` for whole
@@ -679,6 +682,6 @@ range before finalizing. Only open source files when a node genuinely lacks a
 needed detail, and then at the exact file:line the node points to — never
 re-read whole files.
 
-After big code changes, refresh the graph with `trail build` (deterministic,
-no API key, $0).
+After big code changes, refresh the graph with `trail build` when trail is
+installed (deterministic, no API key, $0).
 <!-- trail:end -->
