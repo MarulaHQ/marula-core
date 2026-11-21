@@ -244,9 +244,15 @@ CREATE TABLE purchase_recharges (
   purchase_order_id uuid NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
   po_line_id uuid NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
   receipt_line_id uuid NOT NULL REFERENCES purchase_receipt_lines(id) ON DELETE CASCADE,
-  client_id uuid REFERENCES clients(id) ON DELETE SET NULL,
-  ticket_id uuid REFERENCES tickets(id) ON DELETE SET NULL,
-  project_id uuid REFERENCES projects(id) ON DELETE SET NULL,
+  -- Citations, not parents: the client, ticket and project this charge was
+  -- issued under. They are plain uuids for the same reason `cost_line_id` is —
+  -- an `ON DELETE SET NULL` would be an update the append-only guard has to
+  -- decide about, and a tenant erasure must not depend on the order in which
+  -- Postgres visits the rows it is deleting. Nothing here is user input; the
+  -- write path resolves each id inside the org before the charge is issued.
+  client_id uuid,
+  ticket_id uuid,
+  project_id uuid,
   rule_kind text NOT NULL
     CHECK (rule_kind IN ('at_cost', 'markup_bps', 'fixed', 'none')),
   -- Which rung produced the rule. 'purchase_order' is the explicit statement on
@@ -329,8 +335,25 @@ CREATE POLICY purchase_recharges_org ON purchase_recharges
   USING (org_id = current_setting('app.org_id', true)::uuid);
 
 -- An issued recharge is a fact. Correcting it is a credit note, not an edit.
+--
+-- The two exceptions are not edits and must pass, or tenant erasure cannot
+-- succeed: a cascade reaches this row after its org is already gone, and
+-- deleting the actor row nulls `created_by` while the record stays otherwise
+-- identical. Both allowances mirror migration 0232's guard for the movement
+-- ledger. A direct update or delete still raises.
 CREATE FUNCTION purchase_recharges_append_only() RETURNS trigger AS $$
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    -- In a cascade the parent org row is already gone when the child row is
+    -- deleted. A direct delete still sees its org and is refused.
+    IF NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = OLD.org_id) THEN
+      RETURN OLD;
+    END IF;
+  ELSIF TG_OP = 'UPDATE'
+        AND NEW.created_by IS NULL
+        AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
+    RETURN NEW;
+  END IF;
   RAISE EXCEPTION 'purchase_recharges is append-only: % rejected', TG_OP;
 END;
 $$ LANGUAGE plpgsql;
