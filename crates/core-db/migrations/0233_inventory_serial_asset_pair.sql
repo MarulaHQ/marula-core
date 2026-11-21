@@ -1,5 +1,5 @@
--- Serial <-> asset pair agreement (Wave 76 lane 1,
--- `p76-inventory-foundation`; migration 0233 continues this lane's window).
+-- Serial <-> asset pair agreement. Migration 0233 continues the 0232 window:
+-- the nullable reference exists there, and this file makes the pair agree.
 --
 -- `stock_serials` and `device_assets` are two projections of one physical unit
 -- (ADR 0035 §2). Migration 0232 added the nullable reference each side carries;
@@ -19,8 +19,8 @@
 --
 -- No backfill. A historical asset created by a loan carries its serial in
 -- `identity_keys`, but matching that JSON to a serial number is a guess, and a
--- guessed pair is worse than no pair: the conversion path (renders under the
--- rentals lane) links a real pair at the moment it converts a unit. The
+-- guessed pair is worse than no pair: the conversion path in the rentals work
+-- links a real pair at the moment it converts a unit. The
 -- uniqueness indexes make every linked pair unambiguous until then.
 --
 -- Additive-only: two indexes and two triggers. No column or row is rewritten.

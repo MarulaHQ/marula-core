@@ -1,10 +1,10 @@
--- Inventory policy and money vocabulary (Wave 76 lane 1,
--- `p76-inventory-foundation`; migration 0234 closes this lane's window).
+-- Inventory policy and money vocabulary. Migration 0234 closes the 0232-0234
+-- window that adds the inventory identity, pair and money vocabulary.
 --
--- The identity half of the foundation is 0232/0233. This file adds the
+-- The identity half is 0232/0233. This file adds the
 -- vocabulary the money rows will carry, as nullable columns plus the CHECK that
 -- names the allowed values. Nothing here changes a behaviour and no route reads
--- these columns yet: the purchasing and billing lanes write them, which is why
+-- these columns yet: the purchasing and billing work writes them, which is why
 -- every one of them is optional and defaults to today's meaning.
 --
 --   * `orgs.landed_cost_mode` — `invoice_values` (default, today's behaviour) or
@@ -24,7 +24,7 @@
 --
 --   * `reporting_class` — the eight classes in ADR 0035 §6.4, on a ticket cost
 --     line and a ticket expense. NULL means "not classified yet": the column
---     does not guess a class from a free-text description, and the billing lane
+--     does not guess a class from a free-text description, and the billing work
 --     fills it when a line gains product identity.
 --
 --   * Source identity on cost, invoice and credit rows — `source_kind` plus
@@ -34,7 +34,7 @@
 --     pre-existing row was created before the chain existed.
 --
 -- Why `credit_notes` and not a lines table: a credit note is a total today
--- (migration 0058) and gains lines with the billing-join lane. The note-level
+-- (migration 0058) and gains lines with the billing join. The note-level
 -- pair here lets a note cite the document it corrects in the meantime; the line
 -- table reuses the same vocabulary when it lands.
 --

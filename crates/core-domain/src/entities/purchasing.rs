@@ -288,7 +288,7 @@ fn validate_currency(code: &str) -> Result<(), DomainError> {
 /// Acquisition intent (ADR 0035 §2, §5.1). A purchase order may mix intents:
 /// the header carries defaults and the line decides. These are the words, the
 /// destination each word implies, and the validation that keeps a line from
-/// claiming a destination its kind cannot reach. The purchasing lane wires them
+/// claiming a destination its kind cannot reach. The purchasing work wires them
 /// to columns and routes; nothing here changes a PO today.
 pub const ACQUIRED_FOR_VALUES: [&str; 8] = [
     "sale_stock",
