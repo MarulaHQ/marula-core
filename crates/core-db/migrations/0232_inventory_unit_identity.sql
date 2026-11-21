@@ -1,5 +1,8 @@
--- Inventory unit identity (Wave 76 lane 1, `p76-inventory-foundation`;
--- migration 0232 is this lane's window — head was 0231).
+-- Inventory unit identity: one custody class per serial and asset, and an
+-- append-only ledger for a class change.
+--
+-- This is the first of three migrations (0232-0234) that add the inventory
+-- identity, pair and money vocabulary; 0231 was the head before it.
 --
 -- Purpose: one physical unit, one identity, one custody class (ADR 0035
 -- decisions 1 and 2). Nothing here changes how stock, assets, tools or loans
@@ -32,7 +35,7 @@
 -- not owned is `rental_out`.
 --
 -- Non-purpose: no lot identity. A lot is a line plus a quantity (ADR 0035 §1);
--- that table arrives with the e-waste lane and extends this ledger's
+-- that table arrives with the e-waste work and extends this ledger's
 -- `unit_kind` vocabulary when it does, so no free-text lot key is invented here.
 --
 -- Additive-only: new nullable columns, new table, new triggers. Existing rows

@@ -500,7 +500,7 @@ impl CustodyClass {
 }
 
 /// Which projection of a unit a class movement names. A lot is a line plus a
-/// quantity (ADR 0035 §1); its table arrives with the e-waste lane and the
+/// quantity (ADR 0035 §1); its table arrives with the e-waste work and the
 /// reference is already a UUID, never a free-text key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

@@ -1,10 +1,7 @@
-//! Cost vocabulary (Wave 76 lane 1, `p76-inventory-foundation`).
-//!
-//! The words the money rows share, defined once beside the entities that carry
-//! them: how a cost or a rental charge is reported, which record a money line
-//! cites, how an organisation treats landed cost, and the recharge rule it
-//! applies to a purchase made on a client's behalf (ADR 0035 decisions 3, 6
-//! and 7).
+//! Cost vocabulary: how a cost or a rental charge is reported, which record a
+//! money line cites, how an organisation treats landed cost, and the recharge
+//! rule it applies to a purchase made on a client's behalf (ADR 0035 decisions
+//! 3, 6 and 7).
 //!
 //! Types and validation only. The columns these describe are nullable and
 //! additive (migration 0234); a line that was written before the chain existed
