@@ -42,8 +42,11 @@ curl -fsSL https://getmarula.com/install/latest/linux | sh
 ```
 
 [Install on a server](install-on-a-server.md#get-the-cli-in-one-line) takes it
-from there, including the file form to use when you want to pass arguments. Check what you downloaded before you run it:
-[verify a release](verify-a-release.md).
+from there. The script verifies the archive against the signed checksum list
+before it installs anything. If you would rather read the script and check the
+download yourself, that page's file form is the one to use, and [verify a
+release](verify-a-release.md) covers the same checks for an archive you fetched
+by hand.
 
 ## The desktop client
 
