@@ -356,6 +356,9 @@ pub struct IntakeFilter {
     pub status: Option<String>,
     pub client_id: Option<Uuid>,
     pub limit: i64,
+    /// Keyset cursor over the list's order: the last row's
+    /// `(received_at, id)`. `None` starts at the newest.
+    pub cursor: Option<(DateTime<Utc>, Uuid)>,
     /// Whose client restrictions apply. `None` is an internal caller with no
     /// visibility gate; every route passes the caller's.
     pub visibility: Option<ClientVisibility>,
@@ -427,35 +430,6 @@ fn intake_from_row(row: &sqlx::postgres::PgRow) -> DbResult<EwasteIntake> {
         created_by: row.try_get("created_by").map_err(DbError::Sql)?,
         created_at: row_datetime(row, "created_at")?,
         updated_at: row_datetime(row, "updated_at")?,
-    })
-}
-
-fn line_from_row(row: &sqlx::postgres::PgRow) -> DbResult<EwasteIntakeLine> {
-    Ok(EwasteIntakeLine {
-        id: row.try_get("id").map_err(DbError::Sql)?,
-        intake_id: row.try_get("intake_id").map_err(DbError::Sql)?,
-        line_kind: row.try_get("line_kind").map_err(DbError::Sql)?,
-        serial_id: row.try_get("serial_id").map_err(DbError::Sql)?,
-        device_asset_id: row.try_get("device_asset_id").map_err(DbError::Sql)?,
-        lot_label: row.try_get("lot_label").map_err(DbError::Sql)?,
-        category: row.try_get("category").map_err(DbError::Sql)?,
-        weight_g: row.try_get("weight_g").map_err(DbError::Sql)?,
-        quantity: row.try_get("quantity").map_err(DbError::Sql)?,
-        data_bearing: row.try_get("data_bearing").map_err(DbError::Sql)?,
-        destruction_status: row.try_get("destruction_status").map_err(DbError::Sql)?,
-        destruction_completed_at: row
-            .try_get("destruction_completed_at")
-            .map_err(DbError::Sql)?,
-        destruction_completed_by: row
-            .try_get("destruction_completed_by")
-            .map_err(DbError::Sql)?,
-        destruction_document_id: row
-            .try_get("destruction_document_id")
-            .map_err(DbError::Sql)?,
-        created_by: row.try_get("created_by").map_err(DbError::Sql)?,
-        created_at: row_datetime(row, "created_at")?,
-        updated_at: row_datetime(row, "updated_at")?,
-        disposed_weight_g: row.try_get("disposed_weight_g").map_err(DbError::Sql)?,
     })
 }
 
@@ -772,6 +746,21 @@ pub async fn record_disposition(
     intake_id: Uuid,
     input: &NewDisposition,
 ) -> DbResult<EwasteDisposition> {
+    let belongs = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM ewaste_intake_lines
+                        WHERE id = $1 AND org_id = $2 AND intake_id = $3)",
+        input.line_id,
+        org_id,
+        intake_id
+    )
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(guard_error)?
+    .unwrap_or(false);
+    if !belongs {
+        return Err(DbError::NotFound);
+    }
+
     let id = Uuid::now_v7();
     sqlx::query(
         r#"INSERT INTO ewaste_dispositions (
@@ -878,6 +867,10 @@ pub async fn list_intakes(
     filter: &IntakeFilter,
 ) -> DbResult<Vec<IntakeSummary>> {
     let (admin, user_id) = visibility_binds(filter.visibility);
+    let (cursor_received_at, cursor_id) = match filter.cursor {
+        Some((received_at, id)) => (Some(received_at), Some(id)),
+        None => (None, None),
+    };
     let rows = sqlx::query(&format!(
         r#"SELECT {columns},
                   coalesce(l.line_count, 0)::bigint AS line_count,
@@ -902,6 +895,7 @@ pub async fn list_intakes(
             WHERE i.org_id = $1
               AND ($2::text IS NULL OR i.status = $2)
               AND ($3::uuid IS NULL OR i.client_id = $3)
+              AND ($8::timestamptz IS NULL OR (i.received_at, i.id) < ($8, $9))
               {visibility}
             ORDER BY i.received_at DESC, i.id DESC
             LIMIT $4"#,
@@ -919,6 +913,8 @@ pub async fn list_intakes(
     .bind(admin)
     .bind(user_id.to_string())
     .bind(INTAKE_ENTITY)
+    .bind(cursor_received_at)
+    .bind(cursor_id)
     .fetch_all(&mut *conn)
     .await
     .map_err(guard_error)?;
@@ -945,13 +941,13 @@ pub async fn list_lines(
     org_id: Uuid,
     intake_id: Uuid,
 ) -> DbResult<Vec<EwasteIntakeLine>> {
-    let rows = sqlx::query(
+    let rows = sqlx::query!(
         r#"SELECT l.id, l.intake_id, l.line_kind, l.serial_id, l.device_asset_id,
                   l.lot_label, l.category, l.weight_g, l.quantity, l.data_bearing,
                   l.destruction_status, l.destruction_completed_at,
                   l.destruction_completed_by, l.destruction_document_id,
                   l.created_by, l.created_at, l.updated_at,
-                  coalesce(d.disposed_g, 0)::bigint AS disposed_weight_g
+                  coalesce(d.disposed_g, 0)::bigint AS "disposed_weight_g!"
              FROM ewaste_intake_lines l
              LEFT JOIN (
                SELECT line_id, sum(weight_g) AS disposed_g
@@ -961,13 +957,35 @@ pub async fn list_lines(
              ) d ON d.line_id = l.id
             WHERE l.org_id = $1 AND l.intake_id = $2
             ORDER BY l.created_at, l.id"#,
+        org_id,
+        intake_id
     )
-    .bind(org_id)
-    .bind(intake_id)
     .fetch_all(&mut *conn)
     .await
     .map_err(guard_error)?;
-    rows.iter().map(line_from_row).collect()
+    Ok(rows
+        .into_iter()
+        .map(|row| EwasteIntakeLine {
+            id: row.id,
+            intake_id: row.intake_id,
+            line_kind: row.line_kind,
+            serial_id: row.serial_id,
+            device_asset_id: row.device_asset_id,
+            lot_label: row.lot_label,
+            category: row.category,
+            weight_g: row.weight_g,
+            quantity: row.quantity,
+            data_bearing: row.data_bearing,
+            destruction_status: row.destruction_status,
+            destruction_completed_at: row.destruction_completed_at,
+            destruction_completed_by: row.destruction_completed_by,
+            destruction_document_id: row.destruction_document_id,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            disposed_weight_g: row.disposed_weight_g,
+        })
+        .collect())
 }
 
 /// The custody ledger of one intake, oldest first.
@@ -1095,12 +1113,16 @@ pub async fn weight_balance(
         r#"SELECT
              coalesce((SELECT sum(weight_g) FROM ewaste_intake_lines
                         WHERE org_id = $1 AND intake_id = $2), 0)::bigint AS "total_in_g!",
-             coalesce(sum(weight_g), 0)::bigint AS "total_out_g!",
-             coalesce(json_agg(json_build_object('pathway', pathway, 'weight_g', weight_g)
-                               ORDER BY pathway) FILTER (WHERE pathway IS NOT NULL),
-                      '[]'::json) AS "by_pathway!"
-           FROM ewaste_dispositions
-          WHERE org_id = $1 AND intake_id = $2"#,
+             coalesce((SELECT sum(weight_g) FROM ewaste_dispositions
+                        WHERE org_id = $1 AND intake_id = $2), 0)::bigint AS "total_out_g!",
+             coalesce((SELECT json_agg(json_build_object('pathway', p.pathway,
+                                                         'weight_g', p.weight_g)
+                                       ORDER BY p.pathway)
+                         FROM (SELECT pathway, sum(weight_g)::bigint AS weight_g
+                                 FROM ewaste_dispositions
+                                WHERE org_id = $1 AND intake_id = $2
+                                GROUP BY pathway) p),
+                      '[]'::json) AS "by_pathway!""#,
         org_id,
         intake_id
     )

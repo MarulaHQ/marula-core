@@ -27298,6 +27298,10 @@ export interface components {
         ListIntakesQuery: {
             /** Format: uuid */
             client_id?: string | null;
+            /** Format: uuid */
+            cursor_id?: string | null;
+            /** @description Keyset cursor: the last row's `received_at` and `id`, together. */
+            cursor_received_at?: string | null;
             /** Format: int64 */
             limit?: number | null;
             /** @description open | closed. */
@@ -33042,8 +33046,8 @@ export interface components {
         /** @description POST /api/ewaste/intakes/{id}/dispositions. */
         RecordDispositionRequest: components["schemas"]["MutationParams"] & {
             /**
-             * @description Required (with the document) for recycled, destroyed and
-             *     transferred_to_partner.
+             * @description Required for recycled, destroyed and transferred_to_partner: a
+             *     certificate reference or an attached document.
              */
             certificate_reference?: string | null;
             disposed_at: string;
@@ -50064,6 +50068,9 @@ export interface operations {
                 status?: string | null;
                 client_id?: string | null;
                 limit?: number | null;
+                /** @description Keyset cursor: the last row's `received_at` and `id`, together. */
+                cursor_received_at?: string | null;
+                cursor_id?: string | null;
             };
             header?: never;
             path?: never;

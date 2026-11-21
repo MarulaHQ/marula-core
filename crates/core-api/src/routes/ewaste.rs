@@ -27,7 +27,7 @@ use crate::org_tx;
 use crate::routes::documents::attached_document_exists;
 use crate::routes::ApiGeneration;
 use crate::state::AppState;
-use axum::http::Extensions;
+use axum::http::{header, Extensions, HeaderMap, HeaderValue};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{DateTime, NaiveDate, Utc};
@@ -240,6 +240,27 @@ async fn load_detail(
     })
 }
 
+/// Identity-scoped reads must not be stored by a private cache: the same URL
+/// answers differently per caller, so a browser cache would replay one
+/// caller's rows to another identity on a shared machine.
+fn no_store() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers
+}
+
+/// The mutation-trail snapshot: the aggregate without its append-only event
+/// list. Every event would be copied into every write (`N` events across `N`
+/// writes), and the prior event state is the `ewaste_events` table, which is
+/// never edited. The replay payload keeps the full detail.
+fn trail_snapshot(detail: &IntakeDetailResponse) -> Value {
+    let mut value = serde_json::to_value(detail).unwrap_or(Value::Null);
+    if let Some(map) = value.as_object_mut() {
+        map.remove("events");
+    }
+    value
+}
+
 /// The aggregate as committed by the previous writer. Read after the sequence
 /// lock is held and before this mutation writes. The lock keeps another writer
 /// out, and the sequence row already carries this write's number, so the prior
@@ -383,8 +404,8 @@ pub struct RecordDispositionRequest {
     pub disposed_at: NaiveDate,
     /// Whole grams; a unit line must carry its full weight.
     pub weight_g: i64,
-    /// Required (with the document) for recycled, destroyed and
-    /// transferred_to_partner.
+    /// Required for recycled, destroyed and transferred_to_partner: a
+    /// certificate reference or an attached document.
     #[serde(default)]
     pub certificate_reference: Option<String>,
     #[serde(default)]
@@ -413,6 +434,12 @@ pub struct ListIntakesQuery {
     pub client_id: Option<Uuid>,
     #[serde(default)]
     pub limit: Option<i64>,
+    /// Keyset cursor: the last row's `received_at` and `id`, together.
+    #[serde(default)]
+    #[schema(value_type = Option<String>)]
+    pub cursor_received_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub cursor_id: Option<Uuid>,
 }
 
 /// GET /api/ewaste/dispositions.
@@ -632,7 +659,7 @@ pub async fn list(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Query(q): axum::extract::Query<ListIntakesQuery>,
-) -> ApiResult<Json<Vec<IntakeSummary>>> {
+) -> ApiResult<(HeaderMap, Json<Vec<IntakeSummary>>)> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
     if let Some(status) = q.status.as_deref() {
@@ -640,11 +667,21 @@ pub async fn list(
             return Err(ApiError::Validation("status must be open or closed".into()));
         }
     }
+    let cursor = match (q.cursor_received_at, q.cursor_id) {
+        (Some(received_at), Some(id)) => Some((received_at, id)),
+        (None, None) => None,
+        _ => {
+            return Err(ApiError::Validation(
+                "a cursor needs cursor_received_at and cursor_id together".into(),
+            ))
+        }
+    };
     let org_id = authed.principal.user.org_id;
     let filter = IntakeFilter {
         status: q.status.as_deref().map(str::trim).map(str::to_string),
         client_id: q.client_id,
         limit: q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
+        cursor,
         visibility: Some(visibility_of(&authed.principal)),
     };
     // One transaction for the scope check and the read: a client can become
@@ -659,7 +696,7 @@ pub async fn list(
     }
     let rows = ewaste::list_intakes(&mut tx, org_id, &filter).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(rows))
+    Ok((no_store(), Json(rows)))
 }
 
 /// GET /api/ewaste/intakes/{id}.
@@ -671,7 +708,7 @@ pub async fn get_one(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
-) -> ApiResult<Json<IntakeDetailResponse>> {
+) -> ApiResult<(HeaderMap, Json<IntakeDetailResponse>)> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
@@ -683,7 +720,7 @@ pub async fn get_one(
     require_intake_client_visible(&mut tx, org_id, intake.client_id, &authed.principal).await?;
     let detail = load_detail(&mut tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(detail))
+    Ok((no_store(), Json(detail)))
 }
 
 /// POST /api/ewaste/intakes — instant-first (IF1/IF2).
@@ -823,7 +860,7 @@ pub async fn create(
                 op: "create",
                 seq: write_seq,
                 before: None,
-                after: serde_json::to_value(&detail).unwrap_or(Value::Null),
+                after: trail_snapshot(&detail),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
                 payload: &detail,
@@ -910,8 +947,8 @@ pub async fn add_line(
                 entity_id: id,
                 op: "line_add",
                 seq: write_seq,
-                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
-                after: serde_json::to_value(&detail).unwrap_or(Value::Null),
+                before: Some(trail_snapshot(&prior)),
+                after: trail_snapshot(&detail),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
                 payload: &detail,
@@ -1057,8 +1094,8 @@ pub async fn record_event(
                 entity_id: id,
                 op: "custody_event",
                 seq: write_seq,
-                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
-                after: serde_json::to_value(&detail).unwrap_or(Value::Null),
+                before: Some(trail_snapshot(&prior)),
+                after: trail_snapshot(&detail),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
                 payload: &detail,
@@ -1163,8 +1200,8 @@ pub async fn set_destruction(
                 entity_id: id,
                 op: "destruction_state",
                 seq: write_seq,
-                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
-                after: serde_json::to_value(&detail).unwrap_or(Value::Null),
+                before: Some(trail_snapshot(&prior)),
+                after: trail_snapshot(&detail),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
                 payload: &detail,
@@ -1267,8 +1304,8 @@ pub async fn record_disposition(
                 entity_id: id,
                 op: "disposition",
                 seq: write_seq,
-                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
-                after: serde_json::to_value(&detail).unwrap_or(Value::Null),
+                before: Some(trail_snapshot(&prior)),
+                after: trail_snapshot(&detail),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
                 payload: &detail,
@@ -1364,8 +1401,8 @@ pub async fn close_intake(
                 entity_id: id,
                 op: "close",
                 seq: write_seq,
-                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
-                after: serde_json::to_value(&detail).unwrap_or(Value::Null),
+                before: Some(trail_snapshot(&prior)),
+                after: trail_snapshot(&detail),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
                 payload: &detail,
@@ -1391,7 +1428,7 @@ pub async fn list_dispositions(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Query(q): axum::extract::Query<ListDispositionsQuery>,
-) -> ApiResult<Json<Vec<EwasteDisposition>>> {
+) -> ApiResult<(HeaderMap, Json<Vec<EwasteDisposition>>)> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::View))?;
     if let Some(pathway) = q.pathway.as_deref() {
@@ -1445,5 +1482,5 @@ pub async fn list_dispositions(
     }
     let rows = ewaste::list_dispositions_for_org(&mut tx, org_id, &filter).await?;
     tx.commit().await.map_err(ApiError::from)?;
-    Ok(Json(rows))
+    Ok((no_store(), Json(rows)))
 }
