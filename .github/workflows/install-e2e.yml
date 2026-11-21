@@ -337,7 +337,7 @@ jobs:
   # is the versioned URL, so re-checking an older release does not test whatever
   # happens to be newest. Both are the same redirect chain and the same script.
   one-line:
-    name: One-line install v${{ github.event.inputs.version || github.event.release.tag_name }} on Linux
+    name: One-line install ${{ github.event.inputs.version || github.event.release.tag_name }} on Linux
     if: ${{ !github.event.release.prerelease }}
     runs-on: ${{ github.event.inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 45
