@@ -956,7 +956,7 @@ pub async fn list_lines(
              LEFT JOIN (
                SELECT line_id, sum(weight_g) AS disposed_g
                  FROM ewaste_dispositions
-                WHERE org_id = $1
+                WHERE org_id = $1 AND intake_id = $2
                 GROUP BY line_id
              ) d ON d.line_id = l.id
             WHERE l.org_id = $1 AND l.intake_id = $2
@@ -1081,48 +1081,35 @@ pub async fn list_dispositions_for_org(
     rows.iter().map(disposition_from_row).collect()
 }
 
-/// The intake's weight accounting. Three fixed queries, not one per line.
+/// The intake's weight accounting.
+///
+/// One statement, one snapshot: the outbound total and the per-pathway sums
+/// are aggregated together, so a disposition that commits during the read can
+/// never make `total_out_g` disagree with the sum of `by_pathway`.
 pub async fn weight_balance(
     conn: &mut PgConnection,
     org_id: Uuid,
     intake_id: Uuid,
 ) -> DbResult<WeightBalance> {
-    let totals = sqlx::query(
+    let row = sqlx::query!(
         r#"SELECT
              coalesce((SELECT sum(weight_g) FROM ewaste_intake_lines
-                        WHERE org_id = $1 AND intake_id = $2), 0)::bigint AS total_in_g,
-             coalesce((SELECT sum(weight_g) FROM ewaste_dispositions
-                        WHERE org_id = $1 AND intake_id = $2), 0)::bigint AS total_out_g"#,
+                        WHERE org_id = $1 AND intake_id = $2), 0)::bigint AS "total_in_g!",
+             coalesce(sum(weight_g), 0)::bigint AS "total_out_g!",
+             coalesce(json_agg(json_build_object('pathway', pathway, 'weight_g', weight_g)
+                               ORDER BY pathway) FILTER (WHERE pathway IS NOT NULL),
+                      '[]'::json) AS "by_pathway!""#,
+        org_id,
+        intake_id
     )
-    .bind(org_id)
-    .bind(intake_id)
     .fetch_one(&mut *conn)
     .await
     .map_err(guard_error)?;
-    let total_in_g: i64 = totals.try_get("total_in_g").map_err(DbError::Sql)?;
-    let total_out_g: i64 = totals.try_get("total_out_g").map_err(DbError::Sql)?;
-
-    let rows = sqlx::query(
-        r#"SELECT pathway, sum(weight_g)::bigint AS weight_g
-             FROM ewaste_dispositions
-            WHERE org_id = $1 AND intake_id = $2
-            GROUP BY pathway
-            ORDER BY pathway"#,
-    )
-    .bind(org_id)
-    .bind(intake_id)
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(guard_error)?;
-    let by_pathway = rows
-        .iter()
-        .map(|row| {
-            Ok(PathwayWeight {
-                pathway: row.try_get("pathway").map_err(DbError::Sql)?,
-                weight_g: row.try_get("weight_g").map_err(DbError::Sql)?,
-            })
-        })
-        .collect::<DbResult<Vec<_>>>()?;
+    let by_pathway: Vec<PathwayWeight> = serde_json::from_value(row.by_pathway).map_err(|error| {
+        DbError::Corrupt(format!("weight balance pathway aggregate: {error}"))
+    })?;
+    let total_in_g = row.total_in_g;
+    let total_out_g = row.total_out_g;
 
     Ok(WeightBalance {
         total_in_g,
