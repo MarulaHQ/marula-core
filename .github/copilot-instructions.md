@@ -1,3 +1,7 @@
+> Trail is optional. A fresh clone has no `.trail/cache/` until you run
+> `trail build` (which requires trail). Without trail, use grep/read normally
+> and read `.trail/learnings/` when that directory exists.
+
 <!-- trail:start -->
 ## Trail — repo context graph
 
