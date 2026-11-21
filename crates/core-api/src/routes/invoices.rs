@@ -465,7 +465,7 @@ pub async fn create_run(
         //     bills in a run scoped to its own currency);
         //   * the client filter, so a one-client run stays one client.
         let lease_contract_ids =
-            core_db::loans::list_lease_contract_ids(&mut *ctx.tx, org_id, window.0, window.1)
+            core_db::loans::list_lease_contract_ids(&mut ctx.tx, org_id, window.0, window.1)
                 .await?;
         let mut extra_ids: Vec<Uuid> = pending_charges
             .iter()
