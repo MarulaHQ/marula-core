@@ -71,6 +71,21 @@
 -- is created by 0232 with no rows on a fresh install, and at MSP sizes the swap
 -- is a metadata change, not a scan. Every index below is on a table this
 -- migration creates, so none of them takes a lock on a hot table.
+--
+-- Tenant erasure (core-db/src/erasure.rs). One `DELETE FROM orgs` must cascade
+-- through every org-scoped row, so three things are true by construction, and
+-- they mirror the fix migration 0232's ledger guard carries:
+--
+--   * The append-only guards let a DELETE pass only when the parent org row is
+--     already gone, and an UPDATE pass only when its sole effect is a nullable
+--     actor column cleared by `ON DELETE SET NULL`. Everything else raises.
+--   * The intake guard's DELETE branch uses the same org-gone exception.
+--   * Only intra-e-waste children are foreign keys (`ON DELETE CASCADE`), so
+--     they cannot outlive their intake. The ids that name another org-scoped
+--     row — client, serial, device asset, signature, destruction and disposal
+--     document — are plain uuids with a write-time org check, because a
+--     RESTRICT reference blocks the cascade and a CASCADE would erase the
+--     history the ledger exists to keep.
 
 -- --- ledger vocabulary (0232 CHECK, widened additively) ----------------------
 
@@ -88,8 +103,11 @@ ALTER TABLE inventory_class_movements
 CREATE TABLE ewaste_intakes (
   id uuid PRIMARY KEY,
   org_id uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  -- Custody is held for a client; there is no org-owned e-waste intake.
-  client_id uuid NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
+  -- Custody is held for a client; there is no org-owned e-waste intake. The
+  -- client id is a plain uuid, not a foreign key: the write path proves the
+  -- client is in the org, and the receipt survives a client deletion rather
+  -- than blocking the tenant-erasure cascade.
+  client_id uuid NOT NULL,
   site_id uuid REFERENCES sites(id) ON DELETE SET NULL,
   ticket_id uuid REFERENCES tickets(id) ON DELETE SET NULL,
   -- Operator reference from the receiving docket ("EW-2026-041"). A label,
@@ -100,8 +118,9 @@ CREATE TABLE ewaste_intakes (
     CHECK (char_length(btrim(received_by_name)) BETWEEN 1 AND 200),
   received_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
   -- The signed intake sheet, when the client signed one, and its free-text
-  -- reference for a paper docket. Either is the evidence that they let go.
-  signature_document_id uuid REFERENCES documents(id) ON DELETE RESTRICT,
+  -- reference for a paper docket. Either is the evidence that they let go. The
+  -- document id is a plain uuid, validated against the org when it is written.
+  signature_document_id uuid,
   document_reference text
     CHECK (document_reference IS NULL OR char_length(document_reference) <= 500),
   -- The client's instruction: data must be destroyed before disposal.
@@ -138,12 +157,17 @@ CREATE INDEX idx_ewaste_intakes_client
 CREATE TABLE ewaste_intake_lines (
   id uuid PRIMARY KEY,
   org_id uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  intake_id uuid NOT NULL REFERENCES ewaste_intakes(id) ON DELETE RESTRICT,
+  -- An intra-e-waste child: it cannot outlive its intake, so the tenant
+  -- erasure cascade reaches it. A direct line delete is refused by the guard.
+  intake_id uuid NOT NULL REFERENCES ewaste_intakes(id) ON DELETE CASCADE,
   -- serial: one physical unit, quantity one. lot: this row IS the identity,
   -- with a quantity and an optional operator label.
   line_kind text NOT NULL CHECK (line_kind IN ('serial', 'lot')),
-  serial_id uuid REFERENCES stock_serials(id) ON DELETE RESTRICT,
-  device_asset_id uuid REFERENCES device_assets(id) ON DELETE SET NULL,
+  -- The unit ids are plain uuids: RESTRICT blocks the org cascade, and CASCADE
+  -- would erase a line's history when a unit is deleted. The line guard and the
+  -- retirement trigger prove both are in this org when the line is written.
+  serial_id uuid,
+  device_asset_id uuid,
   lot_label text CHECK (lot_label IS NULL OR char_length(lot_label) <= 200),
   category text NOT NULL CHECK (char_length(btrim(category)) BETWEEN 1 AND 120),
   -- The line's TOTAL weight in integer grams. Dispositions allocate against
@@ -159,7 +183,7 @@ CREATE TABLE ewaste_intake_lines (
     CHECK (destruction_status IN ('not_required', 'pending', 'completed')),
   destruction_completed_at timestamptz,
   destruction_completed_by uuid REFERENCES users(id) ON DELETE SET NULL,
-  destruction_document_id uuid REFERENCES documents(id) ON DELETE RESTRICT,
+  destruction_document_id uuid,
   created_by uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -194,8 +218,8 @@ CREATE INDEX idx_ewaste_intake_lines_asset
 CREATE TABLE ewaste_dispositions (
   id uuid PRIMARY KEY,
   org_id uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  intake_id uuid NOT NULL REFERENCES ewaste_intakes(id) ON DELETE RESTRICT,
-  line_id uuid NOT NULL REFERENCES ewaste_intake_lines(id) ON DELETE RESTRICT,
+  intake_id uuid NOT NULL REFERENCES ewaste_intakes(id) ON DELETE CASCADE,
+  line_id uuid NOT NULL REFERENCES ewaste_intake_lines(id) ON DELETE CASCADE,
   pathway text NOT NULL CHECK (pathway IN (
     'recycled', 'destroyed', 'resold', 'returned_to_client',
     'transferred_to_partner')),
@@ -206,11 +230,12 @@ CREATE TABLE ewaste_dispositions (
   disposed_at date NOT NULL,
   weight_g bigint NOT NULL CHECK (weight_g > 0),
   -- The certificate number an auditor reads off the paper. The attached
-  -- document is the scan of that paper.
+  -- document is the scan of that paper; the id is validated against the org
+  -- when the disposition is written.
   certificate_reference text
     CHECK (certificate_reference IS NULL
            OR char_length(btrim(certificate_reference)) BETWEEN 1 AND 300),
-  document_id uuid REFERENCES documents(id) ON DELETE RESTRICT,
+  document_id uuid,
   created_by uuid REFERENCES users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT ewaste_dispositions_partner CHECK (
@@ -239,10 +264,10 @@ CREATE INDEX idx_ewaste_dispositions_pathway
 CREATE TABLE ewaste_events (
   id uuid PRIMARY KEY,
   org_id uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
-  intake_id uuid NOT NULL REFERENCES ewaste_intakes(id) ON DELETE RESTRICT,
+  intake_id uuid NOT NULL REFERENCES ewaste_intakes(id) ON DELETE CASCADE,
   -- An intake-wide movement (store, handoff of the whole consignment) has no
   -- line; a per-unit event names one.
-  line_id uuid REFERENCES ewaste_intake_lines(id) ON DELETE RESTRICT,
+  line_id uuid REFERENCES ewaste_intake_lines(id) ON DELETE CASCADE,
   event_kind text NOT NULL CHECK (event_kind IN (
     'intake', 'store', 'move', 'handoff', 'disposition')),
   occurred_at timestamptz NOT NULL DEFAULT now(),
@@ -254,7 +279,7 @@ CREATE TABLE ewaste_events (
   partner_name text
     CHECK (partner_name IS NULL OR char_length(btrim(partner_name)) BETWEEN 1 AND 200),
   -- Set by the disposition that produced this event, never by a caller.
-  disposition_id uuid REFERENCES ewaste_dispositions(id) ON DELETE RESTRICT,
+  disposition_id uuid REFERENCES ewaste_dispositions(id) ON DELETE CASCADE,
   actor_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
   notes text CHECK (notes IS NULL OR char_length(notes) <= 2000),
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -291,23 +316,85 @@ CREATE POLICY ewaste_events_org ON ewaste_events
 
 -- --- append-only ledger -----------------------------------------------------
 
--- The custody ledger and the disposition record are append-only. A
--- correction is a new event; a wrong disposition is reversed by a new one, not
--- by editing history.
-CREATE FUNCTION ewaste_append_only() RETURNS trigger AS $$
+-- The custody ledger and the disposition record are append-only. A correction
+-- is a new event; a wrong disposition is reversed by a new one, not by editing
+-- history.
+--
+-- Two removals are not edits, and each table's guard admits only its own
+-- nullable actor columns:
+--
+--   * The tenant erasure contract deletes the `orgs` row and lets the cascade
+--     remove every org-scoped row. The parent org is already gone when the
+--     child row is deleted, so a DELETE that cannot see its org is the cascade.
+--   * `ON DELETE SET NULL` on an actor column is a user hard-delete, not a
+--     history edit. Every other column must be unchanged.
+--
+-- A direct UPDATE or DELETE by any writer still raises. This mirrors the
+-- ledger guard migration 0232 carries.
+
+CREATE FUNCTION ewaste_intake_lines_append_only() RETURNS trigger AS $$
 BEGIN
-  RAISE EXCEPTION 'ewaste: % on % is refused; append a new row instead',
-    TG_OP, TG_TABLE_NAME;
+  IF TG_OP = 'DELETE' THEN
+    IF NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = OLD.org_id) THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION
+      'ewaste: an intake line is a fact; append a new line instead';
+  END IF;
+
+  RAISE EXCEPTION 'ewaste: an intake line is a fact; append a new line instead';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION ewaste_dispositions_append_only() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = OLD.org_id) THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION
+      'ewaste: a disposition is a record; append a reversing disposition instead';
+  END IF;
+
+  IF NEW.created_by IS NULL
+     AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION
+    'ewaste: a disposition is a record; append a reversing disposition instead';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION ewaste_events_append_only() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = OLD.org_id) THEN
+      RETURN OLD;
+    END IF;
+    RAISE EXCEPTION 'ewaste: the custody ledger is append-only';
+  END IF;
+
+  IF NEW.actor_user_id IS NULL
+     AND (to_jsonb(NEW) - 'actor_user_id') = (to_jsonb(OLD) - 'actor_user_id') THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'ewaste: the custody ledger is append-only';
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER ewaste_dispositions_append_only_guard
   BEFORE UPDATE OR DELETE ON ewaste_dispositions
-  FOR EACH ROW EXECUTE FUNCTION ewaste_append_only();
+  FOR EACH ROW EXECUTE FUNCTION ewaste_dispositions_append_only();
 
 CREATE TRIGGER ewaste_events_append_only_guard
   BEFORE UPDATE OR DELETE ON ewaste_events
-  FOR EACH ROW EXECUTE FUNCTION ewaste_append_only();
+  FOR EACH ROW EXECUTE FUNCTION ewaste_events_append_only();
+
+CREATE TRIGGER ewaste_intake_lines_append_only_guard
+  BEFORE DELETE ON ewaste_intake_lines
+  FOR EACH ROW EXECUTE FUNCTION ewaste_intake_lines_append_only();
 
 -- --- line guards ------------------------------------------------------------
 
@@ -316,12 +403,37 @@ CREATE TRIGGER ewaste_events_append_only_guard
 -- asset it names must be the intake's own client's. On update: identity and
 -- weight are facts once a gram has been disposed, and a closed intake
 -- accepts no line edit at all.
+--
+-- Two kinds of update are not edits and pass before the intake is read: the
+-- tenant-erasure cascade (the org is gone) and `ON DELETE SET NULL` clearing
+-- `created_by` or `destruction_completed_by` when a user is hard-deleted.
 CREATE FUNCTION ewaste_intake_line_guard() RETURNS trigger AS $$
 DECLARE
   intake_status text;
   intake_client uuid;
   destruction_required boolean;
 BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = NEW.org_id) THEN
+      RETURN NEW;
+    END IF;
+    IF NEW.created_by IS NULL
+       AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
+      RETURN NEW;
+    END IF;
+    IF NEW.destruction_completed_by IS NULL
+       AND (to_jsonb(NEW) - 'destruction_completed_by')
+         = (to_jsonb(OLD) - 'destruction_completed_by') THEN
+      RETURN NEW;
+    END IF;
+    IF NEW.created_by IS NULL
+       AND NEW.destruction_completed_by IS NULL
+       AND (to_jsonb(NEW) - 'created_by' - 'destruction_completed_by')
+         = (to_jsonb(OLD) - 'created_by' - 'destruction_completed_by') THEN
+      RETURN NEW;
+    END IF;
+  END IF;
+
   SELECT status, client_id, data_destruction_required
     INTO intake_status, intake_client, destruction_required
     FROM ewaste_intakes
@@ -345,6 +457,25 @@ BEGIN
        AND NEW.destruction_status = 'not_required'
     THEN
       NEW.destruction_status := 'pending';
+    END IF;
+    IF NEW.destruction_document_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM documents d
+       WHERE d.id = NEW.destruction_document_id AND d.org_id = NEW.org_id
+    ) THEN
+      RAISE EXCEPTION
+        'ewaste: destruction document % is not in org % evidence',
+        NEW.destruction_document_id, NEW.org_id;
+    END IF;
+    IF NEW.device_asset_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM device_assets a
+       WHERE a.id = NEW.device_asset_id
+         AND a.org_id = NEW.org_id
+         AND a.scope = 'client'
+         AND a.client_id = intake_client
+    ) THEN
+      RAISE EXCEPTION
+        'ewaste: asset % is not a client asset of this intake''s client',
+        NEW.device_asset_id;
     END IF;
   ELSE
     IF OLD.intake_id <> NEW.intake_id OR OLD.org_id <> NEW.org_id THEN
@@ -370,29 +501,35 @@ BEGIN
         'ewaste: line % already has a disposition; its identity and weight are facts',
         NEW.id;
     END IF;
-  END IF;
-
-  IF NEW.device_asset_id IS NOT NULL THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM device_assets a
-       WHERE a.id = NEW.device_asset_id
-         AND a.org_id = NEW.org_id
-         AND a.scope = 'client'
-         AND a.client_id = intake_client
-    ) THEN
+    -- A document that was deleted leaves its id behind (it is not a foreign
+    -- key); only a newly named document is validated.
+    IF NEW.destruction_document_id IS NOT NULL
+       AND NEW.destruction_document_id IS DISTINCT FROM OLD.destruction_document_id
+       AND NOT EXISTS (
+         SELECT 1 FROM documents d
+          WHERE d.id = NEW.destruction_document_id AND d.org_id = NEW.org_id
+       )
+    THEN
+      RAISE EXCEPTION
+        'ewaste: destruction document % is not in org % evidence',
+        NEW.destruction_document_id, NEW.org_id;
+    END IF;
+    -- An asset that was deleted leaves its id behind; only a newly named asset
+    -- is validated against the intake's client.
+    IF NEW.device_asset_id IS NOT NULL
+       AND NEW.device_asset_id IS DISTINCT FROM OLD.device_asset_id
+       AND NOT EXISTS (
+         SELECT 1 FROM device_assets a
+          WHERE a.id = NEW.device_asset_id
+            AND a.org_id = NEW.org_id
+            AND a.scope = 'client'
+            AND a.client_id = intake_client
+       )
+    THEN
       RAISE EXCEPTION
         'ewaste: asset % is not a client asset of this intake''s client',
         NEW.device_asset_id;
     END IF;
-  END IF;
-
-  IF NEW.destruction_document_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM documents d
-     WHERE d.id = NEW.destruction_document_id AND d.org_id = NEW.org_id
-  ) THEN
-    RAISE EXCEPTION
-      'ewaste: destruction document % is not in org % evidence',
-      NEW.destruction_document_id, NEW.org_id;
   END IF;
 
   RETURN NEW;
@@ -403,32 +540,54 @@ CREATE TRIGGER ewaste_intake_lines_guard
   BEFORE INSERT OR UPDATE ON ewaste_intake_lines
   FOR EACH ROW EXECUTE FUNCTION ewaste_intake_line_guard();
 
-CREATE TRIGGER ewaste_intake_lines_delete_guard
-  BEFORE DELETE ON ewaste_intake_lines
-  FOR EACH ROW EXECUTE FUNCTION ewaste_append_only();
-
 -- --- intake guards ----------------------------------------------------------
 
 -- Refuses deleting a receipt of custody, refuses rewriting the facts of the
 -- handover, proves the signature document is the org's own, and makes closing
 -- a balance check rather than a status flag.
+--
+-- A DELETE passes only when the parent org row is already gone (tenant
+-- erasure's cascade); an UPDATE passes untouched when the same cascade is
+-- running, because a site or ticket deletion sets its id to NULL on the way
+-- through.
 CREATE FUNCTION ewaste_intake_guard() RETURNS trigger AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
+    IF NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = OLD.org_id) THEN
+      RETURN OLD;
+    END IF;
     RAISE EXCEPTION 'ewaste: an intake is a receipt of custody and cannot be deleted';
   END IF;
 
-  IF NEW.signature_document_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM documents d
-     WHERE d.id = NEW.signature_document_id AND d.org_id = NEW.org_id
-  ) THEN
-    RAISE EXCEPTION
-      'ewaste: signature document % is not in org % evidence',
-      NEW.signature_document_id, NEW.org_id;
+  IF TG_OP = 'UPDATE'
+     AND NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = NEW.org_id) THEN
+    RETURN NEW;
   END IF;
 
   IF TG_OP = 'INSERT' THEN
+    IF NEW.signature_document_id IS NOT NULL AND NOT EXISTS (
+      SELECT 1 FROM documents d
+       WHERE d.id = NEW.signature_document_id AND d.org_id = NEW.org_id
+    ) THEN
+      RAISE EXCEPTION
+        'ewaste: signature document % is not in org % evidence',
+        NEW.signature_document_id, NEW.org_id;
+    END IF;
     RETURN NEW;
+  END IF;
+
+  -- A document that was deleted leaves its id behind (it is not a foreign key);
+  -- only a newly named signature is validated.
+  IF NEW.signature_document_id IS NOT NULL
+     AND NEW.signature_document_id IS DISTINCT FROM OLD.signature_document_id
+     AND NOT EXISTS (
+       SELECT 1 FROM documents d
+        WHERE d.id = NEW.signature_document_id AND d.org_id = NEW.org_id
+     )
+  THEN
+    RAISE EXCEPTION
+      'ewaste: signature document % is not in org % evidence',
+      NEW.signature_document_id, NEW.org_id;
   END IF;
 
   IF OLD.client_id <> NEW.client_id
