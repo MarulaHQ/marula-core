@@ -12,8 +12,8 @@ is planned. Every row is checked against the code, not against a plan.
 
 **Surfaces:** Web, Native, Desktop, Portal, API, CLI.
 
-Last checked against `main` on 2026-11-04. The API column counts the documented
-surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
+Last checked against `main` on 2026-11-21. The API column counts the documented
+surface: 788 paths in 65 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 
 ## 1. Service desk
 
@@ -100,6 +100,10 @@ surface: 658 paths in 59 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | Tools and kits | Tool catalog, kits, check-out and return | Web, Native, API | Shipped | `crates/core-api/src/routes/tools.rs` |
 | Client loans | Devices on loan to a client, with return tracking | Web, API | Shipped | `crates/core-api/src/routes/loans.rs` |
 | Purchasing | Vendors, purchase orders, receiving, billing, deeplinks | Web, API | Shipped | `crates/core-api/src/routes/purchasing.rs` |
+| Unit identity and custody | One class per physical unit across stock, serials and assets, with an append-only class-movement ledger | API | Built | `crates/core-api/src/routes/stock.rs`, `crates/core-domain/src/entities/stock.rs` |
+| Purchase intent and recharges | A purchase declares what it is for and where it lands, and a client purchase resolves its recharge rule at cost, markup, fixed or none | API | Built | `crates/core-api/src/routes/purchasing.rs` |
+| Rentals | An owned rental pool, client leases billed through invoice runs, and vendor rentals with returns | API | Built | `crates/core-api/src/routes/loans.rs` |
+| E-waste custody | Client e-waste intake and disposition, with certificates where required and a destruction state | API | Built | `crates/core-api/src/routes/ewaste.rs` |
 | Labels and printing | Templates, preview and ZPL through the desktop shell | Web, Desktop, API | Shipped | `crates/core-api/src/routes/labels.rs`, `desktop/src/printers.rs` |
 | Scanning | Keyboard-wedge and camera scans resolved to records | Web, Native, API | Shipped | `crates/core-api/src/routes/labels.rs`, `native/app/(tabs)/scan.tsx` |
 | Imports | Dry run, chunked staging, saved templates and finish | Web, API | Shipped | `crates/core-api/src/routes/imports.rs` |
