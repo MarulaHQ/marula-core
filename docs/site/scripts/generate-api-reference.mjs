@@ -73,7 +73,7 @@ lines.push("| Schema | Type | Description |");
 lines.push("|---|---|---|");
 for (const [name, s] of schemas) {
   const type = Array.isArray(s.type) ? s.type.filter((t) => t !== "null").join(" | ") : s.type || (s.allOf ? "composite" : "object");
-  const desc = (s.description || "").replace(/\|/g, "\\|").replace(/\s+/g, " ").slice(0, 200);
+  const desc = (s.description || "").replace(/\|/g, "\\|").replace(/\s+/g, " ");
   lines.push(`| <a id="schema-${name.toLowerCase()}"></a>\`${name}\` | ${type} | ${desc} |`);
 }
 lines.push("");

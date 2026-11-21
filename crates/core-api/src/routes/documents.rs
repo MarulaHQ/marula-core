@@ -1250,6 +1250,48 @@ pub async fn delete_link(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
+/// Whether a document exists in the caller's organization. One predicate for
+/// every caller that names a document: a cross-entity link target, an e-waste
+/// intake's signature and a disposal certificate. Checked at compile time
+/// against the offline cache.
+pub(crate) async fn document_in_org(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    document_id: Uuid,
+) -> ApiResult<bool> {
+    let found = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM documents WHERE org_id = $1 AND id = $2)",
+        org_id,
+        document_id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    Ok(found.unwrap_or(false))
+}
+
+/// Typed existence check for a document used as evidence by another module
+/// (e-waste intake signatures and disposal certificates, migration 0238).
+///
+/// These columns hold write-time references, not foreign keys. The id is
+/// proved to name a document in the caller's org when the record is written,
+/// and it stays in place if that document is later deleted. A signature belongs
+/// to the intake and a certificate to the disposition; deleting the document
+/// neither retains it nor clears the id, so a reader may see a reference that
+/// no longer resolves. The caller has already scoped the intake (and therefore
+/// its client); this adds the document half of the tenant boundary, which a
+/// UUID alone cannot carry.
+pub(crate) async fn attached_document_exists(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    document_id: Uuid,
+) -> ApiResult<()> {
+    if document_in_org(&mut *tx, org_id, document_id).await? {
+        Ok(())
+    } else {
+        Err(ApiError::NotFound)
+    }
+}
+
 /// Typed existence checks for link targets (RLS-scoped).
 pub(crate) async fn link_target_exists(
     tx: &mut sqlx::PgConnection,
@@ -1258,15 +1300,7 @@ pub(crate) async fn link_target_exists(
     id: Uuid,
 ) -> ApiResult<()> {
     let found: Option<bool> = match kind {
-        LinkKind::Document => Some(
-            sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM documents WHERE org_id = $1 AND id = $2)",
-            )
-            .bind(org_id)
-            .bind(id)
-            .fetch_one(&mut *tx)
-            .await?,
-        ),
+        LinkKind::Document => Some(document_in_org(&mut *tx, org_id, id).await?),
         LinkKind::Password => Some(
             sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM passwords WHERE org_id = $1 AND id = $2)",

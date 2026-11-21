@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.id, l.intake_id, l.line_kind, l.serial_id, l.device_asset_id,\n                  l.lot_label, l.category, l.weight_g, l.quantity, l.data_bearing,\n                  l.destruction_status, l.destruction_completed_at,\n                  l.destruction_completed_by, l.destruction_document_id,\n                  l.created_by, l.created_at, l.updated_at,\n                  coalesce(d.disposed_g, 0)::bigint AS \"disposed_weight_g!\"\n             FROM ewaste_intake_lines l\n             LEFT JOIN (\n               SELECT line_id, sum(weight_g) AS disposed_g\n                 FROM ewaste_dispositions\n                WHERE org_id = $1 AND intake_id = $2\n                GROUP BY line_id\n             ) d ON d.line_id = l.id\n            WHERE l.org_id = $1 AND l.intake_id = $2\n            ORDER BY l.created_at, l.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "intake_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "line_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "device_asset_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "lot_label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "category",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "weight_g",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "quantity",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "data_bearing",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "destruction_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "destruction_completed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "destruction_completed_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 13,
+        "name": "destruction_document_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 14,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "disposed_weight_g!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "a7e3e32f60861cd82cf6701320126648d655c09a9bcff1259e56e8598e83596b"
+}

@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, acquired_for, client_id, ticket_id, project_id, ownership,\n                  delivery_mode, recharge_rule_kind, recharge_markup_bps,\n                  recharge_fixed_minor, recharge_currency\n           FROM purchase_orders WHERE org_id = $1 AND id = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "acquired_for",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "project_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "ownership",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "delivery_mode",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "recharge_rule_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "recharge_markup_bps",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
+        "name": "recharge_fixed_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "recharge_currency",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "64fd3e2c077fc4024ae60520c349b9ba962a7d43e0007200e8f0494ecbb3254d"
+}
