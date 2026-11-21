@@ -224,7 +224,10 @@ BEGIN
     END IF;
   ELSIF TG_OP = 'UPDATE'
         AND NEW.created_by IS NULL
+        AND OLD.created_by IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = OLD.created_by)
         AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
+    -- Only the foreign key's SET NULL after the creator row itself is gone.
     RETURN NEW;
   END IF;
   RAISE EXCEPTION 'inventory_class_movements is append-only: % rejected', TG_OP;
@@ -243,6 +246,8 @@ CREATE TRIGGER inventory_class_movements_append_only_guard
 CREATE FUNCTION inventory_class_movement_apply() RETURNS trigger AS $$
 DECLARE
   current_class text;
+  current_serial uuid;
+  current_asset uuid;
   unit_serial uuid;
   unit_asset uuid;
 BEGIN
@@ -274,13 +279,23 @@ BEGIN
   END IF;
 
   IF NEW.unit_kind = 'serial' THEN
-    SELECT custody_class INTO current_class
+    SELECT custody_class, device_asset_id INTO current_class, current_asset
       FROM stock_serials
      WHERE id = NEW.serial_id AND org_id = NEW.org_id;
   ELSE
-    SELECT custody_class INTO current_class
+    SELECT custody_class, serial_id INTO current_class, current_serial
       FROM device_assets
      WHERE id = NEW.device_asset_id AND org_id = NEW.org_id;
+  END IF;
+
+  -- The pair was read before the locks. If it changed in that window, the
+  -- open-agreement checks below would test the wrong partner, so refuse and
+  -- let the writer retry against the pair that is current under the locks.
+  IF (NEW.unit_kind = 'serial' AND current_asset IS DISTINCT FROM unit_asset)
+     OR (NEW.unit_kind = 'asset' AND current_serial IS DISTINCT FROM unit_serial) THEN
+    RAISE EXCEPTION
+      'inventory class movement: unit % paired or unpaired while the movement was recorded; retry',
+      COALESCE(NEW.serial_id, NEW.device_asset_id);
   END IF;
 
   IF current_class IS NULL THEN
