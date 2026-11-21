@@ -20,7 +20,8 @@ BEGIN
   END IF;
   SELECT custody_class INTO current_class
     FROM stock_serials
-   WHERE id = NEW.serial_id AND org_id = NEW.org_id;
+   WHERE id = NEW.serial_id AND org_id = NEW.org_id
+   FOR SHARE;
   IF current_class IN ('sold', 'recycled', 'destroyed', 'returned') THEN
     RAISE EXCEPTION
       'serial % is in terminal custody class % and cannot move',

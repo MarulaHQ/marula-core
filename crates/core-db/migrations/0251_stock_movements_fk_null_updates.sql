@@ -25,17 +25,23 @@ BEGIN
     END IF;
   ELSIF TG_OP = 'UPDATE' THEN
     IF (NEW.from_location_id IS NOT DISTINCT FROM OLD.from_location_id
-        OR (NEW.from_location_id IS NULL AND OLD.from_location_id IS NOT NULL))
+        OR (NEW.from_location_id IS NULL AND OLD.from_location_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM stock_locations l WHERE l.id = OLD.from_location_id)))
        AND (NEW.to_location_id IS NOT DISTINCT FROM OLD.to_location_id
-        OR (NEW.to_location_id IS NULL AND OLD.to_location_id IS NOT NULL))
+        OR (NEW.to_location_id IS NULL AND OLD.to_location_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM stock_locations l WHERE l.id = OLD.to_location_id)))
        AND (NEW.serial_id IS NOT DISTINCT FROM OLD.serial_id
-        OR (NEW.serial_id IS NULL AND OLD.serial_id IS NOT NULL))
+        OR (NEW.serial_id IS NULL AND OLD.serial_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM stock_serials s WHERE s.id = OLD.serial_id)))
        AND (NEW.client_id IS NOT DISTINCT FROM OLD.client_id
-        OR (NEW.client_id IS NULL AND OLD.client_id IS NOT NULL))
+        OR (NEW.client_id IS NULL AND OLD.client_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM clients c WHERE c.id = OLD.client_id)))
        AND (NEW.ticket_id IS NOT DISTINCT FROM OLD.ticket_id
-        OR (NEW.ticket_id IS NULL AND OLD.ticket_id IS NOT NULL))
+        OR (NEW.ticket_id IS NULL AND OLD.ticket_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.id = OLD.ticket_id)))
        AND (NEW.created_by IS NOT DISTINCT FROM OLD.created_by
-        OR (NEW.created_by IS NULL AND OLD.created_by IS NOT NULL))
+        OR (NEW.created_by IS NULL AND OLD.created_by IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = OLD.created_by)))
        AND (to_jsonb(NEW)
               - 'from_location_id' - 'to_location_id' - 'serial_id'
               - 'client_id' - 'ticket_id' - 'created_by')

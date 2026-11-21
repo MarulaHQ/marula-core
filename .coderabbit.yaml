@@ -27,7 +27,7 @@ reviews:
 
   auto_review:
     enabled: true
-    drafts: false
+    drafts: true
     # These entries are regexes, not literals: "^main$" matches only main,
     # where "main" would also match a later main-2 branch.
     base_branches:
