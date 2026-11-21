@@ -312,6 +312,13 @@ impl std::fmt::Display for SplitError {
     }
 }
 
+/// Adds money, refusing a sum that leaves the `bigint` range instead of
+/// wrapping in a release build.
+fn money_total(a: i64, b: i64) -> DbResult<i64> {
+    a.checked_add(b)
+        .ok_or_else(|| DbError::Corrupt("money total exceeds the bigint range".into()))
+}
+
 /// The unit cost the receipt recorded, in the order currency: the movement's
 /// cost, the asset's purchase cost, or the line's own cost when the leg kept no
 /// record of its own (a lot or a service). A later edit to the purchase line
@@ -911,9 +918,9 @@ pub async fn receipt_valuation(
             count: 0,
         });
         if capitalised {
-            entry.capitalised += base;
+            entry.capitalised = money_total(entry.capitalised, base)?;
         } else {
-            entry.expensed += base;
+            entry.expensed = money_total(entry.expensed, base)?;
         }
         entry.count += 1;
     }
@@ -923,8 +930,12 @@ pub async fn receipt_valuation(
     // in one figure and not the other.
     let mut lines = Vec::with_capacity(context.lines.len());
     let mut receipt_cost_total: i64 = 0;
-    let capitalised_total: i64 = shares.values().map(|s| s.capitalised).sum();
-    let expensed_total: i64 = shares.values().map(|s| s.expensed).sum();
+    let capitalised_total: i64 = shares
+        .values()
+        .try_fold(0i64, |acc, share| money_total(acc, share.capitalised))?;
+    let expensed_total: i64 = shares
+        .values()
+        .try_fold(0i64, |acc, share| money_total(acc, share.expensed))?;
     let mut basis_total: i64 = 0;
     let mut uncosted = 0i64;
 
@@ -956,10 +967,10 @@ pub async fn receipt_valuation(
                 }
             };
         if let Some(cost) = receipt_cost_base {
-            receipt_cost_total += cost;
+            receipt_cost_total = money_total(receipt_cost_total, cost)?;
         }
         if let Some(total) = basis {
-            basis_total += total;
+            basis_total = money_total(basis_total, total)?;
         }
         lines.push(ReceiptLineValuation {
             receipt_line_id: line.receipt_line_id,
