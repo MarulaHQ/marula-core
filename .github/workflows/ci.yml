@@ -31,6 +31,70 @@ permissions:
   contents: read
 
 jobs:
+  # Which jobs this pull request has to run. The Rust matrix is roughly nine
+  # minutes of wall clock across five runners, and a documentation or stylesheet
+  # change needs none of it.
+  #
+  # This is a JOB-level gate, not `paths:` on `pull_request`. A workflow skipped
+  # at the trigger never reports its checks, so the required contexts stay
+  # "Pending" and the pull request can never merge — GitHub documents exactly
+  # that. A job skipped by `if:` reports `skipped`, and a required status check
+  # accepts `successful`, `skipped` or `neutral`.
+  #
+  # It fails open. If the file list cannot be read, it says so and every job
+  # runs: a gate that failed closed would let a pull request merge with no Rust
+  # tests at all.
+  changes:
+    name: Which paths changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.classify.outputs.rust }}
+    steps:
+      - name: Classify the change
+        id: classify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The default is the safe answer and it is written first: whatever
+          # fails after this line leaves it in place, and the last write wins.
+          # A gate that went quiet on an error would let Rust changes merge with
+          # no Rust tests.
+          echo "rust=true" >> "$GITHUB_OUTPUT"
+
+          # A push to `main` has already been tested by the pull request that
+          # produced it, and it is the run that writes the shared caches.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            exit 0
+          fi
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::warning::gh is not on this runner; running every job"
+            exit 0
+          fi
+          if ! files=$(gh api \
+                "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+                --paginate --jq '.filename'); then
+            echo "::warning::could not read this pull request's file list; running every job"
+            exit 0
+          fi
+
+          # A file, not a pipe: `printf | grep -q` under `pipefail` can lose a
+          # match when grep exits before printf finishes, which would report
+          # "no Rust" for a change that has some.
+          printf '%s\n' "$files" > "$RUNNER_TEMP/changed-paths.txt"
+          # `installer/` and `desktop/` are Rust the matrix excludes, but
+          # `cargo fmt --all` still covers them, so they count. `.sqlx/` counts
+          # because the `rust` job is what proves the offline metadata is
+          # current.
+          if ! grep -qE '^(crates/|plugins/|installer/|desktop/|\.cargo/|\.sqlx/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$)' \
+               "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # The boundary rules this repository is published under. If this job is red,
   # the open core is not open.
   boundary:
@@ -43,6 +107,8 @@ jobs:
 
   rust:
     name: Rust — fmt · clippy · sqlx offline cache
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     # `ubuntu-24.04`, not `ubuntu-latest`. `latest` moved to Ubuntu 26.04 on
     # 2026-10-19 (actions/runner-images#14748) and is still serving several
     # builds of it. On run 43773681904 this job landed on
@@ -199,6 +265,8 @@ jobs:
   # integration test lands in a shard without anyone editing this file.
   rust-tests-core-api:
     name: Rust tests — core-api shard ${{ matrix.shard }}/2
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -329,6 +397,8 @@ jobs:
 
   rust-tests-rest:
     name: Rust tests — workspace except core-api
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     # Pinned for the reason recorded on the `rust` job: the mixed 26.04 builds,
     # and one image build behind the shared cache key. The GTK/WebKit install
     # that used to be the second reason went with `installer` excluded.
@@ -799,6 +869,8 @@ jobs:
     # waits on it forever. The live leg lives in the steps below, not in the
     # name.
     name: Rust contract — deprecation clock · API conformance · golden OpenAPI
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     services:
       postgres:
