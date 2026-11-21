@@ -402,20 +402,20 @@ pub async fn update_asset_lifecycle(
         if into_rental_in {
             apply_lifecycle_patch(conn, org_id, id, p).await?;
         }
-        sqlx::query(
+        let movement_id = Uuid::now_v7();
+        let reason = format!("ownership changed from {from_ownership} to {next_ownership}");
+        sqlx::query!(
             r#"INSERT INTO inventory_class_movements
                  (id, org_id, unit_kind, device_asset_id, from_class, to_class, reason,
                   source_kind, source_id)
                VALUES ($1, $2, 'asset', $3, $4, $5, $6, 'device_asset', $3)"#,
+            movement_id,
+            org_id,
+            id,
+            from.as_str(),
+            to.as_str(),
+            reason,
         )
-        .bind(Uuid::now_v7())
-        .bind(org_id)
-        .bind(id)
-        .bind(from.as_str())
-        .bind(to.as_str())
-        .bind(format!(
-            "ownership changed from {from_ownership} to {next_ownership}"
-        ))
         .execute(&mut *conn)
         .await
         .map_err(map_class_guard)?;
