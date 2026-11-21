@@ -1482,6 +1482,14 @@ pub async fn existing_serials(
         return Ok(Vec::new());
     }
     let lowered: Vec<String> = numbers.iter().map(|n| n.to_lowercase()).collect();
+    // Serialise identity checks against every writer that inserts a serial for
+    // this item. The lock is the stock item row, so a concurrent stock receipt
+    // cannot insert the serial between this read and the asset insert.
+    sqlx::query("SELECT 1 FROM stock_items WHERE id = $1 AND org_id = $2 FOR UPDATE")
+        .bind(stock_item_id)
+        .bind(org_id)
+        .execute(&mut *conn)
+        .await?;
     let rows = sqlx::query!(
         r#"SELECT serial_number FROM stock_serials
             WHERE org_id = $1 AND stock_item_id = $2
@@ -1916,27 +1924,40 @@ where
     Ok(())
 }
 
-/// Whether a cost line is the charge of an issued recharge. A recharge is a
-/// fact, so its cost line cannot be re-priced or deleted while it is the
-/// document the recharge cites; corrections are credit notes.
-pub async fn cost_line_is_recharged<'e, E>(
+/// Whether a cost line is the charge of an issued recharge, and whether an
+/// invoice already carries it. `None` is an ordinary cost line.
+///
+/// The two states have different correction paths. A credit note corrects an
+/// *invoice*, so it is only reachable once the charge is billed. An unbilled
+/// recharge has no invoice to credit and no way to re-issue the charge — the
+/// receipt it came from has already been recorded — so deleting the cost line
+/// is the reversal. The recharge row stays as the record that the charge was
+/// issued, and the audit event names the line that was removed; its
+/// `cost_line_id` citation then points at a line that no longer exists, which
+/// is the same posture the table takes for tenant erasure.
+pub async fn recharge_cost_line_state<'e, E>(
     executor: E,
     org_id: Uuid,
     cost_line_id: Uuid,
-) -> DbResult<bool>
+) -> DbResult<Option<bool>>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let found: Option<Uuid> = sqlx::query_scalar!(
-        r#"SELECT id FROM purchase_recharges
-            WHERE org_id = $1 AND cost_line_id = $2
+    // `None` is an ordinary cost line; `Some(billed)` is a recharge's line,
+    // where `billed` says whether an invoice already carries it.
+    let state: Option<bool> = sqlx::query_scalar!(
+        r#"SELECT (c.invoice_line_id IS NOT NULL) AS "billed!"
+             FROM purchase_recharges r
+             JOIN ticket_cost_lines c
+               ON c.org_id = r.org_id AND c.id = r.cost_line_id
+            WHERE r.org_id = $1 AND r.cost_line_id = $2
             LIMIT 1"#,
         org_id,
         cost_line_id,
     )
     .fetch_optional(executor)
     .await?;
-    Ok(found.is_some())
+    Ok(state)
 }
 
 /// Records the class a receipt'd asset moved into when the class it lands in is

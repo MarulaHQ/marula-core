@@ -73,12 +73,15 @@ pub(crate) async fn ticket_for_board_check(
 
 // --- recharge leg (purchasing) ---------------------------------------------------
 
-/// What an operator is told when they try to change the cost line an issued
-/// recharge produced. A credit note corrects an *invoice*, so naming it as the
-/// path for an unbilled charge would send them to a surface with nothing to
-/// correct yet: the charge is billed first, and the invoice is then credited.
-const RECHARGE_LINE_EDIT_REFUSAL: &str =
-    "this line is the charge of an issued recharge and is append-only; bill it, then correct the invoice with a credit note";
+/// What an operator is told when they try to edit the cost line an issued
+/// recharge produced. A recharge is a fact, so its line is append-only; the
+/// correction depends on how far it travelled, which the guard decides.
+const RECHARGE_LINE_BILLED_REFUSAL: &str = "this line is the charge of an issued recharge that is already on an invoice; correct the invoice with a credit note";
+
+/// An unbilled recharge has no invoice to credit, and its receipt cannot be
+/// replayed to re-price it. Deleting the line is the whole reversal: the
+/// recharge row and the removal event keep the record.
+const RECHARGE_LINE_UNBILLED_REFUSAL: &str = "this line is the charge of an issued recharge and is append-only; it is not on an invoice, so delete it to reverse the charge";
 
 /// One client recharge to post as a billable ticket cost line.
 ///
@@ -443,8 +446,15 @@ pub async fn update_cost_line(
             .into_iter()
             .find(|l| l.id == line_id)
             .ok_or(ApiError::NotFound)?;
-        if core_db::purchasing::cost_line_is_recharged(&mut *ctx.tx, org_id, line_id).await? {
-            return Err(ApiError::Conflict(RECHARGE_LINE_EDIT_REFUSAL.into()));
+        if let Some(billed) =
+            core_db::purchasing::recharge_cost_line_state(&mut *ctx.tx, org_id, line_id).await?
+        {
+            let message = if billed {
+                RECHARGE_LINE_BILLED_REFUSAL
+            } else {
+                RECHARGE_LINE_UNBILLED_REFUSAL
+            };
+            return Err(ApiError::Conflict(message.into()));
         }
         // Snapshot doctrine (ADR 0002): a fact that already locked an FX
         // snapshot cannot have its amount edited in place — the locked
@@ -583,8 +593,14 @@ pub async fn remove_cost_line(
         if !belongs {
             return Err(ApiError::NotFound);
         }
-        if core_db::purchasing::cost_line_is_recharged(&mut *ctx.tx, org_id, line_id).await? {
-            return Err(ApiError::Conflict(RECHARGE_LINE_EDIT_REFUSAL.into()));
+        // An unbilled recharge line has no invoice to credit, so deleting it is
+        // the reversal; a billed one is corrected by a credit note. The delete
+        // itself re-checks `invoice_line_id`, so this is a message choice, not
+        // the guard against losing a billed line.
+        if let Some(true) =
+            core_db::purchasing::recharge_cost_line_state(&mut *ctx.tx, org_id, line_id).await?
+        {
+            return Err(ApiError::Conflict(RECHARGE_LINE_BILLED_REFUSAL.into()));
         }
         let removed = core_db::costs::remove_cost_line(&mut ctx.tx, org_id, line_id).await?;
         if !removed {

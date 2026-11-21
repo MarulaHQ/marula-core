@@ -1544,9 +1544,18 @@ async fn one_snapshot(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> ApiResu
 /// produced, and the path id is not part of the fingerprint: the same key can
 /// arrive through another order's route.
 fn replay_order_id(stored: &Value) -> Option<Uuid> {
-    stored
+    let order = stored.get("order")?;
+    let direct = order
+        .get("id")
+        .and_then(Value::as_str)
+        .and_then(|raw| Uuid::parse_str(raw).ok());
+    if direct.is_some() {
+        return direct;
+    }
+    // A receipt response nests the order one level deeper: {order: {order: {id}}}.
+    order
         .get("order")
-        .and_then(|order| order.get("id"))
+        .and_then(|inner| inner.get("id"))
         .and_then(Value::as_str)
         .and_then(|raw| Uuid::parse_str(raw).ok())
 }
@@ -1560,7 +1569,13 @@ async fn assert_replay_order_visible(
     stored: &Value,
     path_order_id: Uuid,
 ) -> ApiResult<()> {
-    if let Some(stored_order_id) = replay_order_id(stored) {
+    if stored.get("order").is_some() {
+        let stored_order_id = replay_order_id(stored).ok_or_else(|| {
+            ApiError::Conflict(
+                "the stored replay names no order this request can verify; retry with a new key"
+                    .into(),
+            )
+        })?;
         assert_order_visible(conn, org_id, principal, stored_order_id).await?;
     }
     assert_order_visible(conn, org_id, principal, path_order_id).await
@@ -4324,6 +4339,14 @@ pub async fn receive_order(
             // the values instead; they are checked against the layout in force
             // under a share lock, so a concurrent edit cannot land between the
             // check and the insert. A missing required value is a 422 naming it.
+            if let Some(raw_fields) = &input.asset_fields {
+                if !raw_fields.is_object() {
+                    return Err(ApiError::Validation(format!(
+                        "line \"{}\" carries asset_fields that are not a JSON object",
+                        line.description
+                    )));
+                }
+            }
             let asset_fields = input
                 .asset_fields
                 .clone()
