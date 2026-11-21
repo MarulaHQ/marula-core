@@ -427,12 +427,17 @@ jobs:
           # an unreachable or ambiguous target before the split happens.
           node scripts/check-test-targets.mjs
           # Shard 1 also runs the `--lib` unit tests below, which compile
-          # core-api a second time as a test harness and link it. Measured on
-          # run 44898290467 at a 14/28 split: 334s on shard 1 against 247s on
-          # shard 2, both at 100% sccache hits, so the difference is work. A
-          # target costs ~9s, so the pattern pays for ~5 targets' worth of lib
-          # and lands both shards near 290s.
-          mapfile -t targets < <(node scripts/check-test-targets.mjs --shard "${{ matrix.shard }}" --shards 2 --pattern 1,2,2,2,2)
+          # core-api a second time as a test harness and link it. That costs a
+          # stable ~209s: the same figure falls out of both measured splits, and
+          # both were at 100% sccache hits, so it is work rather than a cache
+          # miss.
+          #
+          # Two splits have been measured: 1:2 (14/28) gave 334s and 247s, and
+          # 1:4 (9/33) gave 312s and 384s. Per-target cost moved from 8.85s to
+          # 11.5s between them without the code changing, which is runner noise
+          # of about 30%, so the algebraic optimum is not worth chasing. 1:2 is
+          # the simpler pattern and measured the better wall of the two.
+          mapfile -t targets < <(node scripts/check-test-targets.mjs --shard "${{ matrix.shard }}" --shards 2 --pattern 1,2,2)
           args=()
           for target in "${targets[@]}"; do
             args+=(--test "$target")
