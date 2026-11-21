@@ -789,6 +789,14 @@ pub struct ReceiveLineInput {
     /// `count × 1000`). Each serial posts its own ledger row + receipt line.
     #[serde(default)]
     pub serial_numbers: Option<Vec<String>>,
+    /// The asset a line creates is typed by the line's layout. Its values are
+    /// supplied here, at the moment the asset is created, because a purchase
+    /// order line carries none: a layout can gain a required field after the
+    /// order is placed, and the placed line is not editable. They are validated
+    /// against the layout in force inside the receipt transaction, and every
+    /// unit the line creates carries them.
+    #[serde(default)]
+    pub asset_fields: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -1140,10 +1148,10 @@ fn guard_line_destination(
 
 /// Proves the records a line points at still fit it, before the line is stored.
 ///
-/// * The asset layout belongs to this organisation and can be satisfied by the
-///   empty field set a receipt supplies, so a receipt cannot create an asset
-///   that violates its own schema. Type-specific values are added on the asset
-///   surface afterwards.
+/// * The asset layout belongs to this organisation. Its field values are a
+///   receipt-time input, so the draft only proves the reference is the caller's;
+///   a layout that gains a required field after placement does not strand the
+///   order, because the receiver supplies the values.
 /// * A `serialized_unit` line is one serial per unit, so the item it names must
 ///   itself be serialized. A consumable item there would demand serials at
 ///   receipt and then refuse them, which is a line nobody can receive.
@@ -1161,9 +1169,9 @@ async fn validate_line_references(
     intent: &core_db::purchasing::LineIntent,
 ) -> ApiResult<()> {
     if let Some(layout_id) = intent.asset_layout_id {
-        let layout = core_db::document_layouts::get_layout(&mut *conn, org_id, layout_id).await?;
-        let empty = serde_json::json!({});
-        crate::routes::documents::validate_fields(&layout, &empty)?;
+        // Existence inside the caller's organisation only. The values are
+        // validated where the asset is written.
+        core_db::document_layouts::get_layout(&mut *conn, org_id, layout_id).await?;
     }
     let fractional = input.qty_ordered_milli % 1000 != 0;
     if intent.line_kind == LineKind::SerializedUnit || fractional {
@@ -1490,10 +1498,43 @@ async fn assert_replay_client_visible(
     stored: &Value,
 ) -> ApiResult<()> {
     if let Some(client_id) = replay_named_client(stored) {
-        crate::routes::clients::require_client_visible(&mut *conn, org_id, client_id, principal)
-            .await?;
+        require_purchase_client_visible(&mut *conn, org_id, client_id, principal).await?;
     }
     Ok(())
+}
+
+/// Client visibility for a purchase order read or replay.
+///
+/// A live client is checked exactly as [`crate::routes::clients::require_client_visible`]
+/// checks it. A purchase order's `client_id` is deliberately not a foreign key,
+/// so a client row can be deleted while the order it explains survives; a client
+/// that no longer exists carries no restriction, and the retained order stays
+/// readable. Catching the missing row separately is what keeps "gone" from
+/// turning into "restricted": both answer 404 through the shared helper.
+///
+/// The write paths keep the strict helper: an order cannot be created, edited or
+/// received for a client that is not there.
+async fn require_purchase_client_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    client_id: Uuid,
+    principal: &core_domain::entities::Principal,
+) -> ApiResult<()> {
+    match core_db::clients::get_client(&mut *conn, org_id, client_id).await {
+        Ok(client) => {
+            if !client.restricted_to.is_empty()
+                && !client.restricted_to.contains(&principal.user.id)
+                && !principal.is_owner_or_admin()
+            {
+                return Err(ApiError::NotFound);
+            }
+            Ok(())
+        }
+        // The order is a retained document: the client row is gone, so there is
+        // no restriction left to apply.
+        Err(core_db::DbError::NotFound) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Proves an order is still visible to this caller before a replayed response
@@ -1521,8 +1562,7 @@ async fn assert_order_client_visible(
 ) -> ApiResult<()> {
     let header = core_db::purchasing::get_order_intent(&mut *conn, org_id, order_id).await?;
     if let Some(client_id) = header.client_id {
-        crate::routes::clients::require_client_visible(&mut *conn, org_id, client_id, principal)
-            .await?;
+        require_purchase_client_visible(&mut *conn, org_id, client_id, principal).await?;
     }
     Ok(())
 }
@@ -3566,6 +3606,9 @@ struct ReceiptPlan {
     serials: Vec<String>,
     qty_milli: i64,
     creates_asset: bool,
+    /// Validated against the line's layout during planning, then written to
+    /// every asset the line creates.
+    asset_fields: serde_json::Value,
 }
 
 fn fx_columns(snapshot: crate::routes::fx::LockedSnapshot) -> core_db::purchasing::FxColumns {
@@ -3612,7 +3655,7 @@ async fn create_receipt_asset(
     // still readable on a label.
     let tag = format!("{}-{}", order.number, short_id(receipt_line_id));
     let name: String = plan.line.description.chars().take(200).collect();
-    let fields = serde_json::json!({});
+    let fields = &plan.asset_fields;
     core_db::assets::create_asset(
         &mut *ctx.tx,
         org_id,
@@ -3625,7 +3668,7 @@ async fn create_receipt_asset(
         "device",
         "active",
         plan.intent.asset_layout_id,
-        &fields,
+        fields,
     )
     .await?;
     if let Some(serial) = serial {
@@ -4025,15 +4068,20 @@ pub async fn receive_order(
                     line.description
                 )));
             }
-            // The layout an order named can gain a required field before the
-            // goods arrive. Re-read it under a share lock and prove the empty
-            // field set still satisfies it, so the insert cannot land an asset
-            // that violates its own schema while a concurrent edit commits.
+            // The layout an order named can gain a required field after it was
+            // placed, and the placed line is not editable. The receiver supplies
+            // the values instead; they are checked against the layout in force
+            // under a share lock, so a concurrent edit cannot land between the
+            // check and the insert. A missing required value is a 422 naming it.
+            let asset_fields = input
+                .asset_fields
+                .clone()
+                .unwrap_or_else(|| serde_json::json!({}));
             if let Some(layout_id) = intent.asset_layout_id {
                 core_db::purchasing::lock_line_layout(&mut ctx.tx, org_id, layout_id).await?;
                 let layout =
                     core_db::document_layouts::get_layout(&mut *ctx.tx, org_id, layout_id).await?;
-                crate::routes::documents::validate_fields(&layout, &serde_json::json!({}))?;
+                crate::routes::documents::validate_fields(&layout, &asset_fields)?;
             }
             let serialized_item = item.as_ref().is_some_and(|i| i.kind == "serialized");
             let creates_asset = match destination {
@@ -4128,6 +4176,7 @@ pub async fn receive_order(
                 serials,
                 qty_milli,
                 creates_asset,
+                asset_fields,
             });
         }
         if !over.is_empty() {
