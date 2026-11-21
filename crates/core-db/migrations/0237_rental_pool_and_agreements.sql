@@ -1,6 +1,6 @@
 -- Rentals: the owned pool, client leases that bill, and vendor rentals.
--- Migration 0237 continues the Wave 76 window; 0236 belongs to the landed-cost
--- work and 0238 to e-waste custody.
+-- Migration 0237 follows the inventory identity, pair and money vocabulary in
+-- 0232-0234 and the receipt routing in 0235.
 --
 -- Purpose (ADR 0035 decision 4, §7 of the custody plan): owned rental gear is
 -- a distinct pool that moves in both directions; a lease to a client records an
