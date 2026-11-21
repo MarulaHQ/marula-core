@@ -262,6 +262,32 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
       TAGGED: ${{ needs.version.outputs.tagged }}
+      # Compilation cache. The Actions cache above cannot carry this workflow
+      # across pull requests: an entry is scoped to the branch that wrote it,
+      # and `main` never runs this workflow (it triggers on tags and on pull
+      # requests), so a fresh pull-request branch starts at "No cache found" and
+      # rebuilds all ~840 crates in release with thin LTO — that is the measured
+      # 1252s macOS CLI leg. R2 is not branch-scoped, so a unit one branch
+      # compiled is a hit for the next one.
+      #
+      # The wrapper is guarded on a secret, not set unconditionally: a fork's
+      # pull request never receives repository secrets, and sccache with an
+      # endpoint but no credentials fails every compile.
+      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && 'sccache' || '' }}
+      SCCACHE_BUCKET: marula-ci-sccache
+      SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SCCACHE_REGION: auto
+      # A revoked key or an R2 outage must not brick a release build: the skip
+      # stops the startup storage check from aborting the server, and the ignore
+      # turns a failed read mid-compile into a local compile with a warning.
+      SCCACHE_SKIP_CACHE_CHECK: "1"
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      # One prefix per platform and architecture. A release object compiled for
+      # aarch64-apple-darwin must never be reachable from the Windows leg, and
+      # the debug/test profile in ci.yml has its own prefix for the same reason.
+      SCCACHE_S3_KEY_PREFIX: sccache/release-${{ matrix.os }}-${{ matrix.arch }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -285,9 +311,66 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-installer-${{ matrix.os }}-${{ matrix.arch }}
+          # `RUSTC_WRAPPER` sits under rust-cache's default `RUST` env prefix. A
+          # wrapper does not change compiler output, so it does not belong in
+          # the key; the other prefixes stay.
+          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+
+      # Pinned to the same version ci.yml uses. The action has no default
+      # version: without it, the cached binary floats independently of the
+      # action pin.
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: "v0.19.0"
 
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
+
+      # The CLI links OpenSSL through `webauthn-rs-core`, which has no feature to
+      # turn that off. This runs BEFORE the compile for two reasons: the
+      # environment variables below are what `openssl-sys` links against, and
+      # relying on it discovering an install through PATH is how a link becomes
+      # an accident.
+      #
+      # windows-2025 already carries a Win64 OpenSSL — the slproweb build under
+      # `C:\Program Files\OpenSSL`, with headers, MSVC import libraries and DLLs
+      # — so the common case is four environment variables and a copy. The
+      # vcpkg path builds OpenSSL from source and was measured at 411s of the
+      # Windows leg; it stays as the fallback for an image that does not carry
+      # one.
+      - name: Install OpenSSL on Windows
+        if: matrix.os == 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="/c/Program Files/OpenSSL"
+          if [ -f "$ROOT/include/openssl/ssl.h" ] \
+             && [ -f "$ROOT/lib/VC/x64/MD/libssl.lib" ] \
+             && [ -f "$ROOT/bin/libssl-3-x64.dll" ]; then
+            echo "using the runner's OpenSSL at $ROOT"
+            {
+              echo "OPENSSL_DIR=C:/Program Files/OpenSSL"
+              echo "OPENSSL_INCLUDE_DIR=C:/Program Files/OpenSSL/include"
+              # The release build uses the dynamic CRT, so the MD import library
+              # is the right one. `openssl-sys` does not look under `lib/VC/...`
+              # on its own: with OPENSSL_DIR set and OPENSSL_LIB_DIR unset it
+              # searches `$OPENSSL_DIR/lib`, which is the MinGW layout.
+              echo "OPENSSL_LIB_DIR=C:/Program Files/OpenSSL/lib/VC/x64/MD"
+            } >> "$GITHUB_ENV"
+            # The assemble script takes `--extra <file>` and the caller
+            # word-splits ASSEMBLE_EXTRA, so the path must carry no spaces.
+            # `${{ runner.temp }}` is `D:\a\_temp`: forward slashes make it
+            # valid for both the shell and node.
+            DLLS="$(printf '%s' '${{ runner.temp }}' | tr "\\\\" "/")/openssl-dlls"
+            mkdir -p "$DLLS"
+            cp "$ROOT/bin/libcrypto-3-x64.dll" "$ROOT/bin/libssl-3-x64.dll" "$DLLS/"
+            echo "ASSEMBLE_EXTRA=--extra $DLLS/libcrypto-3-x64.dll --extra $DLLS/libssl-3-x64.dll" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "the runner carries no usable OpenSSL; building it with vcpkg"
+          vcpkg install openssl:x64-windows
+          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
+          echo "ASSEMBLE_EXTRA=--extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libcrypto-3-x64.dll --extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libssl-3-x64.dll" >> "$GITHUB_ENV"
 
       - name: Build the CLI
         run: cargo build --release -p marula-core-cli
@@ -310,6 +393,19 @@ jobs:
 
       - name: Build the installer app
         run: cargo build --release --manifest-path installer/Cargo.toml
+
+      - name: sccache stats
+        if: always()
+        # Diagnostic only: a missing or unhappy sccache must not turn a green
+        # release build red after the fact. The action's own post step reports
+        # the same numbers at the end of the job; this puts them next to the
+        # builds they describe.
+        continue-on-error: true
+        shell: bash
+        # `${SCCACHE_PATH}` is what the action exports; a bare `sccache` is not
+        # guaranteed to be on PATH.
+        run: |
+          "${SCCACHE_PATH:-sccache}" --show-stats
 
       # ── signing gate: fail closed on a tag, notice everywhere else ──────
       - name: Signing prerequisites
@@ -469,18 +565,6 @@ jobs:
             exit 1
           fi
           node "$CLI" "${ARGS[@]}"
-
-      # The CLI links OpenSSL through `webauthn-rs-core`, which has no feature to
-      # turn that off, and no Windows runner ships OpenSSL. vcpkg's dynamic
-      # triplet is what `openssl-sys` finds without OPENSSL_DIR, and its DLLs are
-      # what the binary needs beside it at run time.
-      - name: Install OpenSSL on Windows
-        if: matrix.os == 'windows'
-        shell: bash
-        run: |
-          vcpkg install openssl:x64-windows
-          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
-          echo "ASSEMBLE_EXTRA=--extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libcrypto-3-x64.dll --extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libssl-3-x64.dll" >> "$GITHUB_ENV"
 
       - name: Fetch the image digests
         # Present only on a run that published images (a tag, or a manual run
