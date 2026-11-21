@@ -420,10 +420,10 @@ pub async fn create_run(
         // one-off charges (damage, loss) waiting for a line. Two queries, never
         // one per agreement.
         let billable_leases =
-            core_db::loans::list_billable_leases(&mut *ctx.tx, org_id, &contract_ids).await?;
+            core_db::loans::list_billable_leases(&mut ctx.tx, org_id, &contract_ids).await?;
         let lease_ids: Vec<Uuid> = billable_leases.iter().map(|l| l.loan_id).collect();
         let charged_keys =
-            core_db::loans::existing_rental_charge_keys(&mut *ctx.tx, org_id, &lease_ids).await?;
+            core_db::loans::existing_rental_charge_keys(&mut ctx.tx, org_id, &lease_ids).await?;
         let already_charged: std::collections::HashSet<(
             Uuid,
             String,
@@ -434,7 +434,7 @@ pub async fn create_run(
             .map(|(loan, kind, start, end, _)| (*loan, kind.clone(), *start, *end))
             .collect();
         let pending_charges =
-            core_db::loans::list_pending_rental_charges(&mut *ctx.tx, org_id, &contract_ids)
+            core_db::loans::list_pending_rental_charges(&mut ctx.tx, org_id, &contract_ids)
                 .await?;
 
         // Contracts arrive ordered by number: per-client sequential
@@ -840,7 +840,7 @@ pub async fn create_run(
                             .map(|_| base_of(charge.amount_minor))
                             .transpose()?;
                         core_db::loans::insert_rental_charge(
-                            &mut *ctx.tx,
+                            &mut ctx.tx,
                             org_id,
                             user_id,
                             &charge,
@@ -853,7 +853,7 @@ pub async fn create_run(
                     .enumerate()
                     .map(|(i, line)| (line.charge_id, invoice.id, line_rows[rental_base + i].id))
                     .collect();
-                core_db::loans::mark_rental_charges_billed(&mut *ctx.tx, org_id, &billed).await?;
+                core_db::loans::mark_rental_charges_billed(&mut ctx.tx, org_id, &billed).await?;
                 let line_ids: Vec<Uuid> = billed.iter().map(|b| b.2).collect();
                 let charge_ids: Vec<Uuid> = billed.iter().map(|b| b.0).collect();
                 sqlx::query(
