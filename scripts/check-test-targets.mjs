@@ -106,10 +106,27 @@ export function verifyTree(testsDir) {
   return { targets, problems };
 }
 
+/** One shard-1 target for every two on shard 2, repeating. */
+const TWO_SHARD_PATTERN = [1, 2, 2];
+
 /** Round-robin shard selection, identical to the CI split. */
 export function shardOf(targets, shard, shards) {
+  if (shards === 2) {
+    // Shard 1 also runs `cargo test -p core-api --lib`, which compiles core-api
+    // a second time as a test harness and links it. Measured on run 44886559308:
+    // 391s step on shard 1 against 242s on shard 2, while the test execution was
+    // 142.2s and 140.1s — the split of TESTS was already even. The imbalance was
+    // the lib, so the weight pays for it and nothing else moves.
+    //
+    // With 42 targets this gives 14 and 28: 150 + 14×11.6s against 28×11.6s,
+    // because a target costs about 11.6s of link and run.
+    return targets.filter(
+      (_, index) => TWO_SHARD_PATTERN[index % TWO_SHARD_PATTERN.length] === shard,
+    );
+  }
   return targets.filter((_, index) => index % shards === shard - 1);
 }
+
 
 function selfTest() {
   const root = mkdtempSync(join(tmpdir(), "test-targets-"));
@@ -135,6 +152,17 @@ function selfTest() {
   const shards = [shardOf(good.targets, 1, 2), shardOf(good.targets, 2, 2)];
   if (shards.flat().sort().join(",") !== "group,solo_flow") {
     throw new Error(`self-test: sharding lost a target: ${JSON.stringify(shards)}`);
+  }
+  // The weighted split pays for shard 1's extra `--lib` link. Assert the shape,
+  // not just that nothing was lost: a silent revert to even round-robin is the
+  // failure this guards.
+  const synthetic = Array.from({ length: 42 }, (_, i) => `t${i}`);
+  const counts = [
+    shardOf(synthetic, 1, 2).length,
+    shardOf(synthetic, 2, 2).length,
+  ];
+  if (counts[0] !== 14 || counts[1] !== 28) {
+    throw new Error(`self-test: weighted split gave ${counts.join("/")}, expected 14/28`);
   }
 
   writeFileSync(join(tests, "orphan_flow.rs.bak"), "");
