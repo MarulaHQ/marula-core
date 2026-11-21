@@ -10826,7 +10826,7 @@ async fn a_receipt_line_reports_its_device_asset_base_cost() {
     .await
     .expect("receipt line");
 
-    let context = core_db::acquisition_costs::receipt_context(&mut *tx, org, receipt)
+    let context = core_db::acquisition_costs::receipt_context(&mut tx, org, receipt)
         .await
         .expect("a receipt with one line reads back");
     assert_eq!(context.lines.len(), 1);
