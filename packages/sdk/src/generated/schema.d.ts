@@ -16462,7 +16462,10 @@ export interface components {
             /** Format: uuid */
             user_id: string;
         };
-        /** @description POST /purchase-orders/{id}/lines body: the line plus IF1 params. */
+        /**
+         * @description POST /purchase-orders/{id}/lines body: the line plus the instant-first
+         *     mutation parameters (version and idempotency key).
+         */
         AddOrderLineRequest: components["schemas"]["OrderLineInput"] & components["schemas"]["MutationParams"];
         AdjustRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -30050,7 +30053,10 @@ export interface components {
         PoolListQuery: {
             /** @description Only units no open agreement holds. */
             available_only?: boolean | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Page size, at least 1 (absent or out of range is clamped).
+             */
             limit?: number | null;
         };
         /** @description POST /api/stock/pool/commission or /api/stock/pool/decommission. */
@@ -31516,8 +31522,8 @@ export interface components {
             totals?: components["schemas"]["PurchaseOrderRollup"] | null;
         };
         /**
-         * @description The header intent a client reads (plan §5.1): what the purchase is for, who
-         *     it serves, how it is delivered and the recharge rule it carries. The rule is
+         * @description The header intent a client reads: what the purchase is for, who it serves,
+         *     how it is delivered and the recharge rule it carries. The rule is
          *     money (`fixed` carries a price and a currency), so it obeys the same
          *     `ViewFinancials` gate the totals do.
          *
@@ -31579,7 +31585,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /**
-             * @description What this line buys and where it lands (plan §5.1). The destination is
+             * @description What this line buys and where it lands. The destination is
              *     the resolved one — the line's own when it named a class, the header's
              *     otherwise — so a client reads what will happen rather than two words it
              *     has to combine.
@@ -31688,9 +31694,9 @@ export interface components {
             lines: components["schemas"]["ReceiptLineView"][];
         };
         /**
-         * @description One issued recharge (plan §5.3). The resolved rule, the basis it was applied
-         *     to, both currencies and both FX snapshots travel together because an issued
-         *     recharge is never recomputed.
+         * @description One issued recharge. The resolved rule, the basis it was applied to, both
+         *     currencies and both FX snapshots travel together because an issued recharge is
+         *     never recomputed.
          */
         PurchaseRechargeView: {
             /** Format: int64 */
@@ -32851,8 +32857,8 @@ export interface components {
         };
         /**
          * @description One receipt line's consequence, as the routing engine resolved it. The
-         *     destination class and the asset a line created are what makes the chain in
-         *     §4.3 readable from the receipt alone.
+         *     destination class and the asset a line created are what let a reader follow
+         *     the chain from the purchase order to the unit the receipt created.
          */
         ReceiptLineView: components["schemas"]["PurchaseReceiptLine"] & {
             destination_class: components["schemas"]["CustodyClass"];
@@ -32873,7 +32879,8 @@ export interface components {
              *     order line carries none: a layout can gain a required field after the
              *     order is placed, and the placed line is not editable. They are validated
              *     against the layout in force inside the receipt transaction, and every
-             *     unit the line creates carries them.
+             *     unit the line creates carries them. An absent field stays out of the
+             *     idempotency fingerprint; an explicit `{}` is a different request.
              */
             asset_fields?: unknown;
             /** Format: uuid */
@@ -38226,8 +38233,8 @@ export interface components {
             name: string;
         };
         /**
-         * @description PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus IF1
-         *     params.
+         * @description PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus the
+         *     instant-first mutation parameters.
          */
         UpdateOrderLineRequest: components["schemas"]["OrderLinePatch"] & components["schemas"]["MutationParams"];
         /**
@@ -66710,6 +66717,7 @@ export interface operations {
             query?: {
                 /** @description Only units no open agreement holds. */
                 available_only?: boolean | null;
+                /** @description Page size, at least 1 (absent or out of range is clamped). */
                 limit?: number | null;
             };
             header?: never;
