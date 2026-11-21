@@ -21148,6 +21148,13 @@ export interface components {
              */
             client_id?: string | null;
             /**
+             * @description Restrict the run to one currency. A run is single-currency by
+             *     construction; the selector is what lets a receivable stored under another
+             *     currency bill in a run of its own, instead of waiting for a sweep whose
+             *     regular contracts happen to share it.
+             */
+            currency?: string | null;
+            /**
              * Format: int32
              * @description Payment terms for the issued invoices, in days (default 30).
              */
@@ -38817,7 +38824,11 @@ export interface components {
             tag: string;
         };
         VendorRentalListQuery: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Page size. Must be at least 1; absent uses the module limit and larger
+             *     values are capped. A value below 1 is a 422.
+             */
             limit?: number | null;
             /** @description open | returned (absent = both). */
             status?: string | null;
@@ -70657,6 +70668,10 @@ export interface operations {
             query?: {
                 /** @description open | returned (absent = both). */
                 status?: string | null;
+                /**
+                 * @description Page size. Must be at least 1; absent uses the module limit and larger
+                 *     values are capped. A value below 1 is a 422.
+                 */
                 limit?: number | null;
             };
             header?: never;
@@ -70672,6 +70687,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["VendorRentalView"][];
                 };
+            };
+            /** @description validation failure (limit below 1) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
