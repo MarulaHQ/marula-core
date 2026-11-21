@@ -14,7 +14,7 @@ wrong graph.
 - **Trail is optional.** If `trail` is not installed, use grep/read normally
   and read `.trail/learnings/` when that directory exists. You do not need
   trail to build, test, or contribute.
-- **graphify is optional.** Use it only when `graphify-out/graph.json` exists,
-  and only for structural or semantic questions. If that directory is absent,
-  say the graph is not built in this checkout and use trail or file tools.
+- **graphify is optional.** Use it only when `graphify-out/graph.json` exists
+  and the `graphify` command is installed, and only for structural or semantic
+  questions. If either is missing, say which and use trail or file tools.
 - When the user types `/graphify`, use the installed graphify skill first.

@@ -569,31 +569,34 @@ speculatively in parallel for the same question:
   architecture-level asks where the answer is about shape, not locations — "what
   are the major subsystems", "which modules are god nodes / highest fan-in",
   community/cluster views, concept explanations spanning many areas, onboarding
-  orientation. Use it only when `graphify-out/graph.json` exists; if the
-  directory is absent, say the graph is not built here and use trail. When it
-  exists, use `graphify query` / `path` / `explain`,
+  orientation. Use it only when `graphify-out/graph.json` exists and the
+  `graphify` command is installed; if either is missing, say so and use trail.
+  When both are present, use `graphify query` / `path` / `explain`,
   `graphify-out/wiki/index.md`, or GRAPH_REPORT.md for broad review. Also always
   when the user types `/graphify`.
 - **Tie-breaker:** if a question is both (e.g. "explain payment sync"), run one
   cheap `trail ask` first; escalate to graphify only if the answer spans
   multiple subsystems or the trail results don't connect the pieces.
 
-Freshness after code changes: `graphify update .` for any change, `trail build`
-after big changes — both deterministic/AST-only, no API cost.
+Freshness after code changes: run `graphify update .` only when
+`graphify-out/graph.json` exists and the `graphify` command is installed; run
+`trail build` after big changes when trail is installed. Both are
+deterministic/AST-only, no API cost.
 
 ## graphify (optional; only when the graph exists)
 
 `graphify-out/` is machine-generated and gitignored, so it is often absent on a
 fresh checkout or a new worktree. Use graphify only when
-`graphify-out/graph.json` exists.
+`graphify-out/graph.json` exists and the `graphify` command is available. If
+either is missing, say so and use trail or file tools.
 
 When the user types `/graphify`, use the installed graphify skill or
 instructions before anything else.
 
 Rules:
-- If `graphify-out/` is absent, do not run `graphify query` or cite its output.
-  Say the graph is not built in this checkout and use trail (the default for
-  concrete code questions) or file tools.
+- If `graphify-out/` is absent or the `graphify` command is not installed, do
+  not run `graphify query` or cite its output. Say which is missing and use
+  trail (the default for concrete code questions) or file tools.
 - Route codebase questions per the "trail vs graphify (routing rule)" section
   above: graphify handles structural/semantic questions (subsystems, god nodes,
   communities, cross-cutting concepts), NOT the default for concrete code
