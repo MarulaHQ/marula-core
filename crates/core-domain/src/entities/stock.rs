@@ -556,13 +556,14 @@ impl UnitReference {
 
 /// What caused a class change. `manual` is the honest source for an operator
 /// correction and carries no source id; every other kind names the document.
-pub const CLASS_TRANSITION_SOURCES: [&str; 8] = [
+pub const CLASS_TRANSITION_SOURCES: [&str; 9] = [
     "purchase_receipt_line",
     "stock_movement",
     "device_asset",
     "client_loan",
     "tool_checkout",
     "credit_line",
+    "ewaste_intake",
     "ewaste_disposition",
     "manual",
 ];
@@ -581,6 +582,7 @@ pub enum ClassTransitionSource {
     ClientLoan,
     ToolCheckout,
     CreditLine,
+    EwasteIntake,
     EwasteDisposition,
     Manual,
 }
@@ -594,6 +596,7 @@ impl ClassTransitionSource {
             ClassTransitionSource::ClientLoan => "client_loan",
             ClassTransitionSource::ToolCheckout => "tool_checkout",
             ClassTransitionSource::CreditLine => "credit_line",
+            ClassTransitionSource::EwasteIntake => "ewaste_intake",
             ClassTransitionSource::EwasteDisposition => "ewaste_disposition",
             ClassTransitionSource::Manual => "manual",
         }
@@ -607,6 +610,7 @@ impl ClassTransitionSource {
             "client_loan" => Ok(Self::ClientLoan),
             "tool_checkout" => Ok(Self::ToolCheckout),
             "credit_line" => Ok(Self::CreditLine),
+            "ewaste_intake" => Ok(Self::EwasteIntake),
             "ewaste_disposition" => Ok(Self::EwasteDisposition),
             "manual" => Ok(Self::Manual),
             other => Err(DomainError::Validation(format!(
@@ -646,6 +650,11 @@ impl CustodyClassMovement {
         if self.from_class == self.to_class {
             return Err(DomainError::Validation(
                 "a class movement must change the class".into(),
+            ));
+        }
+        if self.from_class.is_terminal() {
+            return Err(DomainError::Validation(
+                "a terminal disposition cannot move again".into(),
             ));
         }
         if self.reason.trim().is_empty() {
@@ -916,6 +925,13 @@ mod tests {
         let mut m = class_movement();
         m.source_id = Some(Uuid::now_v7());
         assert!(m.validate().is_err(), "manual carries no source id");
+
+        let mut m = class_movement();
+        m.from_class = CustodyClass::Destroyed;
+        assert!(
+            m.validate().is_err(),
+            "a terminal disposition cannot move again"
+        );
     }
 
     #[test]

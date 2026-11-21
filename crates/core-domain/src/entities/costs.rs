@@ -392,7 +392,15 @@ impl InventoryPolicy {
             ));
         }
         if let Some(currency) = &self.recharge_currency {
-            CurrencyCode::new(currency)?;
+            let code = CurrencyCode::new(currency)?;
+            // The store keeps the string this struct carries, so a value the
+            // database will reject must not pass here. `CurrencyCode::new`
+            // normalises to uppercase; a lowercase input would persist as-is.
+            if code.as_str() != currency {
+                return Err(DomainError::Validation(
+                    "a recharge currency must be an uppercase ISO 4217 code".into(),
+                ));
+            }
         }
         if self.recharge_rule_kind == RechargeRuleKind::Fixed
             && (self.recharge_fixed_minor.is_none() || self.recharge_currency.is_none())
@@ -549,6 +557,26 @@ mod tests {
         assert!(
             contradictory.validate().is_err(),
             "at_cost cannot carry a markup"
+        );
+    }
+
+    #[test]
+    fn a_policy_currency_must_be_canonical() {
+        let canonical = InventoryPolicy {
+            recharge_rule_kind: RechargeRuleKind::Fixed,
+            recharge_fixed_minor: Some(2_000),
+            recharge_currency: Some("USD".into()),
+            ..InventoryPolicy::default()
+        };
+        canonical.validate().unwrap();
+
+        let lowercase = InventoryPolicy {
+            recharge_currency: Some("usd".into()),
+            ..canonical
+        };
+        assert!(
+            lowercase.validate().is_err(),
+            "the store keeps the string, and the database requires uppercase"
         );
     }
 

@@ -25,12 +25,11 @@
 --
 -- Additive-only: two indexes and two triggers. No column or row is rewritten.
 --
--- The two unique indexes deliberately carry no `map_unique_constraint` arm in
--- the API error map: they guard an internal projection pair, not user input.
--- No route accepts a serial-already-paired value, the same posture as the
--- `uq_tool_checkout_open_unit` and `uq_client_loan_open_unit` indexes that
--- guard single-holder and single-issue invariants. A collision is a writer bug
--- and should surface as a sanitised 409, not a user-facing message.
+-- Both unique indexes carry a `map_unique_constraint` arm in
+-- `crates/core-api/src/error.rs` (`serial_already_paired`,
+-- `asset_already_paired`). No route sets a pair yet, so the arm is
+-- groundwork. The rule is mechanical: every new unique constraint answers a
+-- typed 409 instead of the sanitised generic conflict.
 
 CREATE UNIQUE INDEX uq_stock_serials_device_asset
   ON stock_serials (org_id, device_asset_id)
