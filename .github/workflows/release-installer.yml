@@ -282,12 +282,16 @@ jobs:
       # turns a failed read mid-compile into a local compile with a warning.
       SCCACHE_SKIP_CACHE_CHECK: "1"
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
-      # One prefix per platform and architecture. A release object compiled for
-      # aarch64-apple-darwin must never be reachable from the Windows leg, and
-      # the debug/test profile in ci.yml has its own prefix for the same reason.
-      SCCACHE_S3_KEY_PREFIX: sccache/release-${{ matrix.os }}-${{ matrix.arch }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      # One prefix per platform and architecture, and one namespace per ref type.
+      #
+      # A pull request from a branch in this repository does receive the R2
+      # secret, and sccache trusts whatever it finds under a key: an object one
+      # build writes is compiled into the next without a content check. The
+      # `publish` job signs what a tag build produces, so a pull request writes
+      # `-preview` and can never author an object the tag leg compiles. The
+      # trade is that a tag starts cold the first time, which is what a release
+      # build already was.
+      SCCACHE_S3_KEY_PREFIX: sccache/release-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_type == 'tag' && 'release' || 'preview' }}
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -331,53 +335,13 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
-      # The CLI links OpenSSL through `webauthn-rs-core`, which has no feature to
-      # turn that off. This runs BEFORE the compile for two reasons: the
-      # environment variables below are what `openssl-sys` links against, and
-      # relying on it discovering an install through PATH is how a link becomes
-      # an accident.
-      #
-      # windows-2025 already carries a Win64 OpenSSL — the slproweb build under
-      # `C:\Program Files\OpenSSL`, with headers, MSVC import libraries and DLLs
-      # — so the common case is four environment variables and a copy. The
-      # vcpkg path builds OpenSSL from source and was measured at 411s of the
-      # Windows leg; it stays as the fallback for an image that does not carry
-      # one.
-      - name: Install OpenSSL on Windows
-        if: matrix.os == 'windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="/c/Program Files/OpenSSL"
-          if [ -f "$ROOT/include/openssl/ssl.h" ] \
-             && [ -f "$ROOT/lib/VC/x64/MD/libssl.lib" ] \
-             && [ -f "$ROOT/bin/libssl-3-x64.dll" ]; then
-            echo "using the runner's OpenSSL at $ROOT"
-            {
-              echo "OPENSSL_DIR=C:/Program Files/OpenSSL"
-              echo "OPENSSL_INCLUDE_DIR=C:/Program Files/OpenSSL/include"
-              # The release build uses the dynamic CRT, so the MD import library
-              # is the right one. `openssl-sys` does not look under `lib/VC/...`
-              # on its own: with OPENSSL_DIR set and OPENSSL_LIB_DIR unset it
-              # searches `$OPENSSL_DIR/lib`, which is the MinGW layout.
-              echo "OPENSSL_LIB_DIR=C:/Program Files/OpenSSL/lib/VC/x64/MD"
-            } >> "$GITHUB_ENV"
-            # The assemble script takes `--extra <file>` and the caller
-            # word-splits ASSEMBLE_EXTRA, so the path must carry no spaces.
-            # `${{ runner.temp }}` is `D:\a\_temp`: forward slashes make it
-            # valid for both the shell and node.
-            DLLS="$(printf '%s' '${{ runner.temp }}' | tr "\\\\" "/")/openssl-dlls"
-            mkdir -p "$DLLS"
-            cp "$ROOT/bin/libcrypto-3-x64.dll" "$ROOT/bin/libssl-3-x64.dll" "$DLLS/"
-            echo "ASSEMBLE_EXTRA=--extra $DLLS/libcrypto-3-x64.dll --extra $DLLS/libssl-3-x64.dll" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          echo "the runner carries no usable OpenSSL; building it with vcpkg"
-          vcpkg install openssl:x64-windows
-          echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
-          echo "ASSEMBLE_EXTRA=--extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libcrypto-3-x64.dll --extra $VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/libssl-3-x64.dll" >> "$GITHUB_ENV"
-
+      # The bucket credential is scoped to the steps that compile, not to the
+      # job: this job also imports the platform's signing certificate and runs
+      # `tauri bundle`, and neither needs a cache credential in its environment.
       - name: Build the CLI
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: cargo build --release -p marula-core-cli
 
       - name: Build the installer front-end
@@ -397,6 +361,9 @@ jobs:
             libayatana-appindicator3-dev patchelf
 
       - name: Build the installer app
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: cargo build --release --manifest-path installer/Cargo.toml
 
       - name: sccache stats
@@ -407,6 +374,9 @@ jobs:
         # builds they describe.
         continue-on-error: true
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         # `${SCCACHE_PATH}` is what the action exports; a bare `sccache` is not
         # guaranteed to be on PATH.
         run: |
@@ -592,21 +562,18 @@ jobs:
             images_args=(--images "$digests")
             echo "the archive's manifest will name the published image digests"
           fi
-          # shellcheck disable=SC2086 # ASSEMBLE_EXTRA is a flag list by design: the
-          # Windows leg needs one --extra per OpenSSL DLL, so it must word-split.
           node scripts/release/assemble.mjs \
             --version "$VERSION" \
             --os "${{ matrix.os }}" \
             --arch "${{ matrix.arch }}" \
             --commit "$GITHUB_SHA" \
             --out dist/release \
-            ${ASSEMBLE_EXTRA:-} \
             ${images_args[@]+"${images_args[@]}"}
 
-      # A green link is not a working binary: on Windows the OpenSSL DLLs have to
-      # be found at run time, and a bundle that only compiled is a bundle that
-      # fails on the user's machine. Running --version here is the cheapest test
-      # that can tell the difference.
+      # A green link is not a working binary. OpenSSL is statically linked on
+      # Windows, so there is no DLL to find — but a bundle that only compiled is
+      # still a bundle that fails on the user's machine, and `--version` is the
+      # cheapest test that can tell the difference.
       - name: The binary starts
         shell: bash
         run: |
