@@ -18,12 +18,15 @@
 # from the workflow's own artifacts, because a test that installs a different
 # artifact than the product ships proves nothing.
 #
-# Two jobs, because a release has two front doors. `install` pulls the published
-# digests and installs the way a connected host does. `offline` installs the
-# air-gapped archive, whose images travel inside it, and asserts that the install
-# already has every image it needs — the readable half of "installs with the
-# network off", since a runner cannot be disconnected without killing the job.
+# Three jobs, because a release has three front doors. `install` pulls the
+# published digests and installs the way a connected host does. `offline` installs
+# the air-gapped archive, whose images travel inside it, and asserts that the
+# install already has every image it needs — the readable half of "installs with
+# the network off", since a runner cannot be disconnected without killing the job.
 # That job's own comment says exactly what it asserts and what it leaves alone.
+# `one-line` starts where a reader starts: the URL in the README, run as printed.
+# The other two unpack an archive first, so neither would notice a redirect that
+# serves the wrong script or a URL that stopped existing.
 
 name: Install E2E
 
@@ -313,6 +316,80 @@ jobs:
           scripts/install-e2e.sh --offline \
             "dist/marula-${VERSION}-offline-linux-x64" \
             "${RUNNER_TEMP}/marula-offline"
+
+      - name: What was running, when it fails
+        if: failure()
+        shell: bash
+        run: |
+          docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' || true
+          for name in $(docker ps -aq); do
+            echo "::group::$(docker inspect -f '{{.Name}}' "$name")"
+            docker logs --tail 60 "$name" 2>&1 || true
+            echo "::endgroup::"
+          done
+
+  # The front door. Everything above starts from an unpacked archive; a reader
+  # starts from a URL. This leg runs the published one-liner exactly as the page
+  # shows it, then asks the stack it installed whether it works.
+  #
+  # Which URL is deliberate: on a release it is `/install/latest/linux`, because
+  # the thing that just shipped is what `latest` must resolve to. On a dispatch it
+  # is the versioned URL, so re-checking an older release does not test whatever
+  # happens to be newest. Both are the same redirect chain and the same script.
+  one-line:
+    name: One-line install v${{ github.event.inputs.version || github.event.release.tag_name }} on Linux
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the version
+        id: version
+        env:
+          RAW_VERSION: ${{ github.event.inputs.version || github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RAW_VERSION#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$version' is not a release version"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Make room for the stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
+      - name: Log in to Docker Hardened Images
+        if: ${{ env.DHI_USER != '' }}
+        env:
+          DHI_USER: ${{ secrets.DOCKER_USERNAME }}
+        uses: docker/login-action@v4
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PAT_TOKEN }}
+
+      - name: Run the advertised one-liner
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          EVENT: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "release" ]; then
+            url='https://getmarula.com/install/latest/linux'
+          else
+            url="https://getmarula.com/install/v${VERSION}/linux"
+          fi
+          scripts/one-line-e2e.sh "$url" "${RUNNER_TEMP}/marula-one-line" "$VERSION"
 
       - name: What was running, when it fails
         if: failure()
