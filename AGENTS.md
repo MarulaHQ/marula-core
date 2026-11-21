@@ -1,29 +1,65 @@
-## Repo lookups must go through trail first (BINDING, top-of-file)
+## Repo lookups: trail first when it is installed (BINDING, top-of-file)
 
-Before ANY Grep/Glob/Read search of this codebase: run trail first — the code
-map is the graft map, and `trail` is the current command (`graft` still works
-and runs the same code):
-`trail ask "<q>" --source` / `trail grep "<literal>"` / `trail callers <sym>` /
-`trail skeleton <file>` (CLI, always available) or the `trail_*` MCP tools.
-If trail MCP tools appear deferred (names listed, schemas withheld), load ALL
-of them in ONE ToolSearch lookup (`select:mcp__trail__trail_find_code,mcp__trail__trail_find_all,mcp__trail__trail_trace_calls,mcp__trail__trail_file_api,mcp__trail__trail_repo_map`)
-before your first lookup — grep-first is WRONG by default: a trail hit carries
-exact file:line spans for ~3% of the tokens reading or grepping the same code
-costs. Use plain grep only AFTER a trail attempt missed the file (unindexed
-paths: fixtures/, .sqlx/, dist/, evidence dirs). Full routing detail lives in
-"trail vs graphify" below. Record trail token savings in the lane landing
-record ("🌱 trail saved ~N tokens").
+Trail is optional for contributors. The repository ships trail wiring (a
+`.trail/` scaffold and an optional MCP example), but you do not need trail to
+build, test, or open a pull request. Use it when it is installed; otherwise use
+the file tools normally.
 
-**Worktree lanes: build your own graph at lane start (2026-09-18).** Every
-worktree lane runs `trail build` ONCE at lane start in its worktree (deterministic
-AST-only, free) so its indexes reflect the lane's branch, then re-runs it after
-big changes — instead of sharing the main repo's graph via symlink (the old
-setup-script symlink is retired; stale shared spans caused wrong file:line hits
-after merges). The map is GITIGNORED wherever it lands — `.trail/cache/` through
-`.trail/.gitignore`, or the top-level `graft/` directory through `.gitignore` in a
-checkout with no committed `.trail/` wiring yet — never commit, symlink, or
-force-add it; if a lane ever sees either in `git status`, fail the check and
-re-ignore rather than committing the graph.
+When `trail` is on PATH and this checkout has `.trail/` or `graft/`:
+
+- Prefer the trail MCP tools when your client exposes them: `trail_find_code`,
+  `trail_find_all`, `trail_trace_calls`, `trail_file_api`, `trail_repo_map`,
+  `trail_check_freshness`.
+- Otherwise use the CLI:
+  `trail ask "<q>" --source` / `trail grep "<literal>"` / `trail callers <sym>` /
+  `trail skeleton <file>` / `trail map`.
+- Grep-first is the wrong default here: one trail hit carries exact file:line
+  spans for ~3% of the tokens reading or grepping the same code costs. Use plain
+  grep only AFTER a trail attempt missed the file (unindexed paths: `fixtures/`,
+  `.sqlx/`, `dist/`, evidence dirs). Full routing detail lives in "trail vs
+  graphify" below. Record trail token savings in the lane landing record when
+  the tool prints them ("🌱 trail saved ~N tokens").
+- If `trail status` reports the map is not built, or a worktree copy is stale,
+  run `trail build` in this checkout. Never commit, symlink, or force-add the
+  map.
+
+If `trail` is not installed, skip the trail step and use grep/read. The
+plain-markdown notes in `.trail/learnings/` are worth reading when that
+directory exists, but they are machine-local and gitignored, so a fresh clone
+will not have them. Installing trail is optional:
+`npm install -g @trailhq/trail-code && trail init --no-agents`.
+
+Harness note: clients prefix MCP tool names with the server (`mcp__trail__…` in
+Claude Code; the `trail` namespace in OpenCode). Use the names your client
+exposes, otherwise the CLI. If a client defers MCP tools (names listed, schemas
+withheld), load the six together in one lookup, never one at a time. OpenCode
+users can copy `opencode.json.example` for the optional trail MCP entry; omit
+it if trail is not installed.
+
+**Worktree lanes: build your own graph at lane start (2026-09-18), when trail
+is installed.** Every worktree lane runs `trail build` ONCE at lane start in its
+worktree (deterministic AST-only, free) so its indexes reflect the lane's
+branch, then re-runs it after big changes — instead of sharing the main repo's
+graph via symlink (the old setup-script symlink is retired; stale shared spans
+caused wrong file:line hits after merges). Some trail versions copy the graph
+from another checkout when the local one is missing; a copy is not this
+branch's map. If `trail status` does not report the map as in sync for this
+directory, build it here. The map is GITIGNORED wherever it lands —
+`.trail/cache/` through `.trail/.gitignore`, or the top-level `graft/` directory
+through `.gitignore` in a checkout with no committed `.trail/` wiring yet —
+never commit, symlink, or force-add it; if a lane ever sees either in
+`git status`, fail the check and re-ignore rather than committing the graph.
+
+## Optional tooling — nothing here is required to contribute
+
+Several sections name tools the maintainers use: trail, graphify, lazyweb,
+inspo, the vendored design and backend skills, SlopMonster and the review
+gauntlet. None of them is required to build, test, or open a pull request; the
+gauntlet section names `pre-review`, or the same pass done by hand, as the
+binding minimum when the gauntlet cannot be installed. Each section says what to
+do when its tool is absent. If a rule and a missing integration conflict, follow
+the committed project conventions (`CONTRIBUTING.md`, `docs/theme.md`,
+`.coderabbit.yaml`) and say in the pull request which tool you could not run.
 
 ## Repository boundary — this repo is the public product (BINDING, added 2026-10-21)
 
@@ -44,7 +80,8 @@ Three rules, from user directive:
 
 - **Work in a worktree on the local machine.** That is the default for lane
   work; the user may direct otherwise. Create it at lane start
-  (`worktree_create` under OpenCode) and work there. The primary checkout stays
+  (`git worktree add`, or your agent harness's worktree tool) and work there.
+  The primary checkout stays
   on `main` and is not a lane's workspace — it is what you read for orientation
   and what you merge into.
 - **Do not create branches unless instructed.** A lane worktree carries its own
@@ -102,8 +139,11 @@ the eight Wave 49 rows that sat live for a day after every one of them had merge
 `/skills` on ui-skills.com: ui-skills-root, improve-ui, web-design-guidelines,
 better-ui, interface-design, fixing-accessibility, rams. They are installed into the
 agent workspace rather than committed to this repository, so resolve one by name
-(`skill: ui-skills-root`) and let it point at its own files.
-When doing UI work (building pages, components, polish, audits), consult these:
+(`skill: ui-skills-root`) when your environment has it and let it point at its own
+files. If they are not installed, `docs/theme.md` and the token rules below still
+govern the work.
+When doing UI work (building pages, components, polish, audits), consult these
+when present:
 - Routing: start from the ui-skills-root skill.
 - Audits/reviews: improve-ui (audit → self-contained plan for another agent),
   web-design-guidelines, fixing-accessibility.
@@ -118,12 +158,23 @@ Skill output that violates the token set or motion law is rejected, not applied.
 Enforcement stays mechanical: CI hex-scan, typecheck/tests, the p11-ui-quality
 lane's screenshot review.
 
-## Design research — lazyweb + inspo MCPs (binding for every UI/frontend lane)
+## Design research — lazyweb + inspo MCPs (binding for UI/frontend lanes when available)
 
 Every UI/frontend lane (any lane touching pages, views, flows, or UI polish)
-MUST run design research through BOTH MCPs BEFORE writing UI, so surfaces are
-designed for ultimate UX and looks, not invented from scratch (user directive
-2026-09-25 — inspo joins lazyweb as a mandatory leg, not a substitute):
+should run design research through both MCPs BEFORE writing UI, so surfaces are
+designed for ultimate UX and looks, not invented from scratch. This environment
+treats both as mandatory (user directive 2026-09-25 — inspo joins lazyweb, not a
+substitute).
+
+If one of these MCPs is not installed in your environment, say so in the pull
+request (or lane record), use the other leg and the project's own references
+(`docs/theme.md`, the mockup pack when you have it), and cite the real product
+screens you compared. If both are unavailable, say that both were unavailable,
+research by hand from the project's references and any real product screens you
+can reach, and name what you compared. The rule is to research before inventing;
+an unavailable integration is not a reason to block the work.
+
+Use both legs:
 
 - **lazyweb MCP:** `/lazyweb-search-screens` for the surface's UI pattern (real
   product references ranked by visual search), `/lazyweb-search-flows` for
@@ -138,7 +189,9 @@ designed for ultimate UX and looks, not invented from scratch (user directive
   Workbench mockup):**
   the mockup pack `marula-app-mockup-images` is the canonical look-and-feel
   reference. It is maintained privately and is **not part of this repository** —
-  ask the maintainer for the current pack. Inside it, `source/marula-app-mockups.html`
+  ask the maintainer for the current pack. If you do not have access, use
+  `docs/theme.md` and the design references you do have, and say the pack was
+  unavailable. Inside it, `source/marula-app-mockups.html`
   is the interactive mockup and `DESIGN-NOTES.md` carries the rules behind each
   state; `desktop/neutral/states/` and `mobile/light/states/` hold the per-state
   PNGs, `manifest.json` indexes all 70. It sets the bar for layout, hierarchy,
@@ -177,12 +230,14 @@ token set or motion law is rejected, not applied.
 
 ## Backend skills (vendored)
 
-The installed skill set also carries stack skills: rust-best-practices (Apollo handbook),
-postgres-best-practices (Supabase; includes RLS performance + connection pooling
-references), stripe-best-practices (for the future PaymentProvider adapter),
-insecure-defaults (Trail of Bits; audit command + pattern catalogs for the
-Phase-4 security pass). Backend lanes: load rust-best-practices for all Rust
-work, postgres-best-practices when writing migrations/queries/RLS policies.
+When your environment carries them, the installed skill set also has stack
+skills: rust-best-practices (Apollo handbook), postgres-best-practices (Supabase;
+includes RLS performance + connection pooling references), stripe-best-practices
+(for the future PaymentProvider adapter), insecure-defaults (Trail of Bits; audit
+command + pattern catalogs for the Phase-4 security pass). Backend lanes: load
+rust-best-practices for all Rust work, postgres-best-practices when writing
+migrations/queries/RLS policies. Without the skills, `CONTRIBUTING.md` and the
+codebase conventions still apply.
 Builds share one target dir per machine (`.kilo/target-shared`, disk guardrails DX6)
 when the checkout ran `scripts/p13-build-env.sh enable --share-target`; the key cannot
 live in the tracked `.cargo/config.toml`, because cargo ranks that file above its own
@@ -201,6 +256,11 @@ ships with: `python3 <slopmonster skill>/tools/deslop.py <file>`.
 Ship only at **5/5 CLEAN** (use `--allow-proof` only when a number is real and
 evidenced). If the score is below 5, clean it following the skill's loop
 (kill vocabulary → kill constructions → put a person back in) and re-lint.
+
+If the SlopMonster skill is not installed, apply the same loop by hand: cut
+filler vocabulary and stock constructions, prefer concrete nouns and verbs, and
+keep only claims a person could defend. The scorer is a gate where it exists,
+not a prerequisite for an outside contribution.
 
 **Out of scope (ruled 2026-10-16, user directive).** This file. It is a dense technical
 register whose sections are tables, `file:line` citations and code spans; the scorer is
@@ -302,14 +362,15 @@ once and waits for the user before running heavy verification (user directive
   they have said otherwise.
 - **Worktree cleanup after landing (corrected 2026-10-18, user directive).** The
   old "no worktree removal by tooling" rule was written for **Kilo Code**, whose
-  worktree handling is fragile, and it still applies there: leave anything under
-  `~/.local/share/kilo/worktree-pool/` alone. **OpenCode lanes clear their own
-  worktree once the lane has fully landed** — the pull request merged on the
-  remote, landing record written, tracker row moved. Confirm with
-  `git worktree list` that the branch's content is on `origin/main` and the
-  tree clean, then remove it. Never remove a worktree whose work is not on the
-  remote, whose tree is dirty, or that hosts a stack registered in
-  `scripts/dev-status.sh`: a worktree holds the only copy until the PR merges.
+  worktree handling is fragile, and it still applies there: leave Kilo Code's
+  worktree pool alone (it lives under the agent's own data directory). Agent
+  worktrees are cleared by the agent that owns them once the lane has fully
+  landed — the pull request merged on the remote, landing record written,
+  tracker row moved. Confirm with `git worktree list` that the branch's content
+  is on `origin/main` and the tree clean, then remove it. Never remove a
+  worktree whose work is not on the remote, whose tree is dirty, or that hosts a
+  stack registered in `scripts/dev-status.sh`: a worktree holds the only copy
+  until the PR merges.
 
 ### Cheap gates: the arithmetic, and the three commands
 
@@ -357,9 +418,12 @@ it first, on four axes:
 - **Security** — trust boundaries, authz and RLS scoping on every new query,
   input validation, secrets in code, logs or fixtures, and the risk a new
   dependency brings. Load `skill: insecure-defaults` for the pattern catalog and
-  `skill: security-audit` (Cloudflare's, installed user-level) for the review
-  itself. The skill's guidance mode is what one commit needs; its full six-phase
-  audit is a lane of its own, asked for by name, never step one of a commit.
+  `skill: security-audit` for the review itself when your environment has them.
+  Without them, apply the same questions by hand: who controls the input, what
+  the query is scoped to, what leaks into logs, and what the new dependency
+  brings. The audit skill's guidance mode is what one commit needs; its full
+  six-phase audit is a lane of its own, asked for by name, never step one of a
+  commit.
 - **Speed** — query plans and N+1s, work added to a hot path, payload and bundle
   growth, round trips that one call could replace.
 - **Functionality** — the change does what the row asked, the error, empty and
@@ -418,14 +482,16 @@ oracle. That loop runs `skill: pre-review` as its first pass, so it replaces the
 pre-review step rather than adding to it: one loop, not two. Install both skills
 from `github.com/MarulaHQ/marula-review-gauntlet-skill` with its `deploy.sh`,
 which links them into every agent skills directory. A contributor who cannot
-install them runs `skill: pre-review` alone: that is the binding minimum, and the
-lane records under "Not verified" that the gauntlet did not run.
+install them runs `skill: pre-review` alone, or does the same pass by hand: that
+is the binding minimum, and the lane records under "Not verified" that the
+gauntlet did not run.
 
 - **Load the contract first.** The gauntlet reads `reviews.path_instructions`
   in `.coderabbit.yaml` for the paths the diff touches, and `CONTRIBUTING.md`
   for the ground rules. Every matching bullet is satisfied or deliberately
   overridden before the diff leaves the machine.
-- **Run the mechanical half.** `tools/gauntlet.sh <base>` in the skill extends
+- **Run the mechanical half when the skill is installed.**
+  `tools/gauntlet.sh <base>` in the skill extends
   the pre-review sweep with the checks this repository's findings needed: dead
   doc links and backticked paths, environment variables documented but not
   read, `actionlint`, `shellcheck`, `helm lint` and `helm template`, and PR
@@ -462,6 +528,12 @@ are the cost, which is why the skill scopes each pass to its files and re-review
 only the fix diff from cycle two. The gauntlet does not replace the four-axis
 commit review above, nor the gate run a lane still needs approval to start.
 
+If the `pre-review` skill is not installed, do the same pass by hand: read
+`reviews.path_instructions` in `.coderabbit.yaml` for the paths the diff
+touches, read `CONTRIBUTING.md`, and walk the added lines against both. The
+skill and sweeper automate the pass; they are not a prerequisite for an outside
+contribution.
+
 ## Parallel lanes: merge groups (BINDING, default for parallel work)
 
 Parallel lanes are planned in **merge groups**, not as independent lanes that
@@ -493,58 +565,89 @@ the merged tree, not each lane, is what gets verified (user directive
 - P16-style final acts and any lane the plan marks solo keep the old
   per-lane gate rule.
 
-The mechanics, the group gate matrix, and a worked example live in the private
-half, in the parallel-lanes reference. It is not shipped in this repository, and
-a public link to it would dangle.
+The rules above are complete for contributors; nothing here depends on a
+separate document. Maintainers keep the full merge-group mechanics and a worked
+example privately, but a pull request can be opened with only what this section
+says.
 
 ## Lane to-do lists (all agent worktrees)
 
-Every worktree lane decomposes its assigned scope into a to-do list using
-Kilo's NATIVE to-do list tool (`todowrite`) at lane start — one item per
-concrete deliverable — and updates it in real time: `in_progress` while
-working, `completed` the moment an item is done, blockers called out inline.
-Do NOT track lane work in markdown files (LANE-TASKLIST.md or similar) — the
-native to-do list is the single source of truth and is visible in the Agent
-Manager UI. An out-of-date to-do list reads as a stalled lane.
+Every worktree lane decomposes its assigned scope into a to-do list at lane
+start — one item per concrete deliverable — and updates it in real time: in
+progress while working, done the moment an item completes, blockers called out
+inline. Use your harness's native task or todo tool when it has one (Kilo:
+`todowrite`). If the harness exposes no native list, keep the plan in the
+session and report progress in messages. Do NOT create a markdown task file
+(LANE-TASKLIST.md or similar) as a substitute. An out-of-date list reads as a
+stalled lane.
 
 ## Codebase lookups: trail vs graphify (routing rule)
 
 Two graph tools coexist in this repo. Route by question shape — never run both
 speculatively in parallel for the same question:
 
-- **trail (default for all concrete work):** any question whose answer lives at
+- **trail (default for all concrete work when installed):** any question whose
+  answer lives at
   specific code locations — "where is X handled", "how does this function work",
   "who calls this", scoping an edit, skimming an API surface, exhaustive
   occurrence sweeps. Start with `trail ask "<q>" --source`; `trail grep` when
   you need every occurrence; `trail callers` / `trail skeleton` for structure.
   Answers carry exact file:line spans — cite them and edit straight from them.
-- **graphify (structural / semantic questions):** architecture-level asks where
-  the answer is about shape, not locations — "what are the major subsystems",
-  "which modules are god nodes / highest fan-in", community/cluster views,
-  concept explanations spanning many areas, onboarding orientation. Use
-  `graphify query` / `path` / `explain`, `graphify-out/wiki/index.md` (when it
-  exists), or GRAPH_REPORT.md for broad review. Also always when the user types
-  `/graphify`.
+- **graphify (structural / semantic questions, only when the graph exists):**
+  architecture-level asks where the answer is about shape, not locations — "what
+  are the major subsystems", "which modules are god nodes / highest fan-in",
+  community/cluster views, concept explanations spanning many areas, onboarding
+  orientation. Use it only when `graphify-out/graph.json` exists and the
+  `graphify` command is installed; if either is missing, say which is missing
+  and use trail when installed. If trail is unavailable too, say so and use
+  file tools.
+  When both are present, use `graphify query` / `path` / `explain`,
+  `graphify-out/wiki/index.md`, or GRAPH_REPORT.md for broad review. Also always
+  when the user types `/graphify`.
 - **Tie-breaker:** if a question is both (e.g. "explain payment sync"), run one
-  cheap `trail ask` first; escalate to graphify only if the answer spans
-  multiple subsystems or the trail results don't connect the pieces.
+  cheap `trail ask` first when trail is installed; escalate to graphify only if
+  the answer spans multiple subsystems or the trail results don't connect the
+  pieces. If trail is unavailable, say so and use graphify when available, or
+  file tools when it is not; report any missing graphify prerequisites.
 
-Freshness after code changes: `graphify update .` for any change, `trail build`
-after big changes — both deterministic/AST-only, no API cost.
+Freshness after code changes: run `graphify update .` only when
+`graphify-out/graph.json` exists and the `graphify` command is installed; run
+`trail build` after big changes when trail is installed. Both are
+deterministic/AST-only, no API cost.
 
-## graphify
+## graphify (optional; only when the graph exists)
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+`graphify-out/` is machine-generated and gitignored, so it is often absent on a
+fresh checkout or a new worktree. Use graphify only when
+`graphify-out/graph.json` exists and the `graphify` command is available. If
+either is missing, say so and use trail when installed. If trail is also
+unavailable, say so and use file tools.
 
-When the user types `/graphify`, use the installed graphify skill or instructions before anything else.
+When the user types `/graphify`, use the installed graphify skill or
+instructions before anything else.
 
 Rules:
-- Route codebase questions per the "trail vs graphify (routing rule)" section above: graphify handles structural/semantic questions (subsystems, god nodes, communities, cross-cutting concepts), NOT the default for concrete code lookups — those go to trail.
-- Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- If `graphify-out/` is absent or the `graphify` command is not installed, do
+  not run `graphify query` or cite its output. Say which is missing and use
+  trail when installed (the default for concrete code questions); otherwise,
+  say trail is unavailable and use file tools.
+- Route codebase questions per the "trail vs graphify (routing rule)" section
+  above: graphify handles structural/semantic questions (subsystems, god nodes,
+  communities, cross-cutting concepts), NOT the default for concrete code
+  lookups — those go to trail.
+- Use `graphify path "<A>" "<B>"` for relationships and `graphify explain
+  "<concept>"` for focused concepts. These return a scoped subgraph, usually
+  much smaller than GRAPH_REPORT.md or raw grep output.
+- Dirty graphify-out/ files are expected after hooks or incremental updates;
+  dirty graph files are not a reason to skip graphify. Only skip graphify if the
+  task is about stale or incorrect graph output, or the user explicitly says not
+  to use it.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of
+  raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when
+  query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` only if the graph already
+  exists; keep an existing graph current rather than creating one unasked.
 
 <!-- trail:start -->
 ## Trail — repo context graph
@@ -552,12 +655,13 @@ Rules:
 This repo is indexed in `.trail/cache/`: small linked markdown nodes that explain each
 system and carry exact file:line spans, kept in sync with the code through git.
 
-For ANY task here — understanding how something works, finding where code lives,
-or scoping a change — get context from the graph before grepping or opening
-source files. Re-ask freely (it's cheap) and reuse literal identifiers you
-already have (symbol, error string, file name) as the query. New to this repo?
-Run `trail map` first — a token-budgeted orientation (dir clusters, hubs,
-hotspots), no LLM, no key.
+With trail installed, for any task here — understanding how something works,
+finding where code lives, or scoping a change — get context from the graph
+before grepping or opening source files. Re-ask freely (it's cheap) and reuse
+literal identifiers you already have (symbol, error string, file name) as the
+query. New to this repo? Run `trail map` first — a token-budgeted orientation
+(dir clusters, hubs, hotspots), no LLM, no key. Without trail, use grep and file
+reads normally and read `.trail/learnings/` when that directory exists.
 
 - Run `trail ask "<your question>" --source` → ranked nodes with the relevant
   code spans inlined (each hit's ≤8-line crux by default; `--full` for whole
@@ -584,6 +688,6 @@ range before finalizing. Only open source files when a node genuinely lacks a
 needed detail, and then at the exact file:line the node points to — never
 re-read whole files.
 
-After big code changes, refresh the graph with `trail build` (deterministic,
-no API key, $0).
+After big code changes, refresh the graph with `trail build` when trail is
+installed (deterministic, no API key, $0).
 <!-- trail:end -->
