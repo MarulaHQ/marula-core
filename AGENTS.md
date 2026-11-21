@@ -415,10 +415,11 @@ down. The lane runs `skill: review-gauntlet` on its own diff before it opens a
 pull request, and again before a push that changes code on an open PR. The
 gauntlet runs `skill: pre-review` as its first pass, so it replaces the
 pre-review step rather than adding to it: one loop, not two. The skill is
-installed at `~/.agents/skills/review-gauntlet` and is not part of this
-repository. A contributor who cannot install it runs `skill: pre-review` alone:
-that is the binding minimum, and the lane records under "Not verified" that the
-gauntlet did not run.
+not part of this repository. Install it from
+`github.com/MarulaHQ/marula-review-gauntlet-skill` with its `deploy.sh`, which
+links it into every agent skills directory. A contributor who cannot install it
+runs `skill: pre-review` alone: that is the binding minimum, and the lane records
+under "Not verified" that the gauntlet did not run.
 
 - **Load the contract first.** The gauntlet reads `reviews.path_instructions`
   in `.coderabbit.yaml` for the paths the diff touches, and `CONTRIBUTING.md`
