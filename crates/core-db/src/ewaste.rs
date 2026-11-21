@@ -1098,7 +1098,9 @@ pub async fn weight_balance(
              coalesce(sum(weight_g), 0)::bigint AS "total_out_g!",
              coalesce(json_agg(json_build_object('pathway', pathway, 'weight_g', weight_g)
                                ORDER BY pathway) FILTER (WHERE pathway IS NOT NULL),
-                      '[]'::json) AS "by_pathway!""#,
+                      '[]'::json) AS "by_pathway!"
+           FROM ewaste_dispositions
+          WHERE org_id = $1 AND intake_id = $2"#,
         org_id,
         intake_id
     )
