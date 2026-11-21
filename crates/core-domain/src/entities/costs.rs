@@ -365,24 +365,85 @@ impl Default for RechargeRule {
 /// The organisation's inventory money policy, read from the `orgs` columns
 /// migration 0234 adds. The defaults are the migration defaults, so an org that
 /// never configured anything reads the same thing the database holds.
+///
+/// The stored fields are the raw columns, not a resolved rule: switching the
+/// kind does not clear the other kind's value, and the resolved rule is what a
+/// purchase produces. That is why the percentage is always present and the
+/// fixed amount and currency are optional.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct InventoryPolicy {
     pub landed_cost_mode: LandedCostMode,
-    pub recharge_rule: RechargeRule,
+    pub recharge_rule_kind: RechargeRuleKind,
+    /// Basis points; 0 means at cost. Stored even while another kind is active.
+    pub recharge_markup_bps: i32,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<i64>))]
+    pub recharge_fixed_minor: Option<i64>,
+    pub recharge_currency: Option<String>,
 }
 
 impl InventoryPolicy {
     pub fn validate(&self) -> Result<(), DomainError> {
-        self.recharge_rule.validate()
+        if !(0..=100_000).contains(&self.recharge_markup_bps) {
+            return Err(DomainError::Validation(
+                "recharge markup must be between 0 and 100000 basis points".into(),
+            ));
+        }
+        if self.recharge_fixed_minor.is_some_and(|amount| amount < 0) {
+            return Err(DomainError::Validation(
+                "a fixed recharge amount must not be negative".into(),
+            ));
+        }
+        if let Some(currency) = &self.recharge_currency {
+            CurrencyCode::new(currency)?;
+        }
+        if self.recharge_rule_kind == RechargeRuleKind::Fixed
+            && (self.recharge_fixed_minor.is_none() || self.recharge_currency.is_none())
+        {
+            return Err(DomainError::Validation(
+                "a fixed recharge default needs its amount and currency".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The rule a client purchase resolves to when no ticket or client
+    /// agreement overrides it. The other kind's stored value is dropped here,
+    /// so the resolved rule carries exactly one amount.
+    pub fn resolved_recharge_rule(&self) -> Result<RechargeRule, DomainError> {
+        self.validate()?;
+        match self.recharge_rule_kind {
+            RechargeRuleKind::MarkupBps => Ok(RechargeRule {
+                kind: RechargeRuleKind::MarkupBps,
+                markup_bps: Some(self.recharge_markup_bps),
+                fixed_minor: None,
+                currency: None,
+            }),
+            RechargeRuleKind::Fixed => Ok(RechargeRule {
+                kind: RechargeRuleKind::Fixed,
+                markup_bps: None,
+                fixed_minor: self.recharge_fixed_minor,
+                currency: self.recharge_currency.clone(),
+            }),
+            kind @ (RechargeRuleKind::AtCost | RechargeRuleKind::None) => Ok(RechargeRule {
+                kind,
+                markup_bps: None,
+                fixed_minor: None,
+                currency: None,
+            }),
+        }
     }
 }
 
 impl Default for InventoryPolicy {
+    /// The migration defaults: invoice values and a percentage at zero.
     fn default() -> Self {
         Self {
             landed_cost_mode: LandedCostMode::default(),
-            recharge_rule: RechargeRule::default(),
+            recharge_rule_kind: RechargeRuleKind::default(),
+            recharge_markup_bps: 0,
+            recharge_fixed_minor: None,
+            recharge_currency: None,
         }
     }
 }
@@ -499,6 +560,36 @@ mod tests {
         let policy = InventoryPolicy::default();
         policy.validate().unwrap();
         assert_eq!(policy.landed_cost_mode, LandedCostMode::InvoiceValues);
-        assert_eq!(policy.recharge_rule.markup_bps, Some(0));
+        assert_eq!(policy.recharge_markup_bps, 0);
+
+        let resolved = policy.resolved_recharge_rule().unwrap();
+        assert_eq!(resolved.kind, RechargeRuleKind::MarkupBps);
+        assert_eq!(resolved.markup_bps, Some(0));
+        assert_eq!(resolved.fixed_minor, None);
+    }
+
+    #[test]
+    fn a_fixed_policy_default_resolves_to_one_amount_only() {
+        let policy = InventoryPolicy {
+            recharge_rule_kind: RechargeRuleKind::Fixed,
+            recharge_markup_bps: 1_500,
+            recharge_fixed_minor: Some(2_000),
+            recharge_currency: Some("USD".into()),
+            ..InventoryPolicy::default()
+        };
+        policy.validate().unwrap();
+        let resolved = policy.resolved_recharge_rule().unwrap();
+        assert_eq!(resolved.kind, RechargeRuleKind::Fixed);
+        assert_eq!(resolved.fixed_minor, Some(2_000));
+        assert_eq!(
+            resolved.markup_bps, None,
+            "the stored percentage is not part of a resolved fixed rule"
+        );
+
+        let incomplete = InventoryPolicy {
+            recharge_currency: None,
+            ..policy
+        };
+        assert!(incomplete.validate().is_err());
     }
 }
