@@ -475,6 +475,12 @@ pub enum BillingLineKind {
     /// ledger row's id rides the description in `[id]` brackets, the run
     /// flips the ledger row `billed` with the consuming invoice.
     ProjectRelease,
+    /// A rental period billed under a lease agreement (ADR 0035 §4). The
+    /// line's source is a `rental_charges` row, which cites the agreement;
+    /// period identity is the charge's, not the line's — one contract can
+    /// lease several units over the same period, so the line kind is not a
+    /// period-dedupe kind.
+    Rental,
 }
 
 impl BillingLineKind {
@@ -495,6 +501,7 @@ impl BillingLineKind {
             BillingLineKind::SlaCredit => "sla_credit",
             BillingLineKind::Escalator => "escalator",
             BillingLineKind::ProjectRelease => "project_release",
+            BillingLineKind::Rental => "rental",
         }
     }
 
@@ -533,6 +540,7 @@ impl FromStr for BillingLineKind {
             "sla_credit" => Ok(Self::SlaCredit),
             "escalator" => Ok(Self::Escalator),
             "project_release" => Ok(Self::ProjectRelease),
+            "rental" => Ok(Self::Rental),
             other => Err(DomainError::Validation(format!(
                 "invalid billing line kind: {other}"
             ))),

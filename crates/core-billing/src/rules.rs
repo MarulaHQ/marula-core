@@ -22,9 +22,9 @@
 
 use chrono::NaiveDate;
 use core_domain::entities::{
-    BillingCandidateLine, BillingEvaluation, BillingLineKind, BlockConsumption, BlockDraw,
-    CapReachedBehavior, Contract, ContractBlock, ContractCap, ContractFixedFee, ContractRate,
-    ContractType,
+    BillingCandidateLine, BillingEvaluation, BillingFrequency, BillingLineKind, BlockConsumption,
+    BlockDraw, CapReachedBehavior, Contract, ContractBlock, ContractCap, ContractFixedFee,
+    ContractRate, ContractType,
 };
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -558,6 +558,129 @@ pub fn prorate(minutes: i64, hourly_rate_minor: i64) -> Option<i64> {
     let raw = (minutes as i128) * (hourly_rate_minor as i128);
     let rounded = (raw + 30) / 60;
     i64::try_from(rounded).ok()
+}
+
+// --- rental rules (ADR 0035 §4) ----------------------------------------------
+
+/// The billing frequency a lease cycle bills on. The lease vocabulary
+/// (`monthly | quarterly | annual`) is a subset of the contract frequencies,
+/// so a lease needs no translation table and no second period arithmetic: it
+/// rides [`crate::periods`] exactly like a recurring contract.
+pub fn rental_frequency(cycle: &str) -> Option<BillingFrequency> {
+    match cycle.trim() {
+        "monthly" => Some(BillingFrequency::Monthly),
+        "quarterly" => Some(BillingFrequency::Quarterly),
+        "annual" => Some(BillingFrequency::Annual),
+        _ => None,
+    }
+}
+
+/// Day proration with the same half-up rounding [`prorate`] applies to
+/// minutes: `(amount × days + period_days / 2) / period_days`. Negative or
+/// empty spans return `None`, so a caller skips the line instead of pricing a
+/// zero-day rental. Overflow returns `None` for the same reason.
+pub fn prorate_days(amount_minor: i64, days: i64, period_days: i64) -> Option<i64> {
+    if amount_minor < 0 || days <= 0 || period_days <= 0 {
+        return None;
+    }
+    let days = days.min(period_days) as i128;
+    let period = period_days as i128;
+    let raw = (amount_minor as i128) * days;
+    let rounded = (raw + period / 2) / period;
+    i64::try_from(rounded).ok()
+}
+
+/// One lease, as the engine needs it. The agreement is a `client_loans` row
+/// (`is_lease`); `active_from` and `active_until` are the days the unit is
+/// actually out, so a period that only half-overlaps the agreement is billed
+/// for half of itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LeaseTerms {
+    pub agreement_id: Uuid,
+    /// Human label for the line: the agreement reference where the lease
+    /// carries one, otherwise the client and the out date.
+    pub label: String,
+    /// `monthly | quarterly | annual` — the lease's own cycle vocabulary.
+    pub cycle: String,
+    /// The full cycle price the period charges are prorated from.
+    pub cycle_amount_minor: i64,
+    /// First day the unit is out (inclusive).
+    pub active_from: NaiveDate,
+    /// Last day the unit is out (inclusive).
+    pub active_until: NaiveDate,
+}
+
+/// One billable rental period: the charge the run writes and the line it
+/// becomes. The period is half-open on the date line like every other period
+/// in this engine; the days counted are the agreement's active days inside it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RentalChargePeriod {
+    pub period_start: NaiveDate,
+    pub period_end: NaiveDate,
+    pub days_billed: i64,
+    pub period_days: i64,
+    pub unit_amount_minor: i64,
+    pub amount_minor: i64,
+    pub description: String,
+}
+
+/// Every period of a lease whose START falls inside `[from, to]`, prorated to
+/// the days the agreement was actually active. Start-gated exactly like
+/// [`crate::periods::periods_starting_in`], so adjacent runs never bill the
+/// same period twice; the run's `rental_charges` unique index is the
+/// concurrency backstop.
+///
+/// A period that begins after the agreement ended produces nothing, and one
+/// the agreement only partly covers is prorated by the overlap. The agreement
+/// id rides the description in `[id]` brackets, the run's convention for
+/// pairing a line with the record that produced it.
+pub fn rental_charge_periods(
+    terms: &LeaseTerms,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<Vec<RentalChargePeriod>, BillingError> {
+    if from > to {
+        return Err(BillingError::InvalidWindow { from, to });
+    }
+    let Some(frequency) = rental_frequency(&terms.cycle) else {
+        return Ok(Vec::new());
+    };
+    if terms.active_until < terms.active_from {
+        return Ok(Vec::new());
+    }
+    // Exclusive end of the active span: the last out day is billable.
+    let active_end = terms.active_until + chrono::Duration::days(1);
+    let mut out = Vec::new();
+    for (start, end) in crate::periods::periods_starting_in(
+        terms.active_from,
+        frequency,
+        from.max(terms.active_from),
+        to,
+    ) {
+        if start >= active_end {
+            break;
+        }
+        let span_start = start.max(terms.active_from);
+        let span_end = end.min(active_end);
+        let days = (span_end - span_start).num_days();
+        let period_days = (end - start).num_days();
+        let Some(amount) = prorate_days(terms.cycle_amount_minor, days, period_days) else {
+            continue;
+        };
+        out.push(RentalChargePeriod {
+            period_start: start,
+            period_end: end,
+            days_billed: days,
+            period_days,
+            unit_amount_minor: terms.cycle_amount_minor,
+            amount_minor: amount,
+            description: format!(
+                "Rental — {} {} to {} ({} of {} days) [{}]",
+                terms.label, start, end, days, period_days, terms.agreement_id
+            ),
+        });
+    }
+    Ok(out)
 }
 
 // --- Wave 39 rules ------------------------------------------------------------
@@ -2891,5 +3014,112 @@ mod tests {
             e.total_minor, 185_000,
             "2000.00 base less the 150.00 credit"
         );
+    }
+
+    // --- rentals (ADR 0035 §4) ----------------------------------------------
+
+    fn lease(active_from: NaiveDate, active_until: NaiveDate) -> LeaseTerms {
+        LeaseTerms {
+            agreement_id: Uuid::nil(),
+            label: "AGR-2026-014".into(),
+            cycle: "monthly".into(),
+            cycle_amount_minor: 49_000,
+            active_from,
+            active_until,
+        }
+    }
+
+    #[test]
+    fn rental_cycles_map_onto_contract_frequencies() {
+        assert_eq!(rental_frequency("monthly"), Some(BillingFrequency::Monthly));
+        assert_eq!(
+            rental_frequency("quarterly"),
+            Some(BillingFrequency::Quarterly)
+        );
+        assert_eq!(rental_frequency("annual"), Some(BillingFrequency::Annual));
+        assert_eq!(rental_frequency("weekly"), None);
+    }
+
+    #[test]
+    fn day_proration_rounds_half_up_and_refuses_impossible_spans() {
+        // 1500.00 over 30 days: 10 days is exactly 500.00.
+        assert_eq!(prorate_days(150_000, 10, 30), Some(50_000));
+        // 333.33 over 3 days: 1 day rounds half-up (111.11 → 111).
+        assert_eq!(prorate_days(33_333, 1, 3), Some(11_111));
+        // 2 of 3 days rounds .666 up.
+        assert_eq!(prorate_days(100, 2, 3), Some(67));
+        assert_eq!(prorate_days(100, 0, 30), None);
+        assert_eq!(prorate_days(100, 10, 0), None);
+        // More days than the period is clamped, never overbilled.
+        assert_eq!(prorate_days(100, 40, 30), Some(100));
+    }
+
+    #[test]
+    fn a_full_period_bills_the_cycle_price_once() {
+        let days = rental_charge_periods(
+            &lease(d(2026, 1, 15), d(2026, 12, 31)),
+            d(2026, 1, 1),
+            d(2026, 1, 31),
+        )
+        .unwrap();
+        assert_eq!(days.len(), 1, "one period starts inside January");
+        assert_eq!(days[0].period_start, d(2026, 1, 15));
+        assert_eq!(days[0].period_end, d(2026, 2, 15));
+        assert_eq!(days[0].period_days, 31);
+        assert_eq!(days[0].days_billed, 31);
+        assert_eq!(days[0].amount_minor, 49_000, "the full cycle price");
+        assert!(
+            days[0].description.contains(&Uuid::nil().to_string()),
+            "the line names its agreement: {}",
+            days[0].description
+        );
+    }
+
+    #[test]
+    fn a_period_the_lease_only_partly_covers_is_prorated() {
+        // Out on Jan 15, returned Jan 31: the first period is half a month and
+        // is billed for the 17 days the unit was out.
+        let days = rental_charge_periods(
+            &lease(d(2026, 1, 15), d(2026, 1, 31)),
+            d(2026, 1, 1),
+            d(2026, 1, 31),
+        )
+        .unwrap();
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].days_billed, 17);
+        assert_eq!(days[0].period_days, 31);
+        assert_eq!(days[0].amount_minor, prorate_days(49_000, 17, 31).unwrap());
+        assert!(days[0].amount_minor < 49_000);
+    }
+
+    #[test]
+    fn periods_are_start_gated_so_two_windows_never_double_bill() {
+        let terms = lease(d(2026, 1, 15), d(2026, 12, 31));
+        let january = rental_charge_periods(&terms, d(2026, 1, 1), d(2026, 1, 31)).unwrap();
+        let february = rental_charge_periods(&terms, d(2026, 2, 1), d(2026, 2, 28)).unwrap();
+        assert_eq!(january.len(), 1);
+        assert_eq!(february.len(), 1);
+        assert_ne!(january[0].period_start, february[0].period_start);
+        // A window with no period start bills nothing at all.
+        assert!(rental_charge_periods(&terms, d(2026, 2, 1), d(2026, 2, 14))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_lease_that_ended_before_the_window_bills_nothing() {
+        let terms = lease(d(2026, 1, 15), d(2026, 2, 10));
+        assert!(rental_charge_periods(&terms, d(2026, 3, 1), d(2026, 3, 31))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn an_unknown_cycle_never_invents_a_schedule() {
+        let mut terms = lease(d(2026, 1, 15), d(2026, 12, 31));
+        terms.cycle = "weekly".into();
+        assert!(rental_charge_periods(&terms, d(2026, 1, 1), d(2026, 1, 31))
+            .unwrap()
+            .is_empty());
     }
 }
