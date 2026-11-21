@@ -103,12 +103,12 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
 /// stays readable by anyone holding the module permission. Loading the client
 /// first is what separates "gone" from "restricted": both are 404 through the
 /// shared helper, and catching that 404 would turn a restriction into access.
-async fn require_intake_client_visible(
+async fn require_intake_client(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     client_id: Uuid,
     principal: &core_domain::entities::Principal,
-) -> ApiResult<()> {
+) -> ApiResult<Option<core_domain::entities::Client>> {
     match core_db::clients::get_client(&mut *conn, org_id, client_id).await {
         Ok(client) => {
             if !client.restricted_to.is_empty()
@@ -117,11 +117,57 @@ async fn require_intake_client_visible(
             {
                 return Err(ApiError::NotFound);
             }
-            Ok(())
+            Ok(Some(client))
         }
-        Err(core_db::DbError::NotFound) => Ok(()),
+        Err(core_db::DbError::NotFound) => Ok(None),
         Err(error) => Err(error.into()),
     }
+}
+
+async fn require_intake_client_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    client_id: Uuid,
+    principal: &core_domain::entities::Principal,
+) -> ApiResult<()> {
+    require_intake_client(conn, org_id, client_id, principal)
+        .await
+        .map(|_| ())
+}
+
+/// Whether this intake's events may ride the org-wide stream.
+///
+/// The stream frame carries the entity and its id but no client, so the live
+/// and replay paths cannot apply the restricted-client rule. Only a live client
+/// with an empty restriction is safe for every subscriber; a restricted client
+/// and a retained intake (client gone) are withheld until scoped delivery
+/// exists. The outbox row is what the stream reads, so withholding means not
+/// emitting it; the mutation trail in `entity_writes` and the custody ledger
+/// still record the act.
+fn can_stream(client: &Option<core_domain::entities::Client>) -> bool {
+    client
+        .as_ref()
+        .is_some_and(|client| client.restricted_to.is_empty())
+}
+
+/// Emits a domain event only when its intake may be streamed.
+async fn emit_if_streamable(
+    ctx: &mut org_tx::OrgTx<'_>,
+    streamable: bool,
+    event_type: &str,
+    intake_id: Uuid,
+    payload: &Value,
+) -> ApiResult<()> {
+    if streamable {
+        ctx.emit(
+            event_type,
+            ENTITY,
+            Some(intake_id.to_string().as_str()),
+            payload,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// A stored replay is still a read of a client's data. Visibility can have
@@ -724,13 +770,14 @@ pub async fn create(
             require_replay_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
-        super::clients::require_client_visible(
+        let client = super::clients::require_client_visible(
             &mut ctx.tx,
             org_id,
             input.client_id,
             &authed.principal,
         )
         .await?;
+        let streamable = client.restricted_to.is_empty();
         require_site_and_ticket_match_client(
             &mut ctx.tx,
             org_id,
@@ -755,10 +802,11 @@ pub async fn create(
         )
         .await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
-        ctx.emit(
+        emit_if_streamable(
+            &mut ctx,
+            streamable,
             "ewaste.intake_recorded",
-            ENTITY,
-            Some(id.to_string().as_str()),
+            id,
             &serde_json::json!({
                 "intake_id": id,
                 "client_id": input.client_id,
@@ -828,8 +876,9 @@ pub async fn add_line(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
-            .await?;
+        let client =
+            require_intake_client(&mut ctx.tx, org_id, intake.client_id, &authed.principal).await?;
+        let streamable = can_stream(&client);
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -842,10 +891,11 @@ pub async fn add_line(
         let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
         ewaste::add_line(&mut ctx.tx, org_id, user_id, id, &line).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
-        ctx.emit(
+        emit_if_streamable(
+            &mut ctx,
+            streamable,
             "ewaste.line_added",
-            ENTITY,
-            Some(id.to_string().as_str()),
+            id,
             &serde_json::json!({
                 "intake_id": id,
                 "line_kind": line.line_kind,
@@ -973,8 +1023,9 @@ pub async fn record_event(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
-            .await?;
+        let client =
+            require_intake_client(&mut ctx.tx, org_id, intake.client_id, &authed.principal).await?;
+        let streamable = can_stream(&client);
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -987,10 +1038,11 @@ pub async fn record_event(
         let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
         ewaste::record_event(&mut ctx.tx, org_id, id, &input).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
-        ctx.emit(
+        emit_if_streamable(
+            &mut ctx,
+            streamable,
             "ewaste.event_recorded",
-            ENTITY,
-            Some(id.to_string().as_str()),
+            id,
             &serde_json::json!({
                 "intake_id": id,
                 "event_kind": input.event_kind,
@@ -1065,8 +1117,9 @@ pub async fn set_destruction(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
-            .await?;
+        let client =
+            require_intake_client(&mut ctx.tx, org_id, intake.client_id, &authed.principal).await?;
+        let streamable = can_stream(&client);
         if let Some(document_id) = req.document_id {
             attached_document_exists(&mut ctx.tx, org_id, document_id).await?;
         }
@@ -1091,10 +1144,11 @@ pub async fn set_destruction(
         )
         .await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
-        ctx.emit(
+        emit_if_streamable(
+            &mut ctx,
+            streamable,
             "ewaste.destruction_recorded",
-            ENTITY,
-            Some(id.to_string().as_str()),
+            id,
             &serde_json::json!({
                 "intake_id": id,
                 "line_id": line_id,
@@ -1173,8 +1227,9 @@ pub async fn record_disposition(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
-            .await?;
+        let client =
+            require_intake_client(&mut ctx.tx, org_id, intake.client_id, &authed.principal).await?;
+        let streamable = can_stream(&client);
         if let Some(document_id) = input.document_id {
             attached_document_exists(&mut ctx.tx, org_id, document_id).await?;
         }
@@ -1191,10 +1246,11 @@ pub async fn record_disposition(
         let disposition =
             ewaste::record_disposition(&mut ctx.tx, org_id, user_id, id, &input).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
-        ctx.emit(
+        emit_if_streamable(
+            &mut ctx,
+            streamable,
             "ewaste.disposition_recorded",
-            ENTITY,
-            Some(id.to_string().as_str()),
+            id,
             &serde_json::json!({
                 "intake_id": id,
                 "disposition_id": disposition.id,
@@ -1271,8 +1327,9 @@ pub async fn close_intake(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
-            .await?;
+        let client =
+            require_intake_client(&mut ctx.tx, org_id, intake.client_id, &authed.principal).await?;
+        let streamable = can_stream(&client);
         // The version is checked before the close writes, and the same lock
         // serializes a concurrent child write, so the detail below describes
         // the state this close produced.
@@ -1288,10 +1345,11 @@ pub async fn close_intake(
         let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
         ewaste::close_intake(&mut ctx.tx, org_id, user_id, id).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
-        ctx.emit(
+        emit_if_streamable(
+            &mut ctx,
+            streamable,
             "ewaste.intake_closed",
-            ENTITY,
-            Some(id.to_string().as_str()),
+            id,
             &serde_json::json!({
                 "intake_id": id,
                 "total_in_g": detail.balance.total_in_g,

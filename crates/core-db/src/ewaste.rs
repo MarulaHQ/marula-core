@@ -38,6 +38,7 @@ use crate::tickets::ClientVisibility;
 use crate::{DbError, DbResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgConnection, Row};
+use std::collections::BTreeSet;
 use uuid::Uuid;
 
 /// The entity family the intake's write sequence lives under. Routes claim and
@@ -537,11 +538,94 @@ pub async fn create_intake(
     .await
     .map_err(guard_error)?;
 
+    lock_units(conn, org_id, &input.lines).await?;
     for line in &input.lines {
         insert_line(conn, org_id, user_id, intake_id, line).await?;
     }
 
     get_intake(conn, org_id, intake_id).await
+}
+
+/// Lock every unit a receipt names, in one canonical order, before any line is
+/// inserted. Two receipts that list the same units in opposite order then queue
+/// on the same first lock instead of deadlocking. The per-line guard still
+/// re-reads each pair under its own locks and refuses a pair that changed, so
+/// resolving the pair here is an ordering aid, not the authority.
+async fn lock_units(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    lines: &[NewIntakeLine],
+) -> DbResult<()> {
+    let mut serials: BTreeSet<Uuid> = BTreeSet::new();
+    let mut assets: BTreeSet<Uuid> = BTreeSet::new();
+    for line in lines {
+        if let Some(serial_id) = line.serial_id {
+            serials.insert(serial_id);
+        }
+        if let Some(asset_id) = line.device_asset_id {
+            assets.insert(asset_id);
+        }
+    }
+    if serials.is_empty() && assets.is_empty() {
+        return Ok(());
+    }
+
+    // Resolve both projections, so a serial line and an asset-only line for the
+    // same unit join the same lock set.
+    let serial_ids: Vec<Uuid> = serials.iter().copied().collect();
+    let pairs = sqlx::query!(
+        "SELECT device_asset_id FROM stock_serials WHERE org_id = $1 AND id = ANY($2)",
+        org_id,
+        &serial_ids
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(guard_error)?;
+    for pair in pairs {
+        if let Some(asset_id) = pair.device_asset_id {
+            assets.insert(asset_id);
+        }
+    }
+
+    let asset_ids: Vec<Uuid> = assets.iter().copied().collect();
+    let pairs = sqlx::query!(
+        "SELECT serial_id FROM device_assets WHERE org_id = $1 AND id = ANY($2)",
+        org_id,
+        &asset_ids
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(guard_error)?;
+    for pair in pairs {
+        if let Some(serial_id) = pair.serial_id {
+            serials.insert(serial_id);
+        }
+    }
+
+    // Assets first (0232's order), then serials, each class in id order.
+    let asset_ids: Vec<Uuid> = assets.into_iter().collect();
+    if !asset_ids.is_empty() {
+        sqlx::query!(
+            "SELECT id FROM device_assets WHERE org_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+            org_id,
+            &asset_ids
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(guard_error)?;
+    }
+    let serial_ids: Vec<Uuid> = serials.into_iter().collect();
+    if !serial_ids.is_empty() {
+        sqlx::query!(
+            "SELECT id FROM stock_serials WHERE org_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+            org_id,
+            &serial_ids
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(guard_error)?;
+    }
+    Ok(())
 }
 
 async fn insert_line(
