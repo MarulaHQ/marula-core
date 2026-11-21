@@ -1,0 +1,131 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,\n                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,\n                  cancel_reason, created_by, created_at, updated_at\n           FROM purchase_orders po\n           WHERE po.org_id = $1\n             AND ($2::text IS NULL OR po.status = $2)\n             AND ($3::uuid IS NULL OR po.vendor_id = $3)\n             AND ($4::uuid IS NULL OR po.project_id = $4)\n             AND ($5::text IS NULL\n                  OR lower(po.number) LIKE $5\n                  OR lower(coalesce(po.vendor_reference, '')) LIKE $5)\n             AND ($7::boolean OR po.client_id IS NULL OR NOT EXISTS (\n                   SELECT 1 FROM clients c\n                    WHERE c.org_id = po.org_id\n                      AND c.id = po.client_id\n                      AND c.restricted_to <> '[]'::jsonb\n                      AND NOT (c.restricted_to ? $6)))\n           ORDER BY po.created_at DESC\n           LIMIT $8",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "vendor_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "vendor_reference",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "project_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "ordered_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "expected_at",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 11,
+        "name": "closed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "close_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "cancelled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "cancel_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "970c16f900162751c00066e98fe3508e6e9143e4104d6373beff3901193fa915"
+}

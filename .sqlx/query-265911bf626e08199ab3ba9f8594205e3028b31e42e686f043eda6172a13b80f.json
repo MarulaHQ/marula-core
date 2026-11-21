@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO purchase_recharges\n             (id, org_id, purchase_order_id, po_line_id, receipt_line_id, client_id,\n              ticket_id, project_id, rule_kind, rule_source, rule_markup_bps,\n              rule_fixed_minor, rule_currency, basis_amount_minor, basis_currency,\n              cost_fx_rate_used, cost_fx_rate_date, cost_fx_source, cost_base_amount_minor,\n              charge_amount_minor, charge_currency, charge_fx_rate_used, charge_fx_rate_date,\n              charge_fx_source, charge_base_amount_minor, cost_line_id, issued_at, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,\n                   $16::text::numeric, $17, $18, $19, $20, $21, $22::text::numeric, $23,\n                   $24, $25, $26, $27, $28)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int4",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Date",
+        "Text",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Date",
+        "Text",
+        "Int8",
+        "Uuid",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "265911bf626e08199ab3ba9f8594205e3028b31e42e686f043eda6172a13b80f"
+}

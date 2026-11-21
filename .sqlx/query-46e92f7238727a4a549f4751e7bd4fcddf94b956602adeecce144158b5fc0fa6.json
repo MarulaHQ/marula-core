@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rule_kind, markup_bps, fixed_minor, currency\n               FROM purchase_recharge_rule_overrides\n               WHERE org_id = $1 AND scope_kind = $2 AND scope_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rule_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "markup_bps",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "fixed_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "currency",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "46e92f7238727a4a549f4751e7bd4fcddf94b956602adeecce144158b5fc0fa6"
+}
