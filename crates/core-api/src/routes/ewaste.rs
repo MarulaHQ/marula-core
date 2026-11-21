@@ -362,6 +362,15 @@ pub struct ListDispositionsQuery {
     pub to: Option<NaiveDate>,
     #[serde(default)]
     pub limit: Option<i64>,
+    /// Keyset cursor: the three fields of the last row on the previous page.
+    /// Pass all three or none.
+    #[serde(default)]
+    pub cursor_disposed_at: Option<NaiveDate>,
+    #[serde(default)]
+    #[schema(value_type = Option<String>)]
+    pub cursor_created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub cursor_id: Option<Uuid>,
 }
 
 // ---- validation ------------------------------------------------------------
@@ -472,24 +481,26 @@ async fn require_site_and_ticket_match_client(
     ticket_id: Option<Uuid>,
 ) -> ApiResult<()> {
     if let Some(site_id) = site_id {
-        let owner: Option<Uuid> =
-            sqlx::query_scalar("SELECT client_id FROM sites WHERE id = $1 AND org_id = $2")
-                .bind(site_id)
-                .bind(org_id)
-                .fetch_optional(&mut *conn)
-                .await?;
+        let owner = sqlx::query_scalar!(
+            "SELECT client_id FROM sites WHERE id = $1 AND org_id = $2",
+            site_id,
+            org_id
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
         if owner != Some(client_id) {
             return Err(ApiError::NotFound);
         }
     }
     if let Some(ticket_id) = ticket_id {
-        let owner: Option<Uuid> =
-            sqlx::query_scalar("SELECT client_id FROM tickets WHERE id = $1 AND org_id = $2")
-                .bind(ticket_id)
-                .bind(org_id)
-                .fetch_optional(&mut *conn)
-                .await?;
-        if owner != Some(client_id) {
+        let owner = sqlx::query_scalar!(
+            "SELECT client_id FROM tickets WHERE id = $1 AND org_id = $2",
+            ticket_id,
+            org_id
+        )
+        .fetch_optional(&mut *conn)
+        .await?;
+        if owner != Some(Some(client_id)) {
             return Err(ApiError::NotFound);
         }
     }
@@ -578,8 +589,7 @@ pub async fn list(
         .await
         .map_err(ApiError::from)?;
     if let Some(client_id) = q.client_id {
-        super::clients::require_client_visible(&mut tx, org_id, client_id, &authed.principal)
-            .await?;
+        require_intake_client_visible(&mut tx, org_id, client_id, &authed.principal).await?;
     }
     let rows = ewaste::list_intakes(&mut tx, org_id, &filter).await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -641,7 +651,14 @@ pub async fn create(
     if let Some(notes) = req.notes.as_deref() {
         require_max_len(notes, 4000, "notes")?;
     }
-    for flag in &req.hazard_flags {
+    // Validate and store the same trimmed values: the table's CHECK accepts
+    // only the canonical spelling, and `is_valid_hazard_flag` trims.
+    let hazard_flags: Vec<String> = req
+        .hazard_flags
+        .iter()
+        .map(|flag| flag.trim().to_string())
+        .collect();
+    for flag in &hazard_flags {
         if !ewaste::is_valid_hazard_flag(flag) {
             return Err(ApiError::Validation(format!(
                 "unknown hazard flag '{flag}'; allowed: {}",
@@ -667,7 +684,7 @@ pub async fn create(
         signature_document_id: req.signature_document_id,
         document_reference: clean_text(req.document_reference.as_deref()),
         data_destruction_required: req.data_destruction_required,
-        hazard_flags: req.hazard_flags.clone(),
+        hazard_flags,
         notes: clean_text(req.notes.as_deref()),
         lines,
     };
@@ -1288,6 +1305,24 @@ pub async fn list_dispositions(
             return Err(ApiError::Validation("from is after to".into()));
         }
     }
+    let cursor_parts = [
+        q.cursor_disposed_at.is_some(),
+        q.cursor_created_at.is_some(),
+        q.cursor_id.is_some(),
+    ];
+    let cursor = if cursor_parts.iter().any(|present| *present) {
+        match (q.cursor_disposed_at, q.cursor_created_at, q.cursor_id) {
+            (Some(disposed_at), Some(created_at), Some(id)) => Some((disposed_at, created_at, id)),
+            _ => {
+                return Err(ApiError::Validation(
+                    "a cursor needs cursor_disposed_at, cursor_created_at and cursor_id together"
+                        .into(),
+                ))
+            }
+        }
+    } else {
+        None
+    };
     let org_id = authed.principal.user.org_id;
     let filter = DispositionFilter {
         client_id: q.client_id,
@@ -1295,6 +1330,7 @@ pub async fn list_dispositions(
         from: q.from,
         to: q.to,
         limit: q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
+        cursor,
         visibility: Some(visibility_of(&authed.principal)),
     };
     // One transaction for the scope check and the read (see `list`).
@@ -1303,8 +1339,7 @@ pub async fn list_dispositions(
         .await
         .map_err(ApiError::from)?;
     if let Some(client_id) = q.client_id {
-        super::clients::require_client_visible(&mut tx, org_id, client_id, &authed.principal)
-            .await?;
+        require_intake_client_visible(&mut tx, org_id, client_id, &authed.principal).await?;
     }
     let rows = ewaste::list_dispositions_for_org(&mut tx, org_id, &filter).await?;
     tx.commit().await.map_err(ApiError::from)?;

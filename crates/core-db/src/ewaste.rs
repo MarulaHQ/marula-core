@@ -361,6 +361,9 @@ pub struct DispositionFilter {
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
     pub limit: i64,
+    /// Keyset cursor over the register's order: the last row's
+    /// `(disposed_at, created_at, id)`. `None` starts at the newest.
+    pub cursor: Option<(NaiveDate, DateTime<Utc>, Uuid)>,
     /// Whose client restrictions apply. `None` is an internal caller with no
     /// visibility gate; every route passes the caller's.
     pub visibility: Option<ClientVisibility>,
@@ -922,6 +925,10 @@ pub async fn list_dispositions_for_org(
     filter: &DispositionFilter,
 ) -> DbResult<Vec<EwasteDisposition>> {
     let (admin, user_id) = visibility_binds(filter.visibility);
+    let (cursor_disposed_at, cursor_created_at, cursor_id) = match filter.cursor {
+        Some((disposed_at, created_at, id)) => (Some(disposed_at), Some(created_at), Some(id)),
+        None => (None, None, None),
+    };
     let rows = sqlx::query(&format!(
         r#"SELECT d.id, d.intake_id, d.line_id, d.pathway, d.partner_name,
                   d.disposed_at, d.weight_g, d.certificate_reference, d.document_id,
@@ -933,6 +940,8 @@ pub async fn list_dispositions_for_org(
               AND ($3::text IS NULL OR d.pathway = $3)
               AND ($4::date IS NULL OR d.disposed_at >= $4)
               AND ($5::date IS NULL OR d.disposed_at <= $5)
+              AND ($9::date IS NULL
+                   OR (d.disposed_at, d.created_at, d.id) < ($9, $10, $11))
               {visibility}
             ORDER BY d.disposed_at DESC, d.created_at DESC, d.id DESC
             LIMIT $6"#,
@@ -946,6 +955,9 @@ pub async fn list_dispositions_for_org(
     .bind(filter.limit)
     .bind(admin)
     .bind(user_id.to_string())
+    .bind(cursor_disposed_at)
+    .bind(cursor_created_at)
+    .bind(cursor_id)
     .fetch_all(&mut *conn)
     .await
     .map_err(guard_error)?;
