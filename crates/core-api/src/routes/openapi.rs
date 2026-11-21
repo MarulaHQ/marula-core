@@ -3035,8 +3035,11 @@ fn strip_build_history(value: &mut serde_json::Value) {
         Value::Object(map) => {
             for (key, child) in map.iter_mut() {
                 if matches!(key.as_str(), "description" | "summary") {
-                    if let Value::String(text) = child {
-                        *text = scrub_build_history(text);
+                    match child {
+                        Value::String(text) => *text = scrub_build_history(text),
+                        // A schema property may itself be named `description`
+                        // and hold an object; its nested text is scrubbed too.
+                        other => strip_build_history(other),
                     }
                 } else {
                     strip_build_history(child);
@@ -3146,6 +3149,14 @@ fn scrub_build_history(text: &str) -> String {
             } else {
                 run(&mut end, |ch| matches!(ch, '.' | '-' | '`' | '/'));
             }
+            // A period that ends the sentence belongs to the sentence, not to
+            // the marker, even though a version like `V1.2` keeps its dots.
+            if text[..end].ends_with('.') {
+                let next = text[end..].chars().next();
+                if next.is_none() || next.is_some_and(char::is_whitespace) {
+                    end -= 1;
+                }
+            }
             let mut start = start;
             // "the private build tracker R3" leaves no article behind.
             if let Some(prefix) = text[..start].strip_suffix("the ") {
@@ -3157,34 +3168,40 @@ fn scrub_build_history(text: &str) -> String {
                     start = prefix.len();
                 }
             }
-            let after = text[end..].starts_with(char::is_whitespace);
-            let replacement = if after { " " } else { "" };
-            text.replace_range(start..end, replacement);
+            // Clean up only what the removal touched: the rest of the text is
+            // Markdown, where two spaces and four-space indents are meaningful.
+            let after_first = text[end..].chars().next();
+            let after_ws = after_first.is_none_or(char::is_whitespace);
+            let before_ws = start == 0 || text[..start].ends_with(char::is_whitespace);
+            let after_punctuation = matches!(after_first, Some('.' | ',' | ';' | ':' | ')'));
+            if after_ws && before_ws {
+                // A space already separates the words on both sides, so the
+                // marker takes one of them with it instead of leaving two.
+                let mut end = end;
+                if let Some(ch) = text[end..].chars().next() {
+                    end += ch.len_utf8();
+                }
+                text.replace_range(start..end, "");
+            } else if after_ws {
+                text.replace_range(start..end, " ");
+            } else if after_punctuation && before_ws {
+                // A mid-sentence marker left its space in front of the
+                // punctuation that ends the clause: "path (x)." -> "path.".
+                let mut cut = start;
+                while cut > 0 && text[..cut].ends_with(' ') {
+                    cut -= 1;
+                }
+                text.replace_range(cut..end, "");
+            } else {
+                text.replace_range(start..end, "");
+            }
             removed = true;
         }
     }
-    // Tidy the seams a removal can leave.
-    while text.contains("  ") {
-        text = text.replace("  ", " ");
-    }
-    for (from, to) in [
-        ("\n.", "."),
-        ("\n,", ","),
-        ("\n;", ";"),
-        ("\n:", ":"),
-        (" .", "."),
-        (" ,", ","),
-        (" ;", ";"),
-        (" :", ":"),
-        ("( ", "("),
-        (" )", ")"),
-    ] {
-        text = text.replace(from, to);
+    if !removed {
+        return text;
     }
     // A marker that began a sentence leaves a lowercase word behind.
-    if !removed {
-        return text.trim().to_string();
-    }
     let mut capitalise = true;
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
@@ -3244,14 +3261,31 @@ mod build_history_tests {
     }
 
     #[test]
-    fn a_seam_left_by_source_editing_is_tidied() {
+    fn markdown_whitespace_survives_untouched_text() {
+        let code = "Example:\n\n    curl /api/v1/health";
+        assert_eq!(scrub_build_history(code), code);
+        let line_break = "First line  \nsecond line";
+        assert_eq!(scrub_build_history(line_break), line_break);
+    }
+
+    #[test]
+    fn markdown_elsewhere_survives_a_removal() {
+        let text = "The run bills daily (Wave 9).\n\n    curl /api/v1/runs";
         assert_eq!(
-            scrub_build_history("the single feeder write path\n. Never blind-inserts"),
-            "the single feeder write path. Never blind-inserts"
+            scrub_build_history(text),
+            "The run bills daily.\n\n    curl /api/v1/runs"
         );
+    }
+
+    #[test]
+    fn a_nested_object_under_a_description_key_is_scrubbed() {
+        let mut value = serde_json::json!({
+            "description": { "description": "Shipped in Wave 9 lane 4." }
+        });
+        strip_build_history(&mut value);
         assert_eq!(
-            scrub_build_history("the ticket-deadline read model\n: /calendar"),
-            "the ticket-deadline read model: /calendar"
+            value["description"]["description"],
+            serde_json::json!("Shipped in.")
         );
     }
 

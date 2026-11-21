@@ -1887,17 +1887,17 @@ export interface paths {
          *
          *     What makes it safe rather than a takeover tool:
          *     - `manage_users` is required, and an administrator cannot reset their own
-         *      factors — a stolen admin session must not be able to turn its owner's MFA
-         *      off with one call.
+         *       factors — a stolen admin session must not be able to turn its owner's MFA
+         *       off with one call.
          *     - An Owner's or Admin's factors can only be reset by an Owner, so a lesser
-         *      administrator cannot strip a peer's second factor.
+         *       administrator cannot strip a peer's second factor.
          *     - The account is left owing a factor (`users.mfa_reenroll_required`), not
-         *      merely factor-free: enrolment is the only factor change it may make until
-         *      one is confirmed, and the flag is audited with the counts.
+         *       merely factor-free: enrolment is the only factor change it may make until
+         *       one is confirmed, and the flag is audited with the counts.
          *     - Every live session is revoked, so the user re-authenticates with their
-         *      password and learns the factor is gone.
+         *       password and learns the factor is gone.
          *     - The audit row names the administrator, the target, what was removed and
-         *      how many sessions died.
+         *       how many sessions died.
          */
         post: operations["mfa_admin_factor_reset"];
         delete?: never;
@@ -10815,7 +10815,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST.../apply — updates the plan and captures a baseline. It never bills. */
+        /** POST .../apply — updates the plan and captures a baseline. It never bills. */
         post: operations["project_change_order_apply"];
         delete?: never;
         options?: never;
@@ -10833,7 +10833,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST.../approve — approval changes the document only. When the org asks for
+         * POST .../approve — approval changes the document only. When the org asks for
          *     portal acknowledgement the order waits for the client first.
          */
         post: operations["project_change_order_approve"];
@@ -10853,7 +10853,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST.../bill — releases the money through the existing billing seam. A
+         * POST .../bill — releases the money through the existing billing seam. A
          *     refused release leaves the order applied and records why.
          */
         post: operations["project_change_order_bill"];
@@ -10872,7 +10872,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST.../reject — the reason is required and stays on the record. */
+        /** POST .../reject — the reason is required and stays on the record. */
         post: operations["project_change_order_reject"];
         delete?: never;
         options?: never;
@@ -10889,7 +10889,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST.../submit — the author's last editable moment. */
+        /** POST .../submit — the author's last editable moment. */
         post: operations["project_change_order_submit"];
         delete?: never;
         options?: never;
@@ -10945,7 +10945,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST.../approve */
+        /** POST .../approve */
         post: operations["project_client_updates_approve"];
         delete?: never;
         options?: never;
@@ -10963,7 +10963,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST.../send — the send is the person's act. It is recorded here as the
+         * POST .../send — the send is the person's act. It is recorded here as the
          *     state change; the delivery channel consumes the sent row, so no model can
          *     put words in front of a client.
          */
@@ -10983,7 +10983,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST.../withhold — records the honest refusal and why. */
+        /** POST .../withhold — records the honest refusal and why. */
         post: operations["project_client_updates_withhold"];
         delete?: never;
         options?: never;
@@ -14982,13 +14982,13 @@ export interface paths {
          * @description Three rules, in this order:
          *
          *     1. the caller must be able to read the ticket (module gate + client
-         *      restriction) — the same gate the ticket page uses;
+         *        restriction) — the same gate the ticket page uses;
          *     2. a ticket belonging to a **restricted client** is refused outright. The
-         *      channel's audience is not the ticket's audience, and redacting a card is
-         *      a promise that ages badly; refusing is the honest answer;
+         *        channel's audience is not the ticket's audience, and redacting a card is
+         *        a promise that ages badly; refusing is the honest answer;
          *     3. the connection must have an enabled destination. A connection with no
-         *      binding cannot be a share target, and the answer says so instead of
-         *      failing at the vendor.
+         *        binding cannot be a share target, and the answer says so instead of
+         *        failing at the vendor.
          */
         post: operations["tickets_share"];
         delete?: never;
@@ -18265,7 +18265,7 @@ export interface components {
             decision: string;
             entry_ids: string[];
             note?: string | null;
-            /** @description Typed rejection vocabulary (`missing_notes`, `wrong_ticket`,...). */
+            /** @description Typed rejection vocabulary (`missing_notes`, `wrong_ticket`, ...). */
             reason_code?: string | null;
         };
         BulkDecisionResponse: {
@@ -18399,7 +18399,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description 0 = Monday.. 6 = Sunday; weekly only.
+             * @description 0 = Monday .. 6 = Sunday; weekly only.
              */
             day_of_week?: number | null;
             /** @description Local wall-clock fire time in `timezone` (HH:MM:SS). */
@@ -21495,7 +21495,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description Weekly only: 0 = Monday.. 6 = Sunday.
+             * @description Weekly only: 0 = Monday .. 6 = Sunday.
              */
             day_of_week?: number | null;
             enabled?: boolean | null;
@@ -22506,7 +22506,7 @@ export interface components {
             id: string;
             last_error?: string | null;
             /**
-             * @description Whether `POST.../redrive` can requeue it. False for a dead stream
+             * @description Whether `POST .../redrive` can requeue it. False for a dead stream
              *     event, whose payload needs the relay's stream writer.
              */
             replayable: boolean;
@@ -23129,7 +23129,7 @@ export interface components {
             fields?: unknown;
             /** Format: uuid */
             id: string;
-            /** @description CI3 deterministic identity keys (source GUID, serial, MACs,...). */
+            /** @description CI3 deterministic identity keys (source GUID, serial, MACs, ...). */
             identity_keys?: unknown;
             /**
              * @description Free-text connector compatibility column; typed classification
@@ -25654,7 +25654,7 @@ export interface components {
             /** Format: uuid */
             client_id: string;
             external_id: string;
-            /** @description CI3 deterministic identity signals (source GUID, serial, MACs,...). */
+            /** @description CI3 deterministic identity signals (source GUID, serial, MACs, ...). */
             identity_keys?: unknown;
             /** Format: uuid */
             layout_id?: string | null;
@@ -29982,7 +29982,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description 0 = Monday.. 6 = Sunday; weekly only.
+             * @description 0 = Monday .. 6 = Sunday; weekly only.
              */
             day_of_week?: number | null;
             enabled: boolean;
@@ -31236,7 +31236,7 @@ export interface components {
              * @description The acting user (or machine actor) id, when attributed.
              */
             actor_id: string | null;
-            /** @description Actor kind from the write-trail vocabulary (human, agent,...). */
+            /** @description Actor kind from the write-trail vocabulary (human, agent, ...). */
             actor_kind: string;
             /** @description Applied value; null when the field was removed in this write. */
             after: Record<string, never> | null;
@@ -31254,7 +31254,7 @@ export interface components {
              */
             idempotency_key?: string | null;
             occurred_at: string;
-            /** @description Machine-readable operation ("create", "update", "status_change",...). */
+            /** @description Machine-readable operation ("create", "update", "status_change", ...). */
             op: string;
             /** @description Rule-set hash that governed the write, when present. */
             ruleset_hash?: string | null;
@@ -33545,7 +33545,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description 0 = Monday.. 6 = Sunday (weekly only).
+             * @description 0 = Monday .. 6 = Sunday (weekly only).
              */
             day_of_week?: number | null;
             definition_kind: string;
@@ -36949,9 +36949,9 @@ export interface components {
          * @description A typed edge between two tickets.
          *
          *     - `ParentChild`: `from_ticket_id` is the CHILD, `to_ticket_id` the
-         *      parent — child work rolls up to the parent.
+         *       parent — child work rolls up to the parent.
          *     - `MajorIncident`: `from_ticket_id` is a MEMBER, `to_ticket_id` the
-         *      major incident it folded into.
+         *       major incident it folded into.
          * @enum {string}
          */
         TicketLinkType: "parent_child" | "major_incident";
@@ -37937,7 +37937,7 @@ export interface components {
         UndoStep: {
             /** Format: uuid */
             actor_id: string;
-            /** @description `human` | `agent` |... (the audit actor vocabulary). */
+            /** @description `human` | `agent` | ... (the audit actor vocabulary). */
             actor_kind: string;
             /** @description Applied entity snapshot. */
             after: Record<string, never>;
@@ -37945,7 +37945,7 @@ export interface components {
             before: Record<string, never> | null;
             created_at: string;
             idempotency_key?: string | null;
-            /** @description Machine op name (`create`, `update`, `status_change`, `revert`,...). */
+            /** @description Machine op name (`create`, `update`, `status_change`, `revert`, ...). */
             op: string;
             /**
              * @description The revert path can restore this write's prior values (`create`
@@ -38294,7 +38294,8 @@ export interface components {
         UpdateProposalView: {
             consent_diff: components["schemas"]["ConsentDiffView"];
             /**
-             * @description The credential bindings this consent would CLEAR, by profile name.
+             * @description The credential bindings this consent would CLEAR, by profile name
+             *     .
              *
              *     `outbound_scopes` is manifest-declared, so the same profile name in the
              *     next version can allowlist a different host. A binding that outlived
@@ -38790,7 +38791,7 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         VendorRentalAssetRequest: {
-            /** @description device | server |... (free text, as on every asset). */
+            /** @description device | server | ... (free text, as on every asset). */
             kind?: string;
             name: string;
             tag: string;
@@ -60942,7 +60943,7 @@ export interface operations {
                 cursor?: string | null;
                 /**
                  * @description Actor-kind filter (the write-trail vocabulary: human, agent,
-                 *     import,...).
+                 *     import, ...).
                  */
                 actor_kind?: string | null;
                 /**
