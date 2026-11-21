@@ -192,18 +192,6 @@ fn receipt_row(row: sqlx::postgres::PgRow) -> PurchaseReceipt {
     }
 }
 
-fn receipt_line_row(row: sqlx::postgres::PgRow) -> PurchaseReceiptLine {
-    PurchaseReceiptLine {
-        id: row.get("id"),
-        org_id: row.get("org_id"),
-        receipt_id: row.get("receipt_id"),
-        po_line_id: row.get("po_line_id"),
-        qty_milli: row.get("qty_milli"),
-        movement_id: row.get("movement_id"),
-        created_at: row.get("created_at"),
-    }
-}
-
 fn bill_row(row: sqlx::postgres::PgRow) -> PurchaseBill {
     PurchaseBill {
         id: row.get("id"),
