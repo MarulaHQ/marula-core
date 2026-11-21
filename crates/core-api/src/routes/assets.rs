@@ -459,7 +459,7 @@ pub async fn create(
         .await?;
         if let Some(lifecycle) = &req_lifecycle {
             asset = core_db::assets::update_asset_lifecycle(
-                &mut *ctx.tx,
+                &mut ctx.tx,
                 org_id,
                 id,
                 &AssetLifecyclePatch::from(lifecycle.clone()),
@@ -639,7 +639,7 @@ pub async fn update(
                         patch.base_purchase_cost_minor = Some(s.base_amount_minor);
                     }
                 }
-                core_db::assets::update_asset_lifecycle(&mut *ctx.tx, org_id, id, &patch).await?
+                core_db::assets::update_asset_lifecycle(&mut ctx.tx, org_id, id, &patch).await?
             }
             None => asset,
         };
