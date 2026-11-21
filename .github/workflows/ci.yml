@@ -247,13 +247,25 @@ jobs:
       # 376s (run 44886559308). Caching the binary makes it a restore on every
       # run after the first. The key pins the version, so a bump is a miss
       # rather than a stale binary.
+      # `sqlx-cli` installs TWO binaries — `sqlx` and `cargo-sqlx` — and the
+      # second one is what makes `cargo sqlx ...` resolve; its manifest says so
+      # ("enables invocation as `cargo sqlx`; required for `prepare`
+      # subcommand"). Caching only `sqlx` would leave `cargo-sqlx` to be restored
+      # by rust-cache, which is not a guarantee, and the metadata step would fail
+      # on a cache hit.
+      #
+      # `-bins-` is in the key because the first attempt cached a `sqlx`-only
+      # directory under the shorter key, and a cache entry cannot be rewritten:
+      # without the new key that incomplete entry would keep matching.
       - name: Restore sqlx-cli
         id: sqlx-cli-cache
         if: env.RUST_RELEVANT == 'true'
         uses: actions/cache@v4
         with:
-          path: ~/.cargo/bin/sqlx
-          key: sqlx-cli-0.8.6-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ~/.cargo/bin/sqlx
+            ~/.cargo/bin/cargo-sqlx
+          key: sqlx-cli-0.8.6-bins-${{ runner.os }}-${{ runner.arch }}
       - name: Install sqlx-cli (for the offline-metadata check)
         if: env.RUST_RELEVANT == 'true' && steps.sqlx-cli-cache.outputs.cache-hit != 'true'
         uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
@@ -443,7 +455,7 @@ jobs:
           "${SCCACHE_PATH:-sccache}" --show-stats
 
   rust-tests-rest:
-    name: Rust tests — workspace except core-api
+    name: Rust tests — workspace except core-api and core-db
     needs: changes
     # Runs even when the gate failed: `RUST_RELEVANT` then turns the work on.
     if: ${{ !cancelled() }}
@@ -678,6 +690,39 @@ jobs:
         continue-on-error: true
         run: |
           "${SCCACHE_PATH:-sccache}" --show-stats
+
+  # The required context is one exact string, so splitting the work would
+  # otherwise take core-db out of every merge gate until a ruleset edit lands —
+  # and a ruleset edit blocks every pull request that predates the new job. This
+  # job keeps the required name over both halves, which needs no ruleset change
+  # and leaves no window where a core-db failure does not block a merge.
+  #
+  # It costs one runner for a few seconds: it starts when the slower half
+  # finishes, which is well before the slowest job in the workflow.
+  rust-tests-gate:
+    name: Rust tests — workspace except core-api
+    needs: [changes, rust-tests-rest, rust-tests-core-db]
+    # `always()`, because a job whose `needs` failed is skipped by default, and a
+    # skipped required check would report success.
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Both halves succeeded
+        run: |
+          set -euo pipefail
+          # A matrix reports one result for the whole matrix, so this covers both
+          # core-db shards.
+          for result in "${{ needs.rust-tests-rest.result }}" "${{ needs.rust-tests-core-db.result }}"; do
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::a workspace test job reported '$result'"
+                exit 1
+                ;;
+            esac
+          done
+          echo "both halves succeeded"
 
   ui-gates:
     name: UI ratchets — shared chrome · theme packs · evidence writes
