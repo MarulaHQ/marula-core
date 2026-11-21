@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT custody_class AS \"custody_class!\", serial_id\n                     FROM device_assets WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "custody_class!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "7982de62319d72631e9cdd1096a3d1a8d771b60b5266012f8e54f228b65012f8"
+}
