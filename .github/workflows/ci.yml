@@ -414,7 +414,13 @@ jobs:
           # nothing and run by nobody. The verify line below fails the build on
           # an unreachable or ambiguous target before the split happens.
           node scripts/check-test-targets.mjs
-          mapfile -t targets < <(node scripts/check-test-targets.mjs --shard "${{ matrix.shard }}" --shards 2)
+          # Shard 1 also runs the `--lib` unit tests below, which compile
+          # core-api a second time as a test harness and link it. Measured on
+          # run 44898290467 at a 14/28 split: 334s on shard 1 against 247s on
+          # shard 2, both at 100% sccache hits, so the difference is work. A
+          # target costs ~9s, so the pattern pays for ~5 targets' worth of lib
+          # and lands both shards near 290s.
+          mapfile -t targets < <(node scripts/check-test-targets.mjs --shard "${{ matrix.shard }}" --shards 2 --pattern 1,2,2,2,2)
           args=()
           for target in "${targets[@]}"; do
             args+=(--test "$target")
@@ -556,7 +562,7 @@ jobs:
           "${SCCACHE_PATH:-sccache}" --show-stats
 
   rust-tests-core-db:
-    name: Rust tests — core-db
+    name: Rust tests — core-db shard ${{ matrix.shard }}/2
     needs: changes
     # Runs even when the gate failed: `RUST_RELEVANT` then turns the work on.
     if: ${{ !cancelled() }}
@@ -565,10 +571,19 @@ jobs:
     # was made of: 277s of its 422s step was compile and link, against 145s of
     # test execution across all 115.
     #
+    # Two shards, because one job holding all 56 measured 314s of step against
+    # 144s for the 59 binaries that stayed behind (run 44898290467). Its targets
+    # cost ~5.6s each against ~2.0s for that job's, so splitting it evenly is
+    # what balances the pair.
+    #
     # The service and cache configuration below is the same as `rust-tests-rest`
     # by construction, not by paraphrase: the two jobs attach to the same
     # containers and share the `rust-test` key.
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     services:
       postgres:
         # pgvector/pgvector:pg18 — the same major the compose files and
@@ -641,10 +656,23 @@ jobs:
       # Not nextest here either: core-db's tests boot their schema once per
       # process from a `OnceCell`, so process-per-test would drop the schema its
       # siblings are querying.
-      - run: cargo test -p core-db --tests
+      - name: core-db tests (shard ${{ matrix.shard }} of 2)
         if: env.RUST_RELEVANT == 'true'
         env:
           SQLX_OFFLINE: "true"
+        run: |
+          # Same discovery and the same verify as the core-api step, pointed at
+          # this crate's tree (`--dir`). An orphaned file here fails the build
+          # before the split, exactly as it does there.
+          node scripts/check-test-targets.mjs --dir crates/core-db/tests
+          mapfile -t targets < <(node scripts/check-test-targets.mjs --dir crates/core-db/tests \
+            --shard "${{ matrix.shard }}" --shards 2)
+          args=()
+          for target in "${targets[@]}"; do
+            args+=(--test "$target")
+          done
+          echo "shard ${{ matrix.shard }}/2: ${#targets[@]} targets"
+          cargo test -p core-db "${args[@]}"
       - name: sccache stats
         if: always() && env.RUST_RELEVANT == 'true'
         continue-on-error: true
