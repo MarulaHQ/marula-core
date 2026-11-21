@@ -120,6 +120,10 @@ pub(crate) async fn write_recharge_cost_line(
     input: RechargeCostLine<'_>,
 ) -> ApiResult<(TicketCostLine, Option<crate::routes::fx::LockedSnapshot>)> {
     input.validate()?;
+    // The direct cost-line route refuses a caller without ViewFinancials, so the
+    // receipt path must too: receiving a client purchase must not be a second
+    // door onto a financial ticket write.
+    require_permission(principal, view_financials())?;
     let org_id = ctx.org_id;
     let user_id = ctx.user_id;
     ticket_for_board_check(
@@ -432,6 +436,12 @@ pub async fn update_cost_line(
             .into_iter()
             .find(|l| l.id == line_id)
             .ok_or(ApiError::NotFound)?;
+        if core_db::purchasing::cost_line_is_recharged(&mut *ctx.tx, org_id, line_id).await? {
+            return Err(ApiError::Conflict(
+                "this line is the charge of an issued recharge; correct it with a credit note"
+                    .into(),
+            ));
+        }
         // Snapshot doctrine (ADR 0002): a fact that already locked an FX
         // snapshot cannot have its amount edited in place — the locked
         // `base_amount_minor` would silently stop matching the row's own
@@ -568,6 +578,12 @@ pub async fn remove_cost_line(
             .any(|line| line.id == line_id);
         if !belongs {
             return Err(ApiError::NotFound);
+        }
+        if core_db::purchasing::cost_line_is_recharged(&mut *ctx.tx, org_id, line_id).await? {
+            return Err(ApiError::Conflict(
+                "this line is the charge of an issued recharge; correct it with a credit note"
+                    .into(),
+            ));
         }
         let removed = core_db::costs::remove_cost_line(&mut ctx.tx, org_id, line_id).await?;
         if !removed {

@@ -525,6 +525,22 @@ impl PurchaseIntent {
         }
         Ok(())
     }
+
+    /// Validates one line against the header it belongs to. The header alone
+    /// cannot see a line, and the line alone cannot see the delivery mode, so
+    /// the one rule that needs both lives here: goods that ship straight to a
+    /// client never enter owned quantity (ADR 0035 §2).
+    pub fn validate_line(&self, line: &PurchaseLineIntent) -> Result<(), DomainError> {
+        if self.delivery_mode == DeliveryMode::DropShipToClient
+            && line.destination_class.counts_as_owned()
+        {
+            return Err(DomainError::Validation(format!(
+                "a drop-ship purchase cannot land a line in {} — drop-shipped goods never enter owned quantity",
+                line.destination_class.as_str()
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// One line's intent and the fields that decide where it lands (§5.1).
