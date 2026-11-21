@@ -671,6 +671,22 @@ pub async fn issue_loan(
                 }
                 _ => None,
             };
+            // The agreement places the asset with the client, exactly as the
+            // serial path does for a paired row. `update_asset_lifecycle`
+            // derives the class from `scope`, so this must land before the
+            // lease patch or a `leased` ownership derives `rental_in` for a
+            // unit the client is holding.
+            sqlx::query(
+                r#"UPDATE device_assets
+                     SET client_id = $3, scope = 'client', site_id = NULL,
+                         updated_at = now()
+                   WHERE org_id = $1 AND id = $2"#,
+            )
+            .bind(org_id)
+            .bind(device_asset_id)
+            .bind(loan.client_id)
+            .execute(&mut *conn)
+            .await?;
             if loan.is_lease {
                 crate::assets::update_asset_lifecycle(
                     &mut *conn,
@@ -1048,7 +1064,12 @@ pub async fn return_loan(
                     t.line_id
                 )));
             }
-            let location_id = to_location_id.expect("checked above when a leg is owed");
+            let Some(location_id) = to_location_id else {
+                return Err(DbError::Conflict(format!(
+                    "unit on line {} needs a destination location to record its return",
+                    t.line_id
+                )));
+            };
             if counted_in_stock {
                 let item = crate::stock::get_stock_item(&mut *conn, org_id, stock_item_id).await?;
                 let movement = StockMovement {
@@ -1749,6 +1770,20 @@ async fn adjust_pool_quantity(
         )
         .execute(&mut *conn)
         .await?;
+        // An incoming ledger movement re-arms the low-stock bell when it lifts
+        // a shelf above its reorder point; a pool credit is the same act, so
+        // it clears the marker the same way. A shelf still at or below the
+        // point keeps it.
+        sqlx::query!(
+            r#"UPDATE stock_levels SET low_stock_notified_at = NULL
+                WHERE org_id = $1 AND stock_item_id = $2 AND stock_location_id = $3
+                  AND qty_milli > reorder_point_milli"#,
+            org_id,
+            item_id,
+            location_id,
+        )
+        .execute(&mut *conn)
+        .await?;
         Ok(())
     }
 }
@@ -1834,7 +1869,8 @@ pub async fn decommission_from_pool(
         req.data_wipe_ref.as_deref(),
     )
     .await?;
-    // The unit is saleable again: it re-enters the shelf's quantity.
+    // The unit is saleable again: it re-enters the shelf's quantity, and the
+    // credit re-arms the low-stock bell when it lifts the shelf above reorder.
     adjust_pool_quantity(conn, org_id, state.serial_id, 1000).await?;
     Ok(movement)
 }
@@ -1900,6 +1936,11 @@ pub async fn list_billable_leases(
                 WHERE l.org_id = $1
                   AND l.is_lease
                   AND l.contract_id = ANY($2)
+                  AND EXISTS (
+                      SELECT 1 FROM contracts k
+                       WHERE k.org_id = l.org_id AND k.id = l.contract_id
+                         AND k.status <> 'cancelled'
+                  )
                   AND l.lease_cycle IS NOT NULL
                   AND l.lease_cost_minor IS NOT NULL
                   AND l.lease_currency IS NOT NULL

@@ -1485,11 +1485,13 @@ pub async fn existing_serials(
     // Serialise identity checks against every writer that inserts a serial for
     // this item. The lock is the stock item row, so a concurrent stock receipt
     // cannot insert the serial between this read and the asset insert.
-    sqlx::query("SELECT 1 FROM stock_items WHERE id = $1 AND org_id = $2 FOR UPDATE")
-        .bind(stock_item_id)
-        .bind(org_id)
-        .execute(&mut *conn)
-        .await?;
+    sqlx::query!(
+        "SELECT id FROM stock_items WHERE id = $1 AND org_id = $2 FOR NO KEY UPDATE",
+        stock_item_id,
+        org_id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
     let rows = sqlx::query!(
         r#"SELECT serial_number FROM stock_serials
             WHERE org_id = $1 AND stock_item_id = $2
