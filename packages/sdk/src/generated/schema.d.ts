@@ -2958,6 +2958,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/client-loans/{id}/charges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/client-loans/{id}/charges — every charge the agreement has
+         *     produced, billed or waiting for the next run.
+         */
+        get: operations["client_loans_charges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/client-loans/{id}/return": {
         parameters: {
             query?: never;
@@ -5728,6 +5748,153 @@ export interface paths {
         get: operations["events_stream"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/dispositions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/ewaste/dispositions — the org-wide register, filterable for the
+         *     accountant handoff.
+         */
+        get: operations["ewaste_list_dispositions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/ewaste/intakes — newest receipt first, weights aggregated. */
+        get: operations["ewaste_list_intakes"];
+        put?: never;
+        /** POST /api/ewaste/intakes — instant-first (IF1/IF2). */
+        post: operations["ewaste_create_intake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/ewaste/intakes/{id}. */
+        get: operations["ewaste_get_intake"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt.
+         * @description An optional `{"version": n}` body is checked before the close writes; a
+         *     bodyless call still works.
+         */
+        post: operations["ewaste_close_intake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/dispositions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/ewaste/intakes/{id}/dispositions — record a way out. */
+        post: operations["ewaste_record_disposition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/ewaste/intakes/{id}/events — store, move or handoff. */
+        post: operations["ewaste_record_event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/ewaste/intakes/{id}/lines — add one line while the intake is open. */
+        post: operations["ewaste_add_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/lines/{line_id}/destruction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/ewaste/intakes/{id}/lines/{line_id}/destruction — record the
+         *     destruction state of a data-bearing line.
+         */
+        post: operations["ewaste_set_destruction"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13791,6 +13958,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stock/pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock/pool — every unit in the rental pool, and whether an open
+         *     agreement holds it.
+         */
+        get: operations["stock_pool_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/pool/commission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/pool/commission — sale stock into the rental pool. */
+        post: operations["stock_pool_commission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/pool/decommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/pool/decommission — the rental pool back into sale stock. */
+        post: operations["stock_pool_decommission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stock/receive": {
         parameters: {
             query?: never;
@@ -15644,6 +15865,61 @@ export interface paths {
         patch: operations["users_me_patch"];
         trace?: never;
     };
+    "/api/v1/vendor-rentals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendor-rentals. */
+        get: operations["vendor_rentals_list"];
+        put?: never;
+        /** POST /api/vendor-rentals — record what the organisation is renting in. */
+        post: operations["vendor_rentals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendor-rentals/{id}. */
+        get: operations["vendor_rentals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals/{id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/vendor-rentals/{id}/return — close the agreement with what
+         *     happened to the unit.
+         */
+        post: operations["vendor_rentals_return"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/vendors": {
         parameters: {
             query?: never;
@@ -16066,6 +16342,8 @@ export interface components {
         AcceptObservedRequest: components["schemas"]["MutationParams"] & {
             field_key: string;
         };
+        /** @enum {string} */
+        AcquiredFor: "sale_stock" | "internal_fleet" | "rental_pool" | "vendor_rental" | "client_stocked" | "client_drop_ship" | "project_consumable" | "ewaste_service";
         ActionView: {
             /** @description `open` | `launch`. */
             kind: string;
@@ -16157,6 +16435,8 @@ export interface components {
             /** Format: uuid */
             stock_item_id: string;
         };
+        /** @description POST /api/ewaste/intakes/{id}/lines. */
+        AddLineRequest: components["schemas"]["IntakeLineRequest"] & components["schemas"]["MutationParams"];
         AddMemberRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             user_id: string;
@@ -17618,7 +17898,7 @@ export interface components {
          * @description Which billing rule produced a candidate line.
          * @enum {string}
          */
-        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release";
+        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release" | "rental";
         /**
          * @description How the project turns delivered work into money. The value rides the
          *     milestone event payload so core-billing can route without re-reading the
@@ -19280,6 +19560,12 @@ export interface components {
             client_id: string;
             entries: components["schemas"]["OverrideEntry"][];
         };
+        /**
+         * @description POST /api/ewaste/intakes/{id}/close. The body is optional: a caller that
+         *     has not read a version may close without one, and a caller that has read
+         *     the intake passes the version it saw.
+         */
+        CloseIntakeRequest: components["schemas"]["MutationParams"];
         /** @enum {string} */
         CloseKind: "full" | "short";
         CloseOrderRequest: components["schemas"]["MutationParams"];
@@ -20799,6 +21085,30 @@ export interface components {
             /** @description Source-system label this template belongs to (e.g. "connectwise"). */
             source_system: string;
         };
+        /** @description POST /api/ewaste/intakes. */
+        CreateIntakeRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            client_id: string;
+            /** @description The client's instruction: destroy data before disposal. */
+            data_destruction_required?: boolean;
+            document_reference?: string | null;
+            hazard_flags?: string[];
+            lines?: components["schemas"]["IntakeLineRequest"][];
+            notes?: string | null;
+            /** @description Defaults to now. */
+            received_at?: string | null;
+            received_by_name: string;
+            reference?: string | null;
+            /**
+             * Format: uuid
+             * @description The signed intake sheet held in the documents platform.
+             */
+            signature_document_id?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
         CreateInterfaceRequest: {
             ips?: string[];
             is_primary?: boolean;
@@ -20907,16 +21217,29 @@ export interface components {
             user_id?: string | null;
         };
         CreateOrderRequest: components["schemas"]["MutationParams"] & {
+            acquired_for?: components["schemas"]["AcquiredFor"] | null;
+            /**
+             * Format: uuid
+             * @description The client the purchase is made for. Required for a client purchase and
+             *     refused for anything else; derived from the ticket when a ticket is given
+             *     and the client omitted.
+             */
+            client_id?: string | null;
             /** @description Absent → the vendor's default currency. */
             currency?: string | null;
+            delivery_mode?: components["schemas"]["DeliveryMode"] | null;
             /** Format: date */
             expected_at?: string | null;
             lines?: components["schemas"]["OrderLineInput"][];
             notes?: string | null;
             /** @description Absent → generated `PO-NNNNNN` from the org sequence. */
             number?: string | null;
+            ownership?: components["schemas"]["Ownership"] | null;
             /** Format: uuid */
             project_id?: string | null;
+            recharge_rule?: components["schemas"]["RechargeRule"] | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
             /** Format: uuid */
             vendor_id: string;
             vendor_reference?: string | null;
@@ -21598,6 +21921,33 @@ export interface components {
             /** @description Overrides the description when present. */
             description?: string | null;
         };
+        CreateVendorRentalRequest: components["schemas"]["MutationParams"] & {
+            agreement_ref?: string | null;
+            asset?: components["schemas"]["VendorRentalAssetRequest"] | null;
+            /**
+             * Format: int64
+             * @description The rental expense per cycle, integer minor units.
+             */
+            cost_minor: number;
+            currency: string;
+            /** @description monthly | quarterly | annual. */
+            cycle: string;
+            deposit_currency?: string | null;
+            /** Format: int64 */
+            deposit_minor?: number | null;
+            /**
+             * Format: uuid
+             * @description An asset the procurement receipt already created as `rental_in`.
+             */
+            device_asset_id?: string | null;
+            end_on?: string | null;
+            notes?: string | null;
+            start_on: string;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            /** @description The vendor's name when they are not in the directory. */
+            vendor_name?: string | null;
+        };
         CreateVendorRequest: components["schemas"]["MutationParams"] & {
             account_number?: string | null;
             code?: string | null;
@@ -21831,6 +22181,8 @@ export interface components {
             /** @description Per-field human values; a `null` value un-curates the field. */
             fields: unknown;
         };
+        /** @enum {string} */
+        CustodyClass: "sale_stock" | "internal_fleet" | "rental_in" | "rental_out" | "client_custody" | "ewaste_custody" | "tools" | "sold" | "recycled" | "destroyed" | "returned";
         /** @description Manual DNS setup instructions (the seam's none-mode), ready to render. */
         CustomDomainInstructions: {
             domain: string;
@@ -22666,6 +23018,8 @@ export interface components {
              */
             offset?: number | null;
         };
+        /** @enum {string} */
+        DeliveryMode: "to_stock" | "drop_ship_to_client" | "to_site";
         DeliveryPage: {
             deliveries: components["schemas"]["DeliveryAttemptView"][];
             /** @description Opaque keyset cursor for the next page; absent when exhausted. */
@@ -23919,6 +24273,124 @@ export interface components {
             /** Format: uuid */
             connection_id: string;
             events: components["schemas"]["CalendarSyncEvent"][];
+        };
+        /** @description A recorded way out of custody. */
+        EwasteDisposition: {
+            certificate_reference?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: date */
+            disposed_at: string;
+            /** Format: uuid */
+            document_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intake_id: string;
+            /** Format: uuid */
+            line_id: string;
+            partner_name?: string | null;
+            pathway: string;
+            /** Format: int64 */
+            weight_g: number;
+        };
+        /** @description One append-only custody event. */
+        EwasteEvent: {
+            /** Format: uuid */
+            actor_user_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            disposition_id?: string | null;
+            event_kind: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intake_id: string;
+            /** Format: uuid */
+            line_id?: string | null;
+            location_note?: string | null;
+            notes?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            partner_name?: string | null;
+            storage_class?: string | null;
+        };
+        /**
+         * @description A receipt of custody. The client owns the goods; the organisation holds
+         *     them.
+         */
+        EwasteIntake: {
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            closed_at?: string | null;
+            /** Format: uuid */
+            closed_by?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            data_destruction_required: boolean;
+            document_reference?: string | null;
+            hazard_flags: string[];
+            /** Format: uuid */
+            id: string;
+            notes?: string | null;
+            /** Format: date-time */
+            received_at: string;
+            received_by_name: string;
+            /** Format: uuid */
+            received_by_user_id?: string | null;
+            reference?: string | null;
+            /** Format: uuid */
+            signature_document_id?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            status: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One line: a serialized unit or a lot, with its weight in integer grams. */
+        EwasteIntakeLine: {
+            category: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            data_bearing: boolean;
+            /** Format: date-time */
+            destruction_completed_at?: string | null;
+            /** Format: uuid */
+            destruction_completed_by?: string | null;
+            /** Format: uuid */
+            destruction_document_id?: string | null;
+            destruction_status: string;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            /**
+             * Format: int64
+             * @description Sum of this line's dispositions. Derived on read, never stored.
+             */
+            disposed_weight_g: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intake_id: string;
+            line_kind: string;
+            lot_label?: string | null;
+            /** Format: int32 */
+            quantity: number;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            weight_g: number;
         };
         ExpenseMutationResponse: {
             expense: components["schemas"]["TicketExpense"];
@@ -25760,6 +26232,58 @@ export interface components {
             /** Format: date */
             start_date?: string | null;
         };
+        /** @description One intake with everything that answers "where did it go". */
+        IntakeDetailResponse: {
+            balance: components["schemas"]["WeightBalance"];
+            dispositions: components["schemas"]["EwasteDisposition"][];
+            events: components["schemas"]["EwasteEvent"][];
+            intake: components["schemas"]["EwasteIntake"];
+            lines: components["schemas"]["EwasteIntakeLine"][];
+        };
+        /** @description One line of a received consignment. */
+        IntakeLineRequest: {
+            category: string;
+            data_bearing?: boolean;
+            /**
+             * Format: uuid
+             * @description The client's asset this unit is, when it is in their fleet.
+             */
+            device_asset_id?: string | null;
+            /**
+             * @description serial: a unit with a stock serial, quantity one. lot: a quantity of
+             *     one category, identified by this line.
+             */
+            line_kind: string;
+            lot_label?: string | null;
+            /** Format: int32 */
+            quantity?: number;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /**
+             * Format: int64
+             * @description The line's total weight in whole grams.
+             */
+            weight_g: number;
+        };
+        /** @description The intake response plus the instant-first envelope metadata (IF2). */
+        IntakeMutationResponse: components["schemas"]["IntakeDetailResponse"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description An intake as the list view sees it, with its weights aggregated in one
+         *     query rather than one query per row.
+         */
+        IntakeSummary: {
+            intake: components["schemas"]["EwasteIntake"];
+            /** Format: int64 */
+            line_count: number;
+            /** Format: int64 */
+            remaining_g: number;
+            /** Format: int64 */
+            total_in_g: number;
+            /** Format: int64 */
+            total_out_g: number;
+        };
         /** @description Per-connector link state as data (linked/unlinked + last touch). */
         IntegrationLinkStatus: {
             connector_type: string;
@@ -26632,6 +27156,8 @@ export interface components {
             /** Format: uuid */
             template_id: string;
         };
+        /** @enum {string} */
+        LineKind: "stock" | "serialized_unit" | "asset" | "rental_unit" | "service" | "pass_through";
         LinkBeginResponse: {
             authorize_url: string;
         };
@@ -26696,6 +27222,18 @@ export interface components {
              */
             semantic_class?: string | null;
         };
+        /** @description GET /api/ewaste/dispositions. */
+        ListDispositionsQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: date */
+            from?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            pathway?: string | null;
+            /** Format: date */
+            to?: string | null;
+        };
         ListEntityCandidatesQuery: {
             /** @description contact | client */
             kind?: string | null;
@@ -26711,6 +27249,15 @@ export interface components {
             ticket_id?: string | null;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        /** @description GET /api/ewaste/intakes. */
+        ListIntakesQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /** @description open | closed. */
+            status?: string | null;
         };
         ListOrdersQuery: {
             /** Format: uuid */
@@ -26781,6 +27328,18 @@ export interface components {
             status?: string | null;
         };
         LoanReturnLineRequest: {
+            /**
+             * Format: int64
+             * @description A damage charge raised with this return. Leases only: the charge bills
+             *     through the next ordinary run under the agreement's contract.
+             */
+            damage_charge_minor?: number | null;
+            damage_note?: string | null;
+            /**
+             * @description Where the unit goes now: pool | sale_stock | refurbishment | ewaste.
+             *     Absent = back to the class it was issued from.
+             */
+            disposition?: string | null;
             /** Format: uuid */
             line_id: string;
             /** @description good | fair | damaged. */
@@ -27937,17 +28496,32 @@ export interface components {
             user_id?: string | null;
         };
         OrderLineInput: {
+            /**
+             * Format: uuid
+             * @description The asset layout a receipt for this line should instantiate.
+             */
+            asset_layout_id?: string | null;
+            /** @description Absent → true when the line lands in client custody. */
+            billable?: boolean | null;
             /** Format: uuid */
             catalog_item_id?: string | null;
             description: string;
+            destination_class?: components["schemas"]["CustodyClass"] | null;
+            line_kind?: components["schemas"]["LineKind"] | null;
             /** Format: int32 */
             position?: number | null;
             /** Format: int64 */
             qty_ordered_milli: number;
+            /** Format: int64 */
+            sell_price_minor?: number | null;
+            /** @description Absent → true for a `serialized_unit` line, false otherwise. */
+            serial_expected?: boolean | null;
             /** Format: uuid */
             stock_item_id?: string | null;
             /** Format: int64 */
             unit_cost_minor: number;
+            /** Format: int32 */
+            weight_g?: number | null;
         };
         OrderMutationResponse: components["schemas"]["PurchaseOrderDetail"] & {
             mutation: components["schemas"]["MutationMeta"];
@@ -28266,6 +28840,8 @@ export interface components {
              */
             user_id: string;
         };
+        /** @enum {string} */
+        Ownership: "owned" | "leased" | "rented";
         PackRuleView: {
             active: boolean;
             /** Format: uuid */
@@ -28673,6 +29249,12 @@ export interface components {
             is_default?: boolean | null;
             name?: string | null;
             spec?: unknown;
+        };
+        /** @description Weight moved by one pathway. */
+        PathwayWeight: {
+            pathway: string;
+            /** Format: int64 */
+            weight_g: number;
         };
         PauseTimerRequest: {
             /** @description Optional reason, preserved on the segment forever. */
@@ -29390,6 +29972,68 @@ export interface components {
             targets: unknown;
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
+        };
+        PoolListQuery: {
+            /** @description Only units no open agreement holds. */
+            available_only?: boolean | null;
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        /** @description POST /api/stock/pool/commission or /api/stock/pool/decommission. */
+        PoolMoveRequest: components["schemas"]["MutationParams"] & {
+            /** @description good | fair | damaged. */
+            condition_grade: string;
+            data_wipe_ref?: string | null;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            note?: string | null;
+            /**
+             * Format: uuid
+             * @description One projection of the unit; exactly one of the two ids.
+             */
+            serial_id?: string | null;
+            /**
+             * @description True when the device stores data. The wipe reference is then required:
+             *     a pool move that launders a laptop with somebody's data still on it is
+             *     the one thing this leg must not do silently.
+             */
+            stores_data?: boolean;
+        };
+        PoolMoveView: {
+            condition_grade?: string | null;
+            created_at: string;
+            data_wipe_ref?: string | null;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            from_class: string;
+            /** Format: uuid */
+            movement_id: string;
+            /** Format: uuid */
+            serial_id?: string | null;
+            to_class: string;
+            /** @description serial | asset */
+            unit_kind: string;
+        };
+        PoolMutationResponse: {
+            movement: components["schemas"]["PoolMoveView"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description One unit in the pool, with availability derived from the agreements that
+         *     hold it.
+         */
+        PoolUnitView: {
+            available: boolean;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The serial number, or the asset tag when the unit has no serial row. */
+            label: string;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** @description serial | asset */
+            unit_kind: string;
         };
         /**
          * @description Instant-first mutation response (IF2) for appointment-request writes.
@@ -30780,10 +31424,43 @@ export interface components {
         };
         PurchaseOrderDetail: {
             bill?: components["schemas"]["PurchaseBill"] | null;
+            /**
+             * @description Present for every response written since the intent existed; a stored
+             *     replay from before it defaults to the legacy header words.
+             */
+            intent?: components["schemas"]["PurchaseOrderIntentView"];
             lines: components["schemas"]["PurchaseOrderLineView"][];
             order: components["schemas"]["PurchaseOrder"];
             receipts: components["schemas"]["PurchaseReceiptView"][];
+            /**
+             * @description Recharges this order issued. Withheld entirely without
+             *     `financial:read`, like `totals`.
+             */
+            recharges?: components["schemas"]["PurchaseRechargeView"][] | null;
             totals?: components["schemas"]["PurchaseOrderRollup"] | null;
+        };
+        /**
+         * @description The header intent a client reads (plan §5.1): what the purchase is for, who
+         *     it serves, how it is delivered and the recharge rule it carries. The rule is
+         *     money (`fixed` carries a price and a currency), so it obeys the same
+         *     `ViewFinancials` gate the totals do.
+         *
+         *     `Default` is the shape a stored response written before this view existed
+         *     deserializes into: an order that named none of the new words, which is what
+         *     the migration's column defaults say. Keyed replays are retained, so that
+         *     legacy payload still has to answer.
+         */
+        PurchaseOrderIntentView: {
+            acquired_for: components["schemas"]["AcquiredFor"];
+            /** Format: uuid */
+            client_id?: string | null;
+            delivery_mode: components["schemas"]["DeliveryMode"];
+            ownership?: components["schemas"]["Ownership"] | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            recharge_rule?: components["schemas"]["RechargeRule"] | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
         };
         /** @description One PO line: quantity at milli precision, cost in minor units. */
         PurchaseOrderLine: {
@@ -30815,12 +31492,23 @@ export interface components {
         /** @description Ledger-visible PO line (cost fields are `financial:read`-gated). */
         PurchaseOrderLineView: {
             /** Format: uuid */
+            asset_layout_id?: string | null;
+            billable?: boolean;
+            /** Format: uuid */
             catalog_item_id?: string | null;
             /** Format: date-time */
             created_at: string;
             description: string;
+            destination_class: components["schemas"]["CustodyClass"];
             /** Format: uuid */
             id: string;
+            /**
+             * @description What this line buys and where it lands (plan §5.1). The destination is
+             *     the resolved one — the line's own when it named a class, the header's
+             *     otherwise — so a client reads what will happen rather than two words it
+             *     has to combine.
+             */
+            line_kind: components["schemas"]["LineKind"];
             /** Format: int64 */
             ordered_amount_minor?: number | null;
             /** Format: int32 */
@@ -30834,12 +31522,21 @@ export interface components {
             receipt_state: components["schemas"]["ReceiptState"];
             /** Format: int64 */
             received_amount_minor?: number | null;
+            /** Format: int64 */
+            sell_price_minor?: number | null;
+            /**
+             * @description Absent in a response written before the intent existed, where neither flag
+             *     existed either; both default to the value the old code implied.
+             */
+            serial_expected?: boolean;
             /** Format: uuid */
             stock_item_id?: string | null;
             /** Format: int64 */
             unit_cost_minor?: number | null;
             /** Format: date-time */
             updated_at: string;
+            /** Format: int32 */
+            weight_g?: number | null;
         };
         /**
          * @description The rolled-up money on a PO: ordered and received amounts in the PO
@@ -30857,13 +31554,14 @@ export interface components {
          * @description One row of the order list: the order itself plus its own totals.
          *
          *     The order fields are flattened, so this is the order's old wire shape plus
-         *     a `totals` key — a client that ignores the new key keeps working, and one
-         *     that reads it stops needing a request per order to know what an order is
-         *     worth. `totals` is `null` for a caller without `ViewFinancials`, which is
-         *     the same gate the detail endpoint's totals obey: the list never leaks money
-         *     the detail page would hide.
+         *     `totals` and `intent` keys — a client that ignores the new keys keeps
+         *     working, and one that reads them stops needing a request per order to know
+         *     what an order buys or what it is worth. `totals` is `null` for a caller
+         *     without `ViewFinancials`, which is the same gate the detail endpoint's
+         *     totals obey: the list never leaks money the detail page would hide.
          */
         PurchaseOrderSummary: components["schemas"]["PurchaseOrder"] & {
+            intent?: components["schemas"]["PurchaseOrderIntentView"];
             totals?: components["schemas"]["PurchaseOrderRollup"] | null;
         };
         /** @description One receipt document: goods that landed at a location against a PO. */
@@ -30907,11 +31605,50 @@ export interface components {
             receipt_id: string;
         };
         /**
-         * @description A receipt document with its traceability lines (each stamps the
-         *     lane-1 ledger `movement_id` it posted).
+         * @description A receipt document with its traceability lines (each stamps the consequence
+         *     it produced: a ledger movement, an asset, or neither for a client lot).
          */
         PurchaseReceiptView: components["schemas"]["PurchaseReceipt"] & {
-            lines: components["schemas"]["PurchaseReceiptLine"][];
+            lines: components["schemas"]["ReceiptLineView"][];
+        };
+        /**
+         * @description One issued recharge (plan §5.3). The resolved rule, the basis it was applied
+         *     to, both currencies and both FX snapshots travel together because an issued
+         *     recharge is never recomputed.
+         */
+        PurchaseRechargeView: {
+            /** Format: int64 */
+            basis_amount_minor: number;
+            basis_currency: string;
+            /** Format: int64 */
+            charge_amount_minor: number;
+            charge_currency: string;
+            charge_fx?: components["schemas"]["RechargeFxView"] | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            cost_fx?: components["schemas"]["RechargeFxView"] | null;
+            /** Format: uuid */
+            cost_line_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            issued_at: string;
+            /** Format: uuid */
+            po_line_id: string;
+            /** Format: uuid */
+            project_id?: string | null;
+            /** Format: uuid */
+            purchase_order_id: string;
+            /** Format: uuid */
+            receipt_line_id: string;
+            rule: components["schemas"]["RechargeRule"];
+            /**
+             * @description `purchase_order | ticket | project | client | organisation` — the rung
+             *     that supplied the rule.
+             */
+            rule_source: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
         };
         /**
          * @description The checkpoint cursor of a push session: what the server has committed
@@ -32036,6 +32773,16 @@ export interface components {
              */
             min_interval_secs: number;
         };
+        /**
+         * @description One receipt line's consequence, as the routing engine resolved it. The
+         *     destination class and the asset a line created are what makes the chain in
+         *     §4.3 readable from the receipt alone.
+         */
+        ReceiptLineView: components["schemas"]["PurchaseReceiptLine"] & {
+            destination_class: components["schemas"]["CustodyClass"];
+            /** Format: uuid */
+            device_asset_id?: string | null;
+        };
         ReceiptMutationResponse: {
             mutation: components["schemas"]["MutationMeta"];
             order: components["schemas"]["PurchaseOrderDetail"];
@@ -32044,6 +32791,15 @@ export interface components {
         /** @enum {string} */
         ReceiptState: "pending" | "partial" | "complete" | "over";
         ReceiveLineInput: {
+            /**
+             * @description The asset a line creates is typed by the line's layout. Its values are
+             *     supplied here, at the moment the asset is created, because a purchase
+             *     order line carries none: a layout can gain a required field after the
+             *     order is placed, and the placed line is not editable. They are validated
+             *     against the layout in force inside the receipt transaction, and every
+             *     unit the line creates carries them.
+             */
+            asset_fields?: unknown;
             /** Format: uuid */
             line_id: string;
             /** Format: int64 */
@@ -32103,6 +32859,33 @@ export interface components {
              */
             unit_cost_minor?: number | null;
         };
+        RechargeFxView: {
+            /** Format: int64 */
+            base_amount_minor: number;
+            /** Format: date */
+            rate_date: string;
+            rate_used: string;
+            source: string;
+        };
+        /**
+         * @description The recharge rule in force for one line. The resolved rule is stored beside
+         *     the charge it produced, so a later policy change cannot rewrite an issued
+         *     recharge. All money is integer minor units and the percentage is basis
+         *     points, never a float.
+         */
+        RechargeRule: {
+            currency?: string | null;
+            /** Format: int64 */
+            fixed_minor?: number | null;
+            kind: components["schemas"]["RechargeRuleKind"];
+            /**
+             * Format: int32
+             * @description `markup_bps` only: 2000 = 20% above cost. 0 means at cost.
+             */
+            markup_bps?: number | null;
+        };
+        /** @enum {string} */
+        RechargeRuleKind: "at_cost" | "markup_bps" | "fixed" | "none";
         ReconciliationQuery: {
             /**
              * Format: date-time
@@ -32172,6 +32955,48 @@ export interface components {
             amount_minor?: number | null;
             bill_number?: string | null;
             currency?: string | null;
+        };
+        /** @description POST /api/ewaste/intakes/{id}/dispositions. */
+        RecordDispositionRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Required (with the document) for recycled, destroyed and
+             *     transferred_to_partner.
+             */
+            certificate_reference?: string | null;
+            disposed_at: string;
+            /** Format: uuid */
+            document_id?: string | null;
+            /** Format: uuid */
+            line_id: string;
+            /** @description Required for recycled and transferred_to_partner. */
+            partner_name?: string | null;
+            /**
+             * @description recycled | destroyed | resold | returned_to_client |
+             *     transferred_to_partner.
+             */
+            pathway: string;
+            /**
+             * Format: int64
+             * @description Whole grams; a unit line must carry its full weight.
+             */
+            weight_g: number;
+        };
+        /** @description POST /api/ewaste/intakes/{id}/events — store, move or handoff. */
+        RecordEventRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description store | move | handoff. Intake and disposition events are written by
+             *     the records that produce them.
+             */
+            event_kind: string;
+            /** Format: uuid */
+            line_id?: string | null;
+            location_note?: string | null;
+            notes?: string | null;
+            occurred_at?: string | null;
+            /** @description Required for handoff. */
+            partner_name?: string | null;
+            /** @description Required for store, move and handoff. */
+            storage_class?: string | null;
         };
         RecordPaymentRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -32332,6 +33157,37 @@ export interface components {
              */
             html?: string | null;
             subject?: string | null;
+        };
+        RentalChargeView: {
+            /** Format: int64 */
+            amount_minor: number;
+            billed_at?: string | null;
+            /** Format: uuid */
+            contract_id: string;
+            currency: string;
+            /** Format: int64 */
+            days_billed: number;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id?: string | null;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            /** @description rent | damage | loss */
+            kind: string;
+            /** Format: uuid */
+            loan_id: string;
+            /** Format: int64 */
+            period_days: number;
+            period_end: string;
+            period_start: string;
+            /** Format: uuid */
+            source_line_id?: string | null;
+            /** @description pending | billed */
+            status: string;
+            /** Format: int64 */
+            unit_amount_minor: number;
         };
         ReorderCategoriesRequest: components["schemas"]["MutationParams"] & {
             /** @description Category ids in their new display order. */
@@ -34114,6 +34970,16 @@ export interface components {
              *     must not create a cycle (typed 422 names the offending edge).
              */
             depends_on: string[];
+        };
+        /** @description POST /api/ewaste/intakes/{id}/lines/{line_id}/destruction. */
+        SetDestructionRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description The destruction certificate, when there is one to attach.
+             */
+            document_id?: string | null;
+            /** @description pending | completed | not_required. */
+            status: string;
         };
         SetEmailVerifiedRequest: {
             /** @description true = admin-stamped verification; false = revokes the stamp. */
@@ -37283,12 +38149,26 @@ export interface components {
             icon?: string;
             name: string;
         };
+        /**
+         * @description Every `Option<Option<T>>` field skips serialization when the outer option is
+         *     `None`, while `Some(None)` still serializes as an explicit `null`. The
+         *     idempotency fingerprint is that serialized body, so "keep this value" and
+         *     "clear it" cannot share a key.
+         */
         UpdateOrderRequest: components["schemas"]["MutationParams"] & {
+            acquired_for?: components["schemas"]["AcquiredFor"] | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            delivery_mode?: components["schemas"]["DeliveryMode"] | null;
             /** Format: date */
             expected_at?: string | null;
             notes?: string | null;
+            ownership?: components["schemas"]["Ownership"] | null;
             /** Format: uuid */
             project_id?: string | null;
+            recharge_rule?: components["schemas"]["RechargeRule"] | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
             vendor_reference?: string | null;
         };
         /**
@@ -37838,6 +38718,69 @@ export interface components {
         VendorMutationResponse: components["schemas"]["Vendor"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        VendorRentalAssetRequest: {
+            /** @description device | server | ... (free text, as on every asset). */
+            kind?: string;
+            name: string;
+            tag: string;
+        };
+        VendorRentalListQuery: {
+            /** Format: int64 */
+            limit?: number | null;
+            /** @description open | returned (absent = both). */
+            status?: string | null;
+        };
+        VendorRentalMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            rental: components["schemas"]["VendorRentalView"];
+        };
+        VendorRentalReturnRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            damage_minor?: number | null;
+            /** Format: int64 */
+            loss_minor?: number | null;
+            lost?: boolean;
+            notes?: string | null;
+            /** @description good | fair | damaged — required unless the unit was lost. */
+            return_condition?: string | null;
+        };
+        VendorRentalView: {
+            agreement_ref?: string | null;
+            /**
+             * Format: int64
+             * @description The cycle cost in the organisation base currency, locked when it was
+             *     written. Absent when the cost is already in the base currency.
+             */
+            base_cost_minor?: number | null;
+            /** Format: int64 */
+            cost_minor: number;
+            created_at: string;
+            currency: string;
+            cycle: string;
+            /** Format: int64 */
+            damage_minor?: number | null;
+            deposit_currency?: string | null;
+            /** Format: int64 */
+            deposit_minor?: number | null;
+            /** Format: uuid */
+            device_asset_id: string;
+            end_on?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            loss_minor?: number | null;
+            lost: boolean;
+            notes?: string | null;
+            return_condition?: string | null;
+            returned_at?: string | null;
+            start_on: string;
+            /** @description open | returned */
+            status: string;
+            updated_at: string;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            vendor_name?: string | null;
+        };
         VerdictResponse: {
             /**
              * @description False when the ledger had already recorded this fire (idempotent
@@ -38158,6 +39101,20 @@ export interface components {
             paused_at?: string | null;
             paused_reason?: string | null;
             url: string;
+        };
+        /**
+         * @description The intake's weight accounting: everything received, everything that has a
+         *     pathway, and what is left. `remaining_g` must reach zero before the intake
+         *     closes.
+         */
+        WeightBalance: {
+            by_pathway: components["schemas"]["PathwayWeight"][];
+            /** Format: int64 */
+            remaining_g: number;
+            /** Format: int64 */
+            total_in_g: number;
+            /** Format: int64 */
+            total_out_g: number;
         };
         /**
          * @description WIP-cap patch input (0089): `Default` (field absent) = unchanged;
@@ -43561,6 +44518,34 @@ export interface operations {
             };
         };
     };
+    client_loans_charges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentalChargeView"][];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     client_loans_return: {
         parameters: {
             query?: never;
@@ -48945,6 +49930,337 @@ export interface operations {
             };
             /** @description per-user connection cap reached; reconnect later */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_list_dispositions: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                pathway?: string | null;
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EwasteDisposition"][];
+                };
+            };
+        };
+    };
+    ewaste_list_intakes: {
+        parameters: {
+            query?: {
+                /** @description open | closed. */
+                status?: string | null;
+                client_id?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeSummary"][];
+                };
+            };
+        };
+    };
+    ewaste_create_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateIntakeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description client, site, ticket or document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused or intake reference taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description line rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_get_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeDetailResponse"];
+                };
+            };
+            /** @description intake not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_close_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CloseIntakeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description weight remains, destruction pending, or already closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_record_disposition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordDispositionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake, line or document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description destruction pending, weight overdraw, unit already disposed, or intake closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown pathway or missing certificate/partner */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_record_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordEventRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake or its client not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the intake is closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown event kind or missing storage class */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_add_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddLineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake or its client not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the intake is closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_set_destruction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDestructionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake, line or document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the intake is closed or the line is not data-bearing */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -65266,6 +66582,117 @@ export interface operations {
             };
         };
     };
+    stock_pool_list: {
+        parameters: {
+            query?: {
+                /** @description Only units no open agreement holds. */
+                available_only?: boolean | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolUnitView"][];
+                };
+            };
+        };
+    };
+    stock_pool_commission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResponse"];
+                };
+            };
+            /** @description unit not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unit not in sale stock, or held by an open agreement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_pool_decommission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResponse"];
+                };
+            };
+            /** @description unit not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unit not in the pool, or held by an open agreement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     stock_receive: {
         parameters: {
             query?: never;
@@ -69080,6 +70507,140 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_list: {
+        parameters: {
+            query?: {
+                /** @description open | returned (absent = both). */
+                status?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalView"][];
+                };
+            };
+        };
+    };
+    vendor_rentals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVendorRentalRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalMutationResponse"];
+                };
+            };
+            /** @description vendor or asset not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the unit is not rental_in gear, or is already on an open rental */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalView"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_return: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VendorRentalReturnRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already closed, or an incomplete return */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -14,15 +14,24 @@
 //! because the ADR 0002 FX lock is computed there — this module provides
 //! the primitives it drives (`lock_purchase_order` + guarded line bumps
 //! keep concurrent receipts honest).
+//!
+//! Statements here are built from the const column lists above and executed
+//! with `sqlx::query`, not the checked macros. That is this module's
+//! long-standing shape: a read that gains a column changes one const instead of
+//! a prepare cycle in every environment. Nothing in this module is an unchecked
+//! string built from caller input — every value is bound — and the macros that
+//! exist elsewhere in the crate keep their `.sqlx/` coverage untouched.
 
 use crate::{DbError, DbResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use core_domain::entities::{
-    CloseKind, ExternalLink, ExternalLinkKind, ExternalLinkSubject, PurchaseBill, PurchaseOrder,
-    PurchaseOrderLine, PurchaseOrderStatus, PurchaseReceipt, PurchaseReceiptLine, ReceiptState,
-    Vendor, VendorContact,
+    AcquiredFor, CloseKind, CustodyClass, DeliveryMode, ExternalLink, ExternalLinkKind,
+    ExternalLinkSubject, InventoryPolicy, LandedCostMode, LineKind, Ownership, PurchaseBill,
+    PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus, PurchaseReceipt, PurchaseReceiptLine,
+    ReceiptState, RechargeRule, RechargeRuleKind, Vendor, VendorContact,
 };
 use sqlx::{Postgres, Row};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 const VENDOR_COLS: &str = "id, org_id, name, code, email, phone, website, account_number, \
@@ -579,6 +588,20 @@ pub async fn lock_purchase_order(
     order_row(row)
 }
 
+/// Who is reading the order list, for the client-visibility predicate. The
+/// rule matches `clients::require_client_visible`: an empty `restricted_to`
+/// admits everyone in the org, a non-empty one admits only the named users, and
+/// an owner or admin bypasses it. Applying it in the query keeps a page's
+/// ordering and limit honest, which filtering afterwards would not.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientScope {
+    pub viewer_id: Uuid,
+    pub sees_every_client: bool,
+}
+
+// The parameters are the list filters the SQL binds; a struct would only move
+// them one line away from the query.
+#[allow(clippy::too_many_arguments)]
 pub async fn list_purchase_orders(
     executor: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -587,26 +610,35 @@ pub async fn list_purchase_orders(
     project_id: Option<Uuid>,
     search: Option<&str>,
     limit: i64,
+    scope: ClientScope,
 ) -> DbResult<Vec<PurchaseOrder>> {
     let grep = search.map(|s| format!("%{}%", s.trim().to_lowercase()));
     let rows = sqlx::query(&format!(
         r#"SELECT {ORDER_COLS}
-           FROM purchase_orders
-           WHERE org_id = $1
-             AND ($2::text IS NULL OR status = $2)
-             AND ($3::uuid IS NULL OR vendor_id = $3)
-             AND ($4::uuid IS NULL OR project_id = $4)
+           FROM purchase_orders po
+           WHERE po.org_id = $1
+             AND ($2::text IS NULL OR po.status = $2)
+             AND ($3::uuid IS NULL OR po.vendor_id = $3)
+             AND ($4::uuid IS NULL OR po.project_id = $4)
              AND ($5::text IS NULL
-                  OR lower(number) LIKE $5
-                  OR lower(coalesce(vendor_reference, '')) LIKE $5)
-           ORDER BY created_at DESC
-           LIMIT $6"#
+                  OR lower(po.number) LIKE $5
+                  OR lower(coalesce(po.vendor_reference, '')) LIKE $5)
+             AND ($7::boolean OR po.client_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM clients c
+                    WHERE c.org_id = po.org_id
+                      AND c.id = po.client_id
+                      AND c.restricted_to <> '[]'::jsonb
+                      AND NOT (c.restricted_to ? $6::text)))
+           ORDER BY po.created_at DESC
+           LIMIT $8"#
     ))
     .bind(org_id)
     .bind(status)
     .bind(vendor_id)
     .bind(project_id)
     .bind(grep)
+    .bind(scope.viewer_id)
+    .bind(scope.sees_every_client)
     .bind(limit)
     .fetch_all(&mut *executor)
     .await?;
@@ -961,6 +993,49 @@ where
     Ok(())
 }
 
+/// One receipt line as the routing read side sees it: the line, the class its
+/// consequence landed in, and the asset row when the consequence was an asset.
+/// A stock consequence names its ledger row through the line's own
+/// `movement_id`; a client-lot consequence names none and is the lot identity
+/// ADR 0035 §2 describes (a line plus a quantity).
+#[derive(Debug, Clone)]
+pub struct ReceiptLine {
+    pub line: PurchaseReceiptLine,
+    pub destination_class: Option<CustodyClass>,
+    pub device_asset_id: Option<Uuid>,
+}
+
+/// The receipt engine's insert: the line plus its one consequence in the same
+/// statement. `insert_receipt_line` stays the plain form the demo seed uses, so
+/// neither writer has to pretend the other's columns do not exist.
+pub async fn insert_routed_receipt_line<'e, E>(
+    executor: E,
+    line: &PurchaseReceiptLine,
+    destination_class: CustodyClass,
+    device_asset_id: Option<Uuid>,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query(
+        r#"INSERT INTO purchase_receipt_lines
+             (id, org_id, receipt_id, po_line_id, qty_milli, movement_id,
+              destination_class, device_asset_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+    )
+    .bind(line.id)
+    .bind(line.org_id)
+    .bind(line.receipt_id)
+    .bind(line.po_line_id)
+    .bind(line.qty_milli)
+    .bind(line.movement_id)
+    .bind(destination_class.as_str())
+    .bind(device_asset_id)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
 pub async fn list_receipts(
     executor: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -979,15 +1054,15 @@ pub async fn list_receipts(
 }
 
 /// All receipt lines for an order (joined through its receipts) — the
-/// per-line movement trace lives here.
+/// per-line movement or asset trace lives here.
 pub async fn list_receipt_lines_for_order(
     executor: &mut sqlx::PgConnection,
     org_id: Uuid,
     purchase_order_id: Uuid,
-) -> DbResult<Vec<PurchaseReceiptLine>> {
+) -> DbResult<Vec<ReceiptLine>> {
     let rows = sqlx::query(
         r#"SELECT rl.id, rl.org_id, rl.receipt_id, rl.po_line_id, rl.qty_milli, rl.movement_id,
-                  rl.created_at
+                  rl.created_at, rl.destination_class, rl.device_asset_id
            FROM purchase_receipt_lines rl
            JOIN purchase_receipts r
              ON r.org_id = rl.org_id AND r.id = rl.receipt_id
@@ -998,7 +1073,758 @@ pub async fn list_receipt_lines_for_order(
     .bind(purchase_order_id)
     .fetch_all(&mut *executor)
     .await?;
-    Ok(rows.into_iter().map(receipt_line_row).collect())
+    rows.into_iter()
+        .map(|row| {
+            let destination_class = row
+                .get::<Option<String>, _>("destination_class")
+                .map(|raw| {
+                    CustodyClass::parse(&raw).map_err(|e| decode_err("destination_class", e))
+                })
+                .transpose()?;
+            let device_asset_id: Option<Uuid> = row.get("device_asset_id");
+            Ok(ReceiptLine {
+                line: receipt_line_row(row),
+                destination_class,
+                device_asset_id,
+            })
+        })
+        .collect::<DbResult<Vec<_>>>()
+}
+
+// Intent, routing and recharge (ADR 0035 §2, plan §5; migration 0235) ---------
+//
+// The intent lives beside the order and the line rather than on the domain
+// structs: `PurchaseIntent` and `PurchaseLineIntent` are the vocabulary, these
+// rows are what the columns hold. A line's `destination_class` is `None` when it
+// inherits the header's intent, which is why the receipt engine resolves the
+// class instead of reading a frozen copy.
+
+/// The header intent as `purchase_orders` holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderIntent {
+    pub acquired_for: AcquiredFor,
+    pub client_id: Option<Uuid>,
+    pub ticket_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+    pub ownership: Option<Ownership>,
+    pub delivery_mode: DeliveryMode,
+    pub recharge_rule: Option<RechargeRule>,
+}
+
+/// One line's intent as `purchase_order_lines` holds it. `destination_class`
+/// is `None` for a line that inherits the header intent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineIntent {
+    pub line_kind: LineKind,
+    pub destination_class: Option<CustodyClass>,
+    pub asset_layout_id: Option<Uuid>,
+    pub serial_expected: bool,
+    pub weight_g: Option<i32>,
+    pub sell_price_minor: Option<i64>,
+    /// The caller's explicit choice. `None` means "not stated", and the
+    /// effective value follows the destination class (migration 0242).
+    pub billable: Option<bool>,
+}
+
+impl LineIntent {
+    /// The stock defaults a line carries when the caller says nothing.
+    pub fn stock() -> Self {
+        Self {
+            line_kind: LineKind::Stock,
+            destination_class: None,
+            asset_layout_id: None,
+            serial_expected: false,
+            weight_g: None,
+            sell_price_minor: None,
+            billable: None,
+        }
+    }
+}
+
+fn recharge_rule_from_columns(
+    kind: Option<String>,
+    markup_bps: Option<i32>,
+    fixed_minor: Option<i64>,
+    currency: Option<String>,
+) -> DbResult<Option<RechargeRule>> {
+    let Some(raw) = kind else {
+        return Ok(None);
+    };
+    let rule = RechargeRule {
+        kind: RechargeRuleKind::parse(&raw).map_err(|e| decode_err("recharge_rule_kind", e))?,
+        markup_bps,
+        fixed_minor,
+        currency,
+    };
+    rule.validate()
+        .map_err(|e| decode_err("recharge_rule", e))?;
+    Ok(Some(rule))
+}
+
+fn order_intent_row(row: sqlx::postgres::PgRow) -> DbResult<(Uuid, OrderIntent)> {
+    let id: Uuid = row.get("id");
+    let acquired_for = AcquiredFor::parse(row.get::<String, _>("acquired_for").as_str())
+        .map_err(|e| decode_err("acquired_for", e))?;
+    let delivery_mode = DeliveryMode::parse(row.get::<String, _>("delivery_mode").as_str())
+        .map_err(|e| decode_err("delivery_mode", e))?;
+    let ownership = row
+        .get::<Option<String>, _>("ownership")
+        .map(|raw| Ownership::parse(&raw).map_err(|e| decode_err("ownership", e)))
+        .transpose()?;
+    let recharge_rule = recharge_rule_from_columns(
+        row.get("recharge_rule_kind"),
+        row.get("recharge_markup_bps"),
+        row.get("recharge_fixed_minor"),
+        row.get("recharge_currency"),
+    )?;
+    Ok((
+        id,
+        OrderIntent {
+            acquired_for,
+            client_id: row.get("client_id"),
+            ticket_id: row.get("ticket_id"),
+            project_id: row.get("project_id"),
+            ownership,
+            delivery_mode,
+            recharge_rule,
+        },
+    ))
+}
+
+fn line_intent_row(row: sqlx::postgres::PgRow) -> DbResult<(Uuid, LineIntent)> {
+    let id: Uuid = row.get("id");
+    let line_kind = LineKind::parse(row.get::<String, _>("line_kind").as_str())
+        .map_err(|e| decode_err("line_kind", e))?;
+    let destination_class = row
+        .get::<Option<String>, _>("destination_class")
+        .map(|raw| CustodyClass::parse(&raw).map_err(|e| decode_err("destination_class", e)))
+        .transpose()?;
+    Ok((
+        id,
+        LineIntent {
+            line_kind,
+            destination_class,
+            asset_layout_id: row.get("asset_layout_id"),
+            serial_expected: row.get("serial_expected"),
+            weight_g: row.get("weight_g"),
+            sell_price_minor: row.get("sell_price_minor"),
+            billable: row.get("billable"),
+        },
+    ))
+}
+
+const ORDER_INTENT_COLS: &str = "id, acquired_for, client_id, ticket_id, project_id, ownership, \
+     delivery_mode, recharge_rule_kind, recharge_markup_bps, recharge_fixed_minor, \
+     recharge_currency";
+const LINE_INTENT_COLS: &str = "id, line_kind, destination_class, asset_layout_id, \
+     serial_expected, weight_g, sell_price_minor, billable";
+
+pub async fn get_order_intent<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<OrderIntent>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(&format!(
+        "SELECT {ORDER_INTENT_COLS} FROM purchase_orders WHERE org_id = $1 AND id = $2"
+    ))
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(order_intent_row(row)?.1)
+}
+
+/// Every header intent for a page of orders in one round trip: the list
+/// endpoint must not run one query per order to know what each one buys.
+pub async fn list_order_intents(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    ids: &[Uuid],
+) -> DbResult<HashMap<Uuid, OrderIntent>> {
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(&format!(
+        "SELECT {ORDER_INTENT_COLS} FROM purchase_orders WHERE org_id = $1 AND id = ANY($2)"
+    ))
+    .bind(org_id)
+    .bind(ids)
+    .fetch_all(&mut *executor)
+    .await?;
+    rows.into_iter()
+        .map(order_intent_row)
+        .collect::<DbResult<HashMap<_, _>>>()
+}
+
+pub async fn set_order_intent<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    intent: &OrderIntent,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rule = intent.recharge_rule.as_ref();
+    let n = sqlx::query(
+        r#"UPDATE purchase_orders SET
+             acquired_for = $3, client_id = $4, ticket_id = $5, ownership = $6,
+             delivery_mode = $7, recharge_rule_kind = $8, recharge_markup_bps = $9,
+             recharge_fixed_minor = $10, recharge_currency = $11, updated_at = now()
+           WHERE org_id = $1 AND id = $2"#,
+    )
+    .bind(org_id)
+    .bind(id)
+    .bind(intent.acquired_for.as_str())
+    .bind(intent.client_id)
+    .bind(intent.ticket_id)
+    .bind(intent.ownership.map(Ownership::as_str))
+    .bind(intent.delivery_mode.as_str())
+    .bind(rule.map(|r| r.kind.as_str()))
+    .bind(rule.and_then(|r| r.markup_bps))
+    .bind(rule.and_then(|r| r.fixed_minor))
+    .bind(rule.and_then(|r| r.currency.as_deref()))
+    .execute(executor)
+    .await?;
+    if n.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
+pub async fn list_line_intents(
+    executor: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    purchase_order_id: Uuid,
+) -> DbResult<HashMap<Uuid, LineIntent>> {
+    let rows = sqlx::query(&format!(
+        r#"SELECT {LINE_INTENT_COLS} FROM purchase_order_lines
+           WHERE org_id = $1 AND purchase_order_id = $2"#
+    ))
+    .bind(org_id)
+    .bind(purchase_order_id)
+    .fetch_all(&mut *executor)
+    .await?;
+    rows.into_iter()
+        .map(line_intent_row)
+        .collect::<DbResult<HashMap<_, _>>>()
+}
+
+pub async fn set_line_intent<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    line_id: Uuid,
+    intent: &LineIntent,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let n = sqlx::query(
+        r#"UPDATE purchase_order_lines SET
+             line_kind = $3, destination_class = $4, asset_layout_id = $5,
+             serial_expected = $6, weight_g = $7, sell_price_minor = $8,
+             billable = $9, updated_at = now()
+           WHERE org_id = $1 AND id = $2"#,
+    )
+    .bind(org_id)
+    .bind(line_id)
+    .bind(intent.line_kind.as_str())
+    .bind(intent.destination_class.map(CustodyClass::as_str))
+    .bind(intent.asset_layout_id)
+    .bind(intent.serial_expected)
+    .bind(intent.weight_g)
+    .bind(intent.sell_price_minor)
+    .bind(intent.billable)
+    .execute(executor)
+    .await?;
+    if n.rows_affected() == 0 {
+        return Err(DbError::NotFound);
+    }
+    Ok(())
+}
+
+/// The one column `lock_ticket_client` reads: the ticket's client, `None` when
+/// the ticket belongs to no client.
+#[derive(Debug, Clone, Copy, sqlx::FromRow)]
+pub struct TicketClientRow {
+    pub client_id: Option<Uuid>,
+}
+
+/// Reads a ticket's client under a share lock, so a reassignment cannot commit
+/// between the check and the cost line written with it. A `FOR SHARE` lock
+/// conflicts with the update a ticket move performs, and the lock is held until
+/// this transaction ends.
+pub async fn lock_ticket_client(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    ticket_id: Uuid,
+) -> DbResult<Option<Uuid>> {
+    let row = sqlx::query_as!(
+        TicketClientRow,
+        r#"SELECT client_id FROM tickets
+            WHERE org_id = $1 AND id = $2
+            FOR SHARE"#,
+        org_id,
+        ticket_id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(row.client_id)
+}
+
+/// Takes a share lock on the asset layout a line names, so the layout validated
+/// at receipt cannot gain a required field until this transaction commits. The
+/// insert that follows reads the same row, and a share lock blocks the writer
+/// that edits it (`FOR UPDATE`) while allowing other receipts to proceed.
+pub async fn lock_line_layout(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    layout_id: Uuid,
+) -> DbResult<()> {
+    sqlx::query(
+        r#"SELECT 1 FROM document_layouts
+            WHERE org_id = $1 AND id = $2
+            FOR SHARE"#,
+    )
+    .bind(org_id)
+    .bind(layout_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(())
+}
+
+/// The organisation's inventory money policy (migration 0234 columns). The
+/// defaults are the column defaults, so an org that never configured a rule
+/// reads back the percentage-at-zero rule the database holds.
+pub async fn get_inventory_policy<'e, E>(executor: E, org_id: Uuid) -> DbResult<InventoryPolicy>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let row = sqlx::query(
+        r#"SELECT landed_cost_mode, recharge_rule_kind, recharge_markup_bps,
+                  recharge_fixed_minor, recharge_currency
+           FROM orgs WHERE id = $1"#,
+    )
+    .bind(org_id)
+    .fetch_optional(executor)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    let policy = InventoryPolicy {
+        landed_cost_mode: LandedCostMode::parse(row.get::<String, _>("landed_cost_mode").as_str())
+            .map_err(|e| decode_err("landed_cost_mode", e))?,
+        recharge_rule_kind: RechargeRuleKind::parse(
+            row.get::<String, _>("recharge_rule_kind").as_str(),
+        )
+        .map_err(|e| decode_err("recharge_rule_kind", e))?,
+        recharge_markup_bps: row.get("recharge_markup_bps"),
+        recharge_fixed_minor: row.get("recharge_fixed_minor"),
+        recharge_currency: row.get("recharge_currency"),
+    };
+    policy
+        .validate()
+        .map_err(|e| decode_err("inventory_policy", e))?;
+    Ok(policy)
+}
+
+/// Which rung of the resolution order produced a recharge rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RechargeRuleSource {
+    /// The rule the purchase order itself carries.
+    PurchaseOrder,
+    /// An override on the ticket the purchase serves.
+    Ticket,
+    /// An override on the project the purchase serves.
+    Project,
+    /// An override on the client the purchase is made for.
+    Client,
+    /// The organisation default (`orgs.recharge_*`).
+    Organisation,
+}
+
+impl RechargeRuleSource {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            RechargeRuleSource::PurchaseOrder => "purchase_order",
+            RechargeRuleSource::Ticket => "ticket",
+            RechargeRuleSource::Project => "project",
+            RechargeRuleSource::Client => "client",
+            RechargeRuleSource::Organisation => "organisation",
+        }
+    }
+
+    pub fn parse(raw: &str) -> DbResult<Self> {
+        match raw.trim() {
+            "purchase_order" => Ok(Self::PurchaseOrder),
+            "ticket" => Ok(Self::Ticket),
+            "project" => Ok(Self::Project),
+            "client" => Ok(Self::Client),
+            "organisation" => Ok(Self::Organisation),
+            other => Err(DbError::Conflict(format!(
+                "unknown recharge rule source: {other}"
+            ))),
+        }
+    }
+}
+
+/// The rule in force for one purchase, with the rung that supplied it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedRechargeRule {
+    pub rule: RechargeRule,
+    pub source: RechargeRuleSource,
+}
+
+/// Plan §5.3, in order: the rule written on the purchase, then the ticket or
+/// project it serves, then the client, then the organisation default. Zero
+/// markup is a real percentage rule (at cost), which is why the default is
+/// read as a rule rather than treated as "unset".
+pub async fn resolve_recharge_rule(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    header_rule: Option<&RechargeRule>,
+    ticket_id: Option<Uuid>,
+    project_id: Option<Uuid>,
+    client_id: Option<Uuid>,
+) -> DbResult<ResolvedRechargeRule> {
+    if let Some(rule) = header_rule {
+        return Ok(ResolvedRechargeRule {
+            rule: rule.clone(),
+            source: RechargeRuleSource::PurchaseOrder,
+        });
+    }
+    for (scope_kind, scope_id, source) in [
+        ("ticket", ticket_id, RechargeRuleSource::Ticket),
+        ("project", project_id, RechargeRuleSource::Project),
+        ("client", client_id, RechargeRuleSource::Client),
+    ] {
+        let Some(scope_id) = scope_id else {
+            continue;
+        };
+        let row = sqlx::query(
+            r#"SELECT rule_kind, markup_bps, fixed_minor, currency
+               FROM purchase_recharge_rule_overrides
+               WHERE org_id = $1 AND scope_kind = $2 AND scope_id = $3"#,
+        )
+        .bind(org_id)
+        .bind(scope_kind)
+        .bind(scope_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        if let Some(row) = row {
+            let kind = RechargeRuleKind::parse(row.get::<String, _>("rule_kind").as_str())
+                .map_err(|e| decode_err("rule_kind", e))?;
+            let rule = RechargeRule {
+                kind,
+                markup_bps: row.get("markup_bps"),
+                fixed_minor: row.get("fixed_minor"),
+                currency: row.get("currency"),
+            };
+            rule.validate()
+                .map_err(|e| decode_err("recharge_rule", e))?;
+            return Ok(ResolvedRechargeRule { rule, source });
+        }
+    }
+    let policy = get_inventory_policy(&mut *conn, org_id).await?;
+    Ok(ResolvedRechargeRule {
+        rule: policy
+            .resolved_recharge_rule()
+            .map_err(|e| decode_err("recharge_rule", e))?,
+        source: RechargeRuleSource::Organisation,
+    })
+}
+
+/// One issued recharge, ready to persist.
+#[derive(Debug, Clone)]
+pub struct NewRecharge {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub purchase_order_id: Uuid,
+    pub po_line_id: Uuid,
+    pub receipt_line_id: Uuid,
+    pub client_id: Option<Uuid>,
+    pub ticket_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+    pub rule: RechargeRule,
+    pub rule_source: RechargeRuleSource,
+    pub basis_amount_minor: i64,
+    pub basis_currency: String,
+    pub cost_fx: Option<FxColumns>,
+    pub charge_amount_minor: i64,
+    pub charge_currency: String,
+    pub charge_fx: Option<FxColumns>,
+    pub cost_line_id: Option<Uuid>,
+    pub created_by: Uuid,
+    pub issued_at: DateTime<Utc>,
+}
+
+/// A locked FX snapshot's four columns, as every money table stores them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FxColumns {
+    pub rate_used: String,
+    pub rate_date: NaiveDate,
+    pub source: String,
+    pub base_amount_minor: i64,
+}
+
+/// The one recharge row per receipt line. The unique index on
+/// `(org_id, receipt_line_id)` is the idempotency guard, so a second write is a
+/// conflict rather than a double charge.
+pub async fn insert_recharge<'e, E>(executor: E, recharge: &NewRecharge) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query(
+        r#"INSERT INTO purchase_recharges
+             (id, org_id, purchase_order_id, po_line_id, receipt_line_id, client_id,
+              ticket_id, project_id, rule_kind, rule_source, rule_markup_bps,
+              rule_fixed_minor, rule_currency, basis_amount_minor, basis_currency,
+              cost_fx_rate_used, cost_fx_rate_date, cost_fx_source, cost_base_amount_minor,
+              charge_amount_minor, charge_currency, charge_fx_rate_used, charge_fx_rate_date,
+              charge_fx_source, charge_base_amount_minor, cost_line_id, issued_at, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                   $16::text::numeric, $17, $18, $19, $20, $21, $22::text::numeric, $23,
+                   $24, $25, $26, $27, $28)"#,
+    )
+    .bind(recharge.id)
+    .bind(recharge.org_id)
+    .bind(recharge.purchase_order_id)
+    .bind(recharge.po_line_id)
+    .bind(recharge.receipt_line_id)
+    .bind(recharge.client_id)
+    .bind(recharge.ticket_id)
+    .bind(recharge.project_id)
+    .bind(recharge.rule.kind.as_str())
+    .bind(recharge.rule_source.as_str())
+    .bind(recharge.rule.markup_bps)
+    .bind(recharge.rule.fixed_minor)
+    .bind(recharge.rule.currency.as_deref())
+    .bind(recharge.basis_amount_minor)
+    .bind(&recharge.basis_currency)
+    .bind(recharge.cost_fx.as_ref().map(|fx| fx.rate_used.clone()))
+    .bind(recharge.cost_fx.as_ref().map(|fx| fx.rate_date))
+    .bind(recharge.cost_fx.as_ref().map(|fx| fx.source.clone()))
+    .bind(recharge.cost_fx.as_ref().map(|fx| fx.base_amount_minor))
+    .bind(recharge.charge_amount_minor)
+    .bind(&recharge.charge_currency)
+    .bind(recharge.charge_fx.as_ref().map(|fx| fx.rate_used.clone()))
+    .bind(recharge.charge_fx.as_ref().map(|fx| fx.rate_date))
+    .bind(recharge.charge_fx.as_ref().map(|fx| fx.source.clone()))
+    .bind(recharge.charge_fx.as_ref().map(|fx| fx.base_amount_minor))
+    .bind(recharge.cost_line_id)
+    .bind(recharge.issued_at)
+    .bind(recharge.created_by)
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+/// One issued recharge as the read side sees it.
+#[derive(Debug, Clone)]
+pub struct Recharge {
+    pub id: Uuid,
+    pub purchase_order_id: Uuid,
+    pub po_line_id: Uuid,
+    pub receipt_line_id: Uuid,
+    pub client_id: Option<Uuid>,
+    pub ticket_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+    pub rule: RechargeRule,
+    pub rule_source: RechargeRuleSource,
+    pub basis_amount_minor: i64,
+    pub basis_currency: String,
+    pub cost_fx: Option<FxColumns>,
+    pub charge_amount_minor: i64,
+    pub charge_currency: String,
+    pub charge_fx: Option<FxColumns>,
+    pub cost_line_id: Option<Uuid>,
+    pub issued_at: DateTime<Utc>,
+}
+
+fn fx_columns(
+    rate_used: Option<String>,
+    rate_date: Option<NaiveDate>,
+    source: Option<String>,
+    base_amount_minor: Option<i64>,
+) -> DbResult<Option<FxColumns>> {
+    match (rate_used, rate_date, source, base_amount_minor) {
+        (None, None, None, None) => Ok(None),
+        (Some(rate_used), Some(rate_date), Some(source), Some(base_amount_minor)) => {
+            Ok(Some(FxColumns {
+                rate_used,
+                rate_date,
+                source,
+                base_amount_minor,
+            }))
+        }
+        _ => Err(DbError::Conflict(
+            "a recharge FX snapshot is stored as four columns or none".into(),
+        )),
+    }
+}
+
+pub async fn list_recharges_for_order(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    purchase_order_id: Uuid,
+) -> DbResult<Vec<Recharge>> {
+    let rows = sqlx::query(
+        r#"SELECT id, purchase_order_id, po_line_id, receipt_line_id, client_id, ticket_id,
+                  project_id, rule_kind, rule_source, rule_markup_bps, rule_fixed_minor,
+                  rule_currency, basis_amount_minor, basis_currency,
+                  cost_fx_rate_used::text AS cost_fx_rate_used, cost_fx_rate_date,
+                  cost_fx_source, cost_base_amount_minor, charge_amount_minor,
+                  charge_currency, charge_fx_rate_used::text AS charge_fx_rate_used,
+                  charge_fx_rate_date, charge_fx_source, charge_base_amount_minor,
+                  cost_line_id, issued_at
+           FROM purchase_recharges
+           WHERE org_id = $1 AND purchase_order_id = $2
+           ORDER BY issued_at"#,
+    )
+    .bind(org_id)
+    .bind(purchase_order_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let rule_kind = RechargeRuleKind::parse(row.get::<String, _>("rule_kind").as_str())
+                .map_err(|e| decode_err("rule_kind", e))?;
+            let rule = RechargeRule {
+                kind: rule_kind,
+                markup_bps: row.get("rule_markup_bps"),
+                fixed_minor: row.get("rule_fixed_minor"),
+                currency: row.get("rule_currency"),
+            };
+            rule.validate()
+                .map_err(|e| decode_err("recharge_rule", e))?;
+            Ok(Recharge {
+                id: row.get("id"),
+                purchase_order_id: row.get("purchase_order_id"),
+                po_line_id: row.get("po_line_id"),
+                receipt_line_id: row.get("receipt_line_id"),
+                client_id: row.get("client_id"),
+                ticket_id: row.get("ticket_id"),
+                project_id: row.get("project_id"),
+                rule,
+                rule_source: RechargeRuleSource::parse(
+                    row.get::<String, _>("rule_source").as_str(),
+                )?,
+                basis_amount_minor: row.get("basis_amount_minor"),
+                basis_currency: row.get("basis_currency"),
+                cost_fx: fx_columns(
+                    row.get("cost_fx_rate_used"),
+                    row.get("cost_fx_rate_date"),
+                    row.get("cost_fx_source"),
+                    row.get("cost_base_amount_minor"),
+                )?,
+                charge_amount_minor: row.get("charge_amount_minor"),
+                charge_currency: row.get("charge_currency"),
+                charge_fx: fx_columns(
+                    row.get("charge_fx_rate_used"),
+                    row.get("charge_fx_rate_date"),
+                    row.get("charge_fx_source"),
+                    row.get("charge_base_amount_minor"),
+                )?,
+                cost_line_id: row.get("cost_line_id"),
+                issued_at: row.get("issued_at"),
+            })
+        })
+        .collect()
+}
+
+/// Stamps the source identity and reporting class on the cost line a recharge
+/// produced. Kept as a second statement on purpose: `core_db::costs`'s insert
+/// is shared with the ticket surface, and the recharge columns (migration 0234)
+/// are written here so the billing join can cite the receipt line later.
+pub async fn stamp_cost_line_source<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    cost_line_id: Uuid,
+    source_id: Uuid,
+    reporting_class: &str,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let n = sqlx::query(
+        r#"UPDATE ticket_cost_lines
+              SET source_kind = 'purchase_receipt_line', source_id = $3,
+                  reporting_class = $4
+            WHERE org_id = $1 AND id = $2 AND source_kind IS NULL"#,
+    )
+    .bind(org_id)
+    .bind(cost_line_id)
+    .bind(source_id)
+    .bind(reporting_class)
+    .execute(executor)
+    .await?;
+    if n.rows_affected() == 0 {
+        return Err(DbError::Conflict(format!(
+            "cost line {cost_line_id} already carries a source identity"
+        )));
+    }
+    Ok(())
+}
+
+/// Whether a cost line is the charge of an issued recharge. A recharge is a
+/// fact, so its cost line cannot be re-priced or deleted while it is the
+/// document the recharge cites; corrections are credit notes.
+pub async fn cost_line_is_recharged<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    cost_line_id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let found: Option<Uuid> = sqlx::query_scalar(
+        r#"SELECT id FROM purchase_recharges
+            WHERE org_id = $1 AND cost_line_id = $2
+            LIMIT 1"#,
+    )
+    .bind(org_id)
+    .bind(cost_line_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(found.is_some())
+}
+
+/// Records the class a receipt'd asset moved into when the class it lands in is
+/// not the one its scope and ownership imply. The insert trigger in migration
+/// 0232 applies the new class and refuses a stale `from_class`, so this is the
+/// only sanctioned way to put a purchased unit in the rental pool or a vendor
+/// rental, and the movement cites the receipt line that caused it.
+#[allow(clippy::too_many_arguments)]
+pub async fn record_asset_class_movement<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    device_asset_id: Uuid,
+    from_class: CustodyClass,
+    to_class: CustodyClass,
+    reason: &str,
+    receipt_line_id: Uuid,
+    created_by: Uuid,
+) -> DbResult<()>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    sqlx::query(
+        r#"INSERT INTO inventory_class_movements
+             (id, org_id, unit_kind, device_asset_id, from_class, to_class, reason,
+              source_kind, source_id, created_by)
+           VALUES ($1, $2, 'asset', $3, $4, $5, $6, 'purchase_receipt_line', $7, $8)"#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(device_asset_id)
+    .bind(from_class.as_str())
+    .bind(to_class.as_str())
+    .bind(reason)
+    .bind(receipt_line_id)
+    .bind(created_by)
+    .execute(executor)
+    .await?;
+    Ok(())
 }
 
 // Bills + project cost rollup --------------------------------------------------

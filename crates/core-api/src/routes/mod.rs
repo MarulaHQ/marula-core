@@ -37,6 +37,7 @@
 //! literal paths.
 
 pub mod accounting_export;
+pub mod acquisition_costs;
 pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerts;
@@ -84,6 +85,7 @@ pub mod entitlements;
 pub mod entity_dedupe;
 pub mod event_registry;
 pub mod events;
+pub mod ewaste;
 pub mod export;
 pub mod fx;
 pub mod imports;
@@ -2435,6 +2437,16 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(config_items::routes(gen))
         .merge(entity_dedupe::routes(gen))
         .merge(dedupe::routes(gen))
+        // e-waste custody (ADR 0035 decision 5, migration 0238): an intake of
+        // client goods, the append-only custody ledger, dispositions with
+        // their certificates, and the weight balance that closes the receipt.
+        // Nothing here posts to owned stock.
+        .merge(ewaste::routes(gen))
+        // Acquisition cost layers (ADR 0035 decision 3, migration 0236): the
+        // charge documents that arrive after the goods, their split over a
+        // receipt's lines, and the two reads — a receipt's valuation and the
+        // reporting-class rollup. Append-only; a correction is a new layer.
+        .merge(acquisition_costs::routes(gen))
         .merge(workflow_overrides::routes(gen))
         // dispatch connector (the private build tracker Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;

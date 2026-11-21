@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.2** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**772 paths · 1029 operations · 1606 schemas.**
+**787 paths · 1046 operations · 1647 schemas.**
 
 ## accounting
 
@@ -317,6 +317,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `GET` | `/api/v1/client-loans` <a id="client_loans_list"></a> | GET /api/client-loans. | — |
 | `POST` | `/api/v1/client-loans` <a id="client_loans_issue"></a> | POST /api/client-loans — instant-first (IF1/IF2). | [IssueLoanRequest](#schema-issueloanrequest) |
 | `GET` | `/api/v1/client-loans/{id}` <a id="client_loans_get"></a> | GET /api/client-loans/{id}. | — |
+| `GET` | `/api/v1/client-loans/{id}/charges` <a id="client_loans_charges"></a> | GET /api/client-loans/{id}/charges — every charge the agreement has produced, billed or waiting for the next run. | — |
 | `POST` | `/api/v1/client-loans/{id}/return` <a id="client_loans_return"></a> | POST /api/client-loans/{id}/return — instant-first (IF1/IF2). | [ReturnLoanRequest](#schema-returnloanrequest) |
 
 ## clients
@@ -587,6 +588,20 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/events/stream` <a id="events_stream"></a> | GET /api/events/stream — live contract-event + presence frames. | — |
+
+## ewaste
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/ewaste/dispositions` <a id="ewaste_list_dispositions"></a> | GET /api/ewaste/dispositions — the org-wide register, filterable for the accountant handoff. | — |
+| `GET` | `/api/v1/ewaste/intakes` <a id="ewaste_list_intakes"></a> | GET /api/ewaste/intakes — newest receipt first, weights aggregated. | — |
+| `POST` | `/api/v1/ewaste/intakes` <a id="ewaste_create_intake"></a> | POST /api/ewaste/intakes — instant-first (IF1/IF2). | [CreateIntakeRequest](#schema-createintakerequest) |
+| `GET` | `/api/v1/ewaste/intakes/{id}` <a id="ewaste_get_intake"></a> | GET /api/ewaste/intakes/{id}. | — |
+| `POST` | `/api/v1/ewaste/intakes/{id}/close` <a id="ewaste_close_intake"></a> | POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt. | [CloseIntakeRequest](#schema-closeintakerequest) |
+| `POST` | `/api/v1/ewaste/intakes/{id}/dispositions` <a id="ewaste_record_disposition"></a> | POST /api/ewaste/intakes/{id}/dispositions — record a way out. | [RecordDispositionRequest](#schema-recorddispositionrequest) |
+| `POST` | `/api/v1/ewaste/intakes/{id}/events` <a id="ewaste_record_event"></a> | POST /api/ewaste/intakes/{id}/events — store, move or handoff. | [RecordEventRequest](#schema-recordeventrequest) |
+| `POST` | `/api/v1/ewaste/intakes/{id}/lines` <a id="ewaste_add_line"></a> | POST /api/ewaste/intakes/{id}/lines — add one line while the intake is open. | [AddLineRequest](#schema-addlinerequest) |
+| `POST` | `/api/v1/ewaste/intakes/{id}/lines/{line_id}/destruction` <a id="ewaste_set_destruction"></a> | POST /api/ewaste/intakes/{id}/lines/{line_id}/destruction — record the destruction state of a data-bearing line. | [SetDestructionRequest](#schema-setdestructionrequest) |
 
 ## external-links
 
@@ -1389,6 +1404,9 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `GET` | `/api/v1/stock/consumption-velocity` <a id="stock_consumption_velocity"></a> | GET /api/stock/consumption-velocity — the outbound-rate read model. | — |
 | `POST` | `/api/v1/stock/levels/thresholds` <a id="stock_thresholds_set"></a> | POST /api/stock/levels/thresholds — min/max/reorder per (item, location); NULL clears. Creates the level row on first touch, without moving stock. | [ThresholdsRequest](#schema-thresholdsrequest) |
 | `GET` | `/api/v1/stock/on-hand` <a id="stock_on_hand"></a> | GET /api/stock/on-hand — the stock-on-hand read model. | — |
+| `GET` | `/api/v1/stock/pool` <a id="stock_pool_list"></a> | GET /api/stock/pool — every unit in the rental pool, and whether an open agreement holds it. | — |
+| `POST` | `/api/v1/stock/pool/commission` <a id="stock_pool_commission"></a> | POST /api/stock/pool/commission — sale stock into the rental pool. | [PoolMoveRequest](#schema-poolmoverequest) |
+| `POST` | `/api/v1/stock/pool/decommission` <a id="stock_pool_decommission"></a> | POST /api/stock/pool/decommission — the rental pool back into sale stock. | [PoolMoveRequest](#schema-poolmoverequest) |
 | `POST` | `/api/v1/stock/receive` <a id="stock_receive"></a> | POST /api/stock/receive — a positive leg into ONE location. Serialized items move one physical unit per ledger row (exactly one serial). | [ReceiveRequest](#schema-receiverequest) |
 | `POST` | `/api/v1/stock/ship-out` <a id="stock_ship_out"></a> | POST /api/stock/ship-out — OUT to a client or an on-site job, with optional carrier + tracking ref. | [ShipOutRequest](#schema-shipoutrequest) |
 | `POST` | `/api/v1/stock/transfer` <a id="stock_transfer"></a> | POST /api/stock/transfer — shrink one location, grow another. | [TransferRequest](#schema-transferrequest) |
@@ -1600,6 +1618,15 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|---|
 | `PATCH` | `/api/v1/users/me` <a id="users_me_patch"></a> | Wave 26 onboarding leg (b): the per-user first-run "check your profile" step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me changes ONLY the caller's own display name and timezone (email is immutable here by design), with an audit row in the same transaction. | [PatchMeRequest](#schema-patchmerequest) |
 
+## vendor-rentals
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/vendor-rentals` <a id="vendor_rentals_list"></a> | GET /api/vendor-rentals. | — |
+| `POST` | `/api/v1/vendor-rentals` <a id="vendor_rentals_create"></a> | POST /api/vendor-rentals — record what the organisation is renting in. | [CreateVendorRentalRequest](#schema-createvendorrentalrequest) |
+| `GET` | `/api/v1/vendor-rentals/{id}` <a id="vendor_rentals_get"></a> | GET /api/vendor-rentals/{id}. | — |
+| `POST` | `/api/v1/vendor-rentals/{id}/return` <a id="vendor_rentals_return"></a> | POST /api/vendor-rentals/{id}/return — close the agreement with what happened to the unit. | [VendorRentalReturnRequest](#schema-vendorrentalreturnrequest) |
+
 ## vendors
 
 | Method | Path | Operation | Request body |
@@ -1654,11 +1681,13 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|
 | <a id="schema-acceptinviterequest"></a>`AcceptInviteRequest` | object |  |
 | <a id="schema-acceptobservedrequest"></a>`AcceptObservedRequest` | composite |  |
+| <a id="schema-acquiredfor"></a>`AcquiredFor` | string |  |
 | <a id="schema-actionview"></a>`ActionView` | object |  |
 | <a id="schema-actor"></a>`Actor` | object | Who performed the audited action. Append-only provenance record. Portal variants carry the client-side tier so audit trails distinguish staff actions from client-portal actions at the storage layer (a |
 | <a id="schema-addchecklistitemrequest"></a>`AddChecklistItemRequest` | composite |  |
 | <a id="schema-addcommentrequest"></a>`AddCommentRequest` | composite |  |
 | <a id="schema-addkitmemberrequest"></a>`AddKitMemberRequest` | composite | POST /api/tool-kits/{id}/members. |
+| <a id="schema-addlinerequest"></a>`AddLineRequest` | composite | POST /api/ewaste/intakes/{id}/lines. |
 | <a id="schema-addmemberrequest"></a>`AddMemberRequest` | composite |  |
 | <a id="schema-addorderlinerequest"></a>`AddOrderLineRequest` | composite | POST /purchase-orders/{id}/lines body: the line plus IF1 params. |
 | <a id="schema-adjustrequest"></a>`AdjustRequest` | composite |  |
@@ -1896,6 +1925,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-clientsettingsrequest"></a>`ClientSettingsRequest` | object |  |
 | <a id="schema-clientupdateview"></a>`ClientUpdateView` | object |  |
 | <a id="schema-clientworkflowresolution"></a>`ClientWorkflowResolution` | object | The client's full resolved workflow: one entry per registry declaration, registry order preserved. |
+| <a id="schema-closeintakerequest"></a>`CloseIntakeRequest` | composite | POST /api/ewaste/intakes/{id}/close. The body is optional: a caller that has not read a version may close without one, and a caller that has read the intake passes the version it saw. |
 | <a id="schema-closekind"></a>`CloseKind` | string |  |
 | <a id="schema-closeorderrequest"></a>`CloseOrderRequest` | composite |  |
 | <a id="schema-commentlistquery"></a>`CommentListQuery` | object |  |
@@ -1993,6 +2023,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-createfromtemplaterequest"></a>`CreateFromTemplateRequest` | composite |  |
 | <a id="schema-creategrouprequest"></a>`CreateGroupRequest` | object |  |
 | <a id="schema-createimporttemplaterequest"></a>`CreateImportTemplateRequest` | object | POST /api/imports/templates request. |
+| <a id="schema-createintakerequest"></a>`CreateIntakeRequest` | composite | POST /api/ewaste/intakes. |
 | <a id="schema-createinterfacerequest"></a>`CreateInterfaceRequest` | object |  |
 | <a id="schema-createinvoicerunrequest"></a>`CreateInvoiceRunRequest` | composite |  |
 | <a id="schema-createkitrequest"></a>`CreateKitRequest` | composite | POST /api/tool-kits. |
@@ -2044,6 +2075,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-createtimeentryrequest"></a>`CreateTimeEntryRequest` | object |  |
 | <a id="schema-createtraveldraftrequest"></a>`CreateTravelDraftRequest` | composite | POST /api/dispatch/travel-drafts body. |
 | <a id="schema-createtravelexpenserequest"></a>`CreateTravelExpenseRequest` | composite |  |
+| <a id="schema-createvendorrentalrequest"></a>`CreateVendorRentalRequest` | composite |  |
 | <a id="schema-createvendorrequest"></a>`CreateVendorRequest` | composite |  |
 | <a id="schema-createviewrequest"></a>`CreateViewRequest` | object |  |
 | <a id="schema-createwebhookrequest"></a>`CreateWebhookRequest` | object |  |
@@ -2061,6 +2093,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-creditnotestatus"></a>`CreditNoteStatus` | string | Document lifecycle of a credit note. `applied` / `refunded` / `partially applied` are DERIVED from the counters, never stored — allocation moves continuously; only a void is a state. |
 | <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature gate — true only once the org has real survey data, never fabricated from a zero-window. Scores are 1-5; "low" means score ≤ 2. |
 | <a id="schema-curatefieldsrequest"></a>`CurateFieldsRequest` | composite |  |
+| <a id="schema-custodyclass"></a>`CustodyClass` | string |  |
 | <a id="schema-customdomaininstructions"></a>`CustomDomainInstructions` | object | Manual DNS setup instructions (the seam's none-mode), ready to render. |
 | <a id="schema-customdomainview"></a>`CustomDomainView` | object | GET response: current state + verification status + whether a DNS-provider plugin is installed (A8 (F)). |
 | <a id="schema-customizationmanifest"></a>`CustomizationManifest` | object | The customization manifest envelope, `manifest_version` 1. |
@@ -2122,6 +2155,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-deliveryledgerresponse"></a>`DeliveryLedgerResponse` | object |  |
 | <a id="schema-deliveryledgerrow"></a>`DeliveryLedgerRow` | object |  |
 | <a id="schema-deliverylistquery"></a>`DeliveryListQuery` | object | GET /api/report-schedules/{id}/deliveries query. |
+| <a id="schema-deliverymode"></a>`DeliveryMode` | string |  |
 | <a id="schema-deliverypage"></a>`DeliveryPage` | object |  |
 | <a id="schema-deliveryquery"></a>`DeliveryQuery` | object |  |
 | <a id="schema-dependencylistresponse"></a>`DependencyListResponse` | object | A task's direct finish-to-start dependencies (full rows, so the client renders "blocked by" without extra fetches). |
@@ -2211,6 +2245,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-eventregistryview"></a>`EventRegistryView` | object | The registry as one read. |
 | <a id="schema-eventslistresponse"></a>`EventsListResponse` | object |  |
 | <a id="schema-eventtypeentryview"></a>`EventTypeEntryView` | object | One catalogue type. |
+| <a id="schema-ewastedisposition"></a>`EwasteDisposition` | object | A recorded way out of custody. |
+| <a id="schema-ewasteevent"></a>`EwasteEvent` | object | One append-only custody event. |
+| <a id="schema-ewasteintake"></a>`EwasteIntake` | object | A receipt of custody. The client owns the goods; the organisation holds them. |
+| <a id="schema-ewasteintakeline"></a>`EwasteIntakeLine` | object | One line: a serialized unit or a lot, with its weight in integer grams. |
 | <a id="schema-expensemutationresponse"></a>`ExpenseMutationResponse` | object |  |
 | <a id="schema-expiryrow"></a>`ExpiryRow` | object | One expiring thing, with its date and who owns it. |
 | <a id="schema-exportarchiveupdate"></a>`ExportArchiveUpdate` | object |  |
@@ -2307,6 +2345,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-installsettingsview"></a>`InstallSettingsView` | object |  |
 | <a id="schema-installview"></a>`InstallView` | object |  |
 | <a id="schema-instantiatetemplaterequest"></a>`InstantiateTemplateRequest` | composite |  |
+| <a id="schema-intakedetailresponse"></a>`IntakeDetailResponse` | object | One intake with everything that answers "where did it go". |
+| <a id="schema-intakelinerequest"></a>`IntakeLineRequest` | object | One line of a received consignment. |
+| <a id="schema-intakemutationresponse"></a>`IntakeMutationResponse` | composite | The intake response plus the instant-first envelope metadata (IF2). |
+| <a id="schema-intakesummary"></a>`IntakeSummary` | object | An intake as the list view sees it, with its weights aggregated in one query rather than one query per row. |
 | <a id="schema-integrationlinkstatus"></a>`IntegrationLinkStatus` | object | Per-connector link state as data (linked/unlinked + last touch). |
 | <a id="schema-integrityfindingpage"></a>`IntegrityFindingPage` | object | One page of the ledger, with the two open counts beside it. |
 | <a id="schema-integrityfindingview"></a>`IntegrityFindingView` | object | One finding as the operator surface reads it. |
@@ -2360,6 +2402,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-ledgeraccountview"></a>`LedgerAccountView` | object | One account in the customer's chart of accounts, neutral-shaped (G2). |
 | <a id="schema-ledgerview"></a>`LedgerView` | object | GET /accounting/connections/{id}/ledger — the read leg's payload. |
 | <a id="schema-lessonview"></a>`LessonView` | object |  |
+| <a id="schema-linekind"></a>`LineKind` | string |  |
 | <a id="schema-linkbeginresponse"></a>`LinkBeginResponse` | object |  |
 | <a id="schema-linkcheckresponse"></a>`LinkCheckResponse` | composite | The link-check response: the refreshed row plus the outcome. |
 | <a id="schema-linkcheckstatus"></a>`LinkCheckStatus` | string | Outcome of a link-check. `unreachable` covers DNS/TLS/HTTP failures — the record exists but could not be verified. |
@@ -2369,8 +2412,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-linksview"></a>`LinksView` | object |  |
 | <a id="schema-listcandidatesquery"></a>`ListCandidatesQuery` | object |  |
 | <a id="schema-listconfigitemsquery"></a>`ListConfigItemsQuery` | object |  |
+| <a id="schema-listdispositionsquery"></a>`ListDispositionsQuery` | object | GET /api/ewaste/dispositions. |
 | <a id="schema-listentitycandidatesquery"></a>`ListEntityCandidatesQuery` | object |  |
 | <a id="schema-listentriesquery"></a>`ListEntriesQuery` | object |  |
+| <a id="schema-listintakesquery"></a>`ListIntakesQuery` | object | GET /api/ewaste/intakes. |
 | <a id="schema-listordersquery"></a>`ListOrdersQuery` | object |  |
 | <a id="schema-listorgusersquery"></a>`ListOrgUsersQuery` | object |  |
 | <a id="schema-listratingsquery"></a>`ListRatingsQuery` | object |  |
@@ -2493,6 +2538,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-overrideregistryresponse"></a>`OverrideRegistryResponse` | object |  |
 | <a id="schema-overridevaluekind"></a>`OverrideValueKind` | string | The value shapes a client override accepts. The wire value is the plain JSON payload (uuid string / boolean); the kind exists so validation can reject a mistyped payload before persistence. |
 | <a id="schema-owneddeletequery"></a>`OwnedDeleteQuery` | object |  |
+| <a id="schema-ownership"></a>`Ownership` | string |  |
 | <a id="schema-packruleview"></a>`PackRuleView` | object |  |
 | <a id="schema-passwordentry"></a>`PasswordEntry` | object | A vault credential. `secret_ciphertext` is AES-256-GCM from core-api crypto::seal — plaintext NEVER reaches the database layer, and this entity never carries it either (reveal is a dedicated, audited  |
 | <a id="schema-passwordhistoryentry"></a>`PasswordHistoryEntry` | object | One archived secret ciphertext from a credential's change history. |
@@ -2517,6 +2563,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-patchtraveldraftrequest"></a>`PatchTravelDraftRequest` | composite | PATCH /api/dispatch/travel-drafts/{id} body — every member optional; absent members are left untouched. |
 | <a id="schema-patchusercostraterequest"></a>`PatchUserCostRateRequest` | object |  |
 | <a id="schema-patchviewrequest"></a>`PatchViewRequest` | object |  |
+| <a id="schema-pathwayweight"></a>`PathwayWeight` | object | Weight moved by one pathway. |
 | <a id="schema-pausetimerrequest"></a>`PauseTimerRequest` | object |  |
 | <a id="schema-paymentmutationresponse"></a>`PaymentMutationResponse` | object | Payment receipt response. The invoice is nested (not flattened) so the stored replay payload — `{payment, invoice}` plus the merged mutation metadata — deserializes into this shape byte-identically. |
 | <a id="schema-phaseallocationlistview"></a>`PhaseAllocationListView` | object | Every allocation in the org, or in one project. |
@@ -2558,6 +2605,11 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-podsettingsview"></a>`PodSettingsView` | object |  |
 | <a id="schema-podvisibilityview"></a>`PodVisibilityView` | object |  |
 | <a id="schema-policyview"></a>`PolicyView` | object |  |
+| <a id="schema-poollistquery"></a>`PoolListQuery` | object |  |
+| <a id="schema-poolmoverequest"></a>`PoolMoveRequest` | composite | POST /api/stock/pool/commission or /api/stock/pool/decommission. |
+| <a id="schema-poolmoveview"></a>`PoolMoveView` | object |  |
+| <a id="schema-poolmutationresponse"></a>`PoolMutationResponse` | object |  |
+| <a id="schema-poolunitview"></a>`PoolUnitView` | object | One unit in the pool, with availability derived from the agreements that hold it. |
 | <a id="schema-portalappointmentrequestmutationresponse"></a>`PortalAppointmentRequestMutationResponse` | composite | Instant-first mutation response (IF2) for appointment-request writes. The request fields sit at the TOP LEVEL (flattened) so the stored replay payload (`request` serialized + merged mutation metadata) |
 | <a id="schema-portalarticlelistquery"></a>`PortalArticleListQuery` | object |  |
 | <a id="schema-portalattachmentview"></a>`PortalAttachmentView` | object | Portal attachment view: metadata only (bytes stream on download). |
@@ -2665,14 +2717,16 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-purchaseorder"></a>`PurchaseOrder` | object | One purchase order header. |
 | <a id="schema-purchaseorderdeeplinks"></a>`PurchaseOrderDeeplinks` | object |  |
 | <a id="schema-purchaseorderdetail"></a>`PurchaseOrderDetail` | object |  |
+| <a id="schema-purchaseorderintentview"></a>`PurchaseOrderIntentView` | object | The header intent a client reads (plan §5.1): what the purchase is for, who it serves, how it is delivered and the recharge rule it carries. The rule is money (`fixed` carries a price and a currency), |
 | <a id="schema-purchaseorderline"></a>`PurchaseOrderLine` | object | One PO line: quantity at milli precision, cost in minor units. |
 | <a id="schema-purchaseorderlineview"></a>`PurchaseOrderLineView` | object | Ledger-visible PO line (cost fields are `financial:read`-gated). |
 | <a id="schema-purchaseorderrollup"></a>`PurchaseOrderRollup` | object | The rolled-up money on a PO: ordered and received amounts in the PO currency, integer minor units. |
 | <a id="schema-purchaseorderstatus"></a>`PurchaseOrderStatus` | string |  |
-| <a id="schema-purchaseordersummary"></a>`PurchaseOrderSummary` | composite | One row of the order list: the order itself plus its own totals. The order fields are flattened, so this is the order's old wire shape plus a `totals` key — a client that ignores the new key keeps wor |
+| <a id="schema-purchaseordersummary"></a>`PurchaseOrderSummary` | composite | One row of the order list: the order itself plus its own totals. The order fields are flattened, so this is the order's old wire shape plus `totals` and `intent` keys — a client that ignores the new k |
 | <a id="schema-purchasereceipt"></a>`PurchaseReceipt` | object | One receipt document: goods that landed at a location against a PO. |
 | <a id="schema-purchasereceiptline"></a>`PurchaseReceiptLine` | object | One receipt line: what moved, and the ledger row it posted. |
-| <a id="schema-purchasereceiptview"></a>`PurchaseReceiptView` | composite | A receipt document with its traceability lines (each stamps the lane-1 ledger `movement_id` it posted). |
+| <a id="schema-purchasereceiptview"></a>`PurchaseReceiptView` | composite | A receipt document with its traceability lines (each stamps the consequence it produced: a ledger movement, an asset, or neither for a client lot). |
+| <a id="schema-purchaserechargeview"></a>`PurchaseRechargeView` | object | One issued recharge (plan §5.3). The resolved rule, the basis it was applied to, both currencies and both FX snapshots travel together because an issued recharge is never recomputed. |
 | <a id="schema-pushcheckpoint"></a>`PushCheckpoint` | object | The checkpoint cursor of a push session: what the server has committed and what it expects next. `last_committed_chunk` is `-1` on a fresh session. |
 | <a id="schema-pushchunkreport"></a>`PushChunkReport` | object | The per-row report of one chunk — the D2 contract shape, kept Serialize+Deserialize so a committed chunk's stored copy replays faithfully on an exact re-send. |
 | <a id="schema-pushchunkrequest"></a>`PushChunkRequest` | composite | POST /api/migration/push/sessions/{id}/chunks body. |
@@ -2751,15 +2805,21 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-ratingmineview"></a>`RatingMineView` | object |  |
 | <a id="schema-ratingsummary"></a>`RatingSummary` | object |  |
 | <a id="schema-readguardrails"></a>`ReadGuardrails` | object | The guardrails a declared read runs under (ADR 0017 §5). Three of the four are ceilings a declaration may not exceed; the fourth is a promise that may only be declared one way. Validation applies the  |
+| <a id="schema-receiptlineview"></a>`ReceiptLineView` | composite | One receipt line's consequence, as the routing engine resolved it. The destination class and the asset a line created are what makes the chain in §4.3 readable from the receipt alone. |
 | <a id="schema-receiptmutationresponse"></a>`ReceiptMutationResponse` | object |  |
 | <a id="schema-receiptstate"></a>`ReceiptState` | string |  |
 | <a id="schema-receivelineinput"></a>`ReceiveLineInput` | object |  |
 | <a id="schema-receiveorderrequest"></a>`ReceiveOrderRequest` | composite |  |
 | <a id="schema-receiverequest"></a>`ReceiveRequest` | composite | POST /api/stock/{receive\|consume\|adjust\|transfer\|ship-out} bodies. All quantities are `milli` thousandths of the item's unit (parity with quote lines); signed legs are normalized per kind below. |
+| <a id="schema-rechargefxview"></a>`RechargeFxView` | object |  |
+| <a id="schema-rechargerule"></a>`RechargeRule` | object | The recharge rule in force for one line. The resolved rule is stored beside the charge it produced, so a later policy change cannot rewrite an issued recharge. All money is integer minor units and the |
+| <a id="schema-rechargerulekind"></a>`RechargeRuleKind` | string |  |
 | <a id="schema-reconciliationquery"></a>`ReconciliationQuery` | object |  |
 | <a id="schema-reconciliationrow"></a>`ReconciliationRow` | object |  |
 | <a id="schema-reconciliationview"></a>`ReconciliationView` | object |  |
 | <a id="schema-recordbillrequest"></a>`RecordBillRequest` | composite |  |
+| <a id="schema-recorddispositionrequest"></a>`RecordDispositionRequest` | composite | POST /api/ewaste/intakes/{id}/dispositions. |
+| <a id="schema-recordeventrequest"></a>`RecordEventRequest` | composite | POST /api/ewaste/intakes/{id}/events — store, move or handoff. |
 | <a id="schema-recordpaymentrequest"></a>`RecordPaymentRequest` | composite |  |
 | <a id="schema-recordraterequest"></a>`RecordRateRequest` | composite |  |
 | <a id="schema-recoverycodesresponse"></a>`RecoveryCodesResponse` | object |  |
@@ -2779,6 +2839,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-renderlabelrequest"></a>`RenderLabelRequest` | object |  |
 | <a id="schema-renderreplysnippetrequest"></a>`RenderReplySnippetRequest` | object |  |
 | <a id="schema-rendertemplaterequest"></a>`RenderTemplateRequest` | object |  |
+| <a id="schema-rentalchargeview"></a>`RentalChargeView` | object |  |
 | <a id="schema-reordercategoriesrequest"></a>`ReorderCategoriesRequest` | composite |  |
 | <a id="schema-reorderrequest"></a>`ReorderRequest` | object | The plan's order as a drop leaves it. Both lists are complete: `phases` names every phase of the project once, `tasks` names every task of the project once in the phase it should sit in. A drag that c |
 | <a id="schema-reorderresponse"></a>`ReorderResponse` | object |  |
@@ -2915,6 +2976,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-setcustomdomainrequest"></a>`SetCustomDomainRequest` | object |  |
 | <a id="schema-setcustomdomainresponse"></a>`SetCustomDomainResponse` | object | POST response: exactly the three fields the private build tracker A8 (B) names. |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
+| <a id="schema-setdestructionrequest"></a>`SetDestructionRequest` | composite | POST /api/ewaste/intakes/{id}/lines/{line_id}/destruction. |
 | <a id="schema-setemailverifiedrequest"></a>`SetEmailVerifiedRequest` | object |  |
 | <a id="schema-setjourneystartrequest"></a>`SetJourneyStartRequest` | composite |  |
 | <a id="schema-setprojectcalendarrequest"></a>`SetProjectCalendarRequest` | object |  |
@@ -3161,7 +3223,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-updateknowledgetemplaterequest"></a>`UpdateKnowledgeTemplateRequest` | object |  |
 | <a id="schema-updatelabeltemplaterequest"></a>`UpdateLabelTemplateRequest` | composite |  |
 | <a id="schema-updatelayoutrequest"></a>`UpdateLayoutRequest` | composite |  |
-| <a id="schema-updateorderrequest"></a>`UpdateOrderRequest` | composite |  |
+| <a id="schema-updateorderrequest"></a>`UpdateOrderRequest` | composite | Every `Option<Option<T>>` field skips serialization when the outer option is `None`, while `Some(None)` still serializes as an explicit `null`. The idempotency fingerprint is that serialized body, so  |
 | <a id="schema-updateorgdefaultrequest"></a>`UpdateOrgDefaultRequest` | object | PUT /api/notification-org-defaults — replaces the org default ROW for one kind; the chain is user override → org default → built-in, so an untouched user's next email follows this policy. Quiet hours  |
 | <a id="schema-updatepasswordrequest"></a>`UpdatePasswordRequest` | composite |  |
 | <a id="schema-updatepreferencerequest"></a>`UpdatePreferenceRequest` | object |  |
@@ -3212,6 +3274,11 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-vendorcontactinput"></a>`VendorContactInput` | object |  |
 | <a id="schema-vendordetail"></a>`VendorDetail` | object | Vendor detail: the entity plus its typed contacts and external links. |
 | <a id="schema-vendormutationresponse"></a>`VendorMutationResponse` | composite |  |
+| <a id="schema-vendorrentalassetrequest"></a>`VendorRentalAssetRequest` | object |  |
+| <a id="schema-vendorrentallistquery"></a>`VendorRentalListQuery` | object |  |
+| <a id="schema-vendorrentalmutationresponse"></a>`VendorRentalMutationResponse` | object |  |
+| <a id="schema-vendorrentalreturnrequest"></a>`VendorRentalReturnRequest` | composite |  |
+| <a id="schema-vendorrentalview"></a>`VendorRentalView` | object |  |
 | <a id="schema-verdictresponse"></a>`VerdictResponse` | object |  |
 | <a id="schema-verificationattempt"></a>`VerificationAttempt` | object | One verification round: the findings the model's answer produced. |
 | <a id="schema-verificationcounters"></a>`VerificationCounters` | object | The workspace counters that gate the close checklist. |
@@ -3239,6 +3306,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-webhooklist"></a>`WebhookList` | object |  |
 | <a id="schema-webhooksecretresponse"></a>`WebhookSecretResponse` | object | Returned by create ONLY — carries the signing secret in plaintext one final time. There is deliberately no read-back path. |
 | <a id="schema-webhookview"></a>`WebhookView` | object |  |
+| <a id="schema-weightbalance"></a>`WeightBalance` | object | The intake's weight accounting: everything received, everything that has a pathway, and what is left. `remaining_g` must reach zero before the intake closes. |
 | <a id="schema-wiplimitupdate"></a>`WipLimitUpdate` | object | WIP-cap patch input (0089): `Default` (field absent) = unchanged; JSON null = clear; a number = set. serde's `Option<Option>` mapping makes a present-but-null field UNREPRESENTABLE from JSON (null fol |
 | <a id="schema-withholdupdaterequest"></a>`WithholdUpdateRequest` | object |  |
 | <a id="schema-workbenchdecision"></a>`WorkbenchDecision` | object | The suggestion-grade `decision_record_dedupe` judgment for this candidate, read from the append-only decision store. `None` (and therefore silent in the UI) whenever the decision model is unconfigured |
@@ -3259,4 +3327,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 32 operation groups; schema count 1606 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 33 operation groups; schema count 1647 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
