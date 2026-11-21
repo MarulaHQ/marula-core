@@ -9,37 +9,39 @@ secrets, the shapes, upgrades and backups.
 On Linux or Apple silicon:
 
 ```sh
-curl -fsSL https://getmarula.com/install/latest/linux \
-  -o /tmp/marula-install.sh && sh /tmp/marula-install.sh
+curl -fsSL https://getmarula.com/install/latest/linux | sh
 ```
 
 That is `scripts/release/bootstrap-install.sh`, attached to releases from 0.6.1.
 It works out your platform, downloads that archive, verifies the signature over
 its checksum list, verifies the archive, unpacks it, and runs the bundle's
-`./install.sh` with the arguments it did not consume itself (`--dir`, `--apply`
-and anything else go straight through; a `--` before them also works). With no
-arguments that means the wizard, into `~/marula`.
+`./install.sh`. With no arguments that means the wizard, into `~/marula`.
 
-The script is written to a file first so that a failed download cannot look like
-a successful no-op: `curl … | sh` would hand an empty script to `sh` on a 404 and
-exit zero.
-
-```sh
-# a server: print the plan, then apply
-sh /tmp/marula-install.sh --dir /srv/marula
-sh /tmp/marula-install.sh --dir /srv/marula --apply
-# a specific version, or the air-gapped bundle
-sh /tmp/marula-install.sh --version 0.6.2
-sh /tmp/marula-install.sh --offline
-```
-
-On a shared machine, download into `$(mktemp)` rather than a fixed name:
+Downloading it to a file first is safer, and it is the form to use whenever you
+want to pass anything through:
 
 ```sh
 T=$(mktemp)
-curl -fsSL https://getmarula.com/install/latest/linux -o "$T" \
-  && sh "$T" --dir /srv/marula --apply
+curl -fsSL https://getmarula.com/install/latest/linux -o "$T" && sh "$T"
 ```
+
+A pipe cannot report a failed download. On a 404, `curl -f` exits non-zero, `sh`
+receives nothing, and the pipeline still exits 0, so the command says it worked
+having done nothing. Writing to a file first makes the failed download stop the
+command instead. Why `mktemp` and not a fixed name: on a shared machine a
+predictable path is a file somebody else can leave behind.
+
+```sh
+# a server: print the plan, then apply
+sh "$T" --dir /srv/marula
+sh "$T" --dir /srv/marula --apply
+# a specific version, or the air-gapped bundle
+sh "$T" --version 0.6.2
+sh "$T" --offline
+```
+
+The arguments go straight through to the bundle's installer (`--dir`, `--apply`,
+anything else; a `--` before them also works).
 
 ### Pin a version
 
