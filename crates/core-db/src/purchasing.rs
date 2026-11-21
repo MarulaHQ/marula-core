@@ -40,9 +40,6 @@ const CONTACT_COLS: &str = "id, org_id, vendor_id, name, email, phone, role, is_
      created_at, updated_at";
 const LINK_COLS: &str = "id, org_id, subject_kind, subject_id, kind, url, label, carrier, \
      created_by, created_at, updated_at";
-const ORDER_COLS: &str = "id, org_id, vendor_id, number, status, currency, vendor_reference, \
-     project_id, notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at, \
-     cancel_reason, created_by, created_at, updated_at";
 const LINE_COLS: &str = "id, org_id, purchase_order_id, stock_item_id, catalog_item_id, \
      description, qty_ordered_milli, qty_received_milli, unit_cost_minor, receipt_state, \
      position, created_at, updated_at";
@@ -111,30 +108,53 @@ fn link_row(row: sqlx::postgres::PgRow) -> DbResult<ExternalLink> {
     })
 }
 
-fn order_row(row: sqlx::postgres::PgRow) -> DbResult<PurchaseOrder> {
+/// One purchase order, as the checked projections select it (`ORDER_PROJECTION`
+/// is the same list every statement returns).
+#[derive(Debug, sqlx::FromRow)]
+pub struct PurchaseOrderRow {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub vendor_id: Uuid,
+    pub number: String,
+    pub status: String,
+    pub currency: String,
+    pub vendor_reference: Option<String>,
+    pub project_id: Option<Uuid>,
+    pub notes: Option<String>,
+    pub ordered_at: Option<DateTime<Utc>>,
+    pub expected_at: Option<NaiveDate>,
+    pub closed_at: Option<DateTime<Utc>>,
+    pub close_kind: Option<String>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+    pub cancel_reason: Option<String>,
+    pub created_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+fn order_from_row(row: PurchaseOrderRow) -> DbResult<PurchaseOrder> {
     Ok(PurchaseOrder {
-        id: row.get("id"),
-        org_id: row.get("org_id"),
-        vendor_id: row.get("vendor_id"),
-        number: row.get("number"),
-        status: PurchaseOrderStatus::parse(row.get::<String, _>("status").as_str())
-            .map_err(|e| decode_err("status", e))?,
-        currency: row.get("currency"),
-        vendor_reference: row.get("vendor_reference"),
-        project_id: row.get("project_id"),
-        notes: row.get("notes"),
-        ordered_at: row.get("ordered_at"),
-        expected_at: row.get("expected_at"),
-        closed_at: row.get("closed_at"),
+        id: row.id,
+        org_id: row.org_id,
+        vendor_id: row.vendor_id,
+        number: row.number,
+        status: PurchaseOrderStatus::parse(&row.status).map_err(|e| decode_err("status", e))?,
+        currency: row.currency,
+        vendor_reference: row.vendor_reference,
+        project_id: row.project_id,
+        notes: row.notes,
+        ordered_at: row.ordered_at,
+        expected_at: row.expected_at,
+        closed_at: row.closed_at,
         close_kind: row
-            .get::<Option<String>, _>("close_kind")
+            .close_kind
             .map(|raw| CloseKind::parse(&raw).map_err(|e| decode_err("close_kind", e)))
             .transpose()?,
-        cancelled_at: row.get("cancelled_at"),
-        cancel_reason: row.get("cancel_reason"),
-        created_by: row.get("created_by"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
+        cancelled_at: row.cancelled_at,
+        cancel_reason: row.cancel_reason,
+        created_by: row.created_by,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
     })
 }
 
@@ -558,15 +578,19 @@ pub async fn get_purchase_order<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(&format!(
-        "SELECT {ORDER_COLS} FROM purchase_orders WHERE org_id = $1 AND id = $2"
-    ))
-    .bind(org_id)
-    .bind(id)
+    let row = sqlx::query_as!(
+        PurchaseOrderRow,
+        r#"SELECT id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,
+                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,
+                  cancel_reason, created_by, created_at, updated_at
+           FROM purchase_orders WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        id,
+    )
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    order_row(row)
+    order_from_row(row)
 }
 
 /// Row lock for the receipt engine: concurrent receipts against the same
@@ -577,15 +601,19 @@ pub async fn lock_purchase_order(
     org_id: Uuid,
     id: Uuid,
 ) -> DbResult<PurchaseOrder> {
-    let row = sqlx::query(&format!(
-        "SELECT {ORDER_COLS} FROM purchase_orders WHERE org_id = $1 AND id = $2 FOR UPDATE"
-    ))
-    .bind(org_id)
-    .bind(id)
+    let row = sqlx::query_as!(
+        PurchaseOrderRow,
+        r#"SELECT id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,
+                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,
+                  cancel_reason, created_by, created_at, updated_at
+           FROM purchase_orders WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+        org_id,
+        id,
+    )
     .fetch_optional(&mut *executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    order_row(row)
+    order_from_row(row)
 }
 
 /// Who is reading the order list, for the client-visibility predicate. The
@@ -613,8 +641,11 @@ pub async fn list_purchase_orders(
     scope: ClientScope,
 ) -> DbResult<Vec<PurchaseOrder>> {
     let grep = search.map(|s| format!("%{}%", s.trim().to_lowercase()));
-    let rows = sqlx::query(&format!(
-        r#"SELECT {ORDER_COLS}
+    let rows = sqlx::query_as!(
+        PurchaseOrderRow,
+        r#"SELECT id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,
+                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,
+                  cancel_reason, created_by, created_at, updated_at
            FROM purchase_orders po
            WHERE po.org_id = $1
              AND ($2::text IS NULL OR po.status = $2)
@@ -628,21 +659,21 @@ pub async fn list_purchase_orders(
                     WHERE c.org_id = po.org_id
                       AND c.id = po.client_id
                       AND c.restricted_to <> '[]'::jsonb
-                      AND NOT (c.restricted_to ? $6::text)))
+                      AND NOT (c.restricted_to ? $6)))
            ORDER BY po.created_at DESC
-           LIMIT $8"#
-    ))
-    .bind(org_id)
-    .bind(status)
-    .bind(vendor_id)
-    .bind(project_id)
-    .bind(grep)
-    .bind(scope.viewer_id)
-    .bind(scope.sees_every_client)
-    .bind(limit)
+           LIMIT $8"#,
+        org_id,
+        status,
+        vendor_id,
+        project_id,
+        grep,
+        scope.viewer_id.to_string(),
+        scope.sees_every_client,
+        limit,
+    )
     .fetch_all(&mut *executor)
     .await?;
-    rows.into_iter().map(order_row).collect()
+    rows.into_iter().map(order_from_row).collect()
 }
 
 /// Header edits (draft only — enforced by the API layer): vendor,
@@ -678,18 +709,21 @@ pub async fn mark_ordered<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResul
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(&format!(
+    let row = sqlx::query_as!(
+        PurchaseOrderRow,
         r#"UPDATE purchase_orders
              SET status = 'ordered', ordered_at = COALESCE(ordered_at, now()), updated_at = now()
            WHERE org_id = $1 AND id = $2
-           RETURNING {ORDER_COLS}"#
-    ))
-    .bind(org_id)
-    .bind(id)
+           RETURNING id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,
+                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,
+                  cancel_reason, created_by, created_at, updated_at"#,
+        org_id,
+        id,
+    )
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    order_row(row)
+    order_from_row(row)
 }
 
 /// Close with the typed disposition: 'full' (every line complete/over) or
@@ -703,19 +737,22 @@ pub async fn close_order<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(&format!(
+    let row = sqlx::query_as!(
+        PurchaseOrderRow,
         r#"UPDATE purchase_orders
              SET status = 'closed', closed_at = now(), close_kind = $3, updated_at = now()
            WHERE org_id = $1 AND id = $2
-           RETURNING {ORDER_COLS}"#
-    ))
-    .bind(org_id)
-    .bind(id)
-    .bind(kind.as_str())
+           RETURNING id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,
+                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,
+                  cancel_reason, created_by, created_at, updated_at"#,
+        org_id,
+        id,
+        kind.as_str(),
+    )
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    order_row(row)
+    order_from_row(row)
 }
 
 pub async fn cancel_order<'e, E>(
@@ -727,19 +764,22 @@ pub async fn cancel_order<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(&format!(
+    let row = sqlx::query_as!(
+        PurchaseOrderRow,
         r#"UPDATE purchase_orders
              SET status = 'cancelled', cancelled_at = now(), cancel_reason = $3, updated_at = now()
            WHERE org_id = $1 AND id = $2
-           RETURNING {ORDER_COLS}"#
-    ))
-    .bind(org_id)
-    .bind(id)
-    .bind(reason)
+           RETURNING id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,
+                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,
+                  cancel_reason, created_by, created_at, updated_at"#,
+        org_id,
+        id,
+        reason,
+    )
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    order_row(row)
+    order_from_row(row)
 }
 
 /// Receipt-driven status advance: every line complete/over → 'received';
@@ -753,7 +793,8 @@ pub async fn advance_order_receipt_status<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(&format!(
+    let row = sqlx::query_as!(
+        PurchaseOrderRow,
         r#"UPDATE purchase_orders SET
              status = CASE
                WHEN status IN ('draft','ordered','partially_received')
@@ -770,14 +811,16 @@ where
              END,
              updated_at = now()
            WHERE org_id = $1 AND id = $2
-           RETURNING {ORDER_COLS}"#
-    ))
-    .bind(org_id)
-    .bind(id)
+           RETURNING id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,
+                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,
+                  cancel_reason, created_by, created_at, updated_at"#,
+        org_id,
+        id,
+    )
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
-    order_row(row)
+    order_from_row(row)
 }
 
 // Purchase order lines ---------------------------------------------------------
@@ -993,6 +1036,21 @@ where
     Ok(())
 }
 
+/// One receipt line, as the checked projection selects it: the row's own
+/// columns plus the class and asset the line's consequence names.
+#[derive(Debug, sqlx::FromRow)]
+pub struct ReceiptLineRow {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub receipt_id: Uuid,
+    pub po_line_id: Uuid,
+    pub qty_milli: i64,
+    pub movement_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub destination_class: Option<String>,
+    pub device_asset_id: Option<Uuid>,
+}
+
 /// One receipt line as the routing read side sees it: the line, the class its
 /// consequence landed in, and the asset row when the consequence was an asset.
 /// A stock consequence names its ledger row through the line's own
@@ -1017,20 +1075,20 @@ pub async fn insert_routed_receipt_line<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query(
+    sqlx::query!(
         r#"INSERT INTO purchase_receipt_lines
              (id, org_id, receipt_id, po_line_id, qty_milli, movement_id,
               destination_class, device_asset_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+        line.id,
+        line.org_id,
+        line.receipt_id,
+        line.po_line_id,
+        line.qty_milli,
+        line.movement_id,
+        destination_class.as_str(),
+        device_asset_id,
     )
-    .bind(line.id)
-    .bind(line.org_id)
-    .bind(line.receipt_id)
-    .bind(line.po_line_id)
-    .bind(line.qty_milli)
-    .bind(line.movement_id)
-    .bind(destination_class.as_str())
-    .bind(device_asset_id)
     .execute(executor)
     .await?;
     Ok(())
@@ -1060,7 +1118,8 @@ pub async fn list_receipt_lines_for_order(
     org_id: Uuid,
     purchase_order_id: Uuid,
 ) -> DbResult<Vec<ReceiptLine>> {
-    let rows = sqlx::query(
+    let rows = sqlx::query_as!(
+        ReceiptLineRow,
         r#"SELECT rl.id, rl.org_id, rl.receipt_id, rl.po_line_id, rl.qty_milli, rl.movement_id,
                   rl.created_at, rl.destination_class, rl.device_asset_id
            FROM purchase_receipt_lines rl
@@ -1068,24 +1127,30 @@ pub async fn list_receipt_lines_for_order(
              ON r.org_id = rl.org_id AND r.id = rl.receipt_id
            WHERE rl.org_id = $1 AND r.purchase_order_id = $2
            ORDER BY rl.created_at"#,
+        org_id,
+        purchase_order_id,
     )
-    .bind(org_id)
-    .bind(purchase_order_id)
     .fetch_all(&mut *executor)
     .await?;
     rows.into_iter()
         .map(|row| {
             let destination_class = row
-                .get::<Option<String>, _>("destination_class")
-                .map(|raw| {
-                    CustodyClass::parse(&raw).map_err(|e| decode_err("destination_class", e))
-                })
+                .destination_class
+                .as_deref()
+                .map(|raw| CustodyClass::parse(raw).map_err(|e| decode_err("destination_class", e)))
                 .transpose()?;
-            let device_asset_id: Option<Uuid> = row.get("device_asset_id");
             Ok(ReceiptLine {
-                line: receipt_line_row(row),
+                line: PurchaseReceiptLine {
+                    id: row.id,
+                    org_id: row.org_id,
+                    receipt_id: row.receipt_id,
+                    po_line_id: row.po_line_id,
+                    qty_milli: row.qty_milli,
+                    movement_id: row.movement_id,
+                    created_at: row.created_at,
+                },
                 destination_class,
-                device_asset_id,
+                device_asset_id: row.device_asset_id,
             })
         })
         .collect::<DbResult<Vec<_>>>()
@@ -1161,29 +1226,29 @@ fn recharge_rule_from_columns(
     Ok(Some(rule))
 }
 
-fn order_intent_row(row: sqlx::postgres::PgRow) -> DbResult<(Uuid, OrderIntent)> {
-    let id: Uuid = row.get("id");
-    let acquired_for = AcquiredFor::parse(row.get::<String, _>("acquired_for").as_str())
-        .map_err(|e| decode_err("acquired_for", e))?;
-    let delivery_mode = DeliveryMode::parse(row.get::<String, _>("delivery_mode").as_str())
-        .map_err(|e| decode_err("delivery_mode", e))?;
+fn order_intent_row(row: OrderIntentRow) -> DbResult<(Uuid, OrderIntent)> {
+    let acquired_for =
+        AcquiredFor::parse(&row.acquired_for).map_err(|e| decode_err("acquired_for", e))?;
+    let delivery_mode =
+        DeliveryMode::parse(&row.delivery_mode).map_err(|e| decode_err("delivery_mode", e))?;
     let ownership = row
-        .get::<Option<String>, _>("ownership")
-        .map(|raw| Ownership::parse(&raw).map_err(|e| decode_err("ownership", e)))
+        .ownership
+        .as_deref()
+        .map(|raw| Ownership::parse(raw).map_err(|e| decode_err("ownership", e)))
         .transpose()?;
     let recharge_rule = recharge_rule_from_columns(
-        row.get("recharge_rule_kind"),
-        row.get("recharge_markup_bps"),
-        row.get("recharge_fixed_minor"),
-        row.get("recharge_currency"),
+        row.recharge_rule_kind,
+        row.recharge_markup_bps,
+        row.recharge_fixed_minor,
+        row.recharge_currency,
     )?;
     Ok((
-        id,
+        row.id,
         OrderIntent {
             acquired_for,
-            client_id: row.get("client_id"),
-            ticket_id: row.get("ticket_id"),
-            project_id: row.get("project_id"),
+            client_id: row.client_id,
+            ticket_id: row.ticket_id,
+            project_id: row.project_id,
             ownership,
             delivery_mode,
             recharge_rule,
@@ -1191,43 +1256,69 @@ fn order_intent_row(row: sqlx::postgres::PgRow) -> DbResult<(Uuid, OrderIntent)>
     ))
 }
 
-fn line_intent_row(row: sqlx::postgres::PgRow) -> DbResult<(Uuid, LineIntent)> {
-    let id: Uuid = row.get("id");
-    let line_kind = LineKind::parse(row.get::<String, _>("line_kind").as_str())
-        .map_err(|e| decode_err("line_kind", e))?;
+fn line_intent_row(row: LineIntentRow) -> DbResult<(Uuid, LineIntent)> {
+    let line_kind = LineKind::parse(&row.line_kind).map_err(|e| decode_err("line_kind", e))?;
     let destination_class = row
-        .get::<Option<String>, _>("destination_class")
-        .map(|raw| CustodyClass::parse(&raw).map_err(|e| decode_err("destination_class", e)))
+        .destination_class
+        .as_deref()
+        .map(|raw| CustodyClass::parse(raw).map_err(|e| decode_err("destination_class", e)))
         .transpose()?;
     Ok((
-        id,
+        row.id,
         LineIntent {
             line_kind,
             destination_class,
-            asset_layout_id: row.get("asset_layout_id"),
-            serial_expected: row.get("serial_expected"),
-            weight_g: row.get("weight_g"),
-            sell_price_minor: row.get("sell_price_minor"),
-            billable: row.get("billable"),
+            asset_layout_id: row.asset_layout_id,
+            serial_expected: row.serial_expected,
+            weight_g: row.weight_g,
+            sell_price_minor: row.sell_price_minor,
+            billable: row.billable,
         },
     ))
 }
 
-const ORDER_INTENT_COLS: &str = "id, acquired_for, client_id, ticket_id, project_id, ownership, \
-     delivery_mode, recharge_rule_kind, recharge_markup_bps, recharge_fixed_minor, \
-     recharge_currency";
-const LINE_INTENT_COLS: &str = "id, line_kind, destination_class, asset_layout_id, \
-     serial_expected, weight_g, sell_price_minor, billable";
+/// One header intent, as the checked projections select it.
+#[derive(Debug, sqlx::FromRow)]
+pub struct OrderIntentRow {
+    pub id: Uuid,
+    pub acquired_for: String,
+    pub client_id: Option<Uuid>,
+    pub ticket_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+    pub ownership: Option<String>,
+    pub delivery_mode: String,
+    pub recharge_rule_kind: Option<String>,
+    pub recharge_markup_bps: Option<i32>,
+    pub recharge_fixed_minor: Option<i64>,
+    pub recharge_currency: Option<String>,
+}
+
+/// One line's intent, as the checked projections select it.
+#[derive(Debug, sqlx::FromRow)]
+pub struct LineIntentRow {
+    pub id: Uuid,
+    pub line_kind: String,
+    pub destination_class: Option<String>,
+    pub asset_layout_id: Option<Uuid>,
+    pub serial_expected: bool,
+    pub weight_g: Option<i32>,
+    pub sell_price_minor: Option<i64>,
+    pub billable: Option<bool>,
+}
 
 pub async fn get_order_intent<'e, E>(executor: E, org_id: Uuid, id: Uuid) -> DbResult<OrderIntent>
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(&format!(
-        "SELECT {ORDER_INTENT_COLS} FROM purchase_orders WHERE org_id = $1 AND id = $2"
-    ))
-    .bind(org_id)
-    .bind(id)
+    let row = sqlx::query_as!(
+        OrderIntentRow,
+        r#"SELECT id, acquired_for, client_id, ticket_id, project_id, ownership,
+                  delivery_mode, recharge_rule_kind, recharge_markup_bps,
+                  recharge_fixed_minor, recharge_currency
+           FROM purchase_orders WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        id,
+    )
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
@@ -1244,11 +1335,15 @@ pub async fn list_order_intents(
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
-    let rows = sqlx::query(&format!(
-        "SELECT {ORDER_INTENT_COLS} FROM purchase_orders WHERE org_id = $1 AND id = ANY($2)"
-    ))
-    .bind(org_id)
-    .bind(ids)
+    let rows = sqlx::query_as!(
+        OrderIntentRow,
+        r#"SELECT id, acquired_for, client_id, ticket_id, project_id, ownership,
+                  delivery_mode, recharge_rule_kind, recharge_markup_bps,
+                  recharge_fixed_minor, recharge_currency
+           FROM purchase_orders WHERE org_id = $1 AND id = ANY($2)"#,
+        org_id,
+        ids,
+    )
     .fetch_all(&mut *executor)
     .await?;
     rows.into_iter()
@@ -1266,24 +1361,24 @@ where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
     let rule = intent.recharge_rule.as_ref();
-    let n = sqlx::query(
+    let n = sqlx::query!(
         r#"UPDATE purchase_orders SET
              acquired_for = $3, client_id = $4, ticket_id = $5, ownership = $6,
              delivery_mode = $7, recharge_rule_kind = $8, recharge_markup_bps = $9,
              recharge_fixed_minor = $10, recharge_currency = $11, updated_at = now()
            WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        id,
+        intent.acquired_for.as_str(),
+        intent.client_id,
+        intent.ticket_id,
+        intent.ownership.map(Ownership::as_str),
+        intent.delivery_mode.as_str(),
+        rule.map(|r| r.kind.as_str()),
+        rule.and_then(|r| r.markup_bps),
+        rule.and_then(|r| r.fixed_minor),
+        rule.and_then(|r| r.currency.as_deref()),
     )
-    .bind(org_id)
-    .bind(id)
-    .bind(intent.acquired_for.as_str())
-    .bind(intent.client_id)
-    .bind(intent.ticket_id)
-    .bind(intent.ownership.map(Ownership::as_str))
-    .bind(intent.delivery_mode.as_str())
-    .bind(rule.map(|r| r.kind.as_str()))
-    .bind(rule.and_then(|r| r.markup_bps))
-    .bind(rule.and_then(|r| r.fixed_minor))
-    .bind(rule.and_then(|r| r.currency.as_deref()))
     .execute(executor)
     .await?;
     if n.rows_affected() == 0 {
@@ -1297,12 +1392,15 @@ pub async fn list_line_intents(
     org_id: Uuid,
     purchase_order_id: Uuid,
 ) -> DbResult<HashMap<Uuid, LineIntent>> {
-    let rows = sqlx::query(&format!(
-        r#"SELECT {LINE_INTENT_COLS} FROM purchase_order_lines
-           WHERE org_id = $1 AND purchase_order_id = $2"#
-    ))
-    .bind(org_id)
-    .bind(purchase_order_id)
+    let rows = sqlx::query_as!(
+        LineIntentRow,
+        r#"SELECT id, line_kind, destination_class, asset_layout_id,
+                  serial_expected, weight_g, sell_price_minor, billable
+           FROM purchase_order_lines
+           WHERE org_id = $1 AND purchase_order_id = $2"#,
+        org_id,
+        purchase_order_id,
+    )
     .fetch_all(&mut *executor)
     .await?;
     rows.into_iter()
@@ -1319,22 +1417,22 @@ pub async fn set_line_intent<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let n = sqlx::query(
+    let n = sqlx::query!(
         r#"UPDATE purchase_order_lines SET
              line_kind = $3, destination_class = $4, asset_layout_id = $5,
              serial_expected = $6, weight_g = $7, sell_price_minor = $8,
              billable = $9, updated_at = now()
            WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        line_id,
+        intent.line_kind.as_str(),
+        intent.destination_class.map(CustodyClass::as_str),
+        intent.asset_layout_id,
+        intent.serial_expected,
+        intent.weight_g,
+        intent.sell_price_minor,
+        intent.billable,
     )
-    .bind(org_id)
-    .bind(line_id)
-    .bind(intent.line_kind.as_str())
-    .bind(intent.destination_class.map(CustodyClass::as_str))
-    .bind(intent.asset_layout_id)
-    .bind(intent.serial_expected)
-    .bind(intent.weight_g)
-    .bind(intent.sell_price_minor)
-    .bind(intent.billable)
     .execute(executor)
     .await?;
     if n.rows_affected() == 0 {
@@ -1382,16 +1480,16 @@ pub async fn lock_line_layout(
     org_id: Uuid,
     layout_id: Uuid,
 ) -> DbResult<()> {
-    sqlx::query(
-        r#"SELECT 1 FROM document_layouts
+    let found: Option<Uuid> = sqlx::query_scalar!(
+        r#"SELECT id FROM document_layouts
             WHERE org_id = $1 AND id = $2
             FOR SHARE"#,
+        org_id,
+        layout_id,
     )
-    .bind(org_id)
-    .bind(layout_id)
     .fetch_optional(&mut *conn)
-    .await?
-    .ok_or(DbError::NotFound)?;
+    .await?;
+    found.ok_or(DbError::NotFound)?;
     Ok(())
 }
 
@@ -1402,25 +1500,23 @@ pub async fn get_inventory_policy<'e, E>(executor: E, org_id: Uuid) -> DbResult<
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let row = sqlx::query(
+    let row = sqlx::query!(
         r#"SELECT landed_cost_mode, recharge_rule_kind, recharge_markup_bps,
                   recharge_fixed_minor, recharge_currency
            FROM orgs WHERE id = $1"#,
+        org_id,
     )
-    .bind(org_id)
     .fetch_optional(executor)
     .await?
     .ok_or(DbError::NotFound)?;
     let policy = InventoryPolicy {
-        landed_cost_mode: LandedCostMode::parse(row.get::<String, _>("landed_cost_mode").as_str())
+        landed_cost_mode: LandedCostMode::parse(&row.landed_cost_mode)
             .map_err(|e| decode_err("landed_cost_mode", e))?,
-        recharge_rule_kind: RechargeRuleKind::parse(
-            row.get::<String, _>("recharge_rule_kind").as_str(),
-        )
-        .map_err(|e| decode_err("recharge_rule_kind", e))?,
-        recharge_markup_bps: row.get("recharge_markup_bps"),
-        recharge_fixed_minor: row.get("recharge_fixed_minor"),
-        recharge_currency: row.get("recharge_currency"),
+        recharge_rule_kind: RechargeRuleKind::parse(&row.recharge_rule_kind)
+            .map_err(|e| decode_err("recharge_rule_kind", e))?,
+        recharge_markup_bps: row.recharge_markup_bps,
+        recharge_fixed_minor: row.recharge_fixed_minor,
+        recharge_currency: row.recharge_currency,
     };
     policy
         .validate()
@@ -1501,24 +1597,24 @@ pub async fn resolve_recharge_rule(
         let Some(scope_id) = scope_id else {
             continue;
         };
-        let row = sqlx::query(
+        let row = sqlx::query!(
             r#"SELECT rule_kind, markup_bps, fixed_minor, currency
                FROM purchase_recharge_rule_overrides
                WHERE org_id = $1 AND scope_kind = $2 AND scope_id = $3"#,
+            org_id,
+            scope_kind,
+            scope_id,
         )
-        .bind(org_id)
-        .bind(scope_kind)
-        .bind(scope_id)
         .fetch_optional(&mut *conn)
         .await?;
         if let Some(row) = row {
-            let kind = RechargeRuleKind::parse(row.get::<String, _>("rule_kind").as_str())
-                .map_err(|e| decode_err("rule_kind", e))?;
+            let kind =
+                RechargeRuleKind::parse(&row.rule_kind).map_err(|e| decode_err("rule_kind", e))?;
             let rule = RechargeRule {
                 kind,
-                markup_bps: row.get("markup_bps"),
-                fixed_minor: row.get("fixed_minor"),
-                currency: row.get("currency"),
+                markup_bps: row.markup_bps,
+                fixed_minor: row.fixed_minor,
+                currency: row.currency,
             };
             rule.validate()
                 .map_err(|e| decode_err("recharge_rule", e))?;
@@ -1574,7 +1670,7 @@ pub async fn insert_recharge<'e, E>(executor: E, recharge: &NewRecharge) -> DbRe
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query(
+    sqlx::query!(
         r#"INSERT INTO purchase_recharges
              (id, org_id, purchase_order_id, po_line_id, receipt_line_id, client_id,
               ticket_id, project_id, rule_kind, rule_source, rule_markup_bps,
@@ -1585,38 +1681,69 @@ where
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                    $16::text::numeric, $17, $18, $19, $20, $21, $22::text::numeric, $23,
                    $24, $25, $26, $27, $28)"#,
+        recharge.id,
+        recharge.org_id,
+        recharge.purchase_order_id,
+        recharge.po_line_id,
+        recharge.receipt_line_id,
+        recharge.client_id,
+        recharge.ticket_id,
+        recharge.project_id,
+        recharge.rule.kind.as_str(),
+        recharge.rule_source.as_str(),
+        recharge.rule.markup_bps,
+        recharge.rule.fixed_minor,
+        recharge.rule.currency.as_deref(),
+        recharge.basis_amount_minor,
+        &recharge.basis_currency,
+        recharge.cost_fx.as_ref().map(|fx| fx.rate_used.clone()),
+        recharge.cost_fx.as_ref().map(|fx| fx.rate_date),
+        recharge.cost_fx.as_ref().map(|fx| fx.source.clone()),
+        recharge.cost_fx.as_ref().map(|fx| fx.base_amount_minor),
+        recharge.charge_amount_minor,
+        &recharge.charge_currency,
+        recharge.charge_fx.as_ref().map(|fx| fx.rate_used.clone()),
+        recharge.charge_fx.as_ref().map(|fx| fx.rate_date),
+        recharge.charge_fx.as_ref().map(|fx| fx.source.clone()),
+        recharge.charge_fx.as_ref().map(|fx| fx.base_amount_minor),
+        recharge.cost_line_id,
+        recharge.issued_at,
+        recharge.created_by,
     )
-    .bind(recharge.id)
-    .bind(recharge.org_id)
-    .bind(recharge.purchase_order_id)
-    .bind(recharge.po_line_id)
-    .bind(recharge.receipt_line_id)
-    .bind(recharge.client_id)
-    .bind(recharge.ticket_id)
-    .bind(recharge.project_id)
-    .bind(recharge.rule.kind.as_str())
-    .bind(recharge.rule_source.as_str())
-    .bind(recharge.rule.markup_bps)
-    .bind(recharge.rule.fixed_minor)
-    .bind(recharge.rule.currency.as_deref())
-    .bind(recharge.basis_amount_minor)
-    .bind(&recharge.basis_currency)
-    .bind(recharge.cost_fx.as_ref().map(|fx| fx.rate_used.clone()))
-    .bind(recharge.cost_fx.as_ref().map(|fx| fx.rate_date))
-    .bind(recharge.cost_fx.as_ref().map(|fx| fx.source.clone()))
-    .bind(recharge.cost_fx.as_ref().map(|fx| fx.base_amount_minor))
-    .bind(recharge.charge_amount_minor)
-    .bind(&recharge.charge_currency)
-    .bind(recharge.charge_fx.as_ref().map(|fx| fx.rate_used.clone()))
-    .bind(recharge.charge_fx.as_ref().map(|fx| fx.rate_date))
-    .bind(recharge.charge_fx.as_ref().map(|fx| fx.source.clone()))
-    .bind(recharge.charge_fx.as_ref().map(|fx| fx.base_amount_minor))
-    .bind(recharge.cost_line_id)
-    .bind(recharge.issued_at)
-    .bind(recharge.created_by)
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// One issued recharge, as the checked projection selects it.
+#[derive(Debug, sqlx::FromRow)]
+pub struct RechargeRow {
+    pub id: Uuid,
+    pub purchase_order_id: Uuid,
+    pub po_line_id: Uuid,
+    pub receipt_line_id: Uuid,
+    pub client_id: Option<Uuid>,
+    pub ticket_id: Option<Uuid>,
+    pub project_id: Option<Uuid>,
+    pub rule_kind: String,
+    pub rule_source: String,
+    pub rule_markup_bps: Option<i32>,
+    pub rule_fixed_minor: Option<i64>,
+    pub rule_currency: Option<String>,
+    pub basis_amount_minor: i64,
+    pub basis_currency: String,
+    pub cost_fx_rate_used: Option<String>,
+    pub cost_fx_rate_date: Option<NaiveDate>,
+    pub cost_fx_source: Option<String>,
+    pub cost_base_amount_minor: Option<i64>,
+    pub charge_amount_minor: i64,
+    pub charge_currency: String,
+    pub charge_fx_rate_used: Option<String>,
+    pub charge_fx_rate_date: Option<NaiveDate>,
+    pub charge_fx_source: Option<String>,
+    pub charge_base_amount_minor: Option<i64>,
+    pub cost_line_id: Option<Uuid>,
+    pub issued_at: DateTime<Utc>,
 }
 
 /// One issued recharge as the read side sees it.
@@ -1668,7 +1795,8 @@ pub async fn list_recharges_for_order(
     org_id: Uuid,
     purchase_order_id: Uuid,
 ) -> DbResult<Vec<Recharge>> {
-    let rows = sqlx::query(
+    let rows = sqlx::query_as!(
+        RechargeRow,
         r#"SELECT id, purchase_order_id, po_line_id, receipt_line_id, client_id, ticket_id,
                   project_id, rule_kind, rule_source, rule_markup_bps, rule_fixed_minor,
                   rule_currency, basis_amount_minor, basis_currency,
@@ -1680,53 +1808,51 @@ pub async fn list_recharges_for_order(
            FROM purchase_recharges
            WHERE org_id = $1 AND purchase_order_id = $2
            ORDER BY issued_at"#,
+        org_id,
+        purchase_order_id,
     )
-    .bind(org_id)
-    .bind(purchase_order_id)
     .fetch_all(&mut *conn)
     .await?;
     rows.into_iter()
         .map(|row| {
-            let rule_kind = RechargeRuleKind::parse(row.get::<String, _>("rule_kind").as_str())
-                .map_err(|e| decode_err("rule_kind", e))?;
+            let rule_kind =
+                RechargeRuleKind::parse(&row.rule_kind).map_err(|e| decode_err("rule_kind", e))?;
             let rule = RechargeRule {
                 kind: rule_kind,
-                markup_bps: row.get("rule_markup_bps"),
-                fixed_minor: row.get("rule_fixed_minor"),
-                currency: row.get("rule_currency"),
+                markup_bps: row.rule_markup_bps,
+                fixed_minor: row.rule_fixed_minor,
+                currency: row.rule_currency,
             };
             rule.validate()
                 .map_err(|e| decode_err("recharge_rule", e))?;
             Ok(Recharge {
-                id: row.get("id"),
-                purchase_order_id: row.get("purchase_order_id"),
-                po_line_id: row.get("po_line_id"),
-                receipt_line_id: row.get("receipt_line_id"),
-                client_id: row.get("client_id"),
-                ticket_id: row.get("ticket_id"),
-                project_id: row.get("project_id"),
+                id: row.id,
+                purchase_order_id: row.purchase_order_id,
+                po_line_id: row.po_line_id,
+                receipt_line_id: row.receipt_line_id,
+                client_id: row.client_id,
+                ticket_id: row.ticket_id,
+                project_id: row.project_id,
                 rule,
-                rule_source: RechargeRuleSource::parse(
-                    row.get::<String, _>("rule_source").as_str(),
-                )?,
-                basis_amount_minor: row.get("basis_amount_minor"),
-                basis_currency: row.get("basis_currency"),
+                rule_source: RechargeRuleSource::parse(&row.rule_source)?,
+                basis_amount_minor: row.basis_amount_minor,
+                basis_currency: row.basis_currency,
                 cost_fx: fx_columns(
-                    row.get("cost_fx_rate_used"),
-                    row.get("cost_fx_rate_date"),
-                    row.get("cost_fx_source"),
-                    row.get("cost_base_amount_minor"),
+                    row.cost_fx_rate_used,
+                    row.cost_fx_rate_date,
+                    row.cost_fx_source,
+                    row.cost_base_amount_minor,
                 )?,
-                charge_amount_minor: row.get("charge_amount_minor"),
-                charge_currency: row.get("charge_currency"),
+                charge_amount_minor: row.charge_amount_minor,
+                charge_currency: row.charge_currency,
                 charge_fx: fx_columns(
-                    row.get("charge_fx_rate_used"),
-                    row.get("charge_fx_rate_date"),
-                    row.get("charge_fx_source"),
-                    row.get("charge_base_amount_minor"),
+                    row.charge_fx_rate_used,
+                    row.charge_fx_rate_date,
+                    row.charge_fx_source,
+                    row.charge_base_amount_minor,
                 )?,
-                cost_line_id: row.get("cost_line_id"),
-                issued_at: row.get("issued_at"),
+                cost_line_id: row.cost_line_id,
+                issued_at: row.issued_at,
             })
         })
         .collect()
@@ -1746,16 +1872,16 @@ pub async fn stamp_cost_line_source<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let n = sqlx::query(
+    let n = sqlx::query!(
         r#"UPDATE ticket_cost_lines
               SET source_kind = 'purchase_receipt_line', source_id = $3,
                   reporting_class = $4
             WHERE org_id = $1 AND id = $2 AND source_kind IS NULL"#,
+        org_id,
+        cost_line_id,
+        source_id,
+        reporting_class,
     )
-    .bind(org_id)
-    .bind(cost_line_id)
-    .bind(source_id)
-    .bind(reporting_class)
     .execute(executor)
     .await?;
     if n.rows_affected() == 0 {
@@ -1777,13 +1903,13 @@ pub async fn cost_line_is_recharged<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    let found: Option<Uuid> = sqlx::query_scalar(
+    let found: Option<Uuid> = sqlx::query_scalar!(
         r#"SELECT id FROM purchase_recharges
             WHERE org_id = $1 AND cost_line_id = $2
             LIMIT 1"#,
+        org_id,
+        cost_line_id,
     )
-    .bind(org_id)
-    .bind(cost_line_id)
     .fetch_optional(executor)
     .await?;
     Ok(found.is_some())
@@ -1808,20 +1934,20 @@ pub async fn record_asset_class_movement<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
-    sqlx::query(
+    sqlx::query!(
         r#"INSERT INTO inventory_class_movements
              (id, org_id, unit_kind, device_asset_id, from_class, to_class, reason,
               source_kind, source_id, created_by)
            VALUES ($1, $2, 'asset', $3, $4, $5, $6, 'purchase_receipt_line', $7, $8)"#,
+        Uuid::now_v7(),
+        org_id,
+        device_asset_id,
+        from_class.as_str(),
+        to_class.as_str(),
+        reason,
+        receipt_line_id,
+        created_by,
     )
-    .bind(Uuid::now_v7())
-    .bind(org_id)
-    .bind(device_asset_id)
-    .bind(from_class.as_str())
-    .bind(to_class.as_str())
-    .bind(reason)
-    .bind(receipt_line_id)
-    .bind(created_by)
     .execute(executor)
     .await?;
     Ok(())

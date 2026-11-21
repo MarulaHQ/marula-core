@@ -328,6 +328,14 @@ impl RechargeRule {
                         "a percentage recharge has no fixed amount".into(),
                     ));
                 }
+                // The header columns hold one rule, and the schema's shape CHECK
+                // requires a markup to leave the currency empty. Refusing it here
+                // keeps the caller from learning that from a write failure.
+                if self.currency.is_some() {
+                    return Err(DomainError::Validation(
+                        "a percentage recharge carries no currency".into(),
+                    ));
+                }
             }
             RechargeRuleKind::Fixed => {
                 let amount = self.fixed_minor.ok_or_else(|| {
@@ -539,6 +547,17 @@ mod tests {
             currency: None,
         };
         percentage.validate().unwrap();
+
+        let currency_on_markup = RechargeRule {
+            kind: RechargeRuleKind::MarkupBps,
+            markup_bps: Some(2_000),
+            fixed_minor: None,
+            currency: Some("USD".into()),
+        };
+        assert!(
+            currency_on_markup.validate().is_err(),
+            "a percentage recharge has no currency to name"
+        );
 
         let over_charged = RechargeRule {
             kind: RechargeRuleKind::MarkupBps,

@@ -1479,6 +1479,21 @@ fn strip_financials(value: &mut Value) {
     }
 }
 
+/// Puts a read transaction on one snapshot.
+///
+/// The order and the rows that hang off it (its intent, links, recharges, bill)
+/// are read in separate statements. Under Read Committed a reassignment
+/// committed between two of them could hand the caller fields the first
+/// statement had already decided they cannot see, so the reads that pair an
+/// order with its dependants run at REPEATABLE READ.
+async fn one_snapshot(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> ApiResult<()> {
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut **tx)
+        .await
+        .map_err(ApiError::from)?;
+    Ok(())
+}
+
 /// The client recorded in a stored response. A replay returns the body the first
 /// call produced, so the client it names is the one that has to be visible, not
 /// only the order's client now: an order can move from a hidden client to a
@@ -1716,6 +1731,7 @@ pub async fn list_vendors(
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -1745,6 +1761,7 @@ pub async fn get_vendor(
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -2022,6 +2039,7 @@ pub async fn list_vendor_contacts(
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -2149,6 +2167,13 @@ async fn insert_link(
     link.validate().map_err(ApiError::from)?;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
+    // The order a link hangs on is the client's document, and both the fresh
+    // path and a replay have to prove the caller may see it.
+    let linked_order = match subject_kind {
+        ExternalLinkSubject::PurchaseOrder => Some(subject_id),
+        ExternalLinkSubject::PurchaseOrderLine => expected_order,
+        _ => None,
+    };
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
@@ -2162,6 +2187,11 @@ async fn insert_link(
         )
         .await?
         {
+            // A replayed link is still a read of the order it hangs on.
+            if let Some(order_id) = linked_order {
+                assert_order_client_visible(&mut ctx.tx, org_id, &authed.principal, order_id)
+                    .await?;
+            }
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         if let Some(order_id) = expected_order {
@@ -2172,11 +2202,6 @@ async fn insert_link(
                 ));
             }
         }
-        let linked_order = match subject_kind {
-            ExternalLinkSubject::PurchaseOrder => Some(subject_id),
-            ExternalLinkSubject::PurchaseOrderLine => expected_order,
-            _ => None,
-        };
         if let Some(order_id) = linked_order {
             assert_order_client_visible(&mut ctx.tx, org_id, &authed.principal, order_id).await?;
         }
@@ -2258,6 +2283,7 @@ pub async fn list_vendor_links(
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -2306,6 +2332,7 @@ pub async fn list_order_links(
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -2450,6 +2477,7 @@ pub async fn list_orders(
     let financial = financial_read(&authed);
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -2534,6 +2562,7 @@ pub async fn get_order(
     let financial = financial_read(&authed);
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -2958,10 +2987,93 @@ pub async fn add_order_line(
     Ok(Json(outcome.into_response()?))
 }
 
+/// One line's PATCH body. Every nullable field is tri-state: absent leaves the
+/// stored value alone, `null` clears it (an inherited destination, a cleared
+/// layout, an inherited billable flag), and a value sets it. The plain option is
+/// for the fields that cannot be cleared.
+///
+/// `skip_serializing_if` keeps an omitted field out of the idempotency
+/// fingerprint while `null` still serializes, so "leave" and "clear" cannot
+/// share a key.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct OrderLinePatch {
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<Option<Uuid>>)]
+    pub stock_item_id: Option<Option<Uuid>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<Option<Uuid>>)]
+    pub catalog_item_id: Option<Option<Uuid>>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub qty_ordered_milli: Option<i64>,
+    #[serde(default)]
+    pub unit_cost_minor: Option<i64>,
+    #[serde(default)]
+    pub position: Option<i32>,
+    #[serde(default)]
+    pub line_kind: Option<LineKind>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<Option<CustodyClass>>)]
+    pub destination_class: Option<Option<CustodyClass>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<Option<Uuid>>)]
+    pub asset_layout_id: Option<Option<Uuid>>,
+    #[serde(default)]
+    pub serial_expected: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<Option<i32>>)]
+    pub weight_g: Option<Option<i32>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<Option<i64>>)]
+    pub sell_price_minor: Option<Option<i64>>,
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<Option<bool>>)]
+    pub billable: Option<Option<bool>>,
+}
+
+/// PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus IF1
+/// params.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct UpdateOrderLineRequest {
+    #[serde(flatten)]
+    pub line: OrderLinePatch,
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
 /// PATCH /api/purchase-orders/{id}/lines/{line_id} — draft-only line edit.
 #[utoipa::path(operation_id = "purchase_orders_update_line", patch, path = "/api/purchase-orders/{id}/lines/{line_id}", tag = "purchasing", security(("bearer" = [])),
     params(("id" = Uuid, Path), ("line_id" = Uuid, Path)),
-    request_body = AddOrderLineRequest,
+    request_body = UpdateOrderLineRequest,
     responses((status = 200, body = OrderMutationResponse),
               (status = 404, description = "order or line not visible in scope"),
               (status = 409, description = "order is not a draft or the line already received goods")))]
@@ -2969,7 +3081,7 @@ pub async fn update_order_line(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Path((id, line_id)): axum::extract::Path<(Uuid, Uuid)>,
-    axum::extract::Json(req): axum::extract::Json<AddOrderLineRequest>,
+    axum::extract::Json(req): axum::extract::Json<UpdateOrderLineRequest>,
 ) -> ApiResult<Json<OrderMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
@@ -3011,48 +3123,74 @@ pub async fn update_order_line(
                 "a line that already received goods cannot be edited".into(),
             ));
         }
-        let mut line = before.clone();
-        line.stock_item_id = req.line.stock_item_id;
-        line.catalog_item_id = req.line.catalog_item_id;
-        line.description = req.line.description.trim().to_string();
-        line.qty_ordered_milli = req.line.qty_ordered_milli;
-        line.unit_cost_minor = req.line.unit_cost_minor;
-        if let Some(position) = req.line.position {
-            line.position = position;
-        }
-        line.receipt_state = ReceiptState::Pending;
-        line.updated_at = chrono::Utc::now();
-        line.validate().map_err(ApiError::from)?;
         let header = core_db::purchasing::get_order_intent(&mut *ctx.tx, org_id, id).await?;
         let before_intent = core_db::purchasing::list_line_intents(&mut ctx.tx, org_id, id)
             .await?
             .get(&line_id)
             .cloned()
             .unwrap_or_else(core_db::purchasing::LineIntent::stock);
-        // Intent fields are keep-when-absent here, unlike the stock fields
-        // above: clearing an override by omission would silently move a line to
-        // the header's destination. A named destination stays until it is named
-        // differently.
+        // Each field is resolved once, from the three states the patch allows,
+        // and the same resolved value feeds the stored row, the intent and the
+        // validation pass.
+        let patch = &req.line;
+        let stock_item_id = patch.stock_item_id.unwrap_or(before.stock_item_id);
+        let catalog_item_id = patch.catalog_item_id.unwrap_or(before.catalog_item_id);
+        let description = patch
+            .description
+            .clone()
+            .unwrap_or_else(|| before.description.clone());
+        let qty_ordered_milli = patch.qty_ordered_milli.unwrap_or(before.qty_ordered_milli);
+        let unit_cost_minor = patch.unit_cost_minor.unwrap_or(before.unit_cost_minor);
+        let position = patch.position.unwrap_or(before.position);
+        let line_kind = patch.line_kind.unwrap_or(before_intent.line_kind);
+        let destination_class = match &patch.destination_class {
+            None => before_intent.destination_class,
+            Some(cleared) => *cleared,
+        };
+        let asset_layout_id = match &patch.asset_layout_id {
+            None => before_intent.asset_layout_id,
+            Some(cleared) => *cleared,
+        };
+        let serial_expected = patch
+            .serial_expected
+            .unwrap_or(before_intent.serial_expected);
+        let weight_g = match &patch.weight_g {
+            None => before_intent.weight_g,
+            Some(cleared) => *cleared,
+        };
+        let sell_price_minor = match &patch.sell_price_minor {
+            None => before_intent.sell_price_minor,
+            Some(cleared) => *cleared,
+        };
+        let billable = match &patch.billable {
+            None => before_intent.billable,
+            Some(cleared) => *cleared,
+        };
+
+        let mut line = before.clone();
+        line.stock_item_id = stock_item_id;
+        line.catalog_item_id = catalog_item_id;
+        line.description = description.trim().to_string();
+        line.qty_ordered_milli = qty_ordered_milli;
+        line.unit_cost_minor = unit_cost_minor;
+        line.position = position;
+        line.receipt_state = ReceiptState::Pending;
+        line.updated_at = chrono::Utc::now();
+        line.validate().map_err(ApiError::from)?;
         let merged = OrderLineInput {
-            stock_item_id: req.line.stock_item_id,
-            catalog_item_id: req.line.catalog_item_id,
-            description: req.line.description.clone(),
-            qty_ordered_milli: req.line.qty_ordered_milli,
-            unit_cost_minor: req.line.unit_cost_minor,
-            position: req.line.position,
-            line_kind: req.line.line_kind.or(Some(before_intent.line_kind)),
-            destination_class: req
-                .line
-                .destination_class
-                .or(before_intent.destination_class),
-            asset_layout_id: req.line.asset_layout_id.or(before_intent.asset_layout_id),
-            serial_expected: req
-                .line
-                .serial_expected
-                .or(Some(before_intent.serial_expected)),
-            weight_g: req.line.weight_g.or(before_intent.weight_g),
-            sell_price_minor: req.line.sell_price_minor.or(before_intent.sell_price_minor),
-            billable: req.line.billable.or(before_intent.billable),
+            stock_item_id,
+            catalog_item_id,
+            description,
+            qty_ordered_milli,
+            unit_cost_minor,
+            position: Some(position),
+            line_kind: Some(line_kind),
+            destination_class,
+            asset_layout_id,
+            serial_expected: Some(serial_expected),
+            weight_g,
+            sell_price_minor,
+            billable,
         };
         let line_intent = line_intent_from_input(&merged, &header)?;
         validate_line_references(&mut ctx.tx, org_id, &merged, &line_intent).await?;
@@ -3651,9 +3789,9 @@ async fn create_receipt_asset(
         }
     };
     let asset_id = Uuid::now_v7();
-    // The order's number plus the receipt line's short id: unique per unit, and
-    // still readable on a label.
-    let tag = format!("{}-{}", order.number, short_id(receipt_line_id));
+    // The order's number plus the whole receipt-line id: the id is unique, so
+    // two units never share a tag, whatever order they arrive in.
+    let tag = format!("{}-{}", order.number, compact_id(receipt_line_id));
     let name: String = plan.line.description.chars().take(200).collect();
     let fields = &plan.asset_fields;
     core_db::assets::create_asset(
@@ -3733,12 +3871,11 @@ async fn create_receipt_asset(
     Ok(asset_id)
 }
 
-/// The last eight hex characters of a UUID. Its first bits are a timestamp
-/// (UUIDv7), so truncating from the front gives two units created in the same
-/// window the same tag; the tail is the random part.
-fn short_id(seed: Uuid) -> String {
-    let simple = seed.simple().to_string();
-    simple[simple.len() - 8..].to_string()
+/// A UUID without its dashes. A tag carries the whole id: any prefix or suffix
+/// is a collision waiting for the right pair of units, and its first bits are a
+/// timestamp for UUIDv7, so a short form repeats within one window.
+fn compact_id(seed: Uuid) -> String {
+    seed.simple().to_string()
 }
 
 /// Issues the recharge a client purchase line resolves to (plan §5.3): the
@@ -3908,6 +4045,27 @@ pub async fn receive_order(
         // Row lock: concurrent receipts against this PO serialize, so the
         // line states the over-receipt gate reads cannot go stale.
         let order = core_db::purchasing::lock_purchase_order(&mut ctx.tx, org_id, id).await?;
+        let header = core_db::purchasing::get_order_intent(&mut *ctx.tx, org_id, id).await?;
+        // Visibility comes before any decision that names the order. A refusal
+        // that quotes the number or status would tell a caller the order exists,
+        // which is the one thing a restricted client's order must not disclose.
+        if let Some(client_id) = header.client_id {
+            require_purchase_client_visible(&mut ctx.tx, org_id, client_id, &authed.principal)
+                .await?;
+            // The ticket can be reassigned between order and receipt, and the
+            // charge would then land on another client's ticket. The row is held
+            // with a share lock until this transaction ends, so the client
+            // checked here is the client the cost line is written under.
+            if let Some(ticket_id) = header.ticket_id {
+                let ticket_client =
+                    core_db::purchasing::lock_ticket_client(&mut ctx.tx, org_id, ticket_id).await?;
+                if ticket_client != Some(client_id) {
+                    return Err(ApiError::Validation(
+                        "the ticket belongs to a different client than the purchase order".into(),
+                    ));
+                }
+            }
+        }
         if !matches!(
             order.status,
             PurchaseOrderStatus::Ordered | PurchaseOrderStatus::PartiallyReceived
@@ -3936,32 +4094,6 @@ pub async fn receive_order(
         let existing = core_db::purchasing::list_po_lines(&mut ctx.tx, org_id, id).await?;
         let by_id: std::collections::HashMap<Uuid, PurchaseOrderLine> =
             existing.iter().map(|l| (l.id, l.clone())).collect();
-        let header = core_db::purchasing::get_order_intent(&mut *ctx.tx, org_id, id).await?;
-        // A client purchase writes the client's goods and their charge, so the
-        // restricted-client rule is enforced in the transaction that writes,
-        // not only where the order was created.
-        if let Some(client_id) = header.client_id {
-            crate::routes::clients::require_client_visible(
-                &mut ctx.tx,
-                org_id,
-                client_id,
-                &authed.principal,
-            )
-            .await?;
-            // The ticket can be reassigned between order and receipt, and the
-            // charge would then land on another client's ticket. The row is held
-            // with a share lock until this transaction ends, so the client
-            // checked here is the client the cost line is written under.
-            if let Some(ticket_id) = header.ticket_id {
-                let ticket_client =
-                    core_db::purchasing::lock_ticket_client(&mut ctx.tx, org_id, ticket_id).await?;
-                if ticket_client != Some(client_id) {
-                    return Err(ApiError::Validation(
-                        "the ticket belongs to a different client than the purchase order".into(),
-                    ));
-                }
-            }
-        }
         let line_intents = core_db::purchasing::list_line_intents(&mut ctx.tx, org_id, id).await?;
 
         // The ladder resolves once for the whole receipt: every line on one
@@ -4490,6 +4622,7 @@ pub async fn order_recharges(
     require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -4524,6 +4657,7 @@ pub async fn order_deeplinks(
     require_permission(&authed.principal, commercial(Action::View))?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -4619,6 +4753,7 @@ pub async fn get_order_bill(
     require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -4663,6 +4798,7 @@ pub async fn record_order_bill(
         )
         .await?
         {
+            assert_order_client_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let order = core_db::purchasing::get_purchase_order(&mut *ctx.tx, org_id, id).await?;
@@ -4799,6 +4935,7 @@ pub async fn post_order_bill(
         )
         .await?
         {
+            assert_order_client_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let order = core_db::purchasing::get_purchase_order(&mut *ctx.tx, org_id, id).await?;
@@ -4911,6 +5048,7 @@ pub async fn project_cost_rollup_route(
     require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    one_snapshot(&mut tx).await?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
@@ -5097,13 +5235,19 @@ mod tests {
     }
 
     #[test]
-    fn asset_tags_do_not_collide_within_one_timestamp_window() {
-        // Every id here is a UUIDv7 minted in one tight loop: their first eight
-        // hex characters are the same timestamp. The tag suffix must still be
-        // distinct for each.
-        let ids: std::collections::HashSet<String> =
-            (0..1_000).map(|_| short_id(Uuid::now_v7())).collect();
-        assert_eq!(ids.len(), 1_000);
+    fn an_asset_tag_carries_the_whole_unit_id() {
+        // Fixed ids: the tag is the order number plus the unit's own id, so two
+        // units differ by construction and nothing depends on a random draw.
+        let a = Uuid::parse_str("01a1fc2c-d984-73f6-a695-c19563662c16").unwrap();
+        let b = Uuid::parse_str("01a1fc2c-d984-73f6-a695-c19563662c17").unwrap();
+        assert_eq!(compact_id(a), "01a1fc2cd98473f6a695c19563662c16");
+        assert_ne!(compact_id(a), compact_id(b));
+
+        // Two ids that share a tail are still distinct, which a truncated tag
+        // could not promise.
+        let c = Uuid::parse_str("aaaaaaaa-aaaa-7aaa-8aaa-000000000001").unwrap();
+        let d = Uuid::parse_str("bbbbbbbb-bbbb-7bbb-8bbb-000000000001").unwrap();
+        assert_ne!(compact_id(c), compact_id(d));
     }
 
     #[test]

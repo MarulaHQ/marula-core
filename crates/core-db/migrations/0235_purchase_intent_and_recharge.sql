@@ -38,12 +38,14 @@
 -- nothing is `sale_stock`, delivered `to_stock`, with no client, no ticket and
 -- no recharge rule. No behaviour changes until a caller writes the new words.
 --
--- Lock cost: the defaulted columns are metadata-only (Postgres 11+), and the
--- tables that gain CHECK constraints — `purchase_orders`, `purchase_order_lines`
--- and `purchase_receipt_lines` — hold thousands of rows at fleet sizes, so each
--- validation scan is a statement rather than an outage. Indexes are plain (not
--- CONCURRENTLY) because sqlx runs a migration inside a transaction, where the
--- concurrent form is illegal; the same note applies to 0232.
+-- Lock cost: the defaulted columns are metadata-only (Postgres 11+), and every
+-- CHECK on an existing table is added `NOT VALID`, so this transaction does not
+-- scan `purchase_orders`, `purchase_order_lines` or `purchase_receipt_lines`
+-- while it holds their locks. New and changed rows are checked from the moment
+-- the constraint exists; migration 0248 validates the rows that predate it, in a
+-- transaction of its own. Indexes are plain (not CONCURRENTLY) because sqlx runs
+-- a migration inside a transaction, where the concurrent form is illegal; the
+-- same note applies to 0232.
 
 -- --- header intent ------------------------------------------------------------
 
@@ -69,11 +71,11 @@ ALTER TABLE purchase_orders
   ADD CONSTRAINT purchase_orders_acquired_for_check
   CHECK (acquired_for IN ('sale_stock', 'internal_fleet', 'rental_pool',
                           'vendor_rental', 'client_stocked', 'client_drop_ship',
-                          'project_consumable', 'ewaste_service')),
+                          'project_consumable', 'ewaste_service')) NOT VALID,
   ADD CONSTRAINT purchase_orders_delivery_mode_check
-  CHECK (delivery_mode IN ('to_stock', 'drop_ship_to_client', 'to_site')),
+  CHECK (delivery_mode IN ('to_stock', 'drop_ship_to_client', 'to_site')) NOT VALID,
   ADD CONSTRAINT purchase_orders_ownership_check
-  CHECK (ownership IS NULL OR ownership IN ('owned', 'leased', 'rented'));
+  CHECK (ownership IS NULL OR ownership IN ('owned', 'leased', 'rented')) NOT VALID;
 
 -- A purchase made on a client's behalf names the client. The implication runs
 -- one way on purpose: an order for our own stock may still name a client,
@@ -83,23 +85,26 @@ ALTER TABLE purchase_orders
 ALTER TABLE purchase_orders
   ADD CONSTRAINT purchase_orders_client_shape
   CHECK (acquired_for NOT IN ('client_stocked', 'client_drop_ship')
-         OR client_id IS NOT NULL);
+         OR client_id IS NOT NULL) NOT VALID;
 
 -- A drop-ship delivers to the client, and only a client purchase can drop-ship.
 -- Written as two implications so NULL never makes the comparison vacuous.
 ALTER TABLE purchase_orders
   ADD CONSTRAINT purchase_orders_drop_ship_needs_client
   CHECK (delivery_mode <> 'drop_ship_to_client'
-         OR acquired_for IN ('client_stocked', 'client_drop_ship')),
+         OR acquired_for IN ('client_stocked', 'client_drop_ship')) NOT VALID,
   ADD CONSTRAINT purchase_orders_client_drop_ship_shape
-  CHECK (acquired_for <> 'client_drop_ship' OR delivery_mode = 'drop_ship_to_client');
+  CHECK (acquired_for <> 'client_drop_ship'
+         OR delivery_mode = 'drop_ship_to_client') NOT VALID;
 
 -- A rented unit is a vendor rental and a vendor rental is rented; every other
 -- intent is owned or leased by us.
 ALTER TABLE purchase_orders
   ADD CONSTRAINT purchase_orders_vendor_rental_shape
-  CHECK ((acquired_for = 'vendor_rental' AND ownership = 'rented')
-         OR (acquired_for <> 'vendor_rental' AND ownership IS DISTINCT FROM 'rented'));
+  CHECK ((acquired_for = 'vendor_rental'
+          AND ownership IS NOT DISTINCT FROM 'rented')
+         OR (acquired_for <> 'vendor_rental'
+             AND ownership IS DISTINCT FROM 'rented')) NOT VALID;
 
 -- The header rule is optional; when present it must be a complete rule of one
 -- kind, and it exists only for a client purchase.
@@ -122,10 +127,10 @@ ALTER TABLE purchase_orders
         AND recharge_markup_bps IS NULL
       ELSE false
     END
-  ),
+  ) NOT VALID,
   ADD CONSTRAINT purchase_orders_recharge_needs_client
   CHECK (recharge_rule_kind IS NULL
-         OR acquired_for IN ('client_stocked', 'client_drop_ship'));
+         OR acquired_for IN ('client_stocked', 'client_drop_ship')) NOT VALID;
 
 -- Foreign keys are not indexed by Postgres, and both of these are read by a
 -- client or ticket page.
@@ -148,18 +153,18 @@ ALTER TABLE purchase_order_lines
 ALTER TABLE purchase_order_lines
   ADD CONSTRAINT purchase_order_lines_line_kind_check
   CHECK (line_kind IN ('stock', 'serialized_unit', 'asset', 'rental_unit',
-                       'service', 'pass_through')),
+                       'service', 'pass_through')) NOT VALID,
   -- A receipt destination is a live class; terminal dispositions are reached by
   -- a movement after the unit exists, never by a purchase.
   ADD CONSTRAINT purchase_order_lines_destination_class_check
   CHECK (destination_class IS NULL
          OR destination_class IN ('sale_stock', 'internal_fleet', 'rental_in',
                                   'rental_out', 'client_custody',
-                                  'ewaste_custody', 'tools')),
+                                  'ewaste_custody', 'tools')) NOT VALID,
   ADD CONSTRAINT purchase_order_lines_weight_check
-  CHECK (weight_g IS NULL OR weight_g > 0),
+  CHECK (weight_g IS NULL OR weight_g > 0) NOT VALID,
   ADD CONSTRAINT purchase_order_lines_sell_price_check
-  CHECK (sell_price_minor IS NULL OR sell_price_minor >= 0);
+  CHECK (sell_price_minor IS NULL OR sell_price_minor >= 0) NOT VALID;
 
 -- The serial and pass-through rules the domain validates, spelled once at the
 -- schema so a writer that bypasses the domain cannot land a line the receipt
@@ -169,14 +174,14 @@ ALTER TABLE purchase_order_lines
 ALTER TABLE purchase_order_lines
   ADD CONSTRAINT purchase_order_lines_serial_shape
   CHECK (NOT serial_expected
-         OR line_kind IN ('serialized_unit', 'asset', 'rental_unit')),
+         OR line_kind IN ('serialized_unit', 'asset', 'rental_unit')) NOT VALID,
   ADD CONSTRAINT purchase_order_lines_serialized_expects_serial
-  CHECK (line_kind <> 'serialized_unit' OR serial_expected),
+  CHECK (line_kind <> 'serialized_unit' OR serial_expected) NOT VALID,
   ADD CONSTRAINT purchase_order_lines_pass_through_shape
   CHECK (destination_class IS NULL
          OR line_kind NOT IN ('pass_through', 'service')
          OR destination_class NOT IN ('sale_stock', 'internal_fleet',
-                                      'rental_out', 'tools'));
+                                      'rental_out', 'tools')) NOT VALID;
 
 -- --- the receipt line's one consequence ---------------------------------------
 
@@ -189,7 +194,7 @@ ALTER TABLE purchase_receipt_lines
   CHECK (destination_class IS NULL
          OR destination_class IN ('sale_stock', 'internal_fleet', 'rental_in',
                                   'rental_out', 'client_custody',
-                                  'ewaste_custody', 'tools'));
+                                  'ewaste_custody', 'tools')) NOT VALID;
 
 CREATE INDEX idx_purchase_receipt_lines_asset
   ON purchase_receipt_lines (org_id, device_asset_id)
