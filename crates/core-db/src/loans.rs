@@ -1376,7 +1376,7 @@ pub async fn list_billable_leases(
     if contract_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(
+    type LeaseChargeTuple = (
         Uuid,
         Uuid,
         Uuid,
@@ -1386,7 +1386,8 @@ pub async fn list_billable_leases(
         String,
         NaiveDate,
         NaiveDate,
-    )> = sqlx::query_as(
+    );
+    let rows: Vec<LeaseChargeTuple> = sqlx::query_as(
         r#"SELECT l.id, l.contract_id, l.client_id, l.lease_currency, l.lease_cycle,
                       l.lease_cost_minor,
                       COALESCE(NULLIF(btrim(l.agreement_ref), ''), 'lease for ' || c.name) AS label,
@@ -2103,7 +2104,8 @@ pub async fn list_pool_units(
 ) -> DbResult<Vec<PoolUnitRow>> {
     // Availability is derived from the open agreements that hold a unit, never
     // stored: the moment an agreement closes, the unit is available again.
-    let rows: Vec<(String, Uuid, String, Option<Uuid>, Option<Uuid>, bool)> = sqlx::query_as(
+    type PoolUnitTuple = (String, Uuid, String, Option<Uuid>, Option<Uuid>, bool);
+    let rows: Vec<PoolUnitTuple> = sqlx::query_as(
         r#"SELECT unit_kind, id, label, stock_item_id, device_asset_id, available
              FROM (
                SELECT 'serial'::text AS unit_kind, s.id, s.serial_number AS label,
