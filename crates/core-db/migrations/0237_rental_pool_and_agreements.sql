@@ -45,10 +45,17 @@
 -- no foreign key (an evidence id naming another org-scoped row keeps the value,
 -- per the erasure rule), and every parent it does reference cascades.
 --
--- Lock cost: two new tables and four new columns on an append-only ledger. The
--- one constraint added to `device_assets` is `NOT VALID`, so it enforces every
--- new write without scanning or refusing the historical rows a backfill may
--- have left.
+-- Lock cost: two new tables and four new columns on an append-only ledger. Two
+-- CHECK constraints land `NOT VALID` — the `rental_in` shape on `device_assets`
+-- and the wipe shape on the class ledger — because they enforce every new write
+-- without scanning rows that predate them, and a validation that refuses
+-- historical rows must not fail the upgrade. The widened invoice-kind CHECK is
+-- also `NOT VALID`: it is dropped and re-added here, and adding it validated
+-- would scan a populated `invoice_lines` while this transaction still holds the
+-- lock the header DDL took. Migration 0250 validates the invoice kind and the
+-- wipe shape as its own step, where a scan takes SHARE UPDATE EXCLUSIVE and does
+-- not block writes. The `rental_in` shape stays NOT VALID: refusing an upgrade
+-- over a historical row would be worse than leaving it to police new writes.
 
 -- --- what a pool move carries ------------------------------------------------
 
@@ -60,9 +67,12 @@ ALTER TABLE inventory_class_movements
   ADD COLUMN data_wipe_at timestamptz;
 
 -- A wipe timestamp without the evidence it points at is a claim, not a record.
+-- NOT VALID: the constraint enforces every row written from here on, while the
+-- scan of existing rows waits for 0250, so the ledger keeps its shared lock for
+-- a statement instead of a table pass.
 ALTER TABLE inventory_class_movements
   ADD CONSTRAINT inventory_class_movements_wipe_shape
-  CHECK (data_wipe_at IS NULL OR data_wipe_ref IS NOT NULL);
+  CHECK (data_wipe_at IS NULL OR data_wipe_ref IS NOT NULL) NOT VALID;
 
 -- --- rental charges ----------------------------------------------------------
 
@@ -269,6 +279,14 @@ BEGIN
      AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
     RETURN NEW;
   END IF;
+  -- Deleting a vendor clears the reference and nothing else. That is not an
+  -- edit to the agreement: the terms, dates and return stay exactly as they
+  -- were, and the row keeps the vendor's name where it recorded one. Without
+  -- this arm a closed agreement would block the delete of the vendor row.
+  IF NEW.vendor_id IS NULL
+     AND (to_jsonb(NEW) - 'vendor_id') = (to_jsonb(OLD) - 'vendor_id') THEN
+    RETURN NEW;
+  END IF;
 
   IF OLD.status = 'returned' THEN
     RAISE EXCEPTION
@@ -454,10 +472,13 @@ $$ LANGUAGE plpgsql;
 
 -- --- the rental line kind ----------------------------------------------------
 
+-- NOT VALID: every row this transaction writes is checked, and the scan of the
+-- invoice lines already on disk runs in 0250 instead of holding ACCESS EXCLUSIVE
+-- on a populated table through this migration.
 ALTER TABLE invoice_lines DROP CONSTRAINT invoice_lines_kind_check;
 ALTER TABLE invoice_lines ADD CONSTRAINT invoice_lines_kind_check
   CHECK (kind IN ('recurring_base','retainer_base','retainer_overage',
                   'time_materials','fixed_fee','per_unit_base','per_incident',
                   'block_sale','block_drawdown','cap_overage','minimum_trueup',
                   'change_order','sla_credit','escalator','project_release',
-                  'rental'));
+                  'rental')) NOT VALID;

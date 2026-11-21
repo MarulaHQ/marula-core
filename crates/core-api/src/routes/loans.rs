@@ -1112,6 +1112,11 @@ pub async fn create_vendor_rental(
         )
         .await?;
         let view = VendorRentalView::from(rental);
+        // The replay payload is the response body without `mutation` (the
+        // framework injects that), so a same-key retry deserializes back into
+        // `VendorRentalMutationResponse` instead of failing on a missing
+        // `rental` field.
+        let payload = serde_json::json!({ "rental": &view });
         let mutation = instant::record(
             &mut ctx,
             instant::RecordSpec {
@@ -1123,7 +1128,7 @@ pub async fn create_vendor_rental(
                 after: serde_json::to_value(&view).unwrap_or(Value::Null),
                 updated_at: view.updated_at,
                 key: key.as_deref(),
-                payload: &view,
+                payload: &payload,
                 provenance: Default::default(),
             },
         )
@@ -1237,6 +1242,9 @@ pub async fn return_vendor_rental(
 ) -> ApiResult<Json<VendorRentalMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
+    // The response is the same row the reads return, expense and deposit
+    // included, so the same financial gate applies to the write.
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
@@ -1303,6 +1311,7 @@ pub async fn return_vendor_rental(
         )
         .await?;
         let view = VendorRentalView::from(rental);
+        let payload = serde_json::json!({ "rental": &view });
         let mutation = instant::record(
             &mut ctx,
             instant::RecordSpec {
@@ -1316,7 +1325,7 @@ pub async fn return_vendor_rental(
                 after: serde_json::to_value(&view).unwrap_or(Value::Null),
                 updated_at: view.updated_at,
                 key: key.as_deref(),
-                payload: &view,
+                payload: &payload,
                 provenance: Default::default(),
             },
         )

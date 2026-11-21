@@ -348,7 +348,9 @@ pub async fn update_asset_lifecycle(
     p: &AssetLifecyclePatch,
 ) -> DbResult<DeviceAsset> {
     // One lock for the read and the write: two concurrent patches must not both
-    // read the same class and each write a movement from it.
+    // read the same class and each write a movement from it. The lock is also
+    // what lets the ownership write and the class movement run in the order the
+    // `rental_in` shape constraint needs.
     let current = sqlx::query(
         "SELECT scope, ownership, custody_class FROM device_assets \
           WHERE org_id = $1 AND id = $2 FOR UPDATE",
@@ -365,8 +367,8 @@ pub async fn update_asset_lifecycle(
     // An ownership change moves the derived class. That is a movement row, not
     // a column edit: the 0232 trigger applies it and its open-agreement guard
     // refuses a unit that is out.
-    if let Some(next_ownership) = p.ownership.as_deref() {
-        if p.record_class_movement && next_ownership != ownership {
+    let next_class = match p.ownership.as_deref() {
+        Some(next_ownership) if p.record_class_movement && next_ownership != ownership => {
             let from = core_domain::entities::CustodyClass::parse(&custody_class)
                 .map_err(|e| DbError::Corrupt(e.to_string()))?;
             if from.is_terminal() {
@@ -377,28 +379,65 @@ pub async fn update_asset_lifecycle(
             }
             let to = core_domain::entities::custody_class_for_asset(&scope, next_ownership)
                 .map_err(|e| DbError::Conflict(e.to_string()))?;
-            if to != from {
-                sqlx::query(
-                    r#"INSERT INTO inventory_class_movements
-                         (id, org_id, unit_kind, device_asset_id, from_class, to_class, reason,
-                          source_kind, source_id)
-                       VALUES ($1, $2, 'asset', $3, $4, $5, $6, 'device_asset', $3)"#,
-                )
-                .bind(Uuid::now_v7())
-                .bind(org_id)
-                .bind(id)
-                .bind(from.as_str())
-                .bind(to.as_str())
-                .bind(format!(
-                    "ownership changed from {ownership} to {next_ownership}"
-                ))
-                .execute(&mut *conn)
-                .await
-                .map_err(map_class_guard)?;
-            }
+            (to != from).then_some((from, to, ownership.clone(), next_ownership.to_string()))
+        }
+        _ => None,
+    };
+
+    // The intermediate row has to satisfy `device_assets_rented_in_shape` too,
+    // and that constraint ties `rental_in` to a non-owned ownership. So the two
+    // writes are ordered by direction:
+    //
+    //   * into `rental_in`: ownership first (a fleet row owned by us may become
+    //     `rented` while it is still fleet), then the movement that makes it a
+    //     vendor rental;
+    //   * out of `rental_in`: the movement first (the class leaves `rental_in`,
+    //     so the still-`rented` ownership is no longer constrained), then the
+    //     ownership.
+    //
+    // One movement either way; the open-agreement refusal is the trigger's, and
+    // it still sees the class it must.
+    if let Some((from, to, from_ownership, next_ownership)) = &next_class {
+        let into_rental_in = *to == core_domain::entities::CustodyClass::RentalIn;
+        if into_rental_in {
+            apply_lifecycle_patch(conn, org_id, id, p).await?;
+        }
+        sqlx::query(
+            r#"INSERT INTO inventory_class_movements
+                 (id, org_id, unit_kind, device_asset_id, from_class, to_class, reason,
+                  source_kind, source_id)
+               VALUES ($1, $2, 'asset', $3, $4, $5, $6, 'device_asset', $3)"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(org_id)
+        .bind(id)
+        .bind(from.as_str())
+        .bind(to.as_str())
+        .bind(format!(
+            "ownership changed from {from_ownership} to {next_ownership}"
+        ))
+        .execute(&mut *conn)
+        .await
+        .map_err(map_class_guard)?;
+        if into_rental_in {
+            // The patch already ran; the movement is what changed the class,
+            // so the final row is a read, not a second write.
+            return get_asset(conn, org_id, id).await;
         }
     }
 
+    apply_lifecycle_patch(conn, org_id, id, p).await
+}
+
+/// The lifecycle columns, patch semantics: absent = keep. Split out of
+/// [`update_asset_lifecycle`] because the `rental_in` shape constraint makes the
+/// order of this write and the class movement matter.
+async fn apply_lifecycle_patch(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+    p: &AssetLifecyclePatch,
+) -> DbResult<DeviceAsset> {
     let row = sqlx::query(&format!(
         r#"UPDATE device_assets SET
              ownership = COALESCE($3, ownership),

@@ -1596,6 +1596,42 @@ async fn item_kind(
     Ok((item.kind, item.currency))
 }
 
+/// Refuses a withdrawal of a unit that belongs to the rental pool. A
+/// `rental_out` unit is not saleable stock: the on-hand read already leaves it
+/// out of the count, so a consume or a ship-out that names one would remove a
+/// unit the shelves never offered.
+///
+/// The check lives here, in the sale-side handlers, and not in the shared stock
+/// writer: a pool issue writes a `loan` movement for the same serial after it
+/// sets the class, and a writer-level refusal would block the loan.
+async fn require_saleable_serial(
+    state: &AppState,
+    extensions: &Extensions,
+    serial_id: Uuid,
+) -> ApiResult<()> {
+    let authed = authed::<crate::auth::AuthedUser>(extensions)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, user_id)
+        .await
+        .map_err(ApiError::from)?;
+    let class: Option<String> =
+        sqlx::query_scalar("SELECT custody_class FROM stock_serials WHERE org_id = $1 AND id = $2")
+            .bind(org_id)
+            .bind(serial_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    match class.as_deref() {
+        Some("rental_out") => Err(ApiError::Conflict(
+            "that unit is in the rental pool; decommission it before withdrawing it as sale stock"
+                .into(),
+        )),
+        _ => Ok(()),
+    }
+}
+
 fn require_pos(qty: i64, what: &str) -> ApiResult<()> {
     if qty <= 0 {
         return Err(ApiError::Validation(format!("{what} must be positive")));
@@ -1755,6 +1791,9 @@ pub async fn consume(
     let (kind, _currency) = item_kind(&state, &extensions, req.item_id).await?;
     let serialized = kind == "serialized";
     require_serialized_consistent(serialized, &req.serial_id, "consume")?;
+    if let Some(serial_id) = req.serial_id {
+        require_saleable_serial(&state, &extensions, serial_id).await?;
+    }
     let qty_milli = if serialized { 1000 } else { req.qty_milli };
 
     let movement = core_domain::entities::StockMovement {
@@ -1960,6 +1999,9 @@ pub async fn ship_out(
     let (kind, _currency) = item_kind(&state, &extensions, req.item_id).await?;
     let serialized = kind == "serialized";
     require_serialized_consistent(serialized, &req.serial_id, "ship-out")?;
+    if let Some(serial_id) = req.serial_id {
+        require_saleable_serial(&state, &extensions, serial_id).await?;
+    }
     let qty_milli = if serialized { 1000 } else { req.qty_milli };
 
     // Fingerprint BEFORE the request is consumed by movement below.
@@ -2105,6 +2147,25 @@ pub async fn on_hand(
     )
     .await?;
 
+    // `stock_levels` counts what is physically on a shelf. Saleable quantity is
+    // what is on that shelf and not in the rental pool, so the pool's in-stock
+    // units come off the count in one grouped read. A pool unit that is out on
+    // a lease is already absent from the level: its loan leg took it off.
+    let pool_counts: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
+        r#"SELECT stock_item_id, location_id, count(*)::bigint
+             FROM stock_serials
+            WHERE org_id = $1 AND custody_class = 'rental_out' AND status = 'in_stock'
+              AND location_id IS NOT NULL
+            GROUP BY stock_item_id, location_id"#,
+    )
+    .bind(org_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let pool: std::collections::HashMap<(Uuid, Uuid), i64> = pool_counts
+        .into_iter()
+        .map(|(item, location, qty)| ((item, location), qty * 1000))
+        .collect();
+
     let mut items: std::collections::HashMap<Uuid, (String, String, String)> =
         std::collections::HashMap::new();
     let mut locations: std::collections::HashMap<Uuid, (String, String)> =
@@ -2132,8 +2193,14 @@ pub async fn on_hand(
                 hit
             }
         };
+        let saleable = (level.qty_milli
+            - pool
+                .get(&(level.stock_item_id, level.stock_location_id))
+                .copied()
+                .unwrap_or(0))
+        .max(0);
         let low = match level.reorder_point_milli {
-            Some(point) => level.qty_milli <= point,
+            Some(point) => saleable <= point,
             None => false,
         };
         if low && !q.low_only.unwrap_or(false) {
@@ -2148,7 +2215,7 @@ pub async fn on_hand(
                 stock_location_id: level.stock_location_id,
                 location_name,
                 location_kind,
-                qty_milli: level.qty_milli,
+                qty_milli: saleable,
                 min_qty_milli: level.min_qty_milli,
                 max_qty_milli: level.max_qty_milli,
                 reorder_point_milli: level.reorder_point_milli,
@@ -2648,6 +2715,10 @@ async fn pool_apply(
             data_wipe_ref: movement.data_wipe_ref.clone(),
             created_at: movement.created_at,
         };
+        // The replay payload is the response body without `mutation` (the
+        // framework injects that), so a same-key retry deserializes back into
+        // `PoolMutationResponse` instead of failing on a missing `movement`.
+        let payload = serde_json::json!({ "movement": &view });
         let mutation = instant::record(
             &mut ctx,
             instant::RecordSpec {
@@ -2659,7 +2730,7 @@ async fn pool_apply(
                 after: serde_json::to_value(&view).unwrap_or(Value::Null),
                 updated_at: movement.created_at,
                 key: key.as_deref(),
-                payload: &view,
+                payload: &payload,
                 provenance: Default::default(),
             },
         )

@@ -542,12 +542,6 @@ pub async fn create_run(
                 if lease.cycle_amount_minor <= 0 {
                     continue;
                 }
-                if !lease.currency.eq_ignore_ascii_case(&contract.currency) {
-                    return Err(ApiError::Conflict(format!(
-                        "lease {} bills in {} but its contract {} bills in {}",
-                        lease.loan_id, lease.currency, contract.number, contract.currency
-                    )));
-                }
                 let terms = core_billing::rules::LeaseTerms {
                     agreement_id: lease.loan_id,
                     label: lease.label.clone(),
@@ -556,17 +550,33 @@ pub async fn create_run(
                     active_from: lease.active_from,
                     active_until: lease.active_until,
                 };
-                for period in core_billing::rules::rental_charge_periods(&terms, window.0, window.1)
-                    .map_err(engine_error)?
-                {
-                    if already_charged.contains(&(
-                        lease.loan_id,
-                        "rent".to_string(),
-                        period.period_start,
-                        period.period_end,
-                    )) {
-                        continue;
-                    }
+                // The window and the charged periods decide what this run
+                // writes. Resolve that first, then judge the currency: a lease
+                // that produces no line here must not refuse the whole run, and
+                // a lease that does produce one is refused by name.
+                let periods: Vec<core_billing::rules::RentalChargePeriod> =
+                    core_billing::rules::rental_charge_periods(&terms, window.0, window.1)
+                        .map_err(engine_error)?
+                        .into_iter()
+                        .filter(|period| {
+                            !already_charged.contains(&(
+                                lease.loan_id,
+                                "rent".to_string(),
+                                period.period_start,
+                                period.period_end,
+                            ))
+                        })
+                        .collect();
+                if periods.is_empty() {
+                    continue;
+                }
+                if !lease.currency.eq_ignore_ascii_case(&contract.currency) {
+                    return Err(ApiError::Conflict(format!(
+                        "lease {} bills in {} but its contract {} bills in {}",
+                        lease.loan_id, lease.currency, contract.number, contract.currency
+                    )));
+                }
+                for period in periods {
                     let charge_id = Uuid::now_v7();
                     rental_lines.push(RentalLine {
                         candidate: BillingCandidateLine {

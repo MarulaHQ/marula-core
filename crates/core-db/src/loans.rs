@@ -124,6 +124,12 @@ fn line_row(r: LineRow) -> ClientLoanLine {
 
 /// One device to issue: from org stock (item + optional serial) or an
 /// existing fleet asset.
+/// The classes the automatic issue picker may choose from. The same set
+/// `core_domain::entities::loan_issue_origin_is_valid` accepts; the explicit
+/// list is what lets the picker filter in SQL, so an ineligible unit is never
+/// selected only to be refused afterwards.
+const ISSUE_ELIGIBLE_CLASSES: [&str; 4] = ["sale_stock", "tools", "internal_fleet", "rental_out"];
+
 #[derive(Clone)]
 pub struct LoanIssueItem {
     pub stock_item_id: Option<Uuid>,
@@ -300,21 +306,29 @@ pub async fn issue_loan(
                     serial
                 }
                 None => {
-                    let row = sqlx::query!(
+                    // The picker only offers a unit the issue path will accept.
+                    // Status is the physical fact (is it on the shelf); the class
+                    // is what the unit is for, and a pool or client-held unit is
+                    // not an automatic loan candidate. Filtering here means the
+                    // oldest eligible unit is chosen, instead of the oldest unit
+                    // being chosen and refused after the pick.
+                    let row: Option<(Uuid,)> = sqlx::query_as(
                         r#"SELECT id FROM stock_serials
-                           WHERE org_id = $1 AND stock_item_id = $2 AND status = 'in_stock'
-                           ORDER BY created_at, id
-                           LIMIT 1"#,
-                        org_id,
-                        stock_item.id,
+                            WHERE org_id = $1 AND stock_item_id = $2 AND status = 'in_stock'
+                              AND custody_class = ANY($3)
+                            ORDER BY created_at, id
+                            LIMIT 1"#,
                     )
+                    .bind(org_id)
+                    .bind(stock_item.id)
+                    .bind(ISSUE_ELIGIBLE_CLASSES)
                     .fetch_optional(&mut *conn)
                     .await?;
                     match row {
-                        Some(row) => crate::stock::get_serial(&mut *conn, org_id, row.id).await?,
+                        Some(row) => crate::stock::get_serial(&mut *conn, org_id, row.0).await?,
                         None => {
                             return Err(DbError::Conflict(format!(
-                                "no in-stock unit of {} to issue",
+                                "no in-stock unit of {} that can be issued to a client",
                                 stock_item.name
                             )))
                         }
@@ -1884,6 +1898,25 @@ pub async fn create_vendor_rental(
             if class != "rental_in" || !matches!(ownership.as_str(), "leased" | "rented") {
                 return Err(DbError::Conflict(format!(
                     "asset {id} is {class} ({ownership}); a vendor rental is rental_in gear owned by the vendor"
+                )));
+            }
+            // A unit a closed agreement recorded as lost never came back. The
+            // class stays rental_in because no terminal class names "lost", so
+            // the record is the only thing that can stop a second agreement on
+            // a unit nobody has.
+            let lost: Option<(Uuid,)> = sqlx::query_as(
+                r#"SELECT id FROM vendor_rentals
+                    WHERE org_id = $1 AND device_asset_id = $2 AND lost
+                    ORDER BY created_at DESC
+                    LIMIT 1"#,
+            )
+            .bind(org_id)
+            .bind(id)
+            .fetch_optional(&mut *conn)
+            .await?;
+            if lost.is_some() {
+                return Err(DbError::Conflict(format!(
+                    "asset {id} was recorded lost on a closed vendor rental; it cannot be rented again"
                 )));
             }
             id
