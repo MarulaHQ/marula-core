@@ -1107,9 +1107,8 @@ pub async fn weight_balance(
     .fetch_one(&mut *conn)
     .await
     .map_err(guard_error)?;
-    let by_pathway: Vec<PathwayWeight> = serde_json::from_value(row.by_pathway).map_err(|error| {
-        DbError::Corrupt(format!("weight balance pathway aggregate: {error}"))
-    })?;
+    let by_pathway: Vec<PathwayWeight> = serde_json::from_value(row.by_pathway)
+        .map_err(|error| DbError::Corrupt(format!("weight balance pathway aggregate: {error}")))?;
     let total_in_g = row.total_in_g;
     let total_out_g = row.total_out_g;
 

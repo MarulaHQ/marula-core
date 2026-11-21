@@ -422,7 +422,7 @@ pub async fn create_run(
         // joins the sweep even when the window does not choose it. Its own
         // evaluation contributes nothing outside the term; the charge is what
         // the line is.
-        let pending_charges = core_db::loans::list_all_pending_rental_charges(&mut *ctx.tx, org_id)
+        let pending_charges = core_db::loans::list_all_pending_rental_charges(&mut ctx.tx, org_id)
             .await?;
         let mut extra_ids: Vec<Uuid> = pending_charges
             .iter()
