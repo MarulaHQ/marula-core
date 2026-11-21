@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**788 paths · 1047 operations · 1649 schemas.**
+**793 paths · 1053 operations · 1659 schemas.**
 
 ## accounting
 
@@ -19,6 +19,14 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `GET` | `/api/v1/accounting/tax-mappings` <a id="accounting_tax_mappings_list"></a> | GET /api/accounting/tax-mappings — the connection's tax mappings. | — |
 | `PUT` | `/api/v1/accounting/tax-mappings` <a id="accounting_tax_mappings_upsert"></a> | PUT /api/accounting/tax-mappings — write (or rewrite) one mapping. | [UpsertTaxMappingRequest](#schema-upserttaxmappingrequest) |
 | `DELETE` | `/api/v1/accounting/tax-mappings/{id}` <a id="accounting_tax_mappings_delete"></a> | DELETE /api/accounting/tax-mappings/{id} — remove a mapping. | — |
+
+## acquisition-costs
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/acquisition-costs/{id}` <a id="acquisition_costs_get"></a> | GET /api/acquisition-costs/{id}. | — |
+| `POST` | `/api/v1/acquisition-costs/{id}/reverse` <a id="acquisition_costs_reverse"></a> | POST /api/acquisition-costs/{id}/reverse — record the correcting document. | [ReverseAcquisitionCostRequest](#schema-reverseacquisitioncostrequest) |
+| `GET` | `/api/v1/acquisition-costs/summary` <a id="acquisition_costs_class_rollup"></a> | GET /api/acquisition-costs/summary — base-currency totals per reporting class, optionally narrowed to an order, project, ticket or date window. | — |
 
 ## admin
 
@@ -1163,6 +1171,14 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/purchase-orders/{id}/receive` <a id="purchase_orders_receive"></a> | POST /api/purchase-orders/{id}/receive — the receipt that posts into the lane-1 movement ledger at `location_id`. | [ReceiveOrderRequest](#schema-receiveorderrequest) |
 | `GET` | `/api/v1/purchase-orders/{id}/recharges` <a id="purchase_orders_recharges"></a> | GET /api/purchase-orders/{id}/recharges — every charge this order issued to a client, with the rule and the FX snapshots that explain each amount. | — |
 
+## purchase-receipts
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/purchase-receipts/{id}/acquisition-costs` <a id="acquisition_costs_list_for_receipt"></a> | GET /api/purchase-receipts/{id}/acquisition-costs. | — |
+| `POST` | `/api/v1/purchase-receipts/{id}/acquisition-costs` <a id="acquisition_costs_create"></a> | POST /api/purchase-receipts/{id}/acquisition-costs — record one charge document against a receipt and split it. | [CreateAcquisitionCostRequest](#schema-createacquisitioncostrequest) |
+| `GET` | `/api/v1/purchase-receipts/{id}/valuation` <a id="acquisition_costs_receipt_valuation"></a> | GET /api/purchase-receipts/{id}/valuation — receipt cost plus capitalised layers, per line and in total. Every amount comes from a stored snapshot, so two runs over the same receipt answer the same money. | — |
+
 ## quotes
 
 | Method | Path | Operation | Request body |
@@ -1683,6 +1699,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-acceptinviterequest"></a>`AcceptInviteRequest` | object |  |
 | <a id="schema-acceptobservedrequest"></a>`AcceptObservedRequest` | composite |  |
 | <a id="schema-acquiredfor"></a>`AcquiredFor` | string |  |
+| <a id="schema-acquisitioncost"></a>`AcquisitionCost` | object | One charge document: a layer over one receipt. |
+| <a id="schema-acquisitioncostallocation"></a>`AcquisitionCostAllocation` | object | One line's share of a layer. |
+| <a id="schema-acquisitioncostdetail"></a>`AcquisitionCostDetail` | object | A layer with its split, which is what every endpoint answers with. |
+| <a id="schema-acquisitioncostmutationresponse"></a>`AcquisitionCostMutationResponse` | composite | A mutation answers with the whole layer and the instant-first metadata, so the caller's next write can carry the version it just read. |
 | <a id="schema-actionview"></a>`ActionView` | object |  |
 | <a id="schema-actor"></a>`Actor` | object | Who performed the audited action. Append-only provenance record. Portal variants carry the client-side tier so audit trails distinguish staff actions from client-portal actions at the storage layer (actor_kind portal_contact / portal_approver / portal_it_manager). |
 | <a id="schema-addchecklistitemrequest"></a>`AddChecklistItemRequest` | composite |  |
@@ -1986,8 +2006,11 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-contracttype"></a>`ContractType` | string | The supported commercial agreement shapes. Adds the MSP relationship types beyond the original four: per-unit recurring (per-seat / per-device) and per-incident (per closed ticket) pricing. Prepaid blocks, NTE caps, minimums, and escalators ride the existing types as attached configuration rather than new shapes. |
 | <a id="schema-convertquoterequest"></a>`ConvertQuoteRequest` | composite | POST /api/quotes/{id}/convert-to-invoice body. |
 | <a id="schema-convertquoteresponse"></a>`ConvertQuoteResponse` | object | Convert-to-invoice response: the quote with its seam targets. |
+| <a id="schema-costclasstotal"></a>`CostClassTotal` | object | One reporting class's total on documents dated inside the window. |
 | <a id="schema-costlinekind"></a>`CostLineKind` | string | One money line on a ticket: `parts`, `flat`, or `other`. |
 | <a id="schema-costlinemutationresponse"></a>`CostLineMutationResponse` | object |  |
+| <a id="schema-costrollupquery"></a>`CostRollupQuery` | object | GET /api/acquisition-costs/summary. |
+| <a id="schema-createacquisitioncostrequest"></a>`CreateAcquisitionCostRequest` | composite | POST /api/purchase-receipts/{id}/acquisition-costs. |
 | <a id="schema-createalertsourcerequest"></a>`CreateAlertSourceRequest` | composite |  |
 | <a id="schema-createapikeyrequest"></a>`CreateApiKeyRequest` | object |  |
 | <a id="schema-createappointmentrequest"></a>`CreateAppointmentRequest` | object |  |
@@ -2807,9 +2830,11 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-ratingmineview"></a>`RatingMineView` | object |  |
 | <a id="schema-ratingsummary"></a>`RatingSummary` | object |  |
 | <a id="schema-readguardrails"></a>`ReadGuardrails` | object | The guardrails a declared read runs under (ADR 0017 §5). Three of the four are ceilings a declaration may not exceed; the fourth is a promise that may only be declared one way. Validation applies the platform floors here so a manifest cannot write itself a weaker cap. |
+| <a id="schema-receiptlinevaluation"></a>`ReceiptLineValuation` | object | One receipt line's cost, and the layers that moved it. |
 | <a id="schema-receiptlineview"></a>`ReceiptLineView` | composite | One receipt line's consequence, as the routing engine resolved it. The destination class and the asset a line created are what let a reader follow the chain from the purchase order to the unit the receipt created. |
 | <a id="schema-receiptmutationresponse"></a>`ReceiptMutationResponse` | object |  |
 | <a id="schema-receiptstate"></a>`ReceiptState` | string |  |
+| <a id="schema-receiptvaluation"></a>`ReceiptValuation` | object | A receipt's valuation: every line's basis and the totals that prove the two halves agree. |
 | <a id="schema-receivelineinput"></a>`ReceiveLineInput` | object |  |
 | <a id="schema-receiveorderrequest"></a>`ReceiveOrderRequest` | composite |  |
 | <a id="schema-receiverequest"></a>`ReceiveRequest` | composite | POST /api/stock/{receive\|consume\|adjust\|transfer\|ship-out} bodies. All quantities are `milli` thousandths of the item's unit (parity with quote lines); signed legs are normalized per kind below. |
@@ -2884,6 +2909,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-retiretaxonomynoderequest"></a>`RetireTaxonomyNodeRequest` | composite |  |
 | <a id="schema-retryrunrequest"></a>`RetryRunRequest` | composite | POST /api/workflows/runs/{id}/retry — the operator action. |
 | <a id="schema-returnloanrequest"></a>`ReturnLoanRequest` | composite | POST /api/client-loans/{id}/return. |
+| <a id="schema-reverseacquisitioncostrequest"></a>`ReverseAcquisitionCostRequest` | composite | POST /api/acquisition-costs/{id}/reverse. |
 | <a id="schema-revertdetail"></a>`RevertDetail` | object | What the revert restored. |
 | <a id="schema-revertticketrequest"></a>`RevertTicketRequest` | composite | POST /api/tickets/{id}/revert body. |
 | <a id="schema-revokecatalogentryrequest"></a>`RevokeCatalogEntryRequest` | object |  |
@@ -3330,4 +3356,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 33 operation groups; schema count 1649 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 34 operation groups; schema count 1659 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

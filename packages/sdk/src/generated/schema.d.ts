@@ -106,6 +106,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/acquisition-costs/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/acquisition-costs/summary — base-currency totals per reporting
+         *     class, optionally narrowed to an order, project, ticket or date window.
+         */
+        get: operations["acquisition_costs_class_rollup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition-costs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/acquisition-costs/{id}. */
+        get: operations["acquisition_costs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/acquisition-costs/{id}/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/acquisition-costs/{id}/reverse — record the correcting document.
+         * @description The reversal copies the split it reverses, negated, and reuses the rate the
+         *     reversed layer locked, so the pair nets to zero in the base currency. It
+         *     does not re-split: a reversal that apportioned again could land a cent
+         *     somewhere the original did not, and the pair would no longer cancel.
+         */
+        post: operations["acquisition_costs_reverse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/dead-work": {
         parameters: {
             query?: never;
@@ -11718,6 +11778,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchase-receipts/{id}/acquisition-costs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/purchase-receipts/{id}/acquisition-costs. */
+        get: operations["acquisition_costs_list_for_receipt"];
+        put?: never;
+        /**
+         * POST /api/purchase-receipts/{id}/acquisition-costs — record one charge
+         *     document against a receipt and split it.
+         */
+        post: operations["acquisition_costs_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchase-receipts/{id}/valuation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-receipts/{id}/valuation — receipt cost plus capitalised
+         *     layers, per line and in total. Every amount comes from a stored snapshot, so
+         *     two runs over the same receipt answer the same money.
+         */
+        get: operations["acquisition_costs_receipt_valuation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/quotes": {
         parameters: {
             query?: never;
@@ -16355,6 +16457,94 @@ export interface components {
         };
         /** @enum {string} */
         AcquiredFor: "sale_stock" | "internal_fleet" | "rental_pool" | "vendor_rental" | "client_stocked" | "client_drop_ship" | "project_consumable" | "ewaste_service";
+        /** @description One charge document: a layer over one receipt. */
+        AcquisitionCost: {
+            allocation_method: string;
+            allocation_rule: string;
+            /**
+             * Format: int64
+             * @description Signed: a charge is positive and a reversal is negative.
+             */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            /**
+             * @description Whether the charge entered inventory cost. Derived once, from the mode
+             *     and the operator's flag, and stored so a later switch cannot rewrite it.
+             */
+            capitalised: boolean;
+            /**
+             * Format: uuid
+             * @description The client the purchase serves, copied from the order header. A
+             *     citation, like the project and ticket: it gates a restricted client's
+             *     money on every read.
+             */
+            client_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            currency: string;
+            document_date: string;
+            fx_rate_date?: string | null;
+            fx_rate_used?: string | null;
+            fx_source?: string | null;
+            /** Format: uuid */
+            id: string;
+            kind: string;
+            /** Format: uuid */
+            org_id: string;
+            /** @description The org's landed-cost mode when this layer was recorded. */
+            policy_mode: string;
+            /** Format: uuid */
+            posted_ticket_expense_id?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            /** Format: uuid */
+            purchase_order_id: string;
+            /** Format: uuid */
+            receipt_id: string;
+            reference: string;
+            reporting_class: string;
+            /** Format: uuid */
+            reverses_acquisition_cost_id?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            vendor_reference?: string | null;
+        };
+        /** @description One line's share of a layer. */
+        AcquisitionCostAllocation: {
+            /** Format: uuid */
+            acquisition_cost_id: string;
+            /** Format: int64 */
+            allocated_base_minor?: number | null;
+            /** Format: int64 */
+            allocated_minor: number;
+            /**
+             * Format: int64
+             * @description Extended value (order currency), quantity (milli-units) or weight
+             *     (grams), depending on the layer's `allocation_method`.
+             */
+            basis_value: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            receipt_line_id: string;
+        };
+        /** @description A layer with its split, which is what every endpoint answers with. */
+        AcquisitionCostDetail: {
+            allocations: components["schemas"]["AcquisitionCostAllocation"][];
+            cost: components["schemas"]["AcquisitionCost"];
+        };
+        /**
+         * @description A mutation answers with the whole layer and the instant-first metadata, so
+         *     the caller's next write can carry the version it just read.
+         */
+        AcquisitionCostMutationResponse: components["schemas"]["AcquisitionCostDetail"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
         ActionView: {
             /** @description `open` | `launch`. */
             kind: string;
@@ -20547,6 +20737,19 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             quote: components["schemas"]["Quote"];
         };
+        /** @description One reporting class's total on documents dated inside the window. */
+        CostClassTotal: {
+            /**
+             * Format: int64
+             * @description Base-currency total, signed: a reversal reduces its class.
+             */
+            base_amount_minor: number;
+            /** Format: int64 */
+            capitalised_count: number;
+            /** Format: int64 */
+            layer_count: number;
+            reporting_class: string;
+        };
         /**
          * @description One money line on a ticket: `parts`, `flat`, or `other`.
          * @enum {string}
@@ -20555,6 +20758,55 @@ export interface components {
         CostLineMutationResponse: {
             line: components["schemas"]["TicketCostLine"];
             mutation: components["schemas"]["MutationMeta"];
+        };
+        /** @description GET /api/acquisition-costs/summary. */
+        CostRollupQuery: {
+            /** Format: date */
+            from?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            /** Format: uuid */
+            purchase_order_id?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: date */
+            to?: string | null;
+        };
+        /** @description POST /api/purchase-receipts/{id}/acquisition-costs. */
+        CreateAcquisitionCostRequest: components["schemas"]["MutationParams"] & {
+            /** @description extended_value (default) | quantity | weight. */
+            allocation_method?: string | null;
+            /**
+             * Format: int64
+             * @description Integer minor units; must be positive.
+             */
+            amount_minor: number;
+            /**
+             * @description Whether this charge should enter inventory cost. Default true; it only
+             *     takes effect in `landed_costs` mode.
+             */
+            capitalise?: boolean | null;
+            /** @description ISO 4217, uppercase. */
+            currency: string;
+            /** @description The document's own date, and the date the FX rate is locked at. */
+            document_date: string;
+            /** @description freight | duty | brokerage | insurance | handling. */
+            kind: string;
+            /**
+             * @description Our reference for the document. Required: it is the stable name the
+             *     accountant handoff cites.
+             */
+            reference: string;
+            /**
+             * @description The class the charge reports under when it does not capitalise. Defaults
+             *     from the kind; `inventory` is refused because it is the capitalised
+             *     class.
+             */
+            reporting_class?: string | null;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            /** @description The vendor's own invoice number. */
+            vendor_reference?: string | null;
         };
         CreateAlertSourceRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -32843,6 +33095,50 @@ export interface components {
              */
             min_interval_secs: number;
         };
+        /** @description One receipt line's cost, and the layers that moved it. */
+        ReceiptLineValuation: {
+            /** Format: int64 */
+            allocated_layer_count: number;
+            /**
+             * Format: int64
+             * @description Receipt cost plus capitalised layers. `None` when the receipt cost is
+             *     unknown in base currency.
+             */
+            basis_total_base_minor?: number | null;
+            /**
+             * Format: int64
+             * @description Allocated capitalised layers, which are part of the basis.
+             */
+            capitalised_base_minor: number;
+            currency: string;
+            description: string;
+            destination_class?: string | null;
+            /**
+             * Format: int64
+             * @description Allocated layers that were expensed under their class. Reported so the
+             *     total layer money on a receipt reconciles; never added to the basis.
+             */
+            expensed_base_minor: number;
+            /** Format: uuid */
+            po_line_id: string;
+            /** Format: int64 */
+            qty_milli: number;
+            /**
+             * Format: int64
+             * @description The line's receipt cost in base currency. `None` for a lot or service
+             *     line recorded in a foreign currency, where no receipt leg locked a rate:
+             *     the cost is known in the order currency and unvalued in base until a
+             *     layer or a receipt leg gives it one. Missing cost is never zero.
+             */
+            receipt_cost_base_minor?: number | null;
+            /** Format: uuid */
+            receipt_line_id: string;
+            /**
+             * Format: int64
+             * @description The receipt cost in the currency it was recorded in.
+             */
+            receipt_unit_cost_minor: number;
+        };
         /**
          * @description One receipt line's consequence, as the routing engine resolved it. The
          *     destination class and the asset a line created are what let a reader follow
@@ -32860,6 +33156,57 @@ export interface components {
         };
         /** @enum {string} */
         ReceiptState: "pending" | "partial" | "complete" | "over";
+        /**
+         * @description A receipt's valuation: every line's basis and the totals that prove the two
+         *     halves agree.
+         */
+        ReceiptValuation: {
+            base_currency: string;
+            /**
+             * Format: int64
+             * @description Receipt cost plus capitalised layers: the value of the units held.
+             */
+            basis_total_base_minor: number;
+            /**
+             * Format: int64
+             * @description Sum of the capitalised allocations.
+             */
+            capitalised_base_minor: number;
+            /**
+             * Format: int64
+             * @description Sum of the capitalised LAYER amounts on this receipt. Equal to
+             *     `capitalised_base_minor`; both are carried so a reader (and the
+             *     acceptance query) can see the two halves meet instead of trusting one.
+             */
+            capitalised_layer_total_base_minor: number;
+            currency: string;
+            /**
+             * Format: int64
+             * @description Sum of the expensed allocations.
+             */
+            expensed_base_minor: number;
+            /**
+             * Format: int64
+             * @description Sum of the expensed layer amounts on this receipt.
+             */
+            expensed_layer_total_base_minor: number;
+            lines: components["schemas"]["ReceiptLineValuation"][];
+            /** Format: uuid */
+            purchase_order_id: string;
+            /**
+             * Format: int64
+             * @description Sum of the lines' receipt cost in base currency.
+             */
+            receipt_cost_base_minor: number;
+            /** Format: uuid */
+            receipt_id: string;
+            /**
+             * Format: int64
+             * @description Lines whose receipt cost is not known in base currency. Never silently
+             *     zeroed.
+             */
+            uncosted_line_count: number;
+        };
         ReceiveLineInput: {
             /**
              * @description The asset a line creates is typed by the line's layout. Its values are
@@ -33740,6 +34087,13 @@ export interface components {
              * @description Required when any returned device came from stock.
              */
             to_location_id?: string | null;
+        };
+        /** @description POST /api/acquisition-costs/{id}/reverse. */
+        ReverseAcquisitionCostRequest: components["schemas"]["MutationParams"] & {
+            document_date: string;
+            /** @description Our reference for the correcting document (the vendor's credit note). */
+            reference: string;
+            vendor_reference?: string | null;
         };
         /** @description What the revert restored. */
         RevertDetail: {
@@ -39555,6 +39909,112 @@ export interface operations {
             };
             /** @description not visible in scope */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    acquisition_costs_class_rollup: {
+        parameters: {
+            query?: {
+                purchase_order_id?: string | null;
+                project_id?: string | null;
+                ticket_id?: string | null;
+                from?: string | null;
+                to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostClassTotal"][];
+                };
+            };
+            /** @description the date window is inverted */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    acquisition_costs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionCostDetail"];
+                };
+            };
+            /** @description layer not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    acquisition_costs_reverse: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReverseAcquisitionCostRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionCostMutationResponse"];
+                };
+            };
+            /** @description layer not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description layer already reversed, or is itself a reversal */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the correcting document was refused */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -61683,6 +62143,108 @@ export interface operations {
                 content?: never;
             };
             /** @description order not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    acquisition_costs_list_for_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionCostDetail"][];
+                };
+            };
+            /** @description receipt not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    acquisition_costs_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAcquisitionCostRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcquisitionCostMutationResponse"];
+                };
+            };
+            /** @description receipt or vendor not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused or order not receivable */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the charge or its split was refused */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    acquisition_costs_receipt_valuation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptValuation"];
+                };
+            };
+            /** @description receipt not visible in scope */
             404: {
                 headers: {
                     [name: string]: unknown;
