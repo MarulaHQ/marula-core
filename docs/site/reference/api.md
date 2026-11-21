@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**787 paths · 1046 operations · 1647 schemas.**
+**788 paths · 1047 operations · 1649 schemas.**
 
 ## accounting
 
@@ -1156,11 +1156,12 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `GET` | `/api/v1/purchase-orders/{id}/deeplinks` <a id="purchase_orders_deeplinks"></a> | GET /api/purchase-orders/{id}/deeplinks — the one-click open list: vendor portal links first, then PO-level links, then per-line links (with their line context), each https-validated at write time. | — |
 | `POST` | `/api/v1/purchase-orders/{id}/lines` <a id="purchase_orders_add_line"></a> | POST /api/purchase-orders/{id}/lines — draft-only line add. | [OrderLineInput](#schema-orderlineinput) |
 | `DELETE` | `/api/v1/purchase-orders/{id}/lines/{line_id}` <a id="purchase_orders_delete_line"></a> | DELETE /api/purchase-orders/{id}/lines/{line_id} — draft-only. | [DeleteOrderLineRequest](#schema-deleteorderlinerequest) |
-| `PATCH` | `/api/v1/purchase-orders/{id}/lines/{line_id}` <a id="purchase_orders_update_line"></a> | PATCH /api/purchase-orders/{id}/lines/{line_id} — draft-only line edit. | [AddOrderLineRequest](#schema-addorderlinerequest) |
+| `PATCH` | `/api/v1/purchase-orders/{id}/lines/{line_id}` <a id="purchase_orders_update_line"></a> | PATCH /api/purchase-orders/{id}/lines/{line_id} — draft-only line edit. | [UpdateOrderLineRequest](#schema-updateorderlinerequest) |
 | `GET` | `/api/v1/purchase-orders/{id}/links` <a id="purchase_orders_list_links"></a> | GET /api/purchase-orders/{id}/links | — |
 | `POST` | `/api/v1/purchase-orders/{id}/links` <a id="purchase_orders_add_link"></a> | POST /api/purchase-orders/{id}/links — PO-level or (with `line_id`) a per-line order/tracking URL. | [CreateExternalLinkRequest](#schema-createexternallinkrequest) |
 | `POST` | `/api/v1/purchase-orders/{id}/order` <a id="purchase_orders_send"></a> | POST /api/purchase-orders/{id}/order — draft → ordered. | [CloseOrderRequest](#schema-closeorderrequest) |
 | `POST` | `/api/v1/purchase-orders/{id}/receive` <a id="purchase_orders_receive"></a> | POST /api/purchase-orders/{id}/receive — the receipt that posts into the lane-1 movement ledger at `location_id`. | [ReceiveOrderRequest](#schema-receiveorderrequest) |
+| `GET` | `/api/v1/purchase-orders/{id}/recharges` <a id="purchase_orders_recharges"></a> | GET /api/purchase-orders/{id}/recharges — every charge this order issued to a client, with the rule and the FX snapshots that explain each amount. | — |
 
 ## quotes
 
@@ -2519,6 +2520,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-onhandquery"></a>`OnHandQuery` | object |  |
 | <a id="schema-onhandrow"></a>`OnHandRow` | object | The stock-on-hand read model row (`qty leaking thresholds`). |
 | <a id="schema-orderlineinput"></a>`OrderLineInput` | object |  |
+| <a id="schema-orderlinepatch"></a>`OrderLinePatch` | object | One line's PATCH body. Every nullable field is tri-state: absent leaves the stored value alone, `null` clears it (an inherited destination, a cleared layout, an inherited billable flag), and a value s |
 | <a id="schema-ordermutationresponse"></a>`OrderMutationResponse` | composite |  |
 | <a id="schema-orgbillingpreview"></a>`OrgBillingPreview` | object | Org-wide preview: every billable contract's evaluation for the window plus the grand total — the shape a Wave-9 invoice run will consume. |
 | <a id="schema-orgdefaultsresponse"></a>`OrgDefaultsResponse` | object |  |
@@ -3223,6 +3225,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-updateknowledgetemplaterequest"></a>`UpdateKnowledgeTemplateRequest` | object |  |
 | <a id="schema-updatelabeltemplaterequest"></a>`UpdateLabelTemplateRequest` | composite |  |
 | <a id="schema-updatelayoutrequest"></a>`UpdateLayoutRequest` | composite |  |
+| <a id="schema-updateorderlinerequest"></a>`UpdateOrderLineRequest` | composite | PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus IF1 params. |
 | <a id="schema-updateorderrequest"></a>`UpdateOrderRequest` | composite | Every `Option<Option<T>>` field skips serialization when the outer option is `None`, while `Some(None)` still serializes as an explicit `null`. The idempotency fingerprint is that serialized body, so  |
 | <a id="schema-updateorgdefaultrequest"></a>`UpdateOrgDefaultRequest` | object | PUT /api/notification-org-defaults — replaces the org default ROW for one kind; the chain is user override → org default → built-in, so an untouched user's next email follows this policy. Quiet hours  |
 | <a id="schema-updatepasswordrequest"></a>`UpdatePasswordRequest` | composite |  |
@@ -3327,4 +3330,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 33 operation groups; schema count 1647 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 33 operation groups; schema count 1649 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

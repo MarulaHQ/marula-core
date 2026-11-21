@@ -11702,6 +11702,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchase-orders/{id}/recharges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-orders/{id}/recharges — every charge this order issued to
+         *     a client, with the rule and the FX snapshots that explain each amount.
+         */
+        get: operations["purchase_orders_recharges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/quotes": {
         parameters: {
             query?: never;
@@ -27226,6 +27246,15 @@ export interface components {
         ListDispositionsQuery: {
             /** Format: uuid */
             client_id?: string | null;
+            cursor_created_at?: string | null;
+            /**
+             * Format: date
+             * @description Keyset cursor: the three fields of the last row on the previous page.
+             *     Pass all three or none.
+             */
+            cursor_disposed_at?: string | null;
+            /** Format: uuid */
+            cursor_id?: string | null;
             /** Format: date */
             from?: string | null;
             /** Format: int64 */
@@ -28520,6 +28549,39 @@ export interface components {
             stock_item_id?: string | null;
             /** Format: int64 */
             unit_cost_minor: number;
+            /** Format: int32 */
+            weight_g?: number | null;
+        };
+        /**
+         * @description One line's PATCH body. Every nullable field is tri-state: absent leaves the
+         *     stored value alone, `null` clears it (an inherited destination, a cleared
+         *     layout, an inherited billable flag), and a value sets it. The plain option is
+         *     for the fields that cannot be cleared.
+         *
+         *     `skip_serializing_if` keeps an omitted field out of the idempotency
+         *     fingerprint while `null` still serializes, so "leave" and "clear" cannot
+         *     share a key.
+         */
+        OrderLinePatch: {
+            /** Format: uuid */
+            asset_layout_id?: string | null;
+            billable?: boolean | null;
+            /** Format: uuid */
+            catalog_item_id?: string | null;
+            description?: string | null;
+            destination_class?: components["schemas"]["CustodyClass"] | null;
+            line_kind?: components["schemas"]["LineKind"] | null;
+            /** Format: int32 */
+            position?: number | null;
+            /** Format: int64 */
+            qty_ordered_milli?: number | null;
+            /** Format: int64 */
+            sell_price_minor?: number | null;
+            serial_expected?: boolean | null;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** Format: int64 */
+            unit_cost_minor?: number | null;
             /** Format: int32 */
             weight_g?: number | null;
         };
@@ -38149,6 +38211,11 @@ export interface components {
             icon?: string;
             name: string;
         };
+        /**
+         * @description PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus IF1
+         *     params.
+         */
+        UpdateOrderLineRequest: components["schemas"]["OrderLinePatch"] & components["schemas"]["MutationParams"];
         /**
          * @description Every `Option<Option<T>>` field skips serialization when the outer option is
          *     `None`, while `Some(None)` still serializes as an explicit `null`. The
@@ -49945,6 +50012,13 @@ export interface operations {
                 from?: string | null;
                 to?: string | null;
                 limit?: number | null;
+                /**
+                 * @description Keyset cursor: the three fields of the last row on the previous page.
+                 *     Pass all three or none.
+                 */
+                cursor_disposed_at?: string | null;
+                cursor_created_at?: string | null;
+                cursor_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -61405,7 +61479,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AddOrderLineRequest"];
+                "application/json": components["schemas"]["UpdateOrderLineRequest"];
             };
         };
         responses: {
@@ -61564,6 +61638,41 @@ export interface operations {
             };
             /** @description serial numbers inconsistent with the received quantity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_recharges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRechargeView"][];
+                };
+            };
+            /** @description the caller cannot read financials */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description order not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
