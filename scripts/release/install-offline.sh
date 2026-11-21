@@ -119,13 +119,43 @@ say "loading the images this bundle carries"
 LOADED=$(docker load --input images.tar 2>&1) ||
   die "docker load failed: ${LOADED}"
 
-# What this archive supplied, rather than what the store happens to hold. On a
-# host that has installed before, an image under the same name would answer for
-# one the archive lost, and the install would start on an image nobody checked.
-delivered() {
+# The name Docker writes for an image, which is not always the one Compose spells.
+# The classic exporter records `docker.io/library/busybox:1.36` as
+# `busybox:1.36`, and it records a name with no tag as `:latest`.
+normalise_ref() {
   local ref=$1
-  printf '%s\n' "$LOADED" | grep -Fxq "Loaded image: $ref" && return 0
-  printf '%s\n' "$LOADED" | grep -Fxq "Loaded image: $ref:latest"
+  case "$ref" in
+    docker.io/library/*) ref=${ref#docker.io/library/} ;;
+    index.docker.io/library/*) ref=${ref#index.docker.io/library/} ;;
+    docker.io/*) ref=${ref#docker.io/} ;;
+    index.docker.io/*) ref=${ref#index.docker.io/} ;;
+    library/*) ref=${ref#library/} ;;
+  esac
+  case "${ref##*/}" in
+    *:*) ;;
+    *) ref="$ref:latest" ;;
+  esac
+  printf '%s\n' "$ref"
+}
+
+# What this archive supplied, rather than what the store happens to hold: the
+# `Loaded image:` lines are the daemon's report of what it read out of the tar. On
+# a host that has installed before, an image under the same name would otherwise
+# answer for one the archive lost, and the install would start on an image nobody
+# checked.
+delivered() {
+  local want line
+  want=$(normalise_ref "$1")
+  while IFS= read -r line; do
+    case "$line" in
+      "Loaded image: "*) ;;
+      *) continue ;;
+    esac
+    if [ "$(normalise_ref "${line#Loaded image: }")" = "$want" ]; then
+      return 0
+    fi
+  done < <(printf '%s\n' "$LOADED")
+  return 1
 }
 
 # Asked for by the name portion. A digest does not survive the trip through this

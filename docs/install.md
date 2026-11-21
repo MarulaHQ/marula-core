@@ -171,10 +171,20 @@ trip through a tar: `docker load` restores a tag and drops the repo digest on
 the overlay2 driver, which is what most hosts and CI use, and an image saved
 under a digest reference comes back with no name at all. The tag is the one name
 that survives, so that is what the archive's compose file and `images.list`
-carry. What pins the bundle is its own `SHA256SUMS`, over the image tar and the
-compose file, and the release key's signature over that list. It carries the
-images its build selected, which is the base file and the pooler profile, so
-turning on a compose profile whose image is not among them needs a registry.
+carry.
+
+Two lists are involved, and they are not the same check. The release key signs the
+release's `SHA256SUMS`, which names the compressed archive; that is the signature
+to verify before you trust anything inside it (`ssh-keygen -Y verify … -s
+SHA256SUMS.sig < SHA256SUMS`). The archive then carries its own `SHA256SUMS`, over
+`images.tar` and the compose file, and `install-offline.sh` checks it. That inner
+list is not itself signed. It is covered because it travels inside the archive the
+key signed, and verifying the signature against it would be verifying the wrong
+file.
+
+The archive carries the images its build selected, which is the base file and the
+pooler profile, so turning on a compose profile whose image is not among them
+needs a registry.
 
 The Windows archive carries no front door it can run: the bundle's `install.sh`
 is POSIX, and neither WSL nor Git Bash is a supported path to it. Two ways in,
@@ -775,8 +785,9 @@ The stack is built to run without root and without a writable filesystem.
   carries a tag moves tag and digest together. The digest is what runs, and the
   release's manifest names the digests it published. The air-gapped archive is
   the one exception: a digest does not survive `docker save`/`docker load` on the
-  overlay2 store, so its compose file names tags and the archive's own
-  `SHA256SUMS` and the release signature pin it instead.
+  overlay2 store, so its compose file names tags. What pins it is the archive's
+  own `SHA256SUMS` over those images, covered transitively by the release key's
+  signature over the list that names the archive.
 - `cap_drop: [ALL]` and `no-new-privileges` apply to every service except four
   one-shot helpers: the AI profile's `ollama-model`, which pulls the model, and
   the demo overlay's `object-init`, `db-grants` and `demo-seed`, which prepare

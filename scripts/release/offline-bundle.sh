@@ -211,6 +211,26 @@ bundle_name() {
   esac
 }
 
+# The name Docker writes for an image, which is not always the one Compose spells.
+# The classic exporter records `docker.io/library/busybox:1.36` as
+# `busybox:1.36`, and it records a name with no tag as `:latest`. Comparing the
+# two spellings is what keeps a correct archive from failing a name check.
+normalise_ref() {
+  local ref=$1
+  case "$ref" in
+    docker.io/library/*) ref=${ref#docker.io/library/} ;;
+    index.docker.io/library/*) ref=${ref#index.docker.io/library/} ;;
+    docker.io/*) ref=${ref#docker.io/} ;;
+    index.docker.io/*) ref=${ref#index.docker.io/} ;;
+    library/*) ref=${ref#library/} ;;
+  esac
+  case "${ref##*/}" in
+    *:*) ;;
+    *) ref="$ref:latest" ;;
+  esac
+  printf '%s\n' "$ref"
+}
+
 REFS=()
 IMAGES=()
 while IFS= read -r ref; do
@@ -335,13 +355,22 @@ fi
 say "checking the archive carries every name it lists"
 tar -xf "$BUNDLE_DIR/images.tar" -O manifest.json >"$STAGING/manifest.json" ||
   die "images.tar has no manifest.json"
+# The names the tar itself records, one per line, in the form the exporter wrote
+# them.
+grep -o '"RepoTags":\[[^]]*\]' "$STAGING/manifest.json" |
+  sed -e 's/^"RepoTags":\[//' -e 's/\]$//' -e 's/"//g' |
+  tr ',' '\n' >"$STAGING/manifest.names"
 for image in "${IMAGES[@]}"; do
-  tagged=$image
-  case "${image##*/}" in
-    *:*) ;;
-    *) tagged="$image:latest" ;;
-  esac
-  grep -Fq "\"$tagged\"" "$STAGING/manifest.json" ||
+  tagged=$(normalise_ref "$image")
+  found=0
+  while IFS= read -r recorded; do
+    [ -n "$recorded" ] || continue
+    if [ "$(normalise_ref "$recorded")" = "$tagged" ]; then
+      found=1
+      break
+    fi
+  done <"$STAGING/manifest.names"
+  [ "$found" -eq 1 ] ||
     die "images.tar does not carry $tagged; if two images share that tag they need distinct names"
 done
 
