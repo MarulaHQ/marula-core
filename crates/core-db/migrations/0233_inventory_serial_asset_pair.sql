@@ -41,16 +41,23 @@ CREATE UNIQUE INDEX uq_device_assets_serial
   WHERE serial_id IS NOT NULL;
 
 CREATE FUNCTION inventory_serial_asset_pair_sync() RETURNS trigger AS $$
+DECLARE
+  other_class text;
 BEGIN
   IF TG_TABLE_NAME = 'stock_serials' THEN
     IF NEW.device_asset_id IS NOT NULL THEN
-      IF NOT EXISTS (
-        SELECT 1 FROM device_assets
-         WHERE id = NEW.device_asset_id AND org_id = NEW.org_id
-      ) THEN
+      SELECT custody_class INTO other_class
+        FROM device_assets
+       WHERE id = NEW.device_asset_id AND org_id = NEW.org_id;
+      IF other_class IS NULL THEN
         RAISE EXCEPTION
           'serial % cannot pair with asset % outside org %',
           NEW.id, NEW.device_asset_id, NEW.org_id;
+      END IF;
+      IF other_class <> NEW.custody_class THEN
+        RAISE EXCEPTION
+          'serial % is % and asset % is %: one unit carries one class, record a class movement first',
+          NEW.id, NEW.custody_class, NEW.device_asset_id, other_class;
       END IF;
       UPDATE device_assets
          SET serial_id = NEW.id, updated_at = now()
@@ -66,13 +73,18 @@ BEGIN
     END IF;
   ELSE
     IF NEW.serial_id IS NOT NULL THEN
-      IF NOT EXISTS (
-        SELECT 1 FROM stock_serials
-         WHERE id = NEW.serial_id AND org_id = NEW.org_id
-      ) THEN
+      SELECT custody_class INTO other_class
+        FROM stock_serials
+       WHERE id = NEW.serial_id AND org_id = NEW.org_id;
+      IF other_class IS NULL THEN
         RAISE EXCEPTION
           'asset % cannot pair with serial % outside org %',
           NEW.id, NEW.serial_id, NEW.org_id;
+      END IF;
+      IF other_class <> NEW.custody_class THEN
+        RAISE EXCEPTION
+          'asset % is % and serial % is %: one unit carries one class, record a class movement first',
+          NEW.id, NEW.custody_class, NEW.serial_id, other_class;
       END IF;
       UPDATE stock_serials
          SET device_asset_id = NEW.id, updated_at = now()
@@ -91,10 +103,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- AFTER, not BEFORE: the custody class of the inserted row is final only once
+-- its own derivation trigger has run, and the other side of the pair must exist
+-- before its class can be compared. A BEFORE trigger would read a default and
+-- refuse a legitimate pair.
 CREATE TRIGGER stock_serials_device_asset_pair
-  BEFORE INSERT OR UPDATE OF device_asset_id ON stock_serials
+  AFTER INSERT OR UPDATE OF device_asset_id ON stock_serials
   FOR EACH ROW EXECUTE FUNCTION inventory_serial_asset_pair_sync();
 
 CREATE TRIGGER device_assets_serial_pair
-  BEFORE INSERT OR UPDATE OF serial_id ON device_assets
+  AFTER INSERT OR UPDATE OF serial_id ON device_assets
   FOR EACH ROW EXECUTE FUNCTION inventory_serial_asset_pair_sync();
