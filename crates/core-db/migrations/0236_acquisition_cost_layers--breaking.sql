@@ -45,6 +45,13 @@
 --     again, and names a layer other than itself; one reversal per layer;
 --   * a layer and its allocations are append-only (below).
 --
+-- UPGRADE NOTE on the two DROP CONSTRAINT statements at the end. They swap
+-- `ticket_expenses` CHECKs for wider ones, which is why this file carries the
+-- `--breaking` marker. Nothing is lost: the new CHECKs are supersets of the old,
+-- every existing row still satisfies them, and no row is rewritten. The swap
+-- validates the table once under ACCESS EXCLUSIVE (two statements on a table of
+-- ticket-sized rows), which is the only cost an upgrade pays.
+--
 -- The ticket-expense CHECK widening. In `invoice_values` mode a layer posts as
 -- an expense on the ticket the purchase serves. OD-1's rule is that a wrong
 -- layer is corrected by a new document, so the reversal posts an expense too,
