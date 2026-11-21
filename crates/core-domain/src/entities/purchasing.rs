@@ -1140,7 +1140,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn a_terminal_class_is_not_a_destination() {
         // Every terminal disposition is reached by a movement after the unit
         // exists; a purchase that names one is refused rather than left to the
