@@ -16,6 +16,33 @@ If you would rather click through the decisions, [install with the app](install-
 runs the same engine behind a window. Both of them end at the same
 `marula.env` and the same Compose invocation.
 
+## Get the CLI in one line
+
+```sh
+curl -fsSL https://getmarula.com/install/latest/linux | sh
+```
+
+That is the release's `install.sh`. It works out the platform, downloads the
+archive for it, checks the archive against the signed checksum list, unpacks it
+under `~/.local/share/marula`, and runs the bundle's installer. With no arguments
+that opens the wizard.
+
+Downloading it to a file first is safer, and it is the form to use whenever you
+want to pass anything through:
+
+```sh
+T=$(mktemp)
+curl -fsSL https://getmarula.com/install/latest/linux -o "$T" && sh "$T"
+```
+
+A pipe cannot report a failed download: on a 404 `curl -f` exits non-zero, `sh`
+receives nothing, and the pipeline still exits 0. Writing to a file makes the
+failed download stop the command instead.
+
+Everything below runs from the bundle the script keeps, which is why it stays on
+the machine. `--version X.Y.Z` installs a specific release instead of the newest
+one, and `--help` lists the rest.
+
 ## What the machine needs first
 
 - Docker with Compose 2.24 or newer. A registry install uses `!reset` in an

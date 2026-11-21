@@ -68,8 +68,7 @@ subscriptions beside it.
 Linux or Apple silicon:
 
 ```sh
-T=$(mktemp) && curl -fsSL https://getmarula.com/install/latest/linux \
-  -o "$T" && sh "$T"
+curl -fsSL https://getmarula.com/install/latest/linux | sh
 ```
 
 Windows, in PowerShell 7:
@@ -82,8 +81,10 @@ One line per platform, doing the same work: it downloads the archive for your
 platform, checks the release signature, unpacks it, and opens the installer. You
 need Docker with Compose 2.24 or newer.
 
-For a server, add `--dir /srv/marula --apply` to the shell script, which finishes
-without the wizard. The Windows script takes the same installer flags, which
+For a server, download it to a file first and pass `--dir /srv/marula --apply`,
+which finishes without the wizard; [installing on a
+machine](docs/install.md#one-line) shows that form and why it is the one to use
+when you are passing arguments. The Windows script takes the same flags, which
 means calling it as a scriptblock rather than piping it into `iex`:
 
 ```powershell

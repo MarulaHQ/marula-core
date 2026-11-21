@@ -31,6 +31,84 @@ permissions:
   contents: read
 
 jobs:
+  # Which jobs this pull request has to run. The Rust matrix is roughly nine
+  # minutes of wall clock across five runners, and a documentation or stylesheet
+  # change needs none of it.
+  #
+  # The gate is on the WORK, not on the job, and both alternatives are traps.
+  #
+  # - `paths:` on `pull_request` skips the whole workflow, so no check reports
+  #   at all and the required contexts stay "Pending". GitHub documents that a
+  #   pull request requiring them cannot merge.
+  # - A job-level `if:` looks safer and is not. A skipped MATRIX job reports a
+  #   single check under its unexpanded template name —
+  #   `Rust tests — core-api shard ${{ matrix.shard }}/2` — while the ruleset
+  #   requires the two expanded contexts `... shard 1/2` and `... shard 2/2`.
+  #   Those never report, so the pull request waits forever. Measured on this
+  #   very workflow before the gate was rewritten.
+  #
+  # So every job still runs, and each one's `RUST_RELEVANT` decides whether its
+  # steps do anything. The cost of a skipped job is its checkout, toolchain and
+  # service containers, about a minute in total.
+  #
+  # It fails open. If the file list cannot be read, it says so and every job
+  # runs: a gate that failed closed would let a pull request merge with no Rust
+  # tests at all.
+  changes:
+    name: Which paths changed
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.classify.outputs.rust }}
+    steps:
+      - name: Classify the change
+        id: classify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # The default is the safe answer and it is written first: whatever
+          # fails after this line leaves it in place, and the last write wins.
+          # A gate that went quiet on an error would let Rust changes merge with
+          # no Rust tests.
+          echo "rust=true" >> "$GITHUB_OUTPUT"
+
+          # A push to `main` has already been tested by the pull request that
+          # produced it, and it is the run that writes the shared caches.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            exit 0
+          fi
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "::warning::gh is not on this runner; running every job"
+            exit 0
+          fi
+          if ! files=$(gh api \
+                "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+                --paginate --jq '.[] | (.filename, (.previous_filename // empty))'); then
+            echo "::warning::could not read this pull request's file list; running every job"
+            exit 0
+          fi
+
+          # A file, not a pipe: `printf | grep -q` under `pipefail` can lose a
+          # match when grep exits before printf finishes, which would report
+          # "no Rust" for a change that has some.
+          printf '%s\n' "$files" > "$RUNNER_TEMP/changed-paths.txt"
+          # The list is not "Rust files": it is every input the four gated jobs
+          # read. `installer/` and `desktop/` are Rust the matrix excludes, but
+          # `cargo fmt --all` still covers them. `.sqlx/` is what the `rust` job
+          # proves current. The rest came from grepping the test tree for
+          # repo-root paths it opens: `fixtures/openapi/v1/openapi.json` and
+          # `packages/sdk/openapi.json` (`golden_openapi`), `deprecations.json`
+          # (`deprecation_clock`), `deploy/pooler/pgbouncer.ini`, and
+          # `scripts/check-test-targets.mjs`, which the shard job runs.
+          if ! grep -qE '^(crates/|plugins/|installer/|desktop/|\.cargo/|\.sqlx/|fixtures/|deploy/pooler/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|deprecations\.json$|packages/sdk/openapi\.json$|scripts/check-test-targets\.mjs$)' \
+               "$RUNNER_TEMP/changed-paths.txt"; then
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # The boundary rules this repository is published under. If this job is red,
   # the open core is not open.
   boundary:
@@ -43,6 +121,9 @@ jobs:
 
   rust:
     name: Rust — fmt · clippy · sqlx offline cache
+    needs: changes
+    # Runs even when the gate failed: `RUST_RELEVANT` then turns the work on.
+    if: ${{ !cancelled() }}
     # `ubuntu-24.04`, not `ubuntu-latest`. `latest` moved to Ubuntu 26.04 on
     # 2026-10-19 (actions/runner-images#14748) and is still serving several
     # builds of it. On run 43773681904 this job landed on
@@ -77,6 +158,9 @@ jobs:
         image: valkey/valkey:8-alpine
         ports: ["6379:6379"]
     env:
+      # Gates the work, not the job. See the note on `changes` for why skipping
+      # the job would leave a required context unreported.
+      RUST_RELEVANT: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
       # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
@@ -116,6 +200,7 @@ jobs:
       # benefit comes from; a per-job key would be warmer but would not fit the
       # 10 GB budget.
       - uses: Swatinem/rust-cache@v2
+        if: env.RUST_RELEVANT == 'true'
         with:
           shared-key: rust-check
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -125,6 +210,7 @@ jobs:
       # already reuses. Worth revisiting only if clippy becomes the long pole;
       # the three test jobs below carry it.
       - run: cargo fmt --all -- --check
+        if: env.RUST_RELEVANT == 'true'
       # Compile against the committed .sqlx metadata, not the service
       # container. The container's schema is empty until a step migrates it,
       # and the tests migrate at runtime through `sqlx::migrate!`, so a
@@ -145,6 +231,7 @@ jobs:
       # cover one test. Its clippy and that test live in `installer-lint.yml`,
       # which runs on the paths that actually touch the crate.
       - run: cargo clippy --workspace --exclude marula-desktop --exclude marula-installer --all-targets -- -D warnings
+        if: env.RUST_RELEVANT == 'true'
         env:
           SQLX_OFFLINE: "true"
       # The sweep lives in the three `rust-tests-*` jobs below, not here.
@@ -156,11 +243,36 @@ jobs:
       # SHA-pinned, the pin the retired `ga-gates.yml` already carried for this
       # action. If the release has no prebuilt binary for the runner, the action
       # falls back to `cargo install`; the step is slower, not different.
+      # The install is a download, not a compile, and it was 93s of this job's
+      # 376s (run 44886559308). Caching the binary makes it a restore on every
+      # run after the first. The key pins the version, so a bump is a miss
+      # rather than a stale binary.
+      # `sqlx-cli` installs TWO binaries — `sqlx` and `cargo-sqlx` — and the
+      # second one is what makes `cargo sqlx ...` resolve; its manifest says so
+      # ("enables invocation as `cargo sqlx`; required for `prepare`
+      # subcommand"). Caching only `sqlx` would leave `cargo-sqlx` to be restored
+      # by rust-cache, which is not a guarantee, and the metadata step would fail
+      # on a cache hit.
+      #
+      # `-bins-` is in the key because the first attempt cached a `sqlx`-only
+      # directory under the shorter key, and a cache entry cannot be rewritten:
+      # without the new key that incomplete entry would keep matching.
+      - name: Restore sqlx-cli
+        id: sqlx-cli-cache
+        if: env.RUST_RELEVANT == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/sqlx
+            ~/.cargo/bin/cargo-sqlx
+          key: sqlx-cli-0.8.6-bins-${{ runner.os }}-${{ runner.arch }}
       - name: Install sqlx-cli (for the offline-metadata check)
+        if: env.RUST_RELEVANT == 'true' && steps.sqlx-cli-cache.outputs.cache-hit != 'true'
         uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: sqlx-cli@0.8.6
       - name: sqlx offline metadata is current
+        if: env.RUST_RELEVANT == 'true'
         run: |
           cargo sqlx migrate run --source crates/core-db/migrations
           # The args after `--` go straight to `cargo check`, so the exclusions
@@ -199,6 +311,9 @@ jobs:
   # integration test lands in a shard without anyone editing this file.
   rust-tests-core-api:
     name: Rust tests — core-api shard ${{ matrix.shard }}/2
+    needs: changes
+    # Runs even when the gate failed: `RUST_RELEVANT` then turns the work on.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -224,6 +339,9 @@ jobs:
         image: valkey/valkey:8-alpine
         ports: ["6379:6379"]
     env:
+      # Gates the work, not the job. See the note on `changes` for why skipping
+      # the job would leave a required context unreported.
+      RUST_RELEVANT: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
       # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
@@ -268,16 +386,24 @@ jobs:
         run: df -h /
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: env.RUST_RELEVANT == 'true'
         with:
           shared-key: rust-test
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
           # would key this cache apart from `rls-coverage`, which runs no
           # sccache under the same `rust-test` key. A wrapper does not change
-          # compiler output, so it does not belong in the key; the other
-          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
-          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+          # compiler output, so it does not belong in the key.
+          #
+          # `env-vars` cannot express that: it APPENDS to the built-in prefix
+          # list (`CARGO CC CFLAGS CXX CMAKE RUST` in the action's config.ts), so
+          # passing the first five re-adds nothing and leaves `RUST` active. An
+          # empty value in this step's environment is what excludes it, because
+          # the action only hashes a prefix whose value is non-empty.
+        env:
+          RUSTC_WRAPPER: ""
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        if: env.RUST_RELEVANT == 'true'
         with:
           # The action has no default version: without this it downloads
           # whatever sccache released most recently, so the caching path
@@ -290,6 +416,7 @@ jobs:
       # The serial suites and the per-process env reads make the same point, so
       # the swap waits for a harness refactor.
       - name: core-api tests (shard ${{ matrix.shard }} of 2)
+        if: env.RUST_RELEVANT == 'true'
         env:
           SQLX_OFFLINE: "true"
         run: |
@@ -299,7 +426,18 @@ jobs:
           # nothing and run by nobody. The verify line below fails the build on
           # an unreachable or ambiguous target before the split happens.
           node scripts/check-test-targets.mjs
-          mapfile -t targets < <(node scripts/check-test-targets.mjs --shard "${{ matrix.shard }}" --shards 2)
+          # Shard 1 also runs the `--lib` unit tests below, which compile
+          # core-api a second time as a test harness and link it. That costs a
+          # stable ~209s: the same figure falls out of both measured splits, and
+          # both were at 100% sccache hits, so it is work rather than a cache
+          # miss.
+          #
+          # Two splits have been measured: 1:2 (14/28) gave 334s and 247s, and
+          # 1:4 (9/33) gave 312s and 384s. Per-target cost moved from 8.85s to
+          # 11.5s between them without the code changing, which is runner noise
+          # of about 30%, so the algebraic optimum is not worth chasing. 1:2 is
+          # the simpler pattern and measured the better wall of the two.
+          mapfile -t targets < <(node scripts/check-test-targets.mjs --shard "${{ matrix.shard }}" --shards 2 --pattern 1,2,2)
           args=()
           for target in "${targets[@]}"; do
             args+=(--test "$target")
@@ -311,7 +449,7 @@ jobs:
             cargo test -p core-api "${args[@]}"
           fi
       - name: sccache stats
-        if: always()
+        if: always() && env.RUST_RELEVANT == 'true'
         # Diagnostic only: a missing or unhappy sccache must not turn a green
         # test run red after the fact.
         continue-on-error: true
@@ -322,7 +460,10 @@ jobs:
           "${SCCACHE_PATH:-sccache}" --show-stats
 
   rust-tests-rest:
-    name: Rust tests — workspace except core-api
+    name: Rust tests — workspace except core-api and core-db
+    needs: changes
+    # Runs even when the gate failed: `RUST_RELEVANT` then turns the work on.
+    if: ${{ !cancelled() }}
     # Pinned for the reason recorded on the `rust` job: the mixed 26.04 builds,
     # and one image build behind the shared cache key. The GTK/WebKit install
     # that used to be the second reason went with `installer` excluded.
@@ -347,6 +488,9 @@ jobs:
         image: valkey/valkey:8-alpine
         ports: ["6379:6379"]
     env:
+      # Gates the work, not the job. See the note on `changes` for why skipping
+      # the job would leave a required context unreported.
+      RUST_RELEVANT: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
       # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
@@ -383,16 +527,24 @@ jobs:
         run: df -h /
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: env.RUST_RELEVANT == 'true'
         with:
           shared-key: rust-test
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
           # would key this cache apart from `rls-coverage`, which runs no
           # sccache under the same `rust-test` key. A wrapper does not change
-          # compiler output, so it does not belong in the key; the other
-          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
-          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+          # compiler output, so it does not belong in the key.
+          #
+          # `env-vars` cannot express that: it APPENDS to the built-in prefix
+          # list (`CARGO CC CFLAGS CXX CMAKE RUST` in the action's config.ts), so
+          # passing the first five re-adds nothing and leaves `RUST` active. An
+          # empty value in this step's environment is what excludes it, because
+          # the action only hashes a prefix whose value is non-empty.
+        env:
+          RUSTC_WRAPPER: ""
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        if: env.RUST_RELEVANT == 'true'
         with:
           # The action has no default version: without this it downloads
           # whatever sccache released most recently, so the caching path
@@ -400,18 +552,23 @@ jobs:
           version: "v0.19.0"
       # Not nextest: same blocker as `rust-tests-core-api` — nextest is
       # process-per-test and this job's harnesses boot their schema once per
-      # process. core-db's per-test process model has not been verified either,
-      # and core-db is 56 of the 133 targets.
-      - run: cargo test --workspace --exclude marula-desktop --exclude core-api --exclude marula-installer --tests
+      # process.
+      #
+      # core-db is excluded here and runs in `rust-tests-core-db`: it was 56 of
+      # this job's 115 binaries, and a binary's link is most of what a binary
+      # costs.
+      - run: cargo test --workspace --exclude marula-desktop --exclude core-api --exclude core-db --exclude marula-installer --tests
+        if: env.RUST_RELEVANT == 'true'
         env:
           SQLX_OFFLINE: "true"
       # Doc tests compile and run one snippet at a time, so they never pile up
       # binaries the way the integration targets do.
       - run: cargo test --workspace --exclude marula-desktop --exclude marula-installer --doc
+        if: env.RUST_RELEVANT == 'true'
         env:
           SQLX_OFFLINE: "true"
       - name: sccache stats
-        if: always()
+        if: always() && env.RUST_RELEVANT == 'true'
         # Diagnostic only: a missing or unhappy sccache must not turn a green
         # test run red after the fact.
         continue-on-error: true
@@ -420,6 +577,175 @@ jobs:
         # the action did not install anything.
         run: |
           "${SCCACHE_PATH:-sccache}" --show-stats
+
+  rust-tests-core-db:
+    name: Rust tests — core-db shard ${{ matrix.shard }}/2
+    needs: changes
+    # Runs even when the gate failed: `RUST_RELEVANT` then turns the work on.
+    if: ${{ !cancelled() }}
+    # The other half of the split recorded on `rust-tests-rest`. core-db is 56 of
+    # the 115 binaries that job used to link, and linking is what the wall clock
+    # was made of: 277s of its 422s step was compile and link, against 145s of
+    # test execution across all 115.
+    #
+    # Two shards, because one job holding all 56 measured 314s of step against
+    # 144s for the 59 binaries that stayed behind (run 44898290467). Its targets
+    # cost ~5.6s each against ~2.0s for that job's, so splitting it evenly is
+    # what balances the pair.
+    #
+    # The service and cache configuration below is the same as `rust-tests-rest`
+    # by construction, not by paraphrase: the two jobs attach to the same
+    # containers and share the `rust-test` key.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    services:
+      postgres:
+        # pgvector/pgvector:pg18 — the same major the compose files and
+        # scripts/e2e-stack.sh run (PostgreSQL 18, pgvector 0.8). core-db
+        # integration tests attach to THIS container through DATABASE_URL, so
+        # no Docker-in-Docker is needed on the runner.
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marula_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        # valkey/valkey:8-alpine — the tag scripts/e2e-stack.sh uses, so the
+        # service container and a local stack are the same image.
+        image: valkey/valkey:8-alpine
+        ports: ["6379:6379"]
+    env:
+      # Gates the work, not the job. See the note on `changes` for why skipping
+      # the job would leave a required context unreported.
+      RUST_RELEVANT: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
+      REDIS_URL: redis://localhost:6379
+      # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
+      # and `Config::from_env_allow_dev_fallback` refuses to start rather than
+      # silently under-provision the model — its own message names this lever.
+      # Without it every test that builds a config panics before it asserts
+      # anything (api_versioning: 5 tests at line 69).
+      MARULA_EMBEDDING_TIER: minimal
+      # The same R2 configuration as `rust-tests-core-api`, recorded in full
+      # there. The guard on `RUSTC_WRAPPER` is what keeps fork pull requests,
+      # which receive no secrets, building unwrapped instead of failing.
+      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && 'sccache' || '' }}
+      SCCACHE_BUCKET: marula-ci-sccache
+      SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SCCACHE_REGION: auto
+      # A revoked key or an R2 outage must not brick the build. Without the
+      # skip, the startup storage read aborts the server (`check()` bails on a
+      # read error), and without the ignore, a failed read mid-compile is fatal
+      # to that compile. With both, the build goes local and prints a warning;
+      # the stats step is where a miss rate shows it.
+      SCCACHE_SKIP_CACHE_CHECK: "1"
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      # Static, not `${{ runner.os }}`: the `runner` context is not available in
+      # a job-level `env:` block. Every Rust job builds x86_64 Linux here.
+      SCCACHE_S3_KEY_PREFIX: sccache/linux-x64
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      # Reported, not reclaimed. See the `rust` job.
+      - name: Disk headroom
+        run: df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        if: env.RUST_RELEVANT == 'true'
+        with:
+          shared-key: rust-test
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+        # An empty wrapper is what keeps this job's key equal to the other
+        # `rust-test` jobs; see the long note on `rust-tests-rest`.
+        env:
+          RUSTC_WRAPPER: ""
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        if: env.RUST_RELEVANT == 'true'
+        with:
+          version: "v0.19.0"
+      # Not nextest here either: core-db's tests boot their schema once per
+      # process from a `OnceCell`, so process-per-test would drop the schema its
+      # siblings are querying.
+      - name: core-db tests (shard ${{ matrix.shard }} of 2)
+        if: env.RUST_RELEVANT == 'true'
+        env:
+          SQLX_OFFLINE: "true"
+        run: |
+          # Same discovery and the same verify as the core-api step, pointed at
+          # this crate's tree (`--dir`). An orphaned file here fails the build
+          # before the split, exactly as it does there.
+          node scripts/check-test-targets.mjs --dir crates/core-db/tests
+          mapfile -t targets < <(node scripts/check-test-targets.mjs --dir crates/core-db/tests \
+            --shard "${{ matrix.shard }}" --shards 2)
+          args=()
+          for target in "${targets[@]}"; do
+            args+=(--test "$target")
+          done
+          echo "shard ${{ matrix.shard }}/2: ${#targets[@]} targets"
+          # `--test` selects integration targets by name, and a name list does
+          # not include the library's unit tests. `cargo test --workspace
+          # --tests`, which this job replaced, DID run them — the log of run
+          # 44886559308 carries `unittests src/lib.rs` for core-db among 29
+          # crates — so dropping `--lib` here silently removed 107 tests.
+          #
+          # Shard 1 carries it, as `rust-tests-core-api` does. That makes this
+          # shard the longer of the two by roughly the lib's link, which does not
+          # matter: both stay well under the workflow's slowest job.
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            cargo test -p core-db --lib "${args[@]}"
+          else
+            cargo test -p core-db "${args[@]}"
+          fi
+      - name: sccache stats
+        if: always() && env.RUST_RELEVANT == 'true'
+        continue-on-error: true
+        run: |
+          "${SCCACHE_PATH:-sccache}" --show-stats
+
+  # The required context is one exact string, so splitting the work would
+  # otherwise take core-db out of every merge gate until a ruleset edit lands —
+  # and a ruleset edit blocks every pull request that predates the new job. This
+  # job keeps the required name over both halves, which needs no ruleset change
+  # and leaves no window where a core-db failure does not block a merge.
+  #
+  # It costs one runner for a few seconds: it starts when the slower half
+  # finishes, which is well before the slowest job in the workflow.
+  rust-tests-gate:
+    name: Rust tests — workspace except core-api
+    needs: [changes, rust-tests-rest, rust-tests-core-db]
+    # `always()`, because a job whose `needs` failed is skipped by default, and a
+    # skipped required check would report success.
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Both halves succeeded
+        run: |
+          set -euo pipefail
+          # A matrix reports one result for the whole matrix, so this covers both
+          # core-db shards.
+          # Only `success`. When the relevance gate says no, these jobs still
+          # RUN and complete successfully with their work steps skipped, so
+          # `skipped` is never the expected value here — and accepting it would
+          # also pass a required check whose tests were skipped for a reason
+          # nobody chose.
+          for result in "${{ needs.rust-tests-rest.result }}" "${{ needs.rust-tests-core-db.result }}"; do
+            case "$result" in
+              success) ;;
+              *)
+                echo "::error::a workspace test job reported '$result'"
+                exit 1
+                ;;
+            esac
+          done
+          echo "both halves succeeded"
 
   ui-gates:
     name: UI ratchets — shared chrome · theme packs · evidence writes
@@ -787,6 +1113,9 @@ jobs:
     # waits on it forever. The live leg lives in the steps below, not in the
     # name.
     name: Rust contract — deprecation clock · API conformance · golden OpenAPI
+    needs: changes
+    # Runs even when the gate failed: `RUST_RELEVANT` then turns the work on.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -806,6 +1135,9 @@ jobs:
         image: valkey/valkey:8-alpine
         ports: ["6379:6379"]
     env:
+      # Gates the work, not the job. See the note on `changes` for why skipping
+      # the job would leave a required context unreported.
+      RUST_RELEVANT: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/marula_test
       REDIS_URL: redis://localhost:6379
       # A 2-core runner is below the `standard` embedding tier's floor (4 cores),
@@ -837,16 +1169,24 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: env.RUST_RELEVANT == 'true'
         with:
           shared-key: rust-test
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
           # would key this cache apart from `rls-coverage`, which runs no
           # sccache under the same `rust-test` key. A wrapper does not change
-          # compiler output, so it does not belong in the key; the other
-          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
-          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+          # compiler output, so it does not belong in the key.
+          #
+          # `env-vars` cannot express that: it APPENDS to the built-in prefix
+          # list (`CARGO CC CFLAGS CXX CMAKE RUST` in the action's config.ts), so
+          # passing the first five re-adds nothing and leaves `RUST` active. An
+          # empty value in this step's environment is what excludes it, because
+          # the action only hashes a prefix whose value is non-empty.
+        env:
+          RUSTC_WRAPPER: ""
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        if: env.RUST_RELEVANT == 'true'
         with:
           # The action has no default version: without this it downloads
           # whatever sccache released most recently, so the caching path
@@ -856,6 +1196,7 @@ jobs:
       # removal_target, or when a construct is gone before it (policy §8/U4).
       # Gate plus self-tests, no database.
       - name: Deprecation clock
+        if: env.RUST_RELEVANT == 'true'
         run: cargo test -p core-events --test deprecation_clock
         env:
           SQLX_OFFLINE: "true"
@@ -864,6 +1205,7 @@ jobs:
       # (auth posture, versioning parity, existence sentinels). Drift in either
       # direction fails.
       - name: API contract probes from the pinned OpenAPI
+        if: env.RUST_RELEVANT == 'true'
         run: cargo test -q -p core-api --test documents_kb api_versioning
         env:
           SQLX_OFFLINE: "true"
@@ -872,6 +1214,7 @@ jobs:
       # The third layer — the spec a RUNNING server serves — is the last two
       # steps of this job.
       - name: Golden OpenAPI conformance (derived + SDK snapshot vs pin)
+        if: env.RUST_RELEVANT == 'true'
         run: cargo test -q -p marula-core-cli --test golden_openapi
         env:
           SQLX_OFFLINE: "true"
@@ -882,6 +1225,7 @@ jobs:
       # is already up — a second job would rebuild both to ask the same
       # question.
       - name: Boot core-api for the live contract check
+        if: env.RUST_RELEVANT == 'true'
         run: |
           cargo run -q -p marula-core-cli -- migrate
           # Build before booting. `cargo run` would compile inside the
@@ -926,13 +1270,14 @@ jobs:
       # The same test target, with the live leg switched on: it is env-gated
       # (`MARULA_API_BASE_URL`) so an offline run skips it and prints why.
       - name: Live spec vs pin (the server that actually runs)
+        if: env.RUST_RELEVANT == 'true'
         run: MARULA_API_BASE_URL=http://127.0.0.1:18080 cargo test -q -p marula-core-cli --test golden_openapi
         env:
           SQLX_OFFLINE: "true"
       # `always()`: the numbers are the point of the cache, and a run that failed
       # in the live leg is the one whose hit rate someone will want to read.
       - name: sccache stats
-        if: always()
+        if: always() && env.RUST_RELEVANT == 'true'
         # Diagnostic only: a missing or unhappy sccache must not turn a green
         # test run red after the fact.
         continue-on-error: true
