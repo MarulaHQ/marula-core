@@ -588,6 +588,17 @@ pub async fn lock_purchase_order(
     order_row(row)
 }
 
+/// Who is reading the order list, for the client-visibility predicate. The
+/// rule matches `clients::require_client_visible`: an empty `restricted_to`
+/// admits everyone in the org, a non-empty one admits only the named users, and
+/// an owner or admin bypasses it. Applying it in the query keeps a page's
+/// ordering and limit honest, which filtering afterwards would not.
+#[derive(Debug, Clone, Copy)]
+pub struct ClientScope {
+    pub viewer_id: Uuid,
+    pub sees_every_client: bool,
+}
+
 pub async fn list_purchase_orders(
     executor: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -596,26 +607,35 @@ pub async fn list_purchase_orders(
     project_id: Option<Uuid>,
     search: Option<&str>,
     limit: i64,
+    scope: ClientScope,
 ) -> DbResult<Vec<PurchaseOrder>> {
     let grep = search.map(|s| format!("%{}%", s.trim().to_lowercase()));
     let rows = sqlx::query(&format!(
         r#"SELECT {ORDER_COLS}
-           FROM purchase_orders
-           WHERE org_id = $1
-             AND ($2::text IS NULL OR status = $2)
-             AND ($3::uuid IS NULL OR vendor_id = $3)
-             AND ($4::uuid IS NULL OR project_id = $4)
+           FROM purchase_orders po
+           WHERE po.org_id = $1
+             AND ($2::text IS NULL OR po.status = $2)
+             AND ($3::uuid IS NULL OR po.vendor_id = $3)
+             AND ($4::uuid IS NULL OR po.project_id = $4)
              AND ($5::text IS NULL
-                  OR lower(number) LIKE $5
-                  OR lower(coalesce(vendor_reference, '')) LIKE $5)
-           ORDER BY created_at DESC
-           LIMIT $6"#
+                  OR lower(po.number) LIKE $5
+                  OR lower(coalesce(po.vendor_reference, '')) LIKE $5)
+             AND ($7::boolean OR po.client_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM clients c
+                    WHERE c.org_id = po.org_id
+                      AND c.id = po.client_id
+                      AND c.restricted_to <> '[]'::jsonb
+                      AND NOT (c.restricted_to ? $6::text)))
+           ORDER BY po.created_at DESC
+           LIMIT $8"#
     ))
     .bind(org_id)
     .bind(status)
     .bind(vendor_id)
     .bind(project_id)
     .bind(grep)
+    .bind(scope.viewer_id)
+    .bind(scope.sees_every_client)
     .bind(limit)
     .fetch_all(&mut *executor)
     .await?;
@@ -1098,7 +1118,9 @@ pub struct LineIntent {
     pub serial_expected: bool,
     pub weight_g: Option<i32>,
     pub sell_price_minor: Option<i64>,
-    pub billable: bool,
+    /// The caller's explicit choice. `None` means "not stated", and the
+    /// effective value follows the destination class (migration 0241).
+    pub billable: Option<bool>,
 }
 
 impl LineIntent {
@@ -1111,7 +1133,7 @@ impl LineIntent {
             serial_expected: false,
             weight_g: None,
             sell_price_minor: None,
-            billable: false,
+            billable: None,
         }
     }
 }
@@ -1315,6 +1337,31 @@ where
     if n.rows_affected() == 0 {
         return Err(DbError::NotFound);
     }
+    Ok(())
+}
+
+/// Takes a share lock on the asset layout a line names, so the layout validated
+/// at receipt cannot gain a required field until this transaction commits. The
+/// insert that follows reads the same row, and a share lock blocks the writer
+/// that edits it (`FOR UPDATE`) while allowing other receipts to proceed.
+pub async fn lock_line_layout(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    intent: &LineIntent,
+) -> DbResult<()> {
+    let Some(layout_id) = intent.asset_layout_id else {
+        return Ok(());
+    };
+    sqlx::query(
+        r#"SELECT 1 FROM document_layouts
+            WHERE org_id = $1 AND id = $2
+            FOR SHARE"#,
+    )
+    .bind(org_id)
+    .bind(layout_id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
     Ok(())
 }
 
@@ -1687,6 +1734,29 @@ where
         )));
     }
     Ok(())
+}
+
+/// Whether a cost line is the charge of an issued recharge. A recharge is a
+/// fact, so its cost line cannot be re-priced or deleted while it is the
+/// document the recharge cites; corrections are credit notes.
+pub async fn cost_line_is_recharged<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    cost_line_id: Uuid,
+) -> DbResult<bool>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let found: Option<Uuid> = sqlx::query_scalar(
+        r#"SELECT id FROM purchase_recharges
+            WHERE org_id = $1 AND cost_line_id = $2
+            LIMIT 1"#,
+    )
+    .bind(org_id)
+    .bind(cost_line_id)
+    .fetch_optional(executor)
+    .await?;
+    Ok(found.is_some())
 }
 
 /// Records the class a receipt'd asset moved into when the class it lands in is
