@@ -31253,7 +31253,7 @@ export interface components {
         PurchaseOrderLineView: {
             /** Format: uuid */
             asset_layout_id?: string | null;
-            billable: boolean;
+            billable?: boolean;
             /** Format: uuid */
             catalog_item_id?: string | null;
             /** Format: date-time */
@@ -31284,7 +31284,11 @@ export interface components {
             received_amount_minor?: number | null;
             /** Format: int64 */
             sell_price_minor?: number | null;
-            serial_expected: boolean;
+            /**
+             * @description Absent in a response written before the intent existed, where neither flag
+             *     existed either; both default to the value the old code implied.
+             */
+            serial_expected?: boolean;
             /** Format: uuid */
             stock_item_id?: string | null;
             /** Format: int64 */
