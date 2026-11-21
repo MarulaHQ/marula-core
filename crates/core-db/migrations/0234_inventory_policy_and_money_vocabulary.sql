@@ -38,6 +38,13 @@
 -- pair here lets a note cite the document it corrects in the meantime; the line
 -- table reuses the same vocabulary when it lands.
 --
+-- Lock cost: every `ALTER TABLE ... ADD COLUMN` here takes ACCESS EXCLUSIVE for
+-- the catalogue update, and each new CHECK scans the table once while holding
+-- it. At MSP fleet and stock sizes these tables are thousands of rows, so the
+-- lock is a statement, not an outage. The three new indexes are plain because
+-- the migration runner wraps each file in a transaction, where CONCURRENTLY is
+-- illegal; they sit on nullable columns with few or no rows written yet.
+--
 -- Additive-only: nullable columns, one defaulted enum column, CHECK constraints
 -- on values that do not exist yet. No index on a hot path is rebuilt.
 

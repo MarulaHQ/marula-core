@@ -52,8 +52,8 @@ lot line) and exactly one custody class:
 | Class | Owner | Valuated as |
 |---|---|---|
 | `sale_stock` | Organisation | Inventory at cost |
-| `internal_fleet` | Organisation (owned, leased, or rented) | Capital or rental expense |
-| `rental_in` | Vendor | Rental expense |
+| `internal_fleet` | Organisation (owned) | Capital |
+| `rental_in` | Vendor (including gear the organisation leases or rents for its own use) | Rental expense, never depreciated |
 | `rental_out` | Organisation, placed with a client | Rental income |
 | `client_custody` | Client | Not ours |
 | `ewaste_custody` | Client, organisation is custodian | Custody only |

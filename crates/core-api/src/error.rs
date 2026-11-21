@@ -442,6 +442,17 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "ip_reservation_host_taken",
             "this host address is already reserved in that subnet",
         )),
+        // Migration 0233: one serial names one asset and one asset names one
+        // serial. No route sets the pair yet, but a writer that does is better
+        // answered than left with the sanitised generic conflict.
+        "uq_stock_serials_device_asset" => Some((
+            "serial_already_paired",
+            "that serial is already paired with an asset",
+        )),
+        "uq_device_assets_serial" => Some((
+            "asset_already_paired",
+            "that asset is already paired with a serial",
+        )),
         "quotes_number_key" => Some((
             "quote_number_taken",
             "a quote with this number already exists",

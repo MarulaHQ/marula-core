@@ -118,6 +118,10 @@ BEGIN
        )
     THEN
       NEW.custody_class := 'tools';
+    ELSIF NEW.custody_class = 'sale_stock' AND NEW.client_id IS NOT NULL THEN
+      -- The backfill calls a serial that already names a client `rental_out`;
+      -- a new row that omits the class must land in the same place.
+      NEW.custody_class := 'rental_out';
     END IF;
   ELSIF NEW.custody_class = 'client_custody' THEN
     NEW.custody_class := CASE
@@ -152,10 +156,14 @@ CREATE TABLE inventory_class_movements (
   id uuid PRIMARY KEY,
   org_id uuid NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
   -- Which projection of the unit this movement names. Lots join when their
-  -- table lands; the CHECK is widened additively then.
+  -- table lands; the CHECK is widened additively then. These are not foreign
+  -- keys on purpose: the ledger records that a unit with this id changed
+  -- class, and deleting the unit must not erase that history or block the
+  -- org cascade that tenant erasure performs. The apply trigger checks the
+  -- unit exists, in this org, when the movement is written.
   unit_kind text NOT NULL CHECK (unit_kind IN ('serial', 'asset')),
-  serial_id uuid REFERENCES stock_serials(id) ON DELETE RESTRICT,
-  device_asset_id uuid REFERENCES device_assets(id) ON DELETE RESTRICT,
+  serial_id uuid,
+  device_asset_id uuid,
   from_class text NOT NULL
     CHECK (from_class IN ('sale_stock', 'internal_fleet', 'rental_in',
                           'rental_out', 'client_custody', 'ewaste_custody',
@@ -165,7 +173,10 @@ CREATE TABLE inventory_class_movements (
                         'rental_out', 'client_custody', 'ewaste_custody',
                         'tools', 'sold', 'recycled', 'destroyed', 'returned')),
   -- Why the unit moved; a class change with no reason is not a record.
-  reason text NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 500),
+  -- Why the unit moved; a class change with no reason is not a record.
+  -- btrim keeps a single space from passing as a reason.
+  reason text NOT NULL
+    CHECK (btrim(reason) <> '' AND char_length(reason) <= 500),
   -- The document that caused the move. `manual` is the honest source for an
   -- operator correction and carries no source id; every other kind must.
   source_kind text NOT NULL
@@ -198,9 +209,24 @@ ALTER TABLE inventory_class_movements ENABLE ROW LEVEL SECURITY;
 CREATE POLICY inventory_class_movements_org ON inventory_class_movements
   USING (org_id = current_setting('app.org_id', true)::uuid);
 
--- The ledger is append-only, like stock_movements.
+-- The ledger is append-only, like stock_movements. Two removals are not
+-- edits: the tenant erasure contract deletes `orgs` and lets the cascade
+-- remove every org-scoped row, and `created_by` is ON DELETE SET NULL so a
+-- user hard-delete nulls the column. Both must pass. A direct UPDATE or
+-- DELETE by any writer must not.
 CREATE FUNCTION inventory_class_movements_append_only() RETURNS trigger AS $$
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    -- In a cascade the parent org row is already gone when the child row is
+    -- deleted. A direct delete still sees its org and is refused.
+    IF NOT EXISTS (SELECT 1 FROM orgs o WHERE o.id = OLD.org_id) THEN
+      RETURN OLD;
+    END IF;
+  ELSIF TG_OP = 'UPDATE'
+        AND NEW.created_by IS NULL
+        AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
+    RETURN NEW;
+  END IF;
   RAISE EXCEPTION 'inventory_class_movements is append-only: % rejected', TG_OP;
 END;
 $$ LANGUAGE plpgsql;
@@ -220,14 +246,39 @@ DECLARE
   unit_serial uuid;
   unit_asset uuid;
 BEGIN
+  -- Resolve both projections first, then lock them in one order (asset row,
+  -- then serial row) before reading the class. Without the lock two movements
+  -- can both read the old class under READ COMMITTED and both claim the same
+  -- `from_class`. Without one order the two projections can deadlock.
   IF NEW.unit_kind = 'serial' THEN
     unit_serial := NEW.serial_id;
-    SELECT custody_class, device_asset_id INTO current_class, unit_asset
+    SELECT device_asset_id INTO unit_asset
       FROM stock_serials
      WHERE id = NEW.serial_id AND org_id = NEW.org_id;
   ELSE
     unit_asset := NEW.device_asset_id;
-    SELECT custody_class, serial_id INTO current_class, unit_serial
+    SELECT serial_id INTO unit_serial
+      FROM device_assets
+     WHERE id = NEW.device_asset_id AND org_id = NEW.org_id;
+  END IF;
+
+  IF unit_asset IS NOT NULL THEN
+    PERFORM 1 FROM device_assets
+      WHERE id = unit_asset AND org_id = NEW.org_id
+      FOR UPDATE;
+  END IF;
+  IF unit_serial IS NOT NULL THEN
+    PERFORM 1 FROM stock_serials
+      WHERE id = unit_serial AND org_id = NEW.org_id
+      FOR UPDATE;
+  END IF;
+
+  IF NEW.unit_kind = 'serial' THEN
+    SELECT custody_class INTO current_class
+      FROM stock_serials
+     WHERE id = NEW.serial_id AND org_id = NEW.org_id;
+  ELSE
+    SELECT custody_class INTO current_class
       FROM device_assets
      WHERE id = NEW.device_asset_id AND org_id = NEW.org_id;
   END IF;
@@ -235,6 +286,11 @@ BEGIN
   IF current_class IS NULL THEN
     RAISE EXCEPTION 'inventory class movement: unit % not found in org %',
       COALESCE(NEW.serial_id, NEW.device_asset_id), NEW.org_id;
+  END IF;
+  IF current_class IN ('sold', 'recycled', 'destroyed', 'returned') THEN
+    RAISE EXCEPTION
+      'inventory class movement: unit % is in terminal class % and cannot move again',
+      COALESCE(NEW.serial_id, NEW.device_asset_id), current_class;
   END IF;
   IF current_class <> NEW.from_class THEN
     RAISE EXCEPTION
