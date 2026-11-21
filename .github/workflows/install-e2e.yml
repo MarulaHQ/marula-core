@@ -453,6 +453,31 @@ jobs:
 
           if [ -n "${RAW_FROM:-}" ]; then
             from="${RAW_FROM#v}"
+            if ! printf '%s' "$from" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'$from' is not a release version"
+              exit 1
+            fi
+            # A named release is held to the same rules as a discovered one. A
+            # draft or a prerelease is not a predecessor anyone installs, and a
+            # release with no Linux archive would fail in the download step with
+            # a message about a missing file rather than about a wrong pair.
+            if ! meta=$(gh api "repos/${GH_REPO}/releases/tags/v${from}" \
+              --jq '[.draft, .prerelease, ([.assets[].name] | join(","))] | @tsv'); then
+              echo "::error::could not read release v${from}: $meta"
+              exit 1
+            fi
+            IFS=$'\t' read -r is_draft is_prerelease named_assets <<<"$meta"
+            if [ "$is_draft" = "true" ] || [ "$is_prerelease" = "true" ]; then
+              echo "::error::v${from} is a draft or a prerelease: this leg tests an upgrade between published releases"
+              exit 1
+            fi
+            case ",${named_assets}," in
+              *",marula-${from}-linux-x64.tar.gz,"*) ;;
+              *)
+                echo "::error::v${from} carries no marula-${from}-linux-x64.tar.gz asset"
+                exit 1
+                ;;
+            esac
           else
             # The highest published release strictly older than the target that
             # carries a Linux archive: 0.5.0 never published, and an earlier tag
