@@ -3703,7 +3703,7 @@ async fn create_receipt_asset(
         patch.purchase_fx_source = Some(snapshot.source);
         patch.base_purchase_cost_minor = Some(snapshot.base_amount_minor);
     }
-    core_db::assets::update_asset_lifecycle(&mut *ctx.tx, org_id, asset_id, &patch).await?;
+    core_db::assets::update_asset_lifecycle(&mut ctx.tx, org_id, asset_id, &patch).await?;
     if derived != plan.destination {
         core_db::purchasing::record_asset_class_movement(
             &mut *ctx.tx,
