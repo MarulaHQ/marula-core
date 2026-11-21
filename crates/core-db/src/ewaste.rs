@@ -34,6 +34,7 @@
 //! The migration is the authority on every guard; a macro would check the
 //! column names and prove nothing about the triggers.
 
+use crate::tickets::ClientVisibility;
 use crate::{DbError, DbResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgConnection, Row};
@@ -347,6 +348,9 @@ pub struct IntakeFilter {
     pub status: Option<String>,
     pub client_id: Option<Uuid>,
     pub limit: i64,
+    /// Whose client restrictions apply. `None` is an internal caller with no
+    /// visibility gate; every route passes the caller's.
+    pub visibility: Option<ClientVisibility>,
 }
 
 /// Filters for the org-wide disposition list.
@@ -357,6 +361,34 @@ pub struct DispositionFilter {
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
     pub limit: i64,
+    /// Whose client restrictions apply. `None` is an internal caller with no
+    /// visibility gate; every route passes the caller's.
+    pub visibility: Option<ClientVisibility>,
+}
+
+/// The restriction predicate over the intake's client row. A live client with
+/// a non-empty `restricted_to` that omits the caller hides the row; the
+/// owner/admin bypass sees everything, and a client row that no longer exists
+/// has no restriction left to apply, so a retained receipt stays readable.
+/// Bind slots are arguments because each statement numbers its own.
+fn visible_to_caller(admin_bind: usize, user_bind: usize, client_alias: &str) -> String {
+    format!(
+        "AND (${admin_bind}::boolean OR NOT EXISTS ( \
+              SELECT 1 FROM clients c \
+               WHERE c.id = {client_alias}.client_id \
+                 AND c.org_id = {client_alias}.org_id \
+                 AND jsonb_array_length(c.restricted_to) > 0 \
+                 AND NOT (c.restricted_to ? ${user_bind}::text)))"
+    )
+}
+
+/// The two binds [`visible_to_caller`] needs. `None` is an internal caller with
+/// no gate, expressed as the admin bypass so the statement text stays static.
+fn visibility_binds(visibility: Option<ClientVisibility>) -> (bool, Uuid) {
+    match visibility {
+        Some(v) => (v.is_admin, v.user_id),
+        None => (true, Uuid::nil()),
+    }
 }
 
 // Mapping --------------------------------------------------------------------
@@ -730,8 +762,9 @@ pub async fn list_intakes(
     org_id: Uuid,
     filter: &IntakeFilter,
 ) -> DbResult<Vec<IntakeSummary>> {
+    let (admin, user_id) = visibility_binds(filter.visibility);
     let rows = sqlx::query(&format!(
-        r#"SELECT i.{columns},
+        r#"SELECT {columns},
                   coalesce(l.line_count, 0)::bigint AS line_count,
                   coalesce(l.total_in_g, 0)::bigint  AS total_in_g,
                   coalesce(d.total_out_g, 0)::bigint AS total_out_g
@@ -751,18 +784,22 @@ pub async fn list_intakes(
             WHERE i.org_id = $1
               AND ($2::text IS NULL OR i.status = $2)
               AND ($3::uuid IS NULL OR i.client_id = $3)
+              {visibility}
             ORDER BY i.received_at DESC, i.id DESC
             LIMIT $4"#,
         columns = INTAKE_COLUMNS
             .split(", ")
             .map(|c| format!("i.{c} AS {c}"))
             .collect::<Vec<_>>()
-            .join(", ")
+            .join(", "),
+        visibility = visible_to_caller(5, 6, "i")
     ))
     .bind(org_id)
     .bind(filter.status.as_deref())
     .bind(filter.client_id)
     .bind(filter.limit)
+    .bind(admin)
+    .bind(user_id.to_string())
     .fetch_all(&mut *conn)
     .await
     .map_err(guard_error)?;
@@ -884,7 +921,8 @@ pub async fn list_dispositions_for_org(
     org_id: Uuid,
     filter: &DispositionFilter,
 ) -> DbResult<Vec<EwasteDisposition>> {
-    let rows = sqlx::query(
+    let (admin, user_id) = visibility_binds(filter.visibility);
+    let rows = sqlx::query(&format!(
         r#"SELECT d.id, d.intake_id, d.line_id, d.pathway, d.partner_name,
                   d.disposed_at, d.weight_g, d.certificate_reference, d.document_id,
                   d.created_by, d.created_at
@@ -895,15 +933,19 @@ pub async fn list_dispositions_for_org(
               AND ($3::text IS NULL OR d.pathway = $3)
               AND ($4::date IS NULL OR d.disposed_at >= $4)
               AND ($5::date IS NULL OR d.disposed_at <= $5)
+              {visibility}
             ORDER BY d.disposed_at DESC, d.created_at DESC, d.id DESC
             LIMIT $6"#,
-    )
+        visibility = visible_to_caller(7, 8, "i")
+    ))
     .bind(org_id)
     .bind(filter.client_id)
     .bind(filter.pathway.as_deref())
     .bind(filter.from)
     .bind(filter.to)
     .bind(filter.limit)
+    .bind(admin)
+    .bind(user_id.to_string())
     .fetch_all(&mut *conn)
     .await
     .map_err(guard_error)?;

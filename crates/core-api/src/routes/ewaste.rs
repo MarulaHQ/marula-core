@@ -44,6 +44,18 @@ use uuid::Uuid;
 const ENTITY: &str = "ewaste_intake";
 const LIST_LIMIT: i64 = 200;
 
+/// Whose client restrictions apply to a list read. The row-level clause is
+/// what hides another client's e-waste when the caller names no client; the
+/// owner/admin bypass and the retained-client rule live in that clause.
+fn visibility_of(
+    principal: &core_domain::entities::Principal,
+) -> core_db::tickets::ClientVisibility {
+    core_db::tickets::ClientVisibility {
+        user_id: principal.user.id,
+        is_admin: principal.is_owner_or_admin(),
+    }
+}
+
 fn commercial(action: Action) -> Permission {
     Permission::Matrix {
         module: Module::Commercial,
@@ -82,6 +94,36 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
         )
 }
 
+/// Client visibility for an e-waste record.
+///
+/// A live client is checked exactly as [`super::clients::require_client_visible`]
+/// checks it. An intake's `client_id` is deliberately not a foreign key, because
+/// the tenant erasure contract keeps the receipt when a client row is deleted;
+/// a client that no longer exists carries no restriction, so the retained record
+/// stays readable by anyone holding the module permission. Loading the client
+/// first is what separates "gone" from "restricted": both are 404 through the
+/// shared helper, and catching that 404 would turn a restriction into access.
+async fn require_intake_client_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    client_id: Uuid,
+    principal: &core_domain::entities::Principal,
+) -> ApiResult<()> {
+    match core_db::clients::get_client(&mut *conn, org_id, client_id).await {
+        Ok(client) => {
+            if !client.restricted_to.is_empty()
+                && !client.restricted_to.contains(&principal.user.id)
+                && !principal.is_owner_or_admin()
+            {
+                return Err(ApiError::NotFound);
+            }
+            Ok(())
+        }
+        Err(core_db::DbError::NotFound) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// A stored replay is still a read of a client's data. Visibility can have
 /// narrowed since the write (a client can become restricted), so the replay
 /// branch runs the same client check as the fresh path before it answers. The
@@ -103,9 +145,7 @@ async fn require_replay_visible(
                 "stored e-waste replay carries no intake client"
             ))
         })?;
-    super::clients::require_client_visible(conn, org_id, client_id, principal)
-        .await
-        .map(|_client| ())
+    require_intake_client_visible(conn, org_id, client_id, principal).await
 }
 
 // ---- responses -------------------------------------------------------------
@@ -519,6 +559,7 @@ pub async fn list(
         status: q.status.as_deref().map(str::trim).map(str::to_string),
         client_id: q.client_id,
         limit: q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
+        visibility: Some(visibility_of(&authed.principal)),
     };
     // One transaction for the scope check and the read: a client can become
     // restricted between two statements, and a filtered list must not then
@@ -554,8 +595,7 @@ pub async fn get_one(
         .await
         .map_err(ApiError::from)?;
     let intake = ewaste::get_intake(&mut tx, org_id, id).await?;
-    super::clients::require_client_visible(&mut tx, org_id, intake.client_id, &authed.principal)
-        .await?;
+    require_intake_client_visible(&mut tx, org_id, intake.client_id, &authed.principal).await?;
     let detail = load_detail(&mut tx, org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(detail))
@@ -723,7 +763,7 @@ pub async fn add_line(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let line = validate_line(&req.line)?;
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value(&(id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -742,13 +782,8 @@ pub async fn add_line(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        super::clients::require_client_visible(
-            &mut ctx.tx,
-            org_id,
-            intake.client_id,
-            &authed.principal,
-        )
-        .await?;
+        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
+            .await?;
         ewaste::add_line(&mut ctx.tx, org_id, user_id, id, &line).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
@@ -862,7 +897,7 @@ pub async fn record_event(
         require_max_len(notes, 2000, "notes")?;
     }
 
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value(&(id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
     let input = NewEvent {
         line_id: req.line_id,
@@ -891,13 +926,8 @@ pub async fn record_event(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        super::clients::require_client_visible(
-            &mut ctx.tx,
-            org_id,
-            intake.client_id,
-            &authed.principal,
-        )
-        .await?;
+        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
+            .await?;
         ewaste::record_event(&mut ctx.tx, org_id, id, &input).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
@@ -968,7 +998,7 @@ pub async fn set_destruction(
             "status must be not_required, pending or completed".into(),
         ));
     }
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value(&(id, line_id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -987,13 +1017,8 @@ pub async fn set_destruction(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        super::clients::require_client_visible(
-            &mut ctx.tx,
-            org_id,
-            intake.client_id,
-            &authed.principal,
-        )
-        .await?;
+        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
+            .await?;
         if let Some(document_id) = req.document_id {
             attached_document_exists(&mut ctx.tx, org_id, document_id).await?;
         }
@@ -1071,7 +1096,7 @@ pub async fn record_disposition(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     validate_disposition(&req)?;
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value(&(id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
     let input = NewDisposition {
         line_id: req.line_id,
@@ -1099,13 +1124,8 @@ pub async fn record_disposition(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        super::clients::require_client_visible(
-            &mut ctx.tx,
-            org_id,
-            intake.client_id,
-            &authed.principal,
-        )
-        .await?;
+        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
+            .await?;
         if let Some(document_id) = input.document_id {
             attached_document_exists(&mut ctx.tx, org_id, document_id).await?;
         }
@@ -1177,13 +1197,8 @@ pub async fn close_intake(
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
-        super::clients::require_client_visible(
-            &mut ctx.tx,
-            org_id,
-            intake.client_id,
-            &authed.principal,
-        )
-        .await?;
+        require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
+            .await?;
         ewaste::close_intake(&mut ctx.tx, org_id, user_id, id).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
@@ -1263,6 +1278,7 @@ pub async fn list_dispositions(
         from: q.from,
         to: q.to,
         limit: q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
+        visibility: Some(visibility_of(&authed.principal)),
     };
     // One transaction for the scope check and the read (see `list`).
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
