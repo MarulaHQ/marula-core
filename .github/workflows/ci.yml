@@ -689,7 +689,20 @@ jobs:
             args+=(--test "$target")
           done
           echo "shard ${{ matrix.shard }}/2: ${#targets[@]} targets"
-          cargo test -p core-db "${args[@]}"
+          # `--test` selects integration targets by name, and a name list does
+          # not include the library's unit tests. `cargo test --workspace
+          # --tests`, which this job replaced, DID run them — the log of run
+          # 44886559308 carries `unittests src/lib.rs` for core-db among 29
+          # crates — so dropping `--lib` here silently removed 107 tests.
+          #
+          # Shard 1 carries it, as `rust-tests-core-api` does. That makes this
+          # shard the longer of the two by roughly the lib's link, which does not
+          # matter: both stay well under the workflow's slowest job.
+          if [ "${{ matrix.shard }}" = "1" ]; then
+            cargo test -p core-db --lib "${args[@]}"
+          else
+            cargo test -p core-db "${args[@]}"
+          fi
       - name: sccache stats
         if: always() && env.RUST_RELEVANT == 'true'
         continue-on-error: true
@@ -718,9 +731,14 @@ jobs:
           set -euo pipefail
           # A matrix reports one result for the whole matrix, so this covers both
           # core-db shards.
+          # Only `success`. When the relevance gate says no, these jobs still
+          # RUN and complete successfully with their work steps skipped, so
+          # `skipped` is never the expected value here — and accepting it would
+          # also pass a required check whose tests were skipped for a reason
+          # nobody chose.
           for result in "${{ needs.rust-tests-rest.result }}" "${{ needs.rust-tests-core-db.result }}"; do
             case "$result" in
-              success|skipped) ;;
+              success) ;;
               *)
                 echo "::error::a workspace test job reported '$result'"
                 exit 1
