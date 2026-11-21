@@ -30067,11 +30067,13 @@ export interface components {
              */
             serial_id?: string | null;
             /**
-             * @description True when the device stores data. The wipe reference is then required:
-             *     a pool move that launders a laptop with somebody's data still on it is
-             *     the one thing this leg must not do silently.
+             * @description Whether the device stores data. The caller must answer: an omitted value
+             *     is not "no data", it is an unasked question, and the schema has no
+             *     unit-level field to fall back on. A true answer requires the wipe
+             *     reference, because a pool move that launders a laptop with somebody's
+             *     data still on it is the one thing this leg must not do silently.
              */
-            stores_data?: boolean;
+            stores_data?: boolean | null;
         };
         PoolMoveView: {
             condition_grade?: string | null;
