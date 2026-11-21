@@ -7,8 +7,9 @@
 # tag's users would hit first.
 #
 # What it proves, in order: the older release installs and answers; the newer
-# release installs over it without a wipe; the running stack was actually replaced
-# rather than left alone; and the result answers `/readyz`.
+# release installs over it without a wipe; the running stack is the image the
+# newer release pins, not merely a different one; and the result answers
+# `/readyz`.
 #
 # Non-purpose: it does not verify the archives. The caller fetches each release
 # and checks its signed checksum list, the same way install-e2e.sh's caller does,
@@ -50,6 +51,23 @@ core_api_image() {
   docker inspect -f '{{.Image}}' "$id"
 }
 
+# The image the newer release's installer pinned for core-api. The installer
+# writes `marula.images.yml` from the release's signed manifest, so this is the
+# target's own statement of which image should be running — not a version string
+# guessed from a tag.
+core_api_pin() {
+  awk '
+    /^  core-api:$/ { wanted = 1; next }
+    wanted && /^    image:/ {
+      sub(/^    image:[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      print
+      exit
+    }
+    wanted && /^  [a-z]/ { wanted = 0 }
+  ' "$INSTALL_DIR/marula.images.yml"
+}
+
 wait_for_readyz() {
   local why=$1
   for _ in $(seq 1 30); do
@@ -76,7 +94,27 @@ teardown() {
   done
 }
 
-trap 'teardown "$TO"' EXIT
+# The workflow has its own "what was running" step, but it runs after this
+# script exits and this script's trap removes the containers. Capture the state
+# here, before teardown, and only when the run failed: a passing leg should leave
+# nothing behind but a teardown.
+on_exit() {
+  local status=$?
+  trap - EXIT
+  set +e
+  if [ "$status" -ne 0 ]; then
+    printf '==> the upgrade failed; what was running before teardown\n'
+    docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' || true
+    local id
+    for id in $(docker ps -aq); do
+      printf -- '--- %s\n' "$(docker inspect -f '{{.Name}}' "$id" 2>/dev/null || echo "$id")"
+      docker logs --tail 60 "$id" 2>&1 || true
+    done
+  fi
+  teardown "$TO" || true
+  exit "$status"
+}
+trap on_exit EXIT
 
 say "installing $(basename "$FROM") first"
 "$FROM/install.sh" "${INSTALL_ARGS[@]}"
@@ -97,6 +135,18 @@ if [ "$BEFORE" = "$AFTER" ]; then
   die "core-api is still running the image the older release started (${AFTER:0:19}…): the upgrade did not replace it"
 fi
 say "core-api moved to image ${AFTER:0:19}…"
+
+# Changing is not enough: an installer that pulled the wrong tag would also
+# change the id. The target release names the image it expects in the override it
+# writes, and the running container has to be that image.
+PIN=$(core_api_pin) || die "could not read the core-api pin from $INSTALL_DIR/marula.images.yml"
+[ -n "$PIN" ] || die "the upgrade did not pin core-api in $INSTALL_DIR/marula.images.yml"
+PIN_ID=$(docker image inspect -f '{{.Id}}' "$PIN") \
+  || die "the image the newer release pins ($PIN) is not in the local store"
+if [ "$AFTER" != "$PIN_ID" ]; then
+  die "core-api is running ${AFTER:0:19}…, but the newer release pins $PIN (${PIN_ID:0:19}…)"
+fi
+say "it is the image the newer release pins: $PIN"
 
 say "checking the result with the newer release's doctor"
 "$TO/marula" doctor \
