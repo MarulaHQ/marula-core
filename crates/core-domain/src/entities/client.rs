@@ -1,5 +1,7 @@
 //! Client hierarchy: company → site → contact, plus devices/assets.
 
+use super::stock::CustodyClass;
+use crate::error::DomainError;
 use crate::ids::{ClientId, ContactId, DeviceAssetId, DocumentLayoutId, OrgId, SiteId, UserId};
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 
@@ -194,8 +196,72 @@ fn default_ownership() -> String {
 /// internal_org rows are the MSP's own fleet with client_id NULL.
 pub const ASSET_SCOPES: [&str; 2] = ["client", "internal_org"];
 
+/// Asset ownership, shared with the acquisition-intent vocabulary (§5.1): a
+/// rented-in unit is `rented`, a unit leased to a client is `leased`.
+pub const ASSET_OWNERSHIPS: [&str; 3] = ["owned", "leased", "rented"];
+
+pub fn is_valid_asset_ownership(ownership: &str) -> bool {
+    ASSET_OWNERSHIPS.contains(&ownership.trim())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Ownership {
+    Owned,
+    Leased,
+    Rented,
+}
+
+impl Ownership {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Ownership::Owned => "owned",
+            Ownership::Leased => "leased",
+            Ownership::Rented => "rented",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, DomainError> {
+        match raw.trim() {
+            "owned" => Ok(Self::Owned),
+            "leased" => Ok(Self::Leased),
+            "rented" => Ok(Self::Rented),
+            other => Err(DomainError::Validation(format!(
+                "invalid ownership: {other}"
+            ))),
+        }
+    }
+}
+
 pub fn is_valid_asset_scope(scope: &str) -> bool {
     ASSET_SCOPES.contains(&scope.trim())
+}
+
+/// The custody class an asset row carries, from the two words the row already
+/// holds (ADR 0035 §4.1). Internal and owned is the fleet; internal and rented
+/// is a vendor rental; client-scoped and owned is the client's own device;
+/// client-scoped and leased or rented is our unit placed with a client.
+///
+/// This is the rule migration 0232 backfills with, kept in the domain so a
+/// receipt that creates an asset asks the same question the database did.
+pub fn custody_class_for_asset(scope: &str, ownership: &str) -> Result<CustodyClass, DomainError> {
+    if !is_valid_asset_scope(scope) {
+        return Err(DomainError::Validation(format!(
+            "invalid asset scope: {scope}"
+        )));
+    }
+    if !ASSET_OWNERSHIPS.contains(&ownership.trim()) {
+        return Err(DomainError::Validation(format!(
+            "invalid asset ownership: {ownership}"
+        )));
+    }
+    Ok(match (scope.trim(), ownership.trim()) {
+        ("internal_org", "owned") => CustodyClass::InternalFleet,
+        ("internal_org", _) => CustodyClass::RentalIn,
+        (_, "owned") => CustodyClass::ClientCustody,
+        _ => CustodyClass::RentalOut,
+    })
 }
 
 fn default_asset_scope() -> String {
@@ -480,5 +546,30 @@ mod tests {
         assert_eq!(add_months_clamped(date(2024, 1, 31), 1), date(2024, 2, 29));
         assert_eq!(add_months_clamped(date(2026, 8, 15), 3), date(2026, 11, 15));
         assert_eq!(add_months_clamped(date(2026, 12, 1), 1), date(2027, 1, 1));
+    }
+
+    #[test]
+    fn an_asset_class_follows_its_scope_and_ownership() {
+        assert_eq!(
+            custody_class_for_asset("internal_org", "owned").unwrap(),
+            CustodyClass::InternalFleet
+        );
+        assert_eq!(
+            custody_class_for_asset("internal_org", "rented").unwrap(),
+            CustodyClass::RentalIn
+        );
+        assert_eq!(
+            custody_class_for_asset("client", "owned").unwrap(),
+            CustodyClass::ClientCustody
+        );
+        assert_eq!(
+            custody_class_for_asset("client", "leased").unwrap(),
+            CustodyClass::RentalOut
+        );
+        assert!(
+            custody_class_for_asset("warehouse", "owned").is_err(),
+            "an unknown scope is refused, not guessed"
+        );
+        assert!(custody_class_for_asset("client", "borrowed").is_err());
     }
 }

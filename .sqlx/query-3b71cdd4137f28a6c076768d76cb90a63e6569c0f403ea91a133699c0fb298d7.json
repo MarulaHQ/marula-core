@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ticket_cost_lines\n              SET source_kind = 'purchase_receipt_line', source_id = $3,\n                  reporting_class = $4\n            WHERE org_id = $1 AND id = $2 AND source_kind IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3b71cdd4137f28a6c076768d76cb90a63e6569c0f403ea91a133699c0fb298d7"
+}

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO inventory_class_movements\n             (id, org_id, unit_kind, device_asset_id, from_class, to_class, reason,\n              source_kind, source_id, created_by)\n           VALUES ($1, $2, 'asset', $3, $4, $5, $6, 'purchase_receipt_line', $7, $8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "37cf77f49c3fda472f2545cc00f4c2dece12f713cdf823bf66512c9d071930e7"
+}

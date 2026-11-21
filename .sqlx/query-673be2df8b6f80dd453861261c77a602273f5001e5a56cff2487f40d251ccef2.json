@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE purchase_order_lines SET\n             line_kind = $3, destination_class = $4, asset_layout_id = $5,\n             serial_expected = $6, weight_g = $7, sell_price_minor = $8,\n             billable = $9, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Bool",
+        "Int4",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "673be2df8b6f80dd453861261c77a602273f5001e5a56cff2487f40d251ccef2"
+}

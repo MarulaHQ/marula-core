@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invoice_lines l\n                          SET source_kind = 'rental_charge', source_id = v.charge_id\n                         FROM (SELECT unnest($2::uuid[]) AS line_id,\n                                      unnest($3::uuid[]) AS charge_id) v\n                        WHERE l.org_id = $1 AND l.id = v.line_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ef0ae7b4e1b76a1fbec3564d6969653a26d33aa6f3f3c8add95df9c883aa0946"
+}

@@ -75,6 +75,16 @@ const MAX_RUN_DAYS: i64 = 366;
 /// Default payment terms for issued invoices.
 const DEFAULT_DUE_IN_DAYS: i32 = 30;
 
+/// One rental line the run writes: the candidate, the charge it cites, and the
+/// charge row itself when this run is the one creating it. Rent periods are
+/// created here; damage and loss charges were created by the return that raised
+/// them and are only picked up.
+struct RentalLine {
+    candidate: BillingCandidateLine,
+    charge_id: Uuid,
+    new_charge: Option<core_db::loans::NewRentalCharge>,
+}
+
 // --- wire structs ------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -85,6 +95,11 @@ pub struct CreateInvoiceRunRequest {
     pub to: chrono::NaiveDate,
     /// Restrict the run to one client's billable contracts.
     pub client_id: Option<Uuid>,
+    /// Restrict the run to one currency. A run is single-currency by
+    /// construction; the selector is what lets a receivable stored under another
+    /// currency bill in a run of its own, instead of waiting for a sweep whose
+    /// regular contracts happen to share it.
+    pub currency: Option<String>,
     /// Payment terms for the issued invoices, in days (default 30).
     pub due_in_days: Option<i32>,
     /// Instant-first autosave parameters (IF1): idempotency key.
@@ -345,7 +360,36 @@ pub async fn create_run(
         if let Some(client) = client_filter {
             contracts.retain(|c| c.client_id == client);
         }
+        let currency_filter = req.currency.as_deref().map(|code| {
+            core_domain::money::CurrencyCode::new(code)
+                .map(|code| code.to_string())
+                .map_err(|e| ApiError::Validation(e.to_string()))
+        });
+        let currency_filter = currency_filter.transpose()?;
+        if let Some(currency) = currency_filter.as_deref() {
+            contracts.retain(|c| c.currency.eq_ignore_ascii_case(currency));
+        }
 
+        // The contracts the window selected evaluate normally. Everything added
+        // below is a rental-only participant: its term does not cover the window
+        // (that is why the ordinary list dropped it), so evaluating it would
+        // contribute no line and could raise on inputs it will never use. These
+        // ids make that distinction explicit.
+        let window_selected: std::collections::HashSet<Uuid> =
+            contracts.iter().map(|c| c.id).collect();
+        let mut regular_currencies: Vec<&str> =
+            contracts.iter().map(|c| c.currency.as_str()).collect();
+        regular_currencies.sort_unstable();
+        regular_currencies.dedup();
+        // The run is single-currency; a mixed regular population is refused in
+        // the loop below and admits no extras here.
+        let scope_currency: Option<String> = match currency_filter.clone() {
+            Some(currency) => Some(currency),
+            None => match regular_currencies.as_slice() {
+                [only] => Some((*only).to_string()),
+                _ => None,
+            },
+        };
         let contract_ids: Vec<Uuid> = contracts.iter().map(|c| c.id).collect();
         let billed_keys =
             core_db::invoices::list_billed_keys(&mut *ctx.tx, org_id, &contract_ids).await?;
@@ -405,18 +449,119 @@ pub async fn create_run(
         )
         .await?;
 
+        // A pending rental charge is a receivable: a damage charge raised under
+        // a contract whose term has already ended must still bill, and a
+        // window-bounded contract list would never select that contract. So the
+        // pending charges are read org-wide, and any contract one of them names
+        // joins the sweep even when the window does not choose it. Its own
+        // evaluation contributes nothing outside the term; the charge is what
+        // the line is.
+        let pending_charges = core_db::loans::list_all_pending_rental_charges(&mut ctx.tx, org_id)
+            .await?;
+        // Contracts a pending charge or a lease names, but the window did not
+        // select. Two rules keep the run coherent:
+        //   * the campaign's currency scope, taken from the regular contracts,
+        //     so a EUR charge cannot drag a EUR contract into a USD run (it
+        //     bills in a run scoped to its own currency);
+        //   * the client filter, so a one-client run stays one client.
+        let lease_contract_ids =
+            core_db::loans::list_lease_contract_ids(&mut ctx.tx, org_id, window.0, window.1)
+                .await?;
+        let mut extra_ids: Vec<Uuid> = pending_charges
+            .iter()
+            .filter(|c| client_filter.is_none_or(|client| c.client_id == client))
+            .filter(|c| {
+                scope_currency
+                    .as_deref()
+                    .is_none_or(|scope| c.currency.eq_ignore_ascii_case(scope))
+            })
+            .map(|c| c.contract_id)
+            .collect();
+        extra_ids.extend(lease_contract_ids);
+        extra_ids.sort_unstable();
+        extra_ids.dedup();
+        let mut added: Vec<Uuid> = Vec::new();
+        for id in extra_ids {
+            if window_selected.contains(&id) || added.contains(&id) {
+                continue;
+            }
+            let contract = core_db::contracts::get_contract(&mut *ctx.tx, org_id, id).await?;
+            if let Some(client) = client_filter {
+                if contract.client_id != client {
+                    continue;
+                }
+            }
+            if let Some(scope) = scope_currency.as_deref() {
+                if !contract.currency.eq_ignore_ascii_case(scope) {
+                    continue;
+                }
+            }
+            added.push(id);
+            contracts.push(contract);
+        }
+        let contract_ids: Vec<Uuid> = contracts.iter().map(|c| c.id).collect();
+
+        // Rental charges, loaded once for the whole sweep: the leases that
+        // bill under these contracts, the periods already charged, and the
+        // one-off charges waiting for a line. Grouped by contract here so the
+        // loop below reads a map instead of rescanning the rows per contract.
+        let billable_leases =
+            core_db::loans::list_billable_leases(&mut ctx.tx, org_id, &contract_ids).await?;
+        let lease_ids: Vec<Uuid> = billable_leases.iter().map(|l| l.loan_id).collect();
+        let charged_keys =
+            core_db::loans::existing_rental_charge_keys(&mut ctx.tx, org_id, &lease_ids).await?;
+        let already_charged: std::collections::HashSet<(
+            Uuid,
+            String,
+            chrono::NaiveDate,
+            chrono::NaiveDate,
+        )> = charged_keys
+            .iter()
+            .map(|(loan, kind, start, end, _)| (*loan, kind.clone(), *start, *end))
+            .collect();
+        let mut charges_by_contract: std::collections::HashMap<
+            Uuid,
+            Vec<&core_db::loans::RentalCharge>,
+        > = std::collections::HashMap::new();
+        for charge in &pending_charges {
+            charges_by_contract
+                .entry(charge.contract_id)
+                .or_default()
+                .push(charge);
+        }
+        let mut leases_by_contract: std::collections::HashMap<
+            Uuid,
+            Vec<&core_db::loans::BillableLease>,
+        > = std::collections::HashMap::new();
+        for lease in &billable_leases {
+            leases_by_contract
+                .entry(lease.contract_id)
+                .or_default()
+                .push(lease);
+        }
+
         // Contracts arrive ordered by number: per-client sequential
         // processing means later contracts re-read UNBILLED entries and
         // see the consumption links this run already wrote.
         for contract in &contracts {
-            let entries = core_db::invoices::list_unbilled_entries(
-                &mut *ctx.tx,
-                org_id,
-                contract.client_id,
-                window.0,
-                window.1,
-            )
-            .await?;
+            // A contract the window did not select (a lease that overlaps the
+            // window, or a contract a pending charge names) contributes only its
+            // rental lines. Its ordinary evaluation would produce nothing — its
+            // term does not cover the window — and loading its inputs could
+            // raise on configuration it will never use.
+            let evaluated = window_selected.contains(&contract.id);
+            let entries = if evaluated {
+                core_db::invoices::list_unbilled_entries(
+                    &mut *ctx.tx,
+                    org_id,
+                    contract.client_id,
+                    window.0,
+                    window.1,
+                )
+                .await?
+            } else {
+                Vec::new()
+            };
             let inputs: Vec<core_billing::BillableEntry> = entries
                 .iter()
                 .map(|e| core_billing::BillableEntry {
@@ -426,50 +571,218 @@ pub async fn create_run(
                     entry_date: e.entry_date,
                 })
                 .collect();
-            let rates = core_db::contracts::list_rates(&mut *ctx.tx, org_id, contract.id).await?;
-            let fees = core_db::contracts::list_fees(&mut *ctx.tx, org_id, contract.id).await?;
-            let eval_inputs = crate::routes::billing::load_eval_inputs(
-                &mut ctx.tx,
-                org_id,
-                contract,
-                window.0,
-                window.1,
-            )
-            .await?;
-            let evaluation = core_billing::rules::evaluate_with(
-                contract,
-                &rates,
-                &fees,
-                &inputs,
-                window.0,
-                window.1,
-                &eval_inputs,
-            )
-            .map_err(engine_error)?;
+            let mut eval_inputs = core_billing::EvalInputs::default();
+            let evaluation = if evaluated {
+                let rates =
+                    core_db::contracts::list_rates(&mut *ctx.tx, org_id, contract.id).await?;
+                let fees = core_db::contracts::list_fees(&mut *ctx.tx, org_id, contract.id).await?;
+                eval_inputs = crate::routes::billing::load_eval_inputs(
+                    &mut ctx.tx,
+                    org_id,
+                    contract,
+                    window.0,
+                    window.1,
+                )
+                .await?;
+                Some(
+                    core_billing::rules::evaluate_with(
+                        contract,
+                        &rates,
+                        &fees,
+                        &inputs,
+                        window.0,
+                        window.1,
+                        &eval_inputs,
+                    )
+                    .map_err(engine_error)?,
+                )
+            } else {
+                None
+            };
 
             // Skip already-billed candidates; the partial unique indexes
             // remain the concurrency backstop.
-            let lines: Vec<BillingCandidateLine> = evaluation
-                .lines
+            let mut lines: Vec<BillingCandidateLine> = evaluation
+                .as_ref()
+                .map(|evaluation| {
+                    evaluation
+                        .lines
+                        .iter()
+                        .filter(|l| match l.kind {
+                            BillingLineKind::TimeMaterials => true,
+                            _ => !billed_periods.contains(&(
+                                contract.id,
+                                l.kind.as_str().to_string(),
+                                l.period_start,
+                            )),
+                        })
+                        .filter(|l| {
+                            l.kind != BillingLineKind::FixedFee
+                                || !billed_fees.contains(&(
+                                    contract.id,
+                                    l.period_start,
+                                    l.description.clone(),
+                                ))
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            // Rental lines: charges this contract already owes a line for, then
+            // the periods this window starts. Every line cites its charge; the
+            // charge cites the agreement. A lease in another currency than the
+            // contract's is refused rather than converted (the run is
+            // single-currency by construction).
+            let mut rental_lines: Vec<RentalLine> = Vec::new();
+            for charge in charges_by_contract
+                .get(&contract.id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+            {
+                // A charge stored before the currency rule can carry another
+                // currency than its contract. The run is single-currency, but
+                // one bad row must not stop billing for every other contract:
+                // skip it and say so, so it can be corrected.
+                if !charge.currency.eq_ignore_ascii_case(&contract.currency) {
+                    tracing::warn!(
+                        charge = %charge.id,
+                        charge_currency = %charge.currency,
+                        contract_currency = %contract.currency,
+                        "pending rental charge skipped: currency differs from its contract"
+                    );
+                    continue;
+                }
+                rental_lines.push(RentalLine {
+                    candidate: BillingCandidateLine {
+                        contract_id: contract.id,
+                        contract_number: contract.number.clone(),
+                        client_id: charge.client_id,
+                        kind: BillingLineKind::Rental,
+                        period_start: charge.period_start,
+                        period_end: charge.period_end,
+                        description: charge.description.clone(),
+                        quantity_minutes: 0,
+                        unit_amount_minor: charge.unit_amount_minor,
+                        amount_minor: charge.amount_minor,
+                    },
+                    charge_id: charge.id,
+                    new_charge: None,
+                });
+            }
+            for lease in leases_by_contract
+                .get(&contract.id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+            {
+                // A lease with no cycle price is a loan recorded as one; it
+                // produces no charge rather than an endless zero line.
+                if lease.cycle_amount_minor <= 0 {
+                    continue;
+                }
+                // The contract term bounds every other line kind, and it bounds
+                // a lease the same way: a lease that starts before the contract
+                // or runs past it bills only the overlap, prorated to the days
+                // the term actually covers.
+                let term_from = lease.active_from.max(contract.effective_from);
+                let term_until = match contract.effective_until {
+                    Some(until) => lease.active_until.min(until),
+                    None => lease.active_until,
+                };
+                if term_until < term_from {
+                    continue;
+                }
+                let terms = core_billing::rules::LeaseTerms {
+                    agreement_id: lease.loan_id,
+                    label: lease.label.clone(),
+                    cycle: lease.cycle.clone(),
+                    cycle_amount_minor: lease.cycle_amount_minor,
+                    active_from: lease.active_from,
+                    active_until: lease.active_until,
+                    term_from,
+                    term_until,
+                };
+                // The window and the charged periods decide what this run
+                // writes. Resolve that first, then judge the currency: a lease
+                // that produces no line here must not refuse the whole run, and
+                // a lease that does produce one is refused by name.
+                let periods: Vec<core_billing::rules::RentalChargePeriod> =
+                    core_billing::rules::rental_charge_periods(&terms, window.0, window.1)
+                        .map_err(engine_error)?
+                        .into_iter()
+                        .filter(|period| {
+                            !already_charged.contains(&(
+                                lease.loan_id,
+                                "rent".to_string(),
+                                period.period_start,
+                                period.period_end,
+                            ))
+                        })
+                        .collect();
+                if periods.is_empty() {
+                    continue;
+                }
+                if !lease.currency.eq_ignore_ascii_case(&contract.currency) {
+                    // A lease written before the currency rule cannot bill under
+                    // this contract. Skip it with a warning rather than abort the
+                    // sweep; the agreement needs correcting, not a failed run.
+                    tracing::warn!(
+                        lease = %lease.loan_id,
+                        lease_currency = %lease.currency,
+                        contract_currency = %contract.currency,
+                        "lease skipped: currency differs from its contract"
+                    );
+                    continue;
+                }
+                for period in periods {
+                    let charge_id = Uuid::now_v7();
+                    rental_lines.push(RentalLine {
+                        candidate: BillingCandidateLine {
+                            contract_id: contract.id,
+                            contract_number: contract.number.clone(),
+                            client_id: lease.client_id,
+                            kind: BillingLineKind::Rental,
+                            period_start: period.period_start,
+                            period_end: period.period_end,
+                            description: period.description.clone(),
+                            quantity_minutes: 0,
+                            unit_amount_minor: period.unit_amount_minor,
+                            amount_minor: period.amount_minor,
+                        },
+                        charge_id,
+                        new_charge: Some(core_db::loans::NewRentalCharge {
+                            id: charge_id,
+                            loan_id: lease.loan_id,
+                            contract_id: contract.id,
+                            client_id: lease.client_id,
+                            kind: "rent".into(),
+                            source_line_id: None,
+                            period_start: period.period_start,
+                            period_end: period.period_end,
+                            days_billed: period.days_billed,
+                            period_days: period.period_days,
+                            unit_amount_minor: period.unit_amount_minor,
+                            amount_minor: period.amount_minor,
+                            currency: lease.currency.clone(),
+                            description: period.description.clone(),
+                            fx_rate_used: None,
+                            fx_rate_date: None,
+                            fx_source: None,
+                            base_amount_minor: None,
+                        }),
+                    });
+                }
+            }
+            let rental_base = lines.len();
+            lines.extend(rental_lines.iter().map(|r| r.candidate.clone()));
+            // The invoice total is the sum of the lines that survived the
+            // already-billed filters, not the evaluation's total: the two differ
+            // whenever a candidate was skipped, and the issued document must
+            // equal what it carries.
+            let invoice_total_minor = lines
                 .iter()
-                .filter(|l| match l.kind {
-                    BillingLineKind::TimeMaterials => true,
-                    _ => !billed_periods.contains(&(
-                        contract.id,
-                        l.kind.as_str().to_string(),
-                        l.period_start,
-                    )),
-                })
-                .filter(|l| {
-                    l.kind != BillingLineKind::FixedFee
-                        || !billed_fees.contains(&(
-                            contract.id,
-                            l.period_start,
-                            l.description.clone(),
-                        ))
-                })
-                .cloned()
-                .collect();
+                .try_fold(0i64, |acc, l| acc.checked_add(l.amount_minor))
+                .ok_or_else(|| ApiError::Conflict("invoice run totals overflow".into()))?;
             if lines.is_empty() {
                 continue;
             }
@@ -485,7 +798,7 @@ pub async fn create_run(
                 }
             }
             total_minor = total_minor
-                .checked_add(evaluation.total_minor)
+                .checked_add(invoice_total_minor)
                 .ok_or_else(|| ApiError::Conflict("invoice run totals overflow".into()))?;
 
             // Entry consumption: T&M invoices consume the entries in the
@@ -509,12 +822,19 @@ pub async fn create_run(
                 })
                 .map(|l| (l.period_start, l.period_end))
                 .collect();
+            // A T&M contract can produce an invoice with no labour line at all
+            // (a rental-only sweep). Consuming the entries in that case would
+            // mark time billed by a document that does not carry it.
+            let has_labour_lines = lines
+                .iter()
+                .any(|line| line.kind == BillingLineKind::TimeMaterials);
             let consumed: Vec<Uuid> = match contract.contract_type {
-                ContractType::TimeAndMaterials => entries
+                ContractType::TimeAndMaterials if has_labour_lines => entries
                     .iter()
                     .filter(|e| e.entry_date >= lo && e.entry_date <= hi)
                     .map(|e| e.time_entry_id)
                     .collect(),
+                ContractType::TimeAndMaterials => Vec::new(),
                 ContractType::Retainer => entries
                     .iter()
                     .filter(|e| {
@@ -576,7 +896,7 @@ pub async fn create_run(
                 .as_ref()
                 .map(|rate| {
                     let original = core_domain::money::Money::new(
-                        evaluation.total_minor,
+                        invoice_total_minor,
                         core_domain::money::CurrencyCode::new(&contract.currency)
                             .map_err(ApiError::from)?,
                     );
@@ -627,7 +947,7 @@ pub async fn create_run(
                 period_to,
                 issued_at: today,
                 due_on,
-                total_minor: evaluation.total_minor,
+                total_minor: invoice_total_minor,
                 total_paid_minor: 0,
                 fx_rate_used: issue_rate_columns.as_ref().map(|s| s.columns().0),
                 fx_rate_date: issue_rate_columns.as_ref().map(|s| s.rate_date),
@@ -674,6 +994,56 @@ pub async fn create_run(
                 core_db::invoices::insert_entry_links(&mut *ctx.tx, org_id, invoice.id, &consumed)
                     .await?;
             }
+            // Rental side effects, same transaction. The charge is written
+            // first (the line already cites its id), then it is flipped to
+            // billed with the line it became — the only update its guard
+            // admits. The line's own source columns cite the charge, which is
+            // what makes "a lease charge cites its agreement" traceable from
+            // either side. The FX snapshot is the contract's already-resolved
+            // one: the charge is in the contract's currency by the check above.
+            if !rental_lines.is_empty() {
+                for line in &rental_lines {
+                    if let Some(charge) = &line.new_charge {
+                        let mut charge = charge.clone();
+                        charge.fx_rate_used =
+                            issue_rate_columns.as_ref().map(|s| s.columns().0);
+                        charge.fx_rate_date =
+                            issue_rate_columns.as_ref().map(|s| s.rate_date);
+                        charge.fx_source = issue_rate_columns.as_ref().map(|s| s.source.clone());
+                        charge.base_amount_minor = issue_rate_columns
+                            .as_ref()
+                            .map(|_| base_of(charge.amount_minor))
+                            .transpose()?;
+                        core_db::loans::insert_rental_charge(
+                            &mut ctx.tx,
+                            org_id,
+                            user_id,
+                            &charge,
+                        )
+                        .await?;
+                    }
+                }
+                let billed: Vec<(Uuid, Uuid, Uuid)> = rental_lines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, line)| (line.charge_id, invoice.id, line_rows[rental_base + i].id))
+                    .collect();
+                core_db::loans::mark_rental_charges_billed(&mut ctx.tx, org_id, &billed).await?;
+                let line_ids: Vec<Uuid> = billed.iter().map(|b| b.2).collect();
+                let charge_ids: Vec<Uuid> = billed.iter().map(|b| b.0).collect();
+                sqlx::query!(
+                    r#"UPDATE invoice_lines l
+                          SET source_kind = 'rental_charge', source_id = v.charge_id
+                         FROM (SELECT unnest($2::uuid[]) AS line_id,
+                                      unnest($3::uuid[]) AS charge_id) v
+                        WHERE l.org_id = $1 AND l.id = v.line_id"#,
+                    org_id,
+                    &line_ids,
+                    &charge_ids,
+                )
+                .execute(&mut *ctx.tx)
+                .await?;
+            }
             // Wave-39 aggregate side effects (same transaction: a failure
             // rolls the whole run back):
             // * block draws persist per consumed entry (the verification
@@ -684,7 +1054,10 @@ pub async fn create_run(
             // * project releases flip pending → billed with the consuming
             //   invoice + line (Wave 39 lane 4: the ledger seatbelt that
             //   makes a replayed milestone completion bill exactly once).
-            if let Some(consumption) = &evaluation.block_consumption {
+            if let Some(consumption) = evaluation
+                .as_ref()
+                .and_then(|evaluation| evaluation.block_consumption.as_ref())
+            {
                 for draw in &consumption.draws {
                     let Some(entry_id) = draw.time_entry_id else {
                         continue;
@@ -701,7 +1074,9 @@ pub async fn create_run(
                 }
             }
             let applied_credit_ids: Vec<Uuid> = evaluation
-                .lines
+                .as_ref()
+                .map(|evaluation| evaluation.lines.as_slice())
+                .unwrap_or(&[])
                 .iter()
                 .filter(|l| l.kind == BillingLineKind::SlaCredit)
                 .filter_map(|l| {

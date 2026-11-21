@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (c.invoice_line_id IS NOT NULL) AS \"billed!\"\n             FROM purchase_recharges r\n             JOIN ticket_cost_lines c\n               ON c.org_id = r.org_id AND c.id = r.cost_line_id\n            WHERE r.org_id = $1 AND r.cost_line_id = $2\n            LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "billed!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "091d58bc0c68b7f8caf1416034be24fb0a187a3eff868ce1c05f4c9bdd0d8f73"
+}

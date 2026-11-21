@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE purchase_orders SET\n             status = CASE\n               WHEN status IN ('draft','ordered','partially_received')\n                    AND NOT EXISTS (SELECT 1 FROM purchase_order_lines l\n                                    WHERE l.purchase_order_id = purchase_orders.id\n                                      AND l.receipt_state NOT IN ('complete','over'))\n                 THEN 'received'\n               WHEN status IN ('draft','ordered','partially_received')\n                    AND EXISTS (SELECT 1 FROM purchase_order_lines l\n                                WHERE l.purchase_order_id = purchase_orders.id\n                                  AND l.qty_received_milli > 0)\n                 THEN 'partially_received'\n               ELSE status\n             END,\n             updated_at = now()\n           WHERE org_id = $1 AND id = $2\n           RETURNING id, org_id, vendor_id, number, status, currency, vendor_reference, project_id,\n                  notes, ordered_at, expected_at, closed_at, close_kind, cancelled_at,\n                  cancel_reason, created_by, created_at, updated_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "org_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "vendor_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "vendor_reference",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "project_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "ordered_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "expected_at",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 11,
+        "name": "closed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "close_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "cancelled_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "cancel_reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "created_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 16,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 17,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "639e965331d26a3f9d0dfc583ef0a00f98c1ac71e8566d63fb9782228c81139d"
+}

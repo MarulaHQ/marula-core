@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.id AS bill_id, b.purchase_order_id, o.number AS order_number,\n                  b.amount_minor, b.currency, b.base_amount_minor, b.posted_at\n           FROM purchase_bills b\n           JOIN purchase_orders o ON o.org_id = b.org_id AND o.id = b.purchase_order_id\n           WHERE b.org_id = $1 AND o.project_id = $2 AND b.posted_at IS NOT NULL\n             AND ($4::boolean OR o.client_id IS NULL OR NOT EXISTS (\n                   SELECT 1 FROM clients c\n                    WHERE c.org_id = o.org_id\n                      AND c.id = o.client_id\n                      AND c.restricted_to <> '[]'::jsonb\n                      AND NOT (c.restricted_to ? $3)))\n           ORDER BY b.posted_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bill_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "purchase_order_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "order_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "base_amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "posted_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "cf761672878a23189f4cf0bef3a98827cb27087cfbbbfda2e3061c4d0f8d72e9"
+}

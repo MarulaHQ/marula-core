@@ -57,6 +57,7 @@ pub mod entitlements;
 pub mod entity_dedupe;
 pub mod erasure;
 pub mod event_types;
+pub mod ewaste;
 pub mod export;
 pub mod federation;
 pub mod fx;

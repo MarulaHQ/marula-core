@@ -956,6 +956,13 @@ pub async fn upsert_serial(
     executor: &mut sqlx::PgConnection,
     serial: &StockSerial,
 ) -> DbResult<StockSerial> {
+    // The same row lock the asset receipt takes before it checks serial
+    // identity, so the two writers cannot both decide a serial is new.
+    sqlx::query("SELECT 1 FROM stock_items WHERE id = $1 AND org_id = $2 FOR UPDATE")
+        .bind(serial.stock_item_id)
+        .bind(serial.org_id)
+        .execute(&mut *executor)
+        .await?;
     let row = sqlx::query_as!(
         SerialRow,
         r#"INSERT INTO stock_serials (id, org_id, stock_item_id, serial_number,

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE device_assets\n                      SET scope = 'internal_org', client_id = NULL, site_id = NULL,\n                          status = CASE WHEN $3 THEN 'in_repair' ELSE status END,\n                          updated_at = now()\n                    WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2dfa58a5a08124286d9ad4f7e6f81b1b4467390429d61b3170522d906f3e91be"
+}

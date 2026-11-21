@@ -476,3 +476,152 @@ async fn assets_flow_unauthenticated_is_401() {
     let response = send(&app, axum::http::Method::GET, "/api/v1/assets", &[], None).await;
     assert_eq!(response.status(), 401);
 }
+
+/// Reads the unit's stored class and its class-movement count directly. The API
+/// shape does not carry `custody_class` yet, so the DB is the honest witness.
+async fn stored_custody(state: &AppState, org_id: Uuid, asset_id: Uuid) -> (String, i64) {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("set_org");
+    let class: String =
+        sqlx::query_scalar("SELECT custody_class FROM device_assets WHERE org_id = $1 AND id = $2")
+            .bind(org_id)
+            .bind(asset_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("custody class");
+    let movements: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM inventory_class_movements \
+          WHERE org_id = $1 AND device_asset_id = $2",
+    )
+    .bind(org_id)
+    .bind(asset_id)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("class movement count");
+    tx.commit().await.expect("commit");
+    (class, movements)
+}
+
+/// Puts the asset on an open client loan, which is what the class guard must
+/// refuse to move.
+async fn open_loan_on_asset(state: &AppState, org_id: Uuid, client_id: Uuid, asset_id: Uuid) {
+    let mut tx = state.pool.begin().await.expect("tx");
+    core_db::set_org(&mut tx, org_id).await.expect("set_org");
+    let loan_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO client_loans (id, org_id, client_id, expected_return_at) \
+         VALUES ($1, $2, $3, CURRENT_DATE + 30)",
+    )
+    .bind(loan_id)
+    .bind(org_id)
+    .bind(client_id)
+    .execute(&mut *tx)
+    .await
+    .expect("loan");
+    sqlx::query(
+        "INSERT INTO client_loan_lines (id, org_id, loan_id, device_asset_id) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(org_id)
+    .bind(loan_id)
+    .bind(asset_id)
+    .execute(&mut *tx)
+    .await
+    .expect("loan line");
+    tx.commit().await.expect("commit");
+}
+
+/// A rented internal asset must be created in `rental_in`, an ownership change
+/// must be a class movement, and a unit on an open agreement must not move.
+#[tokio::test]
+async fn assets_flow_custody_class_follows_ownership() {
+    let state = test_state().await;
+    let app = core_api::routes::build_router(state.clone());
+    let slug = format!("assets-custody-{}", Uuid::now_v7().simple());
+    let token = register_org(&app, &slug).await;
+    let bearer = [auth(&token)];
+    let org_id = me_org_id(&app, &token).await;
+
+    // Create a rented-in internal asset. The final ownership has to reach the
+    // insert: the class is derived there, not patched afterwards.
+    let created = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/assets",
+        &bearer,
+        Some(json!({
+            "scope": "internal_org",
+            "tag": "RENT-01",
+            "name": "Vendor loaner laptop",
+            "lifecycle": { "ownership": "rented", "rental_vendor": "Acme Rentals" },
+            "idempotency_key": "custody-create-1"
+        })),
+    )
+    .await;
+    assert_eq!(created.status(), 200, "asset create must succeed");
+    let created = body_json(created).await;
+    let asset_id: Uuid = created["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(created["ownership"], "rented");
+    let (class, movements) = stored_custody(&state, org_id, asset_id).await;
+    assert_eq!(class, "rental_in", "a rented-in unit lands in rental_in");
+    assert_eq!(movements, 0, "creation is not a class transition");
+
+    // Ownership change: one movement, and the class follows it.
+    let patched = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/assets/{asset_id}"),
+        &bearer,
+        Some(json!({ "lifecycle": { "ownership": "owned" } })),
+    )
+    .await;
+    assert_eq!(patched.status(), 200);
+    assert_eq!(body_json(patched).await["ownership"], "owned");
+    let (class, movements) = stored_custody(&state, org_id, asset_id).await;
+    assert_eq!(class, "internal_fleet", "owned internal fleet");
+    assert_eq!(movements, 1, "the ownership change is one class movement");
+
+    // A unit on an open agreement cannot change class.
+    let client = body_json(
+        send(
+            &app,
+            axum::http::Method::POST,
+            "/api/v1/clients",
+            &bearer,
+            Some(json!({ "name": "Loan Client" })),
+        )
+        .await,
+    )
+    .await;
+    let client_id: Uuid = client["id"].as_str().unwrap().parse().unwrap();
+    open_loan_on_asset(&state, org_id, client_id, asset_id).await;
+
+    let refused = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/assets/{asset_id}"),
+        &bearer,
+        Some(json!({ "lifecycle": { "ownership": "rented" } })),
+    )
+    .await;
+    assert_eq!(
+        refused.status(),
+        409,
+        "an asset on an open loan cannot change class"
+    );
+    let (class, movements) = stored_custody(&state, org_id, asset_id).await;
+    assert_eq!(class, "internal_fleet", "the refused move changed nothing");
+    assert_eq!(movements, 1, "no movement was recorded for a refused move");
+
+    // An ownership outside the closed vocabulary is a typed 422, not a 500.
+    let invalid = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/assets/{asset_id}"),
+        &bearer,
+        Some(json!({ "lifecycle": { "ownership": "borrowed" } })),
+    )
+    .await;
+    assert_eq!(invalid.status(), 422);
+}
