@@ -256,7 +256,7 @@ pub async fn receipt_context(
             movement_base_cost_minor: row.get("movement_base_cost_minor"),
             device_asset_id: row.get("device_asset_id"),
             purchase_cost_minor: row.get("purchase_cost_minor"),
-            purchase_base_cost_minor: row.get("purchase_base_cost_minor"),
+            purchase_base_cost_minor: row.get("base_purchase_cost_minor"),
         })
         .collect();
 

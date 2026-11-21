@@ -10722,3 +10722,114 @@ async fn resolve_portal_login(db: &TestDb, email: &str) -> Option<(Uuid, Uuid, U
     .await
     .expect("login resolve")
 }
+
+/// The receipt basis is read by column name at runtime, so a renamed column is
+/// a panic rather than a compile error. This pins the device-asset leg: a
+/// receipt line that landed a fleet device reports that device's purchase cost
+/// and its base cost.
+#[tokio::test]
+async fn a_receipt_line_reports_its_device_asset_base_cost() {
+    let db = test_db().await;
+    let seeded = seed_org(&db.app, 9_401).await;
+    let org = seeded.org;
+    let mut tx = org_tx(&db.app, org).await;
+
+    let item = fixed_uuid(9_402);
+    sqlx::query(
+        "INSERT INTO stock_items (id, org_id, name, currency, weight_g) \
+         VALUES ($1, $2, 'Widget', 'USD', 200)",
+    )
+    .bind(item)
+    .bind(org)
+    .execute(&mut *tx)
+    .await
+    .expect("stock item");
+    let location = fixed_uuid(9_403);
+    sqlx::query(
+        "INSERT INTO stock_locations (id, org_id, name, kind) \
+         VALUES ($1, $2, 'Shelf', 'warehouse')",
+    )
+    .bind(location)
+    .bind(org)
+    .execute(&mut *tx)
+    .await
+    .expect("location");
+    let vendor = fixed_uuid(9_404);
+    sqlx::query("INSERT INTO vendors (id, org_id, name) VALUES ($1, $2, 'Costs vendor')")
+        .bind(vendor)
+        .bind(org)
+        .execute(&mut *tx)
+        .await
+        .expect("vendor");
+    let order = fixed_uuid(9_405);
+    sqlx::query(
+        "INSERT INTO purchase_orders (id, org_id, vendor_id, number, currency) \
+         VALUES ($1, $2, $3, 'PO-COST-1', 'EUR')",
+    )
+    .bind(order)
+    .bind(org)
+    .bind(vendor)
+    .execute(&mut *tx)
+    .await
+    .expect("order");
+    let order_line = fixed_uuid(9_406);
+    sqlx::query(
+        "INSERT INTO purchase_order_lines \
+             (id, org_id, purchase_order_id, description, qty_ordered_milli, \
+              unit_cost_minor, stock_item_id) \
+         VALUES ($1, $2, $3, 'Widget', 1000, 1000, $4)",
+    )
+    .bind(order_line)
+    .bind(org)
+    .bind(order)
+    .bind(item)
+    .execute(&mut *tx)
+    .await
+    .expect("order line");
+    let receipt = fixed_uuid(9_407);
+    sqlx::query(
+        "INSERT INTO purchase_receipts (id, org_id, purchase_order_id, location_id) \
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(receipt)
+    .bind(org)
+    .bind(order)
+    .bind(location)
+    .execute(&mut *tx)
+    .await
+    .expect("receipt");
+    let asset = fixed_uuid(9_408);
+    sqlx::query(
+        "INSERT INTO device_assets \
+             (id, org_id, tag, name, scope, custody_class, purchase_cost_minor, \
+              base_purchase_cost_minor, purchase_fx_rate_used, purchase_fx_rate_date, \
+              purchase_fx_source) \
+         VALUES ($1, $2, 'WIDGET-1', 'Widget', 'internal_org', 'internal_fleet', \
+                 1000, 1200, 1.20, DATE '2026-11-05', 'order')",
+    )
+    .bind(asset)
+    .bind(org)
+    .execute(&mut *tx)
+    .await
+    .expect("asset");
+    sqlx::query(
+        "INSERT INTO purchase_receipt_lines \
+             (id, org_id, receipt_id, po_line_id, qty_milli, destination_class, device_asset_id) \
+         VALUES ($1, $2, $3, $4, 1000, 'internal_fleet', $5)",
+    )
+    .bind(fixed_uuid(9_409))
+    .bind(org)
+    .bind(receipt)
+    .bind(order_line)
+    .bind(asset)
+    .execute(&mut *tx)
+    .await
+    .expect("receipt line");
+
+    let context = core_db::acquisition_costs::receipt_context(&mut *tx, org, receipt)
+        .await
+        .expect("a receipt with one line reads back");
+    assert_eq!(context.lines.len(), 1);
+    assert_eq!(context.lines[0].purchase_cost_minor, Some(1000));
+    assert_eq!(context.lines[0].purchase_base_cost_minor, Some(1200));
+}
