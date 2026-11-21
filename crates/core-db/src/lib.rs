@@ -9,6 +9,7 @@
 //! crate persists and retrieves.
 
 pub mod accounting_export;
+pub mod acquisition_costs;
 pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerting;

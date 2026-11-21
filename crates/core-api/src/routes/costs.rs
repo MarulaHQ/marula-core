@@ -875,6 +875,14 @@ pub async fn update_expense(
             .into_iter()
             .find(|e| e.id == expense_id)
             .ok_or(ApiError::NotFound)?;
+        if let Some(layer) =
+            core_db::acquisition_costs::layer_for_expense(&mut ctx.tx, org_id, expense_id).await?
+        {
+            return Err(ApiError::Conflict(format!(
+                "this expense was posted by acquisition cost layer {layer}; reverse the layer \
+                 instead of editing the expense"
+            )));
+        }
         // Snapshot doctrine (ADR 0002): same rule as cost lines — an
         // amount edit on a snapshotted expense would desynchronize the
         // locked base amount. Corrections are new facts.
@@ -1001,6 +1009,14 @@ pub async fn remove_expense(
             .any(|expense| expense.id == expense_id);
         if !belongs {
             return Err(ApiError::NotFound);
+        }
+        if let Some(layer) =
+            core_db::acquisition_costs::layer_for_expense(&mut ctx.tx, org_id, expense_id).await?
+        {
+            return Err(ApiError::Conflict(format!(
+                "this expense was posted by acquisition cost layer {layer}; reverse the layer \
+                 instead of removing the expense"
+            )));
         }
         let removed = core_db::costs::remove_expense(&mut ctx.tx, org_id, expense_id).await?;
         if !removed {

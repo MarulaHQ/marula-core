@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO purchase_orders (id, org_id, vendor_id, number, currency) VALUES ($1, $2, $3, 'PO-COST-1', 'EUR')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e9e4225d04d9c61d925fc3494fd86064a4359e19e2761906f8017f6ed3f225d1"
+}
