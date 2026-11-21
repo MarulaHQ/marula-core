@@ -416,7 +416,9 @@ pull request, and again before a push that changes code on an open PR. The
 gauntlet runs `skill: pre-review` as its first pass, so it replaces the
 pre-review step rather than adding to it: one loop, not two. The skill is
 installed at `~/.agents/skills/review-gauntlet` and is not part of this
-repository.
+repository. A contributor who cannot install it runs `skill: pre-review` alone:
+that is the binding minimum, and the lane records under "Not verified" that the
+gauntlet did not run.
 
 - **Load the contract first.** The gauntlet reads `reviews.path_instructions`
   in `.coderabbit.yaml` for the paths the diff touches, and `CONTRIBUTING.md`
@@ -445,7 +447,9 @@ repository.
   skill's output format, belong in the PR description or the lane's landing
   record, so the reviewer and the maintainer read one account of the diff.
 - **Use the oracle before the push.** When the CodeRabbit CLI is installed, run
-  `coderabbit review --agent --committed --deep --gate major`. Exit `2` blocks
+  `coderabbit review --agent --committed --deep --gate major --base <the branch
+  the PR targets>`. Without `--base` the CLI uses its own default, which is
+  `main`, so a PR to a release branch reviews a different diff. Exit `2` blocks
   on a finding at or above major, and exit `1` is an incomplete review, not a
   pass. Do not loop it: the hourly allowance is shared with the PR review.
 
