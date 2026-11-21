@@ -31184,7 +31184,11 @@ export interface components {
         };
         PurchaseOrderDetail: {
             bill?: components["schemas"]["PurchaseBill"] | null;
-            intent: components["schemas"]["PurchaseOrderIntentView"];
+            /**
+             * @description Present for every response written since the intent existed; a stored
+             *     replay from before it defaults to the legacy header words.
+             */
+            intent?: components["schemas"]["PurchaseOrderIntentView"];
             lines: components["schemas"]["PurchaseOrderLineView"][];
             order: components["schemas"]["PurchaseOrder"];
             receipts: components["schemas"]["PurchaseReceiptView"][];
@@ -31197,7 +31201,14 @@ export interface components {
         };
         /**
          * @description The header intent a client reads (plan §5.1): what the purchase is for, who
-         *     it serves, how it is delivered and the recharge rule it carries.
+         *     it serves, how it is delivered and the recharge rule it carries. The rule is
+         *     money (`fixed` carries a price and a currency), so it obeys the same
+         *     `ViewFinancials` gate the totals do.
+         *
+         *     `Default` is the shape a stored response written before this view existed
+         *     deserializes into: an order that named none of the new words, which is what
+         *     the migration's column defaults say. Keyed replays are retained, so that
+         *     legacy payload still has to answer.
          */
         PurchaseOrderIntentView: {
             acquired_for: components["schemas"]["AcquiredFor"];
@@ -31306,7 +31317,7 @@ export interface components {
          *     totals obey: the list never leaks money the detail page would hide.
          */
         PurchaseOrderSummary: components["schemas"]["PurchaseOrder"] & {
-            intent: components["schemas"]["PurchaseOrderIntentView"];
+            intent?: components["schemas"]["PurchaseOrderIntentView"];
             totals?: components["schemas"]["PurchaseOrderRollup"] | null;
         };
         /** @description One receipt document: goods that landed at a location against a PO. */
@@ -37854,6 +37865,12 @@ export interface components {
             icon?: string;
             name: string;
         };
+        /**
+         * @description Every `Option<Option<T>>` field skips serialization when the outer option is
+         *     `None`, while `Some(None)` still serializes as an explicit `null`. The
+         *     idempotency fingerprint is that serialized body, so "keep this value" and
+         *     "clear it" cannot share a key.
+         */
         UpdateOrderRequest: components["schemas"]["MutationParams"] & {
             acquired_for?: components["schemas"]["AcquiredFor"] | null;
             /** Format: uuid */
