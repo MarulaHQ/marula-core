@@ -1161,6 +1161,21 @@ async fn pool_unit_classes(
     ))
 }
 
+/// The class-movement trigger raises `P0001` with a sentence naming the unit and
+/// why it cannot move: an open client loan, an open vendor rental, a tool
+/// checkout, a ticket. That sentence is about the caller's own unit and says
+/// nothing it does not already know, so it becomes a typed 409 instead of a
+/// generic database failure. The asset route maps the same signal; a pool leg
+/// or a loan leg that hits the lock must answer the same way.
+fn map_class_guard(e: sqlx::Error) -> DbError {
+    if let sqlx::Error::Database(db) = &e {
+        if db.code().as_deref() == Some("P0001") {
+            return DbError::Conflict(db.message().to_string());
+        }
+    }
+    DbError::Sql(e)
+}
+
 /// Writes one class movement for a pool leg or a loan leg. `manual` is the
 /// honest source for a pool leg: it is an operator act with no document table of
 /// its own. A loan leg names the agreement instead, so the ledger can answer
@@ -1207,7 +1222,8 @@ async fn record_class_move(
     .bind(condition_grade)
     .bind(data_wipe_ref)
     .fetch_one(&mut *conn)
-    .await?;
+    .await
+    .map_err(map_class_guard)?;
     Ok(PoolMove {
         id,
         unit_kind: unit.side.as_str().to_string(),
