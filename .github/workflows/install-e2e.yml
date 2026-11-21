@@ -442,8 +442,25 @@ jobs:
             # The release immediately older than the target, and only one that
             # carries a Linux archive: 0.5.0 never published, and an earlier tag
             # with no assets is not something anyone can install.
-            mapfile -t tags < <(gh release list --repo "$GH_REPO" --limit 50 \
-              --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName')
+            #
+            # Drafts and prereleases are excluded at the source, and the version
+            # shape is checked again below: this repository also publishes
+            # `desktop-v*` releases, and a prerelease sitting between the target
+            # and its stable predecessor must be stepped over rather than
+            # selected and then refused.
+            if ! list=$(gh release list --repo "$GH_REPO" --limit 50 \
+              --json tagName,isDraft,isPrerelease \
+              --jq '.[] | select((.isDraft | not) and (.isPrerelease | not)) | .tagName'); then
+              echo "::error::could not list the published releases: $list"
+              exit 1
+            fi
+            # Read line by line rather than with `mapfile`: the runner's bash has
+            # it and a developer's macOS bash 3.2 does not, and this step should
+            # behave the same in both places.
+            tags=()
+            while IFS= read -r tag; do
+              [ -n "$tag" ] && tags+=("$tag")
+            done <<<"$list"
             index=-1
             for i in "${!tags[@]}"; do
               [ "${tags[$i]#v}" = "$to" ] && index=$i && break
@@ -455,8 +472,17 @@ jobs:
             from=""
             for ((i = index + 1; i < ${#tags[@]}; i++)); do
               candidate="${tags[$i]#v}"
-              if gh release view "v${candidate}" --repo "$GH_REPO" --json assets \
-                --jq '.assets[].name' | grep -qx "marula-${candidate}-linux-x64.tar.gz"; then
+              # A server release, not a desktop one and not a codename.
+              [[ "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+              # Read the assets before deciding: a failed lookup is not an absent
+              # archive, and the `if` above suppresses errexit, so the result has
+              # to be checked rather than inferred from a false.
+              if ! assets=$(gh release view "v${candidate}" --repo "$GH_REPO" \
+                --json assets --jq '.assets[].name'); then
+                echo "::error::could not read the assets of v${candidate}: $assets"
+                exit 1
+              fi
+              if printf '%s\n' "$assets" | grep -qx "marula-${candidate}-linux-x64.tar.gz"; then
                 from="$candidate"
                 break
               fi
