@@ -55,11 +55,11 @@ never commit, symlink, or force-add it; if a lane ever sees either in
 Several sections name tools the maintainers use: trail, graphify, lazyweb,
 inspo, the vendored design and backend skills, SlopMonster and the review
 gauntlet. None of them is required to build, test, or open a pull request; the
-gauntlet section names `pre-review` as the binding minimum when the gauntlet
-cannot be installed. Each section says what to do when its tool is absent. If a
-rule and a missing integration conflict, follow the committed project
-conventions (`CONTRIBUTING.md`, `docs/theme.md`, `.coderabbit.yaml`) and say in
-the pull request which tool you could not run.
+gauntlet section names `pre-review`, or the same pass done by hand, as the
+binding minimum when the gauntlet cannot be installed. Each section says what to
+do when its tool is absent. If a rule and a missing integration conflict, follow
+the committed project conventions (`CONTRIBUTING.md`, `docs/theme.md`,
+`.coderabbit.yaml`) and say in the pull request which tool you could not run.
 
 ## Repository boundary — this repo is the public product (BINDING, added 2026-10-21)
 
@@ -480,8 +480,9 @@ oracle. That loop runs `skill: pre-review` as its first pass, so it replaces the
 pre-review step rather than adding to it: one loop, not two. Install both skills
 from `github.com/MarulaHQ/marula-review-gauntlet-skill` with its `deploy.sh`,
 which links them into every agent skills directory. A contributor who cannot
-install them runs `skill: pre-review` alone: that is the binding minimum, and the
-lane records under "Not verified" that the gauntlet did not run.
+install them runs `skill: pre-review` alone, or does the same pass by hand: that
+is the binding minimum, and the lane records under "Not verified" that the
+gauntlet did not run.
 
 - **Load the contract first.** The gauntlet reads `reviews.path_instructions`
   in `.coderabbit.yaml` for the paths the diff touches, and `CONTRIBUTING.md`
