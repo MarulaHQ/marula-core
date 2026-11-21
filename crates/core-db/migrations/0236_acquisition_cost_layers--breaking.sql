@@ -286,8 +286,11 @@ CREATE TRIGGER acquisition_cost_allocations_balanced
 -- edit. The two exceptions are not edits and must pass, or tenant erasure
 -- cannot succeed: a cascade reaches this row after its org is already gone,
 -- and deleting the actor row nulls `created_by` while the record stays
--- otherwise identical. Both allowances mirror 0232's ledger guard and 0235's
--- recharge guard.
+-- otherwise identical. The NULL allowance is not "anyone may clear the
+-- attribution": it applies only when the creator row itself is gone, which is
+-- exactly what the foreign key's SET NULL sees. A direct
+-- `SET created_by = NULL` while the user still exists raises. Both allowances
+-- mirror 0232's ledger guard.
 CREATE FUNCTION acquisition_costs_append_only() RETURNS trigger AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -296,7 +299,10 @@ BEGIN
     END IF;
   ELSIF TG_OP = 'UPDATE'
         AND NEW.created_by IS NULL
+        AND OLD.created_by IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = OLD.created_by)
         AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
+    -- Only the foreign key's SET NULL after the creator row itself is gone.
     RETURN NEW;
   END IF;
   RAISE EXCEPTION 'acquisition_costs is append-only: % rejected', TG_OP;
