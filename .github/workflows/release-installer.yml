@@ -273,7 +273,16 @@ jobs:
       # The wrapper is guarded on a secret, not set unconditionally: a fork's
       # pull request never receives repository secrets, and sccache with an
       # endpoint but no credentials fails every compile.
-      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && 'sccache' || '' }}
+      #
+      # Windows is excluded on evidence, not caution. Wrapping rustc there fails
+      # to build `plugin-host`: its rustc arguments carry one
+      # `-L dependency=<target>/build/<crate>/<hash>/out` per dependency that has
+      # a build script, 38,438 characters in total, and the wrapper's re-spawn of
+      # rustc crosses the kernel's command-line limit — "os error 206: The
+      # filename or extension is too long" (run 44842337560). A shorter
+      # CARGO_TARGET_DIR would give back roughly 10k of those characters; that is
+      # a follow-up, not something to land on a release pipeline untested.
+      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && matrix.os != 'windows' && 'sccache' || '' }}
       SCCACHE_BUCKET: marula-ci-sccache
       SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
       SCCACHE_REGION: auto
@@ -327,8 +336,9 @@ jobs:
 
       # Pinned to the same version ci.yml uses. The action has no default
       # version: without it, the cached binary floats independently of the
-      # action pin.
+      # action pin. Not installed on Windows, which does not wrap.
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        if: matrix.os != 'windows'
         with:
           version: "v0.19.0"
 
@@ -340,8 +350,10 @@ jobs:
       # `tauri bundle`, and neither needs a cache credential in its environment.
       - name: Build the CLI
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Empty on Windows, which does not wrap: no step needs a bucket
+          # credential it cannot use.
+          AWS_ACCESS_KEY_ID: ${{ matrix.os != 'windows' && secrets.R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ matrix.os != 'windows' && secrets.R2_SECRET_ACCESS_KEY || '' }}
         run: cargo build --release -p marula-core-cli
 
       - name: Build the installer front-end
@@ -362,12 +374,14 @@ jobs:
 
       - name: Build the installer app
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Empty on Windows, which does not wrap: no step needs a bucket
+          # credential it cannot use.
+          AWS_ACCESS_KEY_ID: ${{ matrix.os != 'windows' && secrets.R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ matrix.os != 'windows' && secrets.R2_SECRET_ACCESS_KEY || '' }}
         run: cargo build --release --manifest-path installer/Cargo.toml
 
       - name: sccache stats
-        if: always()
+        if: always() && matrix.os != 'windows'
         # Diagnostic only: a missing or unhappy sccache must not turn a green
         # release build red after the fact. The action's own post step reports
         # the same numbers at the end of the job; this puts them next to the
