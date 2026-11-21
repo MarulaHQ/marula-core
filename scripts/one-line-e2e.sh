@@ -44,7 +44,11 @@ if [ -n "$EXPECT" ]; then
   # The URL and the asset have to name the same release. `latest` resolves
   # through GitHub's redirect to whichever tag is newest, so this is the check
   # that the redirect, the release page and the script's own default agree.
-  grep -Fq "MARULA_VERSION:-$EXPECT" "$SCRIPT" ||
+  # The whole assignment, closing brace included: a substring test would accept
+  # 0.6.20 for 0.6.2, and the next step would then install the wrong release
+  # before bundle discovery had a chance to reject it.
+  want='VERSION="${MARULA_VERSION:-'"$EXPECT"'}"'
+  grep -Fq -- "$want" "$SCRIPT" ||
     die "the script from $URL does not pin $EXPECT: the redirect and the asset disagree"
   say "the script pins $EXPECT"
 fi
@@ -54,7 +58,13 @@ sh "$SCRIPT" --dir "$INSTALL_DIR" --images registry --profile split --apply --al
 
 BUNDLE_ROOT="${MARULA_BUNDLE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/marula}"
 shopt -s nullglob
-RELEASES=("$BUNDLE_ROOT"/marula-"${EXPECT:-*}"-linux-*)
+if [ -n "$EXPECT" ]; then
+  RELEASES=("$BUNDLE_ROOT"/marula-"$EXPECT"-linux-*)
+else
+  # A quoted `*` is a literal star, so the optional argument needs its own
+  # pattern rather than an interpolation that looks like a wildcard.
+  RELEASES=("$BUNDLE_ROOT"/marula-[0-9]*-linux-*)
+fi
 shopt -u nullglob
 [ "${#RELEASES[@]}" -eq 1 ] ||
   die "expected one release directory under $BUNDLE_ROOT, found ${#RELEASES[@]}"
