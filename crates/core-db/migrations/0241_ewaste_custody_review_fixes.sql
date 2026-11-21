@@ -13,8 +13,10 @@
 --     physical unit. It resolves the canonical pair (a serial names its asset,
 --     an asset names its serial), locks the unit rows in the order 0232's
 --     movement trigger uses, and refuses a second line whose weight is not
---     fully disposed. Anonymous lots carry no unit ids and stay independent,
---     and a unit whose first line is disposed can be received again. The same
+--     fully disposed. Anonymous lots carry no unit ids and stay independent.
+--     A fully disposed line stops reserving the unit, but the class guard
+--     still governs whether it can come back: a terminal class cannot. The
+--     same
 --     guard freezes the destruction state, completion timestamp, actor and
 --     document once the line has a disposition; corrections before the first
 --     disposition and the actor-only erasure exception still pass.
@@ -174,8 +176,9 @@ BEGIN
   -- trigger uses (asset, then serial), so two intakes receiving the same unit
   -- serialize instead of both reading "no reservation". A line whose weight is
   -- fully disposed (or whose intake is therefore closed) no longer reserves
-  -- the unit, so a returned unit can be received again. Anonymous lots carry
-  -- no unit ids and stay independent.
+  -- the unit. Whether it can come back is the class guard's call, and a
+  -- terminal class refuses. Anonymous lots carry no unit ids and stay
+  -- independent.
   IF check_unit THEN
     unit_serial := NEW.serial_id;
     unit_asset := NEW.device_asset_id;
